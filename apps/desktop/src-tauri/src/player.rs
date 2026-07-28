@@ -88,6 +88,9 @@ impl PlayerManager {
             initializer.set_property("input-cursor", "no")?;
             initializer.set_property("osc", "no")?;
             initializer.set_property("osd-level", "0")?;
+            #[cfg(target_os = "linux")]
+            initializer.set_property("hwdec", "no")?;
+            #[cfg(not(target_os = "linux"))]
             initializer.set_property("hwdec", "auto-safe")?;
             initializer.set_property("audio-channels", "auto-safe")?;
             initializer.set_property("video-timing-offset", "0")?;
