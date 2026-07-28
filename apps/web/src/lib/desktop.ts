@@ -51,6 +51,10 @@ export function redrawNativeSurface(): Promise<void> {
   return invoke("player_redraw_surface")
 }
 
+export function resetNativeOverlaySurface(): Promise<void> {
+  return invoke("player_reset_overlay_surface")
+}
+
 export function toggleNativeFullscreen(): Promise<boolean> {
   return invoke("player_toggle_fullscreen")
 }

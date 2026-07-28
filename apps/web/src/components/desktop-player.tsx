@@ -23,6 +23,7 @@ import {
   openNativePlayer,
   redrawNativeSurface,
   refreshNativeSurface,
+  resetNativeOverlaySurface,
   stopNativePlayer,
   toggleNativeFullscreen,
   type NativePlayerSnapshot,
@@ -59,6 +60,7 @@ export function DesktopPlayer({
   const closing = useRef(false)
   const audioButton = useRef<HTMLDivElement>(null)
   const subtitleButton = useRef<HTMLDivElement>(null)
+  const previousMenu = useRef<TrackMenuName | undefined>(undefined)
 
   const showControls = useCallback(() => {
     setControlsVisible(true)
@@ -68,6 +70,12 @@ export function DesktopPlayer({
 
   const redrawControls = useCallback(() => {
     window.requestAnimationFrame(() => void redrawNativeSurface())
+  }, [])
+
+  const resetOverlay = useCallback(() => {
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => void resetNativeOverlaySurface())
+    })
   }, [])
 
   useEffect(() => {
@@ -238,7 +246,7 @@ export function DesktopPlayer({
             }
           : current,
       )
-      closeTrackMenu()
+      redrawControls()
     } catch (cause: unknown) {
       setError(cause instanceof Error ? cause.message : String(cause))
     }
@@ -253,7 +261,9 @@ export function DesktopPlayer({
 
   useLayoutEffect(() => {
     redrawControls()
-  }, [activeMenu, chromeVisible, redrawControls])
+    if (previousMenu.current && !activeMenu) resetOverlay()
+    previousMenu.current = activeMenu
+  }, [activeMenu, chromeVisible, redrawControls, resetOverlay])
 
   return createPortal(
     <div
@@ -365,7 +375,7 @@ export function DesktopPlayer({
                           }
                         : current,
                     )
-                    closeTrackMenu()
+                    redrawControls()
                   } catch (cause: unknown) {
                     setError(cause instanceof Error ? cause.message : String(cause))
                   }
@@ -384,7 +394,7 @@ export function DesktopPlayer({
                           }
                         : current,
                     )
-                    closeTrackMenu()
+                    redrawControls()
                   } catch (cause: unknown) {
                     setError(cause instanceof Error ? cause.message : String(cause))
                   }

@@ -18,6 +18,7 @@ use std::{
     ffi::{c_char, c_void, CString},
     ptr::NonNull,
     sync::atomic::{AtomicBool, Ordering},
+    time::Duration,
 };
 use tauri::WebviewWindow;
 
@@ -36,6 +37,7 @@ thread_local! {
 }
 
 static REDRAW_PENDING: AtomicBool = AtomicBool::new(false);
+static WEBVIEW_RESET_PENDING: AtomicBool = AtomicBool::new(false);
 
 extern "C" {
     fn dlsym(handle: *mut c_void, name: *const c_char) -> *mut c_void;
@@ -240,6 +242,41 @@ pub fn refresh() {
             surface.webview.queue_draw();
             surface.area.queue_render();
         }
+    });
+}
+
+pub fn reset_webview() {
+    if WEBVIEW_RESET_PENDING.swap(true, Ordering::AcqRel) {
+        return;
+    }
+
+    let widgets = SURFACE.with(|surface| {
+        surface.borrow().as_ref().map(|surface| {
+            (
+                surface.webview.clone(),
+                surface.overlay.clone(),
+                surface.area.clone(),
+            )
+        })
+    });
+    let Some((webview, overlay, area)) = widgets else {
+        WEBVIEW_RESET_PENDING.store(false, Ordering::Release);
+        return;
+    };
+
+    // Unmapping only the transparent WebKit overlay discards compositor
+    // layers for removed DOM nodes without resizing or toggling the window.
+    // Keep it unmapped for one frame so GTK presents the clean video surface
+    // before WebKit is mapped again with the already-committed DOM.
+    webview.hide();
+    overlay.queue_draw();
+    area.queue_render();
+    glib::timeout_add_local_once(Duration::from_millis(16), move || {
+        webview.show();
+        webview.queue_draw();
+        overlay.queue_draw();
+        area.queue_render();
+        WEBVIEW_RESET_PENDING.store(false, Ordering::Release);
     });
 }
 

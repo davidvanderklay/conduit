@@ -47,6 +47,7 @@ const desktop = vi.hoisted(() => ({
   openNativePlayer: vi.fn(async () => snapshot),
   redrawNativeSurface: vi.fn(async () => undefined),
   refreshNativeSurface: vi.fn(async () => undefined),
+  resetNativeOverlaySurface: vi.fn(async () => undefined),
   stopNativePlayer: vi.fn(async () => undefined),
   toggleNativeFullscreen: vi.fn(async () => false),
 }))
@@ -97,13 +98,15 @@ describe("DesktopPlayer track menus", () => {
     expect(document.querySelector('[role="menu"]')).not.toBeNull()
     desktop.refreshNativeSurface.mockClear()
     desktop.redrawNativeSurface.mockClear()
+    desktop.resetNativeOverlaySurface.mockClear()
 
     click(button("Close audio menu"))
-    act(() => vi.advanceTimersByTime(0))
+    act(() => vi.advanceTimersByTime(1))
 
     expect(document.querySelector('[role="menu"]')).toBeNull()
     expect(desktop.refreshNativeSurface).not.toHaveBeenCalled()
     expect(desktop.redrawNativeSurface).toHaveBeenCalled()
+    expect(desktop.resetNativeOverlaySurface).toHaveBeenCalledOnce()
   })
 
   it("does not animate or resize the full control regions", () => {
@@ -135,7 +138,7 @@ describe("DesktopPlayer track menus", () => {
     expect(document.querySelector('[role="menu"]')).toBeNull()
   })
 
-  it("applies a selected track and closes the menu", async () => {
+  it("applies a selected track and keeps the updated menu open", async () => {
     click(button("Audio: English"))
 
     await act(async () => {
@@ -144,10 +147,12 @@ describe("DesktopPlayer track menus", () => {
     })
 
     expect(desktop.nativePlayerCommand).toHaveBeenCalledWith(["set", "aid", 2])
-    expect(document.querySelector('[role="menu"]')).toBeNull()
+    expect(document.querySelector('[role="menu"]')).not.toBeNull()
+    expect(button("Commentary").className).toContain("bg-amber-400")
+    expect(button("English").className).not.toContain("bg-amber-400")
   })
 
-  it("applies a selected subtitle and closes the menu", async () => {
+  it("applies a selected subtitle and keeps the updated menu open", async () => {
     click(button("Subtitles: Off"))
 
     await act(async () => {
@@ -156,7 +161,9 @@ describe("DesktopPlayer track menus", () => {
     })
 
     expect(desktop.nativePlayerCommand).toHaveBeenCalledWith(["set", "sid", 3])
-    expect(document.querySelector('[role="menu"]')).toBeNull()
+    expect(document.querySelector('[role="menu"]')).not.toBeNull()
+    expect(button("Spanish").className).toContain("bg-amber-400")
+    expect(button("Off").className).not.toContain("bg-amber-400")
   })
 })
 
