@@ -89,7 +89,11 @@ impl PlayerManager {
             initializer.set_property("osc", "no")?;
             initializer.set_property("osd-level", "0")?;
             #[cfg(target_os = "linux")]
-            initializer.set_property("hwdec", "no")?;
+            {
+                initializer.set_property("hwdec", "no")?;
+                initializer.set_property("gpu-hwdec-interop", "no")?;
+                initializer.set_property("vd-lavc-dr", "no")?;
+            }
             #[cfg(not(target_os = "linux"))]
             initializer.set_property("hwdec", "auto-safe")?;
             initializer.set_property("audio-channels", "auto-safe")?;
@@ -125,6 +129,8 @@ impl PlayerManager {
     }
 
     pub fn command(&self, command: Vec<Value>) -> Result<Value, PlayerError> {
+        #[cfg(debug_assertions)]
+        eprintln!("Conduit player command: {}", Value::Array(command.clone()));
         let guard = self.session.lock().map_err(|_| PlayerError::Poisoned)?;
         let mpv = &guard.as_ref().ok_or(PlayerError::NotRunning)?.mpv;
         let args = command.iter().map(value_to_arg).collect::<Vec<_>>();

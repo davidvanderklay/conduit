@@ -170,9 +170,22 @@ fn force_configure(surface: &EmbeddedSurface) {
         .window
         .window()
         .is_some_and(|window| window.state().contains(gdk::WindowState::FULLSCREEN));
-    if fullscreen || surface.window.is_maximized() {
-        surface.window.queue_resize();
-        surface.window.queue_draw();
+    if fullscreen {
+        let window = surface.window.clone();
+        window.unfullscreen();
+        glib::idle_add_local_once(move || {
+            window.fullscreen();
+            window.queue_draw();
+        });
+        return;
+    }
+    if surface.window.is_maximized() {
+        let window = surface.window.clone();
+        window.unmaximize();
+        glib::idle_add_local_once(move || {
+            window.maximize();
+            window.queue_draw();
+        });
         return;
     }
     let width = surface.window.allocated_width().max(2);
@@ -182,6 +195,14 @@ fn force_configure(surface: &EmbeddedSurface) {
     glib::idle_add_local_once(move || {
         window.resize(width, height);
         window.queue_draw();
+    });
+}
+
+pub fn reconfigure() {
+    SURFACE.with(|surface| {
+        if let Some(surface) = surface.borrow().as_ref() {
+            force_configure(surface);
+        }
     });
 }
 

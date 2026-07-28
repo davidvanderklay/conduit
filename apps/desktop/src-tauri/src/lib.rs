@@ -38,6 +38,14 @@ async fn player_stop(app: AppHandle, player: State<'_, PlayerManager>) -> Result
 }
 
 #[tauri::command]
+fn player_refresh_surface(app: AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    app.run_on_main_thread(crate::player_render_linux::reconfigure)
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
 fn player_toggle_fullscreen(app: AppHandle) -> Result<bool, String> {
     let window = app
         .get_webview_window("main")
@@ -82,6 +90,7 @@ pub fn run() {
             player_snapshot,
             player_command,
             player_stop,
+            player_refresh_surface,
             player_toggle_fullscreen
         ])
         .run(tauri::generate_context!())

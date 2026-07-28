@@ -17,6 +17,7 @@ import {
   nativePlayerCommand,
   nativePlayerSnapshot,
   openNativePlayer,
+  refreshNativeSurface,
   stopNativePlayer,
   toggleNativeFullscreen,
   type NativePlayerSnapshot,
@@ -49,6 +50,7 @@ export function DesktopPlayer({
   const [addonSubtitles, setAddonSubtitles] = useState<ResolvedAddonSubtitle[]>([])
   const [selectedAddonSubtitle, setSelectedAddonSubtitle] = useState<string>()
   const hideTimer = useRef<number | undefined>(undefined)
+  const closing = useRef(false)
 
   const showControls = useCallback(() => {
     setControlsVisible(true)
@@ -83,7 +85,7 @@ export function DesktopPlayer({
       window.clearInterval(poll)
       window.clearTimeout(hideTimer.current)
       document.documentElement.classList.remove("native-playback")
-      void stopNativePlayer()
+      if (!closing.current) void stopNativePlayer()
     }
   }, [addons, title, type, url, videoId])
 
@@ -96,9 +98,16 @@ export function DesktopPlayer({
     }
   }, [activeMenu, error, showControls, snapshot?.paused])
 
-  const close = () => {
-    void stopNativePlayer()
-    onClose()
+  const close = async () => {
+    if (closing.current) return
+    closing.current = true
+    try {
+      await stopNativePlayer()
+    } finally {
+      document.documentElement.classList.remove("native-playback")
+      onClose()
+      window.requestAnimationFrame(() => void refreshNativeSurface())
+    }
   }
 
   const togglePlayback = () => {
@@ -108,22 +117,21 @@ export function DesktopPlayer({
     showControls()
   }
 
-  const selectTrack = (property: "aid" | "sid", track: NativeTrack) => {
-    void nativePlayerCommand(["set_property", property, track.id])
-    if (property === "sid") setSelectedAddonSubtitle(undefined)
-    setSnapshot((current) =>
-      current
-        ? {
-            ...current,
-            tracks: current.tracks.map((candidate) =>
-              candidate.type === track.type
-                ? { ...candidate, selected: candidate.id === track.id }
-                : candidate,
-            ),
-          }
-        : current,
-    )
+  const closeTrackMenu = () => {
     setActiveMenu(undefined)
+    window.requestAnimationFrame(() => void refreshNativeSurface())
+  }
+
+  const selectTrack = async (property: "aid" | "sid", track: NativeTrack) => {
+    try {
+      await nativePlayerCommand(["set", property, track.id])
+      if (property === "sid") setSelectedAddonSubtitle(undefined)
+      const next = await nativePlayerSnapshot()
+      setSnapshot(next)
+      closeTrackMenu()
+    } catch (cause: unknown) {
+      setError(cause instanceof Error ? cause.message : String(cause))
+    }
   }
 
   const audioTracks = snapshot?.tracks.filter((track) => track.type === "audio") ?? []
@@ -141,7 +149,7 @@ export function DesktopPlayer({
       onMouseMove={showControls}
     >
       <div
-        className="absolute inset-0 z-0"
+        className={`absolute inset-0 z-0 ${activeMenu ? "pointer-events-none" : ""}`}
         onClick={togglePlayback}
         aria-hidden="true"
       />
@@ -157,7 +165,7 @@ export function DesktopPlayer({
           className="pointer-events-auto shrink-0 rounded-full bg-black/40 p-2.5 text-zinc-200 backdrop-blur hover:bg-white/15"
           onClick={(event) => {
             event.stopPropagation()
-            close()
+            void close()
           }}
           aria-label="Close playback"
         >
@@ -196,8 +204,8 @@ export function DesktopPlayer({
                 title="Audio"
                 tracks={audioTracks}
                 empty="No selectable audio tracks."
-                onSelect={(track) => selectTrack("aid", track)}
-                onClose={() => setActiveMenu(undefined)}
+                onSelect={(track) => void selectTrack("aid", track)}
+                onClose={closeTrackMenu}
               />
             )}
             {activeMenu === "subtitles" && (
@@ -208,7 +216,7 @@ export function DesktopPlayer({
                 addonSubtitles={addonSubtitles}
                 selectedAddonSubtitle={selectedAddonSubtitle}
                 allowOff
-                onSelect={(track) => selectTrack("sid", track)}
+                onSelect={(track) => void selectTrack("sid", track)}
                 onSelectAddon={(subtitle) => {
                   void nativePlayerCommand([
                     "sub-add",
@@ -218,10 +226,10 @@ export function DesktopPlayer({
                     subtitle.language,
                   ])
                   setSelectedAddonSubtitle(subtitle.key)
-                  setActiveMenu(undefined)
+                  closeTrackMenu()
                 }}
                 onOff={() => {
-                  void nativePlayerCommand(["set_property", "sid", "no"])
+                  void nativePlayerCommand(["set", "sid", "no"])
                   setSelectedAddonSubtitle(undefined)
                   setSnapshot((current) =>
                     current
@@ -233,9 +241,9 @@ export function DesktopPlayer({
                         }
                       : current,
                   )
-                  setActiveMenu(undefined)
+                  closeTrackMenu()
                 }}
-                onClose={() => setActiveMenu(undefined)}
+                onClose={closeTrackMenu}
               />
             )}
 
@@ -262,7 +270,7 @@ export function DesktopPlayer({
                 label={snapshot.volume === 0 ? "Unmute" : "Mute"}
                 onClick={() => {
                   const volume = snapshot.volume === 0 ? 100 : 0
-                  void nativePlayerCommand(["set_property", "volume", volume])
+                  void nativePlayerCommand(["set", "volume", volume])
                   setSnapshot((current) => (current ? { ...current, volume } : current))
                 }}
               >
@@ -277,7 +285,7 @@ export function DesktopPlayer({
                 aria-label="Volume"
                 onChange={(event) => {
                   const volume = Number(event.target.value)
-                  void nativePlayerCommand(["set_property", "volume", volume])
+                  void nativePlayerCommand(["set", "volume", volume])
                   setSnapshot((current) => (current ? { ...current, volume } : current))
                 }}
               />
@@ -368,8 +376,13 @@ function TrackMenu({
   onOff?: () => void
   onClose: () => void
 }) {
-  return (
-    <div className="absolute bottom-14 right-0 z-20 max-h-[55vh] w-80 overflow-y-auto rounded-xl border border-white/10 bg-zinc-950/95 p-2 shadow-2xl backdrop-blur-xl">
+  return createPortal(
+    <div
+      className="fixed bottom-20 right-6 z-[100] max-h-[55vh] w-80 overflow-y-auto rounded-xl border border-white/10 bg-zinc-950/95 p-2 shadow-2xl backdrop-blur-xl"
+      role="menu"
+      onPointerDown={(event) => event.stopPropagation()}
+      onClick={(event) => event.stopPropagation()}
+    >
       <div className="flex items-center justify-between px-2 pb-2 pt-1">
         <h3 className="font-display text-sm font-semibold">{title}</h3>
         <button
@@ -431,7 +444,8 @@ function TrackMenu({
       {!tracks.length && !addonSubtitles?.length && (
         <p className="px-3 py-2 text-sm text-zinc-500">{empty}</p>
       )}
-    </div>
+    </div>,
+    document.body,
   )
 }
 
