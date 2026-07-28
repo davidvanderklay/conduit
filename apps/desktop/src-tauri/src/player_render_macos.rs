@@ -150,6 +150,20 @@ pub fn uninstall() -> Result<(), String> {
     Ok(())
 }
 
+pub fn refresh() -> Result<(), String> {
+    let main_thread = MainThreadMarker::new()
+        .ok_or_else(|| "surface refresh must run on main thread".to_owned())?;
+    let guard = surface().lock().map_err(|error| error.to_string())?;
+    if let Some(surface) = guard.as_ref() {
+        if let Some(context) = surface.view.openGLContext() {
+            context.update(main_thread);
+        }
+    }
+    drop(guard);
+    schedule_redraw();
+    Ok(())
+}
+
 fn teardown(surface: EmbeddedSurface) {
     unsafe {
         let view: &NSView = surface.view.as_super();

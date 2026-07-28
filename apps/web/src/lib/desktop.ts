@@ -42,3 +42,7 @@ export function nativePlayerCommand(command: unknown[]): Promise<unknown> {
 export function stopNativePlayer(): Promise<void> {
   return invoke("player_stop")
 }
+
+export function toggleNativeFullscreen(): Promise<boolean> {
+  return invoke("player_toggle_fullscreen")
+}

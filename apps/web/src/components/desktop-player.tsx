@@ -18,6 +18,7 @@ import {
   nativePlayerSnapshot,
   openNativePlayer,
   stopNativePlayer,
+  toggleNativeFullscreen,
   type NativePlayerSnapshot,
   type NativeTrack,
 } from "../lib/desktop"
@@ -285,13 +286,7 @@ export function DesktopPlayer({
               >
                 <Captions size={22} />
               </PlayerIcon>
-              <PlayerIcon
-                label="Fullscreen"
-                onClick={() => {
-                  if (document.fullscreenElement) void document.exitFullscreen()
-                  else void document.documentElement.requestFullscreen()
-                }}
-              >
+              <PlayerIcon label="Fullscreen" onClick={() => void toggleNativeFullscreen()}>
                 <Maximize size={20} />
               </PlayerIcon>
             </div>
