@@ -96,12 +96,24 @@ describe("DesktopPlayer track menus", () => {
     click(button("Audio: English"))
     expect(document.querySelector('[role="menu"]')).not.toBeNull()
     desktop.refreshNativeSurface.mockClear()
+    desktop.redrawNativeSurface.mockClear()
 
     click(button("Close audio menu"))
     act(() => vi.advanceTimersByTime(0))
 
     expect(document.querySelector('[role="menu"]')).toBeNull()
-    expect(desktop.refreshNativeSurface).toHaveBeenCalledOnce()
+    expect(desktop.refreshNativeSurface).not.toHaveBeenCalled()
+    expect(desktop.redrawNativeSurface).toHaveBeenCalled()
+  })
+
+  it("does not animate or resize the full control regions", () => {
+    const chrome = document.querySelectorAll<HTMLElement>("[data-player-chrome]")
+
+    expect(chrome).toHaveLength(2)
+    for (const region of chrome) {
+      expect(region.className).not.toContain("transition")
+      expect(region.className).not.toContain("opacity-")
+    }
   })
 
   it("unmounts the menu when its trigger is clicked again", () => {

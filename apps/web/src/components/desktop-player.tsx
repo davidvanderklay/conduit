@@ -59,7 +59,6 @@ export function DesktopPlayer({
   const closing = useRef(false)
   const audioButton = useRef<HTMLDivElement>(null)
   const subtitleButton = useRef<HTMLDivElement>(null)
-  const previousMenu = useRef<TrackMenuName | undefined>(undefined)
 
   const showControls = useCallback(() => {
     setControlsVisible(true)
@@ -69,10 +68,6 @@ export function DesktopPlayer({
 
   const redrawControls = useCallback(() => {
     window.requestAnimationFrame(() => void redrawNativeSurface())
-  }, [])
-
-  const resetControlsSurface = useCallback(() => {
-    window.requestAnimationFrame(() => void refreshNativeSurface())
   }, [])
 
   useEffect(() => {
@@ -257,13 +252,8 @@ export function DesktopPlayer({
     controlsVisible || Boolean(snapshot?.paused) || Boolean(activeMenu) || !snapshot
 
   useLayoutEffect(() => {
-    if (previousMenu.current && !activeMenu) {
-      resetControlsSurface()
-    } else {
-      redrawControls()
-    }
-    previousMenu.current = activeMenu
-  }, [activeMenu, chromeVisible, redrawControls, resetControlsSurface])
+    redrawControls()
+  }, [activeMenu, chromeVisible, redrawControls])
 
   return createPortal(
     <div
@@ -278,10 +268,11 @@ export function DesktopPlayer({
         aria-hidden="true"
       />
       <div
-        className={`pointer-events-none absolute inset-x-0 top-0 z-10 flex items-center justify-between gap-4 bg-gradient-to-b from-black/85 via-black/45 to-transparent transition-all duration-300 ${
+        data-player-chrome="top"
+        className={`pointer-events-none absolute inset-x-0 top-0 z-10 flex items-center justify-between gap-4 bg-gradient-to-b from-black/85 via-black/45 to-transparent ${
           fullscreen ? "px-10 pb-24 pt-8" : "px-5 pb-16 pt-5"
         } ${
-          chromeVisible ? "opacity-100" : "opacity-0"
+          chromeVisible ? "visible" : "invisible"
         }`}
       >
         <h2
@@ -325,17 +316,13 @@ export function DesktopPlayer({
 
       {snapshot && !error && (
         <div
-          className={`absolute inset-x-0 bottom-0 z-10 transition-all duration-300 ${
+          data-player-chrome="bottom"
+          className={`absolute inset-x-0 bottom-0 z-10 ${
             fullscreen ? "px-10 pb-8 pt-28" : "px-4 pb-4 pt-20 sm:px-6"
           } ${
-            chromeVisible ? "opacity-100" : "pointer-events-none opacity-0"
+            chromeVisible ? "visible" : "pointer-events-none invisible"
           }`}
           onClick={(event) => event.stopPropagation()}
-          onTransitionEnd={(event) => {
-            if (event.target === event.currentTarget && event.propertyName === "opacity") {
-              resetControlsSurface()
-            }
-          }}
         >
           <div className={`relative mx-auto ${fullscreen ? "max-w-none" : "max-w-7xl"}`}>
             {activeMenu === "audio" && (
