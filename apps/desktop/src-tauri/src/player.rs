@@ -4,9 +4,12 @@ use serde_json::{json, Value};
 use std::{
     ffi::CString,
     sync::{Arc, Mutex},
-    time::Duration,
 };
-use tauri::{AppHandle, Manager};
+#[cfg(target_os = "macos")]
+use std::time::Duration;
+use tauri::AppHandle;
+#[cfg(target_os = "macos")]
+use tauri::Manager;
 use thiserror::Error;
 
 #[derive(Debug, Error)]

@@ -49,11 +49,14 @@ fn player_toggle_fullscreen(app: AppHandle) -> Result<bool, String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(target_os = "linux")]
+    configure_linux_webkit();
+
     tauri::Builder::default()
         .manage(PlayerManager::default())
-        .on_window_event(|_, event| {
+        .on_window_event(|_, _event| {
             #[cfg(target_os = "macos")]
-            if matches!(event, tauri::WindowEvent::Resized(_)) {
+            if matches!(_event, tauri::WindowEvent::Resized(_)) {
                 let _ = crate::player_render_macos::refresh();
             }
         })
@@ -66,4 +69,16 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Conduit desktop");
+}
+
+#[cfg(target_os = "linux")]
+fn configure_linux_webkit() {
+    if std::env::var_os("WAYLAND_DISPLAY").is_some()
+        && std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none()
+    {
+        // WebKitGTK's DMA-BUF renderer can negotiate explicit synchronization
+        // and then submit a non-DMA-BUF buffer, which is a fatal Wayland
+        // protocol error on affected Mesa/NVIDIA compositor combinations.
+        std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+    }
 }
