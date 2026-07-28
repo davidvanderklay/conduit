@@ -43,6 +43,22 @@ export function stopNativePlayer(): Promise<void> {
   return invoke("player_stop")
 }
 
+export function refreshNativeSurface(): Promise<void> {
+  return invoke("player_refresh_surface")
+}
+
+export function redrawNativeSurface(): Promise<void> {
+  return invoke("player_redraw_surface")
+}
+
+export function resetNativeOverlaySurface(): Promise<void> {
+  return invoke("player_reset_overlay_surface")
+}
+
 export function toggleNativeFullscreen(): Promise<boolean> {
   return invoke("player_toggle_fullscreen")
+}
+
+export function nativeFullscreen(): Promise<boolean> {
+  return invoke("player_is_fullscreen")
 }

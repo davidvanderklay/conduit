@@ -28,6 +28,7 @@
             dbus
             glib
             gtk3
+            libglvnd
             libsoup_3
             webkitgtk_4_1
             librsvg

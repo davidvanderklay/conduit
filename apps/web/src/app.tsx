@@ -4,6 +4,8 @@ import { Film, LogOut, Plus, RefreshCw, Server, Trash2 } from "lucide-react"
 import { api, type Bootstrap, type InstalledAddon, type Profile } from "./lib/api"
 import { authClient } from "./lib/auth"
 import { loadCatalog, loadManifest, type CatalogItem } from "./lib/core"
+import { readLastProfileId, rememberLastProfileId } from "./lib/profile-preference"
+import { ProfileSwitcher } from "./components/profile-switcher"
 import { Button } from "./components/ui/button"
 import { Card } from "./components/ui/card"
 import { Input } from "./components/ui/input"
@@ -81,7 +83,7 @@ function AuthenticatedApp({ userName }: { userName: string }) {
     queryKey: ["bootstrap"],
     queryFn: () => api<Bootstrap>("/v1/bootstrap"),
   })
-  const [activeProfileId, setActiveProfileId] = useState<string>()
+  const [activeProfileId, setActiveProfileId] = useState<string | undefined>(readLastProfileId)
 
   const profiles = useMemo(
     () => bootstrap.data?.households.flatMap((household) => household.profiles) ?? [],
@@ -89,7 +91,15 @@ function AuthenticatedApp({ userName }: { userName: string }) {
   )
 
   useEffect(() => {
-    if (!activeProfileId && profiles[0]) setActiveProfileId(profiles[0].id)
+    if (profiles[0] && !profiles.some((profile) => profile.id === activeProfileId)) {
+      setActiveProfileId(profiles[0].id)
+    }
+  }, [activeProfileId, profiles])
+
+  useEffect(() => {
+    if (activeProfileId && profiles.some((profile) => profile.id === activeProfileId)) {
+      rememberLastProfileId(activeProfileId)
+    }
   }, [activeProfileId, profiles])
 
   if (bootstrap.isLoading) {
@@ -117,17 +127,11 @@ function AuthenticatedApp({ userName }: { userName: string }) {
             Conduit
           </div>
           <div className="ml-auto flex items-center gap-2">
-            <select
-              className="h-9 rounded-lg border border-zinc-800 bg-zinc-900 px-3 text-sm"
-              value={activeProfile.id}
-              onChange={(event) => setActiveProfileId(event.target.value)}
-            >
-              {profiles.map((profile) => (
-                <option key={profile.id} value={profile.id}>
-                  {profile.name}
-                </option>
-              ))}
-            </select>
+            <ProfileSwitcher
+              profiles={profiles}
+              activeProfile={activeProfile}
+              onSelect={setActiveProfileId}
+            />
             <span className="hidden text-sm text-zinc-500 sm:inline">{userName}</span>
             <Button
               size="icon"

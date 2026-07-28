@@ -1,14 +1,14 @@
 use libmpv2::{mpv_node::MpvNode, Mpv};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+use std::time::Duration;
 use std::{
     ffi::CString,
     sync::{Arc, Mutex},
 };
-#[cfg(target_os = "macos")]
-use std::time::Duration;
 use tauri::AppHandle;
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 use tauri::Manager;
 use thiserror::Error;
 
@@ -88,6 +88,13 @@ impl PlayerManager {
             initializer.set_property("input-cursor", "no")?;
             initializer.set_property("osc", "no")?;
             initializer.set_property("osd-level", "0")?;
+            #[cfg(target_os = "linux")]
+            {
+                initializer.set_property("hwdec", "no")?;
+                initializer.set_property("gpu-hwdec-interop", "no")?;
+                initializer.set_property("vd-lavc-dr", "no")?;
+            }
+            #[cfg(not(target_os = "linux"))]
             initializer.set_property("hwdec", "auto-safe")?;
             initializer.set_property("audio-channels", "auto-safe")?;
             initializer.set_property("video-timing-offset", "0")?;
@@ -114,7 +121,10 @@ impl PlayerManager {
             .map_err(|_| PlayerError::Poisoned)?
             .take();
         if let Some(session) = session {
-            let _ = session.mpv.command("stop", &[]);
+            // Freeing an active render context already disables video. Avoid a
+            // synchronous normal mpv command immediately before waiting for
+            // teardown on the render thread; libmpv explicitly warns that
+            // this lock dependency can deadlock.
             uninstall_surface(app)?;
             drop(session);
         }
@@ -122,6 +132,8 @@ impl PlayerManager {
     }
 
     pub fn command(&self, command: Vec<Value>) -> Result<Value, PlayerError> {
+        #[cfg(debug_assertions)]
+        eprintln!("Conduit player command: {}", Value::Array(command.clone()));
         let guard = self.session.lock().map_err(|_| PlayerError::Poisoned)?;
         let mpv = &guard.as_ref().ok_or(PlayerError::NotRunning)?.mpv;
         let args = command.iter().map(value_to_arg).collect::<Vec<_>>();
@@ -239,14 +251,45 @@ fn uninstall_surface(app: &AppHandle) -> Result<(), PlayerError> {
         .map_err(PlayerError::Surface)
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "linux")]
+fn install_surface(app: &AppHandle, mpv: &Arc<Mpv>) -> Result<(), PlayerError> {
+    let context = mpv.ctx.as_ptr() as usize;
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| PlayerError::Surface("main window is unavailable".into()))?;
+    let (tx, rx) = std::sync::mpsc::sync_channel(1);
+    app.run_on_main_thread(move || {
+        let context = std::ptr::NonNull::new(context as *mut libmpv2_sys::mpv_handle)
+            .ok_or_else(|| "libmpv returned a null context".to_owned())
+            .and_then(|context| crate::player_render_linux::install(context, &window));
+        let _ = tx.send(context);
+    })
+    .map_err(|error| PlayerError::Surface(error.to_string()))?;
+    rx.recv_timeout(Duration::from_secs(5))
+        .map_err(|_| PlayerError::Surface("surface installation timed out".into()))?
+        .map_err(PlayerError::Surface)
+}
+
+#[cfg(target_os = "linux")]
+fn uninstall_surface(app: &AppHandle) -> Result<(), PlayerError> {
+    let (tx, rx) = std::sync::mpsc::sync_channel(1);
+    app.run_on_main_thread(move || {
+        let _ = tx.send(crate::player_render_linux::uninstall());
+    })
+    .map_err(|error| PlayerError::Surface(error.to_string()))?;
+    rx.recv_timeout(Duration::from_secs(5))
+        .map_err(|_| PlayerError::Surface("surface removal timed out".into()))?
+        .map_err(PlayerError::Surface)
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 fn install_surface(_: &AppHandle, _: &Arc<Mpv>) -> Result<(), PlayerError> {
     Err(PlayerError::Surface(
         "embedded rendering is not implemented for this platform yet".into(),
     ))
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 fn uninstall_surface(_: &AppHandle) -> Result<(), PlayerError> {
     Ok(())
 }

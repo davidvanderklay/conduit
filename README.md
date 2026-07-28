@@ -40,8 +40,18 @@ returned by installed add-ons.
 
 For development outside Nix, install the libmpv development package. macOS
 builds can use `brew install mpv`; Linux builds need their distribution's
-libmpv development package. Windows release builds will bundle a matching
+libmpv development package plus the GTK 3, WebKitGTK 4.1, EGL, DBus, and
+pkg-config development packages. Windows release builds will bundle a matching
 libmpv DLL and import library.
+
+Linux desktop playback uses libmpv's OpenGL render API in a GTK surface below
+the transparent WebKit controls. X11 is supported directly; Wayland sessions
+use XWayland by default because native WebKitGTK input and presentation
+surfaces become stale when layered over `GtkGLArea`. Set
+`CONDUIT_NATIVE_WAYLAND=1` to test the experimental native Wayland path.
+Conduit also disables WebKit's DMA-BUF renderer to avoid an explicit-sync
+protocol bug; set `WEBKIT_DISABLE_DMABUF_RENDERER=0` to override that
+workaround.
 
 Configured add-on URLs are encrypted in PostgreSQL and synchronized to
 authorized household clients. Clients fetch add-on catalogs, metadata, streams,
