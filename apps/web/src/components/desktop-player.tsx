@@ -56,18 +56,23 @@ export function DesktopPlayer({
 
   useEffect(() => {
     let cancelled = false
+    let ready = false
     document.documentElement.classList.add("native-playback")
-    void openNativePlayer(url, title)
-      .then(async (initial) => {
+    void Promise.all([openNativePlayer(url, title), resolveAddonSubtitles(addons, type, videoId)])
+      .then(async ([initial, addonSubtitles]) => {
         if (cancelled) return
-        setSnapshot(initial)
-        await attachAddonSubtitles(addons, type, videoId)
+        await attachAddonSubtitles(addonSubtitles)
+        if (cancelled) return
+        await nativePlayerCommand(["set_property", "pause", false])
+        ready = true
+        setSnapshot({ ...initial, paused: false })
       })
       .catch((cause: unknown) => {
         if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause))
       })
 
     const poll = window.setInterval(() => {
+      if (!ready) return
       void nativePlayerSnapshot()
         .then((next) => {
           if (!cancelled) setSnapshot(next)
@@ -131,8 +136,8 @@ export function DesktopPlayer({
 
   return createPortal(
     <div
-      className={`native-player fixed inset-0 z-50 cursor-none overflow-hidden ${
-        chromeVisible ? "cursor-default" : ""
+      className={`native-player fixed inset-0 z-50 overflow-hidden ${
+        chromeVisible ? "cursor-default" : "cursor-none"
       }`}
       onMouseMove={showControls}
       onClick={togglePlayback}
@@ -389,11 +394,17 @@ function trackName(track: NativeTrack, fallback: string): string {
   return track.title || languageName(track.lang) || `${fallback} ${track.id}`
 }
 
-async function attachAddonSubtitles(
+interface ResolvedAddonSubtitle {
+  url: string
+  language: string
+  display: string
+}
+
+async function resolveAddonSubtitles(
   addons: InstalledAddon[],
   type: string,
   videoId: string,
-): Promise<void> {
+): Promise<ResolvedAddonSubtitle[]> {
   const candidates = addonsForResource(addons, "subtitles", type, videoId)
   const results = await Promise.allSettled(
     candidates.map(async (addon) => ({
@@ -401,10 +412,10 @@ async function attachAddonSubtitles(
       subtitles: await loadSubtitles(addon.manifestUrl, type, videoId),
     })),
   )
-  for (const result of results) {
-    if (result.status === "rejected") continue
-    for (const subtitle of result.value.subtitles) {
-      if (!subtitle.url) continue
+  return results.flatMap((result) => {
+    if (result.status === "rejected") return []
+    return result.value.subtitles.flatMap((subtitle) => {
+      if (!subtitle.url) return []
       const language =
         subtitle.lang ??
         subtitle.language ??
@@ -412,11 +423,26 @@ async function attachAddonSubtitles(
         subtitle.locale ??
         subtitle.label ??
         "und"
-      const display = `${languageName(language) || language} · ${result.value.addon.manifest.name}`
-      await nativePlayerCommand(["sub-add", subtitle.url, "auto", display, language]).catch(
-        () => undefined,
-      )
-    }
+      return [
+        {
+          url: subtitle.url,
+          language,
+          display: `${languageName(language) || language} · ${result.value.addon.manifest.name}`,
+        },
+      ]
+    })
+  })
+}
+
+async function attachAddonSubtitles(subtitles: ResolvedAddonSubtitle[]): Promise<void> {
+  for (const subtitle of subtitles) {
+    await nativePlayerCommand([
+      "sub-add",
+      subtitle.url,
+      "auto",
+      subtitle.display,
+      subtitle.language,
+    ]).catch(() => undefined)
   }
 }
 

@@ -88,6 +88,15 @@ impl PlayerManager {
             initializer.set_property("hwdec", "auto-safe")?;
             initializer.set_property("audio-channels", "auto-safe")?;
             initializer.set_property("video-timing-offset", "0")?;
+            initializer.set_property("cache", "yes")?;
+            initializer.set_property("cache-pause", "yes")?;
+            initializer.set_property("cache-pause-initial", "yes")?;
+            initializer.set_property("cache-secs", "30")?;
+            initializer.set_property("demuxer-readahead-secs", "60")?;
+            // Allow the client to attach initial external subtitle tracks
+            // before the first visible frame. This avoids repeated track
+            // reconfiguration during the first seconds of playback.
+            initializer.set_property("pause", "yes")?;
             Ok(())
         })
         .map_err(|error| PlayerError::Initialization(error.to_string()))?;
