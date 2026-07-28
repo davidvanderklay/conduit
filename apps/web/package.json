@@ -3,9 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && vp build",
     "check": "tsc -b --pretty false",
-    "dev": "vite dev",
+    "dev": "vp dev",
     "test": "vitest run src"
   },
   "dependencies": {
