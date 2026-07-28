@@ -9,16 +9,15 @@ use gtk::{
         ObjectExt,
     },
     prelude::*,
-    GLArea, Overlay, Widget,
+    Allocation, GLArea, Overlay, Widget,
 };
 use libmpv2::render::{OpenGLInitParams, RenderContext, RenderParam, RenderParamApiType};
 use libmpv2_sys::mpv_handle;
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     ffi::{c_char, c_void, CString},
     ptr::NonNull,
     sync::atomic::{AtomicBool, Ordering},
-    time::Duration,
 };
 use tauri::WebviewWindow;
 
@@ -143,6 +142,7 @@ pub fn install(context: NonNull<mpv_handle>, window: &WebviewWindow) -> Result<(
     SURFACE.with(|surface| {
         if let Some(surface) = surface.borrow_mut().as_mut() {
             set_webview_background(&surface.webview, 0.0);
+            surface.webview.set_opacity(1.0);
             surface.render = Some(render);
             surface.area.set_opacity(1.0);
             surface.overlay.queue_draw();
@@ -185,6 +185,7 @@ pub fn uninstall() -> Result<(), String> {
     SURFACE.with(|surface| {
         if let Some(surface) = surface.borrow().as_ref() {
             surface.area.set_opacity(0.0);
+            surface.webview.set_opacity(1.0);
             set_webview_background(&surface.webview, 1.0);
             surface.webview.queue_draw();
             surface.overlay.queue_draw();
@@ -264,19 +265,46 @@ pub fn reset_webview() {
         return;
     };
 
-    // Unmapping only the transparent WebKit overlay discards compositor
-    // layers for removed DOM nodes without resizing or toggling the window.
-    // Keep it unmapped for one frame so GTK presents the clean video surface
-    // before WebKit is mapped again with the already-committed DOM.
-    webview.hide();
+    // Fullscreen changes clear stale transparent WebKit pixels because they
+    // replace its backing allocation. Reproduce that effect on the WebView
+    // alone while it is invisible, without changing window geometry.
+    let allocation = webview.allocation();
+    let nudged = Allocation::new(
+        allocation.x(),
+        allocation.y(),
+        (allocation.width() - 1).max(1),
+        allocation.height().max(1),
+    );
+    webview.set_opacity(0.0);
+    webview.size_allocate(&nudged);
+    webview.queue_draw();
     overlay.queue_draw();
     area.queue_render();
-    glib::timeout_add_local_once(Duration::from_millis(16), move || {
-        webview.show();
-        webview.queue_draw();
-        overlay.queue_draw();
-        area.queue_render();
-        WEBVIEW_RESET_PENDING.store(false, Ordering::Release);
+
+    // Advance on GTK frame-clock ticks so both hidden allocations are
+    // presented before the clean full-size WebView becomes visible again.
+    let stage = Cell::new(0_u8);
+    overlay.add_tick_callback(move |overlay, _| match stage.get() {
+        0 => {
+            stage.set(1);
+            glib::ControlFlow::Continue
+        }
+        1 => {
+            webview.size_allocate(&allocation);
+            webview.queue_draw();
+            overlay.queue_draw();
+            area.queue_render();
+            stage.set(2);
+            glib::ControlFlow::Continue
+        }
+        _ => {
+            webview.set_opacity(1.0);
+            webview.queue_draw();
+            overlay.queue_draw();
+            area.queue_render();
+            WEBVIEW_RESET_PENDING.store(false, Ordering::Release);
+            glib::ControlFlow::Break
+        }
     });
 }
 

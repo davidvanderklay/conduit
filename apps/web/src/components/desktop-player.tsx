@@ -549,10 +549,10 @@ function PlayerIcon({
 }) {
   return (
     <button
-      className={`relative grid place-items-center rounded-lg bg-black/35 text-zinc-200 shadow-sm transition hover:bg-white/15 hover:text-white ${
+      className={`relative grid place-items-center rounded-lg bg-zinc-950 text-zinc-200 shadow-sm transition hover:bg-zinc-800 hover:text-white ${
         fullscreen ? "size-12 [&_svg]:size-7" : "size-10"
       } ${
-        active ? "bg-white/20 text-amber-300" : ""
+        active ? "bg-amber-950 text-amber-300" : ""
       }`}
       onClick={onClick}
       aria-label={label}
