@@ -1,0 +1,30 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Conduit",
+  "version": "0.1.0",
+  "identifier": "media.conduit.desktop",
+  "build": {
+    "beforeDevCommand": "pnpm --filter @conduit/web dev",
+    "devUrl": "http://localhost:5173",
+    "beforeBuildCommand": "pnpm core:build && pnpm --filter @conduit/web build",
+    "frontendDist": "../../web/dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Conduit",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 900,
+        "minHeight": 600,
+        "backgroundColor": "#09090b"
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": false
+  }
+}

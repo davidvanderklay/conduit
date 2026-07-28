@@ -12,3 +12,4 @@ target/
 packages/core/pkg/
 
 apps/server/.local/
+apps/desktop/src-tauri/gen/

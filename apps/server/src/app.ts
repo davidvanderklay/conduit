@@ -3,7 +3,7 @@ import sensible from "@fastify/sensible"
 import Fastify from "fastify"
 import { fromNodeHeaders } from "better-auth/node"
 import { createAuth } from "./auth.js"
-import type { Config } from "./config.js"
+import { DESKTOP_ORIGINS, type Config } from "./config.js"
 import type { Database } from "./db/index.js"
 import { registerRoutes } from "./routes.js"
 
@@ -12,7 +12,7 @@ export async function buildApp(config: Config, db: Database) {
   const auth = createAuth(db, config)
 
   await app.register(cors, {
-    origin: config.webOrigin,
+    origin: [config.webOrigin, ...DESKTOP_ORIGINS],
     credentials: true,
     methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     maxAge: 600,

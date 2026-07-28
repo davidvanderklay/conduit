@@ -1,0 +1,13 @@
+{
+  "name": "@conduit/desktop",
+  "private": true,
+  "scripts": {
+    "build": "tauri build",
+    "check": "cargo check --manifest-path src-tauri/Cargo.toml",
+    "dev": "tauri dev",
+    "test": "cargo test --manifest-path src-tauri/Cargo.toml"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "latest"
+  }
+}

@@ -9,6 +9,7 @@
     "db:migrate": "pnpm --filter @conduit/server db:migrate",
     "dev": "vp run app:dev",
     "dev:server": "pnpm --filter @conduit/server dev",
+    "dev:desktop": "pnpm --filter @conduit/desktop dev",
     "dev:web": "pnpm --filter @conduit/web dev",
     "test": "vp run ci:test"
   },

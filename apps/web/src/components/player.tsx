@@ -15,6 +15,8 @@ import type Hls from "hls.js"
 import type { InstalledAddon } from "../lib/api"
 import { addonsForResource } from "../lib/addons"
 import { loadSubtitles, type Subtitle } from "../lib/core"
+import { isDesktop } from "../lib/desktop"
+import { DesktopPlayer } from "./desktop-player"
 
 interface PlayerSubtitle extends Subtitle {
   key: string
@@ -31,6 +33,45 @@ interface AudioChoice {
 }
 
 export function Player({
+  url,
+  title,
+  type,
+  videoId,
+  addons,
+  onClose,
+}: {
+  url: string
+  title: string
+  type: string
+  videoId: string
+  addons: InstalledAddon[]
+  onClose: () => void
+}) {
+  if (isDesktop()) {
+    return (
+      <DesktopPlayer
+        url={url}
+        title={title}
+        type={type}
+        videoId={videoId}
+        addons={addons}
+        onClose={onClose}
+      />
+    )
+  }
+  return (
+    <WebPlayer
+      url={url}
+      title={title}
+      type={type}
+      videoId={videoId}
+      addons={addons}
+      onClose={onClose}
+    />
+  )
+}
+
+function WebPlayer({
   url,
   title,
   type,

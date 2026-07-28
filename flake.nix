@@ -24,6 +24,8 @@
             pkg-config
             openssl
             postgresql_17
+            mpv
+            cargo-tauri
           ];
 
           shellHook = ''

@@ -12,7 +12,7 @@ export default defineConfig({
     tasks: {
       "ci:build": {
         command:
-          "pnpm core:build && pnpm --filter @conduit/server build && pnpm --filter @conduit/web build",
+          "pnpm core:build && pnpm --filter @conduit/server build && pnpm --filter @conduit/web build && cargo check -p conduit-desktop",
       },
       "ci:check": {
         command:
