@@ -1,4 +1,6 @@
 mod player;
+#[cfg(target_os = "linux")]
+mod player_render_linux;
 #[cfg(target_os = "macos")]
 mod player_render_macos;
 
@@ -36,6 +38,30 @@ async fn player_stop(app: AppHandle, player: State<'_, PlayerManager>) -> Result
 }
 
 #[tauri::command]
+fn player_refresh_surface(app: AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    app.run_on_main_thread(crate::player_render_linux::reconfigure)
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn player_redraw_surface(app: AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    app.run_on_main_thread(crate::player_render_linux::refresh)
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn player_reset_overlay_surface(app: AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    app.run_on_main_thread(crate::player_render_linux::reset_webview)
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
 fn player_toggle_fullscreen(app: AppHandle) -> Result<bool, String> {
     let window = app
         .get_webview_window("main")
@@ -47,6 +73,14 @@ fn player_toggle_fullscreen(app: AppHandle) -> Result<bool, String> {
     Ok(fullscreen)
 }
 
+#[tauri::command]
+fn player_is_fullscreen(app: AppHandle) -> Result<bool, String> {
+    app.get_webview_window("main")
+        .ok_or_else(|| "main window is unavailable".to_owned())?
+        .is_fullscreen()
+        .map_err(|error| error.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[cfg(target_os = "linux")]
@@ -54,7 +88,22 @@ pub fn run() {
 
     tauri::Builder::default()
         .manage(PlayerManager::default())
+        .setup(|app| {
+            #[cfg(target_os = "linux")]
+            {
+                let window = app
+                    .get_webview_window("main")
+                    .ok_or("main window is unavailable")?;
+                crate::player_render_linux::initialize(&window)
+                    .map_err(|error| format!("Linux player surface: {error}"))?;
+            }
+            Ok(())
+        })
         .on_window_event(|_, _event| {
+            #[cfg(target_os = "linux")]
+            if matches!(_event, tauri::WindowEvent::Resized(_)) {
+                crate::player_render_linux::refresh();
+            }
             #[cfg(target_os = "macos")]
             if matches!(_event, tauri::WindowEvent::Resized(_)) {
                 let _ = crate::player_render_macos::refresh();
@@ -65,7 +114,11 @@ pub fn run() {
             player_snapshot,
             player_command,
             player_stop,
-            player_toggle_fullscreen
+            player_refresh_surface,
+            player_redraw_surface,
+            player_reset_overlay_surface,
+            player_toggle_fullscreen,
+            player_is_fullscreen
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Conduit desktop");
@@ -73,12 +126,26 @@ pub fn run() {
 
 #[cfg(target_os = "linux")]
 fn configure_linux_webkit() {
-    if std::env::var_os("WAYLAND_DISPLAY").is_some()
-        && std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none()
-    {
+    let wayland_session = std::env::var_os("WAYLAND_DISPLAY").is_some();
+    let native_wayland = std::env::var_os("CONDUIT_NATIVE_WAYLAND").is_some();
+    if wayland_session && !native_wayland && std::env::var_os("DISPLAY").is_some() {
+        // WebKitGTK's input and presentation surfaces become stale when they
+        // are layered above GtkGLArea on native Wayland. XWayland keeps the
+        // same desktop session while providing stable OpenGL composition.
+        std::env::set_var("GDK_BACKEND", "x11");
+        eprintln!("Conduit: using XWayland for stable embedded video composition");
+    }
+    if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
         // WebKitGTK's DMA-BUF renderer can negotiate explicit synchronization
         // and then submit a non-DMA-BUF buffer, which is a fatal Wayland
         // protocol error on affected Mesa/NVIDIA compositor combinations.
         std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+    }
+    if wayland_session
+        && native_wayland
+        && std::path::Path::new("/proc/driver/nvidia/version").exists()
+        && std::env::var_os("__NV_DISABLE_EXPLICIT_SYNC").is_none()
+    {
+        std::env::set_var("__NV_DISABLE_EXPLICIT_SYNC", "1");
     }
 }

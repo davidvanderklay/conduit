@@ -351,12 +351,14 @@ dependencies = [
 name = "conduit-desktop"
 version = "0.1.0"
 dependencies = [
+ "gtk",
  "libc",
  "libmpv2",
  "libmpv2-sys",
  "objc2",
  "objc2-app-kit",
  "objc2-foundation",
+ "pkg-config",
  "serde",
  "serde_json",
  "tauri",

@@ -29,10 +29,48 @@ body {
 .native-playback,
 .native-playback body {
   background: transparent;
+  height: 100%;
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .native-playback #root {
   visibility: hidden;
+}
+
+.player-seek {
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+}
+
+.player-seek::-webkit-slider-runnable-track {
+  height: 5px;
+  border-radius: 9999px;
+  background: linear-gradient(
+    to right,
+    rgb(251 191 36) 0 var(--player-progress),
+    rgb(255 255 255 / 28%) var(--player-progress) 100%
+  );
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 8%);
+}
+
+.player-seek::-webkit-slider-thumb {
+  width: 15px;
+  height: 15px;
+  margin-top: -5px;
+  appearance: none;
+  -webkit-appearance: none;
+  border: 2px solid rgb(24 24 27);
+  border-radius: 9999px;
+  background: rgb(251 191 36);
+  box-shadow: 0 1px 5px rgb(0 0 0 / 55%);
+}
+
+.player-seek:focus-visible {
+  outline: 2px solid rgb(251 191 36 / 75%);
+  outline-offset: 4px;
 }
 
 button,
