@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Film, LogOut, Plus, RefreshCw, Server, Trash2 } from "lucide-react"
+import { Film, Home, LogOut, Plus, RefreshCw, Search, Server, Trash2, X } from "lucide-react"
 import { api, type Bootstrap, type InstalledAddon, type Profile } from "./lib/api"
 import { authClient } from "./lib/auth"
 import { loadCatalog, loadManifest, type CatalogItem } from "./lib/core"
@@ -10,6 +10,7 @@ import { Button } from "./components/ui/button"
 import { Card } from "./components/ui/card"
 import { Input } from "./components/ui/input"
 import { MediaDetails } from "./components/media-details"
+import { SearchView } from "./components/search-view"
 
 export function App() {
   const session = authClient.useSession()
@@ -144,7 +145,7 @@ function AuthenticatedApp({ userName }: { userName: string }) {
           </div>
         </div>
       </header>
-      <MediaHome profile={activeProfile} />
+      <ProfileApp profile={activeProfile} />
     </div>
   )
 }
@@ -191,21 +192,125 @@ function HouseholdSetup() {
   )
 }
 
-function MediaHome({ profile }: { profile: Profile }) {
-  const queryClient = useQueryClient()
-  const [installOpen, setInstallOpen] = useState(false)
+function ProfileApp({ profile }: { profile: Profile }) {
+  const [searchInput, setSearchInput] = useState("")
+  const [query, setQuery] = useState("")
   const [selectedItem, setSelectedItem] = useState<CatalogItem>()
   const addons = useQuery({
     queryKey: ["addons", profile.id],
     queryFn: () => api<{ addons: InstalledAddon[] }>(`/v1/profiles/${profile.id}/addons`),
   })
 
+  useEffect(() => {
+    setSelectedItem(undefined)
+    setSearchInput("")
+    setQuery("")
+  }, [profile.id])
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setQuery(searchInput.trim()), 350)
+    return () => window.clearTimeout(timeout)
+  }, [searchInput])
+
+  return (
+    <>
+      <nav className="sticky top-16 z-10 border-b border-zinc-900 bg-zinc-950/90 px-5 backdrop-blur-xl">
+        <div className="mx-auto flex h-14 max-w-7xl items-center gap-3">
+          <NavButton active={!searchInput} onClick={() => setSearchInput("")}>
+            <Home size={16} /> Home
+          </NavButton>
+          <div className="relative mx-auto w-full max-w-xl">
+            <Search
+              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500"
+              size={17}
+            />
+            <input
+              type="search"
+              value={searchInput}
+              aria-label="Search or paste a link"
+              placeholder="Search or paste a link"
+              className="h-10 w-full rounded-xl border border-zinc-800 bg-zinc-900/80 pl-10 pr-10 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20"
+              onChange={(event) => setSearchInput(event.target.value)}
+            />
+            {searchInput && (
+              <button
+                className="absolute right-1.5 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-lg text-zinc-500 hover:bg-zinc-800 hover:text-white"
+                aria-label="Clear search"
+                onClick={() => setSearchInput("")}
+              >
+                <X size={15} />
+              </button>
+            )}
+          </div>
+          <div className="w-16 shrink-0 sm:w-20" aria-hidden="true" />
+        </div>
+      </nav>
+      {!searchInput && (
+        <MediaHome
+          profile={profile}
+          addons={addons.data?.addons ?? []}
+          onRefresh={() => addons.refetch()}
+        />
+      )}
+      {searchInput && (
+        <SearchView
+          addons={addons.data?.addons ?? []}
+          query={query}
+          onSelect={setSelectedItem}
+        />
+      )}
+      {selectedItem && addons.data && (
+        <MediaDetails
+          item={selectedItem}
+          addons={addons.data.addons}
+          onClose={() => setSelectedItem(undefined)}
+        />
+      )}
+    </>
+  )
+}
+
+function NavButton({
+  active,
+  children,
+  onClick,
+}: {
+  active: boolean
+  children: React.ReactNode
+  onClick: () => void
+}) {
+  return (
+    <button
+      className={`flex h-full items-center gap-2 border-b-2 px-3 text-sm font-medium transition ${
+        active
+          ? "border-amber-400 text-white"
+          : "border-transparent text-zinc-500 hover:text-zinc-200"
+      }`}
+      onClick={onClick}
+    >
+      {children}
+    </button>
+  )
+}
+
+function MediaHome({
+  profile,
+  addons,
+  onRefresh,
+}: {
+  profile: Profile
+  addons: InstalledAddon[]
+  onRefresh: () => void
+}) {
+  const queryClient = useQueryClient()
+  const [installOpen, setInstallOpen] = useState(false)
+  const [selectedItem, setSelectedItem] = useState<CatalogItem>()
   const catalogs = useQuery({
-    queryKey: ["catalogs", profile.id, addons.data?.addons.map((addon) => addon.id)],
-    enabled: Boolean(addons.data),
+    queryKey: ["catalogs", profile.id, addons.map((addon) => [addon.id, addon.enabled])],
+    enabled: addons.length > 0,
     queryFn: async () => {
       const results = await Promise.allSettled(
-        (addons.data?.addons ?? [])
+        addons
           .filter((addon) => addon.enabled)
           .flatMap((addon) =>
             addon.manifest.catalogs
@@ -274,12 +379,12 @@ function MediaHome({ profile }: { profile: Profile }) {
       <section className="mb-12">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="font-display text-xl font-semibold">Synchronized add-ons</h2>
-          <Button size="sm" variant="ghost" onClick={() => addons.refetch()}>
+          <Button size="sm" variant="ghost" onClick={onRefresh}>
             <RefreshCw size={14} /> Sync
           </Button>
         </div>
         <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-          {addons.data?.addons.map((addon) => (
+          {addons.map((addon) => (
             <Card className="flex items-center gap-4 p-4" key={addon.id}>
               {addon.manifest.logo ? (
                 <img className="size-11 rounded-lg object-cover" src={addon.manifest.logo} alt="" />
@@ -302,7 +407,7 @@ function MediaHome({ profile }: { profile: Profile }) {
               </Button>
             </Card>
           ))}
-          {addons.data?.addons.length === 0 && (
+          {addons.length === 0 && (
             <Card className="col-span-full border-dashed p-8 text-center text-zinc-500">
               Install a Stremio-compatible manifest to begin.
             </Card>
@@ -327,10 +432,10 @@ function MediaHome({ profile }: { profile: Profile }) {
         />
       ))}
 
-      {selectedItem && addons.data && (
+      {selectedItem && (
         <MediaDetails
           item={selectedItem}
-          addons={addons.data.addons}
+          addons={addons}
           onClose={() => setSelectedItem(undefined)}
         />
       )}
