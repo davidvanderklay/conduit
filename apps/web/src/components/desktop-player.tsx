@@ -142,13 +142,11 @@ export function DesktopPlayer({
 
   const closeTrackMenu = useCallback(() => {
     setActiveMenu(undefined)
-    redrawControls()
-  }, [redrawControls])
+  }, [])
 
   const toggleTrackMenu = useCallback((menu: TrackMenuName) => {
     setActiveMenu((current) => (current === menu ? undefined : menu))
-    redrawControls()
-  }, [redrawControls])
+  }, [])
 
   const seekRelative = useCallback((seconds: number) => {
     if (!snapshot) return
@@ -240,7 +238,7 @@ export function DesktopPlayer({
             }
           : current,
       )
-      redrawControls()
+      closeTrackMenu()
     } catch (cause: unknown) {
       setError(cause instanceof Error ? cause.message : String(cause))
     }
@@ -252,6 +250,10 @@ export function DesktopPlayer({
   const selectedSubtitle = subtitleTracks.find((track) => track.selected)
   const chromeVisible =
     controlsVisible || Boolean(snapshot?.paused) || Boolean(activeMenu) || !snapshot
+
+  useLayoutEffect(() => {
+    redrawControls()
+  }, [activeMenu, chromeVisible, redrawControls])
 
   return createPortal(
     <div
@@ -313,12 +315,17 @@ export function DesktopPlayer({
 
       {snapshot && !error && (
         <div
-          className={`absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/95 via-black/70 to-transparent transition-all duration-300 ${
+          className={`absolute inset-x-0 bottom-0 z-10 transition-all duration-300 ${
             fullscreen ? "px-10 pb-8 pt-28" : "px-4 pb-4 pt-20 sm:px-6"
           } ${
             chromeVisible ? "opacity-100" : "pointer-events-none opacity-0"
           }`}
           onClick={(event) => event.stopPropagation()}
+          onTransitionEnd={(event) => {
+            if (event.target === event.currentTarget && event.propertyName === "opacity") {
+              redrawControls()
+            }
+          }}
         >
           <div className={`relative mx-auto ${fullscreen ? "max-w-none" : "max-w-7xl"}`}>
             {activeMenu === "audio" && (
@@ -361,7 +368,7 @@ export function DesktopPlayer({
                           }
                         : current,
                     )
-                    redrawControls()
+                    closeTrackMenu()
                   } catch (cause: unknown) {
                     setError(cause instanceof Error ? cause.message : String(cause))
                   }
@@ -380,7 +387,7 @@ export function DesktopPlayer({
                           }
                         : current,
                     )
-                    redrawControls()
+                    closeTrackMenu()
                   } catch (cause: unknown) {
                     setError(cause instanceof Error ? cause.message : String(cause))
                   }
@@ -535,7 +542,7 @@ function PlayerIcon({
 }) {
   return (
     <button
-      className={`relative grid place-items-center rounded-lg text-zinc-200 transition hover:bg-white/15 hover:text-white ${
+      className={`relative grid place-items-center rounded-lg bg-black/25 text-zinc-200 shadow-sm backdrop-blur-[2px] transition hover:bg-white/15 hover:text-white ${
         fullscreen ? "size-12 [&_svg]:size-7" : "size-10"
       } ${
         active ? "bg-white/20 text-amber-300" : ""

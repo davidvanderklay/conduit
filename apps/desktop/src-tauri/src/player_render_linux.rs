@@ -236,9 +236,20 @@ pub fn reconfigure() {
 pub fn refresh() {
     SURFACE.with(|surface| {
         if let Some(surface) = surface.borrow().as_ref() {
+            // WebKitGTK can keep the last composited pixels for DOM nodes that
+            // became transparent or were removed while layered over GLArea.
+            // Invalidate the backing GDK window as well as queueing widgets so
+            // those pixels are cleared from the transparent overlay.
+            if let Some(window) = surface.webview.window() {
+                window.invalidate_rect(None, true);
+            }
+            let width = surface.webview.allocated_width().max(1);
+            let height = surface.webview.allocated_height().max(1);
+            surface.webview.queue_draw_area(0, 0, width, height);
             surface.overlay.queue_draw();
             surface.webview.queue_draw();
             surface.area.queue_render();
+            surface.window.queue_draw();
         }
     });
 }
