@@ -108,6 +108,9 @@ export function MediaDetails({
         <Player
           url={playing.url}
           title={playing.title ?? playing.name ?? meta.name}
+          type={item.type}
+          videoId={selectedVideoId}
+          addons={addons}
           onClose={() => setPlaying(undefined)}
         />
       )}

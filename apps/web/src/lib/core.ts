@@ -51,7 +51,18 @@ export interface Stream {
     bingeGroup?: string
     notWebReady?: boolean
     filename?: string
+    videoSize?: number
   }
+}
+
+export interface Subtitle {
+  id: string
+  url: string
+  lang?: string
+  language?: string
+  languageCode?: string
+  locale?: string
+  label?: string
 }
 
 export async function loadCatalog(
@@ -85,4 +96,20 @@ export async function loadStreams(
     streams?: Stream[]
   }
   return response.streams ?? []
+}
+
+export async function loadSubtitles(
+  manifestUrl: string,
+  type: string,
+  videoId: string,
+): Promise<Subtitle[]> {
+  await ready()
+  const response = (await fetchResource(
+    manifestUrl,
+    "subtitles",
+    type === "tv" ? "series" : type,
+    videoId,
+    [],
+  )) as { subtitles?: Subtitle[] }
+  return response.subtitles ?? []
 }
