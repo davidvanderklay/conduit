@@ -69,9 +69,10 @@ export async function loadCatalog(
   manifestUrl: string,
   type: string,
   id: string,
+  extras: Array<{ name: string; value: string }> = [],
 ): Promise<CatalogItem[]> {
   await ready()
-  const response = (await fetchResource(manifestUrl, "catalog", type, id, [])) as {
+  const response = (await fetchResource(manifestUrl, "catalog", type, id, extras)) as {
     metas?: CatalogItem[]
   }
   return response.metas ?? []
