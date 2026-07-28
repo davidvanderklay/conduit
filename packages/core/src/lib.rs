@@ -81,16 +81,24 @@ pub fn parse_catalog_json(json: &str) -> Result<CatalogResponse, CoreError> {
 mod wasm {
     use super::*;
     use gloo_net::http::Request;
+    use serde::Serialize;
+    use serde_wasm_bindgen::Serializer;
     use wasm_bindgen::prelude::*;
 
     fn js_error(error: impl std::fmt::Display) -> JsValue {
         js_sys::Error::new(&error.to_string()).into()
     }
 
+    fn to_js_value(value: &impl Serialize) -> Result<JsValue, JsValue> {
+        value
+            .serialize(&Serializer::json_compatible())
+            .map_err(js_error)
+    }
+
     #[wasm_bindgen(js_name = parseManifest)]
     pub fn parse_manifest(value: &str) -> Result<JsValue, JsValue> {
         let manifest = parse_manifest_json(value).map_err(js_error)?;
-        serde_wasm_bindgen::to_value(&manifest).map_err(js_error)
+        to_js_value(&manifest)
     }
 
     #[wasm_bindgen(js_name = buildResourceUrl)]
@@ -124,7 +132,7 @@ mod wasm {
         }
         let body = response.text().await.map_err(js_error)?;
         let manifest = parse_manifest_json(&body).map_err(js_error)?;
-        serde_wasm_bindgen::to_value(&manifest).map_err(js_error)
+        to_js_value(&manifest)
     }
 
     #[wasm_bindgen(js_name = fetchResource)]
@@ -144,7 +152,7 @@ mod wasm {
             )));
         }
         let value: serde_json::Value = response.json().await.map_err(js_error)?;
-        serde_wasm_bindgen::to_value(&value).map_err(js_error)
+        to_js_value(&value)
     }
 }
 

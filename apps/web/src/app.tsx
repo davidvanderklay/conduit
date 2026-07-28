@@ -212,7 +212,16 @@ function MediaHome({ profile }: { profile: Profile }) {
               })),
           ),
       )
-      return results.flatMap((result) => (result.status === "fulfilled" ? [result.value] : []))
+      return {
+        catalogs: results.flatMap((result) =>
+          result.status === "fulfilled" ? [result.value] : [],
+        ),
+        errors: results.flatMap((result) =>
+          result.status === "rejected"
+            ? [result.reason instanceof Error ? result.reason.message : String(result.reason)]
+            : [],
+        ),
+      }
     },
   })
 
@@ -295,7 +304,15 @@ function MediaHome({ profile }: { profile: Profile }) {
         </div>
       </section>
 
-      {catalogs.data?.map((catalog) => (
+      {catalogs.data?.errors.length ? (
+        <Card className="mb-8 border-red-900/70 bg-red-950/30 p-4 text-sm text-red-200">
+          {catalogs.data.errors.length} catalog request
+          {catalogs.data.errors.length === 1 ? "" : "s"} failed. The first error was:{" "}
+          {catalogs.data.errors[0]}
+        </Card>
+      ) : null}
+
+      {catalogs.data?.catalogs.map((catalog) => (
         <CatalogShelf key={catalog.key} title={catalog.title} items={catalog.items} />
       ))}
     </main>
