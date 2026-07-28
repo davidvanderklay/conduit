@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useState } from "react"
+import { createPortal } from "react-dom"
 import { Captions, LoaderCircle, Pause, Play, Volume2, X } from "lucide-react"
 import type { InstalledAddon } from "../lib/api"
 import { addonsForResource } from "../lib/addons"
@@ -34,6 +35,7 @@ export function DesktopPlayer({
 
   useEffect(() => {
     let cancelled = false
+    document.documentElement.classList.add("native-playback")
     void openNativePlayer(url, title)
       .then(async (initial) => {
         if (cancelled) return
@@ -55,6 +57,7 @@ export function DesktopPlayer({
     return () => {
       cancelled = true
       window.clearInterval(poll)
+      document.documentElement.classList.remove("native-playback")
       void stopNativePlayer()
     }
   }, [addons, title, type, url, videoId])
@@ -67,8 +70,8 @@ export function DesktopPlayer({
   const audioTracks = snapshot?.tracks.filter((track) => track.type === "audio") ?? []
   const subtitleTracks = snapshot?.tracks.filter((track) => track.type === "sub") ?? []
 
-  return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-zinc-950/95 p-5 backdrop-blur-xl">
+  return createPortal(
+    <div className="native-player fixed inset-0 z-50 overflow-y-auto p-5">
       <div className="mx-auto max-w-4xl">
         <div className="mb-8 flex items-center justify-between gap-4">
           <div>
@@ -127,8 +130,8 @@ export function DesktopPlayer({
                 </span>
               </div>
               <p className="mt-4 text-xs text-zinc-500">
-                Video is rendered in mpv’s native window. These controls communicate through a
-                private local IPC connection.
+                Video is rendered by embedded libmpv. These controls communicate directly with the
+                native player engine.
               </p>
             </Card>
 
@@ -153,7 +156,8 @@ export function DesktopPlayer({
           </>
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 

@@ -1,35 +1,28 @@
+use libmpv2::{mpv_node::MpvNode, Mpv};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
-    io::{BufRead, BufReader, Write},
-    process::{Child, Command, Stdio},
-    sync::Mutex,
-    thread,
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    ffi::CString,
+    sync::{Arc, Mutex},
+    time::Duration,
 };
+use tauri::{AppHandle, Manager};
 use thiserror::Error;
-
-#[cfg(unix)]
-use std::os::unix::net::UnixStream;
 
 #[derive(Debug, Error)]
 pub enum PlayerError {
-    #[error("mpv could not be started; install mpv or set CONDUIT_MPV_PATH")]
-    MissingMpv,
-    #[error("mpv IPC did not become ready")]
-    IpcUnavailable,
+    #[error("embedded libmpv could not be initialized: {0}")]
+    Initialization(String),
     #[error("mpv is not running")]
     NotRunning,
     #[error("invalid media URL")]
     InvalidUrl,
-    #[error("player I/O failed: {0}")]
-    Io(#[from] std::io::Error),
-    #[error("player returned invalid data: {0}")]
-    Json(#[from] serde_json::Error),
     #[error("mpv command failed: {0}")]
     Command(String),
-    #[error("player state lock was poisoned")]
+    #[error("embedded player state lock was poisoned")]
     Poisoned,
+    #[error("embedded player surface failed: {0}")]
+    Surface(String),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -62,218 +55,216 @@ pub struct PlayerSnapshot {
     pub tracks: Vec<PlayerTrack>,
 }
 
-struct PlayerProcess {
-    child: Child,
-    ipc_path: String,
+struct PlayerSession {
+    mpv: Arc<Mpv>,
 }
 
 #[derive(Default)]
 pub struct PlayerManager {
-    process: Mutex<Option<PlayerProcess>>,
+    session: Mutex<Option<PlayerSession>>,
 }
 
 impl PlayerManager {
-    pub fn open(&self, url: &str, title: &str) -> Result<PlayerSnapshot, PlayerError> {
+    pub fn open(
+        &self,
+        app: &AppHandle,
+        url: &str,
+        title: &str,
+    ) -> Result<PlayerSnapshot, PlayerError> {
         if !matches!(url.split(':').next(), Some("http" | "https")) {
             return Err(PlayerError::InvalidUrl);
         }
-        self.stop()?;
+        self.stop(app)?;
+        force_c_numeric_locale();
 
-        let ipc_path = ipc_path();
-        let executable = std::env::var("CONDUIT_MPV_PATH").unwrap_or_else(|_| "mpv".to_owned());
-        let child = Command::new(executable)
-            .args([
-                "--no-terminal",
-                "--force-window=yes",
-                "--idle=yes",
-                "--input-default-bindings=yes",
-                "--osc=yes",
-                "--keep-open=yes",
-                "--hwdec=auto-safe",
-                "--audio-channels=auto-safe",
-                &format!("--input-ipc-server={ipc_path}"),
-                &format!("--force-media-title={title}"),
-                url,
-            ])
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .map_err(|error| {
-                if error.kind() == std::io::ErrorKind::NotFound {
-                    PlayerError::MissingMpv
-                } else {
-                    PlayerError::Io(error)
-                }
-            })?;
+        let mpv = Mpv::with_initializer(|initializer| {
+            initializer.set_property("vo", "libmpv")?;
+            initializer.set_property("force-window", "no")?;
+            initializer.set_property("terminal", "no")?;
+            initializer.set_property("input-default-bindings", "no")?;
+            initializer.set_property("input-cursor", "no")?;
+            initializer.set_property("osc", "no")?;
+            initializer.set_property("osd-level", "0")?;
+            initializer.set_property("hwdec", "auto-safe")?;
+            initializer.set_property("audio-channels", "auto-safe")?;
+            initializer.set_property("video-timing-offset", "0")?;
+            Ok(())
+        })
+        .map_err(|error| PlayerError::Initialization(error.to_string()))?;
+        let mpv = Arc::new(mpv);
 
-        *self.process.lock().map_err(|_| PlayerError::Poisoned)? =
-            Some(PlayerProcess { child, ipc_path });
-        self.wait_until_ready()?;
+        install_surface(app, &mpv)?;
+        mpv.set_property("force-media-title", title)
+            .map_err(|error| PlayerError::Command(error.to_string()))?;
+        argv_command(&mpv, &["loadfile", url, "replace"])?;
+
+        *self.session.lock().map_err(|_| PlayerError::Poisoned)? = Some(PlayerSession { mpv });
+        // libmpv is initialized synchronously, but media properties arrive
+        // asynchronously after loadfile. The UI polling loop fills them in.
         self.snapshot()
     }
 
-    pub fn stop(&self) -> Result<(), PlayerError> {
-        let process = self
-            .process
+    pub fn stop(&self, app: &AppHandle) -> Result<(), PlayerError> {
+        let session = self
+            .session
             .lock()
             .map_err(|_| PlayerError::Poisoned)?
             .take();
-        if let Some(mut process) = process {
-            let _ = send(&process.ipc_path, json!(["quit"]));
-            let started = Instant::now();
-            while started.elapsed() < Duration::from_millis(500) {
-                if process.child.try_wait()?.is_some() {
-                    cleanup_ipc(&process.ipc_path);
-                    return Ok(());
-                }
-                thread::sleep(Duration::from_millis(20));
-            }
-            process.child.kill()?;
-            let _ = process.child.wait();
-            cleanup_ipc(&process.ipc_path);
+        if let Some(session) = session {
+            let _ = session.mpv.command("stop", &[]);
+            uninstall_surface(app)?;
+            drop(session);
         }
         Ok(())
     }
 
     pub fn command(&self, command: Vec<Value>) -> Result<Value, PlayerError> {
-        let guard = self.process.lock().map_err(|_| PlayerError::Poisoned)?;
-        let process = guard.as_ref().ok_or(PlayerError::NotRunning)?;
-        send(&process.ipc_path, Value::Array(command))
+        let guard = self.session.lock().map_err(|_| PlayerError::Poisoned)?;
+        let mpv = &guard.as_ref().ok_or(PlayerError::NotRunning)?.mpv;
+        let args = command.iter().map(value_to_arg).collect::<Vec<_>>();
+        if args.is_empty() {
+            return Err(PlayerError::Command("empty command".into()));
+        }
+        let refs = args.iter().map(String::as_str).collect::<Vec<_>>();
+        argv_command(mpv, &refs)?;
+        Ok(Value::Null)
     }
 
     pub fn snapshot(&self) -> Result<PlayerSnapshot, PlayerError> {
-        let guard = self.process.lock().map_err(|_| PlayerError::Poisoned)?;
-        let process = guard.as_ref().ok_or(PlayerError::NotRunning)?;
+        let guard = self.session.lock().map_err(|_| PlayerError::Poisoned)?;
+        let mpv = &guard.as_ref().ok_or(PlayerError::NotRunning)?.mpv;
+        let tracks = mpv
+            .get_property::<MpvNode>("track-list")
+            .ok()
+            .map(mpv_node_to_json)
+            .and_then(|value| serde_json::from_value(value).ok())
+            .unwrap_or_default();
         Ok(PlayerSnapshot {
-            running: process.child.id() > 0,
-            paused: property(&process.ipc_path, "pause")
-                .unwrap_or(Value::Bool(false))
-                .as_bool()
-                .unwrap_or(false),
-            position: property(&process.ipc_path, "time-pos")
-                .unwrap_or(Value::Null)
-                .as_f64()
-                .unwrap_or_default(),
-            duration: property(&process.ipc_path, "duration")
-                .unwrap_or(Value::Null)
-                .as_f64()
-                .unwrap_or_default(),
-            volume: property(&process.ipc_path, "volume")
-                .unwrap_or(Value::Null)
-                .as_f64()
-                .unwrap_or(100.0),
-            title: property(&process.ipc_path, "media-title")
-                .unwrap_or(Value::Null)
-                .as_str()
-                .map(str::to_owned),
-            tracks: serde_json::from_value(
-                property(&process.ipc_path, "track-list").unwrap_or_else(|_| json!([])),
-            )
-            .unwrap_or_default(),
+            running: true,
+            paused: mpv.get_property::<bool>("pause").unwrap_or(false),
+            position: mpv.get_property::<f64>("time-pos").unwrap_or_default(),
+            duration: mpv.get_property::<f64>("duration").unwrap_or_default(),
+            volume: mpv.get_property::<f64>("volume").unwrap_or(100.0),
+            title: mpv.get_property::<String>("media-title").ok(),
+            tracks,
         })
     }
-
-    fn wait_until_ready(&self) -> Result<(), PlayerError> {
-        let started = Instant::now();
-        // mpv can delay creation of its IPC socket while opening a slow remote
-        // source. The player window may already exist during that work, so a
-        // short timeout incorrectly reports a launch failure even though
-        // playback begins moments later.
-        while started.elapsed() < Duration::from_secs(30) {
-            {
-                let guard = self.process.lock().map_err(|_| PlayerError::Poisoned)?;
-                if let Some(process) = guard.as_ref() {
-                    if send(&process.ipc_path, json!(["get_property", "mpv-version"])).is_ok() {
-                        return Ok(());
-                    }
-                }
-            }
-            thread::sleep(Duration::from_millis(50));
-        }
-        Err(PlayerError::IpcUnavailable)
-    }
 }
 
-impl Drop for PlayerManager {
-    fn drop(&mut self) {
-        let _ = self.stop();
-    }
-}
-
-fn property(ipc_path: &str, name: &str) -> Result<Value, PlayerError> {
-    send(ipc_path, json!(["get_property", name]))
-}
-
-#[cfg(unix)]
-fn send(ipc_path: &str, command: Value) -> Result<Value, PlayerError> {
-    let mut stream = UnixStream::connect(ipc_path)?;
-    writeln!(stream, "{}", json!({ "command": command }))?;
-    stream.flush()?;
-    read_response(stream)
-}
-
-#[cfg(windows)]
-fn send(ipc_path: &str, command: Value) -> Result<Value, PlayerError> {
-    use std::fs::OpenOptions;
-    let mut stream = OpenOptions::new().read(true).write(true).open(ipc_path)?;
-    writeln!(stream, "{}", json!({ "command": command }))?;
-    stream.flush()?;
-    read_response(stream)
-}
-
-fn read_response(stream: impl std::io::Read) -> Result<Value, PlayerError> {
-    let mut reader = BufReader::new(stream);
-    let mut line = String::new();
-    reader.read_line(&mut line)?;
-    let response: Value = serde_json::from_str(&line)?;
-    if response["error"] != "success" {
-        return Err(PlayerError::Command(
-            response["error"]
-                .as_str()
-                .unwrap_or("unknown error")
-                .to_owned(),
-        ));
-    }
-    Ok(response.get("data").cloned().unwrap_or(Value::Null))
-}
-
-fn ipc_path() -> String {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
-    if cfg!(windows) {
-        format!(r"\\.\pipe\conduit-mpv-{}-{nonce}", std::process::id())
+fn argv_command(mpv: &Mpv, args: &[&str]) -> Result<(), PlayerError> {
+    let strings = args
+        .iter()
+        .map(|arg| CString::new(*arg))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| PlayerError::Command(error.to_string()))?;
+    let mut pointers = strings
+        .iter()
+        .map(|arg| arg.as_ptr())
+        .chain(std::iter::once(std::ptr::null()))
+        .collect::<Vec<_>>();
+    let result = unsafe { libmpv2_sys::mpv_command(mpv.ctx.as_ptr(), pointers.as_mut_ptr()) };
+    if result < 0 {
+        Err(PlayerError::Command(format!("mpv error {result}")))
     } else {
-        format!("/tmp/conduit-mpv-{}-{nonce}.sock", std::process::id())
+        Ok(())
     }
 }
 
-#[cfg(unix)]
-fn cleanup_ipc(ipc_path: &str) {
-    let _ = std::fs::remove_file(ipc_path);
+fn value_to_arg(value: &Value) -> String {
+    match value {
+        Value::String(value) => value.clone(),
+        Value::Bool(value) => {
+            if *value {
+                "yes".into()
+            } else {
+                "no".into()
+            }
+        }
+        Value::Number(value) => value.to_string(),
+        Value::Null => String::new(),
+        value => value.to_string(),
+    }
 }
 
-#[cfg(windows)]
-fn cleanup_ipc(_: &str) {}
+fn mpv_node_to_json(node: MpvNode) -> Value {
+    match node {
+        MpvNode::None => Value::Null,
+        MpvNode::String(value) => Value::String(value),
+        MpvNode::Flag(value) => Value::Bool(value),
+        MpvNode::Int64(value) => json!(value),
+        MpvNode::Double(value) => json!(value),
+        MpvNode::ArrayIter(values) => Value::Array(values.map(mpv_node_to_json).collect()),
+        MpvNode::MapIter(values) => Value::Object(
+            values
+                .map(|(key, value)| (key, mpv_node_to_json(value)))
+                .collect(),
+        ),
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn install_surface(app: &AppHandle, mpv: &Arc<Mpv>) -> Result<(), PlayerError> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| PlayerError::Surface("main window is unavailable".into()))?;
+    let ns_window = window
+        .ns_window()
+        .map_err(|error| PlayerError::Surface(error.to_string()))? as i64;
+    let context = mpv.ctx.as_ptr() as usize;
+    let (tx, rx) = std::sync::mpsc::sync_channel(1);
+    app.run_on_main_thread(move || {
+        let context = std::ptr::NonNull::new(context as *mut libmpv2_sys::mpv_handle)
+            .ok_or_else(|| "libmpv returned a null context".to_owned())
+            .and_then(|context| crate::player_render_macos::install(context, ns_window));
+        let _ = tx.send(context);
+    })
+    .map_err(|error| PlayerError::Surface(error.to_string()))?;
+    rx.recv_timeout(Duration::from_secs(5))
+        .map_err(|_| PlayerError::Surface("surface installation timed out".into()))?
+        .map_err(PlayerError::Surface)
+}
+
+#[cfg(target_os = "macos")]
+fn uninstall_surface(app: &AppHandle) -> Result<(), PlayerError> {
+    let (tx, rx) = std::sync::mpsc::sync_channel(1);
+    app.run_on_main_thread(move || {
+        let _ = tx.send(crate::player_render_macos::uninstall());
+    })
+    .map_err(|error| PlayerError::Surface(error.to_string()))?;
+    rx.recv_timeout(Duration::from_secs(5))
+        .map_err(|_| PlayerError::Surface("surface removal timed out".into()))?
+        .map_err(PlayerError::Surface)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn install_surface(_: &AppHandle, _: &Arc<Mpv>) -> Result<(), PlayerError> {
+    Err(PlayerError::Surface(
+        "embedded rendering is not implemented for this platform yet".into(),
+    ))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn uninstall_surface(_: &AppHandle) -> Result<(), PlayerError> {
+    Ok(())
+}
+
+#[cfg(unix)]
+fn force_c_numeric_locale() {
+    unsafe {
+        libc::setlocale(libc::LC_NUMERIC, c"C".as_ptr());
+    }
+}
+
+#[cfg(not(unix))]
+fn force_c_numeric_locale() {}
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn rejects_non_http_media_urls() {
-        let manager = PlayerManager::default();
-        assert!(matches!(
-            manager.open("file:///etc/passwd", "test"),
-            Err(PlayerError::InvalidUrl)
-        ));
-    }
-
-    #[test]
-    fn creates_platform_ipc_path() {
-        let path = ipc_path();
-        assert!(path.contains("conduit-mpv-"));
+    fn converts_command_values() {
+        assert_eq!(value_to_arg(&json!(true)), "yes");
+        assert_eq!(value_to_arg(&json!(12.5)), "12.5");
     }
 }

@@ -25,8 +25,7 @@ The web client runs at `http://localhost:5173` and the sync server at
 ### Desktop client
 
 The Tauri 2 desktop client reuses the web interface and delegates playback to
-mpv over a private local IPC connection. The Nix shell supplies both mpv and
-the Tauri CLI:
+embedded libmpv. The Nix shell supplies libmpv and the Tauri CLI:
 
 ```sh
 pnpm dev:server
@@ -34,15 +33,15 @@ pnpm dev:desktop
 ```
 
 The first command runs the household sync server. The second starts the shared
-Vite interface inside the native desktop shell. Selecting a stream opens mpv's
-native playback window; Conduit can seek, pause, enumerate and select embedded
-audio/subtitle tracks, and attach subtitles returned by installed add-ons.
+Vite interface inside the native desktop shell. Selecting a stream renders
+libmpv beneath Conduit's controls in the same window; Conduit can seek, pause,
+enumerate and select embedded audio/subtitle tracks, and attach subtitles
+returned by installed add-ons.
 
-For development outside Nix, install mpv and ensure it is available on `PATH`,
-or set `CONDUIT_MPV_PATH` to its executable. The current sidecar backend is the
-first desktop milestone and intentionally sits behind a player abstraction; a
-later libmpv render backend can embed video in the Conduit window without
-changing catalog, add-on, or playback UI contracts.
+For development outside Nix, install the libmpv development package. macOS
+builds can use `brew install mpv`; Linux builds need their distribution's
+libmpv development package. Windows release builds will bundle a matching
+libmpv DLL and import library.
 
 Configured add-on URLs are encrypted in PostgreSQL and synchronized to
 authorized household clients. Clients fetch add-on catalogs, metadata, streams,

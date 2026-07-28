@@ -1,15 +1,20 @@
 mod player;
+#[cfg(target_os = "macos")]
+mod player_render_macos;
 
 use player::{PlayerManager, PlayerSnapshot};
-use tauri::State;
+use tauri::{AppHandle, State};
 
 #[tauri::command]
-fn player_open(
+async fn player_open(
+    app: AppHandle,
     player: State<'_, PlayerManager>,
     url: String,
     title: String,
 ) -> Result<PlayerSnapshot, String> {
-    player.open(&url, &title).map_err(|error| error.to_string())
+    player
+        .open(&app, &url, &title)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -26,8 +31,8 @@ fn player_command(
 }
 
 #[tauri::command]
-fn player_stop(player: State<'_, PlayerManager>) -> Result<(), String> {
-    player.stop().map_err(|error| error.to_string())
+async fn player_stop(app: AppHandle, player: State<'_, PlayerManager>) -> Result<(), String> {
+    player.stop(&app).map_err(|error| error.to_string())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

@@ -10,6 +10,7 @@
     "frontendDist": "../../web/dist"
   },
   "app": {
+    "macOSPrivateApi": true,
     "windows": [
       {
         "title": "Conduit",
@@ -17,7 +18,8 @@
         "height": 800,
         "minWidth": 900,
         "minHeight": 600,
-        "backgroundColor": "#09090b"
+        "backgroundColor": "#00000000",
+        "transparent": true
       }
     ],
     "security": {
