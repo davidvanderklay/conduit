@@ -1,0 +1,14 @@
+.direnv/
+.devenv/
+.env
+.DS_Store
+
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+target/
+packages/core/pkg/
+
+apps/server/.local/

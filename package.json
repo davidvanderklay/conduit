@@ -1,0 +1,21 @@
+{
+  "name": "conduit",
+  "private": true,
+  "scripts": {
+    "build": "vp run ci:build",
+    "check": "vp run ci:check",
+    "core:build": "wasm-pack build packages/core --target web --out-dir pkg",
+    "db:generate": "pnpm --filter @conduit/server db:generate",
+    "db:migrate": "pnpm --filter @conduit/server db:migrate",
+    "dev": "vp run app:dev",
+    "dev:server": "pnpm --filter @conduit/server dev",
+    "dev:web": "pnpm --filter @conduit/web dev",
+    "test": "vp run ci:test"
+  },
+  "devDependencies": {
+    "@voidzero-dev/vite-plus-core": "latest",
+    "@voidzero-dev/vite-plus-test": "latest",
+    "vite-plus": "latest"
+  },
+  "packageManager": "pnpm@10.14.0"
+}

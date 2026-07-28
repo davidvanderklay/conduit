@@ -1,0 +1,25 @@
+[package]
+name = "conduit-core"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Shared client application engine for Conduit"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+url = "2"
+wasm-bindgen = "0.2"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+gloo-net = { version = "0.6", features = ["http"] }
+js-sys = "0.3"
+serde-wasm-bindgen = "0.6"
+wasm-bindgen-futures = "0.4"
+
+[dev-dependencies]
+pretty_assertions = "1"

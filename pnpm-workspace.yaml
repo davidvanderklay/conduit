@@ -1,0 +1,6 @@
+packages:
+  - apps/*
+  - packages/*
+
+overrides:
+  vite: npm:@voidzero-dev/vite-plus-core@latest

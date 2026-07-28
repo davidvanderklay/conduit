@@ -1,0 +1,32 @@
+{
+  "name": "@conduit/server",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "test": "vitest run src"
+  },
+  "dependencies": {
+    "@fastify/cors": "latest",
+    "@fastify/sensible": "latest",
+    "@sinclair/typebox": "latest",
+    "better-auth": "latest",
+    "dotenv": "latest",
+    "drizzle-orm": "latest",
+    "fastify": "latest",
+    "pg": "latest"
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "@types/pg": "latest",
+    "drizzle-kit": "latest",
+    "tsx": "latest",
+    "typescript": "latest",
+    "vitest": "latest"
+  }
+}
