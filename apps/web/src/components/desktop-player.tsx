@@ -139,14 +139,14 @@ export function DesktopPlayer({
         chromeVisible ? "cursor-default" : "cursor-none"
       }`}
       onMouseMove={showControls}
-      onClick={(event) => {
-        const target = event.target as HTMLElement
-        if (target.closest("button, input, [role='menu']")) return
-        togglePlayback()
-      }}
     >
       <div
-        className={`pointer-events-none absolute inset-x-0 top-0 flex items-center justify-between gap-4 bg-gradient-to-b from-black/85 via-black/45 to-transparent px-5 pb-16 pt-5 transition-opacity duration-300 ${
+        className="absolute inset-0 z-0"
+        onClick={togglePlayback}
+        aria-hidden="true"
+      />
+      <div
+        className={`pointer-events-none absolute inset-x-0 top-0 z-10 flex items-center justify-between gap-4 bg-gradient-to-b from-black/85 via-black/45 to-transparent px-5 pb-16 pt-5 transition-opacity duration-300 ${
           chromeVisible ? "opacity-100" : "opacity-0"
         }`}
       >
@@ -166,7 +166,7 @@ export function DesktopPlayer({
       </div>
 
       {error ? (
-        <div className="absolute inset-0 grid place-items-center p-5">
+        <div className="absolute inset-0 z-10 grid place-items-center p-5">
           <Card className="w-full max-w-lg border-red-950 bg-zinc-950/95 p-6">
             <p className="font-medium text-red-400">Could not start mpv</p>
             <p className="mt-2 text-sm text-zinc-400">{error}</p>
@@ -176,7 +176,7 @@ export function DesktopPlayer({
           </Card>
         </div>
       ) : !snapshot ? (
-        <div className="pointer-events-none absolute inset-0 grid place-items-center">
+        <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center">
           <p className="flex items-center gap-2 rounded-full bg-black/60 px-4 py-2 text-zinc-300 backdrop-blur">
             <LoaderCircle className="animate-spin" size={18} /> Starting native playback…
           </p>
@@ -185,7 +185,7 @@ export function DesktopPlayer({
 
       {snapshot && !error && (
         <div
-          className={`absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/95 via-black/70 to-transparent px-4 pb-4 pt-20 transition-opacity duration-300 sm:px-6 ${
+          className={`absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/95 via-black/70 to-transparent px-4 pb-4 pt-20 transition-opacity duration-300 sm:px-6 ${
             chromeVisible ? "opacity-100" : "pointer-events-none opacity-0"
           }`}
           onClick={(event) => event.stopPropagation()}
@@ -369,7 +369,7 @@ function TrackMenu({
   onClose: () => void
 }) {
   return (
-    <div className="absolute bottom-14 right-0 max-h-[55vh] w-80 overflow-y-auto rounded-xl border border-white/10 bg-zinc-950/95 p-2 shadow-2xl backdrop-blur-xl">
+    <div className="absolute bottom-14 right-0 z-20 max-h-[55vh] w-80 overflow-y-auto rounded-xl border border-white/10 bg-zinc-950/95 p-2 shadow-2xl backdrop-blur-xl">
       <div className="flex items-center justify-between px-2 pb-2 pt-1">
         <h3 className="font-display text-sm font-semibold">{title}</h3>
         <button

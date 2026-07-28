@@ -45,10 +45,13 @@ pkg-config development packages. Windows release builds will bundle a matching
 libmpv DLL and import library.
 
 Linux desktop playback uses libmpv's OpenGL render API in a GTK surface below
-the transparent WebKit controls. Both native Wayland and X11 sessions are
-supported. On Wayland systems affected by WebKitGTK's DMA-BUF explicit-sync
-protocol bug, Conduit disables WebKit's DMA-BUF renderer automatically. Set
-`WEBKIT_DISABLE_DMABUF_RENDERER=0` before launch to override that workaround.
+the transparent WebKit controls. X11 is supported directly; Wayland sessions
+use XWayland by default because native WebKitGTK input and presentation
+surfaces become stale when layered over `GtkGLArea`. Set
+`CONDUIT_NATIVE_WAYLAND=1` to test the experimental native Wayland path.
+Conduit also disables WebKit's DMA-BUF renderer to avoid an explicit-sync
+protocol bug; set `WEBKIT_DISABLE_DMABUF_RENDERER=0` to override that
+workaround.
 
 Configured add-on URLs are encrypted in PostgreSQL and synchronized to
 authorized household clients. Clients fetch add-on catalogs, metadata, streams,
