@@ -21,6 +21,7 @@ import {
   nativeFullscreen,
   nativePlayerSnapshot,
   openNativePlayer,
+  redrawNativeSurface,
   refreshNativeSurface,
   stopNativePlayer,
   toggleNativeFullscreen,
@@ -63,6 +64,10 @@ export function DesktopPlayer({
     setControlsVisible(true)
     window.clearTimeout(hideTimer.current)
     hideTimer.current = window.setTimeout(() => setControlsVisible(false), 2800)
+  }, [])
+
+  const redrawControls = useCallback(() => {
+    window.requestAnimationFrame(() => void redrawNativeSurface())
   }, [])
 
   useEffect(() => {
@@ -137,11 +142,13 @@ export function DesktopPlayer({
 
   const closeTrackMenu = useCallback(() => {
     setActiveMenu(undefined)
-  }, [])
+    redrawControls()
+  }, [redrawControls])
 
   const toggleTrackMenu = useCallback((menu: TrackMenuName) => {
     setActiveMenu((current) => (current === menu ? undefined : menu))
-  }, [])
+    redrawControls()
+  }, [redrawControls])
 
   const seekRelative = useCallback((seconds: number) => {
     if (!snapshot) return
@@ -221,9 +228,19 @@ export function DesktopPlayer({
     try {
       await nativePlayerCommand(["set", property, track.id])
       if (property === "sid") setSelectedAddonSubtitle(undefined)
-      const next = await nativePlayerSnapshot()
-      setSnapshot(next)
-      closeTrackMenu()
+      setSnapshot((current) =>
+        current
+          ? {
+              ...current,
+              tracks: current.tracks.map((candidate) =>
+                candidate.type === track.type
+                  ? { ...candidate, selected: candidate.id === track.id }
+                  : candidate,
+              ),
+            }
+          : current,
+      )
+      redrawControls()
     } catch (cause: unknown) {
       setError(cause instanceof Error ? cause.message : String(cause))
     }
@@ -324,31 +341,49 @@ export function DesktopPlayer({
                 selectedAddonSubtitle={selectedAddonSubtitle}
                 allowOff
                 onSelect={(track) => void selectTrack("sid", track)}
-                onSelectAddon={(subtitle) => {
-                  void nativePlayerCommand([
-                    "sub-add",
-                    subtitle.url,
-                    "select",
-                    subtitle.display,
-                    subtitle.language,
-                  ])
-                  setSelectedAddonSubtitle(subtitle.key)
-                  closeTrackMenu()
+                onSelectAddon={async (subtitle) => {
+                  try {
+                    await nativePlayerCommand([
+                      "sub-add",
+                      subtitle.url,
+                      "select",
+                      subtitle.display,
+                      subtitle.language,
+                    ])
+                    setSelectedAddonSubtitle(subtitle.key)
+                    setSnapshot((current) =>
+                      current
+                        ? {
+                            ...current,
+                            tracks: current.tracks.map((track) =>
+                              track.type === "sub" ? { ...track, selected: false } : track,
+                            ),
+                          }
+                        : current,
+                    )
+                    redrawControls()
+                  } catch (cause: unknown) {
+                    setError(cause instanceof Error ? cause.message : String(cause))
+                  }
                 }}
-                onOff={() => {
-                  void nativePlayerCommand(["set", "sid", "no"])
-                  setSelectedAddonSubtitle(undefined)
-                  setSnapshot((current) =>
-                    current
-                      ? {
-                          ...current,
-                          tracks: current.tracks.map((track) =>
-                            track.type === "sub" ? { ...track, selected: false } : track,
-                          ),
-                        }
-                      : current,
-                  )
-                  closeTrackMenu()
+                onOff={async () => {
+                  try {
+                    await nativePlayerCommand(["set", "sid", "no"])
+                    setSelectedAddonSubtitle(undefined)
+                    setSnapshot((current) =>
+                      current
+                        ? {
+                            ...current,
+                            tracks: current.tracks.map((track) =>
+                              track.type === "sub" ? { ...track, selected: false } : track,
+                            ),
+                          }
+                        : current,
+                    )
+                    redrawControls()
+                  } catch (cause: unknown) {
+                    setError(cause instanceof Error ? cause.message : String(cause))
+                  }
                 }}
                 onClose={closeTrackMenu}
               />

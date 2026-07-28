@@ -47,6 +47,10 @@ export function refreshNativeSurface(): Promise<void> {
   return invoke("player_refresh_surface")
 }
 
+export function redrawNativeSurface(): Promise<void> {
+  return invoke("player_redraw_surface")
+}
+
 export function toggleNativeFullscreen(): Promise<boolean> {
   return invoke("player_toggle_fullscreen")
 }
