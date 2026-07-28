@@ -1,4 +1,6 @@
 mod player;
+#[cfg(target_os = "linux")]
+mod player_render_linux;
 #[cfg(target_os = "macos")]
 mod player_render_macos;
 
@@ -55,6 +57,10 @@ pub fn run() {
     tauri::Builder::default()
         .manage(PlayerManager::default())
         .on_window_event(|_, _event| {
+            #[cfg(target_os = "linux")]
+            if matches!(_event, tauri::WindowEvent::Resized(_)) {
+                crate::player_render_linux::refresh();
+            }
             #[cfg(target_os = "macos")]
             if matches!(_event, tauri::WindowEvent::Resized(_)) {
                 let _ = crate::player_render_macos::refresh();

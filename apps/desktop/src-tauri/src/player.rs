@@ -1,14 +1,14 @@
 use libmpv2::{mpv_node::MpvNode, Mpv};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+use std::time::Duration;
 use std::{
     ffi::CString,
     sync::{Arc, Mutex},
 };
-#[cfg(target_os = "macos")]
-use std::time::Duration;
 use tauri::AppHandle;
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 use tauri::Manager;
 use thiserror::Error;
 
@@ -239,14 +239,45 @@ fn uninstall_surface(app: &AppHandle) -> Result<(), PlayerError> {
         .map_err(PlayerError::Surface)
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "linux")]
+fn install_surface(app: &AppHandle, mpv: &Arc<Mpv>) -> Result<(), PlayerError> {
+    let context = mpv.ctx.as_ptr() as usize;
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| PlayerError::Surface("main window is unavailable".into()))?;
+    let (tx, rx) = std::sync::mpsc::sync_channel(1);
+    app.run_on_main_thread(move || {
+        let context = std::ptr::NonNull::new(context as *mut libmpv2_sys::mpv_handle)
+            .ok_or_else(|| "libmpv returned a null context".to_owned())
+            .and_then(|context| crate::player_render_linux::install(context, &window));
+        let _ = tx.send(context);
+    })
+    .map_err(|error| PlayerError::Surface(error.to_string()))?;
+    rx.recv_timeout(Duration::from_secs(5))
+        .map_err(|_| PlayerError::Surface("surface installation timed out".into()))?
+        .map_err(PlayerError::Surface)
+}
+
+#[cfg(target_os = "linux")]
+fn uninstall_surface(app: &AppHandle) -> Result<(), PlayerError> {
+    let (tx, rx) = std::sync::mpsc::sync_channel(1);
+    app.run_on_main_thread(move || {
+        let _ = tx.send(crate::player_render_linux::uninstall());
+    })
+    .map_err(|error| PlayerError::Surface(error.to_string()))?;
+    rx.recv_timeout(Duration::from_secs(5))
+        .map_err(|_| PlayerError::Surface("surface removal timed out".into()))?
+        .map_err(PlayerError::Surface)
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 fn install_surface(_: &AppHandle, _: &Arc<Mpv>) -> Result<(), PlayerError> {
     Err(PlayerError::Surface(
         "embedded rendering is not implemented for this platform yet".into(),
     ))
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 fn uninstall_surface(_: &AppHandle) -> Result<(), PlayerError> {
     Ok(())
 }
