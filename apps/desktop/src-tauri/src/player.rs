@@ -176,7 +176,11 @@ impl PlayerManager {
 
     fn wait_until_ready(&self) -> Result<(), PlayerError> {
         let started = Instant::now();
-        while started.elapsed() < Duration::from_secs(5) {
+        // mpv can delay creation of its IPC socket while opening a slow remote
+        // source. The player window may already exist during that work, so a
+        // short timeout incorrectly reports a launch failure even though
+        // playback begins moments later.
+        while started.elapsed() < Duration::from_secs(30) {
             {
                 let guard = self.process.lock().map_err(|_| PlayerError::Poisoned)?;
                 if let Some(process) = guard.as_ref() {
