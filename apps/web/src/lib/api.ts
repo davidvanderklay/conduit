@@ -50,17 +50,23 @@ export interface InstalledAddon {
 }
 
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const headers = requestHeaders(init)
   const response = await fetch(`${API_URL}${path}`, {
     ...init,
     credentials: "include",
-    headers: {
-      "content-type": "application/json",
-      ...init.headers,
-    },
+    headers,
   })
   if (!response.ok) {
     const message = await response.text()
     throw new Error(message || `Request failed with ${response.status}`)
   }
   return response.status === 204 ? (undefined as T) : ((await response.json()) as T)
+}
+
+export function requestHeaders(init: RequestInit): Headers {
+  const headers = new Headers(init.headers)
+  if (init.body != null && !headers.has("content-type")) {
+    headers.set("content-type", "application/json")
+  }
+  return headers
 }

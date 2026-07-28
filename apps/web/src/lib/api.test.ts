@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import type { AddonManifest } from "./api"
+import { requestHeaders, type AddonManifest } from "./api"
 
 describe("add-on manifest contract", () => {
   it("retains configured catalog descriptors", () => {
@@ -13,5 +13,17 @@ describe("add-on manifest contract", () => {
     }
 
     expect(manifest.catalogs[0]?.name).toBe("Popular")
+  })
+
+  it("does not describe a bodyless delete as JSON", () => {
+    const headers = requestHeaders({ method: "DELETE" })
+
+    expect(headers.has("content-type")).toBe(false)
+  })
+
+  it("marks request bodies as JSON by default", () => {
+    const headers = requestHeaders({ method: "POST", body: "{}" })
+
+    expect(headers.get("content-type")).toBe("application/json")
   })
 })
