@@ -57,6 +57,14 @@ fn player_toggle_fullscreen(app: AppHandle) -> Result<bool, String> {
     Ok(fullscreen)
 }
 
+#[tauri::command]
+fn player_is_fullscreen(app: AppHandle) -> Result<bool, String> {
+    app.get_webview_window("main")
+        .ok_or_else(|| "main window is unavailable".to_owned())?
+        .is_fullscreen()
+        .map_err(|error| error.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[cfg(target_os = "linux")]
@@ -91,7 +99,8 @@ pub fn run() {
             player_command,
             player_stop,
             player_refresh_surface,
-            player_toggle_fullscreen
+            player_toggle_fullscreen,
+            player_is_fullscreen
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Conduit desktop");

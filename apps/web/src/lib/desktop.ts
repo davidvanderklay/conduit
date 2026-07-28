@@ -50,3 +50,7 @@ export function refreshNativeSurface(): Promise<void> {
 export function toggleNativeFullscreen(): Promise<boolean> {
   return invoke("player_toggle_fullscreen")
 }
+
+export function nativeFullscreen(): Promise<boolean> {
+  return invoke("player_is_fullscreen")
+}

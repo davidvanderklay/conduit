@@ -1,12 +1,15 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import {
   Captions,
   Languages,
   LoaderCircle,
   Maximize,
+  Minimize,
   Pause,
   Play,
+  RotateCcw,
+  RotateCw,
   Volume2,
   VolumeX,
   X,
@@ -15,6 +18,7 @@ import type { InstalledAddon } from "../lib/api"
 import { addonsForResource } from "../lib/addons"
 import {
   nativePlayerCommand,
+  nativeFullscreen,
   nativePlayerSnapshot,
   openNativePlayer,
   refreshNativeSurface,
@@ -47,10 +51,14 @@ export function DesktopPlayer({
   const [error, setError] = useState<string>()
   const [controlsVisible, setControlsVisible] = useState(true)
   const [activeMenu, setActiveMenu] = useState<TrackMenuName>()
+  const [fullscreen, setFullscreen] = useState(false)
   const [addonSubtitles, setAddonSubtitles] = useState<ResolvedAddonSubtitle[]>([])
   const [selectedAddonSubtitle, setSelectedAddonSubtitle] = useState<string>()
   const hideTimer = useRef<number | undefined>(undefined)
   const closing = useRef(false)
+  const dismissedMenuClick = useRef(false)
+  const audioButton = useRef<HTMLDivElement>(null)
+  const subtitleButton = useRef<HTMLDivElement>(null)
 
   const showControls = useCallback(() => {
     setControlsVisible(true)
@@ -90,6 +98,17 @@ export function DesktopPlayer({
   }, [addons, title, type, url, videoId])
 
   useEffect(() => {
+    const syncFullscreen = () => {
+      void nativeFullscreen()
+        .then(setFullscreen)
+        .catch(() => undefined)
+    }
+    syncFullscreen()
+    window.addEventListener("resize", syncFullscreen)
+    return () => window.removeEventListener("resize", syncFullscreen)
+  }, [])
+
+  useEffect(() => {
     if (snapshot?.paused || activeMenu || error) {
       window.clearTimeout(hideTimer.current)
       setControlsVisible(true)
@@ -117,9 +136,31 @@ export function DesktopPlayer({
     showControls()
   }
 
-  const closeTrackMenu = () => {
+  const closeTrackMenu = useCallback(() => {
     setActiveMenu(undefined)
     window.requestAnimationFrame(() => void refreshNativeSurface())
+  }, [])
+
+  const toggleTrackMenu = (menu: TrackMenuName) => {
+    setActiveMenu((current) => {
+      const next = current === menu ? undefined : menu
+      window.requestAnimationFrame(() => void refreshNativeSurface())
+      return next
+    })
+  }
+
+  const seekRelative = (seconds: number) => {
+    if (!snapshot) return
+    void nativePlayerCommand(["seek", seconds, "relative+exact"])
+    setSnapshot((current) =>
+      current
+        ? {
+            ...current,
+            position: Math.max(0, Math.min(current.duration || Infinity, current.position + seconds)),
+          }
+        : current,
+    )
+    showControls()
   }
 
   const selectTrack = async (property: "aid" | "sid", track: NativeTrack) => {
@@ -147,22 +188,47 @@ export function DesktopPlayer({
         chromeVisible ? "cursor-default" : "cursor-none"
       }`}
       onMouseMove={showControls}
+      onPointerDown={(event) => {
+        if (!activeMenu) return
+        const target = event.target as HTMLElement
+        if (!target.closest("[data-track-menu]") && !target.closest("[data-track-menu-trigger]")) {
+          dismissedMenuClick.current = true
+          window.setTimeout(() => {
+            dismissedMenuClick.current = false
+          }, 0)
+          closeTrackMenu()
+        }
+      }}
     >
       <div
         className={`absolute inset-0 z-0 ${activeMenu ? "pointer-events-none" : ""}`}
-        onClick={togglePlayback}
+        onClick={() => {
+          if (dismissedMenuClick.current) {
+            dismissedMenuClick.current = false
+            return
+          }
+          togglePlayback()
+        }}
         aria-hidden="true"
       />
       <div
-        className={`pointer-events-none absolute inset-x-0 top-0 z-10 flex items-center justify-between gap-4 bg-gradient-to-b from-black/85 via-black/45 to-transparent px-5 pb-16 pt-5 transition-opacity duration-300 ${
+        className={`pointer-events-none absolute inset-x-0 top-0 z-10 flex items-center justify-between gap-4 bg-gradient-to-b from-black/85 via-black/45 to-transparent transition-all duration-300 ${
+          fullscreen ? "px-10 pb-24 pt-8" : "px-5 pb-16 pt-5"
+        } ${
           chromeVisible ? "opacity-100" : "opacity-0"
         }`}
       >
-        <h2 className="min-w-0 truncate font-display text-lg font-semibold drop-shadow-lg">
+        <h2
+          className={`min-w-0 truncate font-display font-semibold drop-shadow-lg ${
+            fullscreen ? "text-2xl" : "text-lg"
+          }`}
+        >
           {title}
         </h2>
         <button
-          className="pointer-events-auto shrink-0 rounded-full bg-black/40 p-2.5 text-zinc-200 backdrop-blur hover:bg-white/15"
+          className={`pointer-events-auto shrink-0 rounded-full bg-black/40 text-zinc-200 backdrop-blur hover:bg-white/15 ${
+            fullscreen ? "p-3.5 [&_svg]:size-6" : "p-2.5"
+          }`}
           onClick={(event) => {
             event.stopPropagation()
             void close()
@@ -193,15 +259,18 @@ export function DesktopPlayer({
 
       {snapshot && !error && (
         <div
-          className={`absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/95 via-black/70 to-transparent px-4 pb-4 pt-20 transition-opacity duration-300 sm:px-6 ${
+          className={`absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/95 via-black/70 to-transparent transition-all duration-300 ${
+            fullscreen ? "px-10 pb-8 pt-28" : "px-4 pb-4 pt-20 sm:px-6"
+          } ${
             chromeVisible ? "opacity-100" : "pointer-events-none opacity-0"
           }`}
           onClick={(event) => event.stopPropagation()}
         >
-          <div className="relative mx-auto max-w-7xl">
+          <div className={`relative mx-auto ${fullscreen ? "max-w-none" : "max-w-7xl"}`}>
             {activeMenu === "audio" && (
               <TrackMenu
                 title="Audio"
+                anchor={audioButton}
                 tracks={audioTracks}
                 empty="No selectable audio tracks."
                 onSelect={(track) => void selectTrack("aid", track)}
@@ -211,6 +280,7 @@ export function DesktopPlayer({
             {activeMenu === "subtitles" && (
               <TrackMenu
                 title="Subtitles"
+                anchor={subtitleButton}
                 tracks={subtitleTracks}
                 empty="No embedded or add-on subtitles."
                 addonSubtitles={addonSubtitles}
@@ -248,7 +318,9 @@ export function DesktopPlayer({
             )}
 
             <input
-              className="block h-1.5 w-full cursor-pointer accent-amber-400"
+              className={`block w-full cursor-pointer accent-amber-400 ${
+                fullscreen ? "h-2" : "h-1.5"
+              }`}
               type="range"
               min={0}
               max={snapshot.duration || 0}
@@ -262,12 +334,37 @@ export function DesktopPlayer({
               }}
             />
 
-            <div className="mt-3 flex items-center gap-1 sm:gap-2">
-              <PlayerIcon label={snapshot.paused ? "Play" : "Pause"} onClick={togglePlayback}>
+            <div
+              className={`flex items-center ${
+                fullscreen ? "mt-5 gap-3" : "mt-3 gap-1 sm:gap-2"
+              }`}
+            >
+              <PlayerIcon
+                label="Back 10 seconds"
+                fullscreen={fullscreen}
+                onClick={() => seekRelative(-10)}
+              >
+                <RotateCcw size={21} />
+                <span className="absolute text-[9px] font-bold">10</span>
+              </PlayerIcon>
+              <PlayerIcon
+                label={snapshot.paused ? "Play" : "Pause"}
+                fullscreen={fullscreen}
+                onClick={togglePlayback}
+              >
                 {snapshot.paused ? <Play size={22} /> : <Pause size={22} />}
               </PlayerIcon>
               <PlayerIcon
+                label="Forward 10 seconds"
+                fullscreen={fullscreen}
+                onClick={() => seekRelative(10)}
+              >
+                <RotateCw size={21} />
+                <span className="absolute text-[9px] font-bold">10</span>
+              </PlayerIcon>
+              <PlayerIcon
                 label={snapshot.volume === 0 ? "Unmute" : "Mute"}
+                fullscreen={fullscreen}
                 onClick={() => {
                   const volume = snapshot.volume === 0 ? 100 : 0
                   void nativePlayerCommand(["set", "volume", volume])
@@ -277,7 +374,9 @@ export function DesktopPlayer({
                 {snapshot.volume === 0 ? <VolumeX size={21} /> : <Volume2 size={21} />}
               </PlayerIcon>
               <input
-                className="hidden h-1 w-20 accent-amber-400 sm:block"
+                className={`hidden h-1 accent-amber-400 sm:block ${
+                  fullscreen ? "w-32" : "w-20"
+                }`}
                 type="range"
                 min={0}
                 max={100}
@@ -289,35 +388,47 @@ export function DesktopPlayer({
                   setSnapshot((current) => (current ? { ...current, volume } : current))
                 }}
               />
-              <span className="ml-1 text-xs tabular-nums text-zinc-300">
+              <span
+                className={`ml-1 tabular-nums text-zinc-300 ${
+                  fullscreen ? "text-sm" : "text-xs"
+                }`}
+              >
                 {formatTime(snapshot.position)}
                 <span className="text-zinc-500"> / {formatTime(snapshot.duration)}</span>
               </span>
 
               <div className="flex-1" />
 
+              <div ref={audioButton} data-track-menu-trigger>
+                <PlayerIcon
+                  label={`Audio${selectedAudio ? `: ${trackName(selectedAudio, "Audio")}` : ""}`}
+                  active={activeMenu === "audio"}
+                  fullscreen={fullscreen}
+                  onClick={() => toggleTrackMenu("audio")}
+                >
+                  <Languages size={21} />
+                </PlayerIcon>
+              </div>
+              <div ref={subtitleButton} data-track-menu-trigger>
+                <PlayerIcon
+                  label={`Subtitles${
+                    selectedSubtitle ? `: ${trackName(selectedSubtitle, "Subtitles")}` : ": Off"
+                  }`}
+                  active={activeMenu === "subtitles"}
+                  fullscreen={fullscreen}
+                  onClick={() => toggleTrackMenu("subtitles")}
+                >
+                  <Captions size={22} />
+                </PlayerIcon>
+              </div>
               <PlayerIcon
-                label={`Audio${selectedAudio ? `: ${trackName(selectedAudio, "Audio")}` : ""}`}
-                active={activeMenu === "audio"}
-                onClick={() =>
-                  setActiveMenu((current) => (current === "audio" ? undefined : "audio"))
-                }
+                label={fullscreen ? "Exit fullscreen" : "Fullscreen"}
+                fullscreen={fullscreen}
+                onClick={() => {
+                  void toggleNativeFullscreen().then(setFullscreen)
+                }}
               >
-                <Languages size={21} />
-              </PlayerIcon>
-              <PlayerIcon
-                label={`Subtitles${
-                  selectedSubtitle ? `: ${trackName(selectedSubtitle, "Subtitles")}` : ": Off"
-                }`}
-                active={activeMenu === "subtitles"}
-                onClick={() =>
-                  setActiveMenu((current) => (current === "subtitles" ? undefined : "subtitles"))
-                }
-              >
-                <Captions size={22} />
-              </PlayerIcon>
-              <PlayerIcon label="Fullscreen" onClick={() => void toggleNativeFullscreen()}>
-                <Maximize size={20} />
+                {fullscreen ? <Minimize size={20} /> : <Maximize size={20} />}
               </PlayerIcon>
             </div>
           </div>
@@ -331,17 +442,21 @@ export function DesktopPlayer({
 function PlayerIcon({
   label,
   active,
+  fullscreen,
   children,
   onClick,
 }: {
   label: string
   active?: boolean
+  fullscreen?: boolean
   children: React.ReactNode
   onClick: () => void
 }) {
   return (
     <button
-      className={`rounded-lg p-2.5 text-zinc-200 transition hover:bg-white/15 hover:text-white ${
+      className={`relative grid place-items-center rounded-lg text-zinc-200 transition hover:bg-white/15 hover:text-white ${
+        fullscreen ? "size-12 [&_svg]:size-7" : "size-10"
+      } ${
         active ? "bg-white/20 text-amber-300" : ""
       }`}
       onClick={onClick}
@@ -355,6 +470,7 @@ function PlayerIcon({
 
 function TrackMenu({
   title,
+  anchor,
   tracks,
   empty,
   allowOff,
@@ -366,6 +482,7 @@ function TrackMenu({
   onClose,
 }: {
   title: string
+  anchor: React.RefObject<HTMLElement | null>
   tracks: NativeTrack[]
   empty: string
   allowOff?: boolean
@@ -376,9 +493,28 @@ function TrackMenu({
   onOff?: () => void
   onClose: () => void
 }) {
+  const [position, setPosition] = useState({ bottom: 80, right: 24, maxHeight: 400 })
+
+  useLayoutEffect(() => {
+    const updatePosition = () => {
+      const bounds = anchor.current?.getBoundingClientRect()
+      if (!bounds) return
+      setPosition({
+        bottom: Math.max(16, window.innerHeight - bounds.top + 10),
+        right: Math.max(16, window.innerWidth - bounds.right),
+        maxHeight: Math.max(160, Math.min(window.innerHeight * 0.6, bounds.top - 24)),
+      })
+    }
+    updatePosition()
+    window.addEventListener("resize", updatePosition)
+    return () => window.removeEventListener("resize", updatePosition)
+  }, [anchor])
+
   return createPortal(
     <div
-      className="fixed bottom-20 right-6 z-[100] max-h-[55vh] w-80 overflow-y-auto rounded-xl border border-white/10 bg-zinc-950/95 p-2 shadow-2xl backdrop-blur-xl"
+      data-track-menu
+      className="fixed z-[100] w-80 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-xl border border-white/10 bg-zinc-950/95 p-2 shadow-2xl backdrop-blur-xl"
+      style={position}
       role="menu"
       onPointerDown={(event) => event.stopPropagation()}
       onClick={(event) => event.stopPropagation()}
