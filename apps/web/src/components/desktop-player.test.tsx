@@ -95,10 +95,13 @@ describe("DesktopPlayer track menus", () => {
   it("unmounts the menu when its close button is clicked", () => {
     click(button("Audio: English"))
     expect(document.querySelector('[role="menu"]')).not.toBeNull()
+    desktop.refreshNativeSurface.mockClear()
 
     click(button("Close audio menu"))
+    act(() => vi.advanceTimersByTime(0))
 
     expect(document.querySelector('[role="menu"]')).toBeNull()
+    expect(desktop.refreshNativeSurface).toHaveBeenCalledOnce()
   })
 
   it("unmounts the menu when its trigger is clicked again", () => {

@@ -59,6 +59,7 @@ export function DesktopPlayer({
   const closing = useRef(false)
   const audioButton = useRef<HTMLDivElement>(null)
   const subtitleButton = useRef<HTMLDivElement>(null)
+  const previousMenu = useRef<TrackMenuName | undefined>(undefined)
 
   const showControls = useCallback(() => {
     setControlsVisible(true)
@@ -68,6 +69,10 @@ export function DesktopPlayer({
 
   const redrawControls = useCallback(() => {
     window.requestAnimationFrame(() => void redrawNativeSurface())
+  }, [])
+
+  const resetControlsSurface = useCallback(() => {
+    window.requestAnimationFrame(() => void refreshNativeSurface())
   }, [])
 
   useEffect(() => {
@@ -252,8 +257,13 @@ export function DesktopPlayer({
     controlsVisible || Boolean(snapshot?.paused) || Boolean(activeMenu) || !snapshot
 
   useLayoutEffect(() => {
-    redrawControls()
-  }, [activeMenu, chromeVisible, redrawControls])
+    if (previousMenu.current && !activeMenu) {
+      resetControlsSurface()
+    } else {
+      redrawControls()
+    }
+    previousMenu.current = activeMenu
+  }, [activeMenu, chromeVisible, redrawControls, resetControlsSurface])
 
   return createPortal(
     <div
@@ -282,7 +292,7 @@ export function DesktopPlayer({
           {title}
         </h2>
         <button
-          className={`pointer-events-auto shrink-0 rounded-full bg-black/40 text-zinc-200 backdrop-blur hover:bg-white/15 ${
+          className={`pointer-events-auto shrink-0 rounded-full bg-black/60 text-zinc-200 hover:bg-white/15 ${
             fullscreen ? "p-3.5 [&_svg]:size-6" : "p-2.5"
           }`}
           onClick={(event) => {
@@ -307,7 +317,7 @@ export function DesktopPlayer({
         </div>
       ) : !snapshot ? (
         <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center">
-          <p className="flex items-center gap-2 rounded-full bg-black/60 px-4 py-2 text-zinc-300 backdrop-blur">
+          <p className="flex items-center gap-2 rounded-full bg-black/75 px-4 py-2 text-zinc-300">
             <LoaderCircle className="animate-spin" size={18} /> Starting native playback…
           </p>
         </div>
@@ -323,7 +333,7 @@ export function DesktopPlayer({
           onClick={(event) => event.stopPropagation()}
           onTransitionEnd={(event) => {
             if (event.target === event.currentTarget && event.propertyName === "opacity") {
-              redrawControls()
+              resetControlsSurface()
             }
           }}
         >
@@ -542,7 +552,7 @@ function PlayerIcon({
 }) {
   return (
     <button
-      className={`relative grid place-items-center rounded-lg bg-black/25 text-zinc-200 shadow-sm backdrop-blur-[2px] transition hover:bg-white/15 hover:text-white ${
+      className={`relative grid place-items-center rounded-lg bg-black/35 text-zinc-200 shadow-sm transition hover:bg-white/15 hover:text-white ${
         fullscreen ? "size-12 [&_svg]:size-7" : "size-10"
       } ${
         active ? "bg-white/20 text-amber-300" : ""
@@ -601,7 +611,7 @@ function TrackMenu({
   return createPortal(
     <div
       data-track-menu
-      className="fixed z-[100] w-80 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-xl border border-white/10 bg-zinc-950/95 p-2 shadow-2xl backdrop-blur-xl"
+      className="fixed z-[100] w-80 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-xl border border-white/10 bg-zinc-950 p-2 shadow-2xl"
       style={position}
       role="menu"
       onPointerDown={(event) => event.stopPropagation()}
