@@ -46,6 +46,8 @@ export function DesktopPlayer({
   const [error, setError] = useState<string>()
   const [controlsVisible, setControlsVisible] = useState(true)
   const [activeMenu, setActiveMenu] = useState<TrackMenuName>()
+  const [addonSubtitles, setAddonSubtitles] = useState<ResolvedAddonSubtitle[]>([])
+  const [selectedAddonSubtitle, setSelectedAddonSubtitle] = useState<string>()
   const hideTimer = useRef<number | undefined>(undefined)
 
   const showControls = useCallback(() => {
@@ -61,8 +63,8 @@ export function DesktopPlayer({
       .then(async (initial) => {
         if (cancelled) return
         setSnapshot(initial)
-        const addonSubtitles = await resolveAddonSubtitles(addons, type, videoId)
-        await attachAddonSubtitles(addonSubtitles)
+        const resolved = await resolveAddonSubtitles(addons, type, videoId)
+        if (!cancelled) setAddonSubtitles(resolved)
       })
       .catch((cause: unknown) => {
         if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause))
@@ -108,6 +110,7 @@ export function DesktopPlayer({
 
   const selectTrack = (property: "aid" | "sid", track: NativeTrack) => {
     void nativePlayerCommand(["set_property", property, track.id])
+    if (property === "sid") setSelectedAddonSubtitle(undefined)
     setSnapshot((current) =>
       current
         ? {
@@ -198,10 +201,24 @@ export function DesktopPlayer({
                 title="Subtitles"
                 tracks={subtitleTracks}
                 empty="No embedded or add-on subtitles."
+                addonSubtitles={addonSubtitles}
+                selectedAddonSubtitle={selectedAddonSubtitle}
                 allowOff
                 onSelect={(track) => selectTrack("sid", track)}
+                onSelectAddon={(subtitle) => {
+                  void nativePlayerCommand([
+                    "sub-add",
+                    subtitle.url,
+                    "select",
+                    subtitle.display,
+                    subtitle.language,
+                  ])
+                  setSelectedAddonSubtitle(subtitle.key)
+                  setActiveMenu(undefined)
+                }}
                 onOff={() => {
                   void nativePlayerCommand(["set_property", "sid", "no"])
+                  setSelectedAddonSubtitle(undefined)
                   setSnapshot((current) =>
                     current
                       ? {
@@ -329,7 +346,10 @@ function TrackMenu({
   tracks,
   empty,
   allowOff,
+  addonSubtitles,
+  selectedAddonSubtitle,
   onSelect,
+  onSelectAddon,
   onOff,
   onClose,
 }: {
@@ -337,7 +357,10 @@ function TrackMenu({
   tracks: NativeTrack[]
   empty: string
   allowOff?: boolean
+  addonSubtitles?: ResolvedAddonSubtitle[]
+  selectedAddonSubtitle?: string
   onSelect: (track: NativeTrack) => void
+  onSelectAddon?: (subtitle: ResolvedAddonSubtitle) => void
   onOff?: () => void
   onClose: () => void
 }) {
@@ -356,7 +379,7 @@ function TrackMenu({
       {allowOff && (
         <button
           className={`mb-1 block w-full rounded-lg px-3 py-2 text-left text-sm ${
-            tracks.some((track) => track.selected)
+            tracks.some((track) => track.selected) || selectedAddonSubtitle
               ? "text-zinc-400 hover:bg-zinc-800"
               : "bg-amber-400 text-zinc-950"
           }`}
@@ -381,7 +404,29 @@ function TrackMenu({
           </span>
         </button>
       ))}
-      {!tracks.length && <p className="px-3 py-2 text-sm text-zinc-500">{empty}</p>}
+      {addonSubtitles?.map((subtitle) => (
+        <button
+          key={subtitle.key}
+          className={`mb-1 block w-full rounded-lg px-3 py-2 text-left ${
+            selectedAddonSubtitle === subtitle.key
+              ? "bg-amber-400 text-zinc-950"
+              : "text-zinc-300 hover:bg-zinc-800"
+          }`}
+          onClick={() => onSelectAddon?.(subtitle)}
+        >
+          <span className="block text-sm font-medium">{subtitle.display}</span>
+          <span
+            className={`text-xs ${
+              selectedAddonSubtitle === subtitle.key ? "text-zinc-800" : "text-zinc-500"
+            }`}
+          >
+            Add-on subtitle
+          </span>
+        </button>
+      ))}
+      {!tracks.length && !addonSubtitles?.length && (
+        <p className="px-3 py-2 text-sm text-zinc-500">{empty}</p>
+      )}
     </div>
   )
 }
@@ -391,6 +436,7 @@ function trackName(track: NativeTrack, fallback: string): string {
 }
 
 interface ResolvedAddonSubtitle {
+  key: string
   url: string
   language: string
   display: string
@@ -410,7 +456,7 @@ async function resolveAddonSubtitles(
   )
   return results.flatMap((result) => {
     if (result.status === "rejected") return []
-    return result.value.subtitles.flatMap((subtitle) => {
+    return result.value.subtitles.flatMap((subtitle, index) => {
       if (!subtitle.url) return []
       const language =
         subtitle.lang ??
@@ -421,6 +467,7 @@ async function resolveAddonSubtitles(
         "und"
       return [
         {
+          key: `${result.value.addon.id}:${subtitle.id || index}`,
           url: subtitle.url,
           language,
           display: `${languageName(language) || language} · ${result.value.addon.manifest.name}`,
@@ -428,18 +475,6 @@ async function resolveAddonSubtitles(
       ]
     })
   })
-}
-
-async function attachAddonSubtitles(subtitles: ResolvedAddonSubtitle[]): Promise<void> {
-  for (const subtitle of subtitles) {
-    await nativePlayerCommand([
-      "sub-add",
-      subtitle.url,
-      "auto",
-      subtitle.display,
-      subtitle.language,
-    ]).catch(() => undefined)
-  }
 }
 
 function languageName(code?: string): string | undefined {
