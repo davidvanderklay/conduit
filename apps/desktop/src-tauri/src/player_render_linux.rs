@@ -88,6 +88,7 @@ pub fn initialize(window: &WebviewWindow) -> Result<(), String> {
     gtk_window.add(&overlay);
     overlay.show_all();
     gtk_window.show_all();
+    area.set_opacity(0.0);
 
     SURFACE.with(|surface| {
         *surface.borrow_mut() = Some(EmbeddedSurface {
@@ -141,6 +142,7 @@ pub fn install(context: NonNull<mpv_handle>, window: &WebviewWindow) -> Result<(
         if let Some(surface) = surface.borrow_mut().as_mut() {
             set_webview_background(&surface.webview, 0.0);
             surface.render = Some(render);
+            surface.area.set_opacity(1.0);
             surface.overlay.queue_draw();
             surface.webview.queue_draw();
             surface.area.queue_render();
@@ -153,12 +155,37 @@ pub fn install(context: NonNull<mpv_handle>, window: &WebviewWindow) -> Result<(
 
 pub fn uninstall() -> Result<(), String> {
     REDRAW_PENDING.store(false, Ordering::Release);
+
+    // libmpv requires every OpenGL render operation, including destruction of
+    // the render context, to run with the same GL context current. Taking the
+    // renderer out first also avoids holding the RefCell borrow while libmpv
+    // synchronously tears down an active video output.
+    let render = SURFACE.with(|surface| {
+        let mut surface = surface.borrow_mut();
+        let Some(surface) = surface.as_mut() else {
+            return Ok(None);
+        };
+        surface.area.make_current();
+        if let Some(error) = surface.area.error() {
+            return Err(format!(
+                "OpenGL context activation during teardown failed: {error}"
+            ));
+        }
+        Ok(surface.render.take())
+    })?;
+
+    #[cfg(debug_assertions)]
+    eprintln!("Conduit: releasing Linux video render context");
+    drop(render);
+    #[cfg(debug_assertions)]
+    eprintln!("Conduit: Linux video render context released");
+
     SURFACE.with(|surface| {
-        if let Some(surface) = surface.borrow_mut().as_mut() {
-            surface.render = None;
+        if let Some(surface) = surface.borrow().as_ref() {
+            surface.area.set_opacity(0.0);
             set_webview_background(&surface.webview, 1.0);
             surface.webview.queue_draw();
-            surface.area.queue_render();
+            surface.overlay.queue_draw();
             force_configure(surface);
         }
     });

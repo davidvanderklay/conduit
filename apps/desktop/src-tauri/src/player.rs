@@ -121,7 +121,10 @@ impl PlayerManager {
             .map_err(|_| PlayerError::Poisoned)?
             .take();
         if let Some(session) = session {
-            let _ = session.mpv.command("stop", &[]);
+            // Freeing an active render context already disables video. Avoid a
+            // synchronous normal mpv command immediately before waiting for
+            // teardown on the render thread; libmpv explicitly warns that
+            // this lock dependency can deadlock.
             uninstall_surface(app)?;
             drop(session);
         }
