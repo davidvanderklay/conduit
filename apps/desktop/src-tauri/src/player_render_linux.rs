@@ -27,9 +27,8 @@ struct EmbeddedSurface {
     area: GLArea,
     overlay: Overlay,
     webview: Widget,
-    vbox: gtk::Box,
     window: gtk::ApplicationWindow,
-    render: RenderContext,
+    render: Option<RenderContext>,
 }
 
 thread_local! {
@@ -47,9 +46,10 @@ extern "C" {
 
 const RTLD_DEFAULT: *mut c_void = std::ptr::null_mut();
 
-pub fn install(context: NonNull<mpv_handle>, window: &WebviewWindow) -> Result<(), String> {
-    uninstall()?;
-
+pub fn initialize(window: &WebviewWindow) -> Result<(), String> {
+    if SURFACE.with(|surface| surface.borrow().is_some()) {
+        return Ok(());
+    }
     let gtk_window = window.gtk_window().map_err(|error| error.to_string())?;
     let vbox = window.default_vbox().map_err(|error| error.to_string())?;
     let webview = vbox
@@ -59,7 +59,7 @@ pub fn install(context: NonNull<mpv_handle>, window: &WebviewWindow) -> Result<(
         .ok_or_else(|| "Tauri window has no WebKit widget".to_owned())?;
 
     apply_rgba_visual(&gtk_window);
-    set_webview_background(&webview, 0.0);
+    set_webview_background(&webview, 1.0);
     gtk_window.remove(&vbox);
     vbox.remove(&webview);
 
@@ -89,9 +89,31 @@ pub fn install(context: NonNull<mpv_handle>, window: &WebviewWindow) -> Result<(
     overlay.show_all();
     gtk_window.show_all();
 
+    SURFACE.with(|surface| {
+        *surface.borrow_mut() = Some(EmbeddedSurface {
+            area,
+            overlay,
+            webview,
+            window: gtk_window,
+            render: None,
+        });
+    });
+    Ok(())
+}
+
+pub fn install(context: NonNull<mpv_handle>, window: &WebviewWindow) -> Result<(), String> {
+    initialize(window)?;
+    uninstall()?;
+
+    let area = SURFACE.with(|surface| {
+        surface
+            .borrow()
+            .as_ref()
+            .map(|surface| surface.area.clone())
+            .ok_or_else(|| "Linux render surface is unavailable".to_owned())
+    })?;
     area.make_current();
     if let Some(error) = area.error() {
-        restore_layout(&gtk_window, &vbox, &overlay, &webview);
         return Err(format!("OpenGL context creation failed: {error}"));
     }
 
@@ -111,33 +133,19 @@ pub fn install(context: NonNull<mpv_handle>, window: &WebviewWindow) -> Result<(
     }
     let mut render = match RenderContext::new(unsafe { &mut *context.as_ptr() }, parameters) {
         Ok(render) => render,
-        Err(error) => {
-            restore_layout(&gtk_window, &vbox, &overlay, &webview);
-            return Err(format!("libmpv render context: {error:?}"));
-        }
+        Err(error) => return Err(format!("libmpv render context: {error:?}")),
     };
     render.set_update_callback(schedule_redraw);
 
     SURFACE.with(|surface| {
-        *surface.borrow_mut() = Some(EmbeddedSurface {
-            area,
-            overlay,
-            webview,
-            vbox,
-            window: gtk_window,
-            render,
-        });
-    });
-    glib::idle_add_local_once(|| {
-        SURFACE.with(|surface| {
-            if let Some(surface) = surface.borrow().as_ref() {
-                surface.window.queue_resize();
-                surface.window.check_resize();
-                surface.overlay.queue_draw();
-                surface.webview.queue_draw();
-                surface.area.queue_render();
-            }
-        });
+        if let Some(surface) = surface.borrow_mut().as_mut() {
+            set_webview_background(&surface.webview, 0.0);
+            surface.render = Some(render);
+            surface.overlay.queue_draw();
+            surface.webview.queue_draw();
+            surface.area.queue_render();
+            force_configure(surface);
+        }
     });
     schedule_redraw();
     Ok(())
@@ -146,16 +154,35 @@ pub fn install(context: NonNull<mpv_handle>, window: &WebviewWindow) -> Result<(
 pub fn uninstall() -> Result<(), String> {
     REDRAW_PENDING.store(false, Ordering::Release);
     SURFACE.with(|surface| {
-        if let Some(surface) = surface.borrow_mut().take() {
-            restore_layout(
-                &surface.window,
-                &surface.vbox,
-                &surface.overlay,
-                &surface.webview,
-            );
+        if let Some(surface) = surface.borrow_mut().as_mut() {
+            surface.render = None;
+            set_webview_background(&surface.webview, 1.0);
+            surface.webview.queue_draw();
+            surface.area.queue_render();
+            force_configure(surface);
         }
     });
     Ok(())
+}
+
+fn force_configure(surface: &EmbeddedSurface) {
+    let fullscreen = surface
+        .window
+        .window()
+        .is_some_and(|window| window.state().contains(gdk::WindowState::FULLSCREEN));
+    if fullscreen || surface.window.is_maximized() {
+        surface.window.queue_resize();
+        surface.window.queue_draw();
+        return;
+    }
+    let width = surface.window.allocated_width().max(2);
+    let height = surface.window.allocated_height().max(2);
+    let window = surface.window.clone();
+    window.resize(width - 1, height);
+    glib::idle_add_local_once(move || {
+        window.resize(width, height);
+        window.queue_draw();
+    });
 }
 
 pub fn refresh() {
@@ -166,20 +193,6 @@ pub fn refresh() {
             surface.area.queue_render();
         }
     });
-}
-
-fn restore_layout(
-    window: &gtk::ApplicationWindow,
-    vbox: &gtk::Box,
-    overlay: &Overlay,
-    webview: &Widget,
-) {
-    set_webview_background(webview, 1.0);
-    overlay.remove(webview);
-    window.remove(overlay);
-    vbox.pack_start(webview, true, true, 0);
-    window.add(vbox);
-    vbox.show_all();
 }
 
 fn schedule_redraw() {
@@ -206,8 +219,10 @@ fn render() -> Result<(), String> {
         let scale = surface.area.scale_factor().max(1);
         let width = (surface.area.allocated_width() * scale).max(1);
         let height = (surface.area.allocated_height() * scale).max(1);
-        surface
-            .render
+        let Some(render) = surface.render.as_ref() else {
+            return Ok(());
+        };
+        render
             .render::<()>(current_framebuffer(), width, height, true)
             .map_err(|error| format!("libmpv render: {error:?}"))
     })
