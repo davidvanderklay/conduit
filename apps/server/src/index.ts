@@ -1,7 +1,9 @@
-import "dotenv/config"
+import dotenv from "dotenv"
 import { buildApp } from "./app.js"
 import { loadConfig } from "./config.js"
 import { createDatabase } from "./db/index.js"
+
+dotenv.config({ path: new URL("../../../.env", import.meta.url) })
 
 const config = loadConfig()
 const { db, pool } = createDatabase(config.databaseUrl)
