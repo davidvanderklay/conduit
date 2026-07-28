@@ -25,6 +25,12 @@
             openssl
             postgresql_17
             mpv
+            dbus
+            glib
+            gtk3
+            libsoup_3
+            webkitgtk_4_1
+            librsvg
             cargo-tauri
           ];
 
