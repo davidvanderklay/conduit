@@ -56,23 +56,19 @@ export function DesktopPlayer({
 
   useEffect(() => {
     let cancelled = false
-    let ready = false
     document.documentElement.classList.add("native-playback")
-    void Promise.all([openNativePlayer(url, title), resolveAddonSubtitles(addons, type, videoId)])
-      .then(async ([initial, addonSubtitles]) => {
+    void openNativePlayer(url, title)
+      .then(async (initial) => {
         if (cancelled) return
+        setSnapshot(initial)
+        const addonSubtitles = await resolveAddonSubtitles(addons, type, videoId)
         await attachAddonSubtitles(addonSubtitles)
-        if (cancelled) return
-        await nativePlayerCommand(["set_property", "pause", false])
-        ready = true
-        setSnapshot({ ...initial, paused: false })
       })
       .catch((cause: unknown) => {
         if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause))
       })
 
     const poll = window.setInterval(() => {
-      if (!ready) return
       void nativePlayerSnapshot()
         .then((next) => {
           if (!cancelled) setSnapshot(next)
