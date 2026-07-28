@@ -61,6 +61,7 @@ export function DesktopPlayer({
   const audioButton = useRef<HTMLDivElement>(null)
   const subtitleButton = useRef<HTMLDivElement>(null)
   const previousMenu = useRef<TrackMenuName | undefined>(undefined)
+  const previousChromeVisible = useRef(true)
 
   const showControls = useCallback(() => {
     setControlsVisible(true)
@@ -261,8 +262,11 @@ export function DesktopPlayer({
 
   useLayoutEffect(() => {
     redrawControls()
-    if (previousMenu.current && !activeMenu) resetOverlay()
+    const menuClosed = Boolean(previousMenu.current && !activeMenu)
+    const chromeHidden = previousChromeVisible.current && !chromeVisible
+    if (menuClosed || chromeHidden) resetOverlay()
     previousMenu.current = activeMenu
+    previousChromeVisible.current = chromeVisible
   }, [activeMenu, chromeVisible, redrawControls, resetOverlay])
 
   return createPortal(

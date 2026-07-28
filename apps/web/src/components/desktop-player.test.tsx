@@ -119,6 +119,26 @@ describe("DesktopPlayer track menus", () => {
     }
   })
 
+  it("hides inactive controls and cursor, then restores them on mouse movement", () => {
+    const player = document.querySelector<HTMLElement>(".native-player")
+    const chrome = document.querySelectorAll<HTMLElement>("[data-player-chrome]")
+    desktop.resetNativeOverlaySurface.mockClear()
+
+    act(() => vi.advanceTimersByTime(2800))
+    act(() => vi.advanceTimersByTime(1))
+
+    expect(player?.className).toContain("cursor-none")
+    for (const region of chrome) expect(region.classList.contains("invisible")).toBe(true)
+    expect(desktop.resetNativeOverlaySurface).toHaveBeenCalledOnce()
+
+    act(() => {
+      player?.dispatchEvent(new MouseEvent("mousemove", { bubbles: true }))
+    })
+
+    expect(player?.className).toContain("cursor-default")
+    for (const region of chrome) expect(region.classList.contains("visible")).toBe(true)
+  })
+
   it("unmounts the menu when its trigger is clicked again", () => {
     click(button("Audio: English"))
     click(button("Audio: English"))
