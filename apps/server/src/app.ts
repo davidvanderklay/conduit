@@ -14,6 +14,8 @@ export async function buildApp(config: Config, db: Database) {
   await app.register(cors, {
     origin: config.webOrigin,
     credentials: true,
+    methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    maxAge: 600,
   })
   await app.register(sensible)
 
