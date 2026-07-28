@@ -392,10 +392,13 @@ export function Player({
                     />
                   ))
                 ) : (
-                  <p className="px-2 py-2 text-xs leading-5 text-zinc-500">
-                    The browser exposed no selectable audio tracks. A silent video usually uses an
-                    unsupported audio codec or container.
-                  </p>
+                  <div className="rounded-lg bg-zinc-900 px-3 py-2">
+                    <p className="text-sm text-zinc-300">Automatic</p>
+                    <p className="mt-1 text-xs leading-5 text-zinc-500">
+                      The browser is choosing the default audio track and does not expose track
+                      switching for this source. This does not mean the video has no audio.
+                    </p>
+                  </div>
                 )}
               </TrackSection>
             </div>
