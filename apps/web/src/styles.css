@@ -29,6 +29,8 @@ body {
 .native-playback,
 .native-playback body {
   background: transparent;
+  height: 100%;
+  overflow: hidden;
 }
 
 .native-playback #root {

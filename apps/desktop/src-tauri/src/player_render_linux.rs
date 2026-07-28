@@ -5,10 +5,10 @@
 use gtk::{
     gdk, glib,
     glib::{
-        translate::{IntoGlib, Stash, ToGlibPtr},
+        translate::{Stash, ToGlibPtr},
         ObjectExt,
     },
-    prelude::{BoxExt, ContainerExt, GLAreaExt, OverlayExt, WidgetExt},
+    prelude::*,
     GLArea, Overlay, Widget,
 };
 use libmpv2::render::{OpenGLInitParams, RenderContext, RenderParam, RenderParamApiType};
@@ -28,8 +28,7 @@ struct EmbeddedSurface {
     overlay: Overlay,
     webview: Widget,
     vbox: gtk::Box,
-    webview_position: i32,
-    blocked_button_handlers: bool,
+    window: gtk::ApplicationWindow,
     render: RenderContext,
 }
 
@@ -53,47 +52,46 @@ pub fn install(context: NonNull<mpv_handle>, window: &WebviewWindow) -> Result<(
 
     let gtk_window = window.gtk_window().map_err(|error| error.to_string())?;
     let vbox = window.default_vbox().map_err(|error| error.to_string())?;
-    let children = vbox.children();
-    let webview = children
-        .last()
-        .cloned()
+    let webview = vbox
+        .children()
+        .into_iter()
+        .next()
         .ok_or_else(|| "Tauri window has no WebKit widget".to_owned())?;
-    let webview_position = children
-        .iter()
-        .position(|child| child == &webview)
-        .unwrap_or_default() as i32;
-    let blocked_button_handlers = set_button_handlers_blocked(&webview, true);
 
+    apply_rgba_visual(&gtk_window);
+    set_webview_background(&webview, 0.0);
+    gtk_window.remove(&vbox);
     vbox.remove(&webview);
 
     let area = GLArea::new();
     area.set_auto_render(false);
+    area.set_use_es(false);
     area.set_has_depth_buffer(false);
+    area.set_has_stencil_buffer(false);
+    area.set_app_paintable(true);
     area.set_hexpand(true);
     area.set_vexpand(true);
     area.connect_render(|_, _| {
         let _ = render();
         glib::Propagation::Stop
     });
+    area.connect_resize(|area, _, _| area.queue_render());
 
     let overlay = Overlay::new();
     overlay.set_hexpand(true);
     overlay.set_vexpand(true);
     overlay.add(&area);
     overlay.add_overlay(&webview);
+    overlay.set_overlay_pass_through(&webview, false);
     webview.set_hexpand(true);
     webview.set_vexpand(true);
-    vbox.pack_start(&overlay, true, true, 0);
-    vbox.reorder_child(&overlay, webview_position);
+    gtk_window.add(&overlay);
     overlay.show_all();
     gtk_window.show_all();
 
     area.make_current();
     if let Some(error) = area.error() {
-        restore_layout(&vbox, &overlay, &webview, webview_position);
-        if blocked_button_handlers {
-            set_button_handlers_blocked(&webview, false);
-        }
+        restore_layout(&gtk_window, &vbox, &overlay, &webview);
         return Err(format!("OpenGL context creation failed: {error}"));
     }
 
@@ -114,10 +112,7 @@ pub fn install(context: NonNull<mpv_handle>, window: &WebviewWindow) -> Result<(
     let mut render = match RenderContext::new(unsafe { &mut *context.as_ptr() }, parameters) {
         Ok(render) => render,
         Err(error) => {
-            restore_layout(&vbox, &overlay, &webview, webview_position);
-            if blocked_button_handlers {
-                set_button_handlers_blocked(&webview, false);
-            }
+            restore_layout(&gtk_window, &vbox, &overlay, &webview);
             return Err(format!("libmpv render context: {error:?}"));
         }
     };
@@ -129,8 +124,7 @@ pub fn install(context: NonNull<mpv_handle>, window: &WebviewWindow) -> Result<(
             overlay,
             webview,
             vbox,
-            webview_position,
-            blocked_button_handlers,
+            window: gtk_window,
             render,
         });
     });
@@ -143,14 +137,11 @@ pub fn uninstall() -> Result<(), String> {
     SURFACE.with(|surface| {
         if let Some(surface) = surface.borrow_mut().take() {
             restore_layout(
+                &surface.window,
                 &surface.vbox,
                 &surface.overlay,
                 &surface.webview,
-                surface.webview_position,
             );
-            if surface.blocked_button_handlers {
-                set_button_handlers_blocked(&surface.webview, false);
-            }
         }
     });
     Ok(())
@@ -164,12 +155,18 @@ pub fn refresh() {
     });
 }
 
-fn restore_layout(vbox: &gtk::Box, overlay: &Overlay, webview: &Widget, position: i32) {
+fn restore_layout(
+    window: &gtk::ApplicationWindow,
+    vbox: &gtk::Box,
+    overlay: &Overlay,
+    webview: &Widget,
+) {
+    set_webview_background(webview, 1.0);
     overlay.remove(webview);
-    vbox.remove(overlay);
+    window.remove(overlay);
     vbox.pack_start(webview, true, true, 0);
-    vbox.reorder_child(webview, position);
-    webview.show();
+    window.add(vbox);
+    vbox.show_all();
 }
 
 fn schedule_redraw() {
@@ -237,40 +234,45 @@ fn resolve_gl<T: Copy>(name: &str) -> Option<T> {
     }
 }
 
-fn set_button_handlers_blocked(webview: &Widget, blocked: bool) -> bool {
-    unsafe {
-        let signal = glib::gobject_ffi::g_signal_lookup(
-            c"button-press-event".as_ptr(),
-            webview.type_().into_glib(),
-        );
-        if signal == 0 {
-            return false;
+fn apply_rgba_visual(window: &gtk::ApplicationWindow) {
+    if let Some(screen) = GtkWindowExt::screen(window) {
+        if let Some(visual) = screen.rgba_visual() {
+            window.set_visual(Some(&visual));
+            window.set_app_paintable(true);
         }
-        let widget_stash: Stash<'_, *mut gtk::ffi::GtkWidget, Widget> = webview.to_glib_none();
-        let instance = widget_stash.0 as *mut glib::gobject_ffi::GObject;
-        let matched = if blocked {
-            glib::gobject_ffi::g_signal_handlers_block_matched(
-                instance,
-                glib::gobject_ffi::G_SIGNAL_MATCH_ID,
-                signal,
-                0,
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-            )
-        } else {
-            glib::gobject_ffi::g_signal_handlers_unblock_matched(
-                instance,
-                glib::gobject_ffi::G_SIGNAL_MATCH_ID,
-                signal,
-                0,
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-            )
-        };
-        matched > 0
     }
+}
+
+fn set_webview_background(webview: &Widget, alpha: f64) {
+    #[repr(C)]
+    struct Rgba {
+        red: f64,
+        green: f64,
+        blue: f64,
+        alpha: f64,
+    }
+    type SetBackground = unsafe extern "C" fn(*mut c_void, *const Rgba);
+    let Some(set_background) =
+        resolve_symbol::<SetBackground>("webkit_web_view_set_background_color")
+    else {
+        return;
+    };
+    let widget_stash: Stash<'_, *mut gtk::ffi::GtkWidget, Widget> = webview.to_glib_none();
+    let color = Rgba {
+        red: 0.0,
+        green: 0.0,
+        blue: 0.0,
+        alpha,
+    };
+    unsafe {
+        set_background(widget_stash.0.cast(), &color);
+    }
+}
+
+fn resolve_symbol<T: Copy>(name: &str) -> Option<T> {
+    let name = CString::new(name).ok()?;
+    let pointer = unsafe { dlsym(RTLD_DEFAULT, name.as_ptr()) };
+    (!pointer.is_null()).then(|| unsafe { std::mem::transmute_copy(&pointer) })
 }
 
 fn get_proc_address(_: &(), name: &str) -> *mut c_void {
