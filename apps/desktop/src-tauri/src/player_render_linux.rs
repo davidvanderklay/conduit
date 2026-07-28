@@ -128,6 +128,17 @@ pub fn install(context: NonNull<mpv_handle>, window: &WebviewWindow) -> Result<(
             render,
         });
     });
+    glib::idle_add_local_once(|| {
+        SURFACE.with(|surface| {
+            if let Some(surface) = surface.borrow().as_ref() {
+                surface.window.queue_resize();
+                surface.window.check_resize();
+                surface.overlay.queue_draw();
+                surface.webview.queue_draw();
+                surface.area.queue_render();
+            }
+        });
+    });
     schedule_redraw();
     Ok(())
 }
@@ -150,6 +161,8 @@ pub fn uninstall() -> Result<(), String> {
 pub fn refresh() {
     SURFACE.with(|surface| {
         if let Some(surface) = surface.borrow().as_ref() {
+            surface.overlay.queue_draw();
+            surface.webview.queue_draw();
             surface.area.queue_render();
         }
     });

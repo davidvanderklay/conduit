@@ -135,11 +135,15 @@ export function DesktopPlayer({
 
   return createPortal(
     <div
-      className={`native-player fixed inset-0 z-50 overflow-hidden ${
+      className={`native-player fixed inset-0 z-50 select-none overflow-hidden ${
         chromeVisible ? "cursor-default" : "cursor-none"
       }`}
       onMouseMove={showControls}
-      onClick={togglePlayback}
+      onClick={(event) => {
+        const target = event.target as HTMLElement
+        if (target.closest("button, input, [role='menu']")) return
+        togglePlayback()
+      }}
     >
       <div
         className={`pointer-events-none absolute inset-x-0 top-0 flex items-center justify-between gap-4 bg-gradient-to-b from-black/85 via-black/45 to-transparent px-5 pb-16 pt-5 transition-opacity duration-300 ${

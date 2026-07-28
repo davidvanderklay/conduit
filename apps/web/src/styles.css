@@ -31,6 +31,8 @@ body {
   background: transparent;
   height: 100%;
   overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .native-playback #root {
