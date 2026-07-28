@@ -7,6 +7,7 @@ import { loadCatalog, loadManifest, type CatalogItem } from "./lib/core"
 import { Button } from "./components/ui/button"
 import { Card } from "./components/ui/card"
 import { Input } from "./components/ui/input"
+import { MediaDetails } from "./components/media-details"
 
 export function App() {
   const session = authClient.useSession()
@@ -189,6 +190,7 @@ function HouseholdSetup() {
 function MediaHome({ profile }: { profile: Profile }) {
   const queryClient = useQueryClient()
   const [installOpen, setInstallOpen] = useState(false)
+  const [selectedItem, setSelectedItem] = useState<CatalogItem>()
   const addons = useQuery({
     queryKey: ["addons", profile.id],
     queryFn: () => api<{ addons: InstalledAddon[] }>(`/v1/profiles/${profile.id}/addons`),
@@ -313,8 +315,21 @@ function MediaHome({ profile }: { profile: Profile }) {
       ) : null}
 
       {catalogs.data?.catalogs.map((catalog) => (
-        <CatalogShelf key={catalog.key} title={catalog.title} items={catalog.items} />
+        <CatalogShelf
+          key={catalog.key}
+          title={catalog.title}
+          items={catalog.items}
+          onSelect={setSelectedItem}
+        />
       ))}
+
+      {selectedItem && addons.data && (
+        <MediaDetails
+          item={selectedItem}
+          addons={addons.data.addons}
+          onClose={() => setSelectedItem(undefined)}
+        />
+      )}
     </main>
   )
 }
@@ -362,14 +377,26 @@ function InstallAddon({ profile, onInstalled }: { profile: Profile; onInstalled:
   )
 }
 
-function CatalogShelf({ title, items }: { title: string; items: CatalogItem[] }) {
+function CatalogShelf({
+  title,
+  items,
+  onSelect,
+}: {
+  title: string
+  items: CatalogItem[]
+  onSelect: (item: CatalogItem) => void
+}) {
   if (items.length === 0) return null
   return (
     <section className="mb-10">
       <h2 className="mb-4 font-display text-xl font-semibold">{title}</h2>
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-7">
         {items.slice(0, 14).map((item) => (
-          <article className="group" key={`${item.type}:${item.id}`}>
+          <button
+            className="group text-left"
+            key={`${item.type}:${item.id}`}
+            onClick={() => onSelect(item)}
+          >
             <div className="aspect-[2/3] overflow-hidden rounded-xl bg-zinc-900 ring-1 ring-zinc-800 transition group-hover:-translate-y-1 group-hover:ring-amber-400/60">
               {item.poster ? (
                 <img
@@ -385,7 +412,7 @@ function CatalogShelf({ title, items }: { title: string; items: CatalogItem[] })
               )}
             </div>
             <p className="mt-2 line-clamp-2 text-sm font-medium">{item.name}</p>
-          </article>
+          </button>
         ))}
       </div>
     </section>

@@ -22,6 +22,38 @@ export interface CatalogItem {
   description?: string
 }
 
+export interface Video {
+  id: string
+  title?: string
+  season?: number
+  episode?: number
+  released?: string
+  thumbnail?: string
+}
+
+export interface MetaItem extends CatalogItem {
+  logo?: string
+  releaseInfo?: string
+  runtime?: string
+  genres?: string[]
+  videos?: Video[]
+}
+
+export interface Stream {
+  url?: string
+  externalUrl?: string
+  infoHash?: string
+  fileIdx?: number
+  name?: string
+  title?: string
+  description?: string
+  behaviorHints?: {
+    bingeGroup?: string
+    notWebReady?: boolean
+    filename?: string
+  }
+}
+
 export async function loadCatalog(
   manifestUrl: string,
   type: string,
@@ -32,4 +64,25 @@ export async function loadCatalog(
     metas?: CatalogItem[]
   }
   return response.metas ?? []
+}
+
+export async function loadMeta(manifestUrl: string, type: string, id: string): Promise<MetaItem> {
+  await ready()
+  const response = (await fetchResource(manifestUrl, "meta", type, id, [])) as { meta?: MetaItem }
+  if (!response.meta) {
+    throw new Error("add-on returned no metadata")
+  }
+  return response.meta
+}
+
+export async function loadStreams(
+  manifestUrl: string,
+  type: string,
+  videoId: string,
+): Promise<Stream[]> {
+  await ready()
+  const response = (await fetchResource(manifestUrl, "stream", type, videoId, [])) as {
+    streams?: Stream[]
+  }
+  return response.streams ?? []
 }
