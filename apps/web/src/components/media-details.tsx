@@ -14,6 +14,7 @@ import {
 import { Button } from "./ui/button"
 import { Card } from "./ui/card"
 import { Player } from "./player"
+import { LibraryToggle } from "./library-toggle"
 
 interface ResolvedStream extends Stream {
   key: string
@@ -23,10 +24,12 @@ interface ResolvedStream extends Stream {
 export function MediaDetails({
   item,
   addons,
+  profileId,
   onClose,
 }: {
   item: CatalogItem
   addons: InstalledAddon[]
+  profileId: string
   onClose: () => void
 }) {
   const [selectedVideoId, setSelectedVideoId] = useState(item.id)
@@ -83,6 +86,9 @@ export function MediaDetails({
               {meta.description && (
                 <p className="mt-5 max-w-3xl leading-7 text-zinc-300">{meta.description}</p>
               )}
+              <div className="mt-6">
+                <LibraryToggle profileId={profileId} item={meta} />
+              </div>
 
               {videos.length > 0 && (
                 <EpisodePicker

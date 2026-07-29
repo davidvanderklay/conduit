@@ -1,5 +1,6 @@
 import {
   boolean,
+  check,
   index,
   integer,
   jsonb,
@@ -10,6 +11,7 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core"
+import { sql } from "drizzle-orm"
 
 export const users = pgTable("user", {
   id: text("id").primaryKey(),
@@ -155,5 +157,29 @@ export const watchProgress = pgTable(
   (table) => [
     primaryKey({ columns: [table.profileId, table.videoId] }),
     index("watch_progress_updated_idx").on(table.profileId, table.updatedAt),
+  ],
+)
+
+export const libraryItems = pgTable(
+  "library_item",
+  {
+    profileId: uuid("profile_id")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "cascade" }),
+    mediaType: text("media_type").notNull(),
+    mediaId: text("media_id").notNull(),
+    name: text("name").notNull(),
+    poster: text("poster"),
+    background: text("background"),
+    description: text("description"),
+    releaseInfo: text("release_info"),
+    runtime: text("runtime"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.profileId, table.mediaType, table.mediaId] }),
+    check("library_item_media_type_check", sql`${table.mediaType} in ('movie', 'series')`),
+    index("library_item_profile_created_idx").on(table.profileId, table.createdAt),
   ],
 )
