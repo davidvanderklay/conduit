@@ -52,6 +52,15 @@ export function createAuth(db: Database, config: Config, settings: RuntimeAuthSe
     emailAndPassword: {
       enabled: true,
     },
+    account: {
+      encryptOAuthTokens: true,
+      accountLinking: {
+        enabled: true,
+        trustedProviders: ["google"],
+        allowDifferentEmails: false,
+        updateUserInfoOnLink: false,
+      },
+    },
     user: {
       additionalFields: {
         role: {

@@ -43,6 +43,13 @@
       "when": 1785324935531,
       "tag": "0005_true_puppet_master",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1785356117182,
+      "tag": "0006_pink_prism",
+      "breakpoints": true
     }
   ]
 }
