@@ -164,30 +164,7 @@ function AuthScreen() {
         method: "POST",
         body: JSON.stringify({ callbackUrl, codeChallenge: pkce.challenge }),
       })
-      const request = encodeURIComponent(handoff.requestId)
-      const completeURL = `${API_URL}/v1/auth/desktop/complete?request=${request}`
-      const errorURL = `${API_URL}/v1/auth/desktop/error?request=${request}`
-      const authorization =
-        authConfig.data.oidc.provider === "google"
-          ? await authClient.signIn.social({
-              provider: "google",
-              callbackURL: completeURL,
-              errorCallbackURL: errorURL,
-              newUserCallbackURL: completeURL,
-              disableRedirect: true,
-            })
-          : await authClient.signIn.oauth2({
-              providerId: "conduit-oidc",
-              callbackURL: completeURL,
-              errorCallbackURL: errorURL,
-              newUserCallbackURL: completeURL,
-              disableRedirect: true,
-            })
-      if (authorization.error) {
-        throw new Error(authorization.error.message ?? "Could not start OAuth sign-in.")
-      }
-      const authorizationUrl = authorization.data?.url
-      if (!authorizationUrl) throw new Error("The OAuth provider did not return a sign-in URL.")
+      const authorizationUrl = `${API_URL}/v1/auth/desktop/authorize?request=${encodeURIComponent(handoff.requestId)}`
       await openInSystemBrowser(authorizationUrl)
       const callback = await callbackResult
       const callbackError = callback.searchParams.get("error")
@@ -206,7 +183,7 @@ function AuthScreen() {
       window.location.reload()
     } catch (cause) {
       cancelCallback?.()
-      setError(cause instanceof Error ? cause.message : "Desktop OAuth sign-in failed.")
+      setError(`Desktop OAuth sign-in failed: ${errorDescription(cause)}`)
       setOauthPending(false)
     }
   }
@@ -1204,6 +1181,19 @@ function AuthMessage({ message, success = false }: { message: string; success?: 
       {message}
     </p>
   )
+}
+
+function errorDescription(cause: unknown): string {
+  if (cause instanceof Error) return cause.message
+  if (typeof cause === "string" && cause.trim()) return cause
+  if (cause && typeof cause === "object") {
+    try {
+      return JSON.stringify(cause)
+    } catch {
+      // Fall through to the stable generic message.
+    }
+  }
+  return "An unknown desktop error occurred."
 }
 
 function GoogleMark() {
