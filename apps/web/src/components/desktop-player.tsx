@@ -319,9 +319,9 @@ export function DesktopPlayer({
 
   useLayoutEffect(() => {
     redrawControls()
-    const menuClosed = Boolean(previousMenu.current && !activeMenu)
+    const menuChanged = Boolean(previousMenu.current && previousMenu.current !== activeMenu)
     const chromeHidden = previousChromeVisible.current && !chromeVisible
-    if (menuClosed || chromeHidden) resetOverlay()
+    if (menuChanged || chromeHidden) resetOverlay()
     previousMenu.current = activeMenu
     previousChromeVisible.current = chromeVisible
   }, [activeMenu, chromeVisible, redrawControls, resetOverlay])
