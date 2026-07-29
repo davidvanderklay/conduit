@@ -240,7 +240,16 @@ pub fn refresh() {
     SURFACE.with(|surface| {
         if let Some(surface) = surface.borrow().as_ref() {
             surface.overlay.queue_draw();
-            surface.webview.queue_draw();
+            // WebKitGTK's damage region only covers the new bounds of moving
+            // controls when the WebView is transparent over GtkGLArea. Force
+            // the entire overlay allocation to be repainted so old slider
+            // thumbs and timestamp glyphs are cleared as well.
+            surface.webview.queue_draw_area(
+                0,
+                0,
+                surface.webview.allocated_width().max(1),
+                surface.webview.allocated_height().max(1),
+            );
             surface.area.queue_render();
         }
     });
