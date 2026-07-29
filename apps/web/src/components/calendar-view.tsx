@@ -94,6 +94,7 @@ export function CalendarView({
     ],
     [month],
   )
+  const weekCount = Math.ceil(cells.length / 7)
   const monthLabel = new Intl.DateTimeFormat(undefined, {
     month: "long",
     year: "numeric",
@@ -101,8 +102,8 @@ export function CalendarView({
   const isCurrentMonth = monthKey(month) === monthKey(currentMonth)
 
   return (
-    <main className="mx-auto max-w-[2200px] px-4 py-7 sm:px-6 lg:px-8 xl:px-10">
-      <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
+    <main className="mx-auto max-w-[2200px] px-4 py-7 sm:px-6 lg:px-8 xl:flex xl:h-[calc(100vh-4rem-1px)] xl:flex-col xl:overflow-hidden xl:px-10">
+      <div className="mb-6 flex shrink-0 flex-wrap items-end justify-between gap-4">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-400">
             Your schedule
@@ -145,10 +146,10 @@ export function CalendarView({
         </Card>
       )}
       {library.data && metadata.data && (
-        <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_20rem]">
-          <section className="min-w-0 overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900/45 shadow-2xl shadow-black/20">
-            <div className="overflow-x-auto">
-              <div className="min-w-[760px]">
+        <div className="grid items-start gap-5 xl:min-h-0 xl:flex-1 xl:grid-cols-[minmax(0,1fr)_20rem]">
+          <section className="min-w-0 overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900/45 shadow-2xl shadow-black/20 xl:h-full">
+            <div className="h-full overflow-x-auto">
+              <div className="flex h-full min-w-[760px] flex-col">
                 <div className="grid grid-cols-7 border-b border-zinc-800 bg-zinc-900/90">
                   {WEEKDAYS.map((day) => (
                     <div className="px-3 py-3 text-xs font-semibold text-zinc-500" key={day}>
@@ -156,7 +157,10 @@ export function CalendarView({
                     </div>
                   ))}
                 </div>
-                <div className="grid grid-cols-7">
+                <div
+                  className="grid flex-1 grid-cols-7"
+                  style={{ gridTemplateRows: `repeat(${weekCount}, minmax(0, 1fr))` }}
+                >
                   {cells.map((day, index) =>
                     day ? (
                       <CalendarDay
@@ -168,7 +172,7 @@ export function CalendarView({
                       />
                     ) : (
                       <div
-                        className="min-h-40 border-b border-r border-zinc-800/80 bg-zinc-950/35"
+                        className="min-h-32 border-b border-r border-zinc-800/80 bg-zinc-950/35 xl:min-h-0"
                         key={`blank-${index}`}
                       />
                     ),
@@ -178,7 +182,7 @@ export function CalendarView({
             </div>
           </section>
 
-          <aside className="xl:sticky xl:top-20">
+          <aside className="xl:flex xl:h-full xl:min-h-0 xl:flex-col">
             <div className="mb-3 flex items-center justify-between px-1">
               <div>
                 <p className="text-sm font-semibold">{monthLabel}</p>
@@ -188,7 +192,7 @@ export function CalendarView({
               </div>
               <CalendarDays className="text-amber-400" size={20} />
             </div>
-            <div className="max-h-[calc(100vh-10rem)] space-y-2 overflow-y-auto pr-1">
+            <div className="max-h-[calc(100vh-10rem)] space-y-2 overflow-y-auto pr-1 xl:min-h-0 xl:flex-1 xl:max-h-none">
               {releases.length ? (
                 releases.map((release) => (
                   <button
@@ -264,7 +268,7 @@ function CalendarDay({
   onSelect: (item: CatalogItem, videoId?: string) => void
 }) {
   return (
-    <div className="min-h-40 border-b border-r border-zinc-800/80 p-2.5">
+    <div className="min-h-32 overflow-hidden border-b border-r border-zinc-800/80 p-2.5 xl:min-h-0">
       <span
         className={`grid size-6 place-items-center rounded-full text-xs font-medium ${
           today ? "bg-amber-400 text-zinc-950" : "text-zinc-500"
@@ -272,11 +276,11 @@ function CalendarDay({
       >
         {day}
       </span>
-      <div className="mt-2 flex flex-wrap gap-1.5">
+      <div className="mt-2 flex h-[calc(100%-2rem)] gap-1.5 overflow-hidden">
         {releases.map((release) => (
           <button
             aria-label={`${release.title}, ${release.subtitle}`}
-            className="group relative h-[7.1rem] w-[4.75rem] overflow-hidden rounded-lg border border-zinc-700 bg-zinc-900 text-left shadow-md transition hover:z-10 hover:-translate-y-0.5 hover:border-amber-400/70 hover:shadow-xl hover:shadow-black/50 focus-visible:outline-2 focus-visible:outline-amber-400"
+            className="group relative h-full max-h-[7.1rem] w-auto shrink-0 aspect-[2/3] overflow-hidden rounded-lg border border-zinc-700 bg-zinc-900 text-left shadow-md transition hover:z-10 hover:-translate-y-0.5 hover:border-amber-400/70 hover:shadow-xl hover:shadow-black/50 focus-visible:outline-2 focus-visible:outline-amber-400"
             key={release.key}
             title={`${release.title} · ${release.subtitle}`}
             onClick={() => onSelect(release.item, release.video?.id)}
