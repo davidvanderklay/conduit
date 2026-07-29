@@ -33,10 +33,16 @@ export function App() {
   if (!session.data?.user) {
     return <AuthScreen />
   }
-  return <AuthenticatedApp userName={session.data.user.name} />
+  return (
+    <AuthenticatedApp
+      userId={session.data.user.id}
+      userName={session.data.user.name}
+    />
+  )
 }
 
 function AuthScreen() {
+  const queryClient = useQueryClient()
   const [mode, setMode] = useState<"sign-in" | "register">("sign-in")
   const [error, setError] = useState("")
   const [pending, setPending] = useState(false)
@@ -54,7 +60,12 @@ function AuthScreen() {
         ? await authClient.signUp.email({ email, password, name })
         : await authClient.signIn.email({ email, password })
     setPending(false)
-    if (result.error) setError(result.error.message ?? "Authentication failed")
+    if (result.error) {
+      setError(result.error.message ?? "Authentication failed")
+    } else {
+      // Never let data cached by a previous session cross an account boundary.
+      queryClient.clear()
+    }
   }
 
   return (
@@ -91,9 +102,10 @@ function AuthScreen() {
   )
 }
 
-function AuthenticatedApp({ userName }: { userName: string }) {
+function AuthenticatedApp({ userId, userName }: { userId: string; userName: string }) {
+  const queryClient = useQueryClient()
   const bootstrap = useQuery({
-    queryKey: ["bootstrap"],
+    queryKey: bootstrapQueryKey(userId),
     queryFn: () => api<Bootstrap>("/v1/bootstrap"),
   })
   const [activeProfileId, setActiveProfileId] = useState<string | undefined>(readLastProfileId)
@@ -189,7 +201,10 @@ function AuthenticatedApp({ userName }: { userName: string }) {
               onSelect={setActiveProfileId}
               userName={userName}
               onNavigate={navigate}
-              onSignOut={() => authClient.signOut()}
+              onSignOut={async () => {
+                const result = await authClient.signOut()
+                if (!result.error) queryClient.clear()
+              }}
             />
           </div>
         </div>
@@ -208,6 +223,10 @@ function AuthenticatedApp({ userName }: { userName: string }) {
       </div>
     </div>
   )
+}
+
+export function bootstrapQueryKey(userId: string) {
+  return ["bootstrap", userId] as const
 }
 
 function HouseholdSetup() {
