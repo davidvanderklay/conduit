@@ -13,6 +13,11 @@ function storage(value?: string): Storage {
 }
 
 describe("device preferences", () => {
+  it("defaults audio and subtitles to English", () => {
+    expect(defaultPreferences.audioLanguage).toBe("en")
+    expect(defaultPreferences.subtitleLanguage).toBe("en")
+  })
+
   it("uses safe defaults for missing or invalid data", () => {
     expect(readPreferences(storage())).toEqual(defaultPreferences)
     expect(readPreferences(storage("nope"))).toEqual(defaultPreferences)

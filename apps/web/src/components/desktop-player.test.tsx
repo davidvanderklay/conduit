@@ -3,7 +3,12 @@
 import { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { DesktopPlayer } from "./desktop-player"
+import {
+  DesktopPlayer,
+  dedupeAddonSubtitles,
+  filterAddedAddonSubtitles,
+  usesExpandedPlayerControls,
+} from "./desktop-player"
 
 ;(
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
@@ -78,7 +83,6 @@ describe("DesktopPlayer track menus", () => {
       root.render(
         <DesktopPlayer
           url="https://example.com/video.mp4"
-          title="Test video"
           type="movie"
           videoId="tt123"
           profileId="00000000-0000-4000-8000-000000000001"
@@ -127,6 +131,45 @@ describe("DesktopPlayer track menus", () => {
     }
   })
 
+  it("shows the media title beside a back control", () => {
+    const back = button("Back to details")
+    const title = document.querySelector("[data-player-chrome='top'] h2")
+
+    expect(back.querySelector("svg")?.classList.contains("rotate-180")).toBe(true)
+    expect(title?.textContent).toBe("Test video")
+    expect(back.compareDocumentPosition(title!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it("expands controls for large resized windows without requiring fullscreen", () => {
+    expect(usesExpandedPlayerControls(1280, 800)).toBe(true)
+    expect(usesExpandedPlayerControls(1199, 800)).toBe(false)
+    expect(usesExpandedPlayerControls(1600, 699)).toBe(false)
+  })
+
+  it("cycles scaling modes, applies mpv properties, and briefly shows the mode", async () => {
+    click(button("Video scale: Fit"))
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(desktop.nativePlayerCommand).toHaveBeenCalledWith(["set", "video-unscaled", "no"])
+    expect(desktop.nativePlayerCommand).toHaveBeenCalledWith(["set", "keepaspect", "yes"])
+    expect(desktop.nativePlayerCommand).toHaveBeenCalledWith(["set", "panscan", 1])
+    expect(button("Video scale: Crop")).toBeTruthy()
+    expect(document.querySelector('[role="status"]')?.textContent).toBe("Video scale: Crop")
+
+    desktop.resetNativeOverlaySurface.mockClear()
+    act(() => vi.advanceTimersByTime(1400))
+    act(() => vi.advanceTimersByTime(1))
+    act(() => vi.advanceTimersByTime(1))
+    expect(document.querySelector('[role="status"]')).toBeNull()
+    expect(desktop.resetNativeOverlaySurface).toHaveBeenCalledOnce()
+  })
+
   it("hides inactive controls and cursor, then restores them on mouse movement", () => {
     const player = document.querySelector<HTMLElement>(".native-player")
     const chrome = document.querySelectorAll<HTMLElement>("[data-player-chrome]")
@@ -152,6 +195,22 @@ describe("DesktopPlayer track menus", () => {
     click(button("Audio: English"))
 
     expect(document.querySelector('[role="menu"]')).toBeNull()
+  })
+
+  it("replaces and clears the previous track menu when switching menus", () => {
+    click(button("Audio: English"))
+    expect(document.querySelector('[role="menu"]')?.textContent).toContain("Audio")
+    desktop.resetNativeOverlaySurface.mockClear()
+
+    click(button("Subtitles: Off"))
+    act(() => vi.advanceTimersByTime(1))
+    act(() => vi.advanceTimersByTime(1))
+
+    const menus = document.querySelectorAll('[role="menu"]')
+    expect(menus).toHaveLength(1)
+    expect(menus[0]?.textContent).toContain("Subtitles")
+    expect(menus[0]?.textContent).not.toContain("Commentary")
+    expect(desktop.resetNativeOverlaySurface).toHaveBeenCalledOnce()
   })
 
   it("unmounts the menu when a pointer gesture starts outside it", () => {
@@ -192,6 +251,29 @@ describe("DesktopPlayer track menus", () => {
     expect(document.querySelector('[role="menu"]')).not.toBeNull()
     expect(button("Spanish").className).toContain("bg-amber-400")
     expect(button("Off").className).not.toContain("bg-amber-400")
+  })
+
+  it("does not show an add-on subtitle again after mpv exposes it as an external track", () => {
+    const subtitles = [
+      { key: "one", display: "English · AIOStreams" },
+      { key: "two", display: "Spanish · AIOStreams" },
+    ]
+    const tracks = [
+      { external: true, title: "English · AIOStreams" },
+      { external: false, title: "Spanish · AIOStreams" },
+    ]
+
+    expect(filterAddedAddonSubtitles(subtitles, tracks)).toEqual([subtitles[1]])
+  })
+
+  it("removes duplicate add-on subtitle labels before the menu is shown", () => {
+    const subtitles = [
+      { key: "one", display: "English · AIOStreams" },
+      { key: "two", display: "English · AIOStreams" },
+      { key: "three", display: "Spanish · AIOStreams" },
+    ]
+
+    expect(dedupeAddonSubtitles(subtitles)).toEqual([subtitles[0], subtitles[2]])
   })
 })
 

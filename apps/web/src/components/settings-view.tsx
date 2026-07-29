@@ -1,7 +1,8 @@
 import { useState, type FormEvent } from "react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { Monitor, Save, UserRound } from "lucide-react"
+import { Database, Download, Monitor, Save, Upload, UserRound } from "lucide-react"
 import { api, type Profile } from "../lib/api"
+import { isDesktop, prepareNativeTextSave } from "../lib/desktop"
 import {
   readPreferences,
   writePreferences,
@@ -16,6 +17,12 @@ export function SettingsView({ profile }: { profile: Profile }) {
   const queryClient = useQueryClient()
   const [preferences, setPreferences] = useState<DevicePreferences>(readPreferences)
   const [saved, setSaved] = useState(false)
+  const [includeSecrets, setIncludeSecrets] = useState(false)
+  const [importData, setImportData] = useState<Record<string, unknown> | null>(null)
+  const [importMode, setImportMode] = useState<"merge" | "replace">("merge")
+  const [importPreview, setImportPreview] = useState<ImportPreview | null>(null)
+  const [dataError, setDataError] = useState("")
+  const [dataBusy, setDataBusy] = useState(false)
   const updateProfile = useMutation({
     mutationFn: (values: { name: string; isKids: boolean }) =>
       api(`/v1/profiles/${profile.id}`, {
@@ -82,6 +89,135 @@ export function SettingsView({ profile }: { profile: Profile }) {
           {saved && <p className="mt-4 text-xs text-emerald-300">Saved on this device</p>}
         </SettingsCard>
 
+        <SettingsCard icon={Database} title="Your data" scope="Portable">
+          <p className="text-sm leading-6 text-zinc-400">
+            Move this profile between Conduit servers. Exports include the profile, library,
+            watch history and add-on order.
+          </p>
+          <label className="mt-4 flex items-start gap-2 text-sm text-zinc-400">
+            <input
+              className="mt-1"
+              type="checkbox"
+              checked={includeSecrets}
+              onChange={(event) => setIncludeSecrets(event.target.checked)}
+            />
+            <span>
+              Include add-on URLs for a complete transfer
+              <span className="mt-1 block text-xs text-amber-300">
+                URLs can contain credentials. Store and share this file securely.
+              </span>
+            </span>
+          </label>
+          <Button
+            className="mt-4"
+            variant="secondary"
+            disabled={dataBusy}
+            onClick={async () => {
+              setDataBusy(true)
+              setDataError("")
+              try {
+                const save = await prepareJsonSave(`conduit-${safeFilename(profile.name)}.json`)
+                if (!save) return
+                const data = await api<Record<string, unknown>>(
+                  `/v1/profiles/${profile.id}/export?includeSecrets=${includeSecrets}`,
+                )
+                data.preferences = preferences
+                await save(data)
+              } catch (error) {
+                setDataError(error instanceof Error ? error.message : "Export failed")
+              } finally {
+                setDataBusy(false)
+              }
+            }}
+          >
+            <Download size={15} /> Export profile
+          </Button>
+
+          <div className="my-5 border-t border-zinc-800" />
+          <label className="block text-sm text-zinc-400">
+            Import a Conduit JSON file
+            <Input
+              className="mt-2 file:mr-3 file:border-0 file:bg-transparent file:text-zinc-300"
+              type="file"
+              accept="application/json,.json"
+              onChange={async (event) => {
+                const file = event.target.files?.[0]
+                if (!file) return
+                setDataBusy(true)
+                setDataError("")
+                setImportPreview(null)
+                try {
+                  if (file.size > 10 * 1024 * 1024) throw new Error("Import exceeds the 10 MiB limit")
+                  const data = JSON.parse(await file.text()) as Record<string, unknown>
+                  const preview = await api<ImportPreview>(
+                    `/v1/profiles/${profile.id}/import/preview`,
+                    { method: "POST", body: JSON.stringify(data) },
+                  )
+                  setImportData(data)
+                  setImportPreview(preview)
+                } catch (error) {
+                  setImportData(null)
+                  setDataError(error instanceof Error ? error.message : "Invalid import")
+                } finally {
+                  setDataBusy(false)
+                }
+              }}
+            />
+          </label>
+          {importPreview && (
+            <div className="mt-4 rounded-xl border border-zinc-800 bg-zinc-950 p-4 text-sm">
+              <p className="font-medium">{importPreview.profile.name}</p>
+              <p className="mt-1 text-zinc-500">
+                {importPreview.counts.library} library · {importPreview.counts.progress} history ·{" "}
+                {importPreview.importableAddons}/{importPreview.counts.addons} add-ons importable
+              </p>
+              {importPreview.warnings.map((warning) => (
+                <p className="mt-2 text-amber-300" key={warning}>{warning}</p>
+              ))}
+              <div className="mt-4 flex flex-wrap items-center gap-3">
+                <select
+                  className="h-10 rounded-lg border border-zinc-800 bg-zinc-950 px-3 text-sm"
+                  value={importMode}
+                  onChange={(event) => setImportMode(event.target.value as "merge" | "replace")}
+                >
+                  <option value="merge">Merge with existing data</option>
+                  <option value="replace">Replace existing data</option>
+                </select>
+                <Button
+                  variant={importMode === "replace" ? "destructive" : "default"}
+                  disabled={dataBusy}
+                  onClick={async () => {
+                    if (!importData) return
+                    setDataBusy(true)
+                    setDataError("")
+                    try {
+                      await api(`/v1/profiles/${profile.id}/import`, {
+                        method: "POST",
+                        body: JSON.stringify({ mode: importMode, data: importData }),
+                      })
+                      if (isRecord(importData.preferences)) {
+                        const next = importedPreferences(preferences, importData.preferences)
+                        setPreferences(next)
+                        writePreferences(next)
+                      }
+                      await queryClient.invalidateQueries()
+                      setImportPreview(null)
+                      setImportData(null)
+                    } catch (error) {
+                      setDataError(error instanceof Error ? error.message : "Import failed")
+                    } finally {
+                      setDataBusy(false)
+                    }
+                  }}
+                >
+                  <Upload size={15} /> Import {importMode === "replace" ? "and replace" : "and merge"}
+                </Button>
+              </div>
+            </div>
+          )}
+          {dataError && <p className="mt-3 text-sm text-red-400">{dataError}</p>}
+        </SettingsCard>
+
         <SettingsCard icon={Monitor} title="About" scope="Device">
           <dl className="grid gap-3 text-sm sm:grid-cols-2">
             <div><dt className="text-zinc-600">Application</dt><dd className="mt-1">Conduit</dd></div>
@@ -91,6 +227,103 @@ export function SettingsView({ profile }: { profile: Profile }) {
       </div>
     </ViewShell>
   )
+}
+
+interface ImportPreview {
+  profile: { name: string; isKids: boolean }
+  counts: { library: number; progress: number; addons: number }
+  importableAddons: number
+  warnings: string[]
+}
+
+type JsonSaver = (data: unknown) => Promise<void>
+
+interface SaveFileHandle {
+  createWritable(): Promise<{
+    write(data: Blob): Promise<void>
+    close(): Promise<void>
+  }>
+}
+
+async function prepareJsonSave(filename: string): Promise<JsonSaver | null> {
+  if (isDesktop()) {
+    const save = await prepareNativeTextSave(filename)
+    return save ? async (data) => save(JSON.stringify(data, null, 2)) : null
+  }
+
+  const picker = (
+    window as Window & {
+      showSaveFilePicker?: (options: {
+        suggestedName: string
+        types: Array<{ description: string; accept: Record<string, string[]> }>
+      }) => Promise<SaveFileHandle>
+    }
+  ).showSaveFilePicker
+
+  if (picker) {
+    try {
+      const handle = await picker.call(window, {
+        suggestedName: filename,
+        types: [{ description: "Conduit profile export", accept: { "application/json": [".json"] } }],
+      })
+      return async (data) => {
+        const writable = await handle.createWritable()
+        await writable.write(jsonBlob(data))
+        await writable.close()
+      }
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return null
+      throw error
+    }
+  }
+
+  return async (data) => {
+    const url = URL.createObjectURL(jsonBlob(data))
+    const link = document.createElement("a")
+    link.href = url
+    link.download = filename
+    link.click()
+    URL.revokeObjectURL(url)
+  }
+}
+
+function jsonBlob(data: unknown) {
+  return new Blob([JSON.stringify(data, null, 2)], { type: "application/json" })
+}
+
+function safeFilename(value: string) {
+  return value.trim().replace(/[^a-z0-9_-]+/gi, "-").replace(/^-|-$/g, "") || "profile"
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+function importedPreferences(
+  current: DevicePreferences,
+  value: Record<string, unknown>,
+): DevicePreferences {
+  return {
+    audioLanguage: typeof value.audioLanguage === "string" ? value.audioLanguage : current.audioLanguage,
+    subtitleLanguage: typeof value.subtitleLanguage === "string" ? value.subtitleLanguage : current.subtitleLanguage,
+    subtitleSize: boundedNumber(value.subtitleSize, current.subtitleSize, 75, 200),
+    autoplay: typeof value.autoplay === "boolean" ? value.autoplay : current.autoplay,
+    volume: boundedNumber(value.volume, current.volume, 0, 100),
+    hardwareAcceleration: typeof value.hardwareAcceleration === "boolean" ? value.hardwareAcceleration : current.hardwareAcceleration,
+    resumeBehavior: ["ask", "always", "restart"].includes(String(value.resumeBehavior))
+      ? value.resumeBehavior as DevicePreferences["resumeBehavior"]
+      : current.resumeBehavior,
+    theme: ["dark", "system"].includes(String(value.theme))
+      ? value.theme as DevicePreferences["theme"]
+      : current.theme,
+    reducedMotion: typeof value.reducedMotion === "boolean" ? value.reducedMotion : current.reducedMotion,
+  }
+}
+
+function boundedNumber(value: unknown, fallback: number, minimum: number, maximum: number) {
+  return typeof value === "number" && Number.isFinite(value)
+    ? Math.max(minimum, Math.min(maximum, value))
+    : fallback
 }
 
 function SettingsCard({ icon: Icon, title, scope, children }: { icon: typeof Monitor; title: string; scope: string; children: React.ReactNode }) {

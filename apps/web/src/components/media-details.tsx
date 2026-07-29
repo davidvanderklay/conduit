@@ -125,7 +125,6 @@ export function MediaDetails({
       {playing?.url && (
         <Player
           url={playing.url}
-          title={playing.title ?? playing.name ?? meta.name}
           type={item.type}
           videoId={selectedVideoId}
           profileId={profileId}
