@@ -115,11 +115,13 @@ export function SettingsView({ profile }: { profile: Profile }) {
               setDataBusy(true)
               setDataError("")
               try {
+                const save = await prepareJsonSave(`conduit-${safeFilename(profile.name)}.json`)
+                if (!save) return
                 const data = await api<Record<string, unknown>>(
                   `/v1/profiles/${profile.id}/export?includeSecrets=${includeSecrets}`,
                 )
                 data.preferences = preferences
-                downloadJson(data, `conduit-${safeFilename(profile.name)}.json`)
+                await save(data)
               } catch (error) {
                 setDataError(error instanceof Error ? error.message : "Export failed")
               } finally {
@@ -233,13 +235,54 @@ interface ImportPreview {
   warnings: string[]
 }
 
-function downloadJson(data: unknown, filename: string) {
-  const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }))
-  const link = document.createElement("a")
-  link.href = url
-  link.download = filename
-  link.click()
-  URL.revokeObjectURL(url)
+type JsonSaver = (data: unknown) => Promise<void>
+
+interface SaveFileHandle {
+  createWritable(): Promise<{
+    write(data: Blob): Promise<void>
+    close(): Promise<void>
+  }>
+}
+
+async function prepareJsonSave(filename: string): Promise<JsonSaver | null> {
+  const picker = (
+    window as Window & {
+      showSaveFilePicker?: (options: {
+        suggestedName: string
+        types: Array<{ description: string; accept: Record<string, string[]> }>
+      }) => Promise<SaveFileHandle>
+    }
+  ).showSaveFilePicker
+
+  if (picker) {
+    try {
+      const handle = await picker.call(window, {
+        suggestedName: filename,
+        types: [{ description: "Conduit profile export", accept: { "application/json": [".json"] } }],
+      })
+      return async (data) => {
+        const writable = await handle.createWritable()
+        await writable.write(jsonBlob(data))
+        await writable.close()
+      }
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return null
+      throw error
+    }
+  }
+
+  return async (data) => {
+    const url = URL.createObjectURL(jsonBlob(data))
+    const link = document.createElement("a")
+    link.href = url
+    link.download = filename
+    link.click()
+    URL.revokeObjectURL(url)
+  }
+}
+
+function jsonBlob(data: unknown) {
+  return new Blob([JSON.stringify(data, null, 2)], { type: "application/json" })
 }
 
 function safeFilename(value: string) {
