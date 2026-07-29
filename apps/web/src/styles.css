@@ -51,8 +51,8 @@ body {
   appearance: none;
   -webkit-appearance: none;
   /* WebKitGTK does not reliably clear transparent pixels when this WebView is
-     composited above GtkGLArea. An opaque input surface erases the previous
-     thumb position instead of leaving it in the backing store. */
+     composited above GtkGLArea. Only the changing control itself is opaque so
+     moving thumbs erase old pixels without making the whole controls row a bar. */
   background: rgb(0 0 0);
   padding-block: 6px;
 }
@@ -86,8 +86,7 @@ body {
 }
 
 .native-controls-surface {
-  background: rgb(0 0 0);
-  box-shadow: 0 0 0 12px rgb(0 0 0);
+  background: rgb(0 0 0 / 1%);
 }
 
 .player-volume {
