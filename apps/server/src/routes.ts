@@ -14,6 +14,14 @@ import {
   profiles,
   watchProgress,
 } from "./db/schema.js"
+import {
+  PORTABLE_DATA_FORMAT,
+  PORTABLE_DATA_VERSION,
+  MAX_IMPORT_BYTES,
+  previewPortableData,
+  validatePortableData,
+  type PortableProfileData,
+} from "./portable-data.js"
 
 interface RouteContext {
   auth: Auth
@@ -140,6 +148,197 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
         .where(eq(profiles.id, profileId))
         .returning({ id: profiles.id, name: profiles.name, isKids: profiles.isKids })
       return { profile }
+    },
+  )
+
+  app.get(
+    "/v1/profiles/:profileId/export",
+    {
+      schema: {
+        params: Type.Object({ profileId: Type.String({ format: "uuid" }) }),
+        querystring: Type.Object({
+          includeSecrets: Type.Optional(Type.Boolean()),
+        }),
+      },
+    },
+    async (request, reply) => {
+      const user = await requireUser(request, reply, auth)
+      if (!user) return
+      const { profileId } = request.params as { profileId: string }
+      const { includeSecrets = false } = request.query as { includeSecrets?: boolean }
+      if (!(await canAccessProfile(db, user.id, profileId))) return reply.forbidden()
+
+      const [profile] = await db.select().from(profiles).where(eq(profiles.id, profileId)).limit(1)
+      if (!profile) return reply.notFound()
+      const [library, progress, addons] = await Promise.all([
+        db.select().from(libraryItems).where(eq(libraryItems.profileId, profileId)),
+        db.select().from(watchProgress).where(eq(watchProgress.profileId, profileId)),
+        db
+          .select()
+          .from(addonInstallations)
+          .where(eq(addonInstallations.profileId, profileId))
+          .orderBy(asc(addonInstallations.position), asc(addonInstallations.createdAt)),
+      ])
+      const archive: PortableProfileData = {
+        format: PORTABLE_DATA_FORMAT,
+        version: PORTABLE_DATA_VERSION,
+        exportedAt: new Date().toISOString(),
+        profile: { name: profile.name, isKids: profile.isKids },
+        library: library.map((item) => ({
+          mediaType: item.mediaType as "movie" | "series",
+          mediaId: item.mediaId,
+          name: item.name,
+          ...(item.poster ? { poster: item.poster } : {}),
+          ...(item.background ? { background: item.background } : {}),
+          ...(item.description ? { description: item.description } : {}),
+          ...(item.releaseInfo ? { releaseInfo: item.releaseInfo } : {}),
+          ...(item.runtime ? { runtime: item.runtime } : {}),
+          createdAt: item.createdAt.toISOString(),
+          updatedAt: item.updatedAt.toISOString(),
+        })),
+        progress: progress.map((item) => toProgressItem(item)),
+        addons: addons.map((addon) => ({
+          manifestId: addon.manifestId,
+          ...(includeSecrets
+            ? { manifestUrl: decryptSecret(addon.manifestUrlEncrypted, config.addonEncryptionKey) }
+            : {}),
+          manifest: addon.manifest,
+          position: addon.position,
+          enabled: addon.enabled,
+        })),
+      }
+      reply.header("content-disposition", `attachment; filename="conduit-${profileId}.json"`)
+      reply.header("cache-control", "no-store")
+      return archive
+    },
+  )
+
+  app.post(
+    "/v1/profiles/:profileId/import/preview",
+    {
+      schema: {
+        params: Type.Object({ profileId: Type.String({ format: "uuid" }) }),
+        body: Type.Unknown(),
+      },
+      bodyLimit: MAX_IMPORT_BYTES,
+    },
+    async (request, reply) => {
+      const user = await requireUser(request, reply, auth)
+      if (!user) return
+      const { profileId } = request.params as { profileId: string }
+      if (!(await canAccessProfile(db, user.id, profileId))) return reply.forbidden()
+      try {
+        return previewPortableData(validatePortableData(request.body))
+      } catch (error) {
+        return reply.badRequest(error instanceof Error ? error.message : "invalid import")
+      }
+    },
+  )
+
+  app.post(
+    "/v1/profiles/:profileId/import",
+    {
+      schema: {
+        params: Type.Object({ profileId: Type.String({ format: "uuid" }) }),
+        body: Type.Object({
+          mode: Type.Union([Type.Literal("merge"), Type.Literal("replace")]),
+          data: Type.Unknown(),
+        }),
+      },
+      bodyLimit: MAX_IMPORT_BYTES + 1024,
+    },
+    async (request, reply) => {
+      const user = await requireUser(request, reply, auth)
+      if (!user) return
+      const { profileId } = request.params as { profileId: string }
+      if (!(await canAccessProfile(db, user.id, profileId))) return reply.forbidden()
+      const body = request.body as { mode: "merge" | "replace"; data: unknown }
+      let data: PortableProfileData
+      try {
+        data = validatePortableData(body.data)
+      } catch (error) {
+        return reply.badRequest(error instanceof Error ? error.message : "invalid import")
+      }
+
+      await db.transaction(async (tx) => {
+        if (body.mode === "replace") {
+          await tx.delete(addonInstallations).where(eq(addonInstallations.profileId, profileId))
+          await tx.delete(watchProgress).where(eq(watchProgress.profileId, profileId))
+          await tx.delete(libraryItems).where(eq(libraryItems.profileId, profileId))
+        }
+        await tx
+          .update(profiles)
+          .set({ name: data.profile.name.trim(), isKids: data.profile.isKids, updatedAt: new Date() })
+          .where(eq(profiles.id, profileId))
+        for (const item of data.library) {
+          const values = {
+            profileId,
+            mediaType: item.mediaType,
+            mediaId: item.mediaId,
+            name: item.name.trim(),
+            poster: item.poster,
+            background: item.background,
+            description: item.description,
+            releaseInfo: item.releaseInfo,
+            runtime: item.runtime,
+            createdAt: new Date(item.createdAt),
+            updatedAt: new Date(item.updatedAt),
+          }
+          await tx
+            .insert(libraryItems)
+            .values(values)
+            .onConflictDoUpdate({
+              target: [libraryItems.profileId, libraryItems.mediaType, libraryItems.mediaId],
+              set: values,
+            })
+        }
+        for (const item of data.progress) {
+          const values = {
+            profileId,
+            videoId: item.videoId,
+            mediaType: item.mediaType,
+            mediaId: item.mediaId,
+            name: item.name.trim(),
+            poster: item.poster,
+            videoTitle: item.videoTitle,
+            season: item.season,
+            episode: item.episode,
+            positionMs: item.positionMs,
+            durationMs: item.durationMs,
+            watched: item.watched,
+            updatedAt: new Date(item.updatedAt),
+          }
+          await tx
+            .insert(watchProgress)
+            .values(values)
+            .onConflictDoUpdate({
+              target: [watchProgress.profileId, watchProgress.videoId],
+              set: values,
+            })
+        }
+        for (const addon of data.addons) {
+          if (!addon.manifestUrl) continue
+          const url = normalizeManifestUrl(addon.manifestUrl)
+          const values = {
+            profileId,
+            manifestId: addon.manifestId,
+            manifestUrlEncrypted: encryptSecret(url, config.addonEncryptionKey),
+            manifestUrlHash: stableSecretHash(url),
+            manifest: addon.manifest,
+            position: addon.position,
+            enabled: addon.enabled,
+            updatedAt: new Date(),
+          }
+          await tx
+            .insert(addonInstallations)
+            .values(values)
+            .onConflictDoUpdate({
+              target: [addonInstallations.profileId, addonInstallations.manifestUrlHash],
+              set: values,
+            })
+        }
+      })
+      return { imported: previewPortableData(data), mode: body.mode }
     },
   )
 
