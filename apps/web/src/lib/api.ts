@@ -54,6 +54,19 @@ export interface InstalledAddon {
   enabled: boolean
 }
 
+export interface LibraryItem {
+  id: string
+  type: "movie" | "series"
+  name: string
+  poster?: string
+  background?: string
+  description?: string
+  releaseInfo?: string
+  runtime?: string
+  createdAt: string
+  updatedAt: string
+}
+
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = requestHeaders(init)
   const response = await fetch(`${API_URL}${path}`, {
