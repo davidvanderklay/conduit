@@ -7,11 +7,19 @@
 }
 
 :root {
+  color-scheme: dark;
   color: #f4f4f5;
   background: #09090b;
   font-family: var(--font-sans);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
+}
+
+.library-select,
+.library-select option {
+  color-scheme: dark;
+  color: #f4f4f5;
+  background-color: #18181b;
 }
 
 * {
