@@ -31,6 +31,7 @@ export function createAuth(db: Database, config: Config, settings: RuntimeAuthSe
             clientId: settings.oidc.clientId,
             clientSecret: settings.oidc.clientSecret,
             scope: settings.oidc.scopes,
+            disableDefaultScope: true,
             disableImplicitSignUp: !settings.oidc.autoRegister,
             prompt: "select_account" as const,
           },
@@ -58,6 +59,9 @@ export function createAuth(db: Database, config: Config, settings: RuntimeAuthSe
         enabled: true,
         trustedProviders: ["google"],
         allowDifferentEmails: false,
+        // Local accounts cannot verify email without an email delivery service.
+        // Google is explicitly trusted above and verifies the matching address.
+        requireLocalEmailVerified: false,
         updateUserInfoOnLink: false,
       },
     },
@@ -80,7 +84,7 @@ export function createAuth(db: Database, config: Config, settings: RuntimeAuthSe
               data: {
                 ...user,
                 // Better Auth requires a name, but Conduit deliberately does not collect one.
-                name: `Account ${user.id.slice(0, 8)}`,
+                name: user.id ? `Account ${user.id.slice(0, 8)}` : "Conduit account",
                 role: existing.length > 0 ? "member" : "owner",
               },
             }
