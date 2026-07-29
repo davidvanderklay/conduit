@@ -55,6 +55,25 @@ WEB_ORIGIN=https://conduit.example
 VITE_API_URL=https://api.conduit.example
 ```
 
+`VITE_API_URL` is compiled into every client as its **default server**. Users can
+choose **Change server** on the sign-in screen to connect to another Conduit
+API. That selection is stored only on their device and takes effect after the
+client reloads. Choosing the default server again removes the local override,
+so a later client release can change the baked-in default cleanly.
+
+Custom servers must:
+
+- expose `GET /health` and the Conduit API over a URL reachable by the client;
+- use HTTPS outside local development;
+- set `BETTER_AUTH_URL` to that externally reachable API URL; and
+- allow the distributed client's origin with `WEB_ORIGIN`.
+
+For the browser client, normal CORS, mixed-content, cookie, and third-party
+cookie rules still apply. The most reliable web deployment serves the web
+client and API on the same site. The server picker is primarily intended for
+packaged desktop/mobile clients and compatible web deployments; it is not a
+proxy and does not bypass browser security controls.
+
 If serving web and API on one host through path routing, ensure every
 `/api/auth/*` callback reaches the Conduit server and ordinary SPA routes fall
 back to `index.html`.

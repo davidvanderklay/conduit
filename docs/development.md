@@ -35,7 +35,12 @@ Important variables:
 - `ADDON_ENCRYPTION_KEY`: 64 hexadecimal characters in production
 - `WEB_ORIGIN`: allowed browser origin and recovery-link origin
 - `PORT`: API listen port
-- `VITE_API_URL`: API origin compiled into the web client
+- `VITE_API_URL`: API origin compiled into the web client as its default server
+
+The sign-in screen's **Change server** flow stores a custom API URL under
+`conduit:server-url` in local storage and reloads the app so both Better Auth and
+ordinary API requests use the same origin. It verifies `GET /health` before
+saving. Use **Default server** in that flow to remove the override.
 
 Generate secrets with a cryptographically secure tool, for example:
 
