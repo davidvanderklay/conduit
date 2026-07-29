@@ -61,7 +61,7 @@ function AuthScreen() {
       api<{
         needsOwner: boolean
         localRegistration: boolean
-        oidc: { enabled: boolean; displayName?: string }
+        oidc: { enabled: boolean; provider?: "google" | "oidc"; displayName?: string }
       }>("/v1/auth/config"),
   })
 
@@ -175,10 +175,12 @@ function AuthScreen() {
             className="mt-4 w-full"
             variant="secondary"
             onClick={() =>
-              authClient.signIn.oauth2({
-                providerId: "conduit-oidc",
-                callbackURL: "/",
-              })
+              authConfig.data.oidc.provider === "google"
+                ? authClient.signIn.social({ provider: "google", callbackURL: "/" })
+                : authClient.signIn.oauth2({
+                    providerId: "conduit-oidc",
+                    callbackURL: "/",
+                  })
             }
           >
             {authConfig.data.oidc.displayName}
@@ -880,6 +882,7 @@ function RecoverySetup() {
 
 interface AdminAuthSettings {
   registrationMode: "open" | "closed"
+  oauthProvider: "google" | "oidc"
   oidcEnabled: boolean
   oidcIssuer: string
   oidcClientId: string
@@ -887,7 +890,8 @@ interface AdminAuthSettings {
   oidcScopes: string
   oidcAutoRegister: boolean
   hasClientSecret: boolean
-  callbackUrl: string
+  googleCallbackUrl: string
+  oidcCallbackUrl: string
 }
 
 function AdminScreen() {
@@ -896,6 +900,10 @@ function AdminScreen() {
     queryFn: () => api<AdminAuthSettings>("/v1/admin/auth"),
   })
   const [message, setMessage] = useState("")
+  const [oauthProvider, setOauthProvider] = useState<"google" | "oidc">("google")
+  useEffect(() => {
+    if (settings.data) setOauthProvider(settings.data.oauthProvider)
+  }, [settings.data])
   const save = useMutation({
     mutationFn: (values: Record<string, unknown>) =>
       api<{ saved: boolean; restartRequired: boolean }>("/v1/admin/auth", {
@@ -936,6 +944,7 @@ function AdminScreen() {
             const data = new FormData(event.currentTarget)
             save.mutate({
               registrationMode: String(data.get("registrationMode")),
+              oauthProvider: String(data.get("oauthProvider")),
               oidcEnabled: data.has("oidcEnabled"),
               oidcIssuer: String(data.get("oidcIssuer")),
               oidcClientId: String(data.get("oidcClientId")),
@@ -959,13 +968,28 @@ function AdminScreen() {
           </label>
           <label className="flex items-center gap-3 text-sm">
             <input name="oidcEnabled" type="checkbox" defaultChecked={value.oidcEnabled} />
-            Enable OpenID Connect
+            Enable OAuth login
+          </label>
+          <label className="block text-sm text-zinc-300">
+            Login provider
+            <select
+              name="oauthProvider"
+              value={oauthProvider}
+              onChange={(event) => setOauthProvider(event.target.value as "google" | "oidc")}
+              className="mt-2 h-11 w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3"
+            >
+              <option value="google">Google</option>
+              <option value="oidc">Custom OpenID Connect</option>
+            </select>
           </label>
           <div className="grid gap-4 sm:grid-cols-2">
             <Input name="oidcDisplayName" defaultValue={value.oidcDisplayName} placeholder="Button label" required />
             <Input name="oidcScopes" defaultValue={value.oidcScopes} placeholder="openid email" required />
           </div>
-          <Input name="oidcIssuer" defaultValue={value.oidcIssuer} placeholder="https://id.example.com/.well-known/openid-configuration" />
+          {oauthProvider === "oidc" && (
+            <Input name="oidcIssuer" defaultValue={value.oidcIssuer} placeholder="https://id.example.com/.well-known/openid-configuration" />
+          )}
+          {oauthProvider === "google" && <input type="hidden" name="oidcIssuer" value="" />}
           <Input name="oidcClientId" defaultValue={value.oidcClientId} placeholder="Client ID" />
           <Input
             name="oidcClientSecret"
@@ -974,11 +998,13 @@ function AdminScreen() {
           />
           <label className="flex items-center gap-3 text-sm">
             <input name="oidcAutoRegister" type="checkbox" defaultChecked={value.oidcAutoRegister} />
-            Automatically create accounts for new OIDC users
+            Automatically create accounts for new OAuth users
           </label>
           <div className="rounded-xl bg-zinc-950 p-4">
             <p className="text-xs text-zinc-500">OIDC callback URL</p>
-            <code className="mt-1 block overflow-x-auto text-xs text-zinc-300">{value.callbackUrl}</code>
+            <code className="mt-1 block overflow-x-auto text-xs text-zinc-300">
+              {oauthProvider === "google" ? value.googleCallbackUrl : value.oidcCallbackUrl}
+            </code>
           </div>
           {message && <p className="text-sm text-amber-300">{message}</p>}
           {save.error && <p className="text-sm text-red-400">{save.error.message}</p>}

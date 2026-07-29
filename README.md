@@ -62,13 +62,15 @@ and subtitles directly; the sync server does not proxy add-on or media traffic.
 
 The first local account created after installation becomes the instance owner.
 Later local registration is closed by default. The owner can open registration
-or configure one OpenID Connect provider at `/admin`. OIDC client secrets are
+or configure Google login directly—or a custom OpenID Connect provider—at `/admin`. OAuth client secrets are
 encrypted with `ADDON_ENCRYPTION_KEY` and are never returned to the browser
 after being saved. Restart the server after changing authentication settings.
 
-Configure the identity provider with the callback URL shown on the admin page.
-OIDC discovery, PKCE, and account creation are handled by Better Auth. Automatic
-OIDC registration remains off unless the owner explicitly enables it.
+For Google, create an OAuth 2.0 Web application in Google Cloud and paste its
+client ID and client secret into Conduit; no separate identity server is
+required. Configure Google with the callback URL shown on the admin page.
+Custom OIDC discovery, PKCE, and account creation are handled by Better Auth.
+Automatic OAuth registration remains off unless the owner explicitly enables it.
 
 Conduit does not require an account name and does not send password-reset email.
 Local users receive ten one-time recovery codes during account creation. Losing

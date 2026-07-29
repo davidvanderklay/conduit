@@ -11,7 +11,12 @@ const indexRoute = createRoute({
   path: "/",
   component: App,
 })
-const routeTree = rootRoute.addChildren([indexRoute])
+const adminRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/admin",
+  component: App,
+})
+const routeTree = rootRoute.addChildren([indexRoute, adminRoute])
 const router = createRouter({ routeTree })
 const queryClient = new QueryClient({
   defaultOptions: {
