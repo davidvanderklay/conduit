@@ -57,14 +57,14 @@ export function PosterWatchStatus({
     <span
       className={
         complete
-          ? "grid size-9 place-items-center rounded-full bg-emerald-400 text-emerald-950 shadow-lg shadow-black/40"
-          : "grid size-9 place-items-center rounded-full bg-amber-400 text-amber-950 shadow-lg shadow-black/40"
+          ? "grid size-6 place-items-center rounded-full bg-emerald-400 text-emerald-950 shadow-md shadow-black/40"
+          : "grid size-6 place-items-center rounded-full bg-amber-400 text-amber-950 shadow-md shadow-black/40"
       }
       role="img"
       aria-label={label}
       title={label}
     >
-      {complete ? <Check size={19} strokeWidth={3.25} /> : <Minus size={19} strokeWidth={3.25} />}
+      {complete ? <Check size={14} strokeWidth={3.25} /> : <Minus size={14} strokeWidth={3.25} />}
     </span>
   )
 }
