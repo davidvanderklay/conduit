@@ -17,8 +17,10 @@ import { loadSubtitles, type Subtitle } from "../lib/core"
 import { isDesktop } from "../lib/desktop"
 import { readPreferences } from "../lib/preferences"
 import { playerHeading, type PlayerHeading } from "../lib/player-title"
+import { videoObjectFit, type VideoScale } from "../lib/video-scale"
 import { usePlaybackProgress } from "../lib/progress"
 import { DesktopPlayer } from "./desktop-player"
+import { VideoScaleControl } from "./video-scale-control"
 
 interface PlayerSubtitle extends Subtitle {
   key: string
@@ -113,6 +115,7 @@ function WebPlayer({
   const [subtitleLoading, setSubtitleLoading] = useState(true)
   const [audioChoices, setAudioChoices] = useState<AudioChoice[]>([])
   const [selectedAudio, setSelectedAudio] = useState<number>()
+  const [videoScale, setVideoScale] = useState<VideoScale>("fit")
   const { progress, save: saveProgress } = usePlaybackProgress(
     profileId,
     videoId,
@@ -342,6 +345,9 @@ function WebPlayer({
             <Play className="rotate-180 fill-current" size={22} />
           </button>
           <PlayerHeadingText heading={heading} />
+          <div className="ml-auto">
+            <VideoScaleControl value={videoScale} onChange={setVideoScale} />
+          </div>
         </div>
         <div
           ref={shellRef}
@@ -351,6 +357,7 @@ function WebPlayer({
           <video
             ref={videoRef}
             className="h-full w-full"
+            style={{ objectFit: videoObjectFit(videoScale) }}
             autoPlay
             playsInline
             onClick={togglePlayback}
