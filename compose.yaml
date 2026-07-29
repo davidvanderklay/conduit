@@ -6,7 +6,7 @@ services:
       POSTGRES_USER: conduit
       POSTGRES_PASSWORD: conduit
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - conduit-postgres:/var/lib/postgresql/data
     healthcheck:

@@ -7,9 +7,7 @@ use std::{
     ffi::CString,
     sync::{Arc, Mutex},
 };
-use tauri::AppHandle;
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-use tauri::Manager;
+use tauri::{AppHandle, Manager};
 use thiserror::Error;
 
 #[derive(Debug, Error)]

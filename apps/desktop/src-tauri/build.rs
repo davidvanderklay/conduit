@@ -1,10 +1,9 @@
 fn main() {
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
-    if target_os == "linux" {
-        pkg_config::probe_library("egl").expect("EGL development files are required on Linux");
-    }
+    probe_linux_egl();
     if target_os == "windows" {
-        let libmpv = std::path::Path::new("libmpv");
+        let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").expect("Cargo manifest directory");
+        let libmpv = std::path::Path::new(&manifest_dir).join("libmpv");
         if !libmpv.join("mpv.lib").is_file() || !libmpv.join("libmpv-2.dll").is_file() {
             println!(
                 "cargo:warning=Windows libmpv files are missing; run `pnpm --filter @conduit/desktop setup:windows` before linking or packaging"
@@ -22,3 +21,11 @@ fn main() {
     }
     tauri_build::build()
 }
+
+#[cfg(target_os = "linux")]
+fn probe_linux_egl() {
+    pkg_config::probe_library("egl").expect("EGL development files are required on Linux");
+}
+
+#[cfg(not(target_os = "linux"))]
+fn probe_linux_egl() {}

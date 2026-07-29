@@ -3,8 +3,9 @@
 #![cfg(target_os = "windows")]
 
 use tauri::{AppHandle, Manager};
+use windows::core::BOOL;
 use windows::Win32::{
-    Foundation::{BOOL, HWND, LPARAM},
+    Foundation::{HWND, LPARAM},
     UI::WindowsAndMessaging::{
         EnumChildWindows, GetClassNameW, SetWindowPos, HWND_BOTTOM, SWP_NOACTIVATE, SWP_NOMOVE,
         SWP_NOSIZE,
@@ -54,12 +55,11 @@ fn force_mpv_below(parent: HWND) -> Result<(), String> {
 
     let mut children = Children { mpv: Vec::new() };
     unsafe {
-        EnumChildWindows(
+        let _ = EnumChildWindows(
             Some(parent),
             Some(collect),
             LPARAM((&mut children as *mut Children) as isize),
-        )
-        .map_err(|error| error.to_string())?;
+        );
         for hwnd in children.mpv {
             SetWindowPos(
                 hwnd,
