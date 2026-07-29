@@ -123,18 +123,18 @@ export function DesktopPlayer({
   }, [addons, title, type, url, videoId])
 
   useEffect(() => {
-    if (resumed.current || !snapshot || !progress.data) return
+    if (resumed.current || !snapshot?.duration || !progress.isSuccess) return
     resumed.current = true
-    if (progress.data.watched) return
+    if (!progress.data || progress.data.watched) return
     const saved = progress.data.positionMs / 1000
     if (saved > 0 && (!snapshot.duration || saved < snapshot.duration - 5)) {
       void nativePlayerCommand(["seek", saved, "absolute+exact"])
       setSnapshot((current) => (current ? { ...current, position: saved } : current))
     }
-  }, [progress.data, snapshot])
+  }, [progress.data, progress.isSuccess, snapshot])
 
   useEffect(() => {
-    if (!snapshot) return
+    if (!snapshot || !resumed.current) return
     const justPaused = snapshot.paused && !previousPaused.current
     previousPaused.current = snapshot.paused
     void saveProgress(snapshot.position, snapshot.duration, justPaused)
@@ -164,7 +164,9 @@ export function DesktopPlayer({
     if (closing.current) return
     closing.current = true
     try {
-      if (snapshot) await saveProgress(snapshot.position, snapshot.duration, true)
+      if (snapshot && resumed.current) {
+        await saveProgress(snapshot.position, snapshot.duration, true)
+      }
       await stopNativePlayer()
     } finally {
       document.documentElement.classList.remove("native-playback")

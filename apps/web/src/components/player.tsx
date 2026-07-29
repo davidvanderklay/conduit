@@ -127,15 +127,15 @@ function WebPlayer({
 
   useEffect(() => {
     const video = videoRef.current
-    if (resumed.current || !video || !duration || !progress.data) return
+    if (resumed.current || !video || !duration || !progress.isSuccess) return
     resumed.current = true
-    if (progress.data.watched) return
+    if (!progress.data || progress.data.watched) return
     const saved = progress.data.positionMs / 1000
     if (saved > 0 && saved < duration - 5) {
       video.currentTime = saved
       setCurrentTime(saved)
     }
-  }, [duration, progress.data])
+  }, [duration, progress.data, progress.isSuccess])
 
   const refreshNativeTracks = useCallback(() => {
     const video = videoRef.current
@@ -362,13 +362,21 @@ function WebPlayer({
             onPlay={() => setPlaying(true)}
             onPause={(event) => {
               setPlaying(false)
-              void saveProgress(event.currentTarget.currentTime, event.currentTarget.duration, true)
+              if (resumed.current) {
+                void saveProgress(
+                  event.currentTarget.currentTime,
+                  event.currentTarget.duration,
+                  true,
+                )
+              }
             }}
             onPlaying={() => setWaiting(false)}
             onWaiting={() => setWaiting(true)}
             onTimeUpdate={(event) => {
               setCurrentTime(event.currentTarget.currentTime)
-              void saveProgress(event.currentTarget.currentTime, event.currentTarget.duration)
+              if (resumed.current) {
+                void saveProgress(event.currentTarget.currentTime, event.currentTarget.duration)
+              }
             }}
             onDurationChange={(event) => setDuration(event.currentTarget.duration || 0)}
             onLoadedMetadata={(event) => {
