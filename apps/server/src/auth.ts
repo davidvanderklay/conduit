@@ -1,14 +1,16 @@
 import { betterAuth } from "better-auth"
 import { drizzleAdapter } from "better-auth/adapters/drizzle"
-import { genericOAuth } from "better-auth/plugins"
+import { bearer, genericOAuth } from "better-auth/plugins"
 import { DESKTOP_ORIGINS, type Config } from "./config.js"
 import type { Database } from "./db/index.js"
 import type { RuntimeAuthSettings } from "./instance-auth.js"
 import * as schema from "./db/schema.js"
 
 export function createAuth(db: Database, config: Config, settings: RuntimeAuthSettings) {
-  const plugins = settings.oidc?.provider === "oidc"
-    ? [
+  const plugins = [
+    bearer(),
+    ...(settings.oidc?.provider === "oidc"
+      ? [
         genericOAuth({
           config: [
             {
@@ -23,7 +25,8 @@ export function createAuth(db: Database, config: Config, settings: RuntimeAuthSe
           ],
         }),
       ]
-    : []
+      : []),
+  ]
   const socialProviders =
     settings.oidc?.provider === "google"
       ? {

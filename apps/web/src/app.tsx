@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { ArrowLeft, Check, Film, Globe2, Library, Search, Server, Shield, X } from "lucide-react"
 import { api, type Bootstrap, type InstalledAddon, type Profile } from "./lib/api"
-import { API_URL, authClient } from "./lib/auth"
+import { API_URL, DESKTOP_SESSION_TOKEN, authClient } from "./lib/auth"
 import {
   DEFAULT_SERVER_URL,
   isDefaultServer,
@@ -27,12 +27,31 @@ import { CalendarView } from "./components/calendar-view"
 import { PosterWatchStatus, PosterWatchStatusProvider } from "./components/poster-watch-status"
 import { ContinueWatching, HistoryView } from "./components/progress-view"
 import { applyPreferences, readPreferences } from "./lib/preferences"
+import { isDesktop } from "./lib/desktop"
+import {
+  beginDesktopAuthCallback,
+  clearDesktopSessionToken,
+  createPkcePair,
+  openInSystemBrowser,
+  saveDesktopSessionToken,
+} from "./lib/desktop-auth"
 import { DiscoverView, type DiscoverSelection } from "./components/discover-view"
 import { VirtualVerticalList } from "./components/virtual-vertical-list"
 
 export function App() {
   const session = authClient.useSession()
   useEffect(() => applyPreferences(readPreferences()), [])
+  useEffect(() => {
+    if (
+      !session.isPending &&
+      !session.error &&
+      DESKTOP_SESSION_TOKEN &&
+      !session.data?.user
+    ) {
+      clearDesktopSessionToken()
+      window.location.reload()
+    }
+  }, [session.data?.user, session.error, session.isPending])
 
   if (session.isPending) {
     return <CenteredMessage>Starting conduit…</CenteredMessage>
@@ -64,6 +83,7 @@ function AuthScreen() {
   const [selectingServer, setSelectingServer] = useState(false)
   const [error, setError] = useState("")
   const [pending, setPending] = useState(false)
+  const [oauthPending, setOauthPending] = useState(false)
   const [recoveryCodes, setRecoveryCodes] = useState<string[]>([])
   const [recovering, setRecovering] = useState(false)
   const authConfig = useQuery({
@@ -107,6 +127,87 @@ function AuthScreen() {
           // Account creation succeeded; codes can be regenerated later.
         }
       }
+    }
+  }
+
+  async function signInWithOAuth() {
+    if (!authConfig.data?.oidc.enabled) return
+    setError("")
+    if (!isDesktop()) {
+      const callbackURL = `${window.location.origin}/`
+      if (authConfig.data.oidc.provider === "google") {
+        await authClient.signIn.social({
+          provider: "google",
+          callbackURL,
+          errorCallbackURL: callbackURL,
+          newUserCallbackURL: callbackURL,
+        })
+      } else {
+        await authClient.signIn.oauth2({
+          providerId: "conduit-oidc",
+          callbackURL,
+          errorCallbackURL: callbackURL,
+          newUserCallbackURL: callbackURL,
+        })
+      }
+      return
+    }
+
+    setOauthPending(true)
+    let cancelCallback: (() => void) | undefined
+    try {
+      const callbackListener = await beginDesktopAuthCallback()
+      const { callbackUrl, result: callbackResult } = callbackListener
+      cancelCallback = callbackListener.cancel
+      const pkce = await createPkcePair()
+      const handoff = await api<{ requestId: string }>("/v1/auth/desktop/start", {
+        method: "POST",
+        body: JSON.stringify({ callbackUrl, codeChallenge: pkce.challenge }),
+      })
+      const request = encodeURIComponent(handoff.requestId)
+      const completeURL = `${API_URL}/v1/auth/desktop/complete?request=${request}`
+      const errorURL = `${API_URL}/v1/auth/desktop/error?request=${request}`
+      const authorization =
+        authConfig.data.oidc.provider === "google"
+          ? await authClient.signIn.social({
+              provider: "google",
+              callbackURL: completeURL,
+              errorCallbackURL: errorURL,
+              newUserCallbackURL: completeURL,
+              disableRedirect: true,
+            })
+          : await authClient.signIn.oauth2({
+              providerId: "conduit-oidc",
+              callbackURL: completeURL,
+              errorCallbackURL: errorURL,
+              newUserCallbackURL: completeURL,
+              disableRedirect: true,
+            })
+      if (authorization.error) {
+        throw new Error(authorization.error.message ?? "Could not start OAuth sign-in.")
+      }
+      const authorizationUrl = authorization.data?.url
+      if (!authorizationUrl) throw new Error("The OAuth provider did not return a sign-in URL.")
+      await openInSystemBrowser(authorizationUrl)
+      const callback = await callbackResult
+      const callbackError = callback.searchParams.get("error")
+      if (callbackError) throw new Error(`OAuth sign-in failed: ${callbackError}`)
+      const requestId = callback.searchParams.get("request")
+      const code = callback.searchParams.get("code")
+      if (requestId !== handoff.requestId || !code) {
+        throw new Error("The desktop authentication response did not match this sign-in attempt.")
+      }
+      const exchange = await api<{ token: string; expiresAt: string }>("/v1/auth/desktop/exchange", {
+        method: "POST",
+        body: JSON.stringify({ requestId, code, verifier: pkce.verifier }),
+      })
+      saveDesktopSessionToken(API_URL, exchange.token, exchange.expiresAt)
+      queryClient.clear()
+      window.location.reload()
+    } catch (cause) {
+      cancelCallback?.()
+      setError(cause instanceof Error ? cause.message : "Desktop OAuth sign-in failed.")
+      setOauthPending(false)
     }
   }
 
@@ -213,24 +314,13 @@ function AuthScreen() {
                     <Button
                       className="h-11 w-full border border-zinc-700 bg-white text-zinc-900 hover:bg-zinc-100"
                       variant="secondary"
-                      onClick={() =>
-                        authConfig.data!.oidc.provider === "google"
-                          ? authClient.signIn.social({
-                              provider: "google",
-                              callbackURL: `${window.location.origin}/`,
-                              errorCallbackURL: `${window.location.origin}/`,
-                              newUserCallbackURL: `${window.location.origin}/`,
-                            })
-                          : authClient.signIn.oauth2({
-                              providerId: "conduit-oidc",
-                              callbackURL: `${window.location.origin}/`,
-                              errorCallbackURL: `${window.location.origin}/`,
-                              newUserCallbackURL: `${window.location.origin}/`,
-                            })
-                      }
+                      disabled={oauthPending}
+                      onClick={() => void signInWithOAuth()}
                     >
                       {authConfig.data!.oidc.provider === "google" && <GoogleMark />}
-                      {authConfig.data!.oidc.displayName}
+                      {oauthPending
+                        ? "Finish signing in in your browser…"
+                        : authConfig.data!.oidc.displayName}
                     </Button>
                     <div className="my-6 flex items-center gap-3">
                       <div className="h-px flex-1 bg-zinc-800" />
@@ -635,7 +725,10 @@ function AuthenticatedApp({
               onNavigate={navigate}
               onSignOut={async () => {
                 const result = await authClient.signOut()
-                if (!result.error) queryClient.clear()
+                if (!result.error) {
+                  clearDesktopSessionToken()
+                  queryClient.clear()
+                }
               }}
             />
             {isOwner && (

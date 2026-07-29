@@ -1,7 +1,7 @@
 import { Type } from "@sinclair/typebox"
 import { randomBytes, createHmac } from "node:crypto"
 import { hashPassword } from "better-auth/crypto"
-import { and, asc, desc, eq, gt, inArray, isNull, ne, notLike, sql } from "drizzle-orm"
+import { and, asc, desc, eq, gt, inArray, isNull, lt, ne, notLike, sql } from "drizzle-orm"
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify"
 import { fromNodeHeaders } from "better-auth/node"
 import type { Auth } from "./auth.js"
@@ -14,6 +14,7 @@ import {
   accounts,
   adminRecoveryTokens,
   addonInstallations,
+  desktopAuthRequests,
   householdMembers,
   households,
   libraryItems,
@@ -24,6 +25,14 @@ import {
   users,
   watchProgress,
 } from "./db/schema.js"
+import {
+  DESKTOP_AUTH_TTL_MS,
+  hashDesktopCode,
+  pkceChallenge,
+  secureEqual,
+  validPkceVerifier,
+  validateLoopbackCallback,
+} from "./desktop-auth.js"
 import {
   PORTABLE_DATA_FORMAT,
   PORTABLE_DATA_VERSION,
@@ -49,6 +58,7 @@ const LEGACY_COMPLETION_MARKER_PREFIX = "conduit:completion:"
 export async function registerRoutes(app: FastifyInstance, context: RouteContext) {
   const { auth, authSettings, config, db } = context
   const recoveryAttempts = new Map<string, { count: number; resetAt: number }>()
+  const desktopAuthAttempts = new Map<string, { count: number; resetAt: number }>()
 
   app.addHook("onSend", async (request, reply, payload) => {
     if (request.url.startsWith("/v1/")) {
@@ -73,6 +83,161 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
         : { enabled: false },
     }
   })
+
+  app.post(
+    "/v1/auth/desktop/start",
+    {
+      schema: {
+        body: Type.Object({
+          callbackUrl: Type.String({ maxLength: 200 }),
+          codeChallenge: Type.String({ minLength: 43, maxLength: 128 }),
+        }),
+      },
+    },
+    async (request, reply) => {
+      if (!consumeRecoveryAttempt(desktopAuthAttempts, request.ip)) {
+        return reply.tooManyRequests("Too many desktop sign-in attempts. Try again later.")
+      }
+      const body = request.body as { callbackUrl: string; codeChallenge: string }
+      let callbackUrl: string
+      try {
+        callbackUrl = validateLoopbackCallback(body.callbackUrl)
+      } catch (cause) {
+        return reply.badRequest(cause instanceof Error ? cause.message : "Invalid callback")
+      }
+      if (!/^[A-Za-z0-9_-]{43}$/.test(body.codeChallenge)) {
+        return reply.badRequest("Invalid PKCE challenge")
+      }
+      const id = randomBytes(32).toString("base64url")
+      const expiresAt = new Date(Date.now() + DESKTOP_AUTH_TTL_MS)
+      await db
+        .delete(desktopAuthRequests)
+        .where(lt(desktopAuthRequests.expiresAt, new Date()))
+      await db.insert(desktopAuthRequests).values({
+        id,
+        callbackUrl,
+        codeChallenge: body.codeChallenge,
+        expiresAt,
+      })
+      return { requestId: id, expiresAt: expiresAt.toISOString() }
+    },
+  )
+
+  app.get("/v1/auth/desktop/complete", async (request, reply) => {
+    const query = request.query as { request?: string }
+    if (!query.request) return reply.badRequest("Missing desktop authentication request")
+    const user = await requireUser(request, reply, auth)
+    if (!user) return
+    const code = randomBytes(32).toString("base64url")
+    const [handoff] = await db
+      .update(desktopAuthRequests)
+      .set({
+        userId: user.id,
+        codeHash: hashDesktopCode(code, config.authSecret),
+      })
+      .where(
+        and(
+          eq(desktopAuthRequests.id, query.request),
+          isNull(desktopAuthRequests.usedAt),
+          isNull(desktopAuthRequests.userId),
+          gt(desktopAuthRequests.expiresAt, new Date()),
+        ),
+      )
+      .returning({ callbackUrl: desktopAuthRequests.callbackUrl })
+    if (!handoff) return reply.unauthorized("This desktop sign-in request is invalid or expired")
+    const callback = new URL(handoff.callbackUrl)
+    callback.searchParams.set("request", query.request)
+    callback.searchParams.set("code", code)
+    return reply.redirect(callback.toString())
+  })
+
+  app.get("/v1/auth/desktop/error", async (request, reply) => {
+    const query = request.query as { request?: string; error?: string }
+    if (!query.request) return reply.badRequest("Missing desktop authentication request")
+    const [handoff] = await db
+      .select({ callbackUrl: desktopAuthRequests.callbackUrl })
+      .from(desktopAuthRequests)
+      .where(
+        and(
+          eq(desktopAuthRequests.id, query.request),
+          isNull(desktopAuthRequests.usedAt),
+          gt(desktopAuthRequests.expiresAt, new Date()),
+        ),
+      )
+      .limit(1)
+    if (!handoff) return reply.unauthorized("This desktop sign-in request is invalid or expired")
+    const callback = new URL(handoff.callbackUrl)
+    callback.searchParams.set("request", query.request)
+    callback.searchParams.set("error", query.error ?? "oauth_failed")
+    return reply.redirect(callback.toString())
+  })
+
+  app.post(
+    "/v1/auth/desktop/exchange",
+    {
+      schema: {
+        body: Type.Object({
+          requestId: Type.String({ minLength: 32, maxLength: 100 }),
+          code: Type.String({ minLength: 32, maxLength: 100 }),
+          verifier: Type.String({ minLength: 43, maxLength: 128 }),
+        }),
+      },
+    },
+    async (request, reply) => {
+      const body = request.body as { requestId: string; code: string; verifier: string }
+      if (!validPkceVerifier(body.verifier)) return reply.badRequest("Invalid PKCE verifier")
+      const codeHash = hashDesktopCode(body.code, config.authSecret)
+      const challenge = pkceChallenge(body.verifier)
+      const token = randomBytes(32).toString("base64url")
+      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+      const exchanged = await db.transaction(async (tx) => {
+        const [handoff] = await tx
+          .select({
+            codeHash: desktopAuthRequests.codeHash,
+            codeChallenge: desktopAuthRequests.codeChallenge,
+            userId: desktopAuthRequests.userId,
+          })
+          .from(desktopAuthRequests)
+          .where(
+            and(
+              eq(desktopAuthRequests.id, body.requestId),
+              isNull(desktopAuthRequests.usedAt),
+              gt(desktopAuthRequests.expiresAt, new Date()),
+            ),
+          )
+          .for("update")
+          .limit(1)
+        if (
+          !handoff?.userId ||
+          !handoff.codeHash ||
+          !secureEqual(handoff.codeHash, codeHash) ||
+          !secureEqual(handoff.codeChallenge, challenge)
+        ) {
+          return false
+        }
+        await tx
+          .update(desktopAuthRequests)
+          .set({ usedAt: new Date() })
+          .where(
+            and(
+              eq(desktopAuthRequests.id, body.requestId),
+              isNull(desktopAuthRequests.usedAt),
+            ),
+          )
+        await tx.insert(sessions).values({
+          id: randomBytes(24).toString("base64url"),
+          token,
+          userId: handoff.userId,
+          expiresAt,
+          ipAddress: request.ip,
+          userAgent: request.headers["user-agent"] ?? "Conduit desktop",
+        })
+        return true
+      })
+      if (!exchanged) return reply.unauthorized("This desktop sign-in code is invalid or expired")
+      return { token, expiresAt: expiresAt.toISOString() }
+    },
+  )
 
   app.get("/v1/auth/methods", async (request, reply) => {
     const user = await requireUser(request, reply, auth)

@@ -73,6 +73,24 @@ export const adminRecoveryTokens = pgTable(
   (table) => [index("admin_recovery_token_user_idx").on(table.userId)],
 )
 
+export const desktopAuthRequests = pgTable(
+  "desktop_auth_request",
+  {
+    id: text("id").primaryKey(),
+    callbackUrl: text("callback_url").notNull(),
+    codeChallenge: text("code_challenge").notNull(),
+    codeHash: text("code_hash"),
+    userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("desktop_auth_request_expiry_idx").on(table.expiresAt),
+    index("desktop_auth_request_user_idx").on(table.userId),
+  ],
+)
+
 export const sessions = pgTable(
   "session",
   {

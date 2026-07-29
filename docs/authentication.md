@@ -62,6 +62,31 @@ VITE_API_URL=https://api.conduit.example
 
 The exact values depend on the chosen public web and API origins.
 
+### Desktop OAuth
+
+The packaged desktop client never loads Google or the configured OIDC provider
+inside Conduit's webview. It opens the authorization page in the system browser,
+where password managers, passkeys, security keys, existing provider sessions,
+and provider security policies work normally.
+
+The handoff back to Conduit uses a temporary random loopback listener:
+
+1. The desktop app binds a random `127.0.0.1` port and creates a PKCE verifier.
+2. The server records a five-minute authentication request containing only the
+   loopback URL and PKCE challenge.
+3. Better Auth completes OAuth in the system browser.
+4. The server redirects a single-use code to the loopback listener.
+5. The app exchanges that code together with its PKCE verifier for a dedicated
+   seven-day desktop session.
+
+Codes are hashed at rest, expire after five minutes, and cannot be exchanged
+twice. The loopback URL is restricted to the exact
+`http://127.0.0.1:<random-port>/oauth/callback` shape. Conduit does not register
+a custom URL protocol or place an OAuth client secret in the desktop binary.
+
+The provider callback shown in `/admin` does not change. Administrators still
+register only the server's Google or OIDC callback URL.
+
 ## Custom OpenID Connect
 
 Select **Custom OpenID Connect** in `/admin` and provide:

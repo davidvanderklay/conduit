@@ -1,4 +1,4 @@
-import { API_URL } from "./auth"
+import { API_URL, DESKTOP_SESSION_TOKEN } from "./auth"
 
 export interface Profile {
   id: string
@@ -108,6 +108,9 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 export function requestHeaders(init: RequestInit): Headers {
   const headers = new Headers(init.headers)
+  if (DESKTOP_SESSION_TOKEN && !headers.has("authorization")) {
+    headers.set("authorization", `Bearer ${DESKTOP_SESSION_TOKEN}`)
+  }
   if (init.body != null && !headers.has("content-type")) {
     headers.set("content-type", "application/json")
   }
