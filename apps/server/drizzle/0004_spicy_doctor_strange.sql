@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "single_instance_owner_idx" ON "user" USING btree ("role") WHERE "user"."role" = 'owner';
