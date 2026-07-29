@@ -3,7 +3,7 @@
 import { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { DesktopPlayer } from "./desktop-player"
+import { DesktopPlayer, usesExpandedPlayerControls } from "./desktop-player"
 
 ;(
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
@@ -133,6 +133,12 @@ describe("DesktopPlayer track menus", () => {
     expect(back.querySelector("svg")?.classList.contains("rotate-180")).toBe(true)
     expect(title?.textContent).toBe("Test video")
     expect(back.compareDocumentPosition(title!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it("expands controls for large resized windows without requiring fullscreen", () => {
+    expect(usesExpandedPlayerControls(1280, 800)).toBe(true)
+    expect(usesExpandedPlayerControls(1199, 800)).toBe(false)
+    expect(usesExpandedPlayerControls(1600, 699)).toBe(false)
   })
 
   it("hides inactive controls and cursor, then restores them on mouse movement", () => {

@@ -36,6 +36,14 @@ import { Card } from "./ui/card"
 
 type TrackMenuName = "audio" | "subtitles"
 
+export function usesExpandedPlayerControls(width: number, height: number): boolean {
+  return width >= 1200 && height >= 700
+}
+
+function isSpaciousViewport(): boolean {
+  return usesExpandedPlayerControls(window.innerWidth, window.innerHeight)
+}
+
 export function DesktopPlayer({
   url,
   type,
@@ -60,6 +68,7 @@ export function DesktopPlayer({
   const [controlsVisible, setControlsVisible] = useState(true)
   const [activeMenu, setActiveMenu] = useState<TrackMenuName>()
   const [fullscreen, setFullscreen] = useState(false)
+  const [spaciousViewport, setSpaciousViewport] = useState(isSpaciousViewport)
   const [addonSubtitles, setAddonSubtitles] = useState<ResolvedAddonSubtitle[]>([])
   const [selectedAddonSubtitle, setSelectedAddonSubtitle] = useState<string>()
   const hideTimer = useRef<number | undefined>(undefined)
@@ -142,14 +151,15 @@ export function DesktopPlayer({
   }, [saveProgress, snapshot])
 
   useEffect(() => {
-    const syncFullscreen = () => {
+    const syncWindowLayout = () => {
+      setSpaciousViewport(isSpaciousViewport())
       void nativeFullscreen()
         .then(setFullscreen)
         .catch(() => undefined)
     }
-    syncFullscreen()
-    window.addEventListener("resize", syncFullscreen)
-    return () => window.removeEventListener("resize", syncFullscreen)
+    syncWindowLayout()
+    window.addEventListener("resize", syncWindowLayout)
+    return () => window.removeEventListener("resize", syncWindowLayout)
   }, [])
 
   useEffect(() => {
@@ -293,6 +303,7 @@ export function DesktopPlayer({
   const selectedSubtitle = subtitleTracks.find((track) => track.selected)
   const chromeVisible =
     controlsVisible || Boolean(snapshot?.paused) || Boolean(activeMenu) || !snapshot
+  const expandedControls = fullscreen || spaciousViewport
 
   useLayoutEffect(() => {
     redrawControls()
@@ -332,7 +343,7 @@ export function DesktopPlayer({
       <div
         data-player-chrome="top"
         className={`pointer-events-none absolute inset-x-0 top-0 z-10 flex items-center justify-between gap-4 bg-gradient-to-b from-black/85 via-black/45 to-transparent ${
-          fullscreen ? "px-10 pb-24 pt-8" : "px-5 pb-16 pt-5"
+          expandedControls ? "px-10 pb-24 pt-8" : "px-5 pb-16 pt-5"
         } ${
           chromeVisible ? "visible" : "invisible"
         }`}
@@ -340,7 +351,7 @@ export function DesktopPlayer({
         <div className="flex min-w-0 items-center gap-3">
           <button
             className={`pointer-events-auto grid shrink-0 place-items-center rounded-full bg-black/60 text-zinc-200 hover:bg-white/15 ${
-              fullscreen ? "size-13 [&_svg]:size-7" : "size-10"
+              expandedControls ? "size-13 [&_svg]:size-7" : "size-10"
             }`}
             onClick={(event) => {
               event.stopPropagation()
@@ -350,7 +361,7 @@ export function DesktopPlayer({
           >
             <Play className="rotate-180 fill-current" size={21} />
           </button>
-          <PlayerHeadingText heading={heading} fullscreen={fullscreen} />
+          <PlayerHeadingText heading={heading} expanded={expandedControls} />
         </div>
       </div>
 
@@ -376,7 +387,7 @@ export function DesktopPlayer({
         <div
           data-player-chrome="bottom"
           className={`absolute inset-x-0 bottom-0 z-10 ${
-            fullscreen ? "px-10 pb-8 pt-28" : "px-4 pb-4 pt-20 sm:px-6"
+            expandedControls ? "px-10 pb-8 pt-28" : "px-4 pb-4 pt-20 sm:px-6"
           } ${
             chromeVisible ? "visible" : "pointer-events-none invisible"
           }`}
@@ -384,7 +395,7 @@ export function DesktopPlayer({
         >
           <div
             className={`native-controls-surface relative mx-auto ${
-              fullscreen ? "max-w-none" : "max-w-7xl"
+              expandedControls ? "max-w-none" : "max-w-7xl"
             }`}
           >
             {activeMenu === "audio" && (
@@ -457,7 +468,7 @@ export function DesktopPlayer({
 
             <input
               className={`player-seek block w-full cursor-pointer ${
-                fullscreen ? "h-2" : "h-1.5"
+                expandedControls ? "h-2" : "h-1.5"
               }`}
               style={
                 {
@@ -483,12 +494,12 @@ export function DesktopPlayer({
 
             <div
               className={`flex items-center ${
-                fullscreen ? "mt-5 gap-3" : "mt-3 gap-1 sm:gap-2"
+                expandedControls ? "mt-5 gap-3" : "mt-3 gap-1 sm:gap-2"
               }`}
             >
               <PlayerIcon
                 label="Back 10 seconds"
-                fullscreen={fullscreen}
+                expanded={expandedControls}
                 onClick={() => seekRelative(-10)}
               >
                 <RotateCcw size={21} />
@@ -496,14 +507,14 @@ export function DesktopPlayer({
               </PlayerIcon>
               <PlayerIcon
                 label={snapshot.paused ? "Play" : "Pause"}
-                fullscreen={fullscreen}
+                expanded={expandedControls}
                 onClick={togglePlayback}
               >
                 {snapshot.paused ? <Play size={22} /> : <Pause size={22} />}
               </PlayerIcon>
               <PlayerIcon
                 label="Forward 10 seconds"
-                fullscreen={fullscreen}
+                expanded={expandedControls}
                 onClick={() => seekRelative(10)}
               >
                 <RotateCw size={21} />
@@ -511,7 +522,7 @@ export function DesktopPlayer({
               </PlayerIcon>
               <PlayerIcon
                 label={snapshot.volume === 0 ? "Unmute" : "Mute"}
-                fullscreen={fullscreen}
+                expanded={expandedControls}
                 onClick={() => {
                   const volume = snapshot.volume === 0 ? 100 : 0
                   void nativePlayerCommand(["set", "volume", volume])
@@ -522,7 +533,7 @@ export function DesktopPlayer({
               </PlayerIcon>
               <input
                 className={`player-volume hidden sm:block ${
-                  fullscreen ? "w-32" : "w-20"
+                  expandedControls ? "w-32" : "w-20"
                 }`}
                 style={
                   {
@@ -542,7 +553,7 @@ export function DesktopPlayer({
               />
               <span
                 className={`player-time ml-1 tabular-nums text-zinc-300 ${
-                  fullscreen ? "text-sm" : "text-xs"
+                  expandedControls ? "text-sm" : "text-xs"
                 }`}
               >
                 {formatTime(snapshot.position)}
@@ -555,7 +566,7 @@ export function DesktopPlayer({
                 <PlayerIcon
                   label={`Audio${selectedAudio ? `: ${trackName(selectedAudio, "Audio")}` : ""}`}
                   active={activeMenu === "audio"}
-                  fullscreen={fullscreen}
+                  expanded={expandedControls}
                   onClick={() => toggleTrackMenu("audio")}
                 >
                   <Languages size={21} />
@@ -567,7 +578,7 @@ export function DesktopPlayer({
                     selectedSubtitle ? `: ${trackName(selectedSubtitle, "Subtitles")}` : ": Off"
                   }`}
                   active={activeMenu === "subtitles"}
-                  fullscreen={fullscreen}
+                  expanded={expandedControls}
                   onClick={() => toggleTrackMenu("subtitles")}
                 >
                   <Captions size={22} />
@@ -575,7 +586,7 @@ export function DesktopPlayer({
               </div>
               <PlayerIcon
                 label={fullscreen ? "Exit fullscreen" : "Fullscreen"}
-                fullscreen={fullscreen}
+                expanded={expandedControls}
                 onClick={() => {
                   void toggleNativeFullscreen().then(setFullscreen)
                 }}
@@ -594,20 +605,20 @@ export function DesktopPlayer({
 function PlayerIcon({
   label,
   active,
-  fullscreen,
+  expanded,
   children,
   onClick,
 }: {
   label: string
   active?: boolean
-  fullscreen?: boolean
+  expanded?: boolean
   children: React.ReactNode
   onClick: () => void
 }) {
   return (
     <button
       className={`relative grid place-items-center rounded-lg bg-zinc-950 text-zinc-200 shadow-sm transition hover:bg-zinc-800 hover:text-white ${
-        fullscreen ? "size-12 [&_svg]:size-7" : "size-10"
+      expanded ? "size-12 [&_svg]:size-7" : "size-10"
       } ${
         active ? "bg-amber-950 text-amber-300" : ""
       }`}
@@ -622,22 +633,22 @@ function PlayerIcon({
 
 function PlayerHeadingText({
   heading,
-  fullscreen,
+  expanded,
 }: {
   heading: PlayerHeading
-  fullscreen: boolean
+  expanded: boolean
 }) {
   return (
     <div className="min-w-0 drop-shadow-lg">
       <h2
         className={`truncate font-display font-semibold ${
-          fullscreen ? "text-2xl" : "text-lg"
+          expanded ? "text-2xl" : "text-lg"
         }`}
       >
         {heading.primary}
       </h2>
       {heading.secondary && (
-        <p className={`truncate text-zinc-300 ${fullscreen ? "text-sm" : "text-xs"}`}>
+        <p className={`truncate text-zinc-300 ${expanded ? "text-sm" : "text-xs"}`}>
           {heading.secondary}
         </p>
       )}
