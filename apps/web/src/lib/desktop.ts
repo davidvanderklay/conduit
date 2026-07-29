@@ -72,7 +72,7 @@ export async function prepareNativeTextSave(
   ])
   const path = await save({
     defaultPath: suggestedName,
-    filters: [{ name: "Conduit profile export", extensions: ["json"] }],
+    filters: [{ name: "conduit profile export", extensions: ["json"] }],
   })
   if (!path) return null
   return (contents) => writeTextFile(path, contents)
