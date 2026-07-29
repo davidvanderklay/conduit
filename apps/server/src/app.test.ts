@@ -37,4 +37,16 @@ describe("CORS", () => {
     expect(response.headers["access-control-allow-origin"]).toBe(config.webOrigin)
     expect(response.headers["access-control-allow-methods"]).toContain("DELETE")
   })
+
+  it("prevents authenticated API responses from being stored", async () => {
+    const app = await buildApp(config, {} as Database)
+    apps.push(app)
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/v1/bootstrap",
+    })
+
+    expect(response.headers["cache-control"]).toBe("private, no-store")
+  })
 })

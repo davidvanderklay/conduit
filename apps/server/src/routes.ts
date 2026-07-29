@@ -36,6 +36,13 @@ interface SessionUser {
 export async function registerRoutes(app: FastifyInstance, context: RouteContext) {
   const { auth, config, db } = context
 
+  app.addHook("onSend", async (request, reply, payload) => {
+    if (request.url.startsWith("/v1/")) {
+      reply.header("cache-control", "private, no-store")
+    }
+    return payload
+  })
+
   app.get("/health", async () => ({ status: "ok" }))
 
   app.get("/v1/bootstrap", async (request, reply) => {
