@@ -53,6 +53,12 @@ const desktop = vi.hoisted(() => ({
 }))
 
 vi.mock("../lib/desktop", () => desktop)
+vi.mock("../lib/progress", () => ({
+  usePlaybackProgress: () => ({
+    progress: { data: null },
+    save: vi.fn(async () => undefined),
+  }),
+}))
 
 describe("DesktopPlayer track menus", () => {
   let host: HTMLDivElement
@@ -75,6 +81,8 @@ describe("DesktopPlayer track menus", () => {
           title="Test video"
           type="movie"
           videoId="tt123"
+          profileId="00000000-0000-4000-8000-000000000001"
+          progressMetadata={{ mediaType: "movie", mediaId: "tt123", name: "Test video" }}
           addons={[]}
           onClose={() => undefined}
         />,
