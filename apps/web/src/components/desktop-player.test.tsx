@@ -3,7 +3,12 @@
 import { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { DesktopPlayer, usesExpandedPlayerControls } from "./desktop-player"
+import {
+  DesktopPlayer,
+  dedupeAddonSubtitles,
+  filterAddedAddonSubtitles,
+  usesExpandedPlayerControls,
+} from "./desktop-player"
 
 ;(
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
@@ -246,6 +251,29 @@ describe("DesktopPlayer track menus", () => {
     expect(document.querySelector('[role="menu"]')).not.toBeNull()
     expect(button("Spanish").className).toContain("bg-amber-400")
     expect(button("Off").className).not.toContain("bg-amber-400")
+  })
+
+  it("does not show an add-on subtitle again after mpv exposes it as an external track", () => {
+    const subtitles = [
+      { key: "one", display: "English · AIOStreams" },
+      { key: "two", display: "Spanish · AIOStreams" },
+    ]
+    const tracks = [
+      { external: true, title: "English · AIOStreams" },
+      { external: false, title: "Spanish · AIOStreams" },
+    ]
+
+    expect(filterAddedAddonSubtitles(subtitles, tracks)).toEqual([subtitles[1]])
+  })
+
+  it("removes duplicate add-on subtitle labels before the menu is shown", () => {
+    const subtitles = [
+      { key: "one", display: "English · AIOStreams" },
+      { key: "two", display: "English · AIOStreams" },
+      { key: "three", display: "Spanish · AIOStreams" },
+    ]
+
+    expect(dedupeAddonSubtitles(subtitles)).toEqual([subtitles[0], subtitles[2]])
   })
 })
 

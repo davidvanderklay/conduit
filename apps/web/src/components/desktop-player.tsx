@@ -79,9 +79,11 @@ export function DesktopPlayer({
   const audioButton = useRef<HTMLDivElement>(null)
   const subtitleButton = useRef<HTMLDivElement>(null)
   const previousMenu = useRef<TrackMenuName | undefined>(undefined)
+  const previousMenuContent = useRef("")
   const previousChromeVisible = useRef(true)
   const previousPaused = useRef(false)
   const resumed = useRef(false)
+  const pendingAddonSubtitle = useRef(new Set<string>())
   const { progress, save: saveProgress } = usePlaybackProgress(
     profileId,
     videoId,
@@ -313,6 +315,17 @@ export function DesktopPlayer({
   const subtitleTracks = snapshot?.tracks.filter((track) => track.type === "sub") ?? []
   const selectedAudio = audioTracks.find((track) => track.selected)
   const selectedSubtitle = subtitleTracks.find((track) => track.selected)
+  const menuContentSignature =
+    activeMenu === "audio"
+      ? audioTracks.map((track) => `${track.id}:${track.selected}`).join("|")
+      : activeMenu === "subtitles"
+        ? [
+            ...subtitleTracks.map((track) => `${track.id}:${track.selected}`),
+            ...filterAddedAddonSubtitles(addonSubtitles, subtitleTracks).map(
+              (subtitle) => subtitle.key,
+            ),
+          ].join("|")
+        : ""
   const chromeVisible =
     controlsVisible || Boolean(snapshot?.paused) || Boolean(activeMenu) || !snapshot
   const expandedControls = fullscreen || spaciousViewport
@@ -320,11 +333,16 @@ export function DesktopPlayer({
   useLayoutEffect(() => {
     redrawControls()
     const menuChanged = Boolean(previousMenu.current && previousMenu.current !== activeMenu)
+    const menuContentChanged =
+      Boolean(activeMenu) &&
+      previousMenu.current === activeMenu &&
+      previousMenuContent.current !== menuContentSignature
     const chromeHidden = previousChromeVisible.current && !chromeVisible
-    if (menuChanged || chromeHidden) resetOverlay()
+    if (menuChanged || menuContentChanged || chromeHidden) resetOverlay()
     previousMenu.current = activeMenu
+    previousMenuContent.current = menuContentSignature
     previousChromeVisible.current = chromeVisible
-  }, [activeMenu, chromeVisible, redrawControls, resetOverlay])
+  }, [activeMenu, chromeVisible, menuContentSignature, redrawControls, resetOverlay])
 
   // The Linux player layers a transparent WebKitGTK surface over GtkGLArea.
   // Explicitly invalidate that surface whenever dynamic control pixels move;
@@ -442,14 +460,23 @@ export function DesktopPlayer({
                 allowOff
                 onSelect={(track) => void selectTrack("sid", track)}
                 onSelectAddon={async (subtitle) => {
+                  if (pendingAddonSubtitle.current.has(subtitle.key)) return
+                  pendingAddonSubtitle.current.add(subtitle.key)
                   try {
-                    await nativePlayerCommand([
-                      "sub-add",
-                      subtitle.url,
-                      "select",
-                      subtitle.display,
-                      subtitle.language,
-                    ])
+                    const existing = subtitleTracks.find(
+                      (track) => track.external && track.title === subtitle.display,
+                    )
+                    if (existing) {
+                      await nativePlayerCommand(["set", "sid", existing.id])
+                    } else {
+                      await nativePlayerCommand([
+                        "sub-add",
+                        subtitle.url,
+                        "select",
+                        subtitle.display,
+                        subtitle.language,
+                      ])
+                    }
                     setSelectedAddonSubtitle(subtitle.key)
                     setSnapshot((current) =>
                       current
@@ -464,6 +491,8 @@ export function DesktopPlayer({
                     redrawControls()
                   } catch (cause: unknown) {
                     setError(cause instanceof Error ? cause.message : String(cause))
+                  } finally {
+                    pendingAddonSubtitle.current.delete(subtitle.key)
                   }
                 }}
                 onOff={async () => {
@@ -714,6 +743,7 @@ function TrackMenu({
   onClose: () => void
 }) {
   const [position, setPosition] = useState({ bottom: 80, right: 24, maxHeight: 400 })
+  const availableAddonSubtitles = filterAddedAddonSubtitles(addonSubtitles ?? [], tracks)
 
   useLayoutEffect(() => {
     const updatePosition = () => {
@@ -777,7 +807,7 @@ function TrackMenu({
           </span>
         </button>
       ))}
-      {addonSubtitles?.map((subtitle) => (
+      {availableAddonSubtitles.map((subtitle) => (
         <button
           key={subtitle.key}
           className={`mb-1 block w-full rounded-lg px-3 py-2 text-left ${
@@ -797,12 +827,36 @@ function TrackMenu({
           </span>
         </button>
       ))}
-      {!tracks.length && !addonSubtitles?.length && (
+      {!tracks.length && !availableAddonSubtitles.length && (
         <p className="px-3 py-2 text-sm text-zinc-500">{empty}</p>
       )}
     </div>,
     document.body,
   )
+}
+
+export function filterAddedAddonSubtitles<
+  TSubtitle extends { display: string },
+  TTrack extends { external: boolean; title?: string },
+>(subtitles: TSubtitle[], tracks: TTrack[]): TSubtitle[] {
+  const installedTitles = new Set(
+    tracks
+      .filter((track) => track.external && track.title)
+      .map((track) => track.title),
+  )
+  return subtitles.filter((subtitle) => !installedTitles.has(subtitle.display))
+}
+
+export function dedupeAddonSubtitles<TSubtitle extends { display: string }>(
+  subtitles: TSubtitle[],
+): TSubtitle[] {
+  const seen = new Set<string>()
+  return subtitles.filter((subtitle) => {
+    const key = subtitle.display.trim().toLocaleLowerCase()
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
 }
 
 function trackName(track: NativeTrack, fallback: string): string {
@@ -828,7 +882,7 @@ async function resolveAddonSubtitles(
       subtitles: await loadSubtitles(addon.manifestUrl, type, videoId),
     })),
   )
-  return results.flatMap((result) => {
+  return dedupeAddonSubtitles(results.flatMap((result) => {
     if (result.status === "rejected") return []
     return result.value.subtitles.flatMap((subtitle, index) => {
       if (!subtitle.url) return []
@@ -848,7 +902,7 @@ async function resolveAddonSubtitles(
         },
       ]
     })
-  })
+  }))
 }
 
 function languageName(code?: string): string | undefined {
