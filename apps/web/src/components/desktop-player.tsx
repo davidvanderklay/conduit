@@ -527,6 +527,11 @@ export function DesktopPlayer({
                 className={`player-volume hidden sm:block ${
                   fullscreen ? "w-32" : "w-20"
                 }`}
+                style={
+                  {
+                    "--player-volume": `${Math.max(0, Math.min(100, snapshot.volume))}%`,
+                  } as React.CSSProperties
+                }
                 type="range"
                 min={0}
                 max={100}
