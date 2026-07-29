@@ -12,6 +12,7 @@ import {
   households,
   libraryItems,
   profiles,
+  watchProgress,
 } from "./db/schema.js"
 
 interface RouteContext {
@@ -476,6 +477,218 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
       return reply.code(204).send()
     },
   )
+
+  app.get(
+    "/v1/profiles/:profileId/progress",
+    {
+      schema: {
+        params: Type.Object({ profileId: Type.String({ format: "uuid" }) }),
+        querystring: Type.Object({
+          view: Type.Optional(Type.Union([Type.Literal("continue"), Type.Literal("history")])),
+          limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
+        }),
+      },
+    },
+    async (request, reply) => {
+      const user = await requireUser(request, reply, auth)
+      if (!user) return
+      const { profileId } = request.params as { profileId: string }
+      const { view = "history", limit = 50 } = request.query as {
+        view?: "continue" | "history"
+        limit?: number
+      }
+      if (!(await canAccessProfile(db, user.id, profileId))) return reply.forbidden()
+
+      const staleAfter = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
+      const rows = await db
+        .select()
+        .from(watchProgress)
+        .where(
+          view === "continue"
+            ? and(
+                eq(watchProgress.profileId, profileId),
+                eq(watchProgress.watched, false),
+                sql`${watchProgress.positionMs} >= 30000`,
+                sql`${watchProgress.updatedAt} >= ${staleAfter}`,
+              )
+            : eq(watchProgress.profileId, profileId),
+        )
+        .orderBy(desc(watchProgress.updatedAt))
+        .limit(limit)
+      return { items: rows.map(toProgressItem) }
+    },
+  )
+
+  app.get(
+    "/v1/profiles/:profileId/progress/:videoId",
+    {
+      schema: {
+        params: Type.Object({
+          profileId: Type.String({ format: "uuid" }),
+          videoId: Type.String({ minLength: 1, maxLength: 512 }),
+        }),
+      },
+    },
+    async (request, reply) => {
+      const user = await requireUser(request, reply, auth)
+      if (!user) return
+      const { profileId, videoId } = request.params as { profileId: string; videoId: string }
+      if (!(await canAccessProfile(db, user.id, profileId))) return reply.forbidden()
+      const [item] = await db
+        .select()
+        .from(watchProgress)
+        .where(and(eq(watchProgress.profileId, profileId), eq(watchProgress.videoId, videoId)))
+        .limit(1)
+      return { item: item ? toProgressItem(item) : null }
+    },
+  )
+
+  app.put(
+    "/v1/profiles/:profileId/progress/:videoId",
+    {
+      schema: {
+        params: Type.Object({
+          profileId: Type.String({ format: "uuid" }),
+          videoId: Type.String({ minLength: 1, maxLength: 512 }),
+        }),
+        body: Type.Object({
+          mediaType: Type.String({ minLength: 1, maxLength: 50 }),
+          mediaId: Type.String({ minLength: 1, maxLength: 512 }),
+          name: Type.String({ minLength: 1, maxLength: 500 }),
+          poster: Type.Optional(Type.String({ maxLength: 4096 })),
+          videoTitle: Type.Optional(Type.String({ maxLength: 500 })),
+          season: Type.Optional(Type.Integer({ minimum: 0 })),
+          episode: Type.Optional(Type.Integer({ minimum: 0 })),
+          positionMs: Type.Integer({ minimum: 0 }),
+          durationMs: Type.Integer({ minimum: 0 }),
+          watched: Type.Optional(Type.Boolean()),
+        }),
+      },
+    },
+    async (request, reply) => {
+      const user = await requireUser(request, reply, auth)
+      if (!user) return
+      const { profileId, videoId } = request.params as { profileId: string; videoId: string }
+      if (!(await canAccessProfile(db, user.id, profileId))) return reply.forbidden()
+      const body = request.body as ProgressBody
+      const watched = body.watched ?? isPlaybackComplete(body.positionMs, body.durationMs)
+      const values = {
+        profileId,
+        videoId,
+        mediaType: body.mediaType,
+        mediaId: body.mediaId,
+        name: body.name.trim(),
+        poster: body.poster,
+        videoTitle: body.videoTitle,
+        season: body.season,
+        episode: body.episode,
+        positionMs: watched ? body.durationMs || body.positionMs : body.positionMs,
+        durationMs: body.durationMs,
+        watched,
+        updatedAt: new Date(),
+      }
+      const [item] = await db
+        .insert(watchProgress)
+        .values(values)
+        .onConflictDoUpdate({
+          target: [watchProgress.profileId, watchProgress.videoId],
+          set: values,
+        })
+        .returning()
+      return { item: toProgressItem(item!) }
+    },
+  )
+
+  app.patch(
+    "/v1/profiles/:profileId/progress/:videoId",
+    {
+      schema: {
+        params: Type.Object({
+          profileId: Type.String({ format: "uuid" }),
+          videoId: Type.String({ minLength: 1, maxLength: 512 }),
+        }),
+        body: Type.Object({ watched: Type.Boolean() }),
+      },
+    },
+    async (request, reply) => {
+      const user = await requireUser(request, reply, auth)
+      if (!user) return
+      const { profileId, videoId } = request.params as { profileId: string; videoId: string }
+      const { watched } = request.body as { watched: boolean }
+      if (!(await canAccessProfile(db, user.id, profileId))) return reply.forbidden()
+      const [item] = await db
+        .update(watchProgress)
+        .set({
+          watched,
+          ...(watched ? { positionMs: sql`${watchProgress.durationMs}` } : { positionMs: 0 }),
+          updatedAt: new Date(),
+        })
+        .where(and(eq(watchProgress.profileId, profileId), eq(watchProgress.videoId, videoId)))
+        .returning()
+      if (!item) return reply.notFound()
+      return { item: toProgressItem(item) }
+    },
+  )
+
+  app.delete(
+    "/v1/profiles/:profileId/progress/:videoId",
+    {
+      schema: {
+        params: Type.Object({
+          profileId: Type.String({ format: "uuid" }),
+          videoId: Type.String({ minLength: 1, maxLength: 512 }),
+        }),
+      },
+    },
+    async (request, reply) => {
+      const user = await requireUser(request, reply, auth)
+      if (!user) return
+      const { profileId, videoId } = request.params as { profileId: string; videoId: string }
+      if (!(await canAccessProfile(db, user.id, profileId))) return reply.forbidden()
+      await db
+        .delete(watchProgress)
+        .where(and(eq(watchProgress.profileId, profileId), eq(watchProgress.videoId, videoId)))
+      return reply.code(204).send()
+    },
+  )
+}
+
+interface ProgressBody {
+  mediaType: string
+  mediaId: string
+  name: string
+  poster?: string
+  videoTitle?: string
+  season?: number
+  episode?: number
+  positionMs: number
+  durationMs: number
+  watched?: boolean
+}
+
+export function isPlaybackComplete(positionMs: number, durationMs: number): boolean {
+  if (durationMs <= 0) return false
+  return (
+    positionMs / durationMs >= 0.9 ||
+    (durationMs >= 600_000 && durationMs - positionMs <= 120_000)
+  )
+}
+
+function toProgressItem(item: typeof watchProgress.$inferSelect) {
+  return {
+    videoId: item.videoId,
+    mediaType: item.mediaType,
+    mediaId: item.mediaId,
+    name: item.name,
+    poster: item.poster ?? undefined,
+    videoTitle: item.videoTitle ?? undefined,
+    season: item.season ?? undefined,
+    episode: item.episode ?? undefined,
+    positionMs: item.positionMs,
+    durationMs: item.durationMs,
+    watched: item.watched,
+    updatedAt: item.updatedAt.toISOString(),
+  }
 }
 
 function toLibraryItem(item: typeof libraryItems.$inferSelect) {

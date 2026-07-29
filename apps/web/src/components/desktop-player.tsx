@@ -14,7 +14,7 @@ import {
   VolumeX,
   X,
 } from "lucide-react"
-import type { InstalledAddon } from "../lib/api"
+import type { InstalledAddon, ProgressMetadata } from "../lib/api"
 import { addonsForResource } from "../lib/addons"
 import {
   nativePlayerCommand,
@@ -30,6 +30,7 @@ import {
   type NativeTrack,
 } from "../lib/desktop"
 import { loadSubtitles } from "../lib/core"
+import { usePlaybackProgress } from "../lib/progress"
 import { Card } from "./ui/card"
 
 type TrackMenuName = "audio" | "subtitles"
@@ -39,6 +40,8 @@ export function DesktopPlayer({
   title,
   type,
   videoId,
+  profileId,
+  progressMetadata,
   addons,
   onClose,
 }: {
@@ -46,6 +49,8 @@ export function DesktopPlayer({
   title: string
   type: string
   videoId: string
+  profileId: string
+  progressMetadata: ProgressMetadata
   addons: InstalledAddon[]
   onClose: () => void
 }) {
@@ -62,6 +67,13 @@ export function DesktopPlayer({
   const subtitleButton = useRef<HTMLDivElement>(null)
   const previousMenu = useRef<TrackMenuName | undefined>(undefined)
   const previousChromeVisible = useRef(true)
+  const previousPaused = useRef(false)
+  const resumed = useRef(false)
+  const { progress, save: saveProgress } = usePlaybackProgress(
+    profileId,
+    videoId,
+    progressMetadata,
+  )
 
   const showControls = useCallback(() => {
     setControlsVisible(true)
@@ -111,6 +123,24 @@ export function DesktopPlayer({
   }, [addons, title, type, url, videoId])
 
   useEffect(() => {
+    if (resumed.current || !snapshot?.duration || !progress.isSuccess) return
+    resumed.current = true
+    if (!progress.data || progress.data.watched) return
+    const saved = progress.data.positionMs / 1000
+    if (saved > 0 && (!snapshot.duration || saved < snapshot.duration - 5)) {
+      void nativePlayerCommand(["seek", saved, "absolute+exact"])
+      setSnapshot((current) => (current ? { ...current, position: saved } : current))
+    }
+  }, [progress.data, progress.isSuccess, snapshot])
+
+  useEffect(() => {
+    if (!snapshot || !resumed.current) return
+    const justPaused = snapshot.paused && !previousPaused.current
+    previousPaused.current = snapshot.paused
+    void saveProgress(snapshot.position, snapshot.duration, justPaused)
+  }, [saveProgress, snapshot])
+
+  useEffect(() => {
     const syncFullscreen = () => {
       void nativeFullscreen()
         .then(setFullscreen)
@@ -134,6 +164,9 @@ export function DesktopPlayer({
     if (closing.current) return
     closing.current = true
     try {
+      if (snapshot && resumed.current) {
+        await saveProgress(snapshot.position, snapshot.duration, true)
+      }
       await stopNativePlayer()
     } finally {
       document.documentElement.classList.remove("native-playback")
@@ -269,6 +302,20 @@ export function DesktopPlayer({
     previousChromeVisible.current = chromeVisible
   }, [activeMenu, chromeVisible, redrawControls, resetOverlay])
 
+  // The Linux player layers a transparent WebKitGTK surface over GtkGLArea.
+  // Explicitly invalidate that surface whenever dynamic control pixels move;
+  // otherwise WebKit's partial damage region can leave the previous thumb or
+  // timestamp glyph visible over the video.
+  useLayoutEffect(() => {
+    if (snapshot) redrawControls()
+  }, [
+    redrawControls,
+    snapshot?.duration,
+    snapshot?.paused,
+    snapshot?.position,
+    snapshot?.volume,
+  ])
+
   return createPortal(
     <div
       className={`native-player fixed inset-0 z-50 select-none overflow-hidden ${
@@ -338,7 +385,11 @@ export function DesktopPlayer({
           }`}
           onClick={(event) => event.stopPropagation()}
         >
-          <div className={`relative mx-auto ${fullscreen ? "max-w-none" : "max-w-7xl"}`}>
+          <div
+            className={`native-controls-surface relative mx-auto ${
+              fullscreen ? "max-w-none" : "max-w-7xl"
+            }`}
+          >
             {activeMenu === "audio" && (
               <TrackMenu
                 title="Audio"
@@ -473,9 +524,14 @@ export function DesktopPlayer({
                 {snapshot.volume === 0 ? <VolumeX size={21} /> : <Volume2 size={21} />}
               </PlayerIcon>
               <input
-                className={`hidden h-1 accent-amber-400 sm:block ${
+                className={`player-volume hidden sm:block ${
                   fullscreen ? "w-32" : "w-20"
                 }`}
+                style={
+                  {
+                    "--player-volume": `${Math.max(0, Math.min(100, snapshot.volume))}%`,
+                  } as React.CSSProperties
+                }
                 type="range"
                 min={0}
                 max={100}
@@ -488,7 +544,7 @@ export function DesktopPlayer({
                 }}
               />
               <span
-                className={`ml-1 tabular-nums text-zinc-300 ${
+                className={`player-time ml-1 tabular-nums text-zinc-300 ${
                   fullscreen ? "text-sm" : "text-xs"
                 }`}
               >
