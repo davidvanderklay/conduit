@@ -30,8 +30,7 @@ export function VirtualPosterGrid<T>({
     }
     update()
     window.addEventListener("resize", update)
-    const observer =
-      typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(update)
+    const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(update)
     if (gridRef.current) observer?.observe(gridRef.current)
     return () => {
       window.removeEventListener("resize", update)
@@ -40,20 +39,15 @@ export function VirtualPosterGrid<T>({
   }, [])
 
   const rows = useMemo(() => chunk(items, layout.columns), [items, layout.columns])
-  const scrollElement =
-    typeof document === "undefined"
-      ? null
-      : document.getElementById("app-scroll-viewport")
+  const scrollElement = appScrollElement()
   const scrollMargin = gridRef.current
     ? gridRef.current.getBoundingClientRect().top + (scrollElement?.scrollTop ?? 0)
     : 0
   const posterWidth =
-    layout.width > 0
-      ? (layout.width - COLUMN_GAP * (layout.columns - 1)) / layout.columns
-      : 180
+    layout.width > 0 ? (layout.width - COLUMN_GAP * (layout.columns - 1)) / layout.columns : 180
   const rowVirtualizer = useVirtualizer({
     count: rows.length,
-    getScrollElement: () => scrollElement,
+    getScrollElement: appScrollElement,
     estimateSize: () => posterWidth * 1.5 + POSTER_COPY_HEIGHT,
     gap: ROW_GAP,
     overscan: 2,
@@ -90,6 +84,10 @@ export function VirtualPosterGrid<T>({
       ))}
     </div>
   )
+}
+
+function appScrollElement(): HTMLElement | null {
+  return typeof document === "undefined" ? null : document.getElementById("app-scroll-viewport")
 }
 
 function columnsForViewport(width: number): number {

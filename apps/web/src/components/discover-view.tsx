@@ -16,13 +16,11 @@ export interface DiscoverSelection {
 }
 
 export function DiscoverView({
-  profileId,
   addons,
   selection,
   onChange,
   onSelect,
 }: {
-  profileId: string
   addons: InstalledAddon[]
   selection: DiscoverSelection
   onChange: (selection: DiscoverSelection) => void
@@ -35,9 +33,7 @@ export function DiscoverView({
         .flatMap((addon) =>
           addon.manifest.catalogs
             .filter((catalog) =>
-              (catalog.extra ?? []).every(
-                (extra) => !extra.isRequired || extra.name === "genre",
-              ),
+              (catalog.extra ?? []).every((extra) => !extra.isRequired || extra.name === "genre"),
             )
             .map((catalog) => ({ addon, catalog })),
         ),
@@ -47,8 +43,7 @@ export function DiscoverView({
   const type = types.includes(selection.type ?? "") ? selection.type! : (types[0] ?? "")
   const typeCatalogs = catalogs.filter(({ catalog }) => catalog.type === type)
   const explicitlySelected = typeCatalogs.find(
-    ({ addon, catalog }) =>
-      addon.id === selection.addonId && catalog.id === selection.catalogId,
+    ({ addon, catalog }) => addon.id === selection.addonId && catalog.id === selection.catalogId,
   )
   const genreSelected = selection.genre
     ? typeCatalogs.find(({ catalog }) => {
@@ -84,25 +79,14 @@ export function DiscoverView({
   }, [genre, onChange, selected, selection, type])
 
   const results = useInfiniteQuery({
-    queryKey: [
-      "discover",
-      selected?.addon.id,
-      selected?.catalog.type,
-      selected?.catalog.id,
-      genre,
-    ],
+    queryKey: ["discover", selected?.addon.id, selected?.catalog.type, selected?.catalog.id, genre],
     enabled: Boolean(selected),
     initialPageParam: 0,
     queryFn: ({ pageParam }) =>
-      loadCatalog(
-        selected!.addon.manifestUrl,
-        selected!.catalog.type,
-        selected!.catalog.id,
-        [
-          ...(genre ? [{ name: "genre", value: genre }] : []),
-          ...(pageParam > 0 ? [{ name: "skip", value: String(pageParam) }] : []),
-        ],
-      ),
+      loadCatalog(selected!.addon.manifestUrl, selected!.catalog.type, selected!.catalog.id, [
+        ...(genre ? [{ name: "genre", value: genre }] : []),
+        ...(pageParam > 0 ? [{ name: "skip", value: String(pageParam) }] : []),
+      ]),
     getNextPageParam: (lastPage, pages) => {
       if (lastPage.length === 0) return undefined
       const previousIds = new Set(
@@ -120,10 +104,7 @@ export function DiscoverView({
       return pages.reduce((count, page) => count + page.length, 0)
     },
   })
-  const items = useMemo(
-    () => deduplicate(results.data?.pages.flat() ?? []),
-    [results.data?.pages],
-  )
+  const items = useMemo(() => deduplicate(results.data?.pages.flat() ?? []), [results.data?.pages])
   const loadMoreRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -182,7 +163,9 @@ export function DiscoverView({
             })
           }
           options={[
-            ...(!genreExtra?.isRequired ? [["", genres.length ? "All genres" : "Not available"]] : []),
+            ...(!genreExtra?.isRequired
+              ? [["", genres.length ? "All genres" : "Not available"]]
+              : []),
             ...genres.map((value) => [value, value]),
           ]}
         />
@@ -216,19 +199,29 @@ export function DiscoverView({
               itemKey={(item) => `${item.type}:${item.id}`}
               renderItem={(item) => (
                 <>
-                <button className="w-full text-left" onClick={() => onSelect(item)}>
-                  <div className={posterCoverClass}>
-                    {item.poster ? (
-                      <img className="h-full w-full object-cover" src={item.poster} alt="" loading="lazy" />
-                    ) : (
-                      <div className="grid h-full place-items-center text-zinc-700"><Film /></div>
-                    )}
+                  <button className="w-full text-left" onClick={() => onSelect(item)}>
+                    <div className={posterCoverClass}>
+                      {item.poster ? (
+                        <img
+                          className="h-full w-full object-cover"
+                          src={item.poster}
+                          alt=""
+                          loading="lazy"
+                          decoding="async"
+                          width={300}
+                          height={450}
+                        />
+                      ) : (
+                        <div className="grid h-full place-items-center text-zinc-700">
+                          <Film />
+                        </div>
+                      )}
+                    </div>
+                    <p className="mt-2 line-clamp-2 text-sm font-medium">{item.name}</p>
+                  </button>
+                  <div className="pointer-events-none absolute right-2 top-2">
+                    <PosterWatchStatus item={item} addons={addons} />
                   </div>
-                  <p className="mt-2 line-clamp-2 text-sm font-medium">{item.name}</p>
-                </button>
-                <div className="pointer-events-none absolute right-2 top-2">
-                  <PosterWatchStatus profileId={profileId} item={item} addons={addons} />
-                </div>
                 </>
               )}
             />
@@ -272,9 +265,16 @@ function FilterSelect({
         disabled={disabled}
         onChange={(event) => onChange(event.target.value)}
       >
-        {options.map(([option, name]) => <option value={option} key={option}>{name}</option>)}
+        {options.map(([option, name]) => (
+          <option value={option} key={option}>
+            {name}
+          </option>
+        ))}
       </select>
-      <ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500" size={16} />
+      <ChevronDown
+        className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500"
+        size={16}
+      />
     </label>
   )
 }

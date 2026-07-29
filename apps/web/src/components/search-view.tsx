@@ -100,6 +100,9 @@ export function SearchView({
                             src={item.poster}
                             alt=""
                             loading="lazy"
+                            decoding="async"
+                            width={300}
+                            height={450}
                           />
                         ) : (
                           <div className="grid h-full place-items-center text-zinc-700">
@@ -110,7 +113,7 @@ export function SearchView({
                       <p className="mt-2 line-clamp-2 text-sm font-medium">{item.name}</p>
                     </button>
                     <div className="pointer-events-none absolute right-2 top-2">
-                      <PosterWatchStatus profileId={profileId} item={item} addons={addons} />
+                      <PosterWatchStatus item={item} addons={addons} />
                     </div>
                   </div>
                 )

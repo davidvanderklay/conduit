@@ -22,6 +22,10 @@ const queryClient = new QueryClient({
   },
 })
 
+if ("__TAURI_INTERNALS__" in window && navigator.userAgent.includes("Linux")) {
+  document.documentElement.classList.add("linux-desktop")
+}
+
 declare module "@tanstack/react-router" {
   interface Register {
     router: typeof router

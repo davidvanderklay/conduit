@@ -165,11 +165,21 @@ export function LibraryView({
               <div className="group relative" key={`${item.type}:${item.id}`}>
                 <button className="w-full text-left" onClick={() => onSelect(catalogItem)}>
                   <div className={`relative ${posterCoverClass}`}>
-                  {catalogItem.poster ? (
-                    <img className="h-full w-full object-cover" src={catalogItem.poster} alt="" />
-                  ) : (
-                    <div className="grid h-full place-items-center text-zinc-700"><Film /></div>
-                  )}
+                    {catalogItem.poster ? (
+                      <img
+                        className="h-full w-full object-cover"
+                        src={catalogItem.poster}
+                        alt=""
+                        loading="lazy"
+                        decoding="async"
+                        width={300}
+                        height={450}
+                      />
+                    ) : (
+                      <div className="grid h-full place-items-center text-zinc-700">
+                        <Film />
+                      </div>
+                    )}
                     {percent > 0 && (
                       <span className="absolute inset-x-0 bottom-0 h-1 bg-zinc-700/90">
                         <span
@@ -181,11 +191,13 @@ export function LibraryView({
                   </div>
                   <p className="mt-2 line-clamp-2 text-sm font-medium">{catalogItem.name}</p>
                   {!metadataAvailable && (
-                    <p className="mt-1 text-xs text-amber-400">Using saved details · source unavailable</p>
+                    <p className="mt-1 text-xs text-amber-400">
+                      Using saved details · source unavailable
+                    </p>
                   )}
                 </button>
                 <div className="pointer-events-none absolute right-2 top-2">
-                  <PosterWatchStatus profileId={profileId} item={catalogItem} addons={addons} />
+                  <PosterWatchStatus item={catalogItem} addons={addons} />
                 </div>
               </div>
             )
