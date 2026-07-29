@@ -31,6 +31,11 @@ import {
 } from "../lib/desktop"
 import { loadSubtitles } from "../lib/core"
 import { nativeMediaTitle, playerHeading, type PlayerHeading } from "../lib/player-title"
+import { readPreferences } from "../lib/preferences"
+import {
+  configuredTrackLanguage,
+  matchesTrackLanguage,
+} from "../lib/track-preference"
 import { mpvVideoScaleCommands, type VideoScale } from "../lib/video-scale"
 import { usePlaybackProgress } from "../lib/progress"
 import { Card } from "./ui/card"
@@ -73,6 +78,7 @@ export function DesktopPlayer({
   const [spaciousViewport, setSpaciousViewport] = useState(isSpaciousViewport)
   const [videoScale, setVideoScale] = useState<VideoScale>("fit")
   const [addonSubtitles, setAddonSubtitles] = useState<ResolvedAddonSubtitle[]>([])
+  const [addonSubtitlesResolved, setAddonSubtitlesResolved] = useState(false)
   const [selectedAddonSubtitle, setSelectedAddonSubtitle] = useState<string>()
   const hideTimer = useRef<number | undefined>(undefined)
   const closing = useRef(false)
@@ -84,6 +90,11 @@ export function DesktopPlayer({
   const previousPaused = useRef(false)
   const resumed = useRef(false)
   const pendingAddonSubtitle = useRef(new Set<string>())
+  const preferredAudioApplied = useRef(false)
+  const preferredSubtitleApplied = useRef(false)
+  const preferences = readPreferences()
+  const preferredAudioLanguage = configuredTrackLanguage(preferences.audioLanguage, addons)
+  const preferredSubtitleLanguage = configuredTrackLanguage(preferences.subtitleLanguage, addons)
   const { progress, save: saveProgress } = usePlaybackProgress(
     profileId,
     videoId,
@@ -108,13 +119,19 @@ export function DesktopPlayer({
 
   useEffect(() => {
     let cancelled = false
+    preferredAudioApplied.current = false
+    preferredSubtitleApplied.current = false
+    setAddonSubtitlesResolved(false)
     document.documentElement.classList.add("native-playback")
     void openNativePlayer(url, mediaTitle)
       .then(async (initial) => {
         if (cancelled) return
         setSnapshot(initial)
         const resolved = await resolveAddonSubtitles(addons, type, videoId)
-        if (!cancelled) setAddonSubtitles(resolved)
+        if (!cancelled) {
+          setAddonSubtitles(resolved)
+          setAddonSubtitlesResolved(true)
+        }
       })
       .catch((cause: unknown) => {
         if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause))
@@ -136,6 +153,91 @@ export function DesktopPlayer({
       if (!closing.current) void stopNativePlayer()
     }
   }, [addons, mediaTitle, type, url, videoId])
+
+  useEffect(() => {
+    if (
+      preferredAudioApplied.current ||
+      !preferredAudioLanguage ||
+      !snapshot
+    ) {
+      return
+    }
+    const audioTracks = snapshot.tracks.filter((track) => track.type === "audio")
+    if (!audioTracks.length) return
+    preferredAudioApplied.current = true
+    const match = audioTracks.find((track) =>
+      matchesTrackLanguage(preferredAudioLanguage, track.lang, track.title),
+    )
+    if (!match || match.selected) return
+    void nativePlayerCommand(["set", "aid", match.id]).then(() => {
+      setSnapshot((current) =>
+        current
+          ? {
+              ...current,
+              tracks: current.tracks.map((track) =>
+                track.type === "audio"
+                  ? { ...track, selected: track.id === match.id }
+                  : track,
+              ),
+            }
+          : current,
+      )
+    }).catch(() => undefined)
+  }, [preferredAudioLanguage, snapshot])
+
+  useEffect(() => {
+    if (
+      preferredSubtitleApplied.current ||
+      !preferredSubtitleLanguage ||
+      !snapshot ||
+      !addonSubtitlesResolved
+    ) {
+      return
+    }
+    const subtitleTracks = snapshot.tracks.filter((track) => track.type === "sub")
+    const embeddedMatch = subtitleTracks.find((track) =>
+      matchesTrackLanguage(preferredSubtitleLanguage, track.lang, track.title),
+    )
+    preferredSubtitleApplied.current = true
+    if (embeddedMatch) {
+      if (!embeddedMatch.selected) {
+        void nativePlayerCommand(["set", "sid", embeddedMatch.id])
+        setSnapshot((current) =>
+          current
+            ? {
+                ...current,
+                tracks: current.tracks.map((track) =>
+                  track.type === "sub"
+                    ? { ...track, selected: track.id === embeddedMatch.id }
+                    : track,
+                ),
+              }
+            : current,
+        )
+      }
+      return
+    }
+    const addonMatch = addonSubtitles.find((subtitle) =>
+      matchesTrackLanguage(preferredSubtitleLanguage, subtitle.language, subtitle.display),
+    )
+    if (!addonMatch) return
+    pendingAddonSubtitle.current.add(addonMatch.key)
+    void nativePlayerCommand([
+      "sub-add",
+      addonMatch.url,
+      "select",
+      addonMatch.display,
+      addonMatch.language,
+    ])
+      .then(() => setSelectedAddonSubtitle(addonMatch.key))
+      .catch(() => undefined)
+      .finally(() => pendingAddonSubtitle.current.delete(addonMatch.key))
+  }, [
+    addonSubtitles,
+    addonSubtitlesResolved,
+    preferredSubtitleLanguage,
+    snapshot,
+  ])
 
   useEffect(() => {
     if (resumed.current || !snapshot?.duration || !progress.isSuccess) return
