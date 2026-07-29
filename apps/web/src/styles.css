@@ -50,7 +50,11 @@ body {
 .player-seek {
   appearance: none;
   -webkit-appearance: none;
-  background: transparent;
+  /* WebKitGTK does not reliably clear transparent pixels when this WebView is
+     composited above GtkGLArea. An opaque input surface erases the previous
+     thumb position instead of leaving it in the backing store. */
+  background: rgb(0 0 0);
+  padding-block: 6px;
 }
 
 .player-seek::-webkit-slider-runnable-track {
@@ -79,6 +83,44 @@ body {
 .player-seek:focus-visible {
   outline: 2px solid rgb(251 191 36 / 75%);
   outline-offset: 4px;
+}
+
+.native-controls-surface {
+  background: rgb(0 0 0);
+  box-shadow: 0 0 0 12px rgb(0 0 0);
+}
+
+.player-volume {
+  appearance: none;
+  -webkit-appearance: none;
+  height: 15px;
+  background: rgb(0 0 0);
+}
+
+.player-volume::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 9999px;
+  background: linear-gradient(
+    to right,
+    rgb(251 191 36) 0 var(--player-volume),
+    rgb(255 255 255 / 32%) var(--player-volume) 100%
+  );
+}
+
+.player-volume::-webkit-slider-thumb {
+  width: 13px;
+  height: 13px;
+  margin-top: -4.5px;
+  appearance: none;
+  -webkit-appearance: none;
+  border: 2px solid rgb(24 24 27);
+  border-radius: 9999px;
+  background: rgb(251 191 36);
+}
+
+.player-time {
+  min-width: 8.5rem;
+  background: rgb(0 0 0);
 }
 
 button,

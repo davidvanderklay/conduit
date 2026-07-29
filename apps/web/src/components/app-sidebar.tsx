@@ -2,18 +2,20 @@ import {
   CalendarDays,
   Compass,
   Home,
+  History,
   Library,
   Puzzle,
   Settings,
   type LucideIcon,
 } from "lucide-react"
 
-export type AppSection = "home" | "discover" | "library" | "calendar" | "addons" | "settings"
+export type AppSection = "home" | "discover" | "library" | "history" | "calendar" | "addons" | "settings"
 
 const items: Array<{ id: AppSection; label: string; icon: LucideIcon }> = [
   { id: "home", label: "Home", icon: Home },
   { id: "discover", label: "Discover", icon: Compass },
   { id: "library", label: "Library", icon: Library },
+  { id: "history", label: "History", icon: History },
   { id: "calendar", label: "Calendar", icon: CalendarDays },
   { id: "addons", label: "Add-ons", icon: Puzzle },
   { id: "settings", label: "Settings", icon: Settings },

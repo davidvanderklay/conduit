@@ -67,6 +67,31 @@ export interface LibraryItem {
   updatedAt: string
 }
 
+export interface WatchProgress {
+  videoId: string
+  mediaType: string
+  mediaId: string
+  name: string
+  poster?: string
+  videoTitle?: string
+  season?: number
+  episode?: number
+  positionMs: number
+  durationMs: number
+  watched: boolean
+  updatedAt: string
+}
+
+export interface ProgressMetadata {
+  mediaType: string
+  mediaId: string
+  name: string
+  poster?: string
+  videoTitle?: string
+  season?: number
+  episode?: number
+}
+
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = requestHeaders(init)
   const response = await fetch(`${API_URL}${path}`, {

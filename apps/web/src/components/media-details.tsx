@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react"
-import { useQuery } from "@tanstack/react-query"
-import { ExternalLink, Film, LoaderCircle, Play, X } from "lucide-react"
-import type { InstalledAddon } from "../lib/api"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { Check, ExternalLink, Film, LoaderCircle, Play, RotateCcw, X } from "lucide-react"
+import { api, type InstalledAddon, type WatchProgress } from "../lib/api"
 import { addonsForResource } from "../lib/addons"
 import {
   loadMeta,
@@ -25,14 +25,16 @@ export function MediaDetails({
   item,
   addons,
   profileId,
+  initialVideoId,
   onClose,
 }: {
   item: CatalogItem
   addons: InstalledAddon[]
   profileId: string
+  initialVideoId?: string
   onClose: () => void
 }) {
-  const [selectedVideoId, setSelectedVideoId] = useState(item.id)
+  const [selectedVideoId, setSelectedVideoId] = useState(initialVideoId ?? item.id)
   const [playing, setPlaying] = useState<ResolvedStream>()
 
   const metadata = useQuery({
@@ -42,6 +44,13 @@ export function MediaDetails({
 
   const meta: MetaItem = metadata.data ?? { ...item, videos: [] }
   const videos = meta.videos ?? []
+  const progress = useQuery({
+    queryKey: ["progress", profileId],
+    queryFn: () =>
+      api<{ items: WatchProgress[] }>(`/v1/profiles/${profileId}/progress?limit=100`).then(
+        (result) => result.items,
+      ),
+  })
 
   useEffect(() => {
     if (item.type === "series" && videos[0] && selectedVideoId === item.id) {
@@ -64,14 +73,14 @@ export function MediaDetails({
         role="dialog"
         aria-modal="true"
       >
-        <div className="mx-auto min-h-screen max-w-6xl px-5 py-8">
+        <div className="mx-auto min-h-screen max-w-[1600px] px-4 py-8 sm:px-6 lg:px-8 xl:px-10">
           <div className="mb-6 flex justify-end">
             <Button variant="ghost" onClick={onClose}>
               <X size={17} /> Close
             </Button>
           </div>
 
-          <div className="grid gap-8 md:grid-cols-[220px_1fr]">
+          <div className="grid gap-8 md:grid-cols-[240px_1fr] xl:grid-cols-[280px_1fr] xl:gap-12">
             <Poster item={meta} />
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-400">
@@ -84,7 +93,7 @@ export function MediaDetails({
                 </p>
               )}
               {meta.description && (
-                <p className="mt-5 max-w-3xl leading-7 text-zinc-300">{meta.description}</p>
+                <p className="mt-5 max-w-5xl leading-7 text-zinc-300">{meta.description}</p>
               )}
               <div className="mt-6">
                 <LibraryToggle profileId={profileId} item={meta} />
@@ -93,7 +102,10 @@ export function MediaDetails({
               {videos.length > 0 && (
                 <EpisodePicker
                   videos={videos}
+                  profileId={profileId}
+                  media={{ type: item.type, id: item.id, name: meta.name, poster: meta.poster }}
                   selectedVideoId={selectedVideoId}
+                  progress={progress.data ?? []}
                   onChange={setSelectedVideoId}
                 />
               )}
@@ -116,6 +128,16 @@ export function MediaDetails({
           title={playing.title ?? playing.name ?? meta.name}
           type={item.type}
           videoId={selectedVideoId}
+          profileId={profileId}
+          progressMetadata={{
+            mediaType: item.type,
+            mediaId: item.id,
+            name: meta.name,
+            poster: meta.poster,
+            videoTitle: selectedVideo?.title,
+            season: selectedVideo?.season,
+            episode: selectedVideo?.episode,
+          }}
           addons={addons}
           onClose={() => setPlaying(undefined)}
         />
@@ -140,11 +162,17 @@ function Poster({ item }: { item: CatalogItem }) {
 
 function EpisodePicker({
   videos,
+  profileId,
+  media,
   selectedVideoId,
+  progress,
   onChange,
 }: {
   videos: Video[]
+  profileId: string
+  media: { type: string; id: string; name: string; poster?: string }
   selectedVideoId: string
+  progress: WatchProgress[]
   onChange: (id: string) => void
 }) {
   const seasons = useMemo(
@@ -180,18 +208,89 @@ function EpisodePicker({
         )}
       </div>
       <div className="flex gap-2 overflow-x-auto pb-2">
-        {episodes.map((video) => (
-          <Button
-            key={video.id}
-            size="sm"
-            variant={video.id === selectedVideoId ? "default" : "secondary"}
-            onClick={() => onChange(video.id)}
-          >
-            {video.episode ? `E${video.episode}` : (video.title ?? video.id)}
-          </Button>
-        ))}
+        {episodes.map((video) => {
+          const state = progress.find((item) => item.videoId === video.id)
+          const percent =
+            state && state.durationMs > 0
+              ? Math.min(100, Math.round((state.positionMs / state.durationMs) * 100))
+              : 0
+          return (
+            <div className="relative" key={video.id}>
+              <Button
+                size="sm"
+                variant={video.id === selectedVideoId ? "default" : "secondary"}
+                onClick={() => onChange(video.id)}
+              >
+                {state?.watched && <Check size={14} />}
+                {video.episode ? `E${video.episode}` : (video.title ?? video.id)}
+              </Button>
+              {!state?.watched && percent > 0 && (
+                <span className="absolute inset-x-1 bottom-0 h-0.5 overflow-hidden rounded bg-zinc-700">
+                  <span className="block h-full bg-amber-400" style={{ width: `${percent}%` }} />
+                </span>
+              )}
+            </div>
+          )
+        })}
       </div>
+      <EpisodeWatchAction
+        profileId={profileId}
+        item={progress.find((item) => item.videoId === selectedVideoId)}
+        video={videos.find((video) => video.id === selectedVideoId)}
+        media={media}
+      />
     </div>
+  )
+}
+
+function EpisodeWatchAction({
+  profileId,
+  item,
+  video,
+  media,
+}: {
+  profileId: string
+  item?: WatchProgress
+  video?: Video
+  media: { type: string; id: string; name: string; poster?: string }
+}) {
+  const queryClient = useQueryClient()
+  const mutation = useMutation({
+    mutationFn: () => {
+      const path = `/v1/profiles/${profileId}/progress/${encodeURIComponent(video!.id)}`
+      return item
+        ? api(path, {
+            method: "PATCH",
+            body: JSON.stringify({ watched: !item.watched }),
+          })
+        : api(path, {
+            method: "PUT",
+            body: JSON.stringify({
+              mediaType: media.type,
+              mediaId: media.id,
+              name: media.name,
+              poster: media.poster,
+              videoTitle: video?.title,
+              season: video?.season,
+              episode: video?.episode,
+              positionMs: 0,
+              durationMs: 0,
+              watched: true,
+            }),
+          })
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["progress", profileId] }),
+  })
+  if (!video || !profileId) return null
+  return (
+    <button
+      className="mt-3 flex items-center gap-1.5 text-xs text-zinc-500 hover:text-amber-300"
+      disabled={mutation.isPending}
+      onClick={() => mutation.mutate()}
+    >
+      {item?.watched ? <RotateCcw size={13} /> : <Check size={13} />}
+      Mark {item?.watched ? "unwatched" : "watched"}
+    </button>
   )
 }
 

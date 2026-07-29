@@ -39,7 +39,7 @@ export function SettingsView({ profile }: { profile: Profile }) {
       title="Settings"
       description="Profile changes synchronize with your household. Playback and appearance preferences stay on this device."
     >
-      <div className="space-y-6">
+      <div className="grid gap-6 xl:grid-cols-2 xl:items-start">
         <SettingsCard icon={UserRound} title="Profile" scope="Synced">
           <form
             className="grid gap-4 sm:grid-cols-[1fr_auto_auto] sm:items-end"

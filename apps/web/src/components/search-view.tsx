@@ -28,7 +28,7 @@ export function SearchView({
   const sections = useMemo(() => groupByPrimarySource(search.data?.results ?? []), [search.data])
 
   return (
-    <main className="mx-auto max-w-7xl px-5 py-10">
+    <main className="mx-auto max-w-[2200px] px-4 py-10 sm:px-6 lg:px-8 xl:px-10">
       <div className="mb-8 flex items-end justify-between gap-4">
         <div>
           <p className="mb-2 text-xs font-semibold uppercase tracking-[0.2em] text-amber-400">
@@ -81,7 +81,7 @@ export function SearchView({
               {section.items.map((item) => {
                 const key = `${item.type}:${item.id}`
                 return (
-                  <div className="group relative w-36 shrink-0 sm:w-40" key={key}>
+                  <div className="group relative w-36 shrink-0 sm:w-40 xl:w-44" key={key}>
                     <button
                       className={`w-full rounded-xl text-left outline-none ${
                         activeKey === key

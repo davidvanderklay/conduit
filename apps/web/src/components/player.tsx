@@ -12,11 +12,12 @@ import {
   X,
 } from "lucide-react"
 import type Hls from "hls.js"
-import type { InstalledAddon } from "../lib/api"
+import type { InstalledAddon, ProgressMetadata } from "../lib/api"
 import { addonsForResource } from "../lib/addons"
 import { loadSubtitles, type Subtitle } from "../lib/core"
 import { isDesktop } from "../lib/desktop"
 import { readPreferences } from "../lib/preferences"
+import { usePlaybackProgress } from "../lib/progress"
 import { DesktopPlayer } from "./desktop-player"
 
 interface PlayerSubtitle extends Subtitle {
@@ -38,6 +39,8 @@ export function Player({
   title,
   type,
   videoId,
+  profileId,
+  progressMetadata,
   addons,
   onClose,
 }: {
@@ -45,6 +48,8 @@ export function Player({
   title: string
   type: string
   videoId: string
+  profileId: string
+  progressMetadata: ProgressMetadata
   addons: InstalledAddon[]
   onClose: () => void
 }) {
@@ -55,6 +60,8 @@ export function Player({
         title={title}
         type={type}
         videoId={videoId}
+        profileId={profileId}
+        progressMetadata={progressMetadata}
         addons={addons}
         onClose={onClose}
       />
@@ -66,6 +73,8 @@ export function Player({
       title={title}
       type={type}
       videoId={videoId}
+      profileId={profileId}
+      progressMetadata={progressMetadata}
       addons={addons}
       onClose={onClose}
     />
@@ -77,6 +86,8 @@ function WebPlayer({
   title,
   type,
   videoId,
+  profileId,
+  progressMetadata,
   addons,
   onClose,
 }: {
@@ -84,6 +95,8 @@ function WebPlayer({
   title: string
   type: string
   videoId: string
+  profileId: string
+  progressMetadata: ProgressMetadata
   addons: InstalledAddon[]
   onClose: () => void
 }) {
@@ -105,6 +118,24 @@ function WebPlayer({
   const [subtitleLoading, setSubtitleLoading] = useState(true)
   const [audioChoices, setAudioChoices] = useState<AudioChoice[]>([])
   const [selectedAudio, setSelectedAudio] = useState<number>()
+  const { progress, save: saveProgress } = usePlaybackProgress(
+    profileId,
+    videoId,
+    progressMetadata,
+  )
+  const resumed = useRef(false)
+
+  useEffect(() => {
+    const video = videoRef.current
+    if (resumed.current || !video || !duration || !progress.isSuccess) return
+    resumed.current = true
+    if (!progress.data || progress.data.watched) return
+    const saved = progress.data.positionMs / 1000
+    if (saved > 0 && saved < duration - 5) {
+      video.currentTime = saved
+      setCurrentTime(saved)
+    }
+  }, [duration, progress.data, progress.isSuccess])
 
   const refreshNativeTracks = useCallback(() => {
     const video = videoRef.current
@@ -329,12 +360,28 @@ function WebPlayer({
             playsInline
             onClick={togglePlayback}
             onPlay={() => setPlaying(true)}
-            onPause={() => setPlaying(false)}
+            onPause={(event) => {
+              setPlaying(false)
+              if (resumed.current) {
+                void saveProgress(
+                  event.currentTarget.currentTime,
+                  event.currentTarget.duration,
+                  true,
+                )
+              }
+            }}
             onPlaying={() => setWaiting(false)}
             onWaiting={() => setWaiting(true)}
-            onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
+            onTimeUpdate={(event) => {
+              setCurrentTime(event.currentTarget.currentTime)
+              if (resumed.current) {
+                void saveProgress(event.currentTarget.currentTime, event.currentTarget.duration)
+              }
+            }}
             onDurationChange={(event) => setDuration(event.currentTarget.duration || 0)}
-            onLoadedMetadata={refreshNativeTracks}
+            onLoadedMetadata={(event) => {
+              refreshNativeTracks()
+            }}
             onVolumeChange={(event) => {
               setVolume(event.currentTarget.volume)
               setMuted(event.currentTarget.muted)
