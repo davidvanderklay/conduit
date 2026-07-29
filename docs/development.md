@@ -112,6 +112,7 @@ Authentication changes should be tested with:
 - Recovery-code password restoration
 - `pnpm admin:recover`
 - Provider rotation with the same verified email
+- Desktop OAuth through the system browser and loopback callback
 
 Never log OAuth codes, recovery tokens, client secrets, password hashes, or full
 provider subject identifiers.
@@ -121,6 +122,15 @@ provider subject identifiers.
 The Tauri 2 client reuses the web interface and delegates playback to embedded
 libmpv. Selecting a stream renders libmpv beneath Conduit's controls and supports
 seek, pause, embedded tracks, and add-on subtitles.
+
+OAuth on desktop is intentionally different from OAuth in the browser build.
+`desktop_auth_listen` binds a short-lived random loopback port, and the frontend
+opens the Better Auth authorization URL with Tauri's opener plugin. After the
+server callback, `/v1/auth/desktop/exchange` validates the one-time code and
+PKCE verifier. The returned desktop session is scoped to the selected server
+and sent as a bearer token; changing servers never sends it to the new origin.
+
+Changes to `desktop_auth_request` require applying migration `0008` or later.
 
 For development outside Nix:
 

@@ -25,6 +25,7 @@ libmpv2-sys = "4"
 libc = "0.2"
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
+tauri-plugin-opener = "2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"

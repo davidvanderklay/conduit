@@ -91,6 +91,12 @@ owner authorization.
 5. Test an existing linked account and a new allowed account.
 6. Keep a local owner password until machine-local recovery has been tested.
 
+Packaged desktop clients use the same provider callback shown in `/admin`; no
+desktop callback needs to be added to Google or the OIDC provider. The browser
+returns to a temporary `127.0.0.1` port only after the Conduit server has
+processed the provider callback. Host firewalls must permit the Conduit process
+to accept a local loopback connection.
+
 ## Backups
 
 Use PostgreSQL-native backups and test restoration. Encourage users to export
