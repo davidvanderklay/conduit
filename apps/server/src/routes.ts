@@ -1,7 +1,7 @@
 import { Type } from "@sinclair/typebox"
 import { randomBytes, createHmac } from "node:crypto"
 import { hashPassword } from "better-auth/crypto"
-import { and, asc, desc, eq, inArray, isNull, notLike, sql } from "drizzle-orm"
+import { and, asc, desc, eq, gt, inArray, isNull, ne, notLike, sql } from "drizzle-orm"
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify"
 import { fromNodeHeaders } from "better-auth/node"
 import type { Auth } from "./auth.js"
@@ -9,8 +9,10 @@ import type { Config } from "./config.js"
 import { decryptSecret, encryptSecret, stableSecretHash } from "./crypto.js"
 import type { Database } from "./db/index.js"
 import type { RuntimeAuthSettings } from "./instance-auth.js"
+import { hashAdminRecoveryToken } from "./admin-recovery.js"
 import {
   accounts,
+  adminRecoveryTokens,
   addonInstallations,
   householdMembers,
   households,
@@ -71,6 +73,164 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
         : { enabled: false },
     }
   })
+
+  app.get("/v1/auth/methods", async (request, reply) => {
+    const user = await requireUser(request, reply, auth)
+    if (!user) return
+    const rows = await db
+      .select({
+        providerId: accounts.providerId,
+        hasPassword: sql<boolean>`${accounts.password} is not null`,
+      })
+      .from(accounts)
+      .where(eq(accounts.userId, user.id))
+    return {
+      passwordEnabled: rows.some((row) => row.providerId === "credential" && row.hasPassword),
+      linkedProviders: [...new Set(rows.filter((row) => row.providerId !== "credential").map((row) => row.providerId))],
+      configuredProvider: authSettings.oidc?.provider ?? null,
+      configuredProviderName: authSettings.oidc?.displayName ?? null,
+    }
+  })
+
+  app.put(
+    "/v1/auth/password-mode",
+    {
+      schema: {
+        body: Type.Object({
+          enabled: Type.Boolean(),
+          password: Type.Optional(Type.String({ minLength: 8, maxLength: 128 })),
+        }),
+      },
+    },
+    async (request, reply) => {
+      const user = await requireUser(request, reply, auth)
+      if (!user) return
+      const body = request.body as { enabled: boolean; password?: string }
+      const [credential] = await db
+        .select({ id: accounts.id })
+        .from(accounts)
+        .where(and(eq(accounts.userId, user.id), eq(accounts.providerId, "credential")))
+        .limit(1)
+
+      if (!body.enabled) {
+        const [oauthAccount] = await db
+          .select({ id: accounts.id })
+          .from(accounts)
+          .where(and(eq(accounts.userId, user.id), ne(accounts.providerId, "credential")))
+          .limit(1)
+        if (!oauthAccount) {
+          return reply.badRequest("Link an OAuth provider before disabling your password")
+        }
+        if (!credential) return { passwordEnabled: false }
+        await db
+          .update(accounts)
+          .set({ password: null, updatedAt: new Date() })
+          .where(eq(accounts.id, credential.id))
+        return { passwordEnabled: false }
+      }
+
+      if (!body.password) return reply.badRequest("A new password is required")
+      const password = await hashPassword(body.password)
+      if (credential) {
+        await db
+          .update(accounts)
+          .set({ password, updatedAt: new Date() })
+          .where(eq(accounts.id, credential.id))
+      } else {
+        await db.insert(accounts).values({
+          id: randomBytes(24).toString("base64url"),
+          accountId: user.id,
+          providerId: "credential",
+          userId: user.id,
+          password,
+        })
+      }
+      return { passwordEnabled: true }
+    },
+  )
+
+  app.post(
+    "/v1/auth/admin-recovery/inspect",
+    {
+      schema: {
+        body: Type.Object({ token: Type.String({ minLength: 32, maxLength: 128 }) }),
+      },
+    },
+    async (request, reply) => {
+      const { token } = request.body as { token: string }
+      const tokenHash = hashAdminRecoveryToken(token, config.authSecret)
+      const [row] = await db
+        .select({ email: users.email, expiresAt: adminRecoveryTokens.expiresAt })
+        .from(adminRecoveryTokens)
+        .innerJoin(users, eq(users.id, adminRecoveryTokens.userId))
+        .where(
+          and(
+            eq(adminRecoveryTokens.tokenHash, tokenHash),
+            isNull(adminRecoveryTokens.usedAt),
+            gt(adminRecoveryTokens.expiresAt, new Date()),
+          ),
+        )
+        .limit(1)
+      if (!row) return reply.unauthorized("This recovery link is invalid or expired")
+      return row
+    },
+  )
+
+  app.post(
+    "/v1/auth/admin-recovery/password",
+    {
+      schema: {
+        body: Type.Object({
+          token: Type.String({ minLength: 32, maxLength: 128 }),
+          password: Type.String({ minLength: 8, maxLength: 128 }),
+        }),
+      },
+    },
+    async (request, reply) => {
+      const { token, password } = request.body as { token: string; password: string }
+      const tokenHash = hashAdminRecoveryToken(token, config.authSecret)
+      const passwordHash = await hashPassword(password)
+      const recovered = await db.transaction(async (tx) => {
+        const [recovery] = await tx
+          .update(adminRecoveryTokens)
+          .set({ usedAt: new Date() })
+          .where(
+            and(
+              eq(adminRecoveryTokens.tokenHash, tokenHash),
+              isNull(adminRecoveryTokens.usedAt),
+              gt(adminRecoveryTokens.expiresAt, new Date()),
+            ),
+          )
+          .returning({ userId: adminRecoveryTokens.userId })
+        if (!recovery) return false
+        const [credential] = await tx
+          .select({ id: accounts.id })
+          .from(accounts)
+          .where(
+            and(eq(accounts.userId, recovery.userId), eq(accounts.providerId, "credential")),
+          )
+          .limit(1)
+        if (credential) {
+          await tx
+            .update(accounts)
+            .set({ password: passwordHash, updatedAt: new Date() })
+            .where(eq(accounts.id, credential.id))
+        } else {
+          await tx.insert(accounts).values({
+            id: randomBytes(24).toString("base64url"),
+            accountId: recovery.userId,
+            providerId: "credential",
+            userId: recovery.userId,
+            password: passwordHash,
+          })
+        }
+        await tx.delete(sessions).where(eq(sessions.userId, recovery.userId))
+        return true
+      })
+      if (!recovered) return reply.unauthorized("This recovery link is invalid or expired")
+      return { recovered: true }
+    },
+  )
 
   app.get("/v1/admin/auth", async (request, reply) => {
     const user = await requireOwner(request, reply, auth, db)

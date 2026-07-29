@@ -2,9 +2,13 @@
   "name": "@conduit/server",
   "private": true,
   "type": "module",
+  "bin": {
+    "conduit": "./dist/cli.js"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit",
+    "cli": "tsx src/cli.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "dev": "tsx watch src/index.ts",

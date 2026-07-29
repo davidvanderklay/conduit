@@ -30,6 +30,9 @@ export function App() {
   if (session.isPending) {
     return <CenteredMessage>Starting conduit…</CenteredMessage>
   }
+  if (window.location.pathname === "/recover/admin") {
+    return <AdminRecoveryScreen />
+  }
   if (!session.data?.user) {
     return <AuthScreen />
   }
@@ -1030,6 +1033,81 @@ interface AdminAuthSettings {
   hasClientSecret: boolean
   googleCallbackUrl: string
   oidcCallbackUrl: string
+}
+
+function AdminRecoveryScreen() {
+  const token = new URLSearchParams(window.location.search).get("token") ?? ""
+  const recovery = useQuery({
+    queryKey: ["admin-recovery", token],
+    queryFn: () =>
+      api<{ email: string; expiresAt: string }>("/v1/auth/admin-recovery/inspect", {
+        method: "POST",
+        body: JSON.stringify({ token }),
+      }),
+    retry: false,
+    enabled: token.length > 0,
+  })
+  const [complete, setComplete] = useState(false)
+  const reset = useMutation({
+    mutationFn: (password: string) =>
+      api("/v1/auth/admin-recovery/password", {
+        method: "POST",
+        body: JSON.stringify({ token, password }),
+      }),
+    onSuccess: () => setComplete(true),
+  })
+
+  return (
+    <main className="grid min-h-screen place-items-center px-5">
+      <Card className="w-full max-w-md p-7">
+        <Shield className="mb-5 text-amber-400" />
+        <h1 className="font-display text-2xl font-semibold">Local account recovery</h1>
+        {complete ? (
+          <>
+            <p className="mt-3 text-sm leading-6 text-zinc-400">
+              Local password access has been restored and existing sessions were revoked.
+            </p>
+            <a className="mt-5 inline-flex text-sm font-medium text-amber-300" href="/">
+              Return to sign in
+            </a>
+          </>
+        ) : recovery.isLoading ? (
+          <p className="mt-3 text-sm text-zinc-500">Validating this one-time link…</p>
+        ) : recovery.isError || !token ? (
+          <p className="mt-3 text-sm text-red-300">
+            This recovery link is invalid, expired, or has already been used.
+          </p>
+        ) : (
+          <>
+            <p className="mt-3 text-sm leading-6 text-zinc-400">
+              Set a new local password for <span className="text-zinc-200">{recovery.data!.email}</span>.
+              This link will be consumed and all existing sessions will be revoked.
+            </p>
+            <form
+              className="mt-6 space-y-4"
+              onSubmit={(event) => {
+                event.preventDefault()
+                reset.mutate(String(new FormData(event.currentTarget).get("password")))
+              }}
+            >
+              <Input
+                name="password"
+                type="password"
+                autoComplete="new-password"
+                minLength={8}
+                placeholder="New password"
+                required
+              />
+              {reset.error && <p className="text-sm text-red-300">{reset.error.message}</p>}
+              <Button className="w-full" disabled={reset.isPending}>
+                {reset.isPending ? "Restoring…" : "Restore local login"}
+              </Button>
+            </form>
+          </>
+        )}
+      </Card>
+    </main>
+  )
 }
 
 function AdminScreen() {

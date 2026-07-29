@@ -1,7 +1,8 @@
 import { useState, type FormEvent } from "react"
-import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Database, Download, KeyRound, Monitor, Save, Upload, UserRound } from "lucide-react"
 import { api, type Profile } from "../lib/api"
+import { authClient } from "../lib/auth"
 import { isDesktop, prepareNativeTextSave } from "../lib/desktop"
 import {
   readPreferences,
@@ -26,6 +27,17 @@ export function SettingsView({ profile }: { profile: Profile }) {
   const [recoveryCodes, setRecoveryCodes] = useState<string[]>([])
   const [recoveryError, setRecoveryError] = useState("")
   const [recoveryBusy, setRecoveryBusy] = useState(false)
+  const [accountPassword, setAccountPassword] = useState("")
+  const methods = useQuery({
+    queryKey: ["auth-methods"],
+    queryFn: () =>
+      api<{
+        passwordEnabled: boolean
+        linkedProviders: string[]
+        configuredProvider: "google" | "oidc" | null
+        configuredProviderName: string | null
+      }>("/v1/auth/methods"),
+  })
   const updateProfile = useMutation({
     mutationFn: (values: { name: string; isKids: boolean }) =>
       api(`/v1/profiles/${profile.id}`, {
@@ -208,6 +220,93 @@ export function SettingsView({ profile }: { profile: Profile }) {
 
         <div className="grid min-w-0 gap-6">
           <SettingsCard icon={KeyRound} title="Account recovery" scope="Private">
+            {methods.data && (
+              <div className="mb-5 rounded-xl border border-zinc-800 bg-zinc-950/60 p-4">
+                <p className="text-xs font-semibold uppercase tracking-wider text-zinc-600">
+                  Login methods
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                  <span className={`rounded-full px-2.5 py-1 ${methods.data.passwordEnabled ? "bg-emerald-950 text-emerald-300" : "bg-zinc-800 text-zinc-500"}`}>
+                    Password {methods.data.passwordEnabled ? "enabled" : "disabled"}
+                  </span>
+                  {methods.data.linkedProviders.map((provider) => (
+                    <span className="rounded-full bg-emerald-950 px-2.5 py-1 text-emerald-300" key={provider}>
+                      {provider === "google" ? "Google connected" : "OIDC connected"}
+                    </span>
+                  ))}
+                </div>
+                {methods.data.configuredProvider &&
+                  !methods.data.linkedProviders.includes(
+                    methods.data.configuredProvider === "google" ? "google" : "conduit-oidc",
+                  ) && (
+                    <Button
+                      className="mt-4"
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => {
+                        const callbackURL = `${window.location.origin}/`
+                        if (methods.data.configuredProvider === "google") {
+                          void authClient.linkSocial({
+                            provider: "google",
+                            callbackURL,
+                          })
+                        } else {
+                          void authClient.oauth2.link({
+                            providerId: "conduit-oidc",
+                            callbackURL,
+                          })
+                        }
+                      }}
+                    >
+                      Connect {methods.data.configuredProviderName}
+                    </Button>
+                  )}
+                {methods.data.passwordEnabled &&
+                  methods.data.linkedProviders.length > 0 && (
+                    <Button
+                      className="mt-4"
+                      size="sm"
+                      variant="destructive"
+                      onClick={async () => {
+                        if (!window.confirm(
+                          "Disable local password login? Verify your OAuth login and save recovery codes first.",
+                        )) return
+                        await api("/v1/auth/password-mode", {
+                          method: "PUT",
+                          body: JSON.stringify({ enabled: false }),
+                        })
+                        await methods.refetch()
+                      }}
+                    >
+                      Disable local password
+                    </Button>
+                  )}
+                {!methods.data.passwordEnabled && (
+                  <form
+                    className="mt-4 flex gap-2"
+                    onSubmit={async (event) => {
+                      event.preventDefault()
+                      await api("/v1/auth/password-mode", {
+                        method: "PUT",
+                        body: JSON.stringify({ enabled: true, password: accountPassword }),
+                      })
+                      setAccountPassword("")
+                      await methods.refetch()
+                    }}
+                  >
+                    <Input
+                      type="password"
+                      value={accountPassword}
+                      minLength={8}
+                      placeholder="New local password"
+                      onChange={(event) => setAccountPassword(event.target.value)}
+                      required
+                    />
+                    <Button>Enable</Button>
+                  </form>
+                )}
+              </div>
+            )}
             <p className="text-sm leading-6 text-zinc-400">
               Recovery codes reset your local password without email. Generating a new set
               immediately invalidates every old code.
