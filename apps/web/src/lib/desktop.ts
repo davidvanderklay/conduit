@@ -62,3 +62,18 @@ export function toggleNativeFullscreen(): Promise<boolean> {
 export function nativeFullscreen(): Promise<boolean> {
   return invoke("player_is_fullscreen")
 }
+
+export async function prepareNativeTextSave(
+  suggestedName: string,
+): Promise<((contents: string) => Promise<void>) | null> {
+  const [{ save }, { writeTextFile }] = await Promise.all([
+    import("@tauri-apps/plugin-dialog"),
+    import("@tauri-apps/plugin-fs"),
+  ])
+  const path = await save({
+    defaultPath: suggestedName,
+    filters: [{ name: "Conduit profile export", extensions: ["json"] }],
+  })
+  if (!path) return null
+  return (contents) => writeTextFile(path, contents)
+}

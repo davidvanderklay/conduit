@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { Database, Download, Monitor, Save, Upload, UserRound } from "lucide-react"
 import { api, type Profile } from "../lib/api"
+import { isDesktop, prepareNativeTextSave } from "../lib/desktop"
 import {
   readPreferences,
   writePreferences,
@@ -245,6 +246,11 @@ interface SaveFileHandle {
 }
 
 async function prepareJsonSave(filename: string): Promise<JsonSaver | null> {
+  if (isDesktop()) {
+    const save = await prepareNativeTextSave(filename)
+    return save ? async (data) => save(JSON.stringify(data, null, 2)) : null
+  }
+
   const picker = (
     window as Window & {
       showSaveFilePicker?: (options: {
