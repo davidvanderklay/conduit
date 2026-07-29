@@ -1,17 +1,25 @@
 import { Type } from "@sinclair/typebox"
-import { and, asc, desc, eq, inArray, notLike, sql } from "drizzle-orm"
+import { randomBytes, createHmac } from "node:crypto"
+import { hashPassword } from "better-auth/crypto"
+import { and, asc, desc, eq, inArray, isNull, notLike, sql } from "drizzle-orm"
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify"
 import { fromNodeHeaders } from "better-auth/node"
 import type { Auth } from "./auth.js"
 import type { Config } from "./config.js"
 import { decryptSecret, encryptSecret, stableSecretHash } from "./crypto.js"
 import type { Database } from "./db/index.js"
+import type { RuntimeAuthSettings } from "./instance-auth.js"
 import {
+  accounts,
   addonInstallations,
   householdMembers,
   households,
   libraryItems,
   profiles,
+  instanceSettings,
+  recoveryCodes,
+  sessions,
+  users,
   watchProgress,
 } from "./db/schema.js"
 import {
@@ -25,6 +33,7 @@ import {
 
 interface RouteContext {
   auth: Auth
+  authSettings: RuntimeAuthSettings
   config: Config
   db: Database
 }
@@ -36,7 +45,8 @@ interface SessionUser {
 const LEGACY_COMPLETION_MARKER_PREFIX = "conduit:completion:"
 
 export async function registerRoutes(app: FastifyInstance, context: RouteContext) {
-  const { auth, config, db } = context
+  const { auth, authSettings, config, db } = context
+  const recoveryAttempts = new Map<string, { count: number; resetAt: number }>()
 
   app.addHook("onSend", async (request, reply, payload) => {
     if (request.url.startsWith("/v1/")) {
@@ -46,6 +56,197 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
   })
 
   app.get("/health", async () => ({ status: "ok" }))
+
+  app.get("/v1/auth/config", async () => {
+    const existing = await db.select({ id: users.id }).from(users).limit(1)
+    return {
+      needsOwner: existing.length === 0,
+      localRegistration: existing.length === 0 || authSettings.registrationMode === "open",
+      oidc: authSettings.oidc
+        ? { enabled: true, displayName: authSettings.oidc.displayName }
+        : { enabled: false },
+    }
+  })
+
+  app.get("/v1/admin/auth", async (request, reply) => {
+    const user = await requireOwner(request, reply, auth, db)
+    if (!user) return
+    const row = await db.query.instanceSettings.findFirst({
+      where: eq(instanceSettings.id, "default"),
+    })
+    return {
+      registrationMode: row?.registrationMode ?? "closed",
+      oidcEnabled: row?.oidcEnabled ?? false,
+      oidcIssuer: row?.oidcIssuer ?? "",
+      oidcClientId: row?.oidcClientId ?? "",
+      oidcDisplayName: row?.oidcDisplayName ?? "Single sign-on",
+      oidcScopes: row?.oidcScopes ?? "openid email",
+      oidcAutoRegister: row?.oidcAutoRegister ?? false,
+      hasClientSecret: Boolean(row?.oidcClientSecretEncrypted),
+      callbackUrl: `${config.authUrl.replace(/\/$/, "")}/api/auth/oauth2/callback/conduit-oidc`,
+    }
+  })
+
+  app.put(
+    "/v1/admin/auth",
+    {
+      schema: {
+        body: Type.Object({
+          registrationMode: Type.Union([Type.Literal("open"), Type.Literal("closed")]),
+          oidcEnabled: Type.Boolean(),
+          oidcIssuer: Type.String({ maxLength: 1000 }),
+          oidcClientId: Type.String({ maxLength: 500 }),
+          oidcClientSecret: Type.Optional(Type.String({ maxLength: 2000 })),
+          oidcDisplayName: Type.String({ minLength: 1, maxLength: 80 }),
+          oidcScopes: Type.String({ minLength: 1, maxLength: 500 }),
+          oidcAutoRegister: Type.Boolean(),
+        }),
+      },
+    },
+    async (request, reply) => {
+      const user = await requireOwner(request, reply, auth, db)
+      if (!user) return
+      const body = request.body as {
+        registrationMode: "open" | "closed"
+        oidcEnabled: boolean
+        oidcIssuer: string
+        oidcClientId: string
+        oidcClientSecret?: string
+        oidcDisplayName: string
+        oidcScopes: string
+        oidcAutoRegister: boolean
+      }
+      if (body.oidcEnabled) {
+        try {
+          const issuer = new URL(body.oidcIssuer)
+          if (!["http:", "https:"].includes(issuer.protocol)) throw new Error()
+        } catch {
+          return reply.badRequest("OIDC issuer must be a valid HTTP(S) URL")
+        }
+        if (!body.oidcClientId.trim()) return reply.badRequest("OIDC client ID is required")
+      }
+      const current = await db.query.instanceSettings.findFirst({
+        where: eq(instanceSettings.id, "default"),
+      })
+      if (body.oidcEnabled && !body.oidcClientSecret?.trim() && !current?.oidcClientSecretEncrypted) {
+        return reply.badRequest("OIDC client secret is required")
+      }
+      await db
+        .insert(instanceSettings)
+        .values({
+          id: "default",
+          registrationMode: body.registrationMode,
+          oidcEnabled: body.oidcEnabled,
+          oidcIssuer: body.oidcIssuer.trim() || null,
+          oidcClientId: body.oidcClientId.trim() || null,
+          ...(body.oidcClientSecret?.trim()
+            ? {
+                oidcClientSecretEncrypted: encryptSecret(
+                  body.oidcClientSecret.trim(),
+                  config.addonEncryptionKey,
+                ),
+              }
+            : {}),
+          oidcDisplayName: body.oidcDisplayName.trim(),
+          oidcScopes: body.oidcScopes.trim(),
+          oidcAutoRegister: body.oidcAutoRegister,
+          updatedAt: new Date(),
+        })
+        .onConflictDoUpdate({
+          target: instanceSettings.id,
+          set: {
+            registrationMode: body.registrationMode,
+            oidcEnabled: body.oidcEnabled,
+            oidcIssuer: body.oidcIssuer.trim() || null,
+            oidcClientId: body.oidcClientId.trim() || null,
+            ...(body.oidcClientSecret?.trim()
+              ? {
+                  oidcClientSecretEncrypted: encryptSecret(
+                    body.oidcClientSecret.trim(),
+                    config.addonEncryptionKey,
+                  ),
+                }
+              : {}),
+            oidcDisplayName: body.oidcDisplayName.trim(),
+            oidcScopes: body.oidcScopes.trim(),
+            oidcAutoRegister: body.oidcAutoRegister,
+            updatedAt: new Date(),
+          },
+        })
+      return { saved: true, restartRequired: true }
+    },
+  )
+
+  app.post("/v1/auth/recovery-codes", async (request, reply) => {
+    const user = await requireUser(request, reply, auth)
+    if (!user) return
+    const codes = Array.from({ length: 10 }, () => formatRecoveryCode(randomBytes(8)))
+    await db.transaction(async (tx) => {
+      await tx.delete(recoveryCodes).where(eq(recoveryCodes.userId, user.id))
+      await tx.insert(recoveryCodes).values(
+        codes.map((code) => ({
+          userId: user.id,
+          codeHash: hashRecoveryCode(code, config.authSecret),
+        })),
+      )
+    })
+    return { codes }
+  })
+
+  app.post(
+    "/v1/auth/recover",
+    {
+      schema: {
+        body: Type.Object({
+          email: Type.String({ format: "email", maxLength: 320 }),
+          code: Type.String({ minLength: 8, maxLength: 40 }),
+          password: Type.String({ minLength: 8, maxLength: 128 }),
+        }),
+      },
+    },
+    async (request, reply) => {
+      if (!consumeRecoveryAttempt(recoveryAttempts, request.ip)) {
+        return reply.tooManyRequests("Too many recovery attempts. Try again later.")
+      }
+      const body = request.body as { email: string; code: string; password: string }
+      const [user] = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(eq(users.email, body.email.trim().toLowerCase()))
+        .limit(1)
+      if (!user) return reply.unauthorized("Invalid email or recovery code")
+      const [credential] = await db
+        .select({ id: accounts.id })
+        .from(accounts)
+        .where(and(eq(accounts.userId, user.id), eq(accounts.providerId, "credential")))
+        .limit(1)
+      if (!credential) return reply.unauthorized("Invalid email or recovery code")
+      const codeHash = hashRecoveryCode(body.code, config.authSecret)
+      const passwordHash = await hashPassword(body.password)
+      const recovered = await db.transaction(async (tx) => {
+        const [code] = await tx
+          .update(recoveryCodes)
+          .set({ usedAt: new Date() })
+          .where(
+            and(
+              eq(recoveryCodes.userId, user.id),
+              eq(recoveryCodes.codeHash, codeHash),
+              isNull(recoveryCodes.usedAt),
+            ),
+          )
+          .returning({ id: recoveryCodes.id })
+        if (!code) return false
+        await tx
+          .update(accounts)
+          .set({ password: passwordHash, updatedAt: new Date() })
+          .where(and(eq(accounts.userId, user.id), eq(accounts.providerId, "credential")))
+        await tx.delete(sessions).where(eq(sessions.userId, user.id))
+        return true
+      })
+      if (!recovered) return reply.unauthorized("Invalid email or recovery code")
+      return { recovered: true }
+    },
+  )
 
   app.get("/v1/bootstrap", async (request, reply) => {
     const user = await requireUser(request, reply, auth)
@@ -1045,6 +1246,51 @@ async function requireUser(
     return
   }
   return { id: session.user.id }
+}
+
+async function requireOwner(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  auth: Auth,
+  db: Database,
+) {
+  const sessionUser = await requireUser(request, reply, auth)
+  if (!sessionUser) return
+  const [user] = await db
+    .select({ id: users.id, role: users.role })
+    .from(users)
+    .where(eq(users.id, sessionUser.id))
+    .limit(1)
+  if (!user || user.role !== "owner") {
+    reply.forbidden()
+    return
+  }
+  return user
+}
+
+function formatRecoveryCode(bytes: Buffer): string {
+  const value = bytes.toString("hex").toUpperCase()
+  return `${value.slice(0, 4)}-${value.slice(4, 8)}-${value.slice(8, 12)}-${value.slice(12)}`
+}
+
+function hashRecoveryCode(code: string, secret: string): string {
+  const normalized = code.replace(/[^a-fA-F0-9]/g, "").toUpperCase()
+  return createHmac("sha256", secret).update(normalized).digest("hex")
+}
+
+function consumeRecoveryAttempt(
+  attempts: Map<string, { count: number; resetAt: number }>,
+  address: string,
+): boolean {
+  const now = Date.now()
+  const current = attempts.get(address)
+  if (!current || current.resetAt <= now) {
+    attempts.set(address, { count: 1, resetAt: now + 15 * 60_000 })
+    return true
+  }
+  if (current.count >= 10) return false
+  current.count += 1
+  return true
 }
 
 async function canAccessProfile(db: Database, userId: string, profileId: string): Promise<boolean> {

@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { Database, Download, Monitor, Save, Upload, UserRound } from "lucide-react"
+import { Database, Download, KeyRound, Monitor, Save, Upload, UserRound } from "lucide-react"
 import { api, type Profile } from "../lib/api"
 import { isDesktop, prepareNativeTextSave } from "../lib/desktop"
 import {
@@ -23,6 +23,9 @@ export function SettingsView({ profile }: { profile: Profile }) {
   const [importPreview, setImportPreview] = useState<ImportPreview | null>(null)
   const [dataError, setDataError] = useState("")
   const [dataBusy, setDataBusy] = useState(false)
+  const [recoveryCodes, setRecoveryCodes] = useState<string[]>([])
+  const [recoveryError, setRecoveryError] = useState("")
+  const [recoveryBusy, setRecoveryBusy] = useState(false)
   const updateProfile = useMutation({
     mutationFn: (values: { name: string; isKids: boolean }) =>
       api(`/v1/profiles/${profile.id}`, {
@@ -204,6 +207,44 @@ export function SettingsView({ profile }: { profile: Profile }) {
         </div>
 
         <div className="grid min-w-0 gap-6">
+          <SettingsCard icon={KeyRound} title="Account recovery" scope="Private">
+            <p className="text-sm leading-6 text-zinc-400">
+              Recovery codes reset your local password without email. Generating a new set
+              immediately invalidates every old code.
+            </p>
+            {recoveryCodes.length > 0 && (
+              <pre className="mt-4 whitespace-pre-wrap rounded-xl bg-zinc-950 p-4 text-xs text-amber-300">
+                {recoveryCodes.join("\n")}
+              </pre>
+            )}
+            <Button
+              className="mt-4"
+              variant="secondary"
+              disabled={recoveryBusy}
+              onClick={async () => {
+                if (
+                  recoveryCodes.length === 0 &&
+                  !window.confirm("Replace any existing recovery codes with a new set?")
+                ) return
+                setRecoveryBusy(true)
+                setRecoveryError("")
+                try {
+                  const result = await api<{ codes: string[] }>("/v1/auth/recovery-codes", {
+                    method: "POST",
+                  })
+                  setRecoveryCodes(result.codes)
+                } catch (error) {
+                  setRecoveryError(error instanceof Error ? error.message : "Could not generate codes")
+                } finally {
+                  setRecoveryBusy(false)
+                }
+              }}
+            >
+              <KeyRound size={15} /> Generate new codes
+            </Button>
+            {recoveryError && <p className="mt-3 text-sm text-red-400">{recoveryError}</p>}
+          </SettingsCard>
+
           <SettingsCard icon={Monitor} title="Playback & appearance" scope="This device">
           <div className="grid gap-5 sm:grid-cols-2">
             <SelectSetting label="Preferred audio" value={preferences.audioLanguage} onChange={(value) => update("audioLanguage", value)} />

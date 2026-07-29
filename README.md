@@ -57,3 +57,26 @@ set `WEBKIT_DISABLE_DMABUF_RENDERER=0` to override that workaround.
 Configured add-on URLs are encrypted in PostgreSQL and synchronized to
 authorized household clients. Clients fetch add-on catalogs, metadata, streams,
 and subtitles directly; the sync server does not proxy add-on or media traffic.
+
+## Instance authentication
+
+The first local account created after installation becomes the instance owner.
+Later local registration is closed by default. The owner can open registration
+or configure one OpenID Connect provider at `/admin`. OIDC client secrets are
+encrypted with `ADDON_ENCRYPTION_KEY` and are never returned to the browser
+after being saved. Restart the server after changing authentication settings.
+
+Configure the identity provider with the callback URL shown on the admin page.
+OIDC discovery, PKCE, and account creation are handled by Better Auth. Automatic
+OIDC registration remains off unless the owner explicitly enables it.
+
+Conduit does not require an account name and does not send password-reset email.
+Local users receive ten one-time recovery codes during account creation. Losing
+both the password and every recovery code means the instance owner must assist
+outside the application. Profile exports are a separate safeguard: users should
+export them regularly to preserve profiles, libraries, and watch history even
+when an account cannot be recovered.
+
+The `/admin` page and `/v1/admin/*` endpoints require the instance-owner role.
+Hosts that want network-level isolation can additionally restrict both paths
+through their reverse proxy or VPN.

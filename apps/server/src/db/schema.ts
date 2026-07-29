@@ -13,15 +13,49 @@ import {
 } from "drizzle-orm/pg-core"
 import { sql } from "drizzle-orm"
 
-export const users = pgTable("user", {
-  id: text("id").primaryKey(),
-  name: text("name").notNull(),
-  email: text("email").notNull().unique(),
-  emailVerified: boolean("email_verified").notNull().default(false),
-  image: text("image"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+export const users = pgTable(
+  "user",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    email: text("email").notNull().unique(),
+    role: text("role").notNull().default("member"),
+    emailVerified: boolean("email_verified").notNull().default(false),
+    image: text("image"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("single_instance_owner_idx").on(table.role).where(sql`${table.role} = 'owner'`),
+  ],
+)
+
+export const instanceSettings = pgTable("instance_setting", {
+  id: text("id").primaryKey().default("default"),
+  registrationMode: text("registration_mode").notNull().default("closed"),
+  oidcEnabled: boolean("oidc_enabled").notNull().default(false),
+  oidcIssuer: text("oidc_issuer"),
+  oidcClientId: text("oidc_client_id"),
+  oidcClientSecretEncrypted: text("oidc_client_secret_encrypted"),
+  oidcDisplayName: text("oidc_display_name").notNull().default("Single sign-on"),
+  oidcScopes: text("oidc_scopes").notNull().default("openid email"),
+  oidcAutoRegister: boolean("oidc_auto_register").notNull().default(false),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 })
+
+export const recoveryCodes = pgTable(
+  "recovery_code",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    codeHash: text("code_hash").notNull().unique(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+  },
+  (table) => [index("recovery_code_user_idx").on(table.userId)],
+)
 
 export const sessions = pgTable(
   "session",

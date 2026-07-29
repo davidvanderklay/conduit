@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Film, Library, Search, Server, X } from "lucide-react"
+import { Film, Library, Search, Server, Shield, X } from "lucide-react"
 import { api, type Bootstrap, type InstalledAddon, type Profile } from "./lib/api"
 import { authClient } from "./lib/auth"
 import { loadCatalog, type CatalogItem } from "./lib/core"
@@ -33,7 +33,19 @@ export function App() {
   if (!session.data?.user) {
     return <AuthScreen />
   }
-  return <AuthenticatedApp userId={session.data.user.id} userName={session.data.user.name} />
+  if (window.sessionStorage.getItem("conduit:recovery-setup") === "pending") {
+    return <RecoverySetup />
+  }
+  if (window.location.pathname === "/admin") {
+    return <AdminScreen />
+  }
+  return (
+    <AuthenticatedApp
+      userId={session.data.user.id}
+      userName={session.data.user.email}
+      isOwner={(session.data.user as typeof session.data.user & { role?: string }).role === "owner"}
+    />
+  )
 }
 
 function AuthScreen() {
@@ -41,6 +53,17 @@ function AuthScreen() {
   const [mode, setMode] = useState<"sign-in" | "register">("sign-in")
   const [error, setError] = useState("")
   const [pending, setPending] = useState(false)
+  const [recoveryCodes, setRecoveryCodes] = useState<string[]>([])
+  const [recovering, setRecovering] = useState(false)
+  const authConfig = useQuery({
+    queryKey: ["auth-config"],
+    queryFn: () =>
+      api<{
+        needsOwner: boolean
+        localRegistration: boolean
+        oidc: { enabled: boolean; displayName?: string }
+      }>("/v1/auth/config"),
+  })
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -49,17 +72,30 @@ function AuthScreen() {
     const data = new FormData(event.currentTarget)
     const email = String(data.get("email"))
     const password = String(data.get("password"))
-    const name = String(data.get("name") || email.split("@")[0])
+    if (mode === "register") {
+      window.sessionStorage.setItem("conduit:recovery-setup", "pending")
+    }
     const result =
       mode === "register"
-        ? await authClient.signUp.email({ email, password, name })
+        ? await authClient.signUp.email({ email, password, name: "Conduit account" })
         : await authClient.signIn.email({ email, password })
     setPending(false)
     if (result.error) {
+      if (mode === "register") window.sessionStorage.removeItem("conduit:recovery-setup")
       setError(result.error.message ?? "Authentication failed")
     } else {
       // Never let data cached by a previous session cross an account boundary.
       queryClient.clear()
+      if (mode === "register") {
+        try {
+          const recovery = await api<{ codes: string[] }>("/v1/auth/recovery-codes", {
+            method: "POST",
+          })
+          setRecoveryCodes(recovery.codes)
+        } catch {
+          // Account creation succeeded; codes can be regenerated later.
+        }
+      }
     }
   }
 
@@ -75,8 +111,57 @@ function AuthScreen() {
             <p className="text-sm text-zinc-500">Your household media system</p>
           </div>
         </div>
+        {recoveryCodes.length > 0 ? (
+          <RecoveryCodes
+            codes={recoveryCodes}
+            onContinue={() => {
+              window.sessionStorage.removeItem("conduit:recovery-setup")
+              window.location.reload()
+            }}
+          />
+        ) : recovering ? (
+          <form
+            className="space-y-4"
+            onSubmit={async (event) => {
+              event.preventDefault()
+              setPending(true)
+              setError("")
+              const data = new FormData(event.currentTarget)
+              try {
+                await api("/v1/auth/recover", {
+                  method: "POST",
+                  body: JSON.stringify({
+                    email: String(data.get("email")),
+                    code: String(data.get("code")),
+                    password: String(data.get("password")),
+                  }),
+                })
+                setRecovering(false)
+                setError("Password reset. You can sign in now.")
+              } catch (cause) {
+                setError(cause instanceof Error ? cause.message : "Recovery failed")
+              } finally {
+                setPending(false)
+              }
+            }}
+          >
+            <p className="text-sm text-zinc-400">Use one of the recovery codes you saved.</p>
+            <Input name="email" type="email" placeholder="Email" required />
+            <Input name="code" placeholder="Recovery code" required />
+            <Input name="password" type="password" placeholder="New password" minLength={8} required />
+            {error && <p className="text-sm text-red-400">{error}</p>}
+            <Button className="w-full" disabled={pending}>Reset password</Button>
+            <button type="button" className="w-full text-sm text-zinc-500" onClick={() => setRecovering(false)}>
+              Back to sign in
+            </button>
+          </form>
+        ) : (
         <form className="space-y-4" onSubmit={submit}>
-          {mode === "register" && <Input name="name" placeholder="Your name" required />}
+          {mode === "register" && (
+            <p className="text-sm text-zinc-400">
+              No personal name required. Your household profiles stay separate from this account.
+            </p>
+          )}
           <Input name="email" type="email" placeholder="Email" required />
           <Input name="password" type="password" placeholder="Password" minLength={8} required />
           {error && <p className="text-sm text-red-400">{error}</p>}
@@ -84,20 +169,52 @@ function AuthScreen() {
             {pending ? "Working…" : mode === "register" ? "Create account" : "Sign in"}
           </Button>
         </form>
+        )}
+        {!recovering && recoveryCodes.length === 0 && authConfig.data?.oidc.enabled && (
+          <Button
+            className="mt-4 w-full"
+            variant="secondary"
+            onClick={() =>
+              authClient.signIn.oauth2({
+                providerId: "conduit-oidc",
+                callbackURL: "/",
+              })
+            }
+          >
+            {authConfig.data.oidc.displayName}
+          </Button>
+        )}
+        {!recovering && recoveryCodes.length === 0 && mode === "sign-in" && (
+          <button className="mt-4 w-full text-sm text-zinc-500" onClick={() => setRecovering(true)}>
+            Use a recovery code
+          </button>
+        )}
+        {recoveryCodes.length === 0 && !recovering && authConfig.data?.localRegistration && (
         <button
           className="mt-5 w-full text-center text-sm text-zinc-500 hover:text-zinc-200"
           onClick={() => setMode((value) => (value === "register" ? "sign-in" : "register"))}
         >
           {mode === "register"
             ? "Already have an account? Sign in"
-            : "New household? Create an account"}
+            : authConfig.data.needsOwner
+              ? "Set up this instance"
+              : "Create a local account"}
         </button>
+        )}
       </Card>
     </main>
   )
 }
 
-function AuthenticatedApp({ userId, userName }: { userId: string; userName: string }) {
+function AuthenticatedApp({
+  userId,
+  userName,
+  isOwner,
+}: {
+  userId: string
+  userName: string
+  isOwner: boolean
+}) {
   const queryClient = useQueryClient()
   const bootstrap = useQuery({
     queryKey: bootstrapQueryKey(userId),
@@ -241,6 +358,15 @@ function AuthenticatedApp({ userId, userName }: { userId: string; userName: stri
                 if (!result.error) queryClient.clear()
               }}
             />
+            {isOwner && (
+              <a
+                href="/admin"
+                aria-label="Instance administration"
+                className="grid size-10 place-items-center rounded-xl text-zinc-400 hover:bg-zinc-900 hover:text-white"
+              >
+                <Shield size={18} />
+              </a>
+            )}
           </div>
         </div>
       </header>
@@ -667,6 +793,199 @@ function CatalogShelf({
         ))}
       </div>
     </section>
+  )
+}
+
+function RecoveryCodes({ codes, onContinue }: { codes: string[]; onContinue: () => void }) {
+  const text = codes.join("\n")
+  return (
+    <div>
+      <h2 className="font-display text-xl font-semibold">Save your recovery codes</h2>
+      <p className="mt-2 text-sm text-zinc-400">
+        Each code can reset your password once. Conduit cannot email you a reset link.
+      </p>
+      <pre className="mt-4 grid grid-cols-2 gap-2 whitespace-pre-wrap rounded-xl bg-zinc-950 p-4 text-xs text-amber-300">
+        {text}
+      </pre>
+      <p className="mt-4 text-xs text-zinc-500">
+        Recovery codes protect account access. Frequent profile exports separately protect your
+        library and watch history if the account cannot be recovered.
+      </p>
+      <Button
+        className="mt-4 w-full"
+        variant="secondary"
+        onClick={() => navigator.clipboard.writeText(text)}
+      >
+        Copy codes
+      </Button>
+      <Button className="mt-3 w-full" onClick={onContinue}>
+        I saved them
+      </Button>
+    </div>
+  )
+}
+
+function RecoverySetup() {
+  const [codes, setCodes] = useState<string[]>([])
+  const [error, setError] = useState("")
+  const [pending, setPending] = useState(false)
+  if (codes.length > 0) {
+    return (
+      <main className="grid min-h-screen place-items-center px-5">
+        <Card className="w-full max-w-md p-7">
+          <RecoveryCodes
+            codes={codes}
+            onContinue={() => {
+              window.sessionStorage.removeItem("conduit:recovery-setup")
+              window.location.reload()
+            }}
+          />
+        </Card>
+      </main>
+    )
+  }
+  return (
+    <main className="grid min-h-screen place-items-center px-5">
+      <Card className="w-full max-w-md p-7">
+        <h1 className="font-display text-2xl font-semibold">Protect your account</h1>
+        <p className="mt-2 text-sm text-zinc-400">
+          Conduit does not depend on paid email reset services. Generate ten one-time recovery
+          codes before continuing.
+        </p>
+        {error && <p className="mt-4 text-sm text-red-400">{error}</p>}
+        <Button
+          className="mt-5 w-full"
+          disabled={pending}
+          onClick={async () => {
+            setPending(true)
+            setError("")
+            try {
+              const result = await api<{ codes: string[] }>("/v1/auth/recovery-codes", {
+                method: "POST",
+              })
+              setCodes(result.codes)
+            } catch (cause) {
+              setError(cause instanceof Error ? cause.message : "Could not generate codes")
+            } finally {
+              setPending(false)
+            }
+          }}
+        >
+          {pending ? "Generating…" : "Generate recovery codes"}
+        </Button>
+      </Card>
+    </main>
+  )
+}
+
+interface AdminAuthSettings {
+  registrationMode: "open" | "closed"
+  oidcEnabled: boolean
+  oidcIssuer: string
+  oidcClientId: string
+  oidcDisplayName: string
+  oidcScopes: string
+  oidcAutoRegister: boolean
+  hasClientSecret: boolean
+  callbackUrl: string
+}
+
+function AdminScreen() {
+  const settings = useQuery({
+    queryKey: ["admin-auth"],
+    queryFn: () => api<AdminAuthSettings>("/v1/admin/auth"),
+  })
+  const [message, setMessage] = useState("")
+  const save = useMutation({
+    mutationFn: (values: Record<string, unknown>) =>
+      api<{ saved: boolean; restartRequired: boolean }>("/v1/admin/auth", {
+        method: "PUT",
+        body: JSON.stringify(values),
+      }),
+    onSuccess: async () => {
+      setMessage("Saved. Restart the Conduit server to apply authentication changes.")
+      await settings.refetch()
+    },
+  })
+
+  if (settings.isLoading) return <CenteredMessage>Loading instance administration…</CenteredMessage>
+  if (settings.isError) {
+    return (
+      <CenteredMessage>
+        This page is only available to the instance owner. <a className="text-amber-300" href="/">Return to Conduit</a>
+      </CenteredMessage>
+    )
+  }
+  const value = settings.data!
+  return (
+    <main className="mx-auto min-h-screen w-full max-w-3xl px-5 py-10">
+      <a className="text-sm text-zinc-500 hover:text-white" href="/">← Back to Conduit</a>
+      <div className="mt-6 flex items-center gap-3">
+        <Shield className="text-amber-400" />
+        <div>
+          <h1 className="font-display text-3xl font-semibold">Instance authentication</h1>
+          <p className="text-sm text-zinc-500">Owner-only settings for account access.</p>
+        </div>
+      </div>
+      <Card className="mt-8 p-7">
+        <form
+          className="space-y-6"
+          onSubmit={(event) => {
+            event.preventDefault()
+            setMessage("")
+            const data = new FormData(event.currentTarget)
+            save.mutate({
+              registrationMode: String(data.get("registrationMode")),
+              oidcEnabled: data.has("oidcEnabled"),
+              oidcIssuer: String(data.get("oidcIssuer")),
+              oidcClientId: String(data.get("oidcClientId")),
+              oidcClientSecret: String(data.get("oidcClientSecret")),
+              oidcDisplayName: String(data.get("oidcDisplayName")),
+              oidcScopes: String(data.get("oidcScopes")),
+              oidcAutoRegister: data.has("oidcAutoRegister"),
+            })
+          }}
+        >
+          <label className="block text-sm text-zinc-300">
+            Local account registration
+            <select
+              name="registrationMode"
+              defaultValue={value.registrationMode}
+              className="mt-2 h-11 w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3"
+            >
+              <option value="closed">Owner setup only / closed</option>
+              <option value="open">Open registration</option>
+            </select>
+          </label>
+          <label className="flex items-center gap-3 text-sm">
+            <input name="oidcEnabled" type="checkbox" defaultChecked={value.oidcEnabled} />
+            Enable OpenID Connect
+          </label>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Input name="oidcDisplayName" defaultValue={value.oidcDisplayName} placeholder="Button label" required />
+            <Input name="oidcScopes" defaultValue={value.oidcScopes} placeholder="openid email" required />
+          </div>
+          <Input name="oidcIssuer" defaultValue={value.oidcIssuer} placeholder="https://id.example.com/.well-known/openid-configuration" />
+          <Input name="oidcClientId" defaultValue={value.oidcClientId} placeholder="Client ID" />
+          <Input
+            name="oidcClientSecret"
+            type="password"
+            placeholder={value.hasClientSecret ? "Client secret saved — leave blank to keep it" : "Client secret"}
+          />
+          <label className="flex items-center gap-3 text-sm">
+            <input name="oidcAutoRegister" type="checkbox" defaultChecked={value.oidcAutoRegister} />
+            Automatically create accounts for new OIDC users
+          </label>
+          <div className="rounded-xl bg-zinc-950 p-4">
+            <p className="text-xs text-zinc-500">OIDC callback URL</p>
+            <code className="mt-1 block overflow-x-auto text-xs text-zinc-300">{value.callbackUrl}</code>
+          </div>
+          {message && <p className="text-sm text-amber-300">{message}</p>}
+          {save.error && <p className="text-sm text-red-400">{save.error.message}</p>}
+          <Button disabled={save.isPending}>{save.isPending ? "Saving…" : "Save settings"}</Button>
+        </form>
+      </Card>
+    </main>
   )
 }
 
