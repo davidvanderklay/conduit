@@ -26,6 +26,7 @@ const GL_FRAMEBUFFER_BINDING: u32 = 0x8CA6;
 struct EmbeddedSurface {
     area: GLArea,
     overlay: Overlay,
+    vbox: gtk::Box,
     webview: Widget,
     window: gtk::ApplicationWindow,
     render: Option<RenderContext>,
@@ -59,7 +60,6 @@ pub fn initialize(window: &WebviewWindow) -> Result<(), String> {
         .next()
         .ok_or_else(|| "Tauri window has no WebKit widget".to_owned())?;
 
-    apply_rgba_visual(&gtk_window);
     set_webview_background(&webview, 1.0);
     gtk_window.remove(&vbox);
     vbox.remove(&webview);
@@ -95,6 +95,7 @@ pub fn initialize(window: &WebviewWindow) -> Result<(), String> {
         *surface.borrow_mut() = Some(EmbeddedSurface {
             area,
             overlay,
+            vbox,
             webview,
             window: gtk_window,
             render: None,
@@ -104,8 +105,8 @@ pub fn initialize(window: &WebviewWindow) -> Result<(), String> {
 }
 
 pub fn install(context: NonNull<mpv_handle>, window: &WebviewWindow) -> Result<(), String> {
-    initialize(window)?;
     uninstall()?;
+    initialize(window)?;
 
     let area = SURFACE.with(|surface| {
         surface
@@ -182,16 +183,19 @@ pub fn uninstall() -> Result<(), String> {
     #[cfg(debug_assertions)]
     eprintln!("Conduit: Linux video render context released");
 
-    SURFACE.with(|surface| {
-        if let Some(surface) = surface.borrow().as_ref() {
-            surface.area.set_opacity(0.0);
-            surface.webview.set_opacity(1.0);
-            set_webview_background(&surface.webview, 1.0);
-            surface.webview.queue_draw();
-            surface.overlay.queue_draw();
-            force_configure(surface);
-        }
-    });
+    let surface = SURFACE.with(|surface| surface.borrow_mut().take());
+    if let Some(surface) = surface {
+        surface.area.set_opacity(0.0);
+        surface.webview.set_opacity(1.0);
+        set_webview_background(&surface.webview, 1.0);
+        surface.window.remove(&surface.overlay);
+        surface.overlay.remove(&surface.webview);
+        surface.vbox.add(&surface.webview);
+        surface.window.add(&surface.vbox);
+        surface.window.show_all();
+        surface.webview.queue_draw();
+        surface.window.queue_draw();
+    }
     Ok(())
 }
 
@@ -381,15 +385,6 @@ fn resolve_gl<T: Copy>(name: &str) -> Option<T> {
         None
     } else {
         Some(unsafe { std::mem::transmute_copy(&pointer) })
-    }
-}
-
-fn apply_rgba_visual(window: &gtk::ApplicationWindow) {
-    if let Some(screen) = GtkWindowExt::screen(window) {
-        if let Some(visual) = screen.rgba_visual() {
-            window.set_visual(Some(&visual));
-            window.set_app_paintable(true);
-        }
     }
 }
 

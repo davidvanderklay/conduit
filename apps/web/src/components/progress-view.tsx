@@ -2,8 +2,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Check, Film, History, Play, Trash2 } from "lucide-react"
 import { api, type WatchProgress } from "../lib/api"
 import type { CatalogItem } from "../lib/core"
-import { posterCoverClass, posterGridClass } from "../lib/poster-layout"
+import { posterCoverClass } from "../lib/poster-layout"
 import { Card } from "./ui/card"
+import { VirtualPosterGrid } from "./virtual-poster-grid"
 
 export function useProgressList(profileId: string, view: "continue" | "history", limit = 50) {
   return useQuery({
@@ -37,16 +38,17 @@ export function ContinueWatching({
           See more
         </button>
       </div>
-      <div className={posterGridClass}>
-        {progress.data.map((item) => (
+      <VirtualPosterGrid
+        items={progress.data}
+        itemKey={(item) => item.videoId}
+        renderItem={(item) => (
           <ProgressCard
-            key={item.videoId}
             item={item}
             profileId={profileId}
             onSelect={onSelect}
           />
-        ))}
-      </div>
+        )}
+      />
     </section>
   )
 }
@@ -99,7 +101,7 @@ function ProgressCard({
   })
   const percent = item.durationMs ? Math.min(100, (item.positionMs / item.durationMs) * 100) : 0
   return (
-    <div className="poster-scroll-item group relative">
+    <>
       <button
         className="w-full text-left"
         onClick={() => onSelect(toCatalogItem(item), item.videoId)}
@@ -119,7 +121,7 @@ function ProgressCard({
       >
         <Trash2 size={15} />
       </button>
-    </div>
+    </>
   )
 }
 

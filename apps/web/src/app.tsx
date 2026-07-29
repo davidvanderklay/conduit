@@ -5,7 +5,7 @@ import { api, type Bootstrap, type InstalledAddon, type Profile } from "./lib/ap
 import { authClient } from "./lib/auth"
 import { loadCatalog, type CatalogItem } from "./lib/core"
 import { readLastProfileId, rememberLastProfileId } from "./lib/profile-preference"
-import { posterCoverClass, posterGridClass } from "./lib/poster-layout"
+import { posterCoverClass } from "./lib/poster-layout"
 import { ProfileSwitcher } from "./components/profile-switcher"
 import { Button } from "./components/ui/button"
 import { Card } from "./components/ui/card"
@@ -27,6 +27,7 @@ import {
   DiscoverView,
   type DiscoverSelection,
 } from "./components/discover-view"
+import { VirtualPosterGrid } from "./components/virtual-poster-grid"
 
 export function App() {
   const session = authClient.useSession()
@@ -172,8 +173,8 @@ function AuthenticatedApp({ userId, userName }: { userId: string; userName: stri
   }
 
   return (
-    <div className="min-h-screen">
-      <header className="app-chrome sticky top-0 z-20 border-b border-zinc-900 bg-zinc-950/85 pl-[22px] pr-4 backdrop-blur-xl sm:pr-6 lg:pr-8 xl:pr-10">
+    <div className="flex h-screen flex-col overflow-hidden">
+      <header className="app-chrome z-20 shrink-0 border-b border-zinc-900 bg-zinc-950/85 pl-[22px] pr-4 backdrop-blur-xl sm:pr-6 lg:pr-8 xl:pr-10">
         <div className="flex h-16 items-center gap-3">
           <div className="flex shrink-0 items-center gap-2 font-display text-lg font-semibold">
             <Film className="text-amber-400" size={21} />
@@ -235,7 +236,10 @@ function AuthenticatedApp({ userId, userName }: { userId: string; userName: stri
         </div>
       </header>
       <AppSidebar active={section} onNavigate={navigate} />
-      <div className="pb-16 md:ml-16 md:pb-0">
+      <div
+        id="app-scroll-viewport"
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-16 md:ml-16 md:pb-0"
+      >
         <ProfileApp
           profile={activeProfile}
           section={section}
@@ -590,9 +594,11 @@ function CatalogShelf({
           See more
         </button>
       </div>
-      <div className={posterGridClass}>
-        {items.slice(0, 14).map((item) => (
-          <div className="poster-scroll-item group relative" key={`${item.type}:${item.id}`}>
+      <VirtualPosterGrid
+        items={items.slice(0, 14)}
+        itemKey={(item) => `${item.type}:${item.id}`}
+        renderItem={(item) => (
+          <>
             <button className="w-full text-left" onClick={() => onSelect(item)}>
               <div className={posterCoverClass}>
                 {item.poster ? (
@@ -613,9 +619,9 @@ function CatalogShelf({
             <div className="pointer-events-none absolute right-2 top-2">
               <PosterWatchStatus profileId={profileId} item={item} addons={addons} />
             </div>
-          </div>
-        ))}
-      </div>
+          </>
+        )}
+      />
     </section>
   )
 }

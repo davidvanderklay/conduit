@@ -90,17 +90,6 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .manage(PlayerManager::default())
-        .setup(|app| {
-            #[cfg(target_os = "linux")]
-            {
-                let window = app
-                    .get_webview_window("main")
-                    .ok_or("main window is unavailable")?;
-                crate::player_render_linux::initialize(&window)
-                    .map_err(|error| format!("Linux player surface: {error}"))?;
-            }
-            Ok(())
-        })
         .on_window_event(|_, _event| {
             #[cfg(target_os = "linux")]
             if matches!(_event, tauri::WindowEvent::Resized(_)) {
@@ -148,7 +137,7 @@ fn configure_linux_webkit() {
         // WebKitGTK's DMA-BUF renderer can negotiate explicit synchronization
         // and then submit a non-DMA-BUF buffer, which is a fatal Wayland
         // protocol error on affected Mesa/NVIDIA compositor combinations.
-        // NVIDIA can also fail GBM allocation on the XWayland path.
+        // Some NVIDIA GBM stacks also reject WebKit's XWayland buffers.
         std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
         eprintln!("Conduit: disabled unsupported WebKit DMA-BUF renderer");
     }
