@@ -141,6 +141,30 @@ describe("DesktopPlayer track menus", () => {
     expect(usesExpandedPlayerControls(1600, 699)).toBe(false)
   })
 
+  it("cycles scaling modes, applies mpv properties, and briefly shows the mode", async () => {
+    click(button("Video scale: Fit"))
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(desktop.nativePlayerCommand).toHaveBeenCalledWith(["set", "video-unscaled", "no"])
+    expect(desktop.nativePlayerCommand).toHaveBeenCalledWith(["set", "keepaspect", "yes"])
+    expect(desktop.nativePlayerCommand).toHaveBeenCalledWith(["set", "panscan", 1])
+    expect(button("Video scale: Crop")).toBeTruthy()
+    expect(document.querySelector('[role="status"]')?.textContent).toBe("Video scale: Crop")
+
+    desktop.resetNativeOverlaySurface.mockClear()
+    act(() => vi.advanceTimersByTime(1400))
+    act(() => vi.advanceTimersByTime(1))
+    act(() => vi.advanceTimersByTime(1))
+    expect(document.querySelector('[role="status"]')).toBeNull()
+    expect(desktop.resetNativeOverlaySurface).toHaveBeenCalledOnce()
+  })
+
   it("hides inactive controls and cursor, then restores them on mouse movement", () => {
     const player = document.querySelector<HTMLElement>(".native-player")
     const chrome = document.querySelectorAll<HTMLElement>("[data-player-chrome]")

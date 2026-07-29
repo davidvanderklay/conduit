@@ -31,8 +31,10 @@ import {
 } from "../lib/desktop"
 import { loadSubtitles } from "../lib/core"
 import { nativeMediaTitle, playerHeading, type PlayerHeading } from "../lib/player-title"
+import { mpvVideoScaleCommands, type VideoScale } from "../lib/video-scale"
 import { usePlaybackProgress } from "../lib/progress"
 import { Card } from "./ui/card"
+import { VideoScaleControl } from "./video-scale-control"
 
 type TrackMenuName = "audio" | "subtitles"
 
@@ -69,6 +71,7 @@ export function DesktopPlayer({
   const [activeMenu, setActiveMenu] = useState<TrackMenuName>()
   const [fullscreen, setFullscreen] = useState(false)
   const [spaciousViewport, setSpaciousViewport] = useState(isSpaciousViewport)
+  const [videoScale, setVideoScale] = useState<VideoScale>("fit")
   const [addonSubtitles, setAddonSubtitles] = useState<ResolvedAddonSubtitle[]>([])
   const [selectedAddonSubtitle, setSelectedAddonSubtitle] = useState<string>()
   const hideTimer = useRef<number | undefined>(undefined)
@@ -161,6 +164,15 @@ export function DesktopPlayer({
     window.addEventListener("resize", syncWindowLayout)
     return () => window.removeEventListener("resize", syncWindowLayout)
   }, [])
+
+  useEffect(() => {
+    if (videoScale !== "stretch") return
+    const updateStretchAspect = () => {
+      void applyNativeVideoScale(videoScale).catch(() => undefined)
+    }
+    window.addEventListener("resize", updateStretchAspect)
+    return () => window.removeEventListener("resize", updateStretchAspect)
+  }, [videoScale])
 
   useEffect(() => {
     if (snapshot?.paused || activeMenu || error) {
@@ -363,6 +375,17 @@ export function DesktopPlayer({
           </button>
           <PlayerHeadingText heading={heading} expanded={expandedControls} />
         </div>
+        <VideoScaleControl
+          value={videoScale}
+          expanded={expandedControls}
+          onIndicatorHidden={resetOverlay}
+          onChange={(scale) => {
+            setVideoScale(scale)
+            void applyNativeVideoScale(scale).catch((cause: unknown) => {
+              setError(cause instanceof Error ? cause.message : String(cause))
+            })
+          }}
+        />
       </div>
 
       {error ? (
@@ -600,6 +623,15 @@ export function DesktopPlayer({
     </div>,
     document.body,
   )
+}
+
+async function applyNativeVideoScale(scale: VideoScale): Promise<void> {
+  for (const command of mpvVideoScaleCommands(scale, {
+    width: window.innerWidth,
+    height: window.innerHeight,
+  })) {
+    await nativePlayerCommand(command)
+  }
 }
 
 function PlayerIcon({
