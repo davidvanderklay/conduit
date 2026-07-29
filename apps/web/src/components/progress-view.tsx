@@ -38,7 +38,12 @@ export function ContinueWatching({
       </div>
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8">
         {progress.data.map((item) => (
-          <ProgressCard key={item.videoId} item={item} onSelect={onSelect} />
+          <ProgressCard
+            key={item.videoId}
+            item={item}
+            profileId={profileId}
+            onSelect={onSelect}
+          />
         ))}
       </div>
     </section>
@@ -75,21 +80,45 @@ export function HistoryView({
 
 function ProgressCard({
   item,
+  profileId,
   onSelect,
 }: {
   item: WatchProgress
+  profileId: string
   onSelect: (item: CatalogItem, videoId: string) => void
 }) {
+  const queryClient = useQueryClient()
+  const remove = useMutation({
+    mutationFn: () =>
+      api(
+        `/v1/profiles/${profileId}/progress/${encodeURIComponent(item.videoId)}`,
+        { method: "DELETE" },
+      ),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["progress", profileId] }),
+  })
   const percent = item.durationMs ? Math.min(100, (item.positionMs / item.durationMs) * 100) : 0
   return (
-    <button className="group text-left" onClick={() => onSelect(toCatalogItem(item), item.videoId)}>
-      <div className="relative aspect-[2/3] overflow-hidden rounded-xl bg-zinc-900 ring-1 ring-zinc-800 transition group-hover:-translate-y-1 group-hover:ring-amber-400/60">
-        {item.poster ? <img className="h-full w-full object-cover" src={item.poster} alt="" /> : <div className="grid h-full place-items-center text-zinc-700"><Film /></div>}
-        <span className="absolute inset-x-0 bottom-0 h-1 bg-zinc-700"><span className="block h-full bg-amber-400" style={{ width: `${percent}%` }} /></span>
-      </div>
-      <p className="mt-2 line-clamp-1 text-sm font-medium">{item.name}</p>
-      <p className="line-clamp-1 text-xs text-zinc-500">{episodeLabel(item)}</p>
-    </button>
+    <div className="group relative">
+      <button
+        className="w-full text-left"
+        onClick={() => onSelect(toCatalogItem(item), item.videoId)}
+      >
+        <div className="relative aspect-[2/3] overflow-hidden rounded-xl bg-zinc-900 ring-1 ring-zinc-800 transition group-hover:-translate-y-1 group-hover:ring-amber-400/60">
+          {item.poster ? <img className="h-full w-full object-cover" src={item.poster} alt="" /> : <div className="grid h-full place-items-center text-zinc-700"><Film /></div>}
+          <span className="absolute inset-x-0 bottom-0 h-1 bg-zinc-700"><span className="block h-full bg-amber-400" style={{ width: `${percent}%` }} /></span>
+        </div>
+        <p className="mt-2 line-clamp-1 text-sm font-medium">{item.name}</p>
+        <p className="line-clamp-1 text-xs text-zinc-500">{episodeLabel(item)}</p>
+      </button>
+      <button
+        className="absolute left-2 top-2 grid size-8 place-items-center rounded-full bg-zinc-950/90 text-zinc-300 opacity-0 shadow-lg ring-1 ring-white/10 transition hover:bg-red-500 hover:text-white group-hover:opacity-100 focus-visible:opacity-100"
+        aria-label={`Remove ${item.name} from watch history`}
+        disabled={remove.isPending}
+        onClick={() => remove.mutate()}
+      >
+        <Trash2 size={15} />
+      </button>
+    </div>
   )
 }
 
