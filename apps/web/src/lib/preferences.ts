@@ -16,8 +16,8 @@ export interface DevicePreferences {
 const KEY = "conduit.device-preferences.v1"
 
 export const defaultPreferences: DevicePreferences = {
-  audioLanguage: "auto",
-  subtitleLanguage: "auto",
+  audioLanguage: "en",
+  subtitleLanguage: "en",
   subtitleSize: 100,
   autoplay: true,
   volume: 100,
