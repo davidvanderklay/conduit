@@ -25,7 +25,7 @@ export function LibraryToggle({
       variant={library.saved ? "secondary" : "default"}
       className={cn(
         revealLabel &&
-          "group/library w-10 overflow-hidden whitespace-nowrap px-0 transition-[width,padding] duration-200 hover:w-36 hover:px-3 focus-visible:w-36 focus-visible:px-3",
+          "group/library w-10 overflow-hidden whitespace-nowrap px-0 transition-[width,padding] duration-200 [&>svg]:shrink-0 hover:w-44 hover:px-3 focus-visible:w-44 focus-visible:px-3",
       )}
       disabled={library.loading}
       aria-label={library.saved ? `Remove ${item.name} from library` : `Add ${item.name} to library`}
@@ -38,7 +38,7 @@ export function LibraryToggle({
       {library.saved ? <Check size={16} /> : <Plus size={16} />}
       {!compact && !revealLabel && (library.saved ? "In library" : "Add to library")}
       {revealLabel && (
-        <span className="max-w-0 overflow-hidden opacity-0 transition-all duration-200 group-hover/library:max-w-24 group-hover/library:opacity-100 group-focus-visible/library:max-w-24 group-focus-visible/library:opacity-100">
+        <span className="max-w-0 overflow-hidden opacity-0 transition-all duration-200 group-hover/library:max-w-32 group-hover/library:opacity-100 group-focus-visible/library:max-w-32 group-focus-visible/library:opacity-100">
           {library.saved ? "In library" : "Add to library"}
         </span>
       )}
