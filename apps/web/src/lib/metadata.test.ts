@@ -9,6 +9,8 @@ import {
   episodeLabel,
   normalizeMetaItem,
   safeExternalUrl,
+  seasonLabel,
+  sortSeasons,
   trailerUrl,
 } from "./metadata"
 
@@ -82,5 +84,12 @@ describe("add-on metadata normalization", () => {
     expect(safeExternalUrl("javascript:alert(1)")).toBeUndefined()
     expect(safeExternalUrl("data:text/html,bad")).toBeUndefined()
     expect(displayDate("not-a-date")).toBe("not-a-date")
+  })
+
+  it("places season zero after numbered seasons and labels it as Specials", () => {
+    expect(sortSeasons([0, 3, 1, 2, 0])).toEqual([1, 2, 3, 0])
+    expect(seasonLabel(0)).toBe("Specials")
+    expect(seasonLabel(2)).toBe("Season 2")
+    expect(episodeLabel({ id: "special", season: 0, episode: 4 })).toBe("Special 4")
   })
 })

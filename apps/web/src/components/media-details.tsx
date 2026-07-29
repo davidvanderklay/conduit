@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   ArrowLeft,
   Calendar,
   Check,
+  ChevronDown,
   CirclePlay,
   Clock3,
   ExternalLink,
@@ -11,6 +12,7 @@ import {
   LoaderCircle,
   Play,
   RotateCcw,
+  Search,
   Star,
   X,
 } from "lucide-react"
@@ -29,9 +31,10 @@ import {
   episodeLabel,
   normalizeMetaItem,
   safeExternalUrl,
+  seasonLabel,
+  sortSeasons,
   trailerUrl,
 } from "../lib/metadata"
-import { cn } from "../lib/utils"
 import { Button } from "./ui/button"
 import { Player } from "./player"
 import { LibraryToggle } from "./library-toggle"
@@ -41,25 +44,29 @@ interface ResolvedStream extends Stream {
   addonName: string
 }
 
+export type MetadataBrowseTarget =
+  | { kind: "genre"; value: string; mediaType: string }
+  | { kind: "search"; value: string }
+
 export function MediaDetails({
   item,
   addons,
   profileId,
   initialVideoId,
+  onBrowse,
   onClose,
 }: {
   item: CatalogItem
   addons: InstalledAddon[]
   profileId: string
   initialVideoId?: string
+  onBrowse?: (target: MetadataBrowseTarget) => void
   onClose: () => void
 }) {
   const [selectedVideoId, setSelectedVideoId] = useState<string | undefined>(
     initialVideoId && initialVideoId !== item.id ? initialVideoId : undefined,
   )
   const [playing, setPlaying] = useState<ResolvedStream>()
-  const detailsRef = useRef<HTMLDivElement>(null)
-
   const metadata = useQuery({
     queryKey: ["meta", item.type, item.id, addons.map((addon) => addon.id)],
     queryFn: () => resolveMetadata(addons, item),
@@ -69,7 +76,6 @@ export function MediaDetails({
   const selectedVideo = videos.find((video) => video.id === selectedVideoId)
   const episodeMode = item.type === "series" && Boolean(selectedVideo)
   const activeVideoId = episodeMode ? selectedVideoId : item.id
-
   const progress = useQuery({
     queryKey: ["progress", profileId],
     queryFn: () =>
@@ -96,76 +102,97 @@ export function MediaDetails({
     }
   }, [onClose, playing])
 
-  useEffect(() => {
-    detailsRef.current?.scrollTo({ top: 0 })
-  }, [selectedVideoId])
+  const browse = (target: MetadataBrowseTarget) => {
+    onClose()
+    onBrowse?.(target)
+  }
 
   return (
     <>
       <div
-        ref={detailsRef}
-        className="fixed inset-0 z-30 overflow-y-auto bg-zinc-950"
+        className="fixed inset-0 z-30 overflow-hidden bg-zinc-950"
         role="dialog"
         aria-modal="true"
         aria-label={`${meta.name} details`}
       >
-        <Backdrop src={episodeMode ? selectedVideo?.thumbnail : meta.background} fallback={meta.poster} />
-        <div className="pointer-events-none fixed inset-0 bg-[linear-gradient(90deg,rgba(9,9,11,.98)_0%,rgba(9,9,11,.83)_46%,rgba(9,9,11,.58)_100%)]" />
-        <div className="pointer-events-none fixed inset-0 bg-[linear-gradient(0deg,#09090b_0%,rgba(9,9,11,.55)_45%,rgba(9,9,11,.28)_100%)]" />
+        <Backdrop
+          src={episodeMode ? selectedVideo?.thumbnail : meta.background}
+          fallback={meta.poster}
+        />
+        <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(90deg,rgba(9,9,11,.98)_0%,rgba(9,9,11,.82)_48%,rgba(9,9,11,.56)_100%)]" />
+        <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(0deg,rgba(9,9,11,.92)_0%,rgba(9,9,11,.28)_55%,rgba(9,9,11,.4)_100%)]" />
 
-        <div className="relative mx-auto min-h-screen max-w-[1800px] px-4 pb-12 pt-5 sm:px-7 lg:px-10">
-          <nav className="mb-8 flex items-center justify-between" aria-label="Media details">
-            {episodeMode ? (
-              <Button
-                variant="ghost"
-                className="bg-black/20 backdrop-blur-md"
-                onClick={() => setSelectedVideoId(undefined)}
-              >
-                <ArrowLeft size={18} />
-                All episodes
-              </Button>
-            ) : (
-              <Button
-                variant="ghost"
-                size="icon"
-                className="bg-black/20 backdrop-blur-md"
-                aria-label="Close details"
-                onClick={onClose}
-              >
-                <ArrowLeft size={19} />
-              </Button>
-            )}
+        <nav
+          className="absolute inset-x-0 top-0 z-20 flex items-center justify-between p-3 sm:p-5"
+          aria-label="Media details"
+        >
+          {episodeMode ? (
+            <Button
+              variant="ghost"
+              className="bg-black/25 backdrop-blur-md"
+              onClick={() => setSelectedVideoId(undefined)}
+            >
+              <ArrowLeft size={18} />
+              Series
+            </Button>
+          ) : (
             <Button
               variant="ghost"
               size="icon"
-              className="bg-black/20 backdrop-blur-md"
-              aria-label="Close details"
+              className="bg-black/25 backdrop-blur-md"
+              aria-label="Back"
               onClick={onClose}
             >
-              <X size={19} />
+              <ArrowLeft size={19} />
             </Button>
-          </nav>
+          )}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="bg-black/25 backdrop-blur-md"
+            aria-label="Close details"
+            onClick={onClose}
+          >
+            <X size={19} />
+          </Button>
+        </nav>
+
+        <main className="relative grid h-dvh min-h-0 grid-rows-[minmax(0,47%)_minmax(0,53%)] gap-3 p-3 pt-15 sm:p-5 sm:pt-17 md:grid-cols-[minmax(0,1fr)_minmax(330px,31vw)] md:grid-rows-1 md:gap-5">
+          <div className="flex min-h-0 items-start overflow-hidden px-2 pt-2 sm:px-5 sm:pt-[clamp(1rem,3vh,2rem)] md:pr-[clamp(1rem,4vw,5rem)]">
+            <div className="w-full max-w-5xl">
+              {episodeMode && selectedVideo ? (
+                <EpisodeSummary
+                  meta={meta}
+                  video={selectedVideo}
+                  profileId={profileId}
+                  progress={progress.data ?? []}
+                />
+              ) : (
+                <MediaSummary
+                  meta={meta}
+                  profileId={profileId}
+                  onBrowse={onBrowse ? browse : undefined}
+                />
+              )}
+            </div>
+          </div>
 
           {item.type === "series" && !episodeMode ? (
-            <SeriesPage
-              meta={meta}
+            <EpisodeRail
+              videos={videos}
               loading={metadata.isLoading}
-              profileId={profileId}
               progress={progress.data ?? []}
-              onSelectEpisode={setSelectedVideoId}
+              onSelect={setSelectedVideoId}
             />
           ) : (
-            <PlayablePage
-              meta={meta}
-              video={selectedVideo}
-              profileId={profileId}
-              progress={progress.data ?? []}
+            <StreamRail
               streams={streams.data ?? []}
-              streamsLoading={streams.isLoading}
+              loading={streams.isLoading}
+              videoTitle={selectedVideo?.title ?? meta.name}
               onPlay={setPlaying}
             />
           )}
-        </div>
+        </main>
       </div>
 
       {playing?.url && (
@@ -191,114 +218,59 @@ export function MediaDetails({
   )
 }
 
-function SeriesPage({
+function MediaSummary({
   meta,
-  loading,
   profileId,
-  progress,
-  onSelectEpisode,
+  onBrowse,
 }: {
   meta: MetaItem
-  loading: boolean
   profileId: string
-  progress: WatchProgress[]
-  onSelectEpisode: (id: string) => void
+  onBrowse?: (target: MetadataBrowseTarget) => void
 }) {
-  return (
-    <main>
-      <div className="max-w-4xl py-5 sm:py-10">
-        <MediaSummary meta={meta} profileId={profileId} />
-      </div>
-      {loading ? (
-        <p className="mt-10 flex items-center gap-2 text-sm text-zinc-400">
-          <LoaderCircle className="animate-spin" size={17} />
-          Loading seasons…
-        </p>
-      ) : (
-        <EpisodeBrowser
-          videos={meta.videos ?? []}
-          progress={progress}
-          onSelect={onSelectEpisode}
-        />
-      )}
-    </main>
-  )
-}
-
-function PlayablePage({
-  meta,
-  video,
-  profileId,
-  progress,
-  streams,
-  streamsLoading,
-  onPlay,
-}: {
-  meta: MetaItem
-  video?: Video
-  profileId: string
-  progress: WatchProgress[]
-  streams: ResolvedStream[]
-  streamsLoading: boolean
-  onPlay: (stream: ResolvedStream) => void
-}) {
-  const videoTitle = video?.title ?? meta.name
-  return (
-    <main className="grid min-h-[calc(100vh-7rem)] items-start gap-12 lg:grid-cols-[minmax(0,1fr)_390px] xl:grid-cols-[minmax(0,1fr)_430px]">
-      <div className="flex min-h-[62vh] max-w-5xl flex-col justify-end pb-5 pt-12 lg:min-h-[78vh] lg:pb-10">
-        {video ? (
-          <EpisodeSummary
-            meta={meta}
-            video={video}
-            profileId={profileId}
-            progress={progress}
-          />
-        ) : (
-          <MediaSummary meta={meta} profileId={profileId} />
-        )}
-      </div>
-      <StreamRail
-        streams={streams}
-        loading={streamsLoading}
-        videoTitle={videoTitle}
-        onPlay={onPlay}
-      />
-    </main>
-  )
-}
-
-function MediaSummary({ meta, profileId }: { meta: MetaItem; profileId: string }) {
   const trailer = trailerUrl(meta)
   const facts = [
     meta.runtime,
     meta.releaseInfo ?? displayDate(meta.released),
     meta.contentRating,
-    meta.country,
   ].filter(Boolean)
-
   return (
-    <section aria-labelledby="media-title">
+    <section className="max-h-[calc(100dvh-5rem)] overflow-hidden" aria-labelledby="media-title">
       {meta.logo ? (
-        <Artwork
-          className="mb-7 max-h-32 w-auto max-w-[min(30rem,85vw)] object-contain object-left"
-          src={meta.logo}
-          alt={meta.name}
-        />
-      ) : (
-        <h1
-          id="media-title"
-          className="max-w-4xl font-display text-4xl font-semibold tracking-tight sm:text-6xl lg:text-7xl"
+        <button
+          type="button"
+          className="block rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+          aria-label={`Search for ${meta.name}`}
+          disabled={!onBrowse}
+          onClick={() => onBrowse?.({ kind: "search", value: meta.name })}
         >
-          {meta.name}
-        </h1>
+          <Artwork
+            className="mb-[clamp(.75rem,2vh,1.5rem)] max-h-[clamp(3.5rem,12vh,7rem)] w-auto max-w-[min(28rem,75vw)] object-contain object-left"
+            src={meta.logo}
+            alt={meta.name}
+          />
+        </button>
+      ) : (
+        <button
+          type="button"
+          className="block max-w-4xl rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+          disabled={!onBrowse}
+          onClick={() => onBrowse?.({ kind: "search", value: meta.name })}
+        >
+          <h1
+            id="media-title"
+            className="font-display text-[clamp(2.25rem,5vw,5rem)] font-semibold leading-[.96] tracking-tight"
+          >
+            {meta.name}
+          </h1>
+        </button>
       )}
       {meta.logo && <h1 id="media-title" className="sr-only">{meta.name}</h1>}
 
-      <div className="mt-6 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm font-medium text-zinc-200">
+      <div className="mt-[clamp(.75rem,2.3vh,1.5rem)] flex flex-wrap items-center gap-x-4 gap-y-1.5 text-sm font-medium text-zinc-200">
         {facts.map((fact) => <span key={fact}>{fact}</span>)}
         {meta.imdbRating && (
           <span className="flex items-center gap-1.5">
-            <Star className="fill-amber-400 text-amber-400" size={15} />
+            <Star className="fill-amber-400 text-amber-400" size={14} />
             {meta.imdbRating}
             <span className="rounded bg-amber-400 px-1 py-0.5 text-[9px] font-black text-zinc-950">
               IMDb
@@ -307,20 +279,33 @@ function MediaSummary({ meta, profileId }: { meta: MetaItem; profileId: string }
         )}
       </div>
 
-      <TagList label="Genres" values={meta.genres} />
+      <MetadataChips
+        label="Genres"
+        values={meta.genres}
+        onSelect={
+          onBrowse
+            ? (value) => onBrowse({ kind: "genre", value, mediaType: meta.type })
+            : undefined
+        }
+      />
       {meta.description ? (
-        <p className="mt-6 max-w-4xl text-sm leading-7 text-zinc-300 sm:text-base">
+        <p className="mt-[clamp(.75rem,2vh,1.35rem)] line-clamp-4 max-w-4xl text-sm leading-6 text-zinc-300">
           {meta.description}
         </p>
       ) : (
-        <p className="mt-6 text-sm italic text-zinc-500">No synopsis was supplied.</p>
+        <p className="mt-4 text-sm italic text-zinc-500">No synopsis was supplied.</p>
       )}
-      <Credits label="Director" values={meta.director} />
-      <Credits label="Cast" values={meta.cast} />
-      <Credits label="Writers" values={meta.writer} />
-      {meta.awards && <p className="mt-4 text-sm text-zinc-400">{meta.awards}</p>}
+      <Credits label="Directors" values={meta.director} onSelect={onBrowse} />
+      <Credits label="Cast" values={meta.cast} onSelect={onBrowse} />
+      <Credits label="Writers" values={meta.writer} onSelect={onBrowse} />
+      {meta.country && (
+        <Credits label="Country" values={[meta.country]} onSelect={onBrowse} />
+      )}
+      {meta.awards && (
+        <p className="mt-2 line-clamp-1 text-xs text-zinc-500">{meta.awards}</p>
+      )}
 
-      <div className="mt-8 flex items-center gap-3">
+      <div className="mt-[clamp(1rem,2.6vh,1.75rem)] flex items-center gap-3">
         {trailer && (
           <Button
             variant="secondary"
@@ -350,17 +335,17 @@ function EpisodeSummary({
   const state = progress.find((item) => item.videoId === video.id)
   const description = video.overview ?? video.description
   return (
-    <section aria-labelledby="episode-title">
-      <p className="mb-3 text-xs font-semibold uppercase tracking-[0.22em] text-amber-300">
+    <section className="max-h-[calc(100dvh-5rem)] overflow-hidden" aria-labelledby="episode-title">
+      <p className="mb-2 text-xs font-semibold uppercase tracking-[0.2em] text-amber-300">
         {meta.name} · {episodeLabel(video)}
       </p>
       <h1
         id="episode-title"
-        className="max-w-4xl font-display text-4xl font-semibold tracking-tight sm:text-6xl"
+        className="max-w-4xl font-display text-[clamp(2.25rem,5vw,4.5rem)] font-semibold leading-[.98] tracking-tight"
       >
         {video.title ?? episodeLabel(video)}
       </h1>
-      <div className="mt-5 flex flex-wrap gap-x-5 gap-y-2 text-sm text-zinc-300">
+      <div className="mt-[clamp(.75rem,2vh,1.25rem)] flex flex-wrap gap-x-5 gap-y-2 text-sm text-zinc-300">
         {video.released && (
           <span className="flex items-center gap-2">
             <Calendar size={15} />
@@ -379,16 +364,10 @@ function EpisodeSummary({
           </span>
         )}
       </div>
-      {description ? (
-        <p className="mt-6 max-w-4xl text-sm leading-7 text-zinc-300 sm:text-base">
-          {description}
-        </p>
-      ) : (
-        <p className="mt-6 text-sm italic text-zinc-500">
-          No episode overview was supplied.
-        </p>
-      )}
-      <div className="mt-8 flex items-center gap-3">
+      <p className="mt-[clamp(.75rem,2vh,1.35rem)] line-clamp-5 max-w-4xl text-sm leading-6 text-zinc-300">
+        {description ?? "No episode overview was supplied."}
+      </p>
+      <div className="mt-[clamp(1rem,2.6vh,1.75rem)] flex items-center gap-3">
         <EpisodeWatchAction
           profileId={profileId}
           item={state}
@@ -401,20 +380,23 @@ function EpisodeSummary({
   )
 }
 
-function EpisodeBrowser({
+function EpisodeRail({
   videos,
+  loading,
   progress,
   onSelect,
 }: {
   videos: Video[]
+  loading: boolean
   progress: WatchProgress[]
   onSelect: (id: string) => void
 }) {
-  const seasons = useMemo(() => {
-    const values = videos.map((video) => video.season ?? 1)
-    return [...new Set(values)].sort((a, b) => a - b)
-  }, [videos])
+  const seasons = useMemo(
+    () => sortSeasons(videos.map((video) => video.season ?? 1)),
+    [videos],
+  )
   const [season, setSeason] = useState(seasons[0] ?? 1)
+  const [query, setQuery] = useState("")
 
   useEffect(() => {
     if (seasons.length && !seasons.includes(season)) setSeason(seasons[0]!)
@@ -422,58 +404,71 @@ function EpisodeBrowser({
 
   const episodes = videos
     .filter((video) => (video.season ?? 1) === season)
+    .filter((video) => {
+      const search = query.trim().toLocaleLowerCase()
+      return !search || `${video.episode ?? ""} ${video.title ?? ""}`.toLocaleLowerCase().includes(search)
+    })
     .sort((a, b) => (a.episode ?? 0) - (b.episode ?? 0))
 
-  if (!videos.length) {
-    return (
-      <section className="mt-14 rounded-2xl border border-dashed border-white/15 bg-black/20 p-8">
-        <h2 className="font-display text-2xl font-semibold">Episodes</h2>
-        <p className="mt-2 text-sm text-zinc-400">
-          This add-on did not supply an episode list. You can still add the series to your library
-          and try another metadata add-on.
-        </p>
-      </section>
-    )
-  }
-
   return (
-    <section className="mt-14" aria-labelledby="episodes-heading">
-      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">
-            Browse the series
-          </p>
-          <h2 id="episodes-heading" className="mt-1 font-display text-3xl font-semibold">
-            Episodes
-          </h2>
+    <aside className="min-h-0 overflow-y-auto rounded-2xl border border-white/10 bg-zinc-950/80 shadow-2xl shadow-black/40 backdrop-blur-xl">
+      <div className="sticky top-0 z-10 border-b border-white/8 bg-zinc-950/95 p-3 backdrop-blur">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+              Browse episodes
+            </p>
+            <h2 className="font-display text-lg font-semibold">Episodes</h2>
+          </div>
+          {seasons.length > 0 && (
+            <label className="relative">
+              <span className="sr-only">Season</span>
+              <select
+                className="h-9 appearance-none rounded-lg border border-white/10 bg-white/5 pl-3 pr-8 text-xs font-medium text-zinc-200 outline-none focus:border-amber-400"
+                value={season}
+                onChange={(event) => {
+                  setSeason(Number(event.target.value))
+                  setQuery("")
+                }}
+              >
+                {seasons.map((value) => (
+                  <option key={value} value={value}>{seasonLabel(value)}</option>
+                ))}
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500" size={14} />
+            </label>
+          )}
         </div>
-        <div
-          className="flex max-w-full gap-2 overflow-x-auto pb-1"
-          role="tablist"
-          aria-label="Seasons"
-        >
-          {seasons.map((value) => (
-            <button
-              key={value}
-              type="button"
-              role="tab"
-              aria-selected={season === value}
-              className={cn(
-                "shrink-0 rounded-full border px-4 py-2 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400",
-                season === value
-                  ? "border-amber-300 bg-amber-400 text-zinc-950"
-                  : "border-white/10 bg-white/5 text-zinc-300 hover:border-white/25 hover:bg-white/10",
-              )}
-              onClick={() => setSeason(value)}
-            >
-              Season {value}
-            </button>
-          ))}
-        </div>
+        <label className="relative mt-3 block">
+          <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-600" size={14} />
+          <span className="sr-only">Search episodes</span>
+          <input
+            type="search"
+            className="h-9 w-full rounded-lg border border-white/8 bg-white/5 pl-9 pr-3 text-xs text-zinc-200 outline-none placeholder:text-zinc-600 focus:border-amber-400"
+            value={query}
+            placeholder="Search this season"
+            onChange={(event) => setQuery(event.target.value)}
+          />
+        </label>
       </div>
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+
+      {loading && (
+        <p className="flex items-center gap-2 p-5 text-sm text-zinc-400">
+          <LoaderCircle className="animate-spin" size={16} />
+          Loading episodes…
+        </p>
+      )}
+      {!loading && videos.length === 0 && (
+        <p className="m-3 rounded-xl border border-dashed border-white/10 p-5 text-sm text-zinc-500">
+          This add-on did not supply an episode list.
+        </p>
+      )}
+      {!loading && videos.length > 0 && episodes.length === 0 && (
+        <p className="p-6 text-center text-sm text-zinc-500">No matching episodes.</p>
+      )}
+      <div className="divide-y divide-white/6 px-2 pb-2">
         {episodes.map((video) => (
-          <EpisodeCard
+          <EpisodeRow
             key={video.id}
             video={video}
             progress={progress.find((item) => item.videoId === video.id)}
@@ -481,11 +476,11 @@ function EpisodeBrowser({
           />
         ))}
       </div>
-    </section>
+    </aside>
   )
 }
 
-function EpisodeCard({
+function EpisodeRow({
   video,
   progress,
   onSelect,
@@ -501,51 +496,32 @@ function EpisodeCard({
   return (
     <button
       type="button"
-      className="group overflow-hidden rounded-2xl border border-white/10 bg-zinc-950/65 text-left shadow-xl shadow-black/20 backdrop-blur-md transition hover:-translate-y-0.5 hover:border-amber-300/50 hover:bg-zinc-900/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+      className="group relative flex w-full gap-3 rounded-xl p-2.5 text-left transition hover:bg-white/7 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
       aria-label={`Open ${episodeLabel(video)}: ${video.title ?? "Untitled episode"}`}
       onClick={onSelect}
     >
-      <div className="relative aspect-video overflow-hidden bg-zinc-900">
-        <Artwork
-          className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]"
-          src={video.thumbnail}
-          alt=""
-          loading="lazy"
-        />
-        {!video.thumbnail && (
-          <div className="absolute inset-0 grid place-items-center text-zinc-700">
-            <Film size={30} />
-          </div>
-        )}
-        <span className="absolute left-3 top-3 rounded-full bg-black/75 px-2.5 py-1 text-xs font-semibold backdrop-blur">
-          {episodeLabel(video)}
-        </span>
+      <div className="relative aspect-video w-24 shrink-0 overflow-hidden rounded-lg bg-zinc-900">
+        <Artwork className="h-full w-full object-cover" src={video.thumbnail} alt="" loading="lazy" />
+        {!video.thumbnail && <div className="absolute inset-0 grid place-items-center text-zinc-700"><Film size={18} /></div>}
         {progress?.watched && (
-          <span className="absolute right-3 top-3 grid size-7 place-items-center rounded-full bg-amber-400 text-zinc-950">
-            <Check size={15} />
+          <span className="absolute right-1 top-1 grid size-5 place-items-center rounded-full bg-amber-400 text-zinc-950">
+            <Check size={11} />
           </span>
         )}
         {!progress?.watched && percent > 0 && (
-          <span className="absolute inset-x-0 bottom-0 h-1 bg-white/20">
+          <span className="absolute inset-x-0 bottom-0 h-0.5 bg-white/20">
             <span className="block h-full bg-amber-400" style={{ width: `${percent}%` }} />
           </span>
         )}
       </div>
-      <div className="p-4">
-        <h3 className="line-clamp-1 font-display text-lg font-semibold">
+      <div className="min-w-0 flex-1 py-0.5">
+        <p className="line-clamp-2 text-sm font-medium leading-5">
+          <span className="mr-1.5 text-zinc-500">{video.episode ?? "–"}.</span>
           {video.title ?? episodeLabel(video)}
-        </h3>
-        <div className="mt-1.5 flex flex-wrap gap-x-3 text-xs text-zinc-500">
+        </p>
+        <p className="mt-1 flex flex-wrap gap-x-2 text-[11px] text-zinc-600">
           {video.released && <span>{displayDate(video.released)}</span>}
           {video.runtime && <span>{video.runtime}</span>}
-          {video.available != null && (
-            <span className={video.available ? "text-emerald-400" : undefined}>
-              {video.available ? "Available" : "Unavailable"}
-            </span>
-          )}
-        </div>
-        <p className="mt-3 line-clamp-2 min-h-10 text-sm leading-5 text-zinc-400">
-          {video.overview ?? video.description ?? "No episode overview was supplied."}
         </p>
       </div>
     </button>
@@ -564,12 +540,12 @@ function StreamRail({
   onPlay: (stream: ResolvedStream) => void
 }) {
   return (
-    <aside className="rounded-2xl border border-white/10 bg-zinc-950/80 p-3 shadow-2xl shadow-black/40 backdrop-blur-xl lg:sticky lg:top-5 lg:max-h-[calc(100vh-2.5rem)] lg:overflow-y-auto">
+    <aside className="min-h-0 overflow-y-auto rounded-2xl border border-white/10 bg-zinc-950/80 p-2 shadow-2xl shadow-black/40 backdrop-blur-xl">
       <div className="sticky top-0 z-10 rounded-xl bg-zinc-950/95 px-3 py-3 backdrop-blur">
-        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
           Choose a source
         </p>
-        <h2 className="mt-1 line-clamp-1 font-display text-xl font-semibold">{videoTitle}</h2>
+        <h2 className="mt-0.5 line-clamp-1 font-display text-lg font-semibold">{videoTitle}</h2>
       </div>
       {loading && (
         <p className="flex items-center gap-2 px-3 py-6 text-sm text-zinc-400">
@@ -587,37 +563,26 @@ function StreamRail({
           const title = stream.name ?? stream.title ?? stream.addonName
           const description = stream.description ?? stream.title ?? `Provided by ${stream.addonName}`
           return (
-            <div
-              className="group rounded-xl border border-white/8 bg-white/[0.035] p-4 transition hover:border-white/20 hover:bg-white/[0.065]"
-              key={stream.key}
-            >
+            <div className="rounded-xl border border-white/8 bg-white/[0.035] p-3.5 transition hover:border-white/20 hover:bg-white/[0.065]" key={stream.key}>
               <div className="flex items-start gap-3">
                 <div className="min-w-0 flex-1">
                   <p className="line-clamp-2 whitespace-pre-line text-sm font-semibold">{title}</p>
-                  <p className="mt-1 line-clamp-4 whitespace-pre-line text-xs leading-5 text-zinc-500">
-                    {description}
-                  </p>
-                  <p className="mt-2 text-[11px] font-medium text-zinc-600">{stream.addonName}</p>
+                  <p className="mt-1 line-clamp-3 whitespace-pre-line text-xs leading-5 text-zinc-500">{description}</p>
+                  <p className="mt-1.5 text-[10px] font-medium text-zinc-600">{stream.addonName}</p>
                 </div>
                 {stream.url ? (
-                  <Button size="icon" aria-label={`Play ${title}`} onClick={() => onPlay(stream)}>
-                    <Play size={16} />
-                  </Button>
+                  <Button size="icon" aria-label={`Play ${title}`} onClick={() => onPlay(stream)}><Play size={16} /></Button>
                 ) : stream.externalUrl ? (
                   <Button
                     size="icon"
                     variant="secondary"
                     aria-label={`Open ${title}`}
-                    onClick={() =>
-                      window.open(stream.externalUrl, "_blank", "noopener,noreferrer")
-                    }
+                    onClick={() => window.open(stream.externalUrl, "_blank", "noopener,noreferrer")}
                   >
                     <ExternalLink size={16} />
                   </Button>
                 ) : (
-                  <span className="mt-2 text-[10px] text-zinc-600" title="Native playback required">
-                    Native
-                  </span>
+                  <span className="mt-2 text-[10px] text-zinc-600" title="Native playback required">Native</span>
                 )}
               </div>
             </div>
@@ -644,10 +609,7 @@ function EpisodeWatchAction({
     mutationFn: () => {
       const path = `/v1/profiles/${profileId}/progress/${encodeURIComponent(video.id)}`
       return item
-        ? api(path, {
-            method: "PATCH",
-            body: JSON.stringify({ watched: !item.watched }),
-          })
+        ? api(path, { method: "PATCH", body: JSON.stringify({ watched: !item.watched }) })
         : api(path, {
             method: "PUT",
             body: JSON.stringify({
@@ -667,28 +629,73 @@ function EpisodeWatchAction({
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["progress", profileId] }),
   })
   return (
-    <Button
-      variant="secondary"
-      disabled={mutation.isPending}
-      onClick={() => mutation.mutate()}
-    >
+    <Button variant="secondary" disabled={mutation.isPending} onClick={() => mutation.mutate()}>
       {item?.watched ? <RotateCcw size={16} /> : <Check size={16} />}
       Mark {item?.watched ? "unwatched" : "watched"}
     </Button>
   )
 }
 
-function TagList({ label, values }: { label: string; values?: string[] }) {
+function MetadataChips({
+  label,
+  values,
+  onSelect,
+}: {
+  label: string
+  values?: string[]
+  onSelect?: (value: string) => void
+}) {
   if (!values?.length) return null
   return (
-    <div className="mt-6">
-      <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+    <div className="mt-[clamp(.65rem,1.8vh,1.15rem)]">
+      <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">{label}</p>
+      <div className="flex flex-wrap gap-1.5">
+        {values.map((value) =>
+          onSelect ? (
+            <button
+              key={value}
+              type="button"
+              className="rounded-full bg-white/8 px-3 py-1 text-xs text-zinc-200 transition hover:bg-amber-400 hover:text-zinc-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+              onClick={() => onSelect(value)}
+            >
+              {value}
+            </button>
+          ) : (
+            <span key={value} className="rounded-full bg-white/8 px-3 py-1 text-xs text-zinc-200">{value}</span>
+          ),
+        )}
+      </div>
+    </div>
+  )
+}
+
+function Credits({
+  label,
+  values,
+  onSelect,
+}: {
+  label: string
+  values?: string[]
+  onSelect?: (target: MetadataBrowseTarget) => void
+}) {
+  if (!values?.length) return null
+  return (
+    <div className="mt-2.5 min-w-0">
+      <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
         {label}
       </p>
-      <div className="flex flex-wrap gap-2">
+      <div className="flex max-h-8 flex-wrap gap-1.5 overflow-hidden text-xs">
         {values.map((value) => (
-          <span key={value} className="rounded-full bg-white/8 px-3 py-1.5 text-xs text-zinc-200">
-            {value}
+          <span key={value}>
+            {onSelect ? (
+              <button
+                type="button"
+                className="rounded-full bg-white/8 px-2.5 py-1 text-zinc-300 transition hover:bg-amber-400 hover:text-zinc-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+                onClick={() => onSelect({ kind: "search", value })}
+              >
+                {value}
+              </button>
+            ) : <span className="rounded-full bg-white/8 px-2.5 py-1 text-zinc-300">{value}</span>}
           </span>
         ))}
       </div>
@@ -696,26 +703,10 @@ function TagList({ label, values }: { label: string; values?: string[] }) {
   )
 }
 
-function Credits({ label, values }: { label: string; values?: string[] }) {
-  if (!values?.length) return null
-  return (
-    <p className="mt-3 text-sm text-zinc-400">
-      <span className="mr-2 font-semibold text-zinc-200">{label}</span>
-      {values.join(", ")}
-    </p>
-  )
-}
-
 function Backdrop({ src, fallback }: { src?: string; fallback?: string }) {
   const image = src ?? fallback
-  if (!image) return <div className="fixed inset-0 bg-zinc-950" />
-  return (
-    <Artwork
-      className="fixed inset-0 h-full w-full object-cover"
-      src={image}
-      alt=""
-    />
-  )
+  if (!image) return <div className="absolute inset-0 bg-zinc-950" />
+  return <Artwork className="absolute inset-0 h-full w-full object-cover" src={image} alt="" />
 }
 
 function Artwork({
@@ -767,7 +758,6 @@ async function resolveStreams(
       streams: await loadStreams(addon.manifestUrl, type, videoId),
     })),
   )
-
   return results.flatMap((result) => {
     if (result.status === "rejected") return []
     return result.value.streams.map((stream, index) => ({

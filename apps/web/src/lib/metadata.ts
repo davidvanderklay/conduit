@@ -125,11 +125,26 @@ export function normalizeMetaItem(value: unknown, fallback: CatalogItem): MetaIt
 }
 
 export function episodeLabel(video: Video): string {
+  if (video.season === 0) {
+    return video.episode != null ? `Special ${video.episode}` : "Special"
+  }
   if (video.season != null && video.episode != null) {
     return `S${video.season} E${video.episode}`
   }
   if (video.episode != null) return `Episode ${video.episode}`
   return "Episode"
+}
+
+export function sortSeasons(values: number[]): number[] {
+  return [...new Set(values)].sort((a, b) => {
+    if (a === 0) return 1
+    if (b === 0) return -1
+    return a - b
+  })
+}
+
+export function seasonLabel(season: number): string {
+  return season === 0 ? "Specials" : `Season ${season}`
 }
 
 export function displayDate(value?: string): string | undefined {

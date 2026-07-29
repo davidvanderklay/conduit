@@ -44,11 +44,18 @@ export function DiscoverView({
   const types = [...new Set(catalogs.map(({ catalog }) => catalog.type))]
   const type = types.includes(selection.type ?? "") ? selection.type! : (types[0] ?? "")
   const typeCatalogs = catalogs.filter(({ catalog }) => catalog.type === type)
-  const selected =
-    typeCatalogs.find(
-      ({ addon, catalog }) =>
-        addon.id === selection.addonId && catalog.id === selection.catalogId,
-    ) ?? typeCatalogs[0]
+  const explicitlySelected = typeCatalogs.find(
+    ({ addon, catalog }) =>
+      addon.id === selection.addonId && catalog.id === selection.catalogId,
+  )
+  const genreSelected = selection.genre
+    ? typeCatalogs.find(({ catalog }) => {
+        const extra = catalog.extra?.find((candidate) => candidate.name === "genre")
+        const options = extra?.options ?? []
+        return Boolean(extra) && (options.length === 0 || options.includes(selection.genre!))
+      })
+    : undefined
+  const selected = explicitlySelected ?? genreSelected ?? typeCatalogs[0]
   const genreExtra = selected?.catalog.extra?.find((extra) => extra.name === "genre")
   const genres = genreExtra?.options ?? []
   const genre = genres.includes(selection.genre ?? "")
