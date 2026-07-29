@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Check, Film, History, Play, Trash2 } from "lucide-react"
 import { api, type WatchProgress } from "../lib/api"
 import type { CatalogItem } from "../lib/core"
+import { posterCoverClass, posterGridClass } from "../lib/poster-layout"
 import { Card } from "./ui/card"
 
 export function useProgressList(profileId: string, view: "continue" | "history", limit = 50) {
@@ -36,7 +37,7 @@ export function ContinueWatching({
           See more
         </button>
       </div>
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8">
+      <div className={posterGridClass}>
         {progress.data.map((item) => (
           <ProgressCard
             key={item.videoId}
@@ -103,7 +104,7 @@ function ProgressCard({
         className="w-full text-left"
         onClick={() => onSelect(toCatalogItem(item), item.videoId)}
       >
-        <div className="relative aspect-[2/3] overflow-hidden rounded-xl bg-zinc-900 ring-1 ring-zinc-800 transition group-hover:-translate-y-1 group-hover:ring-amber-400/60">
+        <div className={`relative ${posterCoverClass}`}>
           {item.poster ? <img className="h-full w-full object-cover" src={item.poster} alt="" /> : <div className="grid h-full place-items-center text-zinc-700"><Film /></div>}
           <span className="absolute inset-x-0 bottom-0 h-1 bg-zinc-700"><span className="block h-full bg-amber-400" style={{ width: `${percent}%` }} /></span>
         </div>

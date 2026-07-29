@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   ArrowLeft,
@@ -66,7 +66,12 @@ export function MediaDetails({
   const [selectedVideoId, setSelectedVideoId] = useState<string | undefined>(
     initialVideoId && initialVideoId !== item.id ? initialVideoId : undefined,
   )
+  const [selectedSeason, setSelectedSeason] = useState<number>()
   const [playing, setPlaying] = useState<ResolvedStream>()
+  const episodeRailScrollTop = useRef<number | undefined>(undefined)
+  const seriesReturnVideoId = useRef<string | undefined>(
+    initialVideoId && initialVideoId !== item.id ? initialVideoId : undefined,
+  )
   const metadata = useQuery({
     queryKey: ["meta", item.type, item.id, addons.map((addon) => addon.id)],
     queryFn: () => resolveMetadata(addons, item),
@@ -88,6 +93,16 @@ export function MediaDetails({
     enabled: item.type !== "series" || episodeMode,
     queryFn: () => resolveStreams(addons, item.type, activeVideoId!),
   })
+
+  useEffect(() => {
+    if (selectedVideo && selectedSeason == null) {
+      setSelectedSeason(selectedVideo.season ?? 1)
+      return
+    }
+    if (!selectedVideo && selectedSeason == null && videos.length > 0) {
+      setSelectedSeason(sortSeasons(videos.map((video) => video.season ?? 1))[0] ?? 1)
+    }
+  }, [selectedSeason, selectedVideo, videos])
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow
@@ -126,26 +141,15 @@ export function MediaDetails({
           className="absolute inset-x-0 top-0 z-20 flex items-center justify-between p-3 sm:p-5"
           aria-label="Media details"
         >
-          {episodeMode ? (
-            <Button
-              variant="ghost"
-              className="bg-black/25 backdrop-blur-md"
-              onClick={() => setSelectedVideoId(undefined)}
-            >
-              <ArrowLeft size={18} />
-              Series
-            </Button>
-          ) : (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="bg-black/25 backdrop-blur-md"
-              aria-label="Back"
-              onClick={onClose}
-            >
-              <ArrowLeft size={19} />
-            </Button>
-          )}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="bg-black/25 backdrop-blur-md"
+            aria-label="Back"
+            onClick={onClose}
+          >
+            <ArrowLeft size={19} />
+          </Button>
           <Button
             variant="ghost"
             size="icon"
@@ -182,7 +186,21 @@ export function MediaDetails({
               videos={videos}
               loading={metadata.isLoading}
               progress={progress.data ?? []}
-              onSelect={setSelectedVideoId}
+              season={selectedSeason}
+              restoreScrollTop={episodeRailScrollTop.current}
+              focusVideoId={seriesReturnVideoId.current}
+              onSeasonChange={(season) => {
+                episodeRailScrollTop.current = 0
+                seriesReturnVideoId.current = undefined
+                setSelectedSeason(season)
+              }}
+              onScroll={(scrollTop) => {
+                episodeRailScrollTop.current = scrollTop
+              }}
+              onSelect={(id) => {
+                seriesReturnVideoId.current = id
+                setSelectedVideoId(id)
+              }}
             />
           ) : (
             <StreamRail
@@ -190,6 +208,15 @@ export function MediaDetails({
               loading={streams.isLoading}
               videoTitle={selectedVideo?.title ?? meta.name}
               onPlay={setPlaying}
+              onBackToSeries={
+                episodeMode && selectedVideo
+                  ? () => {
+                      setSelectedSeason(selectedVideo.season ?? 1)
+                      seriesReturnVideoId.current = selectedVideo.id
+                      setSelectedVideoId(undefined)
+                    }
+                  : undefined
+              }
             />
           )}
         </main>
@@ -384,34 +411,60 @@ function EpisodeRail({
   videos,
   loading,
   progress,
+  season,
+  restoreScrollTop,
+  focusVideoId,
+  onSeasonChange,
+  onScroll,
   onSelect,
 }: {
   videos: Video[]
   loading: boolean
   progress: WatchProgress[]
+  season?: number
+  restoreScrollTop?: number
+  focusVideoId?: string
+  onSeasonChange: (season: number) => void
+  onScroll: (scrollTop: number) => void
   onSelect: (id: string) => void
 }) {
+  const railRef = useRef<HTMLElement>(null)
   const seasons = useMemo(
     () => sortSeasons(videos.map((video) => video.season ?? 1)),
     [videos],
   )
-  const [season, setSeason] = useState(seasons[0] ?? 1)
   const [query, setQuery] = useState("")
-
-  useEffect(() => {
-    if (seasons.length && !seasons.includes(season)) setSeason(seasons[0]!)
-  }, [season, seasons])
+  const activeSeason = season ?? seasons[0] ?? 1
 
   const episodes = videos
-    .filter((video) => (video.season ?? 1) === season)
+    .filter((video) => (video.season ?? 1) === activeSeason)
     .filter((video) => {
       const search = query.trim().toLocaleLowerCase()
       return !search || `${video.episode ?? ""} ${video.title ?? ""}`.toLocaleLowerCase().includes(search)
     })
     .sort((a, b) => (a.episode ?? 0) - (b.episode ?? 0))
 
+  useEffect(() => {
+    const rail = railRef.current
+    if (!rail) return
+    if (restoreScrollTop != null) {
+      rail.scrollTop = restoreScrollTop
+      return
+    }
+    if (focusVideoId) {
+      const episode = [...rail.querySelectorAll<HTMLElement>("[data-video-id]")].find(
+        (candidate) => candidate.dataset.videoId === focusVideoId,
+      )
+      episode?.scrollIntoView({ block: "center" })
+    }
+  }, [activeSeason, focusVideoId, restoreScrollTop])
+
   return (
-    <aside className="min-h-0 overflow-y-auto rounded-2xl border border-white/10 bg-zinc-950/80 shadow-2xl shadow-black/40 backdrop-blur-xl">
+    <aside
+      ref={railRef}
+      className="min-h-0 overflow-y-auto rounded-2xl border border-white/10 bg-zinc-950/80 shadow-2xl shadow-black/40 backdrop-blur-xl"
+      onScroll={(event) => onScroll(event.currentTarget.scrollTop)}
+    >
       <div className="sticky top-0 z-10 border-b border-white/8 bg-zinc-950/95 p-3 backdrop-blur">
         <div className="flex items-center justify-between gap-3">
           <div>
@@ -425,9 +478,9 @@ function EpisodeRail({
               <span className="sr-only">Season</span>
               <select
                 className="h-9 appearance-none rounded-lg border border-white/10 bg-white/5 pl-3 pr-8 text-xs font-medium text-zinc-200 outline-none focus:border-amber-400"
-                value={season}
+                value={activeSeason}
                 onChange={(event) => {
-                  setSeason(Number(event.target.value))
+                  onSeasonChange(Number(event.target.value))
                   setQuery("")
                 }}
               >
@@ -496,6 +549,7 @@ function EpisodeRow({
   return (
     <button
       type="button"
+      data-video-id={video.id}
       className="group relative flex w-full gap-3 rounded-xl p-2.5 text-left transition hover:bg-white/7 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
       aria-label={`Open ${episodeLabel(video)}: ${video.title ?? "Untitled episode"}`}
       onClick={onSelect}
@@ -533,19 +587,34 @@ function StreamRail({
   loading,
   videoTitle,
   onPlay,
+  onBackToSeries,
 }: {
   streams: ResolvedStream[]
   loading: boolean
   videoTitle: string
   onPlay: (stream: ResolvedStream) => void
+  onBackToSeries?: () => void
 }) {
   return (
     <aside className="min-h-0 overflow-y-auto rounded-2xl border border-white/10 bg-zinc-950/80 p-2 shadow-2xl shadow-black/40 backdrop-blur-xl">
-      <div className="sticky top-0 z-10 rounded-xl bg-zinc-950/95 px-3 py-3 backdrop-blur">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-          Choose a source
-        </p>
-        <h2 className="mt-0.5 line-clamp-1 font-display text-lg font-semibold">{videoTitle}</h2>
+      <div className="sticky top-0 z-10 flex items-center gap-2 rounded-xl bg-zinc-950/95 px-2 py-2 backdrop-blur">
+        {onBackToSeries && (
+          <Button
+            size="icon"
+            variant="ghost"
+            className="shrink-0"
+            aria-label="Back to series episodes"
+            onClick={onBackToSeries}
+          >
+            <ArrowLeft size={17} />
+          </Button>
+        )}
+        <div className="min-w-0">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+            Choose a source
+          </p>
+          <h2 className="mt-0.5 line-clamp-1 font-display text-lg font-semibold">{videoTitle}</h2>
+        </div>
       </div>
       {loading && (
         <p className="flex items-center gap-2 px-3 py-6 text-sm text-zinc-400">
@@ -566,8 +635,8 @@ function StreamRail({
             <div className="rounded-xl border border-white/8 bg-white/[0.035] p-3.5 transition hover:border-white/20 hover:bg-white/[0.065]" key={stream.key}>
               <div className="flex items-start gap-3">
                 <div className="min-w-0 flex-1">
-                  <p className="line-clamp-2 whitespace-pre-line text-sm font-semibold">{title}</p>
-                  <p className="mt-1 line-clamp-3 whitespace-pre-line text-xs leading-5 text-zinc-500">{description}</p>
+                  <p className="whitespace-pre-wrap text-sm font-semibold [overflow-wrap:anywhere]">{title}</p>
+                  <p className="mt-1 whitespace-pre-wrap text-xs leading-5 text-zinc-400 [overflow-wrap:anywhere]">{description}</p>
                   <p className="mt-1.5 text-[10px] font-medium text-zinc-600">{stream.addonName}</p>
                 </div>
                 {stream.url ? (

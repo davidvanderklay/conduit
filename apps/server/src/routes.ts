@@ -1,5 +1,5 @@
 import { Type } from "@sinclair/typebox"
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm"
+import { and, asc, desc, eq, inArray, notLike, sql } from "drizzle-orm"
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify"
 import { fromNodeHeaders } from "better-auth/node"
 import type { Auth } from "./auth.js"
@@ -32,6 +32,8 @@ interface RouteContext {
 interface SessionUser {
   id: string
 }
+
+const LEGACY_COMPLETION_MARKER_PREFIX = "conduit:completion:"
 
 export async function registerRoutes(app: FastifyInstance, context: RouteContext) {
   const { auth, config, db } = context
@@ -690,8 +692,14 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
       schema: {
         params: Type.Object({ profileId: Type.String({ format: "uuid" }) }),
         querystring: Type.Object({
-          view: Type.Optional(Type.Union([Type.Literal("continue"), Type.Literal("history")])),
-          limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
+          view: Type.Optional(
+            Type.Union([
+              Type.Literal("continue"),
+              Type.Literal("history"),
+              Type.Literal("status"),
+            ]),
+          ),
+          limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 1000 })),
         }),
       },
     },
@@ -700,7 +708,7 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
       if (!user) return
       const { profileId } = request.params as { profileId: string }
       const { view = "history", limit = 50 } = request.query as {
-        view?: "continue" | "history"
+        view?: "continue" | "history" | "status"
         limit?: number
       }
       if (!(await canAccessProfile(db, user.id, profileId))) return reply.forbidden()
@@ -714,6 +722,7 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
               .where(
                 and(
                   eq(watchProgress.profileId, profileId),
+                  notLike(watchProgress.videoId, `${LEGACY_COMPLETION_MARKER_PREFIX}%`),
                   sql`${watchProgress.updatedAt} >= ${staleAfter}`,
                 ),
               )
@@ -722,12 +731,24 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
                 asc(watchProgress.mediaId),
                 desc(watchProgress.updatedAt),
               )
-          : await db
-              .select()
-              .from(watchProgress)
-              .where(eq(watchProgress.profileId, profileId))
-              .orderBy(desc(watchProgress.updatedAt))
-              .limit(limit)
+          : view === "status"
+            ? await db
+                .select()
+                .from(watchProgress)
+                .where(eq(watchProgress.profileId, profileId))
+                .orderBy(desc(watchProgress.updatedAt))
+                .limit(limit)
+            : await db
+                .select()
+                .from(watchProgress)
+                .where(
+                  and(
+                    eq(watchProgress.profileId, profileId),
+                    notLike(watchProgress.videoId, `${LEGACY_COMPLETION_MARKER_PREFIX}%`),
+                  ),
+                )
+                .orderBy(desc(watchProgress.updatedAt))
+                .limit(limit)
       const visibleRows =
         view === "continue" ? filterContinueWatching(rows, limit) : rows
       return { items: visibleRows.map(toProgressItem) }

@@ -3,8 +3,9 @@ import { useInfiniteQuery } from "@tanstack/react-query"
 import { ChevronDown, Film, LoaderCircle } from "lucide-react"
 import type { InstalledAddon } from "../lib/api"
 import { loadCatalog, type CatalogItem } from "../lib/core"
+import { posterCoverClass, posterGridClass } from "../lib/poster-layout"
 import { Card } from "./ui/card"
-import { LibraryToggle } from "./library-toggle"
+import { PosterWatchStatus } from "./poster-watch-status"
 
 export interface DiscoverSelection {
   addonId?: string
@@ -209,11 +210,11 @@ export function DiscoverView({
         )}
         {items.length > 0 && (
           <>
-            <div className="grid grid-cols-2 gap-x-4 gap-y-7 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8">
+            <div className={posterGridClass}>
             {items.map((item) => (
               <div className="group relative" key={`${item.type}:${item.id}`}>
                 <button className="w-full text-left" onClick={() => onSelect(item)}>
-                  <div className="aspect-[2/3] overflow-hidden rounded-xl bg-zinc-900 ring-1 ring-zinc-800 transition group-hover:-translate-y-1 group-hover:ring-amber-400/60">
+                  <div className={posterCoverClass}>
                     {item.poster ? (
                       <img className="h-full w-full object-cover" src={item.poster} alt="" loading="lazy" />
                     ) : (
@@ -222,8 +223,8 @@ export function DiscoverView({
                   </div>
                   <p className="mt-2 line-clamp-2 text-sm font-medium">{item.name}</p>
                 </button>
-                <div className="absolute right-2 top-2 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
-                  <LibraryToggle profileId={profileId} item={item} compact />
+                <div className="pointer-events-none absolute right-2 top-2">
+                  <PosterWatchStatus profileId={profileId} item={item} addons={addons} />
                 </div>
               </div>
             ))}
