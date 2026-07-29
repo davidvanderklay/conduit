@@ -122,7 +122,7 @@ export function LibraryView({
         </Card>
       )}
       {items.length > 0 && (
-        <div className="mt-9 grid grid-cols-2 gap-x-4 gap-y-7 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-7 xl:grid-cols-9 2xl:grid-cols-11">
+        <div className="mt-9 grid grid-cols-2 gap-x-4 gap-y-7 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8">
           {items.map(({ item, catalogItem, metadataAvailable }) => (
             <div className="group relative" key={`${item.type}:${item.id}`}>
               <button className="w-full text-left" onClick={() => onSelect(catalogItem)}>
