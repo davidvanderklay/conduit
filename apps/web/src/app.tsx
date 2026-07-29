@@ -15,6 +15,10 @@ import { AppSidebar, type AppSection } from "./components/app-sidebar"
 import { AddonsView, ViewShell } from "./components/addons-view"
 import { SettingsView } from "./components/settings-view"
 import { applyPreferences, readPreferences } from "./lib/preferences"
+import {
+  DiscoverView,
+  type DiscoverSelection,
+} from "./components/discover-view"
 
 export function App() {
   const session = authClient.useSession()
@@ -91,6 +95,9 @@ function AuthenticatedApp({ userName }: { userName: string }) {
   })
   const [activeProfileId, setActiveProfileId] = useState<string | undefined>(readLastProfileId)
   const [section, setSection] = useState<AppSection>("home")
+  const [searchInput, setSearchInput] = useState("")
+  const [query, setQuery] = useState("")
+  const [discoverSelection, setDiscoverSelection] = useState<DiscoverSelection>({})
 
   const profiles = useMemo(
     () => bootstrap.data?.households.flatMap((household) => household.profiles) ?? [],
@@ -102,6 +109,17 @@ function AuthenticatedApp({ userName }: { userName: string }) {
       setActiveProfileId(profiles[0].id)
     }
   }, [activeProfileId, profiles])
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setQuery(searchInput.trim()), 350)
+    return () => window.clearTimeout(timeout)
+  }, [searchInput])
+
+  useEffect(() => {
+    setSearchInput("")
+    setQuery("")
+    setDiscoverSelection({})
+  }, [activeProfileId])
 
   useEffect(() => {
     if (activeProfileId && profiles.some((profile) => profile.id === activeProfileId)) {
@@ -124,32 +142,65 @@ function AuthenticatedApp({ userName }: { userName: string }) {
   }
 
   const activeProfile = profiles.find((profile) => profile.id === activeProfileId) ?? profiles[0]!
+  const navigate = (nextSection: AppSection) => {
+    setSection(nextSection)
+    setSearchInput("")
+    setQuery("")
+  }
 
   return (
     <div className="min-h-screen">
       <header className="sticky top-0 z-20 border-b border-zinc-900 bg-zinc-950/85 px-5 backdrop-blur-xl">
-        <div className="mx-auto flex h-16 max-w-7xl items-center gap-4">
-          <div className="flex items-center gap-2 font-display text-lg font-semibold">
+        <div className="mx-auto flex h-16 max-w-7xl items-center gap-3">
+          <div className="flex shrink-0 items-center gap-2 font-display text-lg font-semibold">
             <Film className="text-amber-400" size={21} />
-            Conduit
+            <span className="hidden sm:inline">Conduit</span>
           </div>
-          <div className="ml-auto flex items-center gap-2">
+          <div className="relative mx-auto w-full max-w-xl">
+            <Search
+              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500"
+              size={17}
+            />
+            <input
+              type="search"
+              value={searchInput}
+              aria-label="Search or paste a link"
+              placeholder="Search or paste a link"
+              className="h-10 w-full rounded-xl border border-zinc-800 bg-zinc-900/80 pl-10 pr-10 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20"
+              onChange={(event) => setSearchInput(event.target.value)}
+            />
+            {searchInput && (
+              <button
+                className="absolute right-1.5 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-lg text-zinc-500 hover:bg-zinc-800 hover:text-white"
+                aria-label="Clear search"
+                onClick={() => setSearchInput("")}
+              >
+                <X size={15} />
+              </button>
+            )}
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
             <ProfileSwitcher
               profiles={profiles}
               activeProfile={activeProfile}
               onSelect={setActiveProfileId}
               userName={userName}
-              onNavigate={setSection}
+              onNavigate={navigate}
               onSignOut={() => authClient.signOut()}
             />
           </div>
         </div>
       </header>
-      <AppSidebar active={section} onNavigate={setSection} />
+      <AppSidebar active={section} onNavigate={navigate} />
       <div className="pb-16 md:ml-16 md:pb-0">
         <ProfileApp
           profile={activeProfile}
           section={section}
+          onNavigate={navigate}
+          searchInput={searchInput}
+          query={query}
+          discoverSelection={discoverSelection}
+          onDiscoverSelection={setDiscoverSelection}
         />
       </div>
     </div>
@@ -201,12 +252,20 @@ function HouseholdSetup() {
 function ProfileApp({
   profile,
   section,
+  onNavigate,
+  searchInput,
+  query,
+  discoverSelection,
+  onDiscoverSelection,
 }: {
   profile: Profile
   section: AppSection
+  onNavigate: (section: AppSection) => void
+  searchInput: string
+  query: string
+  discoverSelection: DiscoverSelection
+  onDiscoverSelection: (selection: DiscoverSelection) => void
 }) {
-  const [searchInput, setSearchInput] = useState("")
-  const [query, setQuery] = useState("")
   const [selectedItem, setSelectedItem] = useState<CatalogItem>()
   const addons = useQuery({
     queryKey: ["addons", profile.id],
@@ -215,49 +274,26 @@ function ProfileApp({
 
   useEffect(() => {
     setSelectedItem(undefined)
-    setSearchInput("")
-    setQuery("")
   }, [profile.id])
-
-  useEffect(() => {
-    const timeout = window.setTimeout(() => setQuery(searchInput.trim()), 350)
-    return () => window.clearTimeout(timeout)
-  }, [searchInput])
 
   return (
     <>
-      <nav className="sticky top-16 z-10 border-b border-zinc-900 bg-zinc-950/90 px-5 backdrop-blur-xl">
-        <div className="mx-auto flex h-14 max-w-7xl items-center gap-3">
-          <div className="relative mx-auto w-full max-w-xl">
-            <Search
-              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500"
-              size={17}
-            />
-            <input
-              type="search"
-              value={searchInput}
-              aria-label="Search or paste a link"
-              placeholder="Search or paste a link"
-              className="h-10 w-full rounded-xl border border-zinc-800 bg-zinc-900/80 pl-10 pr-10 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20"
-              onChange={(event) => setSearchInput(event.target.value)}
-            />
-            {searchInput && (
-              <button
-                className="absolute right-1.5 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-lg text-zinc-500 hover:bg-zinc-800 hover:text-white"
-                aria-label="Clear search"
-                onClick={() => setSearchInput("")}
-              >
-                <X size={15} />
-              </button>
-            )}
-          </div>
-        </div>
-      </nav>
-      {!searchInput && (section === "home" || section === "discover") && (
+      {!searchInput && section === "home" && (
         <MediaHome
           profile={profile}
           addons={addons.data?.addons ?? []}
-          discover={section === "discover"}
+          onDiscover={(selection) => {
+            onDiscoverSelection(selection)
+            onNavigate("discover")
+          }}
+        />
+      )}
+      {!searchInput && section === "discover" && (
+        <DiscoverView
+          addons={addons.data?.addons ?? []}
+          selection={discoverSelection}
+          onChange={onDiscoverSelection}
+          onSelect={setSelectedItem}
         />
       )}
       {!searchInput && section === "library" && (
@@ -303,11 +339,11 @@ function ProfileApp({
 function MediaHome({
   profile,
   addons,
-  discover,
+  onDiscover,
 }: {
   profile: Profile
   addons: InstalledAddon[]
-  discover: boolean
+  onDiscover: (selection: DiscoverSelection) => void
 }) {
   const [selectedItem, setSelectedItem] = useState<CatalogItem>()
   const catalogs = useQuery({
@@ -323,6 +359,9 @@ function MediaHome({
               .slice(0, 3)
               .map(async (catalog) => ({
                 key: `${addon.id}:${catalog.type}:${catalog.id}`,
+                addonId: addon.id,
+                type: catalog.type,
+                catalogId: catalog.id,
                 title: catalog.name ?? `${addon.manifest.name} · ${catalog.id}`,
                 items: await loadCatalog(addon.manifestUrl, catalog.type, catalog.id),
               })),
@@ -346,15 +385,13 @@ function MediaHome({
       <section className="mb-12">
         <div>
           <p className="mb-2 text-xs font-semibold uppercase tracking-[0.2em] text-amber-400">
-            {discover ? "Browse every source" : `${profile.name}'s space`}
+            {profile.name}&apos;s space
           </p>
           <h1 className="font-display text-4xl font-semibold tracking-tight">
-            {discover ? "Discover" : "What are we watching?"}
+            What are we watching?
           </h1>
           <p className="mt-2 text-zinc-500">
-            {discover
-              ? "Explore movies, series, anime, and more from your enabled add-ons."
-              : "Catalogs are loaded directly from your synchronized add-ons."}
+            Catalogs are loaded directly from your synchronized add-ons.
           </p>
         </div>
       </section>
@@ -373,6 +410,13 @@ function MediaHome({
           title={catalog.title}
           items={catalog.items}
           onSelect={setSelectedItem}
+          onSeeMore={() =>
+            onDiscover({
+              addonId: catalog.addonId,
+              type: catalog.type,
+              catalogId: catalog.catalogId,
+            })
+          }
         />
       ))}
 
@@ -412,15 +456,25 @@ function CatalogShelf({
   title,
   items,
   onSelect,
+  onSeeMore,
 }: {
   title: string
   items: CatalogItem[]
   onSelect: (item: CatalogItem) => void
+  onSeeMore: () => void
 }) {
   if (items.length === 0) return null
   return (
     <section className="mb-10">
-      <h2 className="mb-4 font-display text-xl font-semibold">{title}</h2>
+      <div className="mb-4 flex items-center justify-between gap-4">
+        <h2 className="font-display text-xl font-semibold">{title}</h2>
+        <button
+          className="text-xs font-semibold text-zinc-500 transition hover:text-amber-300"
+          onClick={onSeeMore}
+        >
+          See more
+        </button>
+      </div>
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-7">
         {items.slice(0, 14).map((item) => (
           <button
