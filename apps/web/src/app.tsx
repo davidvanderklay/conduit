@@ -237,11 +237,18 @@ function AuthScreen() {
                   <AuthField id="auth-email" label="Email address">
                     <Input id="auth-email" name="email" type="email" autoComplete="email" placeholder="you@example.com" required />
                   </AuthField>
-                  <AuthField
-                    id="auth-password"
-                    label="Password"
-                    action={
-                      mode === "sign-in" ? (
+                  <AuthField id="auth-password" label="Password">
+                    <Input
+                      id="auth-password"
+                      name="password"
+                      type="password"
+                      autoComplete={mode === "register" ? "new-password" : "current-password"}
+                      placeholder={mode === "register" ? "At least 8 characters" : "Enter your password"}
+                      minLength={8}
+                      required
+                    />
+                    {mode === "sign-in" && (
+                      <div className="mt-2 flex justify-end text-xs">
                         <button
                           type="button"
                           className="font-medium text-zinc-500 transition hover:text-amber-300"
@@ -252,18 +259,8 @@ function AuthScreen() {
                         >
                           Use recovery code
                         </button>
-                      ) : undefined
-                    }
-                  >
-                    <Input
-                      id="auth-password"
-                      name="password"
-                      type="password"
-                      autoComplete={mode === "register" ? "new-password" : "current-password"}
-                      placeholder={mode === "register" ? "At least 8 characters" : "Enter your password"}
-                      minLength={8}
-                      required
-                    />
+                      </div>
+                    )}
                   </AuthField>
                   {mode === "register" && (
                     <p className="rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-2.5 text-xs leading-5 text-zinc-500">
