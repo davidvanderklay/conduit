@@ -1,5 +1,5 @@
-import { useEffect, useMemo } from "react"
-import { useQuery } from "@tanstack/react-query"
+import { useEffect, useMemo, useRef } from "react"
+import { useInfiniteQuery } from "@tanstack/react-query"
 import { ChevronDown, Film, LoaderCircle } from "lucide-react"
 import type { InstalledAddon } from "../lib/api"
 import { loadCatalog, type CatalogItem } from "../lib/core"
@@ -71,7 +71,7 @@ export function DiscoverView({
     }
   }, [genre, onChange, selected, selection, type])
 
-  const results = useQuery({
+  const results = useInfiniteQuery({
     queryKey: [
       "discover",
       selected?.addon.id,
@@ -80,14 +80,54 @@ export function DiscoverView({
       genre,
     ],
     enabled: Boolean(selected),
-    queryFn: () =>
+    initialPageParam: 0,
+    queryFn: ({ pageParam }) =>
       loadCatalog(
         selected!.addon.manifestUrl,
         selected!.catalog.type,
         selected!.catalog.id,
-        genre ? [{ name: "genre", value: genre }] : [],
+        [
+          ...(genre ? [{ name: "genre", value: genre }] : []),
+          ...(pageParam > 0 ? [{ name: "skip", value: String(pageParam) }] : []),
+        ],
       ),
+    getNextPageParam: (lastPage, pages) => {
+      if (lastPage.length === 0) return undefined
+      const previousIds = new Set(
+        pages
+          .slice(0, -1)
+          .flat()
+          .map((item) => `${item.type}:${item.id}`),
+      )
+      if (
+        previousIds.size > 0 &&
+        lastPage.every((item) => previousIds.has(`${item.type}:${item.id}`))
+      ) {
+        return undefined
+      }
+      return pages.reduce((count, page) => count + page.length, 0)
+    },
   })
+  const items = useMemo(
+    () => deduplicate(results.data?.pages.flat() ?? []),
+    [results.data?.pages],
+  )
+  const loadMoreRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const target = loadMoreRef.current
+    if (!target || !results.hasNextPage) return
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry?.isIntersecting && !results.isFetchingNextPage) {
+          void results.fetchNextPage()
+        }
+      },
+      { rootMargin: "600px 0px" },
+    )
+    observer.observe(target)
+    return () => observer.disconnect()
+  }, [results.fetchNextPage, results.hasNextPage, results.isFetchingNextPage])
 
   return (
     <main className="mx-auto max-w-7xl px-5 py-9">
@@ -152,14 +192,15 @@ export function DiscoverView({
             Install an add-on with catalogs to start discovering.
           </Card>
         )}
-        {results.data?.length === 0 && (
+        {results.data && items.length === 0 && !results.isFetching && (
           <Card className="border-dashed py-20 text-center text-zinc-500">
             This catalog returned no titles.
           </Card>
         )}
-        {results.data && results.data.length > 0 && (
-          <div className="grid grid-cols-2 gap-x-4 gap-y-7 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-7">
-            {results.data.map((item) => (
+        {items.length > 0 && (
+          <>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-7 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-7">
+            {items.map((item) => (
               <button
                 className="group text-left"
                 key={`${item.type}:${item.id}`}
@@ -175,7 +216,19 @@ export function DiscoverView({
                 <p className="mt-2 line-clamp-2 text-sm font-medium">{item.name}</p>
               </button>
             ))}
-          </div>
+            </div>
+            <div ref={loadMoreRef} className="flex min-h-28 items-center justify-center">
+              {results.isFetchingNextPage && (
+                <span className="flex items-center gap-2 text-sm text-zinc-500">
+                  <LoaderCircle className="animate-spin text-amber-400" size={18} />
+                  Loading more…
+                </span>
+              )}
+              {!results.hasNextPage && (
+                <span className="text-xs text-zinc-700">You’ve reached the end</span>
+              )}
+            </div>
+          </>
         )}
       </section>
     </main>
@@ -213,4 +266,14 @@ function FilterSelect({
 
 function formatLabel(value: string) {
   return value.replaceAll("-", " ").replace(/\b\w/g, (character) => character.toUpperCase())
+}
+
+function deduplicate(items: CatalogItem[]): CatalogItem[] {
+  const seen = new Set<string>()
+  return items.filter((item) => {
+    const key = `${item.type}:${item.id}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
 }
