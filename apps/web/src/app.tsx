@@ -162,6 +162,9 @@ function AuthenticatedApp({ userId, userName }: { userId: string; userName: stri
   }
 
   const activeProfile = profiles.find((profile) => profile.id === activeProfileId) ?? profiles[0]!
+  const activeHousehold = bootstrap.data!.households.find((household) =>
+    household.profiles.some((profile) => profile.id === activeProfile.id),
+  )!
   const navigate = (nextSection: AppSection) => {
     setSection(nextSection)
     setSearchInput("")
@@ -204,6 +207,23 @@ function AuthenticatedApp({ userId, userName }: { userId: string; userName: stri
               profiles={profiles}
               activeProfile={activeProfile}
               onSelect={setActiveProfileId}
+              onCreate={async (values) => {
+                const result = await api<{ profile: Profile }>(
+                  `/v1/households/${activeHousehold.id}/profiles`,
+                  {
+                    method: "POST",
+                    body: JSON.stringify({
+                      name: values.name,
+                      isKids: values.isKids,
+                      ...(values.copyAddons
+                        ? { copyAddonsFromProfileId: activeProfile.id }
+                        : {}),
+                    }),
+                  },
+                )
+                await queryClient.invalidateQueries({ queryKey: bootstrapQueryKey(userId) })
+                setActiveProfileId(result.profile.id)
+              }}
               userName={userName}
               onNavigate={navigate}
               onSignOut={async () => {

@@ -126,6 +126,87 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
     },
   )
 
+  app.post(
+    "/v1/households/:householdId/profiles",
+    {
+      schema: {
+        params: Type.Object({ householdId: Type.String({ format: "uuid" }) }),
+        body: Type.Object({
+          name: Type.String({ minLength: 1, maxLength: 80, pattern: "\\S" }),
+          isKids: Type.Optional(Type.Boolean()),
+          copyAddonsFromProfileId: Type.Optional(Type.String({ format: "uuid" })),
+        }),
+      },
+    },
+    async (request, reply) => {
+      const user = await requireUser(request, reply, auth)
+      if (!user) return
+      const { householdId } = request.params as { householdId: string }
+      const body = request.body as {
+        name: string
+        isKids?: boolean
+        copyAddonsFromProfileId?: string
+      }
+
+      const [membership] = await db
+        .select({ householdId: householdMembers.householdId })
+        .from(householdMembers)
+        .where(
+          and(
+            eq(householdMembers.householdId, householdId),
+            eq(householdMembers.userId, user.id),
+          ),
+        )
+        .limit(1)
+      if (!membership) return reply.forbidden()
+
+      let sourceAddons: Array<typeof addonInstallations.$inferSelect> = []
+      if (body.copyAddonsFromProfileId) {
+        const [sourceProfile] = await db
+          .select({ householdId: profiles.householdId })
+          .from(profiles)
+          .where(eq(profiles.id, body.copyAddonsFromProfileId))
+          .limit(1)
+        if (!sourceProfile || sourceProfile.householdId !== householdId) {
+          return reply.forbidden()
+        }
+        sourceAddons = await db
+          .select()
+          .from(addonInstallations)
+          .where(eq(addonInstallations.profileId, body.copyAddonsFromProfileId))
+          .orderBy(asc(addonInstallations.position))
+      }
+
+      const profile = await db.transaction(async (tx) => {
+        const [created] = await tx
+          .insert(profiles)
+          .values({
+            householdId,
+            name: body.name.trim(),
+            isKids: body.isKids ?? false,
+          })
+          .returning({ id: profiles.id, name: profiles.name, isKids: profiles.isKids })
+
+        if (sourceAddons.length > 0) {
+          await tx.insert(addonInstallations).values(
+            sourceAddons.map((addon) => ({
+              profileId: created!.id,
+              manifestId: addon.manifestId,
+              manifestUrlEncrypted: addon.manifestUrlEncrypted,
+              manifestUrlHash: addon.manifestUrlHash,
+              manifest: addon.manifest,
+              position: addon.position,
+              enabled: addon.enabled,
+            })),
+          )
+        }
+        return created!
+      })
+
+      return reply.code(201).send({ profile })
+    },
+  )
+
   app.patch(
     "/v1/profiles/:profileId",
     {

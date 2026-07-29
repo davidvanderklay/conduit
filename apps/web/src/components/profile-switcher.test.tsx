@@ -62,10 +62,44 @@ describe("ProfileSwitcher", () => {
     expect(document.activeElement).toBe(button("Switch profile, current profile Alex"))
   })
 
-  function render(onSelect: (profileId: string) => void) {
+  it("creates a profile from the switcher", async () => {
+    const onCreate = vi.fn(async () => undefined)
+    render(vi.fn(), onCreate)
+
+    click(button("Switch profile, current profile Alex"))
+    click(button("Add profile"))
+
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull()
+    const name = document.querySelector<HTMLInputElement>('input[placeholder="Who’s watching?"]')!
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(name, "Taylor")
+      name.dispatchEvent(new Event("input", { bubbles: true }))
+    })
+
+    await act(async () => {
+      button("Create profile").click()
+    })
+
+    expect(onCreate).toHaveBeenCalledWith({
+      name: "Taylor",
+      isKids: false,
+      copyAddons: true,
+    })
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+  })
+
+  function render(
+    onSelect: (profileId: string) => void,
+    onCreate?: (values: { name: string; isKids: boolean; copyAddons: boolean }) => Promise<void>,
+  ) {
     act(() => {
       root.render(
-        <ProfileSwitcher profiles={profiles} activeProfile={profiles[0]!} onSelect={onSelect} />,
+        <ProfileSwitcher
+          profiles={profiles}
+          activeProfile={profiles[0]!}
+          onSelect={onSelect}
+          onCreate={onCreate}
+        />,
       )
     })
   }
