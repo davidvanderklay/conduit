@@ -3,9 +3,10 @@ import { useInfiniteQuery } from "@tanstack/react-query"
 import { ChevronDown, Film, LoaderCircle } from "lucide-react"
 import type { InstalledAddon } from "../lib/api"
 import { loadCatalog, type CatalogItem } from "../lib/core"
-import { posterCoverClass, posterGridClass } from "../lib/poster-layout"
+import { posterCoverClass } from "../lib/poster-layout"
 import { Card } from "./ui/card"
 import { PosterWatchStatus } from "./poster-watch-status"
+import { VirtualPosterGrid } from "./virtual-poster-grid"
 
 export interface DiscoverSelection {
   addonId?: string
@@ -210,9 +211,11 @@ export function DiscoverView({
         )}
         {items.length > 0 && (
           <>
-            <div className={posterGridClass}>
-            {items.map((item) => (
-              <div className="poster-scroll-item group relative" key={`${item.type}:${item.id}`}>
+            <VirtualPosterGrid
+              items={items}
+              itemKey={(item) => `${item.type}:${item.id}`}
+              renderItem={(item) => (
+                <>
                 <button className="w-full text-left" onClick={() => onSelect(item)}>
                   <div className={posterCoverClass}>
                     {item.poster ? (
@@ -226,9 +229,9 @@ export function DiscoverView({
                 <div className="pointer-events-none absolute right-2 top-2">
                   <PosterWatchStatus profileId={profileId} item={item} addons={addons} />
                 </div>
-              </div>
-            ))}
-            </div>
+                </>
+              )}
+            />
             <div ref={loadMoreRef} className="flex min-h-28 items-center justify-center">
               {results.isFetchingNextPage && (
                 <span className="flex items-center gap-2 text-sm text-zinc-500">
