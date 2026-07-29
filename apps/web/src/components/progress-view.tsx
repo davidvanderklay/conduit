@@ -26,7 +26,7 @@ export function ContinueWatching({
   return (
     <section className="mb-12">
       <h2 className="mb-4 font-display text-xl font-semibold">Continue Watching</h2>
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-7">
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-7 xl:grid-cols-9 2xl:grid-cols-11">
         {progress.data.map((item) => (
           <ProgressCard key={item.videoId} item={item} onSelect={onSelect} />
         ))}
@@ -44,7 +44,7 @@ export function HistoryView({
 }) {
   const progress = useProgressList(profileId, "history")
   return (
-    <main className="mx-auto max-w-7xl px-5 py-9">
+    <main className="mx-auto max-w-[2200px] px-4 py-9 sm:px-6 lg:px-8 xl:px-10">
       <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-400">Your activity</p>
       <h1 className="mt-2 font-display text-3xl font-semibold">Watch history</h1>
       <p className="mt-2 text-zinc-500">Resume, update watched state, or remove an entry.</p>

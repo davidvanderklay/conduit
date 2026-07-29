@@ -153,8 +153,8 @@ function AuthenticatedApp({ userName }: { userName: string }) {
 
   return (
     <div className="min-h-screen">
-      <header className="sticky top-0 z-20 border-b border-zinc-900 bg-zinc-950/85 px-5 backdrop-blur-xl">
-        <div className="mx-auto flex h-16 max-w-7xl items-center gap-3">
+      <header className="sticky top-0 z-20 border-b border-zinc-900 bg-zinc-950/85 pl-[22px] pr-4 backdrop-blur-xl sm:pr-6 lg:pr-8 xl:pr-10">
+        <div className="flex h-16 items-center gap-3">
           <div className="flex shrink-0 items-center gap-2 font-display text-lg font-semibold">
             <Film className="text-amber-400" size={21} />
             <span className="hidden sm:inline">Conduit</span>
@@ -408,7 +408,7 @@ function MediaHome({
   })
 
   return (
-    <main className="mx-auto max-w-7xl px-5 py-10">
+    <main className="mx-auto max-w-[2200px] px-4 py-10 sm:px-6 lg:px-8 xl:px-10">
       <section className="mb-12">
         <div>
           <p className="mb-2 text-xs font-semibold uppercase tracking-[0.2em] text-amber-400">
@@ -518,7 +518,7 @@ function CatalogShelf({
           See more
         </button>
       </div>
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-7">
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-7 xl:grid-cols-9 2xl:grid-cols-11">
         {items.slice(0, 14).map((item) => (
           <div className="group relative" key={`${item.type}:${item.id}`}>
             <button className="w-full text-left" onClick={() => onSelect(item)}>

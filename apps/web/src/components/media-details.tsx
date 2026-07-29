@@ -73,14 +73,14 @@ export function MediaDetails({
         role="dialog"
         aria-modal="true"
       >
-        <div className="mx-auto min-h-screen max-w-6xl px-5 py-8">
+        <div className="mx-auto min-h-screen max-w-[1600px] px-4 py-8 sm:px-6 lg:px-8 xl:px-10">
           <div className="mb-6 flex justify-end">
             <Button variant="ghost" onClick={onClose}>
               <X size={17} /> Close
             </Button>
           </div>
 
-          <div className="grid gap-8 md:grid-cols-[220px_1fr]">
+          <div className="grid gap-8 md:grid-cols-[240px_1fr] xl:grid-cols-[280px_1fr] xl:gap-12">
             <Poster item={meta} />
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-400">
@@ -93,7 +93,7 @@ export function MediaDetails({
                 </p>
               )}
               {meta.description && (
-                <p className="mt-5 max-w-3xl leading-7 text-zinc-300">{meta.description}</p>
+                <p className="mt-5 max-w-5xl leading-7 text-zinc-300">{meta.description}</p>
               )}
               <div className="mt-6">
                 <LibraryToggle profileId={profileId} item={meta} />

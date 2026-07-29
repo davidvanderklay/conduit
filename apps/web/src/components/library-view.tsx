@@ -69,7 +69,7 @@ export function LibraryView({
   }, [filter, resolved.data, sort])
 
   return (
-    <main className="mx-auto max-w-7xl px-5 py-9">
+    <main className="mx-auto max-w-[2200px] px-4 py-9 sm:px-6 lg:px-8 xl:px-10">
       <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-400">
         Your collection
       </p>
@@ -122,7 +122,7 @@ export function LibraryView({
         </Card>
       )}
       {items.length > 0 && (
-        <div className="mt-9 grid grid-cols-2 gap-x-4 gap-y-7 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-7">
+        <div className="mt-9 grid grid-cols-2 gap-x-4 gap-y-7 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-7 xl:grid-cols-9 2xl:grid-cols-11">
           {items.map(({ item, catalogItem, metadataAvailable }) => (
             <div className="group relative" key={`${item.type}:${item.id}`}>
               <button className="w-full text-left" onClick={() => onSelect(catalogItem)}>
