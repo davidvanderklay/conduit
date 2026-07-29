@@ -33,7 +33,7 @@ export function App() {
   useEffect(() => applyPreferences(readPreferences()), [])
 
   if (session.isPending) {
-    return <CenteredMessage>Starting Conduit…</CenteredMessage>
+    return <CenteredMessage>Starting conduit…</CenteredMessage>
   }
   if (!session.data?.user) {
     return <AuthScreen />
@@ -81,7 +81,7 @@ function AuthScreen() {
             <Film size={22} />
           </div>
           <div>
-            <h1 className="font-display text-2xl font-semibold">Conduit</h1>
+            <h1 className="font-display text-2xl font-semibold">conduit</h1>
             <p className="text-sm text-zinc-500">Your household media system</p>
           </div>
         </div>
@@ -153,7 +153,7 @@ function AuthenticatedApp({ userId, userName }: { userId: string; userName: stri
   if (bootstrap.isError) {
     return (
       <CenteredMessage>
-        Could not connect to the Conduit server: {bootstrap.error.message}
+        Could not connect to the conduit server: {bootstrap.error.message}
       </CenteredMessage>
     )
   }
@@ -177,7 +177,7 @@ function AuthenticatedApp({ userId, userName }: { userId: string; userName: stri
         <div className="flex h-16 items-center gap-3">
           <div className="flex shrink-0 items-center gap-2 font-display text-lg font-semibold">
             <Film className="text-amber-400" size={21} />
-            <span className="hidden sm:inline">Conduit</span>
+            <span className="hidden sm:inline">conduit</span>
           </div>
           <div className="relative mx-auto w-full max-w-xl">
             <Search

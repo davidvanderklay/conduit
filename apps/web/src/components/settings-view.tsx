@@ -75,7 +75,7 @@ export function SettingsView({ profile }: { profile: Profile }) {
 
           <SettingsCard icon={Database} title="Your data" scope="Portable">
             <p className="text-sm leading-6 text-zinc-400">
-              Move this profile between Conduit servers. Exports include the profile, library,
+              Move this profile between conduit servers. Exports include the profile, library,
               watch history and add-on order.
             </p>
             <label className="mt-4 flex items-start gap-2 text-sm text-zinc-400">
@@ -119,7 +119,7 @@ export function SettingsView({ profile }: { profile: Profile }) {
 
             <div className="my-5 border-t border-zinc-800" />
             <label className="block text-sm text-zinc-400">
-              Import a Conduit JSON file
+              Import a conduit JSON file
               <Input
                 className="mt-2 file:mr-3 file:border-0 file:bg-transparent file:text-zinc-300"
                 type="file"
@@ -223,7 +223,7 @@ export function SettingsView({ profile }: { profile: Profile }) {
 
           <SettingsCard icon={Monitor} title="About" scope="Device">
             <dl className="grid gap-3 text-sm sm:grid-cols-2">
-              <div><dt className="text-zinc-600">Application</dt><dd className="mt-1">Conduit</dd></div>
+              <div><dt className="text-zinc-600">Application</dt><dd className="mt-1">conduit</dd></div>
               <div><dt className="text-zinc-600">Client</dt><dd className="mt-1">{navigator.userAgent.includes("Tauri") ? "Desktop" : "Web"}</dd></div>
             </dl>
           </SettingsCard>
@@ -268,7 +268,7 @@ async function prepareJsonSave(filename: string): Promise<JsonSaver | null> {
     try {
       const handle = await picker.call(window, {
         suggestedName: filename,
-        types: [{ description: "Conduit profile export", accept: { "application/json": [".json"] } }],
+        types: [{ description: "conduit profile export", accept: { "application/json": [".json"] } }],
       })
       return async (data) => {
         const writable = await handle.createWritable()
