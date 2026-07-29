@@ -33,6 +33,7 @@ export const users = pgTable(
 export const instanceSettings = pgTable("instance_setting", {
   id: text("id").primaryKey().default("default"),
   registrationMode: text("registration_mode").notNull().default("closed"),
+  oauthProvider: text("oauth_provider").notNull().default("google"),
   oidcEnabled: boolean("oidc_enabled").notNull().default(false),
   oidcIssuer: text("oidc_issuer"),
   oidcClientId: text("oidc_client_id"),

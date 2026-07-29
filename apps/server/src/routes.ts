@@ -63,7 +63,11 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
       needsOwner: existing.length === 0,
       localRegistration: existing.length === 0 || authSettings.registrationMode === "open",
       oidc: authSettings.oidc
-        ? { enabled: true, displayName: authSettings.oidc.displayName }
+        ? {
+            enabled: true,
+            provider: authSettings.oidc.provider,
+            displayName: authSettings.oidc.displayName,
+          }
         : { enabled: false },
     }
   })
@@ -76,6 +80,7 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
     })
     return {
       registrationMode: row?.registrationMode ?? "closed",
+      oauthProvider: row?.oauthProvider ?? "google",
       oidcEnabled: row?.oidcEnabled ?? false,
       oidcIssuer: row?.oidcIssuer ?? "",
       oidcClientId: row?.oidcClientId ?? "",
@@ -83,7 +88,8 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
       oidcScopes: row?.oidcScopes ?? "openid email",
       oidcAutoRegister: row?.oidcAutoRegister ?? false,
       hasClientSecret: Boolean(row?.oidcClientSecretEncrypted),
-      callbackUrl: `${config.authUrl.replace(/\/$/, "")}/api/auth/oauth2/callback/conduit-oidc`,
+      googleCallbackUrl: `${config.authUrl.replace(/\/$/, "")}/api/auth/callback/google`,
+      oidcCallbackUrl: `${config.authUrl.replace(/\/$/, "")}/api/auth/oauth2/callback/conduit-oidc`,
     }
   })
 
@@ -93,6 +99,7 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
       schema: {
         body: Type.Object({
           registrationMode: Type.Union([Type.Literal("open"), Type.Literal("closed")]),
+          oauthProvider: Type.Union([Type.Literal("google"), Type.Literal("oidc")]),
           oidcEnabled: Type.Boolean(),
           oidcIssuer: Type.String({ maxLength: 1000 }),
           oidcClientId: Type.String({ maxLength: 500 }),
@@ -108,6 +115,7 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
       if (!user) return
       const body = request.body as {
         registrationMode: "open" | "closed"
+        oauthProvider: "google" | "oidc"
         oidcEnabled: boolean
         oidcIssuer: string
         oidcClientId: string
@@ -116,14 +124,16 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
         oidcScopes: string
         oidcAutoRegister: boolean
       }
-      if (body.oidcEnabled) {
+      if (body.oidcEnabled && body.oauthProvider === "oidc") {
         try {
           const issuer = new URL(body.oidcIssuer)
           if (!["http:", "https:"].includes(issuer.protocol)) throw new Error()
         } catch {
           return reply.badRequest("OIDC issuer must be a valid HTTP(S) URL")
         }
-        if (!body.oidcClientId.trim()) return reply.badRequest("OIDC client ID is required")
+      }
+      if (body.oidcEnabled && !body.oidcClientId.trim()) {
+        return reply.badRequest("OAuth client ID is required")
       }
       const current = await db.query.instanceSettings.findFirst({
         where: eq(instanceSettings.id, "default"),
@@ -136,6 +146,7 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
         .values({
           id: "default",
           registrationMode: body.registrationMode,
+          oauthProvider: body.oauthProvider,
           oidcEnabled: body.oidcEnabled,
           oidcIssuer: body.oidcIssuer.trim() || null,
           oidcClientId: body.oidcClientId.trim() || null,
@@ -156,6 +167,7 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
           target: instanceSettings.id,
           set: {
             registrationMode: body.registrationMode,
+            oauthProvider: body.oauthProvider,
             oidcEnabled: body.oidcEnabled,
             oidcIssuer: body.oidcIssuer.trim() || null,
             oidcClientId: body.oidcClientId.trim() || null,

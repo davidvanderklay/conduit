@@ -7,7 +7,7 @@ import type { RuntimeAuthSettings } from "./instance-auth.js"
 import * as schema from "./db/schema.js"
 
 export function createAuth(db: Database, config: Config, settings: RuntimeAuthSettings) {
-  const plugins = settings.oidc
+  const plugins = settings.oidc?.provider === "oidc"
     ? [
         genericOAuth({
           config: [
@@ -24,6 +24,18 @@ export function createAuth(db: Database, config: Config, settings: RuntimeAuthSe
         }),
       ]
     : []
+  const socialProviders =
+    settings.oidc?.provider === "google"
+      ? {
+          google: {
+            clientId: settings.oidc.clientId,
+            clientSecret: settings.oidc.clientSecret,
+            scope: settings.oidc.scopes,
+            disableImplicitSignUp: !settings.oidc.autoRegister,
+            prompt: "select_account" as const,
+          },
+        }
+      : undefined
   return betterAuth({
     baseURL: config.authUrl,
     secret: config.authSecret,
@@ -67,6 +79,7 @@ export function createAuth(db: Database, config: Config, settings: RuntimeAuthSe
         },
       },
     },
+    socialProviders,
     plugins,
   })
 }

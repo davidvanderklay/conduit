@@ -9,6 +9,7 @@ export type RegistrationMode = "open" | "closed"
 export interface RuntimeAuthSettings {
   registrationMode: RegistrationMode
   oidc?: {
+    provider: "google" | "oidc"
     issuer: string
     clientId: string
     clientSecret: string
@@ -44,6 +45,7 @@ export async function loadRuntimeAuthSettings(
   return {
     registrationMode,
     oidc: {
+      provider: row.oauthProvider === "oidc" ? "oidc" : "google",
       issuer: row.oidcIssuer,
       clientId: row.oidcClientId,
       clientSecret: decryptSecret(row.oidcClientSecretEncrypted, config.addonEncryptionKey),
