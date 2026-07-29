@@ -1,12 +1,15 @@
-import { useEffect, useRef, useState } from "react"
-import { Baby, Check, ChevronDown, LogOut, Puzzle, Settings } from "lucide-react"
+import { useEffect, useRef, useState, type FormEvent } from "react"
+import { Baby, Check, ChevronDown, LogOut, Plus, Puzzle, Settings, X } from "lucide-react"
 import type { AppSection } from "./app-sidebar"
 import type { Profile } from "../lib/api"
+import { Button } from "./ui/button"
+import { Input } from "./ui/input"
 
 export function ProfileSwitcher({
   profiles,
   activeProfile,
   onSelect,
+  onCreate,
   userName = "",
   onNavigate = () => undefined,
   onSignOut = () => undefined,
@@ -14,11 +17,13 @@ export function ProfileSwitcher({
   profiles: Profile[]
   activeProfile: Profile
   onSelect: (profileId: string) => void
+  onCreate?: (values: { name: string; isKids: boolean; copyAddons: boolean }) => Promise<void>
   userName?: string
   onNavigate?: (section: AppSection) => void
   onSignOut?: () => void | Promise<void>
 }) {
   const [open, setOpen] = useState(false)
+  const [creating, setCreating] = useState(false)
   const root = useRef<HTMLDivElement>(null)
   const trigger = useRef<HTMLButtonElement>(null)
 
@@ -129,6 +134,24 @@ export function ProfileSwitcher({
               )
             })}
           </div>
+          {onCreate && (
+            <button
+              type="button"
+              className="mt-2 flex w-full items-center gap-3 rounded-xl border border-dashed border-zinc-800 px-2.5 py-2.5 text-left text-zinc-400 transition-colors hover:border-amber-400/40 hover:bg-amber-400/5 hover:text-zinc-100"
+              onClick={() => {
+                setOpen(false)
+                setCreating(true)
+              }}
+            >
+              <span className="grid size-10 shrink-0 place-items-center rounded-full bg-zinc-900">
+                <Plus size={18} />
+              </span>
+              <span>
+                <span className="block text-sm font-semibold">Add profile</span>
+                <span className="mt-0.5 block text-xs text-zinc-600">Create another space</span>
+              </span>
+            </button>
+          )}
           <div className="mt-2 border-t border-zinc-800 pt-2">
             <p className="truncate px-3 py-1 text-xs text-zinc-600">{userName}</p>
             <MenuAction icon={Settings} label="Settings" onClick={() => { onNavigate("settings"); setOpen(false) }} />
@@ -137,7 +160,173 @@ export function ProfileSwitcher({
           </div>
         </div>
       )}
+      {creating && onCreate && (
+        <CreateProfileDialog
+          sourceProfile={activeProfile}
+          onClose={() => {
+            setCreating(false)
+            trigger.current?.focus()
+          }}
+          onCreate={onCreate}
+        />
+      )}
     </div>
+  )
+}
+
+function CreateProfileDialog({
+  sourceProfile,
+  onClose,
+  onCreate,
+}: {
+  sourceProfile: Profile
+  onClose: () => void
+  onCreate: (values: { name: string; isKids: boolean; copyAddons: boolean }) => Promise<void>
+}) {
+  const [name, setName] = useState("")
+  const [isKids, setIsKids] = useState(false)
+  const [copyAddons, setCopyAddons] = useState(true)
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState("")
+
+  useEffect(() => {
+    const dismiss = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !pending) onClose()
+    }
+    window.addEventListener("keydown", dismiss)
+    return () => window.removeEventListener("keydown", dismiss)
+  }, [onClose, pending])
+
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setPending(true)
+    setError("")
+    try {
+      await onCreate({ name: name.trim(), isKids, copyAddons })
+      onClose()
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not create profile")
+    } finally {
+      setPending(false)
+    }
+  }
+
+  const previewProfile: Profile = {
+    id: name.trim() || "new-profile",
+    name: name.trim() || "New profile",
+    isKids,
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-[100] grid place-items-center bg-black/75 p-4 backdrop-blur-sm"
+      onPointerDown={(event) => {
+        if (event.target === event.currentTarget && !pending) onClose()
+      }}
+    >
+      <div
+        className="w-full max-w-lg rounded-2xl border border-zinc-800 bg-zinc-950 p-5 text-white shadow-[0_30px_100px_rgba(0,0,0,0.8)] sm:p-6"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="create-profile-title"
+      >
+        <div className="flex items-start gap-4">
+          <ProfileAvatar profile={previewProfile} className="size-14 text-lg" />
+          <div className="min-w-0 flex-1">
+            <h2 id="create-profile-title" className="font-display text-xl font-semibold">
+              Add a profile
+            </h2>
+            <p className="mt-1 text-sm text-zinc-500">
+              Give someone their own library, watch history, and preferences.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="grid size-9 shrink-0 place-items-center rounded-lg text-zinc-500 hover:bg-zinc-900 hover:text-white"
+            aria-label="Close"
+            disabled={pending}
+            onClick={onClose}
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        <form className="mt-6 space-y-5" onSubmit={submit}>
+          <label className="block text-sm font-medium text-zinc-300">
+            Profile name
+            <Input
+              className="mt-2"
+              autoFocus
+              maxLength={80}
+              placeholder="Who’s watching?"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              required
+            />
+          </label>
+
+          <div className="space-y-2">
+            <ProfileOption
+              title="Kids profile"
+              description="Marks this as a child-friendly space."
+              checked={isKids}
+              onChange={setIsKids}
+            />
+            <ProfileOption
+              title={`Copy add-ons from ${sourceProfile.name}`}
+              description="Start with the same installed sources. They can be changed independently later."
+              checked={copyAddons}
+              onChange={setCopyAddons}
+            />
+          </div>
+
+          {error && <p className="text-sm text-red-400">{error}</p>}
+          <div className="flex justify-end gap-3 border-t border-zinc-800 pt-5">
+            <Button type="button" variant="ghost" disabled={pending} onClick={onClose}>
+              Cancel
+            </Button>
+            <Button disabled={pending || name.trim().length === 0}>
+              <Plus size={16} />
+              {pending ? "Creating…" : "Create profile"}
+            </Button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+function ProfileOption({
+  title,
+  description,
+  checked,
+  onChange,
+}: {
+  title: string
+  description: string
+  checked: boolean
+  onChange: (checked: boolean) => void
+}) {
+  return (
+    <label className="flex cursor-pointer items-center gap-4 rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-medium text-zinc-200">{title}</span>
+        <span className="mt-1 block text-xs leading-5 text-zinc-500">{description}</span>
+      </span>
+      <input
+        className="peer sr-only"
+        type="checkbox"
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+      />
+      <span className="relative h-6 w-11 shrink-0 rounded-full bg-zinc-700 transition-colors peer-checked:bg-amber-400 peer-focus-visible:ring-2 peer-focus-visible:ring-amber-300">
+        <span
+          className={`absolute top-1 size-4 rounded-full bg-white shadow transition-transform ${
+            checked ? "translate-x-6" : "translate-x-1"
+          }`}
+        />
+      </span>
+    </label>
   )
 }
 
