@@ -5,17 +5,21 @@ import { api, type Bootstrap, type InstalledAddon, type Profile } from "./lib/ap
 import { authClient } from "./lib/auth"
 import { loadCatalog, type CatalogItem } from "./lib/core"
 import { readLastProfileId, rememberLastProfileId } from "./lib/profile-preference"
+import { posterCoverClass, posterGridClass } from "./lib/poster-layout"
 import { ProfileSwitcher } from "./components/profile-switcher"
 import { Button } from "./components/ui/button"
 import { Card } from "./components/ui/card"
 import { Input } from "./components/ui/input"
-import { MediaDetails } from "./components/media-details"
+import {
+  MediaDetails,
+  type MetadataBrowseTarget,
+} from "./components/media-details"
 import { SearchView } from "./components/search-view"
 import { AppSidebar, type AppSection } from "./components/app-sidebar"
 import { AddonsView, ViewShell } from "./components/addons-view"
 import { SettingsView } from "./components/settings-view"
 import { LibraryView } from "./components/library-view"
-import { LibraryToggle } from "./components/library-toggle"
+import { PosterWatchStatus } from "./components/poster-watch-status"
 import { ContinueWatching, HistoryView } from "./components/progress-view"
 import { applyPreferences, readPreferences } from "./lib/preferences"
 import {
@@ -219,6 +223,17 @@ function AuthenticatedApp({ userId, userName }: { userId: string; userName: stri
           query={query}
           discoverSelection={discoverSelection}
           onDiscoverSelection={setDiscoverSelection}
+          onMetadataBrowse={(target) => {
+            if (target.kind === "genre") {
+              setSearchInput("")
+              setQuery("")
+              setDiscoverSelection({ type: target.mediaType, genre: target.value })
+              setSection("discover")
+              return
+            }
+            setSearchInput(target.value)
+            setQuery(target.value)
+          }}
         />
       </div>
     </div>
@@ -279,6 +294,7 @@ function ProfileApp({
   query,
   discoverSelection,
   onDiscoverSelection,
+  onMetadataBrowse,
 }: {
   profile: Profile
   section: AppSection
@@ -287,6 +303,7 @@ function ProfileApp({
   query: string
   discoverSelection: DiscoverSelection
   onDiscoverSelection: (selection: DiscoverSelection) => void
+  onMetadataBrowse: (target: MetadataBrowseTarget) => void
 }) {
   const [selectedItem, setSelectedItem] = useState<CatalogItem>()
   const [selectedVideoId, setSelectedVideoId] = useState<string>()
@@ -310,6 +327,7 @@ function ProfileApp({
             onDiscoverSelection(selection)
             onNavigate("discover")
           }}
+          onMetadataBrowse={onMetadataBrowse}
         />
       )}
       {!searchInput && section === "discover" && (
@@ -375,6 +393,7 @@ function ProfileApp({
           addons={addons.data.addons}
           profileId={profile.id}
           initialVideoId={selectedVideoId}
+          onBrowse={onMetadataBrowse}
           onClose={() => setSelectedItem(undefined)}
         />
       )}
@@ -387,11 +406,13 @@ function MediaHome({
   addons,
   onHistory,
   onDiscover,
+  onMetadataBrowse,
 }: {
   profile: Profile
   addons: InstalledAddon[]
   onHistory: () => void
   onDiscover: (selection: DiscoverSelection) => void
+  onMetadataBrowse: (target: MetadataBrowseTarget) => void
 }) {
   const [selectedItem, setSelectedItem] = useState<CatalogItem>()
   const [selectedVideoId, setSelectedVideoId] = useState<string>()
@@ -466,6 +487,7 @@ function MediaHome({
         <CatalogShelf
           key={catalog.key}
           profileId={profile.id}
+          addons={addons}
           title={catalog.title}
           items={catalog.items}
           onSelect={(item) => {
@@ -488,6 +510,7 @@ function MediaHome({
           addons={addons}
           profileId={profile.id}
           initialVideoId={selectedVideoId}
+          onBrowse={onMetadataBrowse}
           onClose={() => setSelectedItem(undefined)}
         />
       )}
@@ -520,12 +543,14 @@ function CatalogShelf({
   title,
   items,
   profileId,
+  addons,
   onSelect,
   onSeeMore,
 }: {
   title: string
   items: CatalogItem[]
   profileId: string
+  addons: InstalledAddon[]
   onSelect: (item: CatalogItem) => void
   onSeeMore: () => void
 }) {
@@ -541,11 +566,11 @@ function CatalogShelf({
           See more
         </button>
       </div>
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8">
+      <div className={posterGridClass}>
         {items.slice(0, 14).map((item) => (
           <div className="group relative" key={`${item.type}:${item.id}`}>
             <button className="w-full text-left" onClick={() => onSelect(item)}>
-              <div className="aspect-[2/3] overflow-hidden rounded-xl bg-zinc-900 ring-1 ring-zinc-800 transition group-hover:-translate-y-1 group-hover:ring-amber-400/60">
+              <div className={posterCoverClass}>
                 {item.poster ? (
                   <img
                     className="h-full w-full object-cover"
@@ -561,8 +586,8 @@ function CatalogShelf({
               </div>
               <p className="mt-2 line-clamp-2 text-sm font-medium">{item.name}</p>
             </button>
-            <div className="absolute right-2 top-2 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
-              <LibraryToggle profileId={profileId} item={item} compact />
+            <div className="pointer-events-none absolute right-2 top-2">
+              <PosterWatchStatus profileId={profileId} item={item} addons={addons} />
             </div>
           </div>
         ))}

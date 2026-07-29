@@ -1,15 +1,16 @@
 import { useMemo, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { AlertCircle, ChevronDown, Film, LoaderCircle } from "lucide-react"
-import type { InstalledAddon, LibraryItem } from "../lib/api"
+import { api, type InstalledAddon, type LibraryItem, type WatchProgress } from "../lib/api"
 import { addonsForResource } from "../lib/addons"
 import { loadMeta, type CatalogItem } from "../lib/core"
+import { posterCoverClass, posterGridClass } from "../lib/poster-layout"
 import { useLibrary } from "../lib/library"
-import { LibraryToggle } from "./library-toggle"
+import { PosterWatchStatus } from "./poster-watch-status"
 import { Card } from "./ui/card"
 
 type Filter = "all" | "movie" | "series"
-type Sort = "added-desc" | "added-asc" | "title-asc" | "title-desc"
+type Sort = "last-watched" | "added-desc" | "added-asc" | "title-asc" | "title-desc"
 
 interface DisplayItem {
   item: LibraryItem
@@ -27,8 +28,15 @@ export function LibraryView({
   onSelect: (item: CatalogItem) => void
 }) {
   const [filter, setFilter] = useState<Filter>("all")
-  const [sort, setSort] = useState<Sort>("added-desc")
+  const [sort, setSort] = useState<Sort>("last-watched")
   const library = useLibrary(profileId)
+  const progress = useQuery({
+    queryKey: ["progress", profileId, "status"],
+    queryFn: () =>
+      api<{ items: WatchProgress[] }>(
+        `/v1/profiles/${profileId}/progress?view=status&limit=1000`,
+      ).then((result) => result.items),
+  })
   const resolved = useQuery({
     queryKey: [
       "library-metadata",
@@ -56,17 +64,40 @@ export function LibraryView({
         }),
       ),
   })
+  const latestProgress = useMemo(() => {
+    const latest = new Map<string, WatchProgress>()
+    for (const entry of progress.data ?? []) {
+      if (entry.videoId.startsWith("conduit:completion:")) continue
+      const key = `${entry.mediaType}:${entry.mediaId}`
+      const current = latest.get(key)
+      if (!current || Date.parse(entry.updatedAt) > Date.parse(current.updatedAt)) {
+        latest.set(key, entry)
+      }
+    }
+    return latest
+  }, [progress.data])
   const items = useMemo(() => {
     const filtered = (resolved.data ?? []).filter(
       ({ item }) => filter === "all" || item.type === filter,
     )
     return [...filtered].sort((a, b) => {
+      if (sort === "last-watched") {
+        const aProgress = latestProgress.get(`${a.item.type}:${a.item.id}`)
+        const bProgress = latestProgress.get(`${b.item.type}:${b.item.id}`)
+        const progressDelta =
+          (bProgress ? Date.parse(bProgress.updatedAt) : Number.NEGATIVE_INFINITY) -
+          (aProgress ? Date.parse(aProgress.updatedAt) : Number.NEGATIVE_INFINITY)
+        if (Number.isFinite(progressDelta) && progressDelta !== 0) return progressDelta
+        if (aProgress && !bProgress) return -1
+        if (!aProgress && bProgress) return 1
+        return Date.parse(b.item.createdAt) - Date.parse(a.item.createdAt)
+      }
       if (sort === "title-asc") return a.catalogItem.name.localeCompare(b.catalogItem.name)
       if (sort === "title-desc") return b.catalogItem.name.localeCompare(a.catalogItem.name)
       const delta = Date.parse(a.item.createdAt) - Date.parse(b.item.createdAt)
       return sort === "added-asc" ? delta : -delta
     })
-  }, [filter, resolved.data, sort])
+  }, [filter, latestProgress, resolved.data, sort])
 
   return (
     <main className="mx-auto max-w-[2200px] px-4 py-9 sm:px-6 lg:px-8 xl:px-10">
@@ -91,6 +122,7 @@ export function LibraryView({
           label="Sort library"
           value={sort}
           options={[
+            ["last-watched", "Last watched"],
             ["added-desc", "Recently added"],
             ["added-asc", "Oldest added"],
             ["title-asc", "Title A–Z"],
@@ -100,12 +132,12 @@ export function LibraryView({
         />
       </div>
 
-      {(library.isLoading || resolved.isLoading) && (
+      {(library.isLoading || resolved.isLoading || progress.isLoading) && (
         <div className="flex items-center justify-center gap-3 py-24 text-zinc-500">
           <LoaderCircle className="animate-spin text-amber-400" /> Loading your library…
         </div>
       )}
-      {(library.isError || resolved.isError) && (
+      {(library.isError || resolved.isError || progress.isError) && (
         <Card className="mt-8 border-red-900/70 bg-red-950/30 p-5 text-red-200">
           <AlertCircle className="mr-2 inline" size={18} />
           {library.error?.message ?? resolved.error?.message}
@@ -122,27 +154,42 @@ export function LibraryView({
         </Card>
       )}
       {items.length > 0 && (
-        <div className="mt-9 grid grid-cols-2 gap-x-4 gap-y-7 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8">
-          {items.map(({ item, catalogItem, metadataAvailable }) => (
-            <div className="group relative" key={`${item.type}:${item.id}`}>
-              <button className="w-full text-left" onClick={() => onSelect(catalogItem)}>
-                <div className="aspect-[2/3] overflow-hidden rounded-xl bg-zinc-900 ring-1 ring-zinc-800 transition group-hover:-translate-y-1 group-hover:ring-amber-400/60">
+        <div className={`mt-9 ${posterGridClass}`}>
+          {items.map(({ item, catalogItem, metadataAvailable }) => {
+            const latest = latestProgress.get(`${item.type}:${item.id}`)
+            const percent =
+              latest && latest.durationMs > 0
+                ? Math.min(100, (latest.positionMs / latest.durationMs) * 100)
+                : 0
+            return (
+              <div className="group relative" key={`${item.type}:${item.id}`}>
+                <button className="w-full text-left" onClick={() => onSelect(catalogItem)}>
+                  <div className={`relative ${posterCoverClass}`}>
                   {catalogItem.poster ? (
                     <img className="h-full w-full object-cover" src={catalogItem.poster} alt="" />
                   ) : (
                     <div className="grid h-full place-items-center text-zinc-700"><Film /></div>
                   )}
+                    {percent > 0 && (
+                      <span className="absolute inset-x-0 bottom-0 h-1 bg-zinc-700/90">
+                        <span
+                          className="block h-full bg-amber-400"
+                          style={{ width: `${percent}%` }}
+                        />
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-2 line-clamp-2 text-sm font-medium">{catalogItem.name}</p>
+                  {!metadataAvailable && (
+                    <p className="mt-1 text-xs text-amber-400">Using saved details · source unavailable</p>
+                  )}
+                </button>
+                <div className="pointer-events-none absolute right-2 top-2">
+                  <PosterWatchStatus profileId={profileId} item={catalogItem} addons={addons} />
                 </div>
-                <p className="mt-2 line-clamp-2 text-sm font-medium">{catalogItem.name}</p>
-                {!metadataAvailable && (
-                  <p className="mt-1 text-xs text-amber-400">Using saved details · source unavailable</p>
-                )}
-              </button>
-              <div className="absolute right-2 top-2 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
-                <LibraryToggle profileId={profileId} item={catalogItem} compact />
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
     </main>
