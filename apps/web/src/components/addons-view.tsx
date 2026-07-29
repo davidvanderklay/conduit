@@ -160,7 +160,7 @@ export function ViewShell({
   children: React.ReactNode
 }) {
   return (
-    <main className="mx-auto max-w-5xl px-5 py-9">
+    <main className="mx-auto max-w-[2200px] px-4 py-9 sm:px-6 lg:px-8 xl:px-10">
       <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-400">{eyebrow}</p>
       <h1 className="mt-2 font-display text-3xl font-semibold">{title}</h1>
       <p className="mt-2 max-w-2xl text-sm text-zinc-500">{description}</p>

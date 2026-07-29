@@ -133,13 +133,13 @@ export function DiscoverView({
   }, [results.fetchNextPage, results.hasNextPage, results.isFetchingNextPage])
 
   return (
-    <main className="mx-auto max-w-7xl px-5 py-9">
+    <main className="mx-auto max-w-[2200px] px-4 py-9 sm:px-6 lg:px-8 xl:px-10">
       <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-400">
         Browse your sources
       </p>
       <h1 className="mt-2 font-display text-3xl font-semibold">Discover</h1>
 
-      <div className="mt-7 grid gap-3 sm:grid-cols-3">
+      <div className="mt-7 grid max-w-5xl gap-3 sm:grid-cols-3">
         <FilterSelect
           label="Media type"
           value={type}
@@ -202,7 +202,7 @@ export function DiscoverView({
         )}
         {items.length > 0 && (
           <>
-            <div className="grid grid-cols-2 gap-x-4 gap-y-7 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-7">
+            <div className="grid grid-cols-2 gap-x-4 gap-y-7 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-7 xl:grid-cols-9 2xl:grid-cols-11">
             {items.map((item) => (
               <div className="group relative" key={`${item.type}:${item.id}`}>
                 <button className="w-full text-left" onClick={() => onSelect(item)}>
