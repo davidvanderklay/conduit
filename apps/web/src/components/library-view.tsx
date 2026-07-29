@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { AlertCircle, Film, LoaderCircle } from "lucide-react"
+import { AlertCircle, ChevronDown, Film, LoaderCircle } from "lucide-react"
 import type { InstalledAddon, LibraryItem } from "../lib/api"
 import { addonsForResource } from "../lib/addons"
 import { loadMeta, type CatalogItem } from "../lib/core"
@@ -77,27 +77,27 @@ export function LibraryView({
       <p className="mt-2 text-zinc-500">Movies and series saved to this profile.</p>
 
       <div className="mt-7 flex flex-wrap gap-3">
-        <select
-          aria-label="Media type"
-          className="h-11 rounded-xl border border-zinc-800 bg-zinc-900 px-4 text-sm"
+        <LibrarySelect
+          label="Media type"
           value={filter}
-          onChange={(event) => setFilter(event.target.value as Filter)}
-        >
-          <option value="all">Movies & series</option>
-          <option value="movie">Movies</option>
-          <option value="series">Series</option>
-        </select>
-        <select
-          aria-label="Sort library"
-          className="h-11 rounded-xl border border-zinc-800 bg-zinc-900 px-4 text-sm"
+          options={[
+            ["all", "Movies & series"],
+            ["movie", "Movies"],
+            ["series", "Series"],
+          ]}
+          onChange={(value) => setFilter(value as Filter)}
+        />
+        <LibrarySelect
+          label="Sort library"
           value={sort}
-          onChange={(event) => setSort(event.target.value as Sort)}
-        >
-          <option value="added-desc">Recently added</option>
-          <option value="added-asc">Oldest added</option>
-          <option value="title-asc">Title A–Z</option>
-          <option value="title-desc">Title Z–A</option>
-        </select>
+          options={[
+            ["added-desc", "Recently added"],
+            ["added-asc", "Oldest added"],
+            ["title-asc", "Title A–Z"],
+            ["title-desc", "Title Z–A"],
+          ]}
+          onChange={(value) => setSort(value as Sort)}
+        />
       </div>
 
       {(library.isLoading || resolved.isLoading) && (
@@ -146,5 +146,39 @@ export function LibraryView({
         </div>
       )}
     </main>
+  )
+}
+
+function LibrarySelect({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string
+  value: string
+  options: Array<[string, string]>
+  onChange: (value: string) => void
+}) {
+  return (
+    <label className="relative min-w-44">
+      <span className="sr-only">{label}</span>
+      <select
+        aria-label={label}
+        className="library-select h-11 w-full appearance-none rounded-xl border border-zinc-700 bg-zinc-900 px-4 pr-10 text-sm font-medium text-zinc-100 shadow-sm outline-none transition hover:border-zinc-600 hover:bg-zinc-800 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      >
+        {options.map(([option, name]) => (
+          <option className="bg-zinc-900 text-zinc-100" value={option} key={option}>
+            {name}
+          </option>
+        ))}
+      </select>
+      <ChevronDown
+        className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400"
+        size={16}
+      />
+    </label>
   )
 }
