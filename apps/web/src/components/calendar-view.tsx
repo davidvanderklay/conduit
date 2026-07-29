@@ -103,17 +103,17 @@ export function CalendarView({
 
   return (
     <main className="mx-auto max-w-[2200px] px-4 py-7 sm:px-6 lg:px-8 xl:flex xl:h-[calc(100vh-4rem-1px)] xl:flex-col xl:overflow-hidden xl:px-10">
-      <div className="mb-4 grid shrink-0 gap-5 xl:grid-cols-[minmax(0,1fr)_20rem]">
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-400">
-              Your schedule
-            </p>
-            <h1 className="mt-2 font-display text-3xl font-semibold">Release calendar</h1>
-            <p className="mt-2 text-sm text-zinc-500">
-              New episodes and releases from your library.
-            </p>
-          </div>
+      <div className="mb-4 grid shrink-0 items-end gap-5 xl:grid-cols-[auto_minmax(0,1fr)_20rem]">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-400">
+            Your schedule
+          </p>
+          <h1 className="mt-2 font-display text-3xl font-semibold">Release calendar</h1>
+          <p className="mt-2 text-sm text-zinc-500">
+            New episodes and releases from your library.
+          </p>
+        </div>
+        <div className="flex xl:justify-center">
           <MonthControl
             monthLabel={monthLabel}
             isCurrentMonth={isCurrentMonth}
