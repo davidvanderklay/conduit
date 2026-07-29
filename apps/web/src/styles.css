@@ -34,6 +34,17 @@ body {
     radial-gradient(circle at 75% -10%, rgba(251, 191, 36, 0.09), transparent 32rem), #09090b;
 }
 
+.linux-desktop .app-chrome {
+  background-color: #09090b;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.linux-desktop .poster-scroll-item {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 320px;
+}
+
 .native-playback,
 .native-playback body {
   background: transparent;

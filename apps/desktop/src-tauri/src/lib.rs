@@ -129,23 +129,32 @@ pub fn run() {
 #[cfg(target_os = "linux")]
 fn configure_linux_webkit() {
     let wayland_session = std::env::var_os("WAYLAND_DISPLAY").is_some();
-    let native_wayland = std::env::var_os("CONDUIT_NATIVE_WAYLAND").is_some();
-    if wayland_session && !native_wayland && std::env::var_os("DISPLAY").is_some() {
+    let native_wayland_requested = std::env::var_os("CONDUIT_NATIVE_WAYLAND").is_some();
+    let xwayland_available = std::env::var_os("DISPLAY").is_some();
+    let native_wayland = wayland_session && (native_wayland_requested || !xwayland_available);
+    let nvidia_driver = std::path::Path::new("/proc/driver/nvidia/version").exists();
+
+    if wayland_session && !native_wayland_requested && xwayland_available {
         // WebKitGTK's input and presentation surfaces become stale when they
         // are layered above GtkGLArea on native Wayland. XWayland keeps the
         // same desktop session while providing stable OpenGL composition.
         std::env::set_var("GDK_BACKEND", "x11");
         eprintln!("Conduit: using XWayland for stable embedded video composition");
     }
-    if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
+
+    if (native_wayland || nvidia_driver)
+        && std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none()
+    {
         // WebKitGTK's DMA-BUF renderer can negotiate explicit synchronization
         // and then submit a non-DMA-BUF buffer, which is a fatal Wayland
         // protocol error on affected Mesa/NVIDIA compositor combinations.
+        // NVIDIA can also fail GBM allocation on the XWayland path.
         std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+        eprintln!("Conduit: disabled unsupported WebKit DMA-BUF renderer");
     }
     if wayland_session
         && native_wayland
-        && std::path::Path::new("/proc/driver/nvidia/version").exists()
+        && nvidia_driver
         && std::env::var_os("__NV_DISABLE_EXPLICIT_SYNC").is_none()
     {
         std::env::set_var("__NV_DISABLE_EXPLICIT_SYNC", "1");
