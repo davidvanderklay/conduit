@@ -286,6 +286,7 @@ function ProfileApp({
         <MediaHome
           profile={profile}
           addons={addons.data?.addons ?? []}
+          onHistory={() => onNavigate("history")}
           onDiscover={(selection) => {
             onDiscoverSelection(selection)
             onNavigate("discover")
@@ -365,10 +366,12 @@ function ProfileApp({
 function MediaHome({
   profile,
   addons,
+  onHistory,
   onDiscover,
 }: {
   profile: Profile
   addons: InstalledAddon[]
+  onHistory: () => void
   onDiscover: (selection: DiscoverSelection) => void
 }) {
   const [selectedItem, setSelectedItem] = useState<CatalogItem>()
@@ -425,6 +428,7 @@ function MediaHome({
 
       <ContinueWatching
         profileId={profile.id}
+        onSeeMore={onHistory}
         onSelect={(item, videoId) => {
           setSelectedItem(item)
           setSelectedVideoId(videoId)

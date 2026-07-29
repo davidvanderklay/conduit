@@ -17,15 +17,25 @@ export function useProgressList(profileId: string, view: "continue" | "history",
 export function ContinueWatching({
   profileId,
   onSelect,
+  onSeeMore,
 }: {
   profileId: string
   onSelect: (item: CatalogItem, videoId: string) => void
+  onSeeMore: () => void
 }) {
   const progress = useProgressList(profileId, "continue", 14)
   if (!progress.data?.length) return null
   return (
     <section className="mb-12">
-      <h2 className="mb-4 font-display text-xl font-semibold">Continue Watching</h2>
+      <div className="mb-4 flex items-center justify-between gap-4">
+        <h2 className="font-display text-xl font-semibold">Continue Watching</h2>
+        <button
+          className="text-xs font-semibold text-zinc-500 transition hover:text-amber-300"
+          onClick={onSeeMore}
+        >
+          See more
+        </button>
+      </div>
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8">
         {progress.data.map((item) => (
           <ProgressCard key={item.videoId} item={item} onSelect={onSelect} />
