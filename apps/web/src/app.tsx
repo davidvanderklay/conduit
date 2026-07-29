@@ -1,33 +1,27 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react"
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Film, Library, Search, Server, X } from "lucide-react"
 import { api, type Bootstrap, type InstalledAddon, type Profile } from "./lib/api"
 import { authClient } from "./lib/auth"
 import { loadCatalog, type CatalogItem } from "./lib/core"
 import { readLastProfileId, rememberLastProfileId } from "./lib/profile-preference"
-import { posterCoverClass } from "./lib/poster-layout"
+import { posterCoverClass, posterGridClass } from "./lib/poster-layout"
 import { ProfileSwitcher } from "./components/profile-switcher"
 import { Button } from "./components/ui/button"
 import { Card } from "./components/ui/card"
 import { Input } from "./components/ui/input"
-import {
-  MediaDetails,
-  type MetadataBrowseTarget,
-} from "./components/media-details"
+import { MediaDetails, type MetadataBrowseTarget } from "./components/media-details"
 import { SearchView } from "./components/search-view"
 import { AppSidebar, type AppSection } from "./components/app-sidebar"
 import { AddonsView, ViewShell } from "./components/addons-view"
 import { SettingsView } from "./components/settings-view"
 import { LibraryView } from "./components/library-view"
 import { CalendarView } from "./components/calendar-view"
-import { PosterWatchStatus } from "./components/poster-watch-status"
+import { PosterWatchStatus, PosterWatchStatusProvider } from "./components/poster-watch-status"
 import { ContinueWatching, HistoryView } from "./components/progress-view"
 import { applyPreferences, readPreferences } from "./lib/preferences"
-import {
-  DiscoverView,
-  type DiscoverSelection,
-} from "./components/discover-view"
-import { VirtualPosterGrid } from "./components/virtual-poster-grid"
+import { DiscoverView, type DiscoverSelection } from "./components/discover-view"
+import { VirtualVerticalList } from "./components/virtual-vertical-list"
 
 export function App() {
   const session = authClient.useSession()
@@ -39,12 +33,7 @@ export function App() {
   if (!session.data?.user) {
     return <AuthScreen />
   }
-  return (
-    <AuthenticatedApp
-      userId={session.data.user.id}
-      userName={session.data.user.name}
-    />
-  )
+  return <AuthenticatedApp userId={session.data.user.id} userName={session.data.user.name} />
 }
 
 function AuthScreen() {
@@ -119,6 +108,7 @@ function AuthenticatedApp({ userId, userName }: { userId: string; userName: stri
   const [searchInput, setSearchInput] = useState("")
   const [query, setQuery] = useState("")
   const [discoverSelection, setDiscoverSelection] = useState<DiscoverSelection>({})
+  const scrollViewportRef = useRef<HTMLDivElement>(null)
 
   const profiles = useMemo(
     () => bootstrap.data?.households.flatMap((household) => household.profiles) ?? [],
@@ -147,6 +137,27 @@ function AuthenticatedApp({ userId, userName }: { userId: string; userName: stri
       rememberLastProfileId(activeProfileId)
     }
   }, [activeProfileId, profiles])
+
+  useEffect(() => {
+    const viewport = scrollViewportRef.current
+    if (!viewport) return
+    let idleTimeout = 0
+    const onScroll = () => {
+      if (!document.documentElement.classList.contains("desktop-scrolling")) {
+        document.documentElement.classList.add("desktop-scrolling")
+      }
+      window.clearTimeout(idleTimeout)
+      idleTimeout = window.setTimeout(() => {
+        document.documentElement.classList.remove("desktop-scrolling")
+      }, 140)
+    }
+    viewport.addEventListener("scroll", onScroll, { passive: true })
+    return () => {
+      viewport.removeEventListener("scroll", onScroll)
+      window.clearTimeout(idleTimeout)
+      document.documentElement.classList.remove("desktop-scrolling")
+    }
+  }, [bootstrap.data])
 
   if (bootstrap.isLoading) {
     return <CenteredMessage>Synchronizing your household…</CenteredMessage>
@@ -216,9 +227,7 @@ function AuthenticatedApp({ userId, userName }: { userId: string; userName: stri
                     body: JSON.stringify({
                       name: values.name,
                       isKids: values.isKids,
-                      ...(values.copyAddons
-                        ? { copyAddonsFromProfileId: activeProfile.id }
-                        : {}),
+                      ...(values.copyAddons ? { copyAddonsFromProfileId: activeProfile.id } : {}),
                     }),
                   },
                 )
@@ -237,6 +246,7 @@ function AuthenticatedApp({ userId, userName }: { userId: string; userName: stri
       </header>
       <AppSidebar active={section} onNavigate={navigate} />
       <div
+        ref={scrollViewportRef}
         id="app-scroll-viewport"
         className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-16 md:ml-16 md:pb-0"
       >
@@ -342,7 +352,7 @@ function ProfileApp({
   }, [profile.id])
 
   return (
-    <>
+    <PosterWatchStatusProvider profileId={profile.id}>
       {!searchInput && section === "home" && (
         <MediaHome
           profile={profile}
@@ -357,7 +367,6 @@ function ProfileApp({
       )}
       {!searchInput && section === "discover" && (
         <DiscoverView
-          profileId={profile.id}
           addons={addons.data?.addons ?? []}
           selection={discoverSelection}
           onChange={onDiscoverSelection}
@@ -425,9 +434,23 @@ function ProfileApp({
           onClose={() => setSelectedItem(undefined)}
         />
       )}
-    </>
+    </PosterWatchStatusProvider>
   )
 }
+
+interface HomeCatalog {
+  key: string
+  addonId: string
+  type: string
+  catalogId: string
+  title: string
+  items: CatalogItem[]
+}
+
+type HomeFeedItem =
+  | { key: "continue"; kind: "continue" }
+  | { key: "error"; kind: "error"; errors: string[] }
+  | { key: string; kind: "catalog"; catalog: HomeCatalog }
 
 function MediaHome({
   profile,
@@ -477,6 +500,19 @@ function MediaHome({
       }
     },
   })
+  const feedItems: HomeFeedItem[] = [
+    { key: "continue", kind: "continue" },
+    ...(catalogs.data?.errors.length
+      ? [{ key: "error" as const, kind: "error" as const, errors: catalogs.data.errors }]
+      : []),
+    ...(catalogs.data?.catalogs
+      .filter((catalog) => catalog.items.length > 0)
+      .map((catalog) => ({
+        key: catalog.key,
+        kind: "catalog" as const,
+        catalog,
+      })) ?? []),
+  ]
 
   return (
     <main className="mx-auto max-w-[2200px] px-4 py-10 sm:px-6 lg:px-8 xl:px-10">
@@ -494,43 +530,52 @@ function MediaHome({
         </div>
       </section>
 
-      <ContinueWatching
-        profileId={profile.id}
-        onSeeMore={onHistory}
-        onSelect={(item, videoId) => {
-          setSelectedItem(item)
-          setSelectedVideoId(videoId)
+      <VirtualVerticalList
+        items={feedItems}
+        itemKey={(item) => item.key}
+        renderItem={(feedItem) => {
+          if (feedItem.kind === "continue") {
+            return (
+              <ContinueWatching
+                profileId={profile.id}
+                onSeeMore={onHistory}
+                onSelect={(item, videoId) => {
+                  setSelectedItem(item)
+                  setSelectedVideoId(videoId)
+                }}
+              />
+            )
+          }
+          if (feedItem.kind === "error") {
+            return (
+              <Card className="border-red-900/70 bg-red-950/30 p-4 text-sm text-red-200">
+                {feedItem.errors.length} catalog request
+                {feedItem.errors.length === 1 ? "" : "s"} failed. The first error was:{" "}
+                {feedItem.errors[0]}
+              </Card>
+            )
+          }
+          const catalog = feedItem.catalog
+          return (
+            <CatalogShelf
+              addons={addons}
+              title={catalog.title}
+              items={catalog.items}
+              onSelect={(item) => {
+                setSelectedVideoId(undefined)
+                setSelectedItem(item)
+              }}
+              onSeeMore={() =>
+                onDiscover({
+                  addonId: catalog.addonId,
+                  type: catalog.type,
+                  catalogId: catalog.catalogId,
+                })
+              }
+            />
+          )
         }}
       />
-
-      {catalogs.data?.errors.length ? (
-        <Card className="mb-8 border-red-900/70 bg-red-950/30 p-4 text-sm text-red-200">
-          {catalogs.data.errors.length} catalog request
-          {catalogs.data.errors.length === 1 ? "" : "s"} failed. The first error was:{" "}
-          {catalogs.data.errors[0]}
-        </Card>
-      ) : null}
-
-      {catalogs.data?.catalogs.map((catalog) => (
-        <CatalogShelf
-          key={catalog.key}
-          profileId={profile.id}
-          addons={addons}
-          title={catalog.title}
-          items={catalog.items}
-          onSelect={(item) => {
-            setSelectedVideoId(undefined)
-            setSelectedItem(item)
-          }}
-          onSeeMore={() =>
-            onDiscover({
-              addonId: catalog.addonId,
-              type: catalog.type,
-              catalogId: catalog.catalogId,
-            })
-          }
-        />
-      ))}
 
       {selectedItem && (
         <MediaDetails
@@ -570,21 +615,19 @@ function UnavailableCollection({
 function CatalogShelf({
   title,
   items,
-  profileId,
   addons,
   onSelect,
   onSeeMore,
 }: {
   title: string
   items: CatalogItem[]
-  profileId: string
   addons: InstalledAddon[]
   onSelect: (item: CatalogItem) => void
   onSeeMore: () => void
 }) {
   if (items.length === 0) return null
   return (
-    <section className="mb-10">
+    <section>
       <div className="mb-4 flex items-center justify-between gap-4">
         <h2 className="font-display text-xl font-semibold">{title}</h2>
         <button
@@ -594,11 +637,9 @@ function CatalogShelf({
           See more
         </button>
       </div>
-      <VirtualPosterGrid
-        items={items.slice(0, 14)}
-        itemKey={(item) => `${item.type}:${item.id}`}
-        renderItem={(item) => (
-          <>
+      <div className={posterGridClass}>
+        {items.slice(0, 14).map((item) => (
+          <div className="group relative" key={`${item.type}:${item.id}`}>
             <button className="w-full text-left" onClick={() => onSelect(item)}>
               <div className={posterCoverClass}>
                 {item.poster ? (
@@ -607,6 +648,9 @@ function CatalogShelf({
                     src={item.poster}
                     alt=""
                     loading="lazy"
+                    decoding="async"
+                    width={300}
+                    height={450}
                   />
                 ) : (
                   <div className="grid h-full place-items-center text-zinc-700">
@@ -617,11 +661,11 @@ function CatalogShelf({
               <p className="mt-2 line-clamp-2 text-sm font-medium">{item.name}</p>
             </button>
             <div className="pointer-events-none absolute right-2 top-2">
-              <PosterWatchStatus profileId={profileId} item={item} addons={addons} />
+              <PosterWatchStatus item={item} addons={addons} />
             </div>
-          </>
-        )}
-      />
+          </div>
+        ))}
+      </div>
     </section>
   )
 }

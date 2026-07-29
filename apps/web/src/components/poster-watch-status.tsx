@@ -1,3 +1,4 @@
+import { createContext, useContext, useMemo, type ReactNode } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { Check, Minus } from "lucide-react"
 import type { InstalledAddon, WatchProgress } from "../lib/api"
@@ -6,14 +7,14 @@ import { addonsForResource } from "../lib/addons"
 import { loadMeta, type CatalogItem, type MetaItem } from "../lib/core"
 import { completionEpisodeIds, posterWatchState } from "../lib/watch-status"
 
-export function PosterWatchStatus({
+const ProgressByMediaContext = createContext<ReadonlyMap<string, WatchProgress[]>>(new Map())
+
+export function PosterWatchStatusProvider({
   profileId,
-  item,
-  addons,
+  children,
 }: {
   profileId: string
-  item: CatalogItem | MetaItem
-  addons: InstalledAddon[]
+  children: ReactNode
 }) {
   const progress = useQuery({
     queryKey: ["progress", profileId, "status"],
@@ -22,16 +23,37 @@ export function PosterWatchStatus({
         `/v1/profiles/${profileId}/progress?view=status&limit=1000`,
       ).then((result) => result.items),
   })
-  const mediaProgress = (progress.data ?? []).filter(
-    (entry) => entry.mediaType === item.type && entry.mediaId === item.id,
+  const progressByMedia = useMemo(() => {
+    const grouped = new Map<string, WatchProgress[]>()
+    for (const entry of progress.data ?? []) {
+      const key = mediaKey(entry.mediaType, entry.mediaId)
+      const entries = grouped.get(key)
+      if (entries) entries.push(entry)
+      else grouped.set(key, [entry])
+    }
+    return grouped
+  }, [progress.data])
+
+  return (
+    <ProgressByMediaContext.Provider value={progressByMedia}>
+      {children}
+    </ProgressByMediaContext.Provider>
   )
+}
+
+export function PosterWatchStatus({
+  item,
+  addons,
+}: {
+  item: CatalogItem | MetaItem
+  addons: InstalledAddon[]
+}) {
+  const progressByMedia = useContext(ProgressByMediaContext)
+  const mediaProgress = progressByMedia.get(mediaKey(item.type, item.id)) ?? []
   const suppliedVideos = "videos" in item ? (item.videos ?? []) : []
   const metadata = useQuery({
     queryKey: ["poster-status-meta", item.type, item.id, addons.map((addon) => addon.id)],
-    enabled:
-      item.type === "series" &&
-      mediaProgress.length > 0 &&
-      suppliedVideos.length === 0,
+    enabled: item.type === "series" && mediaProgress.length > 0 && suppliedVideos.length === 0,
     queryFn: async () => {
       const candidates = addonsForResource(addons, "meta", item.type, item.id)
       const results = await Promise.allSettled(
@@ -45,14 +67,12 @@ export function PosterWatchStatus({
   const episodeIds = completionEpisodeIds(
     suppliedVideos.length > 0 ? suppliedVideos : (metadata.data?.videos ?? []),
   )
-  const state = posterWatchState(progress.data ?? [], item, episodeIds)
+  const state = posterWatchState(mediaProgress, item, episodeIds)
 
   if (state === "unwatched") return null
 
   const complete = state === "complete"
-  const label = complete
-    ? `${item.name} is complete`
-    : `${item.name} is partially watched`
+  const label = complete ? `${item.name} is complete` : `${item.name} is partially watched`
   return (
     <span
       className={
@@ -67,4 +87,8 @@ export function PosterWatchStatus({
       {complete ? <Check size={14} strokeWidth={3.25} /> : <Minus size={14} strokeWidth={3.25} />}
     </span>
   )
+}
+
+function mediaKey(type: string, id: string): string {
+  return `${type}:${id}`
 }
