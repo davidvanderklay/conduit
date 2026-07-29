@@ -5,6 +5,7 @@
     "build": "vp run ci:build",
     "check": "vp run ci:check",
     "core:build": "wasm-pack build packages/core --target web --out-dir pkg",
+    "admin:recover": "corepack pnpm --filter @conduit/server cli -- admin recover",
     "db:generate": "pnpm --filter @conduit/server db:generate",
     "db:migrate": "pnpm --filter @conduit/server db:migrate",
     "dev": "vp run app:dev",

@@ -1,13 +1,26 @@
 # Conduit
 
-Conduit is an open-source, self-hostable media system built around a shared
-client engine. Clients contact Stremio-compatible add-ons directly, while a
-Conduit server synchronizes household state, profiles, configured add-ons,
-libraries, and watch progress.
+Conduit is an open-source, self-hosted media application built around
+Stremio-compatible add-ons. The server synchronizes households, profiles,
+installed add-ons, libraries, and watch progress; clients contact add-ons and
+media sources directly.
 
-## Development
+The project is under active development. Treat current deployments as
+pre-release installations and keep profile exports and database backups.
 
-Prerequisites are supplied by Nix:
+## What Conduit does
+
+- Shared household profiles with independent libraries and watch history
+- Stremio-compatible catalogs, metadata, streams, and subtitles
+- Web and Tauri desktop clients backed by one shared interface
+- Portable profile import/export
+- Local password accounts without an email-delivery dependency
+- Google OAuth or administrator-configured OpenID Connect
+- Recovery codes and machine-local administrator recovery
+
+## Quick development setup
+
+Prerequisites are provided by the Nix flake:
 
 ```sh
 direnv allow
@@ -19,66 +32,63 @@ pnpm db:migrate
 pnpm dev
 ```
 
-The web client runs at `http://localhost:5173` and the sync server at
+The web client runs at `http://localhost:5173` and the API server at
 `http://localhost:3000`.
 
-### Desktop client
+See [Development](docs/development.md) for repository structure, individual
+commands, tests, database migrations, and desktop requirements.
 
-The Tauri 2 desktop client reuses the web interface and delegates playback to
-embedded libmpv. The Nix shell supplies libmpv and the Tauri CLI:
+## Documentation
+
+- [User and authentication setup](docs/authentication.md)
+- [Deployment and operations](docs/deployment.md)
+- [Development guide](docs/development.md)
+- [Project roadmap](docs/roadmap.md)
+- [Portable profile format](docs/portable-profile-format.md)
+
+## Authentication summary
+
+The first account becomes the instance owner. Local registration closes by
+default after that account is created. The owner can configure Google directly
+or connect a custom OpenID Connect provider from `/admin`.
+
+Users may link OAuth and disable their local password. Before doing that they
+should save recovery codes and verify the OAuth login in a separate browser.
+An operator with shell access can restore local login without enumerating users:
 
 ```sh
-pnpm dev:server
-pnpm dev:desktop
+pnpm admin:recover
 ```
 
-The first command runs the household sync server. The second starts the shared
-Vite interface inside the native desktop shell. Selecting a stream renders
-libmpv beneath Conduit's controls in the same window; Conduit can seek, pause,
-enumerate and select embedded audio/subtitle tracks, and attach subtitles
-returned by installed add-ons.
+The command prompts for one account email and prints a single-use recovery link
+that expires after ten minutes. See [Authentication](docs/authentication.md)
+for the complete security and recovery model.
 
-For development outside Nix, install the libmpv development package. macOS
-builds can use `brew install mpv`; Linux builds need their distribution's
-libmpv development package plus the GTK 3, WebKitGTK 4.1, EGL, DBus, and
-pkg-config development packages. Windows release builds will bundle a matching
-libmpv DLL and import library.
+## Data and privacy model
 
-Linux desktop playback uses libmpv's OpenGL render API in a GTK surface below
-the transparent WebKit controls. X11 is supported directly; Wayland sessions
-use XWayland by default because native WebKitGTK input and presentation
-surfaces become stale when layered over `GtkGLArea`. Set
-`CONDUIT_NATIVE_WAYLAND=1` to test the experimental native Wayland path.
-The browsing window stays opaque, while the WebView itself becomes transparent
-over libmpv only during playback. Native Wayland and NVIDIA drivers disable
-WebKit's DMA-BUF renderer to avoid explicit-sync and GBM allocation failures;
-set `WEBKIT_DISABLE_DMABUF_RENDERER=0` to override that workaround.
+Account identities are separate from household profile names. Conduit does not
+request a personal name during local registration. Google login requests only
+OpenID and email identity scopes.
 
-Configured add-on URLs are encrypted in PostgreSQL and synchronized to
-authorized household clients. Clients fetch add-on catalogs, metadata, streams,
-and subtitles directly; the sync server does not proxy add-on or media traffic.
+Configured add-on URLs are encrypted in PostgreSQL. OAuth client secrets are
+also encrypted and OAuth tokens are encrypted by Better Auth. Clients fetch
+add-on catalogs, metadata, streams, and subtitles directly; the sync server
+does not proxy add-on or media traffic.
 
-## Instance authentication
+Profile exports protect portable user data, while recovery codes protect
+account access. They solve different problems, and users should keep both.
 
-The first local account created after installation becomes the instance owner.
-Later local registration is closed by default. The owner can open registration
-or configure Google login directly—or a custom OpenID Connect provider—at `/admin`. OAuth client secrets are
-encrypted with `ADDON_ENCRYPTION_KEY` and are never returned to the browser
-after being saved. Restart the server after changing authentication settings.
+## Roadmap
 
-For Google, create an OAuth 2.0 Web application in Google Cloud and paste its
-client ID and client secret into Conduit; no separate identity server is
-required. Configure Google with the callback URL shown on the admin page.
-Custom OIDC discovery, PKCE, and account creation are handled by Better Auth.
-Automatic OAuth registration remains off unless the owner explicitly enables it.
+The next major client targets are iOS and Android, followed by TV-oriented
+experiences including tvOS. Longer-term work includes an optional default
+public instance and first-class Jellyfin/Plex integration for unified progress
+and library workflows. See the detailed [Roadmap](docs/roadmap.md).
 
-Conduit does not require an account name and does not send password-reset email.
-Local users receive ten one-time recovery codes during account creation. Losing
-both the password and every recovery code means the instance owner must assist
-outside the application. Profile exports are a separate safeguard: users should
-export them regularly to preserve profiles, libraries, and watch history even
-when an account cannot be recovered.
+Conduit is intentionally not becoming a general reader or media inbox. YouTube,
+RSS, audiobooks, and podcast aggregation are outside the current product scope;
+the focus remains a cohesive film and television experience.
 
-The `/admin` page and `/v1/admin/*` endpoints require the instance-owner role.
-Hosts that want network-level isolation can additionally restrict both paths
-through their reverse proxy or VPN.
+## License
+
+See [LICENSE](LICENSE) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
