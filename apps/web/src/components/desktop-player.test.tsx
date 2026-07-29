@@ -192,6 +192,22 @@ describe("DesktopPlayer track menus", () => {
     expect(document.querySelector('[role="menu"]')).toBeNull()
   })
 
+  it("replaces and clears the previous track menu when switching menus", () => {
+    click(button("Audio: English"))
+    expect(document.querySelector('[role="menu"]')?.textContent).toContain("Audio")
+    desktop.resetNativeOverlaySurface.mockClear()
+
+    click(button("Subtitles: Off"))
+    act(() => vi.advanceTimersByTime(1))
+    act(() => vi.advanceTimersByTime(1))
+
+    const menus = document.querySelectorAll('[role="menu"]')
+    expect(menus).toHaveLength(1)
+    expect(menus[0]?.textContent).toContain("Subtitles")
+    expect(menus[0]?.textContent).not.toContain("Commentary")
+    expect(desktop.resetNativeOverlaySurface).toHaveBeenCalledOnce()
+  })
+
   it("unmounts the menu when a pointer gesture starts outside it", () => {
     click(button("Audio: English"))
 
