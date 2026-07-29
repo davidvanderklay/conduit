@@ -1,8 +1,15 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Film, Library, Search, Server, Shield, X } from "lucide-react"
+import { ArrowLeft, Check, Film, Globe2, Library, Search, Server, Shield, X } from "lucide-react"
 import { api, type Bootstrap, type InstalledAddon, type Profile } from "./lib/api"
-import { authClient } from "./lib/auth"
+import { API_URL, authClient } from "./lib/auth"
+import {
+  DEFAULT_SERVER_URL,
+  isDefaultServer,
+  saveServerUrl,
+  serverDisplayName,
+  testConduitServer,
+} from "./lib/server"
 import { loadCatalog, type CatalogItem } from "./lib/core"
 import { readLastProfileId, rememberLastProfileId } from "./lib/profile-preference"
 import { posterCoverClass, posterGridClass } from "./lib/poster-layout"
@@ -54,6 +61,7 @@ export function App() {
 function AuthScreen() {
   const queryClient = useQueryClient()
   const [mode, setMode] = useState<"sign-in" | "register">("sign-in")
+  const [selectingServer, setSelectingServer] = useState(false)
   const [error, setError] = useState("")
   const [pending, setPending] = useState(false)
   const [recoveryCodes, setRecoveryCodes] = useState<string[]>([])
@@ -290,11 +298,191 @@ function AuthScreen() {
             </div>
           )}
         </Card>
-        <p className="mt-6 text-center text-xs text-zinc-700">
-          Private media, synchronized on your terms.
-        </p>
+        <button
+          type="button"
+          className="mx-auto mt-5 flex max-w-full items-center gap-2 rounded-full border border-zinc-800/80 bg-zinc-900/60 px-3 py-1.5 text-xs text-zinc-500 transition hover:border-zinc-700 hover:text-zinc-300"
+          onClick={() => setSelectingServer(true)}
+        >
+          <span className="size-1.5 shrink-0 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,.5)]" />
+          <span className="truncate">
+            {isDefaultServer(API_URL) ? "Default server" : serverDisplayName(API_URL)}
+          </span>
+          <span className="text-zinc-700">·</span>
+          <span className="shrink-0 font-medium text-zinc-400">Change server</span>
+        </button>
       </div>
+      {selectingServer && <ServerSelector onClose={() => setSelectingServer(false)} />}
     </main>
+  )
+}
+
+function ServerSelector({ onClose }: { onClose: () => void }) {
+  const currentIsDefault = isDefaultServer(API_URL)
+  const [choice, setChoice] = useState<"default" | "custom">(
+    currentIsDefault ? "default" : "custom",
+  )
+  const [customUrl, setCustomUrl] = useState(currentIsDefault ? "" : API_URL)
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState("")
+
+  async function connect(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setPending(true)
+    setError("")
+    try {
+      const target = choice === "default" ? DEFAULT_SERVER_URL : customUrl
+      const normalized = await testConduitServer(target)
+      const changed = normalized !== API_URL
+      saveServerUrl(normalized)
+      if (changed) {
+        window.location.assign("/")
+      } else {
+        onClose()
+      }
+    } catch (cause) {
+      if (cause instanceof TypeError) {
+        setError(
+          "Could not reach that server. Check the address, HTTPS, and the server's allowed web origin.",
+        )
+      } else {
+        setError(cause instanceof Error ? cause.message : "Could not connect to that server.")
+      }
+    } finally {
+      setPending(false)
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-zinc-950/80 px-5 py-10 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="server-selector-title"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget && !pending) onClose()
+      }}
+    >
+      <Card className="w-full max-w-[29rem] overflow-hidden border-zinc-800 bg-zinc-900 shadow-2xl shadow-black/60">
+        <form onSubmit={connect}>
+          <div className="p-6 sm:p-8">
+            <button
+              type="button"
+              className="mb-6 inline-flex items-center gap-1.5 text-xs font-medium text-zinc-500 transition hover:text-zinc-200"
+              onClick={onClose}
+              disabled={pending}
+            >
+              <ArrowLeft size={14} />
+              Back to sign in
+            </button>
+            <div className="mb-7">
+              <div className="mb-4 grid size-11 place-items-center rounded-xl border border-amber-400/20 bg-amber-400/10 text-amber-300">
+                <Globe2 size={21} />
+              </div>
+              <h2
+                id="server-selector-title"
+                className="font-display text-2xl font-semibold tracking-tight"
+              >
+                Choose your server
+              </h2>
+              <p className="mt-2 text-sm leading-6 text-zinc-500">
+                Use Conduit&apos;s default service or connect directly to a self-hosted instance.
+                Your choice stays on this device.
+              </p>
+            </div>
+
+            <div className="space-y-3">
+              <ServerChoice
+                checked={choice === "default"}
+                title="Default server"
+                description={serverDisplayName(DEFAULT_SERVER_URL)}
+                onSelect={() => {
+                  setChoice("default")
+                  setError("")
+                }}
+              />
+              <ServerChoice
+                checked={choice === "custom"}
+                title="Self-hosted server"
+                description="Connect with an address provided by your administrator."
+                onSelect={() => {
+                  setChoice("custom")
+                  setError("")
+                }}
+              />
+            </div>
+
+            {choice === "custom" && (
+              <div className="mt-5">
+                <AuthField id="custom-server-url" label="Server address">
+                  <Input
+                    id="custom-server-url"
+                    type="url"
+                    inputMode="url"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    placeholder="https://conduit.example.com"
+                    value={customUrl}
+                    onChange={(event) => setCustomUrl(event.target.value)}
+                    required
+                    autoFocus
+                  />
+                </AuthField>
+                <p className="mt-2 text-xs leading-5 text-zinc-600">
+                  Include <span className="font-mono text-zinc-500">https://</span>. Local
+                  development servers may use <span className="font-mono text-zinc-500">http://</span>.
+                </p>
+              </div>
+            )}
+
+            {error && <div className="mt-5"><AuthMessage message={error} /></div>}
+          </div>
+          <div className="border-t border-zinc-800 bg-zinc-950/40 px-6 py-4 sm:px-8">
+            <Button className="h-11 w-full" disabled={pending}>
+              {pending ? "Checking server…" : choice === "default" ? "Use default server" : "Connect to server"}
+            </Button>
+          </div>
+        </form>
+      </Card>
+    </div>
+  )
+}
+
+function ServerChoice({
+  checked,
+  title,
+  description,
+  onSelect,
+}: {
+  checked: boolean
+  title: string
+  description: string
+  onSelect: () => void
+}) {
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={checked}
+      className={`flex w-full items-center gap-3 rounded-xl border p-4 text-left transition ${
+        checked
+          ? "border-amber-400/50 bg-amber-400/[0.07]"
+          : "border-zinc-800 bg-zinc-950/40 hover:border-zinc-700"
+      }`}
+      onClick={onSelect}
+    >
+      <span
+        className={`grid size-5 shrink-0 place-items-center rounded-full border ${
+          checked ? "border-amber-400 bg-amber-400 text-zinc-950" : "border-zinc-700"
+        }`}
+      >
+        {checked && <Check size={13} strokeWidth={3} />}
+      </span>
+      <span className="min-w-0">
+        <span className="block text-sm font-medium text-zinc-200">{title}</span>
+        <span className="mt-0.5 block truncate text-xs text-zinc-600">{description}</span>
+      </span>
+    </button>
   )
 }
 
