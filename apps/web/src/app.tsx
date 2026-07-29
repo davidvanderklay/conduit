@@ -204,10 +204,17 @@ function AuthScreen() {
                       variant="secondary"
                       onClick={() =>
                         authConfig.data!.oidc.provider === "google"
-                          ? authClient.signIn.social({ provider: "google", callbackURL: "/" })
+                          ? authClient.signIn.social({
+                              provider: "google",
+                              callbackURL: `${window.location.origin}/`,
+                              errorCallbackURL: `${window.location.origin}/`,
+                              newUserCallbackURL: `${window.location.origin}/`,
+                            })
                           : authClient.signIn.oauth2({
                               providerId: "conduit-oidc",
-                              callbackURL: "/",
+                              callbackURL: `${window.location.origin}/`,
+                              errorCallbackURL: `${window.location.origin}/`,
+                              newUserCallbackURL: `${window.location.origin}/`,
                             })
                       }
                     >
