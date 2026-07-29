@@ -173,7 +173,7 @@ function AuthenticatedApp({ userId, userName }: { userId: string; userName: stri
 
   return (
     <div className="min-h-screen">
-      <header className="sticky top-0 z-20 border-b border-zinc-900 bg-zinc-950/85 pl-[22px] pr-4 backdrop-blur-xl sm:pr-6 lg:pr-8 xl:pr-10">
+      <header className="app-chrome sticky top-0 z-20 border-b border-zinc-900 bg-zinc-950/85 pl-[22px] pr-4 backdrop-blur-xl sm:pr-6 lg:pr-8 xl:pr-10">
         <div className="flex h-16 items-center gap-3">
           <div className="flex shrink-0 items-center gap-2 font-display text-lg font-semibold">
             <Film className="text-amber-400" size={21} />
@@ -592,7 +592,7 @@ function CatalogShelf({
       </div>
       <div className={posterGridClass}>
         {items.slice(0, 14).map((item) => (
-          <div className="group relative" key={`${item.type}:${item.id}`}>
+          <div className="poster-scroll-item group relative" key={`${item.type}:${item.id}`}>
             <button className="w-full text-left" onClick={() => onSelect(item)}>
               <div className={posterCoverClass}>
                 {item.poster ? (

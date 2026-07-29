@@ -49,9 +49,9 @@ the transparent WebKit controls. X11 is supported directly; Wayland sessions
 use XWayland by default because native WebKitGTK input and presentation
 surfaces become stale when layered over `GtkGLArea`. Set
 `CONDUIT_NATIVE_WAYLAND=1` to test the experimental native Wayland path.
-Conduit also disables WebKit's DMA-BUF renderer to avoid an explicit-sync
-protocol bug; set `WEBKIT_DISABLE_DMABUF_RENDERER=0` to override that
-workaround.
+Conduit disables WebKit's DMA-BUF renderer on native Wayland and NVIDIA
+drivers to avoid explicit-sync and GBM allocation failures. Set
+`WEBKIT_DISABLE_DMABUF_RENDERER=0` to override that workaround.
 
 Configured add-on URLs are encrypted in PostgreSQL and synchronized to
 authorized household clients. Clients fetch add-on catalogs, metadata, streams,

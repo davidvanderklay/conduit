@@ -212,7 +212,7 @@ export function DiscoverView({
           <>
             <div className={posterGridClass}>
             {items.map((item) => (
-              <div className="group relative" key={`${item.type}:${item.id}`}>
+              <div className="poster-scroll-item group relative" key={`${item.type}:${item.id}`}>
                 <button className="w-full text-left" onClick={() => onSelect(item)}>
                   <div className={posterCoverClass}>
                     {item.poster ? (

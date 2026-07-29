@@ -99,7 +99,7 @@ function ProgressCard({
   })
   const percent = item.durationMs ? Math.min(100, (item.positionMs / item.durationMs) * 100) : 0
   return (
-    <div className="group relative">
+    <div className="poster-scroll-item group relative">
       <button
         className="w-full text-left"
         onClick={() => onSelect(toCatalogItem(item), item.videoId)}
