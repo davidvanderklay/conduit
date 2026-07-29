@@ -20,6 +20,9 @@ export interface CatalogItem {
   poster?: string
   background?: string
   description?: string
+  releaseInfo?: string
+  runtime?: string
+  genres?: string[]
 }
 
 export interface Video {
@@ -29,6 +32,10 @@ export interface Video {
   episode?: number
   released?: string
   thumbnail?: string
+  overview?: string
+  description?: string
+  runtime?: string
+  available?: boolean
 }
 
 export interface MetaItem extends CatalogItem {
@@ -36,7 +43,27 @@ export interface MetaItem extends CatalogItem {
   releaseInfo?: string
   runtime?: string
   genres?: string[]
+  imdbRating?: string
+  contentRating?: string
+  director?: string[]
+  cast?: string[]
+  writer?: string[]
+  country?: string
+  awards?: string
+  released?: string
+  trailers?: Trailer[]
+  trailerStreams?: TrailerStream[]
   videos?: Video[]
+}
+
+export interface Trailer {
+  source?: string
+  type?: string
+}
+
+export interface TrailerStream {
+  title?: string
+  youtubeId?: string
 }
 
 export interface Stream {
