@@ -141,6 +141,9 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
       if (body.oidcEnabled && !body.oidcClientSecret?.trim() && !current?.oidcClientSecretEncrypted) {
         return reply.badRequest("OIDC client secret is required")
       }
+      const displayName =
+        body.oauthProvider === "google" ? "Continue with Google" : body.oidcDisplayName.trim()
+      const scopes = body.oauthProvider === "google" ? "openid email" : body.oidcScopes.trim()
       await db
         .insert(instanceSettings)
         .values({
@@ -158,8 +161,8 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
                 ),
               }
             : {}),
-          oidcDisplayName: body.oidcDisplayName.trim(),
-          oidcScopes: body.oidcScopes.trim(),
+          oidcDisplayName: displayName,
+          oidcScopes: scopes,
           oidcAutoRegister: body.oidcAutoRegister,
           updatedAt: new Date(),
         })
@@ -179,8 +182,8 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
                   ),
                 }
               : {}),
-            oidcDisplayName: body.oidcDisplayName.trim(),
-            oidcScopes: body.oidcScopes.trim(),
+            oidcDisplayName: displayName,
+            oidcScopes: scopes,
             oidcAutoRegister: body.oidcAutoRegister,
             updatedAt: new Date(),
           },

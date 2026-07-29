@@ -35,9 +35,9 @@ export async function loadRuntimeAuthSettings(
   const registrationMode = row.registrationMode === "open" ? "open" : "closed"
   if (
     !row.oidcEnabled ||
-    !row.oidcIssuer ||
     !row.oidcClientId ||
-    !row.oidcClientSecretEncrypted
+    !row.oidcClientSecretEncrypted ||
+    (row.oauthProvider === "oidc" && !row.oidcIssuer)
   ) {
     return { registrationMode }
   }
@@ -46,11 +46,15 @@ export async function loadRuntimeAuthSettings(
     registrationMode,
     oidc: {
       provider: row.oauthProvider === "oidc" ? "oidc" : "google",
-      issuer: row.oidcIssuer,
+      issuer: row.oidcIssuer ?? "",
       clientId: row.oidcClientId,
       clientSecret: decryptSecret(row.oidcClientSecretEncrypted, config.addonEncryptionKey),
-      displayName: row.oidcDisplayName,
-      scopes: row.oidcScopes.split(/\s+/).filter(Boolean),
+      displayName:
+        row.oauthProvider === "oidc" ? row.oidcDisplayName : "Continue with Google",
+      scopes:
+        row.oauthProvider === "oidc"
+          ? row.oidcScopes.split(/\s+/).filter(Boolean)
+          : ["openid", "email"],
       autoRegister: row.oidcAutoRegister,
     },
   }

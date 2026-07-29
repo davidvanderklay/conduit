@@ -99,111 +99,194 @@ function AuthScreen() {
     }
   }
 
+  const oauthEnabled = !recovering && recoveryCodes.length === 0 && authConfig.data?.oidc.enabled
+  const switchModeLabel = authConfig.data?.needsOwner
+    ? "Set up this instance"
+    : "Create a local account"
+
   return (
-    <main className="grid min-h-screen place-items-center px-5">
-      <Card className="w-full max-w-md p-7">
-        <div className="mb-8 flex items-center gap-3">
-          <div className="grid size-11 place-items-center rounded-xl bg-amber-400 text-zinc-950">
-            <Film size={22} />
+    <main className="relative grid min-h-screen place-items-center overflow-hidden px-5 py-10">
+      <div className="pointer-events-none absolute inset-0">
+        <div className="absolute left-1/2 top-[-18rem] h-[34rem] w-[34rem] -translate-x-1/2 rounded-full bg-amber-400/[0.07] blur-3xl" />
+        <div className="absolute inset-0 opacity-[0.025] [background-image:linear-gradient(rgba(255,255,255,.7)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.7)_1px,transparent_1px)] [background-size:64px_64px]" />
+      </div>
+      <div className="relative w-full max-w-[27rem]">
+        <a href="/" className="mb-8 flex items-center justify-center gap-2.5">
+          <div className="grid size-9 place-items-center rounded-xl bg-amber-400 text-zinc-950 shadow-lg shadow-amber-400/10">
+            <Film size={18} strokeWidth={2.4} />
           </div>
-          <div>
-            <h1 className="font-display text-2xl font-semibold">conduit</h1>
-            <p className="text-sm text-zinc-500">Your household media system</p>
+          <span className="font-display text-xl font-semibold tracking-tight">conduit</span>
+        </a>
+        <Card className="overflow-hidden border-zinc-800/90 bg-zinc-900/90 shadow-2xl shadow-black/40 backdrop-blur-xl">
+          <div className="p-6 sm:p-8">
+            <div className="mb-7 text-center">
+              <h1 className="font-display text-2xl font-semibold tracking-tight">
+                {recovering
+                  ? "Recover your account"
+                  : mode === "register"
+                    ? authConfig.data?.needsOwner
+                      ? "Set up Conduit"
+                      : "Create your account"
+                    : "Welcome back"}
+              </h1>
+              <p className="mt-2 text-sm leading-6 text-zinc-500">
+                {recovering
+                  ? "Enter one of the recovery codes you saved."
+                  : mode === "register"
+                    ? "Create a private account for this Conduit instance."
+                    : "Sign in to continue to your household."}
+              </p>
+            </div>
+            {recoveryCodes.length > 0 ? (
+              <RecoveryCodes
+                codes={recoveryCodes}
+                onContinue={() => {
+                  window.sessionStorage.removeItem("conduit:recovery-setup")
+                  window.location.reload()
+                }}
+              />
+            ) : recovering ? (
+              <form
+                className="space-y-5"
+                onSubmit={async (event) => {
+                  event.preventDefault()
+                  setPending(true)
+                  setError("")
+                  const data = new FormData(event.currentTarget)
+                  try {
+                    await api("/v1/auth/recover", {
+                      method: "POST",
+                      body: JSON.stringify({
+                        email: String(data.get("email")),
+                        code: String(data.get("code")),
+                        password: String(data.get("password")),
+                      }),
+                    })
+                    setRecovering(false)
+                    setError("Password reset. You can sign in now.")
+                  } catch (cause) {
+                    setError(cause instanceof Error ? cause.message : "Recovery failed")
+                  } finally {
+                    setPending(false)
+                  }
+                }}
+              >
+                <AuthField id="recovery-email" label="Email address">
+                  <Input id="recovery-email" name="email" type="email" autoComplete="email" placeholder="you@example.com" required />
+                </AuthField>
+                <AuthField id="recovery-code" label="Recovery code">
+                  <Input id="recovery-code" name="code" autoComplete="one-time-code" placeholder="XXXX-XXXX-XXXX-XXXX" required />
+                </AuthField>
+                <AuthField id="recovery-password" label="New password">
+                  <Input id="recovery-password" name="password" type="password" autoComplete="new-password" placeholder="At least 8 characters" minLength={8} required />
+                </AuthField>
+                {error && <AuthMessage message={error} />}
+                <Button className="h-11 w-full" disabled={pending}>
+                  {pending ? "Resetting…" : "Reset password"}
+                </Button>
+                <button
+                  type="button"
+                  className="w-full text-sm font-medium text-zinc-400 transition hover:text-white"
+                  onClick={() => {
+                    setRecovering(false)
+                    setError("")
+                  }}
+                >
+                  Back to sign in
+                </button>
+              </form>
+            ) : (
+              <>
+                {oauthEnabled && (
+                  <>
+                    <Button
+                      className="h-11 w-full border border-zinc-700 bg-white text-zinc-900 hover:bg-zinc-100"
+                      variant="secondary"
+                      onClick={() =>
+                        authConfig.data!.oidc.provider === "google"
+                          ? authClient.signIn.social({ provider: "google", callbackURL: "/" })
+                          : authClient.signIn.oauth2({
+                              providerId: "conduit-oidc",
+                              callbackURL: "/",
+                            })
+                      }
+                    >
+                      {authConfig.data!.oidc.provider === "google" && <GoogleMark />}
+                      {authConfig.data!.oidc.displayName}
+                    </Button>
+                    <div className="my-6 flex items-center gap-3">
+                      <div className="h-px flex-1 bg-zinc-800" />
+                      <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-zinc-600">
+                        or continue with email
+                      </span>
+                      <div className="h-px flex-1 bg-zinc-800" />
+                    </div>
+                  </>
+                )}
+                <form className="space-y-5" onSubmit={submit}>
+                  <AuthField id="auth-email" label="Email address">
+                    <Input id="auth-email" name="email" type="email" autoComplete="email" placeholder="you@example.com" required />
+                  </AuthField>
+                  <AuthField
+                    id="auth-password"
+                    label="Password"
+                    action={
+                      mode === "sign-in" ? (
+                        <button
+                          type="button"
+                          className="font-medium text-zinc-500 transition hover:text-amber-300"
+                          onClick={() => {
+                            setRecovering(true)
+                            setError("")
+                          }}
+                        >
+                          Use recovery code
+                        </button>
+                      ) : undefined
+                    }
+                  >
+                    <Input
+                      id="auth-password"
+                      name="password"
+                      type="password"
+                      autoComplete={mode === "register" ? "new-password" : "current-password"}
+                      placeholder={mode === "register" ? "At least 8 characters" : "Enter your password"}
+                      minLength={8}
+                      required
+                    />
+                  </AuthField>
+                  {mode === "register" && (
+                    <p className="rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-2.5 text-xs leading-5 text-zinc-500">
+                      No personal name required. Profiles remain separate from your account.
+                    </p>
+                  )}
+                  {error && <AuthMessage message={error} success={error.startsWith("Password reset")} />}
+                  <Button className="h-11 w-full" disabled={pending}>
+                    {pending ? "Working…" : mode === "register" ? "Create account" : "Sign in"}
+                  </Button>
+                </form>
+              </>
+            )}
           </div>
-        </div>
-        {recoveryCodes.length > 0 ? (
-          <RecoveryCodes
-            codes={recoveryCodes}
-            onContinue={() => {
-              window.sessionStorage.removeItem("conduit:recovery-setup")
-              window.location.reload()
-            }}
-          />
-        ) : recovering ? (
-          <form
-            className="space-y-4"
-            onSubmit={async (event) => {
-              event.preventDefault()
-              setPending(true)
-              setError("")
-              const data = new FormData(event.currentTarget)
-              try {
-                await api("/v1/auth/recover", {
-                  method: "POST",
-                  body: JSON.stringify({
-                    email: String(data.get("email")),
-                    code: String(data.get("code")),
-                    password: String(data.get("password")),
-                  }),
-                })
-                setRecovering(false)
-                setError("Password reset. You can sign in now.")
-              } catch (cause) {
-                setError(cause instanceof Error ? cause.message : "Recovery failed")
-              } finally {
-                setPending(false)
-              }
-            }}
-          >
-            <p className="text-sm text-zinc-400">Use one of the recovery codes you saved.</p>
-            <Input name="email" type="email" placeholder="Email" required />
-            <Input name="code" placeholder="Recovery code" required />
-            <Input name="password" type="password" placeholder="New password" minLength={8} required />
-            {error && <p className="text-sm text-red-400">{error}</p>}
-            <Button className="w-full" disabled={pending}>Reset password</Button>
-            <button type="button" className="w-full text-sm text-zinc-500" onClick={() => setRecovering(false)}>
-              Back to sign in
-            </button>
-          </form>
-        ) : (
-        <form className="space-y-4" onSubmit={submit}>
-          {mode === "register" && (
-            <p className="text-sm text-zinc-400">
-              No personal name required. Your household profiles stay separate from this account.
-            </p>
+          {recoveryCodes.length === 0 && !recovering && authConfig.data?.localRegistration && (
+            <div className="border-t border-zinc-800/80 bg-zinc-950/40 px-6 py-4 text-center text-sm text-zinc-500">
+              {mode === "register" ? "Already have an account?" : "New to this instance?"}{" "}
+              <button
+                className="font-medium text-zinc-200 transition hover:text-amber-300"
+                onClick={() => {
+                  setMode((value) => (value === "register" ? "sign-in" : "register"))
+                  setError("")
+                }}
+              >
+                {mode === "register" ? "Sign in" : switchModeLabel}
+              </button>
+            </div>
           )}
-          <Input name="email" type="email" placeholder="Email" required />
-          <Input name="password" type="password" placeholder="Password" minLength={8} required />
-          {error && <p className="text-sm text-red-400">{error}</p>}
-          <Button className="w-full" disabled={pending}>
-            {pending ? "Working…" : mode === "register" ? "Create account" : "Sign in"}
-          </Button>
-        </form>
-        )}
-        {!recovering && recoveryCodes.length === 0 && authConfig.data?.oidc.enabled && (
-          <Button
-            className="mt-4 w-full"
-            variant="secondary"
-            onClick={() =>
-              authConfig.data.oidc.provider === "google"
-                ? authClient.signIn.social({ provider: "google", callbackURL: "/" })
-                : authClient.signIn.oauth2({
-                    providerId: "conduit-oidc",
-                    callbackURL: "/",
-                  })
-            }
-          >
-            {authConfig.data.oidc.displayName}
-          </Button>
-        )}
-        {!recovering && recoveryCodes.length === 0 && mode === "sign-in" && (
-          <button className="mt-4 w-full text-sm text-zinc-500" onClick={() => setRecovering(true)}>
-            Use a recovery code
-          </button>
-        )}
-        {recoveryCodes.length === 0 && !recovering && authConfig.data?.localRegistration && (
-        <button
-          className="mt-5 w-full text-center text-sm text-zinc-500 hover:text-zinc-200"
-          onClick={() => setMode((value) => (value === "register" ? "sign-in" : "register"))}
-        >
-          {mode === "register"
-            ? "Already have an account? Sign in"
-            : authConfig.data.needsOwner
-              ? "Set up this instance"
-              : "Create a local account"}
-        </button>
-        )}
-      </Card>
+        </Card>
+        <p className="mt-6 text-center text-xs text-zinc-700">
+          Private media, synchronized on your terms.
+        </p>
+      </div>
     </main>
   )
 }
@@ -798,6 +881,54 @@ function CatalogShelf({
   )
 }
 
+function AuthField({
+  id,
+  label,
+  action,
+  children,
+}: {
+  id: string
+  label: string
+  action?: React.ReactNode
+  children: React.ReactNode
+}) {
+  return (
+    <div>
+      <span className="mb-2 flex items-center justify-between text-xs font-medium text-zinc-400">
+        <label htmlFor={id}>{label}</label>
+        {action}
+      </span>
+      {children}
+    </div>
+  )
+}
+
+function AuthMessage({ message, success = false }: { message: string; success?: boolean }) {
+  return (
+    <p
+      role="alert"
+      className={`rounded-lg border px-3 py-2.5 text-xs ${
+        success
+          ? "border-emerald-900/70 bg-emerald-950/40 text-emerald-300"
+          : "border-red-900/70 bg-red-950/40 text-red-300"
+      }`}
+    >
+      {message}
+    </p>
+  )
+}
+
+function GoogleMark() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" className="size-4.5">
+      <path fill="#4285F4" d="M21.6 12.23c0-.71-.06-1.4-.18-2.07H12v3.92h5.38a4.6 4.6 0 0 1-2 3.02v2.54h3.24c1.9-1.75 2.98-4.32 2.98-7.41Z" />
+      <path fill="#34A853" d="M12 22c2.7 0 4.98-.9 6.63-2.36l-3.25-2.54c-.9.6-2.05.96-3.38.96-2.61 0-4.82-1.76-5.61-4.13H3.04v2.62A10 10 0 0 0 12 22Z" />
+      <path fill="#FBBC05" d="M6.39 13.93A6.02 6.02 0 0 1 6.08 12c0-.67.11-1.32.31-1.93V7.45H3.04A10 10 0 0 0 2 12c0 1.63.39 3.17 1.04 4.55l3.35-2.62Z" />
+      <path fill="#EA4335" d="M12 5.94c1.47 0 2.79.5 3.82 1.5l2.88-2.88A9.64 9.64 0 0 0 12 2a10 10 0 0 0-8.96 5.45l3.35 2.62C7.18 7.7 9.39 5.94 12 5.94Z" />
+    </svg>
+  )
+}
+
 function RecoveryCodes({ codes, onContinue }: { codes: string[]; onContinue: () => void }) {
   const text = codes.join("\n")
   return (
@@ -982,10 +1113,22 @@ function AdminScreen() {
               <option value="oidc">Custom OpenID Connect</option>
             </select>
           </label>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Input name="oidcDisplayName" defaultValue={value.oidcDisplayName} placeholder="Button label" required />
-            <Input name="oidcScopes" defaultValue={value.oidcScopes} placeholder="openid email" required />
-          </div>
+          {oauthProvider === "google" ? (
+            <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-4 text-sm">
+              <p className="font-medium text-zinc-200">Google defaults</p>
+              <dl className="mt-3 grid gap-2 text-xs sm:grid-cols-2">
+                <div><dt className="text-zinc-600">Login button</dt><dd className="mt-1">Continue with Google</dd></div>
+                <div><dt className="text-zinc-600">Requested access</dt><dd className="mt-1">Email address only</dd></div>
+              </dl>
+              <input type="hidden" name="oidcDisplayName" value="Continue with Google" />
+              <input type="hidden" name="oidcScopes" value="openid email" />
+            </div>
+          ) : (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Input name="oidcDisplayName" defaultValue={value.oidcDisplayName} placeholder="Button label" required />
+              <Input name="oidcScopes" defaultValue={value.oidcScopes} placeholder="openid email" required />
+            </div>
+          )}
           {oauthProvider === "oidc" && (
             <Input name="oidcIssuer" defaultValue={value.oidcIssuer} placeholder="https://id.example.com/.well-known/openid-configuration" />
           )}
@@ -1006,6 +1149,10 @@ function AdminScreen() {
               {oauthProvider === "google" ? value.googleCallbackUrl : value.oidcCallbackUrl}
             </code>
           </div>
+          <p className="text-xs leading-5 text-zinc-500">
+            Saving does not activate a provider immediately. Restart the Conduit server, then
+            sign out or use a private browser window to see the login button.
+          </p>
           {message && <p className="text-sm text-amber-300">{message}</p>}
           {save.error && <p className="text-sm text-red-400">{save.error.message}</p>}
           <Button disabled={save.isPending}>{save.isPending ? "Saving…" : "Save settings"}</Button>
