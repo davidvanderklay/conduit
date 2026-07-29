@@ -123,6 +123,78 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
     },
   )
 
+  app.get("/v1/auth/desktop/authorize", async (request, reply) => {
+    const query = request.query as { request?: string }
+    if (!query.request) return reply.badRequest("Missing desktop authentication request")
+    const [handoff] = await db
+      .select({ callbackUrl: desktopAuthRequests.callbackUrl })
+      .from(desktopAuthRequests)
+      .where(
+        and(
+          eq(desktopAuthRequests.id, query.request),
+          isNull(desktopAuthRequests.usedAt),
+          isNull(desktopAuthRequests.userId),
+          gt(desktopAuthRequests.expiresAt, new Date()),
+        ),
+      )
+      .limit(1)
+    if (!handoff) return reply.unauthorized("This desktop sign-in request is invalid or expired")
+    if (!authSettings.oidc) {
+      return redirectDesktopAuthError(reply, handoff.callbackUrl, query.request, "oauth_disabled")
+    }
+
+    const requestId = encodeURIComponent(query.request)
+    const callbackURL = `${config.authUrl.replace(/\/$/, "")}/v1/auth/desktop/complete?request=${requestId}`
+    const errorCallbackURL = `${config.authUrl.replace(/\/$/, "")}/v1/auth/desktop/error?request=${requestId}`
+    const authPath =
+      authSettings.oidc.provider === "google"
+        ? "/api/auth/sign-in/social"
+        : "/api/auth/sign-in/oauth2"
+    const body =
+      authSettings.oidc.provider === "google"
+        ? {
+            provider: "google",
+            callbackURL,
+            errorCallbackURL,
+            newUserCallbackURL: callbackURL,
+          }
+        : {
+            providerId: "conduit-oidc",
+            callbackURL,
+            errorCallbackURL,
+            newUserCallbackURL: callbackURL,
+          }
+    const headers = fromNodeHeaders(request.headers)
+    headers.set("content-type", "application/json")
+    headers.set("origin", new URL(config.authUrl).origin)
+    const response = await auth.handler(
+      new Request(new URL(authPath, config.authUrl), {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+      }),
+    )
+    const cookies = response.headers.getSetCookie()
+    if (cookies.length > 0) reply.header("set-cookie", cookies)
+    const result = (await response.json().catch(() => null)) as {
+      url?: unknown
+      message?: unknown
+    } | null
+    if (!response.ok || typeof result?.url !== "string") {
+      request.log.error(
+        { statusCode: response.status, message: result?.message },
+        "unable to start desktop OAuth",
+      )
+      return redirectDesktopAuthError(
+        reply,
+        handoff.callbackUrl,
+        query.request,
+        "oauth_start_failed",
+      )
+    }
+    return reply.redirect(result.url)
+  })
+
   app.get("/v1/auth/desktop/complete", async (request, reply) => {
     const query = request.query as { request?: string }
     if (!query.request) return reply.badRequest("Missing desktop authentication request")
@@ -1631,6 +1703,18 @@ function consumeRecoveryAttempt(
   if (current.count >= 10) return false
   current.count += 1
   return true
+}
+
+function redirectDesktopAuthError(
+  reply: FastifyReply,
+  callbackUrl: string,
+  requestId: string,
+  error: string,
+) {
+  const callback = new URL(callbackUrl)
+  callback.searchParams.set("request", requestId)
+  callback.searchParams.set("error", error)
+  return reply.redirect(callback.toString())
 }
 
 async function canAccessProfile(db: Database, userId: string, profileId: string): Promise<boolean> {
