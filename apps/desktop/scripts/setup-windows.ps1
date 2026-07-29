@@ -13,14 +13,28 @@ $DefaultSha256 = "E9C87D19055BC5A82771B2B48E9FBAE047BD5180603F5A1AAAE10C90CA6904
 $DownloadUrl = if ($env:CONDUIT_LIBMPV_URL) { $env:CONDUIT_LIBMPV_URL } else { $DefaultUrl }
 $ExpectedSha256 = if ($env:CONDUIT_LIBMPV_SHA256) { $env:CONDUIT_LIBMPV_SHA256 } else { $DefaultSha256 }
 
+function Get-Sha256([string]$Path) {
+    $Stream = [System.IO.File]::OpenRead($Path)
+    try {
+        $Hasher = [System.Security.Cryptography.SHA256]::Create()
+        try {
+            return ([System.BitConverter]::ToString($Hasher.ComputeHash($Stream))).Replace("-", "")
+        } finally {
+            $Hasher.Dispose()
+        }
+    } finally {
+        $Stream.Dispose()
+    }
+}
+
 New-Item -ItemType Directory -Force -Path $LibMpvDir | Out-Null
 if (-not (Test-Path $DllPath) -or
-    (Get-FileHash -Algorithm SHA256 $DllPath).Hash -ne $ExpectedSha256) {
+    (Get-Sha256 $DllPath) -ne $ExpectedSha256) {
     Write-Host "[libmpv] Downloading $DownloadUrl"
     Invoke-WebRequest -UseBasicParsing -Uri $DownloadUrl -OutFile $DllPath
 }
 
-$ActualSha256 = (Get-FileHash -Algorithm SHA256 $DllPath).Hash
+$ActualSha256 = Get-Sha256 $DllPath
 if ($ActualSha256 -ne $ExpectedSha256) {
     Remove-Item $DllPath
     throw "libmpv checksum mismatch (expected $ExpectedSha256, got $ActualSha256)"
