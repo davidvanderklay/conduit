@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Film, Home, LogOut, Plus, RefreshCw, Search, Server, Trash2, X } from "lucide-react"
+import { CalendarDays, Film, Library, Search, Server, X } from "lucide-react"
 import { api, type Bootstrap, type InstalledAddon, type Profile } from "./lib/api"
 import { authClient } from "./lib/auth"
-import { loadCatalog, loadManifest, type CatalogItem } from "./lib/core"
+import { loadCatalog, type CatalogItem } from "./lib/core"
 import { readLastProfileId, rememberLastProfileId } from "./lib/profile-preference"
 import { ProfileSwitcher } from "./components/profile-switcher"
 import { Button } from "./components/ui/button"
@@ -11,9 +11,14 @@ import { Card } from "./components/ui/card"
 import { Input } from "./components/ui/input"
 import { MediaDetails } from "./components/media-details"
 import { SearchView } from "./components/search-view"
+import { AppSidebar, type AppSection } from "./components/app-sidebar"
+import { AddonsView, ViewShell } from "./components/addons-view"
+import { SettingsView } from "./components/settings-view"
+import { applyPreferences, readPreferences } from "./lib/preferences"
 
 export function App() {
   const session = authClient.useSession()
+  useEffect(() => applyPreferences(readPreferences()), [])
 
   if (session.isPending) {
     return <CenteredMessage>Starting Conduit…</CenteredMessage>
@@ -85,6 +90,7 @@ function AuthenticatedApp({ userName }: { userName: string }) {
     queryFn: () => api<Bootstrap>("/v1/bootstrap"),
   })
   const [activeProfileId, setActiveProfileId] = useState<string | undefined>(readLastProfileId)
+  const [section, setSection] = useState<AppSection>("home")
 
   const profiles = useMemo(
     () => bootstrap.data?.households.flatMap((household) => household.profiles) ?? [],
@@ -132,20 +138,20 @@ function AuthenticatedApp({ userName }: { userName: string }) {
               profiles={profiles}
               activeProfile={activeProfile}
               onSelect={setActiveProfileId}
+              userName={userName}
+              onNavigate={setSection}
+              onSignOut={() => authClient.signOut()}
             />
-            <span className="hidden text-sm text-zinc-500 sm:inline">{userName}</span>
-            <Button
-              size="icon"
-              variant="ghost"
-              title="Sign out"
-              onClick={() => authClient.signOut()}
-            >
-              <LogOut size={17} />
-            </Button>
           </div>
         </div>
       </header>
-      <ProfileApp profile={activeProfile} />
+      <AppSidebar active={section} onNavigate={setSection} />
+      <div className="pb-16 md:ml-16 md:pb-0">
+        <ProfileApp
+          profile={activeProfile}
+          section={section}
+        />
+      </div>
     </div>
   )
 }
@@ -192,7 +198,13 @@ function HouseholdSetup() {
   )
 }
 
-function ProfileApp({ profile }: { profile: Profile }) {
+function ProfileApp({
+  profile,
+  section,
+}: {
+  profile: Profile
+  section: AppSection
+}) {
   const [searchInput, setSearchInput] = useState("")
   const [query, setQuery] = useState("")
   const [selectedItem, setSelectedItem] = useState<CatalogItem>()
@@ -216,9 +228,6 @@ function ProfileApp({ profile }: { profile: Profile }) {
     <>
       <nav className="sticky top-16 z-10 border-b border-zinc-900 bg-zinc-950/90 px-5 backdrop-blur-xl">
         <div className="mx-auto flex h-14 max-w-7xl items-center gap-3">
-          <NavButton active={!searchInput} onClick={() => setSearchInput("")}>
-            <Home size={16} /> Home
-          </NavButton>
           <div className="relative mx-auto w-full max-w-xl">
             <Search
               className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500"
@@ -242,16 +251,37 @@ function ProfileApp({ profile }: { profile: Profile }) {
               </button>
             )}
           </div>
-          <div className="w-16 shrink-0 sm:w-20" aria-hidden="true" />
         </div>
       </nav>
-      {!searchInput && (
+      {!searchInput && (section === "home" || section === "discover") && (
         <MediaHome
+          profile={profile}
+          addons={addons.data?.addons ?? []}
+          discover={section === "discover"}
+        />
+      )}
+      {!searchInput && section === "library" && (
+        <UnavailableCollection
+          icon={Library}
+          title="Library"
+          description="Saved movies and series will live here. Open any title to start building your library."
+        />
+      )}
+      {!searchInput && section === "calendar" && (
+        <UnavailableCollection
+          icon={CalendarDays}
+          title="Calendar"
+          description="Upcoming episodes from series in your library will appear here."
+        />
+      )}
+      {!searchInput && section === "addons" && (
+        <AddonsView
           profile={profile}
           addons={addons.data?.addons ?? []}
           onRefresh={() => addons.refetch()}
         />
       )}
+      {!searchInput && section === "settings" && <SettingsView profile={profile} />}
       {searchInput && (
         <SearchView
           addons={addons.data?.addons ?? []}
@@ -270,40 +300,15 @@ function ProfileApp({ profile }: { profile: Profile }) {
   )
 }
 
-function NavButton({
-  active,
-  children,
-  onClick,
-}: {
-  active: boolean
-  children: React.ReactNode
-  onClick: () => void
-}) {
-  return (
-    <button
-      className={`flex h-full items-center gap-2 border-b-2 px-3 text-sm font-medium transition ${
-        active
-          ? "border-amber-400 text-white"
-          : "border-transparent text-zinc-500 hover:text-zinc-200"
-      }`}
-      onClick={onClick}
-    >
-      {children}
-    </button>
-  )
-}
-
 function MediaHome({
   profile,
   addons,
-  onRefresh,
+  discover,
 }: {
   profile: Profile
   addons: InstalledAddon[]
-  onRefresh: () => void
+  discover: boolean
 }) {
-  const queryClient = useQueryClient()
-  const [installOpen, setInstallOpen] = useState(false)
   const [selectedItem, setSelectedItem] = useState<CatalogItem>()
   const catalogs = useQuery({
     queryKey: ["catalogs", profile.id, addons.map((addon) => [addon.id, addon.enabled])],
@@ -336,82 +341,21 @@ function MediaHome({
     },
   })
 
-  const remove = useMutation({
-    mutationFn: (addonId: string) =>
-      api(`/v1/profiles/${profile.id}/addons/${addonId}`, {
-        method: "DELETE",
-      }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["addons", profile.id] }),
-  })
-
   return (
     <main className="mx-auto max-w-7xl px-5 py-10">
-      <section className="mb-12 flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
+      <section className="mb-12">
         <div>
           <p className="mb-2 text-xs font-semibold uppercase tracking-[0.2em] text-amber-400">
-            {profile.name}&apos;s space
+            {discover ? "Browse every source" : `${profile.name}'s space`}
           </p>
           <h1 className="font-display text-4xl font-semibold tracking-tight">
-            What are we watching?
+            {discover ? "Discover" : "What are we watching?"}
           </h1>
           <p className="mt-2 text-zinc-500">
-            Catalogs are loaded directly from your synchronized add-ons.
+            {discover
+              ? "Explore movies, series, anime, and more from your enabled add-ons."
+              : "Catalogs are loaded directly from your synchronized add-ons."}
           </p>
-        </div>
-        <Button onClick={() => setInstallOpen((value) => !value)}>
-          <Plus size={17} />
-          Install add-on
-        </Button>
-      </section>
-
-      {installOpen && (
-        <InstallAddon
-          profile={profile}
-          onInstalled={() => {
-            setInstallOpen(false)
-            queryClient.invalidateQueries({
-              queryKey: ["addons", profile.id],
-            })
-          }}
-        />
-      )}
-
-      <section className="mb-12">
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="font-display text-xl font-semibold">Synchronized add-ons</h2>
-          <Button size="sm" variant="ghost" onClick={onRefresh}>
-            <RefreshCw size={14} /> Sync
-          </Button>
-        </div>
-        <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-          {addons.map((addon) => (
-            <Card className="flex items-center gap-4 p-4" key={addon.id}>
-              {addon.manifest.logo ? (
-                <img className="size-11 rounded-lg object-cover" src={addon.manifest.logo} alt="" />
-              ) : (
-                <div className="grid size-11 place-items-center rounded-lg bg-zinc-800">
-                  <Plus size={18} />
-                </div>
-              )}
-              <div className="min-w-0 flex-1">
-                <p className="truncate font-medium">{addon.manifest.name}</p>
-                <p className="truncate text-xs text-zinc-500">{addon.manifestId}</p>
-              </div>
-              <Button
-                size="icon"
-                variant="ghost"
-                title="Remove add-on"
-                onClick={() => remove.mutate(addon.id)}
-              >
-                <Trash2 size={16} />
-              </Button>
-            </Card>
-          ))}
-          {addons.length === 0 && (
-            <Card className="col-span-full border-dashed p-8 text-center text-zinc-500">
-              Install a Stremio-compatible manifest to begin.
-            </Card>
-          )}
         </div>
       </section>
 
@@ -443,46 +387,24 @@ function MediaHome({
   )
 }
 
-function InstallAddon({ profile, onInstalled }: { profile: Profile; onInstalled: () => void }) {
-  const install = useMutation({
-    mutationFn: async (manifestUrl: string) => {
-      const normalizedUrl = manifestUrl.startsWith("stremio://")
-        ? `https://${manifestUrl.slice("stremio://".length)}`
-        : manifestUrl
-      const manifest = await loadManifest(normalizedUrl)
-      await api(`/v1/profiles/${profile.id}/addons`, {
-        method: "POST",
-        body: JSON.stringify({ manifestUrl: normalizedUrl, manifest }),
-      })
-    },
-    onSuccess: onInstalled,
-  })
-
+function UnavailableCollection({
+  icon: Icon,
+  title,
+  description,
+}: {
+  icon: typeof Library
+  title: string
+  description: string
+}) {
   return (
-    <Card className="mb-10 p-5">
-      <form
-        className="flex flex-col gap-3 sm:flex-row"
-        onSubmit={(event) => {
-          event.preventDefault()
-          install.mutate(String(new FormData(event.currentTarget).get("manifestUrl")))
-        }}
-      >
-        <Input
-          className="flex-1"
-          name="manifestUrl"
-          placeholder="https://addon.example/configured/manifest.json"
-          required
-        />
-        <Button disabled={install.isPending}>
-          {install.isPending ? "Verifying…" : "Verify and install"}
-        </Button>
-      </form>
-      {install.error && <p className="mt-3 text-sm text-red-400">{install.error.message}</p>}
-      <p className="mt-3 text-xs text-zinc-600">
-        Conduit encrypts the configured URL for synchronization. Catalog and stream requests go
-        directly from this device to the add-on.
-      </p>
-    </Card>
+    <ViewShell eyebrow="Your collection" title={title} description={description}>
+      <Card className="grid min-h-64 place-items-center border-dashed text-center">
+        <div>
+          <Icon className="mx-auto text-zinc-700" size={34} />
+          <p className="mt-4 text-sm text-zinc-500">Nothing here yet</p>
+        </div>
+      </Card>
+    </ViewShell>
   )
 }
 
