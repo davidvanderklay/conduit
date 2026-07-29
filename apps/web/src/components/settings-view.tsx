@@ -47,32 +47,164 @@ export function SettingsView({ profile }: { profile: Profile }) {
       description="Profile changes synchronize with your household. Playback and appearance preferences stay on this device."
     >
       <div className="grid gap-6 xl:grid-cols-2 xl:items-start">
-        <SettingsCard icon={UserRound} title="Profile" scope="Synced">
-          <form
-            className="grid gap-4 sm:grid-cols-[1fr_auto_auto] sm:items-end"
-            onSubmit={(event: FormEvent<HTMLFormElement>) => {
-              event.preventDefault()
-              const data = new FormData(event.currentTarget)
-              updateProfile.mutate({
-                name: String(data.get("name")),
-                isKids: data.get("isKids") === "on",
-              })
-            }}
-          >
-            <label className="text-sm text-zinc-400">
-              Display name
-              <Input className="mt-2" name="name" defaultValue={profile.name} required />
-            </label>
-            <label className="flex h-11 items-center gap-2 text-sm text-zinc-400">
-              <input type="checkbox" name="isKids" defaultChecked={profile.isKids} />
-              Kids profile
-            </label>
-            <Button disabled={updateProfile.isPending}><Save size={15} /> Save</Button>
-          </form>
-          {updateProfile.error && <p className="mt-3 text-sm text-red-400">{updateProfile.error.message}</p>}
-        </SettingsCard>
+        <div className="grid min-w-0 gap-6">
+          <SettingsCard icon={UserRound} title="Profile" scope="Synced">
+            <form
+              className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-end"
+              onSubmit={(event: FormEvent<HTMLFormElement>) => {
+                event.preventDefault()
+                const data = new FormData(event.currentTarget)
+                updateProfile.mutate({
+                  name: String(data.get("name")),
+                  isKids: data.get("isKids") === "on",
+                })
+              }}
+            >
+              <label className="text-sm text-zinc-400">
+                Display name
+                <Input className="mt-2" name="name" defaultValue={profile.name} required />
+              </label>
+              <label className="flex h-11 items-center gap-2 text-sm text-zinc-400">
+                <input type="checkbox" name="isKids" defaultChecked={profile.isKids} />
+                Kids profile
+              </label>
+              <Button disabled={updateProfile.isPending}><Save size={15} /> Save</Button>
+            </form>
+            {updateProfile.error && <p className="mt-3 text-sm text-red-400">{updateProfile.error.message}</p>}
+          </SettingsCard>
 
-        <SettingsCard icon={Monitor} title="Playback & appearance" scope="This device">
+          <SettingsCard icon={Database} title="Your data" scope="Portable">
+            <p className="text-sm leading-6 text-zinc-400">
+              Move this profile between Conduit servers. Exports include the profile, library,
+              watch history and add-on order.
+            </p>
+            <label className="mt-4 flex items-start gap-2 text-sm text-zinc-400">
+              <input
+                className="mt-1"
+                type="checkbox"
+                checked={includeSecrets}
+                onChange={(event) => setIncludeSecrets(event.target.checked)}
+              />
+              <span>
+                Include add-on URLs for a complete transfer
+                <span className="mt-1 block text-xs text-amber-300">
+                  URLs can contain credentials. Store and share this file securely.
+                </span>
+              </span>
+            </label>
+            <Button
+              className="mt-4"
+              variant="secondary"
+              disabled={dataBusy}
+              onClick={async () => {
+                setDataBusy(true)
+                setDataError("")
+                try {
+                  const save = await prepareJsonSave(`conduit-${safeFilename(profile.name)}.json`)
+                  if (!save) return
+                  const data = await api<Record<string, unknown>>(
+                    `/v1/profiles/${profile.id}/export?includeSecrets=${includeSecrets}`,
+                  )
+                  data.preferences = preferences
+                  await save(data)
+                } catch (error) {
+                  setDataError(error instanceof Error ? error.message : "Export failed")
+                } finally {
+                  setDataBusy(false)
+                }
+              }}
+            >
+              <Download size={15} /> Export profile
+            </Button>
+
+            <div className="my-5 border-t border-zinc-800" />
+            <label className="block text-sm text-zinc-400">
+              Import a Conduit JSON file
+              <Input
+                className="mt-2 file:mr-3 file:border-0 file:bg-transparent file:text-zinc-300"
+                type="file"
+                accept="application/json,.json"
+                onChange={async (event) => {
+                  const file = event.target.files?.[0]
+                  if (!file) return
+                  setDataBusy(true)
+                  setDataError("")
+                  setImportPreview(null)
+                  try {
+                    if (file.size > 10 * 1024 * 1024) throw new Error("Import exceeds the 10 MiB limit")
+                    const data = JSON.parse(await file.text()) as Record<string, unknown>
+                    const preview = await api<ImportPreview>(
+                      `/v1/profiles/${profile.id}/import/preview`,
+                      { method: "POST", body: JSON.stringify(data) },
+                    )
+                    setImportData(data)
+                    setImportPreview(preview)
+                  } catch (error) {
+                    setImportData(null)
+                    setDataError(error instanceof Error ? error.message : "Invalid import")
+                  } finally {
+                    setDataBusy(false)
+                  }
+                }}
+              />
+            </label>
+            {importPreview && (
+              <div className="mt-4 rounded-xl border border-zinc-800 bg-zinc-950 p-4 text-sm">
+                <p className="font-medium">{importPreview.profile.name}</p>
+                <p className="mt-1 text-zinc-500">
+                  {importPreview.counts.library} library · {importPreview.counts.progress} history ·{" "}
+                  {importPreview.importableAddons}/{importPreview.counts.addons} add-ons importable
+                </p>
+                {importPreview.warnings.map((warning) => (
+                  <p className="mt-2 text-amber-300" key={warning}>{warning}</p>
+                ))}
+                <div className="mt-4 flex flex-wrap items-center gap-3">
+                  <select
+                    className="h-10 rounded-lg border border-zinc-800 bg-zinc-950 px-3 text-sm"
+                    value={importMode}
+                    onChange={(event) => setImportMode(event.target.value as "merge" | "replace")}
+                  >
+                    <option value="merge">Merge with existing data</option>
+                    <option value="replace">Replace existing data</option>
+                  </select>
+                  <Button
+                    variant={importMode === "replace" ? "destructive" : "default"}
+                    disabled={dataBusy}
+                    onClick={async () => {
+                      if (!importData) return
+                      setDataBusy(true)
+                      setDataError("")
+                      try {
+                        await api(`/v1/profiles/${profile.id}/import`, {
+                          method: "POST",
+                          body: JSON.stringify({ mode: importMode, data: importData }),
+                        })
+                        if (isRecord(importData.preferences)) {
+                          const next = importedPreferences(preferences, importData.preferences)
+                          setPreferences(next)
+                          writePreferences(next)
+                        }
+                        await queryClient.invalidateQueries()
+                        setImportPreview(null)
+                        setImportData(null)
+                      } catch (error) {
+                        setDataError(error instanceof Error ? error.message : "Import failed")
+                      } finally {
+                        setDataBusy(false)
+                      }
+                    }}
+                  >
+                    <Upload size={15} /> Import {importMode === "replace" ? "and replace" : "and merge"}
+                  </Button>
+                </div>
+              </div>
+            )}
+            {dataError && <p className="mt-3 text-sm text-red-400">{dataError}</p>}
+          </SettingsCard>
+        </div>
+
+        <div className="grid min-w-0 gap-6">
+          <SettingsCard icon={Monitor} title="Playback & appearance" scope="This device">
           <div className="grid gap-5 sm:grid-cols-2">
             <SelectSetting label="Preferred audio" value={preferences.audioLanguage} onChange={(value) => update("audioLanguage", value)} />
             <SelectSetting label="Preferred subtitles" value={preferences.subtitleLanguage} onChange={(value) => update("subtitleLanguage", value)} />
@@ -87,143 +219,15 @@ export function SettingsView({ profile }: { profile: Profile }) {
             <Toggle label="Reduced motion" checked={preferences.reducedMotion} onChange={(value) => update("reducedMotion", value)} />
           </div>
           {saved && <p className="mt-4 text-xs text-emerald-300">Saved on this device</p>}
-        </SettingsCard>
+          </SettingsCard>
 
-        <SettingsCard icon={Database} title="Your data" scope="Portable">
-          <p className="text-sm leading-6 text-zinc-400">
-            Move this profile between Conduit servers. Exports include the profile, library,
-            watch history and add-on order.
-          </p>
-          <label className="mt-4 flex items-start gap-2 text-sm text-zinc-400">
-            <input
-              className="mt-1"
-              type="checkbox"
-              checked={includeSecrets}
-              onChange={(event) => setIncludeSecrets(event.target.checked)}
-            />
-            <span>
-              Include add-on URLs for a complete transfer
-              <span className="mt-1 block text-xs text-amber-300">
-                URLs can contain credentials. Store and share this file securely.
-              </span>
-            </span>
-          </label>
-          <Button
-            className="mt-4"
-            variant="secondary"
-            disabled={dataBusy}
-            onClick={async () => {
-              setDataBusy(true)
-              setDataError("")
-              try {
-                const save = await prepareJsonSave(`conduit-${safeFilename(profile.name)}.json`)
-                if (!save) return
-                const data = await api<Record<string, unknown>>(
-                  `/v1/profiles/${profile.id}/export?includeSecrets=${includeSecrets}`,
-                )
-                data.preferences = preferences
-                await save(data)
-              } catch (error) {
-                setDataError(error instanceof Error ? error.message : "Export failed")
-              } finally {
-                setDataBusy(false)
-              }
-            }}
-          >
-            <Download size={15} /> Export profile
-          </Button>
-
-          <div className="my-5 border-t border-zinc-800" />
-          <label className="block text-sm text-zinc-400">
-            Import a Conduit JSON file
-            <Input
-              className="mt-2 file:mr-3 file:border-0 file:bg-transparent file:text-zinc-300"
-              type="file"
-              accept="application/json,.json"
-              onChange={async (event) => {
-                const file = event.target.files?.[0]
-                if (!file) return
-                setDataBusy(true)
-                setDataError("")
-                setImportPreview(null)
-                try {
-                  if (file.size > 10 * 1024 * 1024) throw new Error("Import exceeds the 10 MiB limit")
-                  const data = JSON.parse(await file.text()) as Record<string, unknown>
-                  const preview = await api<ImportPreview>(
-                    `/v1/profiles/${profile.id}/import/preview`,
-                    { method: "POST", body: JSON.stringify(data) },
-                  )
-                  setImportData(data)
-                  setImportPreview(preview)
-                } catch (error) {
-                  setImportData(null)
-                  setDataError(error instanceof Error ? error.message : "Invalid import")
-                } finally {
-                  setDataBusy(false)
-                }
-              }}
-            />
-          </label>
-          {importPreview && (
-            <div className="mt-4 rounded-xl border border-zinc-800 bg-zinc-950 p-4 text-sm">
-              <p className="font-medium">{importPreview.profile.name}</p>
-              <p className="mt-1 text-zinc-500">
-                {importPreview.counts.library} library · {importPreview.counts.progress} history ·{" "}
-                {importPreview.importableAddons}/{importPreview.counts.addons} add-ons importable
-              </p>
-              {importPreview.warnings.map((warning) => (
-                <p className="mt-2 text-amber-300" key={warning}>{warning}</p>
-              ))}
-              <div className="mt-4 flex flex-wrap items-center gap-3">
-                <select
-                  className="h-10 rounded-lg border border-zinc-800 bg-zinc-950 px-3 text-sm"
-                  value={importMode}
-                  onChange={(event) => setImportMode(event.target.value as "merge" | "replace")}
-                >
-                  <option value="merge">Merge with existing data</option>
-                  <option value="replace">Replace existing data</option>
-                </select>
-                <Button
-                  variant={importMode === "replace" ? "destructive" : "default"}
-                  disabled={dataBusy}
-                  onClick={async () => {
-                    if (!importData) return
-                    setDataBusy(true)
-                    setDataError("")
-                    try {
-                      await api(`/v1/profiles/${profile.id}/import`, {
-                        method: "POST",
-                        body: JSON.stringify({ mode: importMode, data: importData }),
-                      })
-                      if (isRecord(importData.preferences)) {
-                        const next = importedPreferences(preferences, importData.preferences)
-                        setPreferences(next)
-                        writePreferences(next)
-                      }
-                      await queryClient.invalidateQueries()
-                      setImportPreview(null)
-                      setImportData(null)
-                    } catch (error) {
-                      setDataError(error instanceof Error ? error.message : "Import failed")
-                    } finally {
-                      setDataBusy(false)
-                    }
-                  }}
-                >
-                  <Upload size={15} /> Import {importMode === "replace" ? "and replace" : "and merge"}
-                </Button>
-              </div>
-            </div>
-          )}
-          {dataError && <p className="mt-3 text-sm text-red-400">{dataError}</p>}
-        </SettingsCard>
-
-        <SettingsCard icon={Monitor} title="About" scope="Device">
-          <dl className="grid gap-3 text-sm sm:grid-cols-2">
-            <div><dt className="text-zinc-600">Application</dt><dd className="mt-1">Conduit</dd></div>
-            <div><dt className="text-zinc-600">Client</dt><dd className="mt-1">{navigator.userAgent.includes("Tauri") ? "Desktop" : "Web"}</dd></div>
-          </dl>
-        </SettingsCard>
+          <SettingsCard icon={Monitor} title="About" scope="Device">
+            <dl className="grid gap-3 text-sm sm:grid-cols-2">
+              <div><dt className="text-zinc-600">Application</dt><dd className="mt-1">Conduit</dd></div>
+              <div><dt className="text-zinc-600">Client</dt><dd className="mt-1">{navigator.userAgent.includes("Tauri") ? "Desktop" : "Web"}</dd></div>
+            </dl>
+          </SettingsCard>
+        </div>
       </div>
     </ViewShell>
   )
