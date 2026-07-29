@@ -137,10 +137,49 @@ For development outside Nix:
 - macOS: install libmpv, for example with `brew install mpv`
 - Linux: install libmpv development headers, GTK 3, WebKitGTK 4.1, EGL, DBus,
   and pkg-config development packages
+- Windows: install Git, Node.js LTS, pnpm (through Corepack), Rust's stable
+  MSVC toolchain, Visual Studio 2022 Build Tools with **Desktop development
+  with C++**, and the WebView2 Runtime. Then use a regular PowerShell:
+
+  ```powershell
+  corepack enable
+  pnpm install
+  pnpm --filter @conduit/desktop setup:windows
+  pnpm core:build
+  pnpm dev:desktop
+  ```
+
+  `setup:windows` downloads Conduit's pinned `libmpv-2.dll`, verifies its
+  SHA-256 digest, generates the matching MSVC import library, and places the
+  runtime beside debug and release executables. Override
+  `CONDUIT_LIBMPV_URL` and `CONDUIT_LIBMPV_SHA256` together when deliberately
+  testing a different build. `pnpm --filter @conduit/desktop build` creates an
+  NSIS installer with the DLL included.
 
 Linux playback uses libmpv's OpenGL render API. X11 is supported directly.
 Wayland uses XWayland by default; `CONDUIT_NATIVE_WAYLAND=1` enables the
 experimental native path.
+
+### Windows playback test matrix
+
+Run the debug application first, then repeat the core playback cases with the
+installed NSIS release. Record the Windows version, GPU, driver version,
+display scale, stream/container, and result.
+
+- Windows 10 22H2 and Windows 11 (current supported release)
+- 100%, 125%, 150%, and mixed-DPI displays when available
+- H.264/AAC MP4 over HTTPS and a representative HLS stream
+- Play/pause, exact and relative seek, volume and mute
+- Embedded audio/subtitle track switching and add-on subtitle attachment
+- Repeated window resize, maximize/restore, and fullscreen enter/exit
+- Move between displays with different scale factors
+- Lock/unlock and sleep/resume while paused and while playing
+- Close during playback, reopen playback, and exit the application
+
+The Windows renderer gives mpv the Tauri window's native HWND. mpv creates a
+D3D11 child window and WebView2 renders Conduit's transparent controls above
+it. This follows Harbor's proven Tauri/libmpv layout while leaving the existing
+frontend command and event contract unchanged.
 
 ## Local recovery CLI
 
