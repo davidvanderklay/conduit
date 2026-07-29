@@ -302,6 +302,20 @@ export function DesktopPlayer({
     previousChromeVisible.current = chromeVisible
   }, [activeMenu, chromeVisible, redrawControls, resetOverlay])
 
+  // The Linux player layers a transparent WebKitGTK surface over GtkGLArea.
+  // Explicitly invalidate that surface whenever dynamic control pixels move;
+  // otherwise WebKit's partial damage region can leave the previous thumb or
+  // timestamp glyph visible over the video.
+  useLayoutEffect(() => {
+    if (snapshot) redrawControls()
+  }, [
+    redrawControls,
+    snapshot?.duration,
+    snapshot?.paused,
+    snapshot?.position,
+    snapshot?.volume,
+  ])
+
   return createPortal(
     <div
       className={`native-player fixed inset-0 z-50 select-none overflow-hidden ${
@@ -371,7 +385,11 @@ export function DesktopPlayer({
           }`}
           onClick={(event) => event.stopPropagation()}
         >
-          <div className={`relative mx-auto ${fullscreen ? "max-w-none" : "max-w-7xl"}`}>
+          <div
+            className={`native-controls-surface relative mx-auto ${
+              fullscreen ? "max-w-none" : "max-w-7xl"
+            }`}
+          >
             {activeMenu === "audio" && (
               <TrackMenu
                 title="Audio"
@@ -506,7 +524,7 @@ export function DesktopPlayer({
                 {snapshot.volume === 0 ? <VolumeX size={21} /> : <Volume2 size={21} />}
               </PlayerIcon>
               <input
-                className={`hidden h-1 accent-amber-400 sm:block ${
+                className={`player-volume hidden sm:block ${
                   fullscreen ? "w-32" : "w-20"
                 }`}
                 type="range"
@@ -521,7 +539,7 @@ export function DesktopPlayer({
                 }}
               />
               <span
-                className={`ml-1 tabular-nums text-zinc-300 ${
+                className={`player-time ml-1 tabular-nums text-zinc-300 ${
                   fullscreen ? "text-sm" : "text-xs"
                 }`}
               >
