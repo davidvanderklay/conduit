@@ -4,6 +4,7 @@ import { ChevronDown, Film, LoaderCircle } from "lucide-react"
 import type { InstalledAddon } from "../lib/api"
 import { loadCatalog, type CatalogItem } from "../lib/core"
 import { Card } from "./ui/card"
+import { LibraryToggle } from "./library-toggle"
 
 export interface DiscoverSelection {
   addonId?: string
@@ -13,11 +14,13 @@ export interface DiscoverSelection {
 }
 
 export function DiscoverView({
+  profileId,
   addons,
   selection,
   onChange,
   onSelect,
 }: {
+  profileId: string
   addons: InstalledAddon[]
   selection: DiscoverSelection
   onChange: (selection: DiscoverSelection) => void
@@ -201,20 +204,21 @@ export function DiscoverView({
           <>
             <div className="grid grid-cols-2 gap-x-4 gap-y-7 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-7">
             {items.map((item) => (
-              <button
-                className="group text-left"
-                key={`${item.type}:${item.id}`}
-                onClick={() => onSelect(item)}
-              >
-                <div className="aspect-[2/3] overflow-hidden rounded-xl bg-zinc-900 ring-1 ring-zinc-800 transition group-hover:-translate-y-1 group-hover:ring-amber-400/60">
-                  {item.poster ? (
-                    <img className="h-full w-full object-cover" src={item.poster} alt="" loading="lazy" />
-                  ) : (
-                    <div className="grid h-full place-items-center text-zinc-700"><Film /></div>
-                  )}
+              <div className="group relative" key={`${item.type}:${item.id}`}>
+                <button className="w-full text-left" onClick={() => onSelect(item)}>
+                  <div className="aspect-[2/3] overflow-hidden rounded-xl bg-zinc-900 ring-1 ring-zinc-800 transition group-hover:-translate-y-1 group-hover:ring-amber-400/60">
+                    {item.poster ? (
+                      <img className="h-full w-full object-cover" src={item.poster} alt="" loading="lazy" />
+                    ) : (
+                      <div className="grid h-full place-items-center text-zinc-700"><Film /></div>
+                    )}
+                  </div>
+                  <p className="mt-2 line-clamp-2 text-sm font-medium">{item.name}</p>
+                </button>
+                <div className="absolute right-2 top-2 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
+                  <LibraryToggle profileId={profileId} item={item} compact />
                 </div>
-                <p className="mt-2 line-clamp-2 text-sm font-medium">{item.name}</p>
-              </button>
+              </div>
             ))}
             </div>
             <div ref={loadMoreRef} className="flex min-h-28 items-center justify-center">
