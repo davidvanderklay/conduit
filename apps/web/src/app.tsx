@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { CalendarDays, Film, Library, Search, Server, X } from "lucide-react"
+import { Film, Library, Search, Server, X } from "lucide-react"
 import { api, type Bootstrap, type InstalledAddon, type Profile } from "./lib/api"
 import { authClient } from "./lib/auth"
 import { loadCatalog, type CatalogItem } from "./lib/core"
@@ -19,6 +19,7 @@ import { AppSidebar, type AppSection } from "./components/app-sidebar"
 import { AddonsView, ViewShell } from "./components/addons-view"
 import { SettingsView } from "./components/settings-view"
 import { LibraryView } from "./components/library-view"
+import { CalendarView } from "./components/calendar-view"
 import { PosterWatchStatus } from "./components/poster-watch-status"
 import { ContinueWatching, HistoryView } from "./components/progress-view"
 import { applyPreferences, readPreferences } from "./lib/preferences"
@@ -362,10 +363,13 @@ function ProfileApp({
         />
       )}
       {!searchInput && section === "calendar" && (
-        <UnavailableCollection
-          icon={CalendarDays}
-          title="Calendar"
-          description="Upcoming episodes from series in your library will appear here."
+        <CalendarView
+          profileId={profile.id}
+          addons={addons.data?.addons ?? []}
+          onSelect={(item, videoId) => {
+            setSelectedItem(item)
+            setSelectedVideoId(videoId)
+          }}
         />
       )}
       {!searchInput && section === "addons" && (
