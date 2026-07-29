@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { isPlaybackComplete } from "./routes.js"
+import { filterContinueWatching, isPlaybackComplete } from "./routes.js"
 
 describe("watch completion", () => {
   it("completes at ninety percent", () => {
@@ -14,5 +14,21 @@ describe("watch completion", () => {
 
   it("does not complete media without a known duration", () => {
     expect(isPlaybackComplete(100_000, 0)).toBe(false)
+  })
+})
+
+describe("continue watching", () => {
+  it("keeps only resumable latest-per-title rows and restores recency order", () => {
+    const rows = [
+      { videoId: "show-episode-2", positionMs: 60_000, watched: false, updatedAt: new Date("2026-01-02") },
+      { videoId: "completed-show", positionMs: 100_000, watched: true, updatedAt: new Date("2026-01-04") },
+      { videoId: "movie", positionMs: 45_000, watched: false, updatedAt: new Date("2026-01-03") },
+      { videoId: "barely-started", positionMs: 10_000, watched: false, updatedAt: new Date("2026-01-05") },
+    ]
+
+    expect(filterContinueWatching(rows, 10).map((row) => row.videoId)).toEqual([
+      "movie",
+      "show-episode-2",
+    ])
   })
 })

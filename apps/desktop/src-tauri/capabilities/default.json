@@ -3,5 +3,9 @@
   "identifier": "default",
   "description": "Default permissions for the Conduit desktop window",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": [
+    "core:default",
+    "dialog:allow-save",
+    "fs:allow-write-text-file"
+  ]
 }

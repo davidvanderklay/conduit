@@ -30,14 +30,29 @@ import {
   type NativeTrack,
 } from "../lib/desktop"
 import { loadSubtitles } from "../lib/core"
+import { nativeMediaTitle, playerHeading, type PlayerHeading } from "../lib/player-title"
+import { readPreferences } from "../lib/preferences"
+import {
+  configuredTrackLanguage,
+  matchesTrackLanguage,
+} from "../lib/track-preference"
+import { mpvVideoScaleCommands, type VideoScale } from "../lib/video-scale"
 import { usePlaybackProgress } from "../lib/progress"
 import { Card } from "./ui/card"
+import { VideoScaleControl } from "./video-scale-control"
 
 type TrackMenuName = "audio" | "subtitles"
 
+export function usesExpandedPlayerControls(width: number, height: number): boolean {
+  return width >= 1200 && height >= 700
+}
+
+function isSpaciousViewport(): boolean {
+  return usesExpandedPlayerControls(window.innerWidth, window.innerHeight)
+}
+
 export function DesktopPlayer({
   url,
-  title,
   type,
   videoId,
   profileId,
@@ -46,7 +61,6 @@ export function DesktopPlayer({
   onClose,
 }: {
   url: string
-  title: string
   type: string
   videoId: string
   profileId: string
@@ -55,20 +69,32 @@ export function DesktopPlayer({
   onClose: () => void
 }) {
   const [snapshot, setSnapshot] = useState<NativePlayerSnapshot>()
+  const heading = playerHeading(progressMetadata)
+  const mediaTitle = nativeMediaTitle(progressMetadata)
   const [error, setError] = useState<string>()
   const [controlsVisible, setControlsVisible] = useState(true)
   const [activeMenu, setActiveMenu] = useState<TrackMenuName>()
   const [fullscreen, setFullscreen] = useState(false)
+  const [spaciousViewport, setSpaciousViewport] = useState(isSpaciousViewport)
+  const [videoScale, setVideoScale] = useState<VideoScale>("fit")
   const [addonSubtitles, setAddonSubtitles] = useState<ResolvedAddonSubtitle[]>([])
+  const [addonSubtitlesResolved, setAddonSubtitlesResolved] = useState(false)
   const [selectedAddonSubtitle, setSelectedAddonSubtitle] = useState<string>()
   const hideTimer = useRef<number | undefined>(undefined)
   const closing = useRef(false)
   const audioButton = useRef<HTMLDivElement>(null)
   const subtitleButton = useRef<HTMLDivElement>(null)
   const previousMenu = useRef<TrackMenuName | undefined>(undefined)
+  const previousMenuContent = useRef("")
   const previousChromeVisible = useRef(true)
   const previousPaused = useRef(false)
   const resumed = useRef(false)
+  const pendingAddonSubtitle = useRef(new Set<string>())
+  const preferredAudioApplied = useRef(false)
+  const preferredSubtitleApplied = useRef(false)
+  const preferences = readPreferences()
+  const preferredAudioLanguage = configuredTrackLanguage(preferences.audioLanguage, addons)
+  const preferredSubtitleLanguage = configuredTrackLanguage(preferences.subtitleLanguage, addons)
   const { progress, save: saveProgress } = usePlaybackProgress(
     profileId,
     videoId,
@@ -93,13 +119,19 @@ export function DesktopPlayer({
 
   useEffect(() => {
     let cancelled = false
+    preferredAudioApplied.current = false
+    preferredSubtitleApplied.current = false
+    setAddonSubtitlesResolved(false)
     document.documentElement.classList.add("native-playback")
-    void openNativePlayer(url, title)
+    void openNativePlayer(url, mediaTitle)
       .then(async (initial) => {
         if (cancelled) return
         setSnapshot(initial)
         const resolved = await resolveAddonSubtitles(addons, type, videoId)
-        if (!cancelled) setAddonSubtitles(resolved)
+        if (!cancelled) {
+          setAddonSubtitles(resolved)
+          setAddonSubtitlesResolved(true)
+        }
       })
       .catch((cause: unknown) => {
         if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause))
@@ -120,7 +152,92 @@ export function DesktopPlayer({
       document.documentElement.classList.remove("native-playback")
       if (!closing.current) void stopNativePlayer()
     }
-  }, [addons, title, type, url, videoId])
+  }, [addons, mediaTitle, type, url, videoId])
+
+  useEffect(() => {
+    if (
+      preferredAudioApplied.current ||
+      !preferredAudioLanguage ||
+      !snapshot
+    ) {
+      return
+    }
+    const audioTracks = snapshot.tracks.filter((track) => track.type === "audio")
+    if (!audioTracks.length) return
+    preferredAudioApplied.current = true
+    const match = audioTracks.find((track) =>
+      matchesTrackLanguage(preferredAudioLanguage, track.lang, track.title),
+    )
+    if (!match || match.selected) return
+    void nativePlayerCommand(["set", "aid", match.id]).then(() => {
+      setSnapshot((current) =>
+        current
+          ? {
+              ...current,
+              tracks: current.tracks.map((track) =>
+                track.type === "audio"
+                  ? { ...track, selected: track.id === match.id }
+                  : track,
+              ),
+            }
+          : current,
+      )
+    }).catch(() => undefined)
+  }, [preferredAudioLanguage, snapshot])
+
+  useEffect(() => {
+    if (
+      preferredSubtitleApplied.current ||
+      !preferredSubtitleLanguage ||
+      !snapshot ||
+      !addonSubtitlesResolved
+    ) {
+      return
+    }
+    const subtitleTracks = snapshot.tracks.filter((track) => track.type === "sub")
+    const embeddedMatch = subtitleTracks.find((track) =>
+      matchesTrackLanguage(preferredSubtitleLanguage, track.lang, track.title),
+    )
+    preferredSubtitleApplied.current = true
+    if (embeddedMatch) {
+      if (!embeddedMatch.selected) {
+        void nativePlayerCommand(["set", "sid", embeddedMatch.id])
+        setSnapshot((current) =>
+          current
+            ? {
+                ...current,
+                tracks: current.tracks.map((track) =>
+                  track.type === "sub"
+                    ? { ...track, selected: track.id === embeddedMatch.id }
+                    : track,
+                ),
+              }
+            : current,
+        )
+      }
+      return
+    }
+    const addonMatch = addonSubtitles.find((subtitle) =>
+      matchesTrackLanguage(preferredSubtitleLanguage, subtitle.language, subtitle.display),
+    )
+    if (!addonMatch) return
+    pendingAddonSubtitle.current.add(addonMatch.key)
+    void nativePlayerCommand([
+      "sub-add",
+      addonMatch.url,
+      "select",
+      addonMatch.display,
+      addonMatch.language,
+    ])
+      .then(() => setSelectedAddonSubtitle(addonMatch.key))
+      .catch(() => undefined)
+      .finally(() => pendingAddonSubtitle.current.delete(addonMatch.key))
+  }, [
+    addonSubtitles,
+    addonSubtitlesResolved,
+    preferredSubtitleLanguage,
+    snapshot,
+  ])
 
   useEffect(() => {
     if (resumed.current || !snapshot?.duration || !progress.isSuccess) return
@@ -141,15 +258,25 @@ export function DesktopPlayer({
   }, [saveProgress, snapshot])
 
   useEffect(() => {
-    const syncFullscreen = () => {
+    const syncWindowLayout = () => {
+      setSpaciousViewport(isSpaciousViewport())
       void nativeFullscreen()
         .then(setFullscreen)
         .catch(() => undefined)
     }
-    syncFullscreen()
-    window.addEventListener("resize", syncFullscreen)
-    return () => window.removeEventListener("resize", syncFullscreen)
+    syncWindowLayout()
+    window.addEventListener("resize", syncWindowLayout)
+    return () => window.removeEventListener("resize", syncWindowLayout)
   }, [])
+
+  useEffect(() => {
+    if (videoScale !== "stretch") return
+    const updateStretchAspect = () => {
+      void applyNativeVideoScale(videoScale).catch(() => undefined)
+    }
+    window.addEventListener("resize", updateStretchAspect)
+    return () => window.removeEventListener("resize", updateStretchAspect)
+  }, [videoScale])
 
   useEffect(() => {
     if (snapshot?.paused || activeMenu || error) {
@@ -290,17 +417,34 @@ export function DesktopPlayer({
   const subtitleTracks = snapshot?.tracks.filter((track) => track.type === "sub") ?? []
   const selectedAudio = audioTracks.find((track) => track.selected)
   const selectedSubtitle = subtitleTracks.find((track) => track.selected)
+  const menuContentSignature =
+    activeMenu === "audio"
+      ? audioTracks.map((track) => `${track.id}:${track.selected}`).join("|")
+      : activeMenu === "subtitles"
+        ? [
+            ...subtitleTracks.map((track) => `${track.id}:${track.selected}`),
+            ...filterAddedAddonSubtitles(addonSubtitles, subtitleTracks).map(
+              (subtitle) => subtitle.key,
+            ),
+          ].join("|")
+        : ""
   const chromeVisible =
     controlsVisible || Boolean(snapshot?.paused) || Boolean(activeMenu) || !snapshot
+  const expandedControls = fullscreen || spaciousViewport
 
   useLayoutEffect(() => {
     redrawControls()
-    const menuClosed = Boolean(previousMenu.current && !activeMenu)
+    const menuChanged = Boolean(previousMenu.current && previousMenu.current !== activeMenu)
+    const menuContentChanged =
+      Boolean(activeMenu) &&
+      previousMenu.current === activeMenu &&
+      previousMenuContent.current !== menuContentSignature
     const chromeHidden = previousChromeVisible.current && !chromeVisible
-    if (menuClosed || chromeHidden) resetOverlay()
+    if (menuChanged || menuContentChanged || chromeHidden) resetOverlay()
     previousMenu.current = activeMenu
+    previousMenuContent.current = menuContentSignature
     previousChromeVisible.current = chromeVisible
-  }, [activeMenu, chromeVisible, redrawControls, resetOverlay])
+  }, [activeMenu, chromeVisible, menuContentSignature, redrawControls, resetOverlay])
 
   // The Linux player layers a transparent WebKitGTK surface over GtkGLArea.
   // Explicitly invalidate that surface whenever dynamic control pixels move;
@@ -331,30 +475,37 @@ export function DesktopPlayer({
       <div
         data-player-chrome="top"
         className={`pointer-events-none absolute inset-x-0 top-0 z-10 flex items-center justify-between gap-4 bg-gradient-to-b from-black/85 via-black/45 to-transparent ${
-          fullscreen ? "px-10 pb-24 pt-8" : "px-5 pb-16 pt-5"
+          expandedControls ? "px-10 pb-24 pt-8" : "px-5 pb-16 pt-5"
         } ${
           chromeVisible ? "visible" : "invisible"
         }`}
       >
-        <h2
-          className={`min-w-0 truncate font-display font-semibold drop-shadow-lg ${
-            fullscreen ? "text-2xl" : "text-lg"
-          }`}
-        >
-          {title}
-        </h2>
-        <button
-          className={`pointer-events-auto shrink-0 rounded-full bg-black/60 text-zinc-200 hover:bg-white/15 ${
-            fullscreen ? "p-3.5 [&_svg]:size-6" : "p-2.5"
-          }`}
-          onClick={(event) => {
-            event.stopPropagation()
-            void close()
+        <div className="flex min-w-0 items-center gap-3">
+          <button
+            className={`pointer-events-auto grid shrink-0 place-items-center rounded-full bg-black/60 text-zinc-200 hover:bg-white/15 ${
+              expandedControls ? "size-13 [&_svg]:size-7" : "size-10"
+            }`}
+            onClick={(event) => {
+              event.stopPropagation()
+              void close()
+            }}
+            aria-label="Back to details"
+          >
+            <Play className="rotate-180 fill-current" size={21} />
+          </button>
+          <PlayerHeadingText heading={heading} expanded={expandedControls} />
+        </div>
+        <VideoScaleControl
+          value={videoScale}
+          expanded={expandedControls}
+          onIndicatorHidden={resetOverlay}
+          onChange={(scale) => {
+            setVideoScale(scale)
+            void applyNativeVideoScale(scale).catch((cause: unknown) => {
+              setError(cause instanceof Error ? cause.message : String(cause))
+            })
           }}
-          aria-label="Close playback"
-        >
-          <X size={21} />
-        </button>
+        />
       </div>
 
       {error ? (
@@ -379,7 +530,7 @@ export function DesktopPlayer({
         <div
           data-player-chrome="bottom"
           className={`absolute inset-x-0 bottom-0 z-10 ${
-            fullscreen ? "px-10 pb-8 pt-28" : "px-4 pb-4 pt-20 sm:px-6"
+            expandedControls ? "px-10 pb-8 pt-28" : "px-4 pb-4 pt-20 sm:px-6"
           } ${
             chromeVisible ? "visible" : "pointer-events-none invisible"
           }`}
@@ -387,7 +538,7 @@ export function DesktopPlayer({
         >
           <div
             className={`native-controls-surface relative mx-auto ${
-              fullscreen ? "max-w-none" : "max-w-7xl"
+              expandedControls ? "max-w-none" : "max-w-7xl"
             }`}
           >
             {activeMenu === "audio" && (
@@ -411,14 +562,23 @@ export function DesktopPlayer({
                 allowOff
                 onSelect={(track) => void selectTrack("sid", track)}
                 onSelectAddon={async (subtitle) => {
+                  if (pendingAddonSubtitle.current.has(subtitle.key)) return
+                  pendingAddonSubtitle.current.add(subtitle.key)
                   try {
-                    await nativePlayerCommand([
-                      "sub-add",
-                      subtitle.url,
-                      "select",
-                      subtitle.display,
-                      subtitle.language,
-                    ])
+                    const existing = subtitleTracks.find(
+                      (track) => track.external && track.title === subtitle.display,
+                    )
+                    if (existing) {
+                      await nativePlayerCommand(["set", "sid", existing.id])
+                    } else {
+                      await nativePlayerCommand([
+                        "sub-add",
+                        subtitle.url,
+                        "select",
+                        subtitle.display,
+                        subtitle.language,
+                      ])
+                    }
                     setSelectedAddonSubtitle(subtitle.key)
                     setSnapshot((current) =>
                       current
@@ -433,6 +593,8 @@ export function DesktopPlayer({
                     redrawControls()
                   } catch (cause: unknown) {
                     setError(cause instanceof Error ? cause.message : String(cause))
+                  } finally {
+                    pendingAddonSubtitle.current.delete(subtitle.key)
                   }
                 }}
                 onOff={async () => {
@@ -460,7 +622,7 @@ export function DesktopPlayer({
 
             <input
               className={`player-seek block w-full cursor-pointer ${
-                fullscreen ? "h-2" : "h-1.5"
+                expandedControls ? "h-2" : "h-1.5"
               }`}
               style={
                 {
@@ -486,12 +648,12 @@ export function DesktopPlayer({
 
             <div
               className={`flex items-center ${
-                fullscreen ? "mt-5 gap-3" : "mt-3 gap-1 sm:gap-2"
+                expandedControls ? "mt-5 gap-3" : "mt-3 gap-1 sm:gap-2"
               }`}
             >
               <PlayerIcon
                 label="Back 10 seconds"
-                fullscreen={fullscreen}
+                expanded={expandedControls}
                 onClick={() => seekRelative(-10)}
               >
                 <RotateCcw size={21} />
@@ -499,14 +661,14 @@ export function DesktopPlayer({
               </PlayerIcon>
               <PlayerIcon
                 label={snapshot.paused ? "Play" : "Pause"}
-                fullscreen={fullscreen}
+                expanded={expandedControls}
                 onClick={togglePlayback}
               >
                 {snapshot.paused ? <Play size={22} /> : <Pause size={22} />}
               </PlayerIcon>
               <PlayerIcon
                 label="Forward 10 seconds"
-                fullscreen={fullscreen}
+                expanded={expandedControls}
                 onClick={() => seekRelative(10)}
               >
                 <RotateCw size={21} />
@@ -514,7 +676,7 @@ export function DesktopPlayer({
               </PlayerIcon>
               <PlayerIcon
                 label={snapshot.volume === 0 ? "Unmute" : "Mute"}
-                fullscreen={fullscreen}
+                expanded={expandedControls}
                 onClick={() => {
                   const volume = snapshot.volume === 0 ? 100 : 0
                   void nativePlayerCommand(["set", "volume", volume])
@@ -525,7 +687,7 @@ export function DesktopPlayer({
               </PlayerIcon>
               <input
                 className={`player-volume hidden sm:block ${
-                  fullscreen ? "w-32" : "w-20"
+                  expandedControls ? "w-32" : "w-20"
                 }`}
                 style={
                   {
@@ -545,7 +707,7 @@ export function DesktopPlayer({
               />
               <span
                 className={`player-time ml-1 tabular-nums text-zinc-300 ${
-                  fullscreen ? "text-sm" : "text-xs"
+                  expandedControls ? "text-sm" : "text-xs"
                 }`}
               >
                 {formatTime(snapshot.position)}
@@ -558,7 +720,7 @@ export function DesktopPlayer({
                 <PlayerIcon
                   label={`Audio${selectedAudio ? `: ${trackName(selectedAudio, "Audio")}` : ""}`}
                   active={activeMenu === "audio"}
-                  fullscreen={fullscreen}
+                  expanded={expandedControls}
                   onClick={() => toggleTrackMenu("audio")}
                 >
                   <Languages size={21} />
@@ -570,7 +732,7 @@ export function DesktopPlayer({
                     selectedSubtitle ? `: ${trackName(selectedSubtitle, "Subtitles")}` : ": Off"
                   }`}
                   active={activeMenu === "subtitles"}
-                  fullscreen={fullscreen}
+                  expanded={expandedControls}
                   onClick={() => toggleTrackMenu("subtitles")}
                 >
                   <Captions size={22} />
@@ -578,7 +740,7 @@ export function DesktopPlayer({
               </div>
               <PlayerIcon
                 label={fullscreen ? "Exit fullscreen" : "Fullscreen"}
-                fullscreen={fullscreen}
+                expanded={expandedControls}
                 onClick={() => {
                   void toggleNativeFullscreen().then(setFullscreen)
                 }}
@@ -594,23 +756,32 @@ export function DesktopPlayer({
   )
 }
 
+async function applyNativeVideoScale(scale: VideoScale): Promise<void> {
+  for (const command of mpvVideoScaleCommands(scale, {
+    width: window.innerWidth,
+    height: window.innerHeight,
+  })) {
+    await nativePlayerCommand(command)
+  }
+}
+
 function PlayerIcon({
   label,
   active,
-  fullscreen,
+  expanded,
   children,
   onClick,
 }: {
   label: string
   active?: boolean
-  fullscreen?: boolean
+  expanded?: boolean
   children: React.ReactNode
   onClick: () => void
 }) {
   return (
     <button
       className={`relative grid place-items-center rounded-lg bg-zinc-950 text-zinc-200 shadow-sm transition hover:bg-zinc-800 hover:text-white ${
-        fullscreen ? "size-12 [&_svg]:size-7" : "size-10"
+      expanded ? "size-12 [&_svg]:size-7" : "size-10"
       } ${
         active ? "bg-amber-950 text-amber-300" : ""
       }`}
@@ -620,6 +791,31 @@ function PlayerIcon({
     >
       {children}
     </button>
+  )
+}
+
+function PlayerHeadingText({
+  heading,
+  expanded,
+}: {
+  heading: PlayerHeading
+  expanded: boolean
+}) {
+  return (
+    <div className="min-w-0 drop-shadow-lg">
+      <h2
+        className={`truncate font-display font-semibold ${
+          expanded ? "text-2xl" : "text-lg"
+        }`}
+      >
+        {heading.primary}
+      </h2>
+      {heading.secondary && (
+        <p className={`truncate text-zinc-300 ${expanded ? "text-sm" : "text-xs"}`}>
+          {heading.secondary}
+        </p>
+      )}
+    </div>
   )
 }
 
@@ -649,6 +845,7 @@ function TrackMenu({
   onClose: () => void
 }) {
   const [position, setPosition] = useState({ bottom: 80, right: 24, maxHeight: 400 })
+  const availableAddonSubtitles = filterAddedAddonSubtitles(addonSubtitles ?? [], tracks)
 
   useLayoutEffect(() => {
     const updatePosition = () => {
@@ -712,7 +909,7 @@ function TrackMenu({
           </span>
         </button>
       ))}
-      {addonSubtitles?.map((subtitle) => (
+      {availableAddonSubtitles.map((subtitle) => (
         <button
           key={subtitle.key}
           className={`mb-1 block w-full rounded-lg px-3 py-2 text-left ${
@@ -732,12 +929,36 @@ function TrackMenu({
           </span>
         </button>
       ))}
-      {!tracks.length && !addonSubtitles?.length && (
+      {!tracks.length && !availableAddonSubtitles.length && (
         <p className="px-3 py-2 text-sm text-zinc-500">{empty}</p>
       )}
     </div>,
     document.body,
   )
+}
+
+export function filterAddedAddonSubtitles<
+  TSubtitle extends { display: string },
+  TTrack extends { external: boolean; title?: string },
+>(subtitles: TSubtitle[], tracks: TTrack[]): TSubtitle[] {
+  const installedTitles = new Set(
+    tracks
+      .filter((track) => track.external && track.title)
+      .map((track) => track.title),
+  )
+  return subtitles.filter((subtitle) => !installedTitles.has(subtitle.display))
+}
+
+export function dedupeAddonSubtitles<TSubtitle extends { display: string }>(
+  subtitles: TSubtitle[],
+): TSubtitle[] {
+  const seen = new Set<string>()
+  return subtitles.filter((subtitle) => {
+    const key = subtitle.display.trim().toLocaleLowerCase()
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
 }
 
 function trackName(track: NativeTrack, fallback: string): string {
@@ -763,7 +984,7 @@ async function resolveAddonSubtitles(
       subtitles: await loadSubtitles(addon.manifestUrl, type, videoId),
     })),
   )
-  return results.flatMap((result) => {
+  return dedupeAddonSubtitles(results.flatMap((result) => {
     if (result.status === "rejected") return []
     return result.value.subtitles.flatMap((subtitle, index) => {
       if (!subtitle.url) return []
@@ -783,7 +1004,7 @@ async function resolveAddonSubtitles(
         },
       ]
     })
-  })
+  }))
 }
 
 function languageName(code?: string): string | undefined {

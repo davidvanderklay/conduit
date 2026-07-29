@@ -16,7 +16,7 @@ export function ProfileSwitcher({
   onSelect: (profileId: string) => void
   userName?: string
   onNavigate?: (section: AppSection) => void
-  onSignOut?: () => void
+  onSignOut?: () => void | Promise<void>
 }) {
   const [open, setOpen] = useState(false)
   const root = useRef<HTMLDivElement>(null)
@@ -148,7 +148,7 @@ function MenuAction({
 }: {
   icon: typeof Settings
   label: string
-  onClick: () => void
+  onClick: () => void | Promise<void>
 }) {
   return (
     <button
