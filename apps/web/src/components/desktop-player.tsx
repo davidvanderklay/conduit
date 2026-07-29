@@ -14,7 +14,7 @@ import {
   VolumeX,
   X,
 } from "lucide-react"
-import type { InstalledAddon } from "../lib/api"
+import type { InstalledAddon, ProgressMetadata } from "../lib/api"
 import { addonsForResource } from "../lib/addons"
 import {
   nativePlayerCommand,
@@ -30,6 +30,7 @@ import {
   type NativeTrack,
 } from "../lib/desktop"
 import { loadSubtitles } from "../lib/core"
+import { usePlaybackProgress } from "../lib/progress"
 import { Card } from "./ui/card"
 
 type TrackMenuName = "audio" | "subtitles"
@@ -39,6 +40,8 @@ export function DesktopPlayer({
   title,
   type,
   videoId,
+  profileId,
+  progressMetadata,
   addons,
   onClose,
 }: {
@@ -46,6 +49,8 @@ export function DesktopPlayer({
   title: string
   type: string
   videoId: string
+  profileId: string
+  progressMetadata: ProgressMetadata
   addons: InstalledAddon[]
   onClose: () => void
 }) {
@@ -62,6 +67,13 @@ export function DesktopPlayer({
   const subtitleButton = useRef<HTMLDivElement>(null)
   const previousMenu = useRef<TrackMenuName | undefined>(undefined)
   const previousChromeVisible = useRef(true)
+  const previousPaused = useRef(false)
+  const resumed = useRef(false)
+  const { progress, save: saveProgress } = usePlaybackProgress(
+    profileId,
+    videoId,
+    progressMetadata,
+  )
 
   const showControls = useCallback(() => {
     setControlsVisible(true)
@@ -111,6 +123,24 @@ export function DesktopPlayer({
   }, [addons, title, type, url, videoId])
 
   useEffect(() => {
+    if (resumed.current || !snapshot || !progress.data) return
+    resumed.current = true
+    if (progress.data.watched) return
+    const saved = progress.data.positionMs / 1000
+    if (saved > 0 && (!snapshot.duration || saved < snapshot.duration - 5)) {
+      void nativePlayerCommand(["seek", saved, "absolute+exact"])
+      setSnapshot((current) => (current ? { ...current, position: saved } : current))
+    }
+  }, [progress.data, snapshot])
+
+  useEffect(() => {
+    if (!snapshot) return
+    const justPaused = snapshot.paused && !previousPaused.current
+    previousPaused.current = snapshot.paused
+    void saveProgress(snapshot.position, snapshot.duration, justPaused)
+  }, [saveProgress, snapshot])
+
+  useEffect(() => {
     const syncFullscreen = () => {
       void nativeFullscreen()
         .then(setFullscreen)
@@ -134,6 +164,7 @@ export function DesktopPlayer({
     if (closing.current) return
     closing.current = true
     try {
+      if (snapshot) await saveProgress(snapshot.position, snapshot.duration, true)
       await stopNativePlayer()
     } finally {
       document.documentElement.classList.remove("native-playback")

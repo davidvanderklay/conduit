@@ -16,6 +16,7 @@ import { AddonsView, ViewShell } from "./components/addons-view"
 import { SettingsView } from "./components/settings-view"
 import { LibraryView } from "./components/library-view"
 import { LibraryToggle } from "./components/library-toggle"
+import { ContinueWatching, HistoryView } from "./components/progress-view"
 import { applyPreferences, readPreferences } from "./lib/preferences"
 import {
   DiscoverView,
@@ -269,6 +270,7 @@ function ProfileApp({
   onDiscoverSelection: (selection: DiscoverSelection) => void
 }) {
   const [selectedItem, setSelectedItem] = useState<CatalogItem>()
+  const [selectedVideoId, setSelectedVideoId] = useState<string>()
   const addons = useQuery({
     queryKey: ["addons", profile.id],
     queryFn: () => api<{ addons: InstalledAddon[] }>(`/v1/profiles/${profile.id}/addons`),
@@ -296,14 +298,29 @@ function ProfileApp({
           addons={addons.data?.addons ?? []}
           selection={discoverSelection}
           onChange={onDiscoverSelection}
-          onSelect={setSelectedItem}
+          onSelect={(item) => {
+            setSelectedVideoId(undefined)
+            setSelectedItem(item)
+          }}
         />
       )}
       {!searchInput && section === "library" && (
         <LibraryView
           profileId={profile.id}
           addons={addons.data?.addons ?? []}
-          onSelect={setSelectedItem}
+          onSelect={(item) => {
+            setSelectedVideoId(undefined)
+            setSelectedItem(item)
+          }}
+        />
+      )}
+      {!searchInput && section === "history" && (
+        <HistoryView
+          profileId={profile.id}
+          onSelect={(item, videoId) => {
+            setSelectedItem(item)
+            setSelectedVideoId(videoId)
+          }}
         />
       )}
       {!searchInput && section === "calendar" && (
@@ -326,7 +343,10 @@ function ProfileApp({
           profileId={profile.id}
           addons={addons.data?.addons ?? []}
           query={query}
-          onSelect={setSelectedItem}
+          onSelect={(item) => {
+            setSelectedVideoId(undefined)
+            setSelectedItem(item)
+          }}
         />
       )}
       {selectedItem && addons.data && (
@@ -334,6 +354,7 @@ function ProfileApp({
           item={selectedItem}
           addons={addons.data.addons}
           profileId={profile.id}
+          initialVideoId={selectedVideoId}
           onClose={() => setSelectedItem(undefined)}
         />
       )}
@@ -351,6 +372,7 @@ function MediaHome({
   onDiscover: (selection: DiscoverSelection) => void
 }) {
   const [selectedItem, setSelectedItem] = useState<CatalogItem>()
+  const [selectedVideoId, setSelectedVideoId] = useState<string>()
   const catalogs = useQuery({
     queryKey: ["catalogs", profile.id, addons.map((addon) => [addon.id, addon.enabled])],
     enabled: addons.length > 0,
@@ -401,6 +423,14 @@ function MediaHome({
         </div>
       </section>
 
+      <ContinueWatching
+        profileId={profile.id}
+        onSelect={(item, videoId) => {
+          setSelectedItem(item)
+          setSelectedVideoId(videoId)
+        }}
+      />
+
       {catalogs.data?.errors.length ? (
         <Card className="mb-8 border-red-900/70 bg-red-950/30 p-4 text-sm text-red-200">
           {catalogs.data.errors.length} catalog request
@@ -415,7 +445,10 @@ function MediaHome({
           profileId={profile.id}
           title={catalog.title}
           items={catalog.items}
-          onSelect={setSelectedItem}
+          onSelect={(item) => {
+            setSelectedVideoId(undefined)
+            setSelectedItem(item)
+          }}
           onSeeMore={() =>
             onDiscover({
               addonId: catalog.addonId,
@@ -431,6 +464,7 @@ function MediaHome({
           item={selectedItem}
           addons={addons}
           profileId={profile.id}
+          initialVideoId={selectedVideoId}
           onClose={() => setSelectedItem(undefined)}
         />
       )}
