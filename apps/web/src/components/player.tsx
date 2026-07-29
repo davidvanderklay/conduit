@@ -9,7 +9,6 @@ import {
   Settings2,
   Volume2,
   VolumeX,
-  X,
 } from "lucide-react"
 import type Hls from "hls.js"
 import type { InstalledAddon, ProgressMetadata } from "../lib/api"
@@ -17,6 +16,7 @@ import { addonsForResource } from "../lib/addons"
 import { loadSubtitles, type Subtitle } from "../lib/core"
 import { isDesktop } from "../lib/desktop"
 import { readPreferences } from "../lib/preferences"
+import { playerHeading, type PlayerHeading } from "../lib/player-title"
 import { usePlaybackProgress } from "../lib/progress"
 import { DesktopPlayer } from "./desktop-player"
 
@@ -36,7 +36,6 @@ interface AudioChoice {
 
 export function Player({
   url,
-  title,
   type,
   videoId,
   profileId,
@@ -45,7 +44,6 @@ export function Player({
   onClose,
 }: {
   url: string
-  title: string
   type: string
   videoId: string
   profileId: string
@@ -57,7 +55,6 @@ export function Player({
     return (
       <DesktopPlayer
         url={url}
-        title={title}
         type={type}
         videoId={videoId}
         profileId={profileId}
@@ -70,7 +67,6 @@ export function Player({
   return (
     <WebPlayer
       url={url}
-      title={title}
       type={type}
       videoId={videoId}
       profileId={profileId}
@@ -83,7 +79,6 @@ export function Player({
 
 function WebPlayer({
   url,
-  title,
   type,
   videoId,
   profileId,
@@ -92,7 +87,6 @@ function WebPlayer({
   onClose,
 }: {
   url: string
-  title: string
   type: string
   videoId: string
   profileId: string
@@ -101,6 +95,7 @@ function WebPlayer({
   onClose: () => void
 }) {
   const preferences = readPreferences()
+  const heading = playerHeading(progressMetadata)
   const shellRef = useRef<HTMLDivElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const hlsRef = useRef<Hls | null>(null)
@@ -338,15 +333,15 @@ function WebPlayer({
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black p-0 sm:p-4">
       <div className="w-full max-w-7xl">
-        <div className="mb-3 flex items-center justify-between gap-4 px-4 sm:px-0">
-          <p className="truncate font-medium">{title}</p>
+        <div className="mb-3 flex min-h-11 items-center gap-3 px-4 sm:px-0">
           <button
-            className="rounded-lg p-2 text-zinc-400 hover:bg-zinc-800 hover:text-white"
+            className="grid size-10 shrink-0 place-items-center rounded-lg text-zinc-300 hover:bg-zinc-800 hover:text-white"
             onClick={onClose}
-            aria-label="Close player"
+            aria-label="Back to details"
           >
-            <X size={20} />
+            <Play className="rotate-180 fill-current" size={22} />
           </button>
+          <PlayerHeadingText heading={heading} />
         </div>
         <div
           ref={shellRef}
@@ -519,6 +514,17 @@ function Control({
     >
       {children}
     </button>
+  )
+}
+
+function PlayerHeadingText({ heading }: { heading: PlayerHeading }) {
+  return (
+    <div className="min-w-0">
+      <p className="truncate font-display font-semibold">{heading.primary}</p>
+      {heading.secondary && (
+        <p className="truncate text-xs text-zinc-400">{heading.secondary}</p>
+      )}
+    </div>
   )
 }
 

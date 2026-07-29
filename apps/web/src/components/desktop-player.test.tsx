@@ -78,7 +78,6 @@ describe("DesktopPlayer track menus", () => {
       root.render(
         <DesktopPlayer
           url="https://example.com/video.mp4"
-          title="Test video"
           type="movie"
           videoId="tt123"
           profileId="00000000-0000-4000-8000-000000000001"
@@ -125,6 +124,15 @@ describe("DesktopPlayer track menus", () => {
       expect(region.className).not.toContain("transition")
       expect(region.className).not.toContain("opacity-")
     }
+  })
+
+  it("shows the media title beside a back control", () => {
+    const back = button("Back to details")
+    const title = document.querySelector("[data-player-chrome='top'] h2")
+
+    expect(back.querySelector("svg")?.classList.contains("rotate-180")).toBe(true)
+    expect(title?.textContent).toBe("Test video")
+    expect(back.compareDocumentPosition(title!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
   it("hides inactive controls and cursor, then restores them on mouse movement", () => {
