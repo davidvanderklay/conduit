@@ -102,6 +102,40 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
     },
   )
 
+  app.patch(
+    "/v1/profiles/:profileId",
+    {
+      schema: {
+        params: Type.Object({ profileId: Type.String({ format: "uuid" }) }),
+        body: Type.Object(
+          {
+            name: Type.Optional(Type.String({ minLength: 1, maxLength: 80 })),
+            isKids: Type.Optional(Type.Boolean()),
+          },
+          { minProperties: 1 },
+        ),
+      },
+    },
+    async (request, reply) => {
+      const user = await requireUser(request, reply, auth)
+      if (!user) return
+      const { profileId } = request.params as { profileId: string }
+      const body = request.body as { name?: string; isKids?: boolean }
+      if (!(await canAccessProfile(db, user.id, profileId))) return reply.forbidden()
+
+      const [profile] = await db
+        .update(profiles)
+        .set({
+          ...(body.name !== undefined ? { name: body.name.trim() } : {}),
+          ...(body.isKids !== undefined ? { isKids: body.isKids } : {}),
+          updatedAt: new Date(),
+        })
+        .where(eq(profiles.id, profileId))
+        .returning({ id: profiles.id, name: profiles.name, isKids: profiles.isKids })
+      return { profile }
+    },
+  )
+
   app.get(
     "/v1/profiles/:profileId/addons",
     {
@@ -222,6 +256,72 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
       await db
         .delete(addonInstallations)
         .where(and(eq(addonInstallations.id, addonId), eq(addonInstallations.profileId, profileId)))
+      return reply.code(204).send()
+    },
+  )
+
+  app.patch(
+    "/v1/profiles/:profileId/addons/:addonId",
+    {
+      schema: {
+        params: Type.Object({
+          profileId: Type.String({ format: "uuid" }),
+          addonId: Type.String({ format: "uuid" }),
+        }),
+        body: Type.Object(
+          {
+            enabled: Type.Optional(Type.Boolean()),
+            position: Type.Optional(Type.Integer({ minimum: 0 })),
+          },
+          { minProperties: 1 },
+        ),
+      },
+    },
+    async (request, reply) => {
+      const user = await requireUser(request, reply, auth)
+      if (!user) return
+      const { profileId, addonId } = request.params as { profileId: string; addonId: string }
+      const body = request.body as { enabled?: boolean; position?: number }
+      if (!(await canAccessProfile(db, user.id, profileId))) return reply.forbidden()
+
+      await db.transaction(async (tx) => {
+        if (body.position !== undefined) {
+          const rows = await tx
+            .select({ id: addonInstallations.id })
+            .from(addonInstallations)
+            .where(eq(addonInstallations.profileId, profileId))
+            .orderBy(asc(addonInstallations.position), asc(addonInstallations.createdAt))
+          const current = rows.findIndex((row) => row.id === addonId)
+          if (current >= 0) {
+            const [moved] = rows.splice(current, 1)
+            rows.splice(Math.min(body.position, rows.length), 0, moved!)
+            await Promise.all(
+              rows.map((row, position) =>
+                tx
+                  .update(addonInstallations)
+                  .set({ position, updatedAt: new Date() })
+                  .where(
+                    and(
+                      eq(addonInstallations.id, row.id),
+                      eq(addonInstallations.profileId, profileId),
+                    ),
+                  ),
+              ),
+            )
+          }
+        }
+        if (body.enabled !== undefined) {
+          await tx
+            .update(addonInstallations)
+            .set({ enabled: body.enabled, updatedAt: new Date() })
+            .where(
+              and(
+                eq(addonInstallations.id, addonId),
+                eq(addonInstallations.profileId, profileId),
+              ),
+            )
+        }
+      })
       return reply.code(204).send()
     },
   )

@@ -1,18 +1,28 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Film, LogOut, Plus, RefreshCw, Server, Trash2 } from "lucide-react"
+import { CalendarDays, Film, Library, Search, Server, X } from "lucide-react"
 import { api, type Bootstrap, type InstalledAddon, type Profile } from "./lib/api"
 import { authClient } from "./lib/auth"
-import { loadCatalog, loadManifest, type CatalogItem } from "./lib/core"
+import { loadCatalog, type CatalogItem } from "./lib/core"
 import { readLastProfileId, rememberLastProfileId } from "./lib/profile-preference"
 import { ProfileSwitcher } from "./components/profile-switcher"
 import { Button } from "./components/ui/button"
 import { Card } from "./components/ui/card"
 import { Input } from "./components/ui/input"
 import { MediaDetails } from "./components/media-details"
+import { SearchView } from "./components/search-view"
+import { AppSidebar, type AppSection } from "./components/app-sidebar"
+import { AddonsView, ViewShell } from "./components/addons-view"
+import { SettingsView } from "./components/settings-view"
+import { applyPreferences, readPreferences } from "./lib/preferences"
+import {
+  DiscoverView,
+  type DiscoverSelection,
+} from "./components/discover-view"
 
 export function App() {
   const session = authClient.useSession()
+  useEffect(() => applyPreferences(readPreferences()), [])
 
   if (session.isPending) {
     return <CenteredMessage>Starting Conduit…</CenteredMessage>
@@ -84,6 +94,10 @@ function AuthenticatedApp({ userName }: { userName: string }) {
     queryFn: () => api<Bootstrap>("/v1/bootstrap"),
   })
   const [activeProfileId, setActiveProfileId] = useState<string | undefined>(readLastProfileId)
+  const [section, setSection] = useState<AppSection>("home")
+  const [searchInput, setSearchInput] = useState("")
+  const [query, setQuery] = useState("")
+  const [discoverSelection, setDiscoverSelection] = useState<DiscoverSelection>({})
 
   const profiles = useMemo(
     () => bootstrap.data?.households.flatMap((household) => household.profiles) ?? [],
@@ -95,6 +109,17 @@ function AuthenticatedApp({ userName }: { userName: string }) {
       setActiveProfileId(profiles[0].id)
     }
   }, [activeProfileId, profiles])
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setQuery(searchInput.trim()), 350)
+    return () => window.clearTimeout(timeout)
+  }, [searchInput])
+
+  useEffect(() => {
+    setSearchInput("")
+    setQuery("")
+    setDiscoverSelection({})
+  }, [activeProfileId])
 
   useEffect(() => {
     if (activeProfileId && profiles.some((profile) => profile.id === activeProfileId)) {
@@ -117,34 +142,67 @@ function AuthenticatedApp({ userName }: { userName: string }) {
   }
 
   const activeProfile = profiles.find((profile) => profile.id === activeProfileId) ?? profiles[0]!
+  const navigate = (nextSection: AppSection) => {
+    setSection(nextSection)
+    setSearchInput("")
+    setQuery("")
+  }
 
   return (
     <div className="min-h-screen">
       <header className="sticky top-0 z-20 border-b border-zinc-900 bg-zinc-950/85 px-5 backdrop-blur-xl">
-        <div className="mx-auto flex h-16 max-w-7xl items-center gap-4">
-          <div className="flex items-center gap-2 font-display text-lg font-semibold">
+        <div className="mx-auto flex h-16 max-w-7xl items-center gap-3">
+          <div className="flex shrink-0 items-center gap-2 font-display text-lg font-semibold">
             <Film className="text-amber-400" size={21} />
-            Conduit
+            <span className="hidden sm:inline">Conduit</span>
           </div>
-          <div className="ml-auto flex items-center gap-2">
+          <div className="relative mx-auto w-full max-w-xl">
+            <Search
+              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500"
+              size={17}
+            />
+            <input
+              type="search"
+              value={searchInput}
+              aria-label="Search or paste a link"
+              placeholder="Search or paste a link"
+              className="h-10 w-full rounded-xl border border-zinc-800 bg-zinc-900/80 pl-10 pr-10 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20"
+              onChange={(event) => setSearchInput(event.target.value)}
+            />
+            {searchInput && (
+              <button
+                className="absolute right-1.5 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-lg text-zinc-500 hover:bg-zinc-800 hover:text-white"
+                aria-label="Clear search"
+                onClick={() => setSearchInput("")}
+              >
+                <X size={15} />
+              </button>
+            )}
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
             <ProfileSwitcher
               profiles={profiles}
               activeProfile={activeProfile}
               onSelect={setActiveProfileId}
+              userName={userName}
+              onNavigate={navigate}
+              onSignOut={() => authClient.signOut()}
             />
-            <span className="hidden text-sm text-zinc-500 sm:inline">{userName}</span>
-            <Button
-              size="icon"
-              variant="ghost"
-              title="Sign out"
-              onClick={() => authClient.signOut()}
-            >
-              <LogOut size={17} />
-            </Button>
           </div>
         </div>
       </header>
-      <MediaHome profile={activeProfile} />
+      <AppSidebar active={section} onNavigate={navigate} />
+      <div className="pb-16 md:ml-16 md:pb-0">
+        <ProfileApp
+          profile={activeProfile}
+          section={section}
+          onNavigate={navigate}
+          searchInput={searchInput}
+          query={query}
+          discoverSelection={discoverSelection}
+          onDiscoverSelection={setDiscoverSelection}
+        />
+      </div>
     </div>
   )
 }
@@ -191,21 +249,109 @@ function HouseholdSetup() {
   )
 }
 
-function MediaHome({ profile }: { profile: Profile }) {
-  const queryClient = useQueryClient()
-  const [installOpen, setInstallOpen] = useState(false)
+function ProfileApp({
+  profile,
+  section,
+  onNavigate,
+  searchInput,
+  query,
+  discoverSelection,
+  onDiscoverSelection,
+}: {
+  profile: Profile
+  section: AppSection
+  onNavigate: (section: AppSection) => void
+  searchInput: string
+  query: string
+  discoverSelection: DiscoverSelection
+  onDiscoverSelection: (selection: DiscoverSelection) => void
+}) {
   const [selectedItem, setSelectedItem] = useState<CatalogItem>()
   const addons = useQuery({
     queryKey: ["addons", profile.id],
     queryFn: () => api<{ addons: InstalledAddon[] }>(`/v1/profiles/${profile.id}/addons`),
   })
 
+  useEffect(() => {
+    setSelectedItem(undefined)
+  }, [profile.id])
+
+  return (
+    <>
+      {!searchInput && section === "home" && (
+        <MediaHome
+          profile={profile}
+          addons={addons.data?.addons ?? []}
+          onDiscover={(selection) => {
+            onDiscoverSelection(selection)
+            onNavigate("discover")
+          }}
+        />
+      )}
+      {!searchInput && section === "discover" && (
+        <DiscoverView
+          addons={addons.data?.addons ?? []}
+          selection={discoverSelection}
+          onChange={onDiscoverSelection}
+          onSelect={setSelectedItem}
+        />
+      )}
+      {!searchInput && section === "library" && (
+        <UnavailableCollection
+          icon={Library}
+          title="Library"
+          description="Saved movies and series will live here. Open any title to start building your library."
+        />
+      )}
+      {!searchInput && section === "calendar" && (
+        <UnavailableCollection
+          icon={CalendarDays}
+          title="Calendar"
+          description="Upcoming episodes from series in your library will appear here."
+        />
+      )}
+      {!searchInput && section === "addons" && (
+        <AddonsView
+          profile={profile}
+          addons={addons.data?.addons ?? []}
+          onRefresh={() => addons.refetch()}
+        />
+      )}
+      {!searchInput && section === "settings" && <SettingsView profile={profile} />}
+      {searchInput && (
+        <SearchView
+          addons={addons.data?.addons ?? []}
+          query={query}
+          onSelect={setSelectedItem}
+        />
+      )}
+      {selectedItem && addons.data && (
+        <MediaDetails
+          item={selectedItem}
+          addons={addons.data.addons}
+          onClose={() => setSelectedItem(undefined)}
+        />
+      )}
+    </>
+  )
+}
+
+function MediaHome({
+  profile,
+  addons,
+  onDiscover,
+}: {
+  profile: Profile
+  addons: InstalledAddon[]
+  onDiscover: (selection: DiscoverSelection) => void
+}) {
+  const [selectedItem, setSelectedItem] = useState<CatalogItem>()
   const catalogs = useQuery({
-    queryKey: ["catalogs", profile.id, addons.data?.addons.map((addon) => addon.id)],
-    enabled: Boolean(addons.data),
+    queryKey: ["catalogs", profile.id, addons.map((addon) => [addon.id, addon.enabled])],
+    enabled: addons.length > 0,
     queryFn: async () => {
       const results = await Promise.allSettled(
-        (addons.data?.addons ?? [])
+        addons
           .filter((addon) => addon.enabled)
           .flatMap((addon) =>
             addon.manifest.catalogs
@@ -213,6 +359,9 @@ function MediaHome({ profile }: { profile: Profile }) {
               .slice(0, 3)
               .map(async (catalog) => ({
                 key: `${addon.id}:${catalog.type}:${catalog.id}`,
+                addonId: addon.id,
+                type: catalog.type,
+                catalogId: catalog.id,
                 title: catalog.name ?? `${addon.manifest.name} · ${catalog.id}`,
                 items: await loadCatalog(addon.manifestUrl, catalog.type, catalog.id),
               })),
@@ -231,17 +380,9 @@ function MediaHome({ profile }: { profile: Profile }) {
     },
   })
 
-  const remove = useMutation({
-    mutationFn: (addonId: string) =>
-      api(`/v1/profiles/${profile.id}/addons/${addonId}`, {
-        method: "DELETE",
-      }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["addons", profile.id] }),
-  })
-
   return (
     <main className="mx-auto max-w-7xl px-5 py-10">
-      <section className="mb-12 flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
+      <section className="mb-12">
         <div>
           <p className="mb-2 text-xs font-semibold uppercase tracking-[0.2em] text-amber-400">
             {profile.name}&apos;s space
@@ -252,61 +393,6 @@ function MediaHome({ profile }: { profile: Profile }) {
           <p className="mt-2 text-zinc-500">
             Catalogs are loaded directly from your synchronized add-ons.
           </p>
-        </div>
-        <Button onClick={() => setInstallOpen((value) => !value)}>
-          <Plus size={17} />
-          Install add-on
-        </Button>
-      </section>
-
-      {installOpen && (
-        <InstallAddon
-          profile={profile}
-          onInstalled={() => {
-            setInstallOpen(false)
-            queryClient.invalidateQueries({
-              queryKey: ["addons", profile.id],
-            })
-          }}
-        />
-      )}
-
-      <section className="mb-12">
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="font-display text-xl font-semibold">Synchronized add-ons</h2>
-          <Button size="sm" variant="ghost" onClick={() => addons.refetch()}>
-            <RefreshCw size={14} /> Sync
-          </Button>
-        </div>
-        <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-          {addons.data?.addons.map((addon) => (
-            <Card className="flex items-center gap-4 p-4" key={addon.id}>
-              {addon.manifest.logo ? (
-                <img className="size-11 rounded-lg object-cover" src={addon.manifest.logo} alt="" />
-              ) : (
-                <div className="grid size-11 place-items-center rounded-lg bg-zinc-800">
-                  <Plus size={18} />
-                </div>
-              )}
-              <div className="min-w-0 flex-1">
-                <p className="truncate font-medium">{addon.manifest.name}</p>
-                <p className="truncate text-xs text-zinc-500">{addon.manifestId}</p>
-              </div>
-              <Button
-                size="icon"
-                variant="ghost"
-                title="Remove add-on"
-                onClick={() => remove.mutate(addon.id)}
-              >
-                <Trash2 size={16} />
-              </Button>
-            </Card>
-          ))}
-          {addons.data?.addons.length === 0 && (
-            <Card className="col-span-full border-dashed p-8 text-center text-zinc-500">
-              Install a Stremio-compatible manifest to begin.
-            </Card>
-          )}
         </div>
       </section>
 
@@ -324,13 +410,20 @@ function MediaHome({ profile }: { profile: Profile }) {
           title={catalog.title}
           items={catalog.items}
           onSelect={setSelectedItem}
+          onSeeMore={() =>
+            onDiscover({
+              addonId: catalog.addonId,
+              type: catalog.type,
+              catalogId: catalog.catalogId,
+            })
+          }
         />
       ))}
 
-      {selectedItem && addons.data && (
+      {selectedItem && (
         <MediaDetails
           item={selectedItem}
-          addons={addons.data.addons}
+          addons={addons}
           onClose={() => setSelectedItem(undefined)}
         />
       )}
@@ -338,46 +431,24 @@ function MediaHome({ profile }: { profile: Profile }) {
   )
 }
 
-function InstallAddon({ profile, onInstalled }: { profile: Profile; onInstalled: () => void }) {
-  const install = useMutation({
-    mutationFn: async (manifestUrl: string) => {
-      const normalizedUrl = manifestUrl.startsWith("stremio://")
-        ? `https://${manifestUrl.slice("stremio://".length)}`
-        : manifestUrl
-      const manifest = await loadManifest(normalizedUrl)
-      await api(`/v1/profiles/${profile.id}/addons`, {
-        method: "POST",
-        body: JSON.stringify({ manifestUrl: normalizedUrl, manifest }),
-      })
-    },
-    onSuccess: onInstalled,
-  })
-
+function UnavailableCollection({
+  icon: Icon,
+  title,
+  description,
+}: {
+  icon: typeof Library
+  title: string
+  description: string
+}) {
   return (
-    <Card className="mb-10 p-5">
-      <form
-        className="flex flex-col gap-3 sm:flex-row"
-        onSubmit={(event) => {
-          event.preventDefault()
-          install.mutate(String(new FormData(event.currentTarget).get("manifestUrl")))
-        }}
-      >
-        <Input
-          className="flex-1"
-          name="manifestUrl"
-          placeholder="https://addon.example/configured/manifest.json"
-          required
-        />
-        <Button disabled={install.isPending}>
-          {install.isPending ? "Verifying…" : "Verify and install"}
-        </Button>
-      </form>
-      {install.error && <p className="mt-3 text-sm text-red-400">{install.error.message}</p>}
-      <p className="mt-3 text-xs text-zinc-600">
-        Conduit encrypts the configured URL for synchronization. Catalog and stream requests go
-        directly from this device to the add-on.
-      </p>
-    </Card>
+    <ViewShell eyebrow="Your collection" title={title} description={description}>
+      <Card className="grid min-h-64 place-items-center border-dashed text-center">
+        <div>
+          <Icon className="mx-auto text-zinc-700" size={34} />
+          <p className="mt-4 text-sm text-zinc-500">Nothing here yet</p>
+        </div>
+      </Card>
+    </ViewShell>
   )
 }
 
@@ -385,15 +456,25 @@ function CatalogShelf({
   title,
   items,
   onSelect,
+  onSeeMore,
 }: {
   title: string
   items: CatalogItem[]
   onSelect: (item: CatalogItem) => void
+  onSeeMore: () => void
 }) {
   if (items.length === 0) return null
   return (
     <section className="mb-10">
-      <h2 className="mb-4 font-display text-xl font-semibold">{title}</h2>
+      <div className="mb-4 flex items-center justify-between gap-4">
+        <h2 className="font-display text-xl font-semibold">{title}</h2>
+        <button
+          className="text-xs font-semibold text-zinc-500 transition hover:text-amber-300"
+          onClick={onSeeMore}
+        >
+          See more
+        </button>
+      </div>
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-7">
         {items.slice(0, 14).map((item) => (
           <button
