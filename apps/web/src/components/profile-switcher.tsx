@@ -1,15 +1,22 @@
 import { useEffect, useRef, useState } from "react"
-import { Baby, Check, ChevronDown } from "lucide-react"
+import { Baby, Check, ChevronDown, LogOut, Puzzle, Settings } from "lucide-react"
+import type { AppSection } from "./app-sidebar"
 import type { Profile } from "../lib/api"
 
 export function ProfileSwitcher({
   profiles,
   activeProfile,
   onSelect,
+  userName = "",
+  onNavigate = () => undefined,
+  onSignOut = () => undefined,
 }: {
   profiles: Profile[]
   activeProfile: Profile
   onSelect: (profileId: string) => void
+  userName?: string
+  onNavigate?: (section: AppSection) => void
+  onSignOut?: () => void
 }) {
   const [open, setOpen] = useState(false)
   const root = useRef<HTMLDivElement>(null)
@@ -122,9 +129,36 @@ export function ProfileSwitcher({
               )
             })}
           </div>
+          <div className="mt-2 border-t border-zinc-800 pt-2">
+            <p className="truncate px-3 py-1 text-xs text-zinc-600">{userName}</p>
+            <MenuAction icon={Settings} label="Settings" onClick={() => { onNavigate("settings"); setOpen(false) }} />
+            <MenuAction icon={Puzzle} label="Add-ons" onClick={() => { onNavigate("addons"); setOpen(false) }} />
+            <MenuAction icon={LogOut} label="Log out" onClick={onSignOut} />
+          </div>
         </div>
       )}
     </div>
+  )
+}
+
+function MenuAction({
+  icon: Icon,
+  label,
+  onClick,
+}: {
+  icon: typeof Settings
+  label: string
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-zinc-400 hover:bg-zinc-900 hover:text-white"
+      onClick={onClick}
+    >
+      <Icon size={17} />
+      {label}
+    </button>
   )
 }
 
