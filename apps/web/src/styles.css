@@ -100,7 +100,11 @@ body {
 .player-volume::-webkit-slider-runnable-track {
   height: 4px;
   border-radius: 9999px;
-  background: rgb(255 255 255 / 32%);
+  background: linear-gradient(
+    to right,
+    rgb(251 191 36) 0 var(--player-volume),
+    rgb(255 255 255 / 32%) var(--player-volume) 100%
+  );
 }
 
 .player-volume::-webkit-slider-thumb {
