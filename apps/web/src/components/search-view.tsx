@@ -5,12 +5,15 @@ import type { InstalledAddon } from "../lib/api"
 import type { CatalogItem } from "../lib/core"
 import { searchAddons, searchableCatalogs, type SearchResult } from "../lib/search"
 import { Card } from "./ui/card"
+import { LibraryToggle } from "./library-toggle"
 
 export function SearchView({
+  profileId,
   addons,
   query,
   onSelect,
 }: {
+  profileId: string
   addons: InstalledAddon[]
   query: string
   onSelect: (item: CatalogItem) => void
@@ -78,33 +81,37 @@ export function SearchView({
               {section.items.map((item) => {
                 const key = `${item.type}:${item.id}`
                 return (
-                  <button
-                    className={`group w-36 shrink-0 rounded-xl text-left outline-none sm:w-40 ${
-                      activeKey === key
-                        ? "ring-2 ring-amber-400 ring-offset-4 ring-offset-zinc-950"
-                        : ""
-                    }`}
-                    key={key}
-                    onMouseEnter={() => setActiveKey(key)}
-                    onFocus={() => setActiveKey(key)}
-                    onClick={() => onSelect(item)}
-                  >
-                    <div className="aspect-[2/3] overflow-hidden rounded-xl bg-zinc-900 ring-1 ring-zinc-800 transition group-hover:-translate-y-1 group-hover:ring-amber-400/60">
-                      {item.poster ? (
-                        <img
-                          className="h-full w-full object-cover"
-                          src={item.poster}
-                          alt=""
-                          loading="lazy"
-                        />
-                      ) : (
-                        <div className="grid h-full place-items-center text-zinc-700">
-                          <Film />
-                        </div>
-                      )}
+                  <div className="group relative w-36 shrink-0 sm:w-40" key={key}>
+                    <button
+                      className={`w-full rounded-xl text-left outline-none ${
+                        activeKey === key
+                          ? "ring-2 ring-amber-400 ring-offset-4 ring-offset-zinc-950"
+                          : ""
+                      }`}
+                      onMouseEnter={() => setActiveKey(key)}
+                      onFocus={() => setActiveKey(key)}
+                      onClick={() => onSelect(item)}
+                    >
+                      <div className="aspect-[2/3] overflow-hidden rounded-xl bg-zinc-900 ring-1 ring-zinc-800 transition group-hover:-translate-y-1 group-hover:ring-amber-400/60">
+                        {item.poster ? (
+                          <img
+                            className="h-full w-full object-cover"
+                            src={item.poster}
+                            alt=""
+                            loading="lazy"
+                          />
+                        ) : (
+                          <div className="grid h-full place-items-center text-zinc-700">
+                            <Film />
+                          </div>
+                        )}
+                      </div>
+                      <p className="mt-2 line-clamp-2 text-sm font-medium">{item.name}</p>
+                    </button>
+                    <div className="absolute right-2 top-2 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
+                      <LibraryToggle profileId={profileId} item={item} compact />
                     </div>
-                    <p className="mt-2 line-clamp-2 text-sm font-medium">{item.name}</p>
-                  </button>
+                  </div>
                 )
               })}
             </div>

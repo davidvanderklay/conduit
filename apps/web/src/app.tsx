@@ -14,6 +14,8 @@ import { SearchView } from "./components/search-view"
 import { AppSidebar, type AppSection } from "./components/app-sidebar"
 import { AddonsView, ViewShell } from "./components/addons-view"
 import { SettingsView } from "./components/settings-view"
+import { LibraryView } from "./components/library-view"
+import { LibraryToggle } from "./components/library-toggle"
 import { applyPreferences, readPreferences } from "./lib/preferences"
 import {
   DiscoverView,
@@ -290,6 +292,7 @@ function ProfileApp({
       )}
       {!searchInput && section === "discover" && (
         <DiscoverView
+          profileId={profile.id}
           addons={addons.data?.addons ?? []}
           selection={discoverSelection}
           onChange={onDiscoverSelection}
@@ -297,10 +300,10 @@ function ProfileApp({
         />
       )}
       {!searchInput && section === "library" && (
-        <UnavailableCollection
-          icon={Library}
-          title="Library"
-          description="Saved movies and series will live here. Open any title to start building your library."
+        <LibraryView
+          profileId={profile.id}
+          addons={addons.data?.addons ?? []}
+          onSelect={setSelectedItem}
         />
       )}
       {!searchInput && section === "calendar" && (
@@ -320,6 +323,7 @@ function ProfileApp({
       {!searchInput && section === "settings" && <SettingsView profile={profile} />}
       {searchInput && (
         <SearchView
+          profileId={profile.id}
           addons={addons.data?.addons ?? []}
           query={query}
           onSelect={setSelectedItem}
@@ -329,6 +333,7 @@ function ProfileApp({
         <MediaDetails
           item={selectedItem}
           addons={addons.data.addons}
+          profileId={profile.id}
           onClose={() => setSelectedItem(undefined)}
         />
       )}
@@ -407,6 +412,7 @@ function MediaHome({
       {catalogs.data?.catalogs.map((catalog) => (
         <CatalogShelf
           key={catalog.key}
+          profileId={profile.id}
           title={catalog.title}
           items={catalog.items}
           onSelect={setSelectedItem}
@@ -424,6 +430,7 @@ function MediaHome({
         <MediaDetails
           item={selectedItem}
           addons={addons}
+          profileId={profile.id}
           onClose={() => setSelectedItem(undefined)}
         />
       )}
@@ -455,11 +462,13 @@ function UnavailableCollection({
 function CatalogShelf({
   title,
   items,
+  profileId,
   onSelect,
   onSeeMore,
 }: {
   title: string
   items: CatalogItem[]
+  profileId: string
   onSelect: (item: CatalogItem) => void
   onSeeMore: () => void
 }) {
@@ -477,27 +486,28 @@ function CatalogShelf({
       </div>
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-7">
         {items.slice(0, 14).map((item) => (
-          <button
-            className="group text-left"
-            key={`${item.type}:${item.id}`}
-            onClick={() => onSelect(item)}
-          >
-            <div className="aspect-[2/3] overflow-hidden rounded-xl bg-zinc-900 ring-1 ring-zinc-800 transition group-hover:-translate-y-1 group-hover:ring-amber-400/60">
-              {item.poster ? (
-                <img
-                  className="h-full w-full object-cover"
-                  src={item.poster}
-                  alt=""
-                  loading="lazy"
-                />
-              ) : (
-                <div className="grid h-full place-items-center text-zinc-700">
-                  <Film />
-                </div>
-              )}
+          <div className="group relative" key={`${item.type}:${item.id}`}>
+            <button className="w-full text-left" onClick={() => onSelect(item)}>
+              <div className="aspect-[2/3] overflow-hidden rounded-xl bg-zinc-900 ring-1 ring-zinc-800 transition group-hover:-translate-y-1 group-hover:ring-amber-400/60">
+                {item.poster ? (
+                  <img
+                    className="h-full w-full object-cover"
+                    src={item.poster}
+                    alt=""
+                    loading="lazy"
+                  />
+                ) : (
+                  <div className="grid h-full place-items-center text-zinc-700">
+                    <Film />
+                  </div>
+                )}
+              </div>
+              <p className="mt-2 line-clamp-2 text-sm font-medium">{item.name}</p>
+            </button>
+            <div className="absolute right-2 top-2 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
+              <LibraryToggle profileId={profileId} item={item} compact />
             </div>
-            <p className="mt-2 line-clamp-2 text-sm font-medium">{item.name}</p>
-          </button>
+          </div>
         ))}
       </div>
     </section>
