@@ -9,7 +9,10 @@ import { ProfileSwitcher } from "./components/profile-switcher"
 import { Button } from "./components/ui/button"
 import { Card } from "./components/ui/card"
 import { Input } from "./components/ui/input"
-import { MediaDetails } from "./components/media-details"
+import {
+  MediaDetails,
+  type MetadataBrowseTarget,
+} from "./components/media-details"
 import { SearchView } from "./components/search-view"
 import { AppSidebar, type AppSection } from "./components/app-sidebar"
 import { AddonsView, ViewShell } from "./components/addons-view"
@@ -219,6 +222,17 @@ function AuthenticatedApp({ userId, userName }: { userId: string; userName: stri
           query={query}
           discoverSelection={discoverSelection}
           onDiscoverSelection={setDiscoverSelection}
+          onMetadataBrowse={(target) => {
+            if (target.kind === "genre") {
+              setSearchInput("")
+              setQuery("")
+              setDiscoverSelection({ type: target.mediaType, genre: target.value })
+              setSection("discover")
+              return
+            }
+            setSearchInput(target.value)
+            setQuery(target.value)
+          }}
         />
       </div>
     </div>
@@ -279,6 +293,7 @@ function ProfileApp({
   query,
   discoverSelection,
   onDiscoverSelection,
+  onMetadataBrowse,
 }: {
   profile: Profile
   section: AppSection
@@ -287,6 +302,7 @@ function ProfileApp({
   query: string
   discoverSelection: DiscoverSelection
   onDiscoverSelection: (selection: DiscoverSelection) => void
+  onMetadataBrowse: (target: MetadataBrowseTarget) => void
 }) {
   const [selectedItem, setSelectedItem] = useState<CatalogItem>()
   const [selectedVideoId, setSelectedVideoId] = useState<string>()
@@ -310,6 +326,7 @@ function ProfileApp({
             onDiscoverSelection(selection)
             onNavigate("discover")
           }}
+          onMetadataBrowse={onMetadataBrowse}
         />
       )}
       {!searchInput && section === "discover" && (
@@ -375,6 +392,7 @@ function ProfileApp({
           addons={addons.data.addons}
           profileId={profile.id}
           initialVideoId={selectedVideoId}
+          onBrowse={onMetadataBrowse}
           onClose={() => setSelectedItem(undefined)}
         />
       )}
@@ -387,11 +405,13 @@ function MediaHome({
   addons,
   onHistory,
   onDiscover,
+  onMetadataBrowse,
 }: {
   profile: Profile
   addons: InstalledAddon[]
   onHistory: () => void
   onDiscover: (selection: DiscoverSelection) => void
+  onMetadataBrowse: (target: MetadataBrowseTarget) => void
 }) {
   const [selectedItem, setSelectedItem] = useState<CatalogItem>()
   const [selectedVideoId, setSelectedVideoId] = useState<string>()
@@ -488,6 +508,7 @@ function MediaHome({
           addons={addons}
           profileId={profile.id}
           initialVideoId={selectedVideoId}
+          onBrowse={onMetadataBrowse}
           onClose={() => setSelectedItem(undefined)}
         />
       )}
