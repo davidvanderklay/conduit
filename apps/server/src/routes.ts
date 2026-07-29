@@ -706,22 +706,31 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
       if (!(await canAccessProfile(db, user.id, profileId))) return reply.forbidden()
 
       const staleAfter = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
-      const rows = await db
-        .select()
-        .from(watchProgress)
-        .where(
-          view === "continue"
-            ? and(
-                eq(watchProgress.profileId, profileId),
-                eq(watchProgress.watched, false),
-                sql`${watchProgress.positionMs} >= 30000`,
-                sql`${watchProgress.updatedAt} >= ${staleAfter}`,
+      const rows =
+        view === "continue"
+          ? await db
+              .selectDistinctOn([watchProgress.mediaType, watchProgress.mediaId])
+              .from(watchProgress)
+              .where(
+                and(
+                  eq(watchProgress.profileId, profileId),
+                  sql`${watchProgress.updatedAt} >= ${staleAfter}`,
+                ),
               )
-            : eq(watchProgress.profileId, profileId),
-        )
-        .orderBy(desc(watchProgress.updatedAt))
-        .limit(limit)
-      return { items: rows.map(toProgressItem) }
+              .orderBy(
+                asc(watchProgress.mediaType),
+                asc(watchProgress.mediaId),
+                desc(watchProgress.updatedAt),
+              )
+          : await db
+              .select()
+              .from(watchProgress)
+              .where(eq(watchProgress.profileId, profileId))
+              .orderBy(desc(watchProgress.updatedAt))
+              .limit(limit)
+      const visibleRows =
+        view === "continue" ? filterContinueWatching(rows, limit) : rows
+      return { items: visibleRows.map(toProgressItem) }
     },
   )
 
@@ -878,6 +887,15 @@ export function isPlaybackComplete(positionMs: number, durationMs: number): bool
     positionMs / durationMs >= 0.9 ||
     (durationMs >= 600_000 && durationMs - positionMs <= 120_000)
   )
+}
+
+export function filterContinueWatching<
+  T extends { positionMs: number; watched: boolean; updatedAt: Date },
+>(items: T[], limit: number): T[] {
+  return items
+    .filter((item) => !item.watched && item.positionMs >= 30_000)
+    .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
+    .slice(0, limit)
 }
 
 function toProgressItem(item: typeof watchProgress.$inferSelect) {
