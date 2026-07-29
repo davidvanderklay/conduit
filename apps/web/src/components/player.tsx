@@ -16,6 +16,7 @@ import type { InstalledAddon } from "../lib/api"
 import { addonsForResource } from "../lib/addons"
 import { loadSubtitles, type Subtitle } from "../lib/core"
 import { isDesktop } from "../lib/desktop"
+import { readPreferences } from "../lib/preferences"
 import { DesktopPlayer } from "./desktop-player"
 
 interface PlayerSubtitle extends Subtitle {
@@ -86,6 +87,7 @@ function WebPlayer({
   addons: InstalledAddon[]
   onClose: () => void
 }) {
+  const preferences = readPreferences()
   const shellRef = useRef<HTMLDivElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const hlsRef = useRef<Hls | null>(null)
@@ -94,7 +96,7 @@ function WebPlayer({
   const [waiting, setWaiting] = useState(true)
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
-  const [volume, setVolume] = useState(1)
+  const [volume, setVolume] = useState(preferences.volume / 100)
   const [muted, setMuted] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [subtitles, setSubtitles] = useState<PlayerSubtitle[]>([])
@@ -178,6 +180,8 @@ function WebPlayer({
   useEffect(() => {
     const video = videoRef.current
     if (!video) return
+    video.volume = preferences.volume / 100
+    video.autoplay = preferences.autoplay
     let cancelled = false
     let hls: Hls | undefined
     setWaiting(true)
@@ -217,7 +221,7 @@ function WebPlayer({
       video.removeAttribute("src")
       video.load()
     }
-  }, [url])
+  }, [preferences.autoplay, preferences.volume, url])
 
   useEffect(() => {
     return () => {

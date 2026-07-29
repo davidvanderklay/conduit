@@ -36,7 +36,12 @@ export interface AddonManifest {
     id: string
     type: string
     name?: string
-    extra?: Array<{ name: string; isRequired?: boolean }>
+    extra?: Array<{
+      name: string
+      isRequired?: boolean
+      options?: string[]
+      optionsLimit?: number
+    }>
   }>
 }
 
