@@ -30,6 +30,7 @@ import {
   type NativeTrack,
 } from "../lib/desktop"
 import { loadSubtitles } from "../lib/core"
+import { nativeMediaTitle, playerHeading, type PlayerHeading } from "../lib/player-title"
 import { usePlaybackProgress } from "../lib/progress"
 import { Card } from "./ui/card"
 
@@ -37,7 +38,6 @@ type TrackMenuName = "audio" | "subtitles"
 
 export function DesktopPlayer({
   url,
-  title,
   type,
   videoId,
   profileId,
@@ -46,7 +46,6 @@ export function DesktopPlayer({
   onClose,
 }: {
   url: string
-  title: string
   type: string
   videoId: string
   profileId: string
@@ -55,6 +54,8 @@ export function DesktopPlayer({
   onClose: () => void
 }) {
   const [snapshot, setSnapshot] = useState<NativePlayerSnapshot>()
+  const heading = playerHeading(progressMetadata)
+  const mediaTitle = nativeMediaTitle(progressMetadata)
   const [error, setError] = useState<string>()
   const [controlsVisible, setControlsVisible] = useState(true)
   const [activeMenu, setActiveMenu] = useState<TrackMenuName>()
@@ -94,7 +95,7 @@ export function DesktopPlayer({
   useEffect(() => {
     let cancelled = false
     document.documentElement.classList.add("native-playback")
-    void openNativePlayer(url, title)
+    void openNativePlayer(url, mediaTitle)
       .then(async (initial) => {
         if (cancelled) return
         setSnapshot(initial)
@@ -120,7 +121,7 @@ export function DesktopPlayer({
       document.documentElement.classList.remove("native-playback")
       if (!closing.current) void stopNativePlayer()
     }
-  }, [addons, title, type, url, videoId])
+  }, [addons, mediaTitle, type, url, videoId])
 
   useEffect(() => {
     if (resumed.current || !snapshot?.duration || !progress.isSuccess) return
@@ -336,25 +337,21 @@ export function DesktopPlayer({
           chromeVisible ? "visible" : "invisible"
         }`}
       >
-        <h2
-          className={`min-w-0 truncate font-display font-semibold drop-shadow-lg ${
-            fullscreen ? "text-2xl" : "text-lg"
-          }`}
-        >
-          {title}
-        </h2>
-        <button
-          className={`pointer-events-auto shrink-0 rounded-full bg-black/60 text-zinc-200 hover:bg-white/15 ${
-            fullscreen ? "p-3.5 [&_svg]:size-6" : "p-2.5"
-          }`}
-          onClick={(event) => {
-            event.stopPropagation()
-            void close()
-          }}
-          aria-label="Close playback"
-        >
-          <X size={21} />
-        </button>
+        <div className="flex min-w-0 items-center gap-3">
+          <button
+            className={`pointer-events-auto grid shrink-0 place-items-center rounded-full bg-black/60 text-zinc-200 hover:bg-white/15 ${
+              fullscreen ? "size-13 [&_svg]:size-7" : "size-10"
+            }`}
+            onClick={(event) => {
+              event.stopPropagation()
+              void close()
+            }}
+            aria-label="Back to details"
+          >
+            <Play className="rotate-180 fill-current" size={21} />
+          </button>
+          <PlayerHeadingText heading={heading} fullscreen={fullscreen} />
+        </div>
       </div>
 
       {error ? (
@@ -620,6 +617,31 @@ function PlayerIcon({
     >
       {children}
     </button>
+  )
+}
+
+function PlayerHeadingText({
+  heading,
+  fullscreen,
+}: {
+  heading: PlayerHeading
+  fullscreen: boolean
+}) {
+  return (
+    <div className="min-w-0 drop-shadow-lg">
+      <h2
+        className={`truncate font-display font-semibold ${
+          fullscreen ? "text-2xl" : "text-lg"
+        }`}
+      >
+        {heading.primary}
+      </h2>
+      {heading.secondary && (
+        <p className={`truncate text-zinc-300 ${fullscreen ? "text-sm" : "text-xs"}`}>
+          {heading.secondary}
+        </p>
+      )}
+    </div>
   )
 }
 
