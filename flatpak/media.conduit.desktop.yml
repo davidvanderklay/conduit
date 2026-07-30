@@ -111,6 +111,8 @@ modules:
     build-commands:
       - cp -a /usr/lib/sdk/rust-stable rust-toolchain
       - rust-std-wasm32-unknown-unknown/install.sh --prefix="$PWD/rust-toolchain" --disable-ldconfig
+      - mv rust-toolchain/bin/rustc rust-toolchain/bin/rustc-real
+      - install -Dm755 rustc-wrapper rust-toolchain/bin/rustc
       - node pnpm/bin/pnpm.cjs install --offline --frozen-lockfile
       - PATH="$PWD/rust-toolchain/bin:$PATH" node pnpm/bin/pnpm.cjs core:build
       - node pnpm/bin/pnpm.cjs --filter @conduit/web build
@@ -130,6 +132,12 @@ modules:
         url: https://static.rust-lang.org/dist/2026-07-16/rust-std-1.97.1-wasm32-unknown-unknown.tar.xz
         sha256: fa0edb6e9f34faae5735554d62d50875eded839dc707d0f1c01467a918d8453b
         dest: rust-std-wasm32-unknown-unknown
+      - type: inline
+        dest-filename: rustc-wrapper
+        contents: |
+          #!/bin/sh
+          toolchain="$(dirname "$0")/.."
+          exec "$toolchain/bin/rustc-real" --sysroot "$toolchain" "$@"
       - type: dir
         path: ..
         skip:
