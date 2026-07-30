@@ -1,7 +1,7 @@
 {
   "name": "conduit",
   "private": true,
-  "license": "AGPL-3.0-only",
+  "license": "MIT",
   "scripts": {
     "build": "vp run ci:build",
     "check": "vp run ci:check",

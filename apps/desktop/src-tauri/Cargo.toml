@@ -3,7 +3,7 @@ name = "conduit-desktop"
 version = "0.1.0"
 description = "Conduit desktop media client"
 edition = "2021"
-license = "AGPL-3.0-only"
+license = "MIT"
 
 [lib]
 name = "conduit_desktop"
