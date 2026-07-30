@@ -5,12 +5,21 @@ on:
     tags:
       - "v[0-9]+.[0-9]+.[0-9]+*"
   workflow_dispatch:
+    inputs:
+      target:
+        description: Release artifact to build
+        type: choice
+        options:
+          - all
+          - flatpak
+        default: all
 
 permissions:
   contents: write
 
 jobs:
   windows:
+    if: github.event_name != 'workflow_dispatch' || inputs.target == 'all'
     name: Windows NSIS
     runs-on: windows-latest
     steps:
@@ -44,6 +53,7 @@ jobs:
           if-no-files-found: error
 
   linux-appimage:
+    if: github.event_name != 'workflow_dispatch' || inputs.target == 'all'
     name: Linux AppImage
     runs-on: ubuntu-22.04
     steps:
@@ -85,6 +95,7 @@ jobs:
           if-no-files-found: error
 
   linux-flatpak:
+    if: github.event_name != 'workflow_dispatch' || inputs.target == 'all' || inputs.target == 'flatpak'
     name: Linux Flatpak
     runs-on: ubuntu-22.04
     steps:
@@ -121,6 +132,7 @@ jobs:
           if-no-files-found: error
 
   macos:
+    if: github.event_name != 'workflow_dispatch' || inputs.target == 'all'
     name: macOS ${{ matrix.arch }}
     strategy:
       fail-fast: false
