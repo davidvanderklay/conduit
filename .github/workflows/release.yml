@@ -104,10 +104,94 @@ jobs:
             target/release/bundle/conduit.flatpak
           if-no-files-found: error
 
+  macos:
+    name: macOS ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-15
+            target: aarch64-apple-darwin
+          - arch: x64
+            runner: macos-15-intel
+            target: x86_64-apple-darwin
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.14.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown,${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-pack
+      - name: Install macOS packaging dependencies
+        run: brew install dylibbundler mpv
+      - run: pnpm install --frozen-lockfile
+      - name: Set version from tag
+        if: github.ref_type == 'tag'
+        run: node scripts/set-release-version.mjs "${GITHUB_REF_NAME#v}"
+      - name: Build macOS application
+        run: |
+          pnpm --filter @conduit/desktop exec tauri build \
+            --target "${{ matrix.target }}" \
+            --config src-tauri/tauri.macos.conf.json
+      - name: Bundle libmpv and create DMG
+        env:
+          MACOS_ARCH: ${{ matrix.arch }}
+          RUST_TARGET: ${{ matrix.target }}
+        run: |
+          app="target/${RUST_TARGET}/release/bundle/macos/conduit.app"
+          executable="${app}/Contents/MacOS/conduit"
+          frameworks="${app}/Contents/Frameworks"
+          output_dir="target/release/bundle/macos"
+          version="$(node -p "require('./apps/desktop/src-tauri/tauri.conf.json').version")"
+
+          mkdir -p "$frameworks" "$output_dir"
+          dylibbundler \
+            -od \
+            -b \
+            -x "$executable" \
+            -d "$frameworks" \
+            -p @executable_path/../Frameworks
+
+          if otool -L "$executable" "$frameworks"/*.dylib | grep -E '/(opt/homebrew|usr/local)/'; then
+            echo "Homebrew library reference remains in the application bundle" >&2
+            exit 1
+          fi
+
+          codesign --force --deep --sign - "$app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+
+          staging="$(mktemp -d)"
+          cp -R "$app" "$staging/"
+          ln -s /Applications "$staging/Applications"
+          hdiutil create \
+            -volname "Conduit" \
+            -srcfolder "$staging" \
+            -ov \
+            -format UDZO \
+            "${output_dir}/conduit_${version}_${MACOS_ARCH}.dmg"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: conduit-macos-${{ matrix.arch }}
+          path: target/release/bundle/macos/*.dmg
+          if-no-files-found: error
+
   publish:
     name: Publish GitHub release
     if: github.ref_type == 'tag'
-    needs: [windows, linux]
+    needs: [windows, linux, macos]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
