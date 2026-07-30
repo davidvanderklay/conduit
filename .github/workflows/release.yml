@@ -66,6 +66,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
+            appstream \
             flatpak \
             flatpak-builder \
             pkg-config \
