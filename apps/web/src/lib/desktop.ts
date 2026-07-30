@@ -63,6 +63,14 @@ export function nativeFullscreen(): Promise<boolean> {
   return invoke("player_is_fullscreen")
 }
 
+export async function onNativeFullscreenChange(
+  listener: (fullscreen: boolean) => void,
+): Promise<() => void> {
+  const { getCurrentWindow } = await import("@tauri-apps/api/window")
+  const window = getCurrentWindow()
+  return window.onResized(async () => listener(await window.isFullscreen()))
+}
+
 export async function prepareNativeTextSave(
   suggestedName: string,
 ): Promise<((contents: string) => Promise<void>) | null> {

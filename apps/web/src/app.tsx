@@ -37,6 +37,7 @@ import {
 } from "./lib/desktop-auth"
 import { DiscoverView, type DiscoverSelection } from "./components/discover-view"
 import { VirtualVerticalList } from "./components/virtual-vertical-list"
+import { FullscreenToggle } from "./components/fullscreen-toggle"
 
 export function App() {
   const session = authClient.useSession()
@@ -679,6 +680,7 @@ function AuthenticatedApp({
             )}
           </div>
           <div className="flex shrink-0 items-center gap-2">
+            <FullscreenToggle />
             <ProfileSwitcher
               profiles={profiles}
               activeProfile={activeProfile}
