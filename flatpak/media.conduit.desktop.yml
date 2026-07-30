@@ -17,11 +17,16 @@ finish-args:
   - --filesystem=xdg-download
 
 build-options:
+  no-debuginfo: true
+  strip: true
   append-path: /usr/lib/sdk/node24/bin:/usr/lib/sdk/rust-stable/bin
   env:
     CARGO_HOME: /run/build/conduit/cargo
     CARGO_NET_OFFLINE: "true"
     LIBRARY_PATH: /app/lib
+    CARGO_BUILD_JOBS: "2"
+    MAKEFLAGS: -j2
+    NINJAFLAGS: -j2
 
 modules:
   - name: libplacebo
