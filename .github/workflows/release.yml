@@ -136,7 +136,7 @@ jobs:
         with:
           tool: wasm-pack
       - name: Install macOS packaging dependencies
-        run: brew install dylibbundler mpv
+        run: brew install dylibbundler mpv pkg-config
       - run: pnpm install --frozen-lockfile
       - name: Set version from tag
         if: github.ref_type == 'tag'

@@ -1,6 +1,7 @@
 fn main() {
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     probe_linux_egl();
+    probe_macos_mpv();
     if target_os == "windows" {
         let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").expect("Cargo manifest directory");
         let libmpv = std::path::Path::new(&manifest_dir).join("libmpv");
@@ -29,3 +30,11 @@ fn probe_linux_egl() {
 
 #[cfg(not(target_os = "linux"))]
 fn probe_linux_egl() {}
+
+#[cfg(target_os = "macos")]
+fn probe_macos_mpv() {
+    pkg_config::probe_library("mpv").expect("libmpv development files are required on macOS");
+}
+
+#[cfg(not(target_os = "macos"))]
+fn probe_macos_mpv() {}
