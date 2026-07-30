@@ -11,7 +11,7 @@
       add-ons, shared libraries, and synchronized watch progress.
     </p>
   </description>
-  <launchable type="desktop-id">media.conduit.desktop</launchable>
+  <launchable type="desktop-id">media.conduit.desktop.desktop</launchable>
   <url type="homepage">https://github.com/davidvanderklay/conduit</url>
   <content_rating type="oars-1.1" />
 </component>
