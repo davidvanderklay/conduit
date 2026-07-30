@@ -16,7 +16,7 @@ export default defineConfig({
       },
       "ci:check": {
         command:
-          "cargo fmt --all -- --check && cargo clippy --workspace --all-targets -- -D warnings && pnpm -r check",
+          "pnpm lint && cargo fmt --all -- --check && cargo clippy --workspace --all-targets -- -D warnings && pnpm -r check",
       },
       "app:dev": {
         command: "pnpm --parallel --filter @conduit/server --filter @conduit/web dev",

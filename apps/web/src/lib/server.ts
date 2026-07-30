@@ -1,7 +1,20 @@
 export const SERVER_STORAGE_KEY = "conduit:server-url"
 
-export const DEFAULT_SERVER_URL =
-  import.meta.env.VITE_API_URL?.replace(/\/$/, "") ?? "http://localhost:3000"
+function runtimeDefaultServerUrl(): string {
+  const configured = import.meta.env.VITE_API_URL?.replace(/\/$/, "")
+  if (configured) return configured
+
+  if (
+    typeof window !== "undefined" &&
+    (window.location.protocol === "http:" || window.location.protocol === "https:")
+  ) {
+    return window.location.origin
+  }
+
+  return "http://localhost:3000"
+}
+
+export const DEFAULT_SERVER_URL = runtimeDefaultServerUrl()
 
 export function normalizeServerUrl(value: string): string {
   const input = value.trim()
