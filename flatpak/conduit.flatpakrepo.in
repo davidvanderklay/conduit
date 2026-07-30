@@ -1,0 +1,10 @@
+[Flatpak Repo]
+Version=1
+Title=Conduit
+Comment=Self-hosted film and television client
+Description=Signed releases of the Conduit desktop application
+Url=https://davidvanderklay.github.io/conduit/repo/
+Homepage=https://github.com/davidvanderklay/conduit
+RuntimeRepo=https://dl.flathub.org/repo/flathub.flatpakrepo
+DefaultBranch=master
+GPGKey=@GPG_KEY@

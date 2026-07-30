@@ -16,6 +16,12 @@ on:
 
 permissions:
   contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: desktop-release
+  cancel-in-progress: false
 
 jobs:
   windows:
@@ -100,15 +106,55 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Install Flatpak tooling
         run: |
           sudo apt-get update
           sudo apt-get install -y \
             appstream \
             flatpak \
-            flatpak-builder
-      - name: Build Flatpak bundle
+            flatpak-builder \
+            ostree
+      - name: Set version from tag
+        if: github.ref_type == 'tag'
         run: |
+          RELEASE_DATE="$(git show -s --format=%cs "$GITHUB_SHA")" \
+            node scripts/set-release-version.mjs "${GITHUB_REF_NAME#v}"
+      - name: Import repository signing key
+        if: github.ref_type == 'tag'
+        id: gpg
+        uses: crazy-max/ghaction-import-gpg@v6
+        with:
+          gpg_private_key: ${{ secrets.FLATPAK_GPG_PRIVATE_KEY }}
+          passphrase: ${{ secrets.FLATPAK_GPG_PASSPHRASE }}
+      - name: Restore published repository
+        if: github.ref_type == 'tag'
+        run: |
+          if git show-ref --verify --quiet refs/remotes/origin/flatpak-repo; then
+            git worktree add -B flatpak-repo flatpak-site origin/flatpak-repo
+            test -f flatpak-site/repo/config
+            ostree fsck --repo=flatpak-site/repo
+          else
+            git worktree add --detach flatpak-site
+            git -C flatpak-site switch --orphan flatpak-repo
+            mkdir -p flatpak-site/repo
+          fi
+      - name: Build Flatpak repository and bundle
+        env:
+          GPG_KEY_ID: ${{ steps.gpg.outputs.fingerprint }}
+        run: |
+          repository=flatpak-repo
+          signing_options=()
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            repository=flatpak-site/repo
+            signing_options=(
+              "--gpg-sign=${GPG_KEY_ID}"
+              "--gpg-homedir=${HOME}/.gnupg"
+              "--collection-id=media.conduit.desktop"
+            )
+          fi
+
           appstreamcli validate --no-net flatpak/media.conduit.desktop.metainfo.xml
           flatpak remote-add --user --if-not-exists flathub \
             https://dl.flathub.org/repo/flathub.flatpakrepo
@@ -117,20 +163,88 @@ jobs:
             --user \
             --jobs=2 \
             --install-deps-from=flathub \
-            --repo=flatpak-repo \
+            --repo="$repository" \
+            "${signing_options[@]}" \
             flatpak-build \
             flatpak/media.conduit.desktop.yml
           mkdir -p target/release/bundle
           flatpak build-bundle \
-            flatpak-repo \
+            "$repository" \
             target/release/bundle/conduit.flatpak \
             media.conduit.desktop \
             --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo
+      - name: Finalize and verify signed repository
+        if: github.ref_type == 'tag'
+        env:
+          GPG_KEY_ID: ${{ steps.gpg.outputs.fingerprint }}
+        run: |
+          public_key="$(mktemp)"
+          gpg --batch --export "$GPG_KEY_ID" > "$public_key"
+          gpg --batch --armor --export "$GPG_KEY_ID" \
+            > flatpak-site/conduit-flatpak-signing-key.asc
+          printf '%s\n' "$GPG_KEY_ID" \
+            > flatpak-site/conduit-flatpak-signing-key.txt
+
+          flatpak build-update-repo \
+            --gpg-sign="$GPG_KEY_ID" \
+            --gpg-homedir="${HOME}/.gnupg" \
+            --generate-static-deltas \
+            --title="Conduit" \
+            --comment="Self-hosted film and television client" \
+            --description="Signed releases of the Conduit desktop application" \
+            --homepage="https://github.com/davidvanderklay/conduit" \
+            --default-branch=master \
+            --collection-id=media.conduit.desktop \
+            flatpak-site/repo
+
+          gpg_key="$(base64 --wrap=0 < "$public_key")"
+          sed \
+            -e "s|@GPG_KEY@|${gpg_key}|" \
+            flatpak/conduit.flatpakrepo.in \
+            > flatpak-site/conduit.flatpakrepo
+          touch flatpak-site/.nojekyll
+
+          ostree fsck --repo=flatpak-site/repo
+          test -s flatpak-site/repo/summary
+          test -s flatpak-site/repo/summary.sig
+          flatpak remote-add \
+            --user \
+            --if-not-exists \
+            --gpg-import="$public_key" \
+            conduit-ci \
+            "file://${PWD}/flatpak-site/repo"
+          flatpak remote-ls --user conduit-ci \
+            | grep -F "media.conduit.desktop"
+          flatpak install \
+            --user \
+            --noninteractive \
+            --no-deps \
+            conduit-ci \
+            media.conduit.desktop
+          flatpak info --user media.conduit.desktop \
+            | grep -F "Version: ${GITHUB_REF_NAME#v}"
+      - name: Preserve repository history
+        if: github.ref_type == 'tag'
+        run: |
+          git -C flatpak-site config user.name github-actions
+          git -C flatpak-site config user.email \
+            41898282+github-actions[bot]@users.noreply.github.com
+          git -C flatpak-site add --all
+          if ! git -C flatpak-site diff --cached --quiet; then
+            git -C flatpak-site commit \
+              -m "Publish Flatpak ${GITHUB_REF_NAME}"
+          fi
+          git -C flatpak-site push origin HEAD:flatpak-repo
       - uses: actions/upload-artifact@v4
         with:
           name: conduit-linux-flatpak
           path: target/release/bundle/conduit.flatpak
           if-no-files-found: error
+      - name: Upload GitHub Pages artifact
+        if: github.ref_type == 'tag'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: flatpak-site
 
   macos:
     if: github.event_name != 'workflow_dispatch' || inputs.target == 'all'
@@ -238,3 +352,16 @@ jobs:
           generate_release_notes: true
           prerelease: ${{ contains(github.ref_name, '-') }}
           files: artifacts/*
+
+  publish-flatpak-repository:
+    name: Publish Flatpak repository
+    if: github.ref_type == 'tag'
+    needs: [linux-flatpak]
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy repository atomically
+        id: deployment
+        uses: actions/deploy-pages@v4
