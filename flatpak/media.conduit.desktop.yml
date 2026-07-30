@@ -75,7 +75,7 @@ modules:
     build-commands:
       - node pnpm/bin/pnpm.cjs install --offline --frozen-lockfile
       - node pnpm/bin/pnpm.cjs --filter @conduit/web build
-      - cargo build --offline --release -p conduit-desktop
+      - cargo build --offline --release -p conduit-desktop --features custom-protocol
       - install -Dm755 target/release/conduit-desktop /app/bin/conduit
       - install -Dm644 flatpak/media.conduit.desktop.desktop /app/share/applications/media.conduit.desktop.desktop
       - install -Dm644 flatpak/media.conduit.desktop.metainfo.xml /app/share/metainfo/media.conduit.desktop.metainfo.xml
