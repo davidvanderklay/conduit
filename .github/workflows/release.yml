@@ -221,6 +221,14 @@ jobs:
             --no-deps \
             conduit-ci \
             media.conduit.desktop
+          linkage="$(
+            flatpak run --command=sh media.conduit.desktop \
+              -c 'ldd /app/bin/conduit'
+          )"
+          if grep -F 'not found' <<< "$linkage"; then
+            echo "Flatpak executable has unresolved shared libraries" >&2
+            exit 1
+          fi
           flatpak info --user media.conduit.desktop \
             | grep -F "Version: ${GITHUB_REF_NAME#v}"
       - name: Preserve repository history
