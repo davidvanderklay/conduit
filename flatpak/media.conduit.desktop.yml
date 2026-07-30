@@ -98,12 +98,29 @@ modules:
         sha256: 04530d7c215a46cc5468796de3c69fd6620fd78612578545d57f9806aa0c64a4
       - wasm-pack-cargo-sources.json
 
+  - name: wasm-bindgen-cli
+    buildsystem: simple
+    build-options:
+      env:
+        CARGO_HOME: /run/build/wasm-bindgen-cli/cargo
+    build-commands:
+      - cargo build --offline --release --package wasm-bindgen-cli
+      - install -Dm755 target/release/wasm-bindgen /app/bin/wasm-bindgen
+      - install -Dm755 target/release/wasm-bindgen-test-runner /app/bin/wasm-bindgen-test-runner
+    sources:
+      - type: archive
+        url: https://github.com/wasm-bindgen/wasm-bindgen/archive/refs/tags/0.2.126.tar.gz
+        sha256: e833a30612948a00ca3d4e58247cefa00460f33dcd25d0fc1e303f9c0eeed802
+      - wasm-bindgen-cargo-sources.json
+
   - name: conduit
     buildsystem: simple
     build-options:
       env:
         CARGO_HOME: /run/build/conduit/cargo
     cleanup:
+      - /bin/wasm-bindgen
+      - /bin/wasm-bindgen-test-runner
       - /bin/wasm-pack
       - /include
       - /lib/*.la
