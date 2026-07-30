@@ -7,9 +7,7 @@ use std::{
     ffi::CString,
     sync::{Arc, Mutex},
 };
-use tauri::AppHandle;
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-use tauri::Manager;
+use tauri::{AppHandle, Manager};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -74,15 +72,36 @@ impl PlayerManager {
         url: &str,
         title: &str,
     ) -> Result<PlayerSnapshot, PlayerError> {
-        if !matches!(url.split(':').next(), Some("http" | "https")) {
+        if !valid_media_url(url) {
             return Err(PlayerError::InvalidUrl);
         }
         self.stop(app)?;
         force_c_numeric_locale();
 
+        #[cfg(target_os = "windows")]
+        let embed_hwnd = app
+            .get_webview_window("main")
+            .ok_or_else(|| PlayerError::Surface("main window is unavailable".into()))?
+            .hwnd()
+            .map_err(|error| PlayerError::Surface(error.to_string()))?
+            .0 as isize as i64;
+
         let mpv = Mpv::with_initializer(|initializer| {
+            #[cfg(not(target_os = "windows"))]
             initializer.set_property("vo", "libmpv")?;
+            #[cfg(target_os = "windows")]
+            {
+                // On Windows mpv owns a child HWND rather than using the
+                // callback render API. WebView2 remains above it and supplies
+                // Conduit's controls through a transparent background.
+                initializer.set_property("vo", "gpu-next")?;
+                initializer.set_property("gpu-api", "d3d11")?;
+                initializer.set_property("wid", embed_hwnd)?;
+            }
+            #[cfg(not(target_os = "windows"))]
             initializer.set_property("force-window", "no")?;
+            #[cfg(target_os = "windows")]
+            initializer.set_property("force-window", "immediate")?;
             initializer.set_property("terminal", "no")?;
             initializer.set_property("input-default-bindings", "no")?;
             initializer.set_property("input-cursor", "no")?;
@@ -107,6 +126,8 @@ impl PlayerManager {
         mpv.set_property("force-media-title", title)
             .map_err(|error| PlayerError::Command(error.to_string()))?;
         argv_command(&mpv, &["loadfile", url, "replace"])?;
+        #[cfg(target_os = "windows")]
+        crate::player_render_windows::refresh(app).map_err(PlayerError::Surface)?;
 
         *self.session.lock().map_err(|_| PlayerError::Poisoned)? = Some(PlayerSession { mpv });
         // libmpv is initialized synchronously, but media properties arrive
@@ -201,6 +222,10 @@ fn value_to_arg(value: &Value) -> String {
     }
 }
 
+fn valid_media_url(url: &str) -> bool {
+    matches!(url.split(':').next(), Some("http" | "https" | "file"))
+}
+
 fn mpv_node_to_json(node: MpvNode) -> Value {
     match node {
         MpvNode::None => Value::Null,
@@ -282,14 +307,24 @@ fn uninstall_surface(app: &AppHandle) -> Result<(), PlayerError> {
         .map_err(PlayerError::Surface)
 }
 
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+#[cfg(target_os = "windows")]
+fn install_surface(app: &AppHandle, _: &Arc<Mpv>) -> Result<(), PlayerError> {
+    crate::player_render_windows::install(app).map_err(PlayerError::Surface)
+}
+
+#[cfg(target_os = "windows")]
+fn uninstall_surface(app: &AppHandle) -> Result<(), PlayerError> {
+    crate::player_render_windows::uninstall(app).map_err(PlayerError::Surface)
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
 fn install_surface(_: &AppHandle, _: &Arc<Mpv>) -> Result<(), PlayerError> {
     Err(PlayerError::Surface(
         "embedded rendering is not implemented for this platform yet".into(),
     ))
 }
 
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
 fn uninstall_surface(_: &AppHandle) -> Result<(), PlayerError> {
     Ok(())
 }
@@ -312,5 +347,13 @@ mod tests {
     fn converts_command_values() {
         assert_eq!(value_to_arg(&json!(true)), "yes");
         assert_eq!(value_to_arg(&json!(12.5)), "12.5");
+    }
+
+    #[test]
+    fn accepts_remote_and_local_media_urls() {
+        assert!(valid_media_url("https://example.test/video.mp4"));
+        assert!(valid_media_url("file:///C:/Users/test/video.mp4"));
+        assert!(!valid_media_url("javascript:alert(1)"));
+        assert!(!valid_media_url("C:\\Users\\test\\video.mp4"));
     }
 }

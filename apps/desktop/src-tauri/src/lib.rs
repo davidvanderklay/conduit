@@ -3,6 +3,8 @@ mod player;
 mod player_render_linux;
 #[cfg(target_os = "macos")]
 mod player_render_macos;
+#[cfg(target_os = "windows")]
+mod player_render_windows;
 
 use player::{PlayerManager, PlayerSnapshot};
 use serde::Serialize;
@@ -172,7 +174,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
         .manage(PlayerManager::default())
-        .on_window_event(|_, _event| {
+        .on_window_event(|_window, _event| {
             #[cfg(target_os = "linux")]
             if matches!(_event, tauri::WindowEvent::Resized(_)) {
                 crate::player_render_linux::refresh();
@@ -180,6 +182,13 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             if matches!(_event, tauri::WindowEvent::Resized(_)) {
                 let _ = crate::player_render_macos::refresh();
+            }
+            #[cfg(target_os = "windows")]
+            if matches!(
+                _event,
+                tauri::WindowEvent::Resized(_) | tauri::WindowEvent::ScaleFactorChanged { .. }
+            ) {
+                let _ = crate::player_render_windows::refresh(_window.app_handle());
             }
         })
         .invoke_handler(tauri::generate_handler![

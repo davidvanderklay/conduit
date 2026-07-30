@@ -13,3 +13,4 @@ packages/core/pkg/
 
 apps/server/.local/
 apps/desktop/src-tauri/gen/
+apps/desktop/src-tauri/libmpv/
