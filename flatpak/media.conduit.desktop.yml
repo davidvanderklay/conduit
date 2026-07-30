@@ -28,6 +28,7 @@ modules:
     buildsystem: meson
     config-opts:
       - -Ddemos=false
+      - -Dlibdir=lib
     sources:
       - type: git
         url: https://github.com/haasn/libplacebo.git
