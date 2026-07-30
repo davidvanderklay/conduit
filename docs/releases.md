@@ -18,22 +18,123 @@ The Windows installer is currently unsigned. Windows will therefore show an
 unrecognized-publisher warning until a code-signing certificate is configured.
 The macOS applications receive an ad-hoc signature so their bundled libraries
 are internally consistent, but they are not notarized with an Apple Developer
-ID; Gatekeeper will warn users. The Linux artifacts are also unsigned.
+ID; Gatekeeper will warn users. The AppImage remains unsigned; the Flatpak
+repository and its application commits are signed with the dedicated release
+key.
 
 ## Flatpak
 
 The release workflow builds the Flatpak directly from source using the GNOME
 runtime. JavaScript and Rust dependencies are vendored from the lockfiles for
 an offline build, and libmpv is compiled as a native Flatpak module. The
-Flatpak does not contain or launch the AppImage. Install a downloaded bundle
-with:
+Flatpak does not contain or launch the AppImage.
+
+### Install and maintain
+
+Add the signed Conduit repository and install the application for the current
+user:
+
+```sh
+flatpak remote-add --user --if-not-exists conduit \
+  https://davidvanderklay.github.io/conduit/conduit.flatpakrepo
+flatpak install --user conduit media.conduit.desktop
+flatpak run media.conduit.desktop
+```
+
+The repository descriptor contains the public key used to verify repository
+metadata and application commits. New releases are available without re-adding
+the remote:
+
+```sh
+flatpak update --user media.conduit.desktop
+```
+
+Remove the application and repository with:
+
+```sh
+flatpak uninstall --user media.conduit.desktop
+flatpak remote-delete --user conduit
+```
+
+To inspect the configured remote or diagnose an update:
+
+```sh
+flatpak remotes --user --show-details
+flatpak remote-ls --user conduit
+flatpak update --user --verbose media.conduit.desktop
+```
+
+If the repository cannot be reached, check the
+[`conduit.flatpakrepo`](https://davidvanderklay.github.io/conduit/conduit.flatpakrepo)
+URL and the repository's GitHub Pages deployment. Do not bypass a signature
+failure with `--no-gpg-verify`; verify the published signing-key fingerprint
+with a maintainer first. The workflow publishes the current full fingerprint at
+[`conduit-flatpak-signing-key.txt`](https://davidvanderklay.github.io/conduit/conduit-flatpak-signing-key.txt).
+
+The standalone bundle remains a fallback. Download `conduit.flatpak` from the
+GitHub release and install it with:
 
 ```sh
 flatpak install --user ./conduit.flatpak
 flatpak run media.conduit.desktop
 ```
 
-This bundle is suitable for direct release downloads and the manifest is
-structured like a Flathub source build. A Flathub submission still requires
-screenshots, complete AppStream metadata, stable release sources, and a pull
-request to Flathub's repository.
+### Repository publishing
+
+Tagged releases publish a signed OSTree repository through GitHub Pages. The
+workflow restores the previous repository from the dedicated `flatpak-repo`
+branch, appends the new release, validates signatures and AppStream metadata,
+then pushes the history and deploys the same snapshot atomically. The branch
+is workflow-owned: do not edit it manually, delete it, or force-push it.
+
+Before the first repository release:
+
+1. In the repository's **Settings → Pages**, set the source to **GitHub
+   Actions**.
+2. Create a dedicated long-lived GPG signing key on a trusted offline machine.
+   Its identity should make clear that it signs Conduit Flatpak releases.
+3. Export the private key in ASCII-armored form and save it as the Actions
+   secret `FLATPAK_GPG_PRIVATE_KEY`.
+4. Save its passphrase as `FLATPAK_GPG_PASSPHRASE`.
+5. Record the full fingerprint in two independent secure locations and keep an
+   encrypted offline backup of the private key and revocation certificate.
+
+For example, after creating the key:
+
+```sh
+gpg --armor --export-secret-keys KEY_FINGERPRINT > conduit-flatpak-private.asc
+gpg --armor --export KEY_FINGERPRINT > conduit-flatpak-public.asc
+gpg --output conduit-flatpak-revocation.asc --gen-revoke KEY_FINGERPRINT
+```
+
+Treat the exported private key and revocation certificate as secrets. Remove
+the temporary private-key export after storing its encrypted backup and Actions
+secret.
+
+The workflow creates `flatpak-repo` automatically on its first successful
+tagged release. Later releases fail rather than silently replacing that branch
+if its OSTree configuration or object history is invalid. Publishing is
+serialized so concurrent tags cannot race and discard history.
+
+### Signing-key recovery and rotation
+
+Losing the signing key prevents existing installations from trusting new
+releases. Restore the exact backed-up key to the Actions secrets; never create
+a replacement with the same label and silently update the repository
+descriptor.
+
+For planned rotation, retain the old key, add the new public key to the
+repository configuration, and publish transition metadata signed by the old
+key before using the new key for releases. Test an update from an installation
+that trusts only the old descriptor. If the old private key is irrecoverably
+lost or compromised, stop publishing, disclose the fingerprint and incident,
+and provide explicit instructions for users to remove and re-add the remote.
+Existing clients cannot securely infer that an unrelated replacement key
+belongs to Conduit.
+
+### Flathub
+
+The manifest remains structured as a source build suitable for a future
+Flathub submission. That path still requires screenshots, complete store
+metadata, stable release sources, and a pull request to Flathub, and is not a
+prerequisite for the self-hosted repository.
