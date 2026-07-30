@@ -152,7 +152,12 @@ jobs:
           RUST_TARGET: ${{ matrix.target }}
         run: |
           app="target/${RUST_TARGET}/release/bundle/macos/conduit.app"
-          executable="${app}/Contents/MacOS/conduit"
+          executable_name="$(
+            /usr/libexec/PlistBuddy \
+              -c "Print :CFBundleExecutable" \
+              "${app}/Contents/Info.plist"
+          )"
+          executable="${app}/Contents/MacOS/${executable_name}"
           frameworks="${app}/Contents/Frameworks"
           output_dir="target/release/bundle/macos"
           version="$(node -p "require('./apps/desktop/src-tauri/tauri.conf.json').version")"
