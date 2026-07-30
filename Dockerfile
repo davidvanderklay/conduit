@@ -21,14 +21,16 @@ RUN corepack pnpm core:build \
     && corepack pnpm --filter @conduit/web build \
     && corepack pnpm --filter @conduit/server deploy --prod --legacy /prod/server
 
+FROM nginx:1.29-alpine AS web
+COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /app/apps/web/dist /usr/share/nginx/html
+EXPOSE 8080
+
+# Keep the API as the final stage so platforms that do not support selecting a
+# Docker build target deploy the server. Compose selects both stages explicitly.
 FROM node:22-alpine AS server
 ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=build /prod/server ./
 EXPOSE 3000
 CMD ["sh", "-c", "node dist/migrate.js && exec node dist/index.js"]
-
-FROM nginx:1.29-alpine AS web
-COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
-COPY --from=build /app/apps/web/dist /usr/share/nginx/html
-EXPOSE 8080
