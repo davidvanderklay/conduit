@@ -514,7 +514,7 @@ export function DesktopPlayer({
             <p className="font-medium text-red-400">Could not start mpv</p>
             <p className="mt-2 text-sm text-zinc-400">{error}</p>
             <p className="mt-3 text-xs text-zinc-600">
-              Ensure the libmpv development package is available to the desktop application.
+              Check the desktop logs for the libmpv initialization error.
             </p>
           </Card>
         </div>

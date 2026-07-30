@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { ArrowLeft, Check, Film, Globe2, Library, Search, Server, Shield, X } from "lucide-react"
+import { ArrowLeft, Check, Film, Globe2, Search, Server, Shield, X } from "lucide-react"
 import { api, type Bootstrap, type InstalledAddon, type Profile } from "./lib/api"
 import { API_URL, DESKTOP_SESSION_TOKEN, authClient } from "./lib/auth"
 import {
@@ -20,7 +20,7 @@ import { Input } from "./components/ui/input"
 import { MediaDetails, type MetadataBrowseTarget } from "./components/media-details"
 import { SearchView } from "./components/search-view"
 import { AppSidebar, type AppSection } from "./components/app-sidebar"
-import { AddonsView, ViewShell } from "./components/addons-view"
+import { AddonsView } from "./components/addons-view"
 import { SettingsView } from "./components/settings-view"
 import { LibraryView } from "./components/library-view"
 import { CalendarView } from "./components/calendar-view"
@@ -891,7 +891,6 @@ function ProfileApp({
       {!searchInput && section === "settings" && <SettingsView profile={profile} />}
       {searchInput && (
         <SearchView
-          profileId={profile.id}
           addons={addons.data?.addons ?? []}
           query={query}
           onSelect={(item) => {
@@ -1064,27 +1063,6 @@ function MediaHome({
         />
       )}
     </main>
-  )
-}
-
-function UnavailableCollection({
-  icon: Icon,
-  title,
-  description,
-}: {
-  icon: typeof Library
-  title: string
-  description: string
-}) {
-  return (
-    <ViewShell eyebrow="Your collection" title={title} description={description}>
-      <Card className="grid min-h-64 place-items-center border-dashed text-center">
-        <div>
-          <Icon className="mx-auto text-zinc-700" size={34} />
-          <p className="mt-4 text-sm text-zinc-500">Nothing here yet</p>
-        </div>
-      </Card>
-    </ViewShell>
   )
 }
 

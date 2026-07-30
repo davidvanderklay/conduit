@@ -88,35 +88,34 @@ impl PlayerManager {
 
         let mpv = Mpv::with_initializer(|initializer| {
             #[cfg(not(target_os = "windows"))]
-            initializer.set_property("vo", "libmpv")?;
+            initializer.set_option("vo", "libmpv")?;
             #[cfg(target_os = "windows")]
             {
                 // On Windows mpv owns a child HWND rather than using the
                 // callback render API. WebView2 remains above it and supplies
                 // Conduit's controls through a transparent background.
-                initializer.set_property("vo", "gpu-next")?;
-                initializer.set_property("gpu-api", "d3d11")?;
-                initializer.set_property("wid", embed_hwnd)?;
+                initializer.set_option("vo", "gpu-next")?;
+                initializer.set_option("gpu-api", "d3d11")?;
+                initializer.set_option("wid", embed_hwnd)?;
             }
             #[cfg(not(target_os = "windows"))]
-            initializer.set_property("force-window", "no")?;
+            initializer.set_option("force-window", "no")?;
             #[cfg(target_os = "windows")]
-            initializer.set_property("force-window", "immediate")?;
-            initializer.set_property("terminal", "no")?;
-            initializer.set_property("input-default-bindings", "no")?;
-            initializer.set_property("input-cursor", "no")?;
-            initializer.set_property("osc", "no")?;
-            initializer.set_property("osd-level", "0")?;
+            initializer.set_option("force-window", "immediate")?;
+            initializer.set_option("terminal", "no")?;
+            initializer.set_option("input-default-bindings", "no")?;
+            initializer.set_option("input-cursor", "no")?;
+            initializer.set_option("osd-level", "0")?;
             #[cfg(target_os = "linux")]
             {
-                initializer.set_property("hwdec", "no")?;
-                initializer.set_property("gpu-hwdec-interop", "no")?;
-                initializer.set_property("vd-lavc-dr", "no")?;
+                initializer.set_option("hwdec", "no")?;
+                initializer.set_option("gpu-hwdec-interop", "no")?;
+                initializer.set_option("vd-lavc-dr", "no")?;
             }
             #[cfg(not(target_os = "linux"))]
-            initializer.set_property("hwdec", "auto-safe")?;
-            initializer.set_property("audio-channels", "auto-safe")?;
-            initializer.set_property("video-timing-offset", "0")?;
+            initializer.set_option("hwdec", "auto-safe")?;
+            initializer.set_option("audio-channels", "auto-safe")?;
+            initializer.set_option("video-timing-offset", "0")?;
             Ok(())
         })
         .map_err(|error| PlayerError::Initialization(error.to_string()))?;

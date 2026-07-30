@@ -1,0 +1,99 @@
+app-id: media.conduit.desktop
+runtime: org.gnome.Platform
+runtime-version: "50"
+sdk: org.gnome.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.node24
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: conduit
+
+finish-args:
+  - --share=ipc
+  - --share=network
+  - --socket=fallback-x11
+  - --socket=wayland
+  - --socket=pulseaudio
+  - --device=dri
+  - --filesystem=xdg-download
+
+build-options:
+  append-path: /usr/lib/sdk/node24/bin:/usr/lib/sdk/rust-stable/bin
+  env:
+    CARGO_HOME: /run/build/conduit/cargo
+    CARGO_NET_OFFLINE: "true"
+    LIBRARY_PATH: /app/lib
+
+modules:
+  - name: libplacebo
+    buildsystem: meson
+    config-opts:
+      - -Ddemos=false
+    cleanup:
+      - /include
+      - /lib/pkgconfig
+    sources:
+      - type: git
+        url: https://github.com/haasn/libplacebo.git
+        tag: v7.360.1
+        commit: cee9b076f2c63104ccfd497fa79c39a867293ec4
+
+  - name: libass
+    config-opts:
+      - --disable-static
+    cleanup:
+      - /include
+      - /lib/*.la
+      - /lib/pkgconfig
+    sources:
+      - type: archive
+        url: https://github.com/libass/libass/releases/download/0.17.5/libass-0.17.5.tar.xz
+        sha256: 2dca25c0e0c837ddf00b52011b3f82cac1e4ddd3ad018227806b0c2288864acc
+
+  - name: libmpv
+    buildsystem: meson
+    config-opts:
+      - -Dcplayer=false
+      - -Dlibmpv=true
+      - -Dbuild-date=false
+      - -Dalsa=disabled
+      - -Djavascript=disabled
+      - -Dlibarchive=disabled
+      - -Dlua=disabled
+      - -Dmanpage-build=disabled
+      - -Drubberband=disabled
+      - -Duchardet=disabled
+    cleanup:
+      - /include
+      - /lib/pkgconfig
+    sources:
+      - type: archive
+        url: https://github.com/mpv-player/mpv/archive/refs/tags/v0.41.0.tar.gz
+        sha256: ee21092a5ee427353392360929dc64645c54479aefdb5babc5cfbb5fad626209
+
+  - name: conduit
+    buildsystem: simple
+    build-commands:
+      - node pnpm/bin/pnpm.cjs install --offline --frozen-lockfile
+      - node pnpm/bin/pnpm.cjs --filter @conduit/web build
+      - cargo build --offline --release -p conduit-desktop --features custom-protocol
+      - install -Dm755 target/release/conduit-desktop /app/bin/conduit
+      - install -Dm644 flatpak/media.conduit.desktop.desktop /app/share/applications/media.conduit.desktop.desktop
+      - install -Dm644 flatpak/media.conduit.desktop.metainfo.xml /app/share/metainfo/media.conduit.desktop.metainfo.xml
+      - install -Dm644 apps/desktop/src-tauri/icons/icon.png /app/share/icons/hicolor/512x512/apps/media.conduit.desktop.png
+    sources:
+      - cargo-sources.json
+      - node-sources.json
+      - type: archive
+        url: https://registry.npmjs.org/pnpm/-/pnpm-10.14.0.tgz
+        sha256: 297534e65d5842450539c1e8022c8831ab5e1fe2eb74664787a815519542d620
+        dest: pnpm
+      - type: dir
+        path: ..
+        skip:
+          - .flatpak-builder
+          - .git
+          - flatpak-build
+          - flatpak-repo
+          - node_modules
+          - "**/node_modules"
+          - target
