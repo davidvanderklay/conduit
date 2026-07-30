@@ -6,6 +6,7 @@ sdk-extensions:
   - org.freedesktop.Sdk.Extension.node24
   - org.freedesktop.Sdk.Extension.rust-stable
 command: conduit
+appstream-compose: false
 
 finish-args:
   - --share=ipc
