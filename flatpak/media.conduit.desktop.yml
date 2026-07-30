@@ -111,6 +111,9 @@ modules:
       - type: archive
         url: https://github.com/wasm-bindgen/wasm-bindgen/archive/refs/tags/0.2.126.tar.gz
         sha256: e833a30612948a00ca3d4e58247cefa00460f33dcd25d0fc1e303f9c0eeed802
+      - type: file
+        path: wasm-bindgen-Cargo.lock
+        dest-filename: Cargo.lock
       - wasm-bindgen-cargo-sources.json
 
   - name: conduit
