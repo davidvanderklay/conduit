@@ -1,0 +1,12 @@
+[core]
+repo_version=1
+mode=archive-z2
+collection-id=media.conduit.desktop
+indexed-deltas=true
+
+[flatpak]
+title=Conduit
+comment=Self-hosted film and television client
+description=Signed releases of the Conduit desktop application
+homepage=https://github.com/davidvanderklay/conduit
+default-branch=master
