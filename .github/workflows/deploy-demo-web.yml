@@ -52,10 +52,11 @@ jobs:
           VITE_API_URL: ${{ vars.PRODUCTION_API_URL }}
         run: pnpm --filter @conduit/web build
       - name: Deploy production assets
+        working-directory: apps/web
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: >-
-          pnpm dlx wrangler@4 pages deploy apps/web/dist
+          pnpm dlx wrangler@4 pages deploy dist
           --project-name="${{ vars.CLOUDFLARE_PAGES_PROJECT }}"
           --branch=main
