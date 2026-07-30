@@ -43,8 +43,8 @@ jobs:
           path: target/release/bundle/nsis/*.exe
           if-no-files-found: error
 
-  linux:
-    name: Linux AppImage and Flatpak
+  linux-appimage:
+    name: Linux AppImage
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -66,9 +66,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            appstream \
-            flatpak \
-            flatpak-builder \
             pkg-config \
             libwebkit2gtk-4.1-dev \
             libappindicator3-dev \
@@ -81,6 +78,24 @@ jobs:
         run: node scripts/set-release-version.mjs "${GITHUB_REF_NAME#v}"
       - name: Build AppImage
         run: pnpm --filter @conduit/desktop exec tauri build --config src-tauri/tauri.linux.conf.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: conduit-linux-appimage
+          path: target/release/bundle/appimage/*.AppImage
+          if-no-files-found: error
+
+  linux-flatpak:
+    name: Linux Flatpak
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Flatpak tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            appstream \
+            flatpak \
+            flatpak-builder
       - name: Build Flatpak bundle
         run: |
           flatpak remote-add --user --if-not-exists flathub \
@@ -88,10 +103,12 @@ jobs:
           flatpak-builder \
             --force-clean \
             --user \
+            --jobs=2 \
             --install-deps-from=flathub \
             --repo=flatpak-repo \
             flatpak-build \
             flatpak/media.conduit.desktop.yml
+          mkdir -p target/release/bundle
           flatpak build-bundle \
             flatpak-repo \
             target/release/bundle/conduit.flatpak \
@@ -99,10 +116,8 @@ jobs:
             --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo
       - uses: actions/upload-artifact@v4
         with:
-          name: conduit-linux
-          path: |
-            target/release/bundle/appimage/*.AppImage
-            target/release/bundle/conduit.flatpak
+          name: conduit-linux-flatpak
+          path: target/release/bundle/conduit.flatpak
           if-no-files-found: error
 
   macos:
@@ -197,7 +212,7 @@ jobs:
   publish:
     name: Publish GitHub release
     if: github.ref_type == 'tag'
-    needs: [windows, linux, macos]
+    needs: [windows, linux-appimage, linux-flatpak, macos]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
