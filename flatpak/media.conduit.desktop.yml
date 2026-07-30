@@ -19,9 +19,9 @@ finish-args:
 build-options:
   no-debuginfo: true
   strip: true
+  prepend-path: /app/rust-toolchain/bin
   append-path: /usr/lib/sdk/node24/bin:/usr/lib/sdk/rust-stable/bin
   env:
-    CARGO_HOME: /run/build/conduit/cargo
     CARGO_NET_OFFLINE: "true"
     LIBRARY_PATH: /app/lib
     CARGO_BUILD_JOBS: "2"
@@ -85,14 +85,40 @@ modules:
         url: https://github.com/mpv-player/mpv/archive/refs/tags/v0.41.0.tar.gz
         sha256: ee21092a5ee427353392360929dc64645c54479aefdb5babc5cfbb5fad626209
 
+  - name: wasm-pack
+    buildsystem: simple
+    build-options:
+      env:
+        CARGO_HOME: /run/build/wasm-pack/cargo
+    build-commands:
+      - cp -a /usr/lib/sdk/rust-stable /app/rust-toolchain
+      - rust-std-wasm32-unknown-unknown/install.sh --prefix=/app/rust-toolchain --disable-ldconfig
+      - cargo build --offline --release
+      - install -Dm755 target/release/wasm-pack /app/bin/wasm-pack
+    sources:
+      - type: archive
+        url: https://github.com/wasm-bindgen/wasm-pack/archive/refs/tags/v0.15.0.tar.gz
+        sha256: 04530d7c215a46cc5468796de3c69fd6620fd78612578545d57f9806aa0c64a4
+      - type: archive
+        url: https://static.rust-lang.org/dist/2026-07-16/rust-std-1.97.1-wasm32-unknown-unknown.tar.xz
+        sha256: fa0edb6e9f34faae5735554d62d50875eded839dc707d0f1c01467a918d8453b
+        dest: rust-std-wasm32-unknown-unknown
+      - wasm-pack-cargo-sources.json
+
   - name: conduit
     buildsystem: simple
+    build-options:
+      env:
+        CARGO_HOME: /run/build/conduit/cargo
     cleanup:
+      - /bin/wasm-pack
       - /include
       - /lib/*.la
       - /lib/pkgconfig
+      - /rust-toolchain
     build-commands:
       - node pnpm/bin/pnpm.cjs install --offline --frozen-lockfile
+      - node pnpm/bin/pnpm.cjs core:build
       - node pnpm/bin/pnpm.cjs --filter @conduit/web build
       - cargo build --offline --release -p conduit-desktop --features custom-protocol
       - install -Dm755 target/release/conduit-desktop /app/bin/conduit
