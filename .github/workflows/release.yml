@@ -80,13 +80,6 @@ jobs:
         run: node scripts/set-release-version.mjs "${GITHUB_REF_NAME#v}"
       - name: Build AppImage
         run: pnpm --filter @conduit/desktop exec tauri build --config src-tauri/tauri.linux.conf.json
-      - name: Stage AppImage contents for Flatpak
-        run: |
-          appimage="$(find target/release/bundle/appimage -name '*.AppImage' -print -quit)"
-          chmod +x "$appimage"
-          cd flatpak
-          ../"$appimage" --appimage-extract
-          mv squashfs-root appdir
       - name: Build Flatpak bundle
         run: |
           flatpak remote-add --user --if-not-exists flathub \

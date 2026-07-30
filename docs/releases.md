@@ -19,15 +19,18 @@ The Linux artifacts are also unsigned.
 
 ## Flatpak
 
-The release workflow wraps the AppImage's staged runtime files in a Flatpak
-bundle using `media.conduit.desktop`. Install a downloaded bundle with:
+The release workflow builds the Flatpak directly from source using the GNOME
+runtime. JavaScript and Rust dependencies are vendored from the lockfiles for
+an offline build, and libmpv is compiled as a native Flatpak module. The
+Flatpak does not contain or launch the AppImage. Install a downloaded bundle
+with:
 
 ```sh
 flatpak install --user ./conduit.flatpak
 flatpak run media.conduit.desktop
 ```
 
-This bundle is suitable for direct release downloads. Publishing on Flathub is
-a separate submission: the manifest must be adapted into a reproducible,
-network-isolated source build, screenshots and complete AppStream metadata must
-be added, and a pull request must be submitted to Flathub's repository.
+This bundle is suitable for direct release downloads and the manifest is
+structured like a Flathub source build. A Flathub submission still requires
+screenshots, complete AppStream metadata, stable release sources, and a pull
+request to Flathub's repository.

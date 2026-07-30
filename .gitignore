@@ -16,5 +16,6 @@ apps/desktop/src-tauri/gen/
 apps/desktop/src-tauri/libmpv/
 
 flatpak/appdir/
+.flatpak-builder/
 flatpak-build/
 flatpak-repo/
