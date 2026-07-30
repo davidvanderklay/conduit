@@ -134,7 +134,7 @@ modules:
       - mv rust-toolchain/bin/rustc rust-toolchain/bin/rustc-real
       - install -Dm755 rustc-wrapper rust-toolchain/bin/rustc
       - node pnpm/bin/pnpm.cjs install --offline --frozen-lockfile
-      - PATH="$PWD/rust-toolchain/bin:$PATH" node pnpm/bin/pnpm.cjs core:build
+      - PATH="$PWD/rust-toolchain/bin:$PATH" wasm-pack build packages/core --target web --out-dir pkg --no-opt
       - node pnpm/bin/pnpm.cjs --filter @conduit/web build
       - cargo build --offline --release -p conduit-desktop --features custom-protocol
       - install -Dm755 target/release/conduit-desktop /app/bin/conduit
