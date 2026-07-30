@@ -134,6 +134,7 @@ jobs:
           if git show-ref --verify --quiet refs/remotes/origin/flatpak-repo; then
             git worktree add -B flatpak-repo flatpak-site origin/flatpak-repo
             test -f flatpak-site/repo/config
+            mkdir -p flatpak-site/repo/refs/remotes
             ostree fsck --repo=flatpak-site/repo
           else
             git worktree add --detach flatpak-site
