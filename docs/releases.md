@@ -1,7 +1,8 @@
 # Desktop releases
 
 Pushing a semantic version tag creates a GitHub release with a Windows NSIS
-installer, Linux AppImage, and Linux Flatpak:
+installer, Linux AppImage, Linux Flatpak, and macOS DMGs for Apple Silicon and
+Intel:
 
 ```sh
 git tag v0.2.0
@@ -9,13 +10,15 @@ git push origin v0.2.0
 ```
 
 The workflow takes the application version from the tag, builds on native
-Windows and Ubuntu runners, and generates release notes from the commits since
-the previous release. Run the workflow manually to test packaging without
-publishing a GitHub release.
+Windows, Ubuntu, Apple Silicon macOS, and Intel macOS runners, and generates
+release notes from the commits since the previous release. Run the workflow
+manually to test packaging without publishing a GitHub release.
 
 The Windows installer is currently unsigned. Windows will therefore show an
 unrecognized-publisher warning until a code-signing certificate is configured.
-The Linux artifacts are also unsigned.
+The macOS applications receive an ad-hoc signature so their bundled libraries
+are internally consistent, but they are not notarized with an Apple Developer
+ID; Gatekeeper will warn users. The Linux artifacts are also unsigned.
 
 ## Flatpak
 
