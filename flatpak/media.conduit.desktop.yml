@@ -71,6 +71,7 @@ modules:
     config-opts:
       - -Dcplayer=false
       - -Dlibmpv=true
+      - -Dlibdir=lib
       - -Dbuild-date=false
       - -Dalsa=disabled
       - -Djavascript=disabled
