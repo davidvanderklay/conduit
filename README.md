@@ -38,6 +38,21 @@ The web client runs at `http://localhost:5173` and the API server at
 See [Development](docs/development.md) for repository structure, individual
 commands, tests, database migrations, and desktop requirements.
 
+## Install the desktop app on Linux
+
+Install the signed Flatpak repository and Conduit for the current user:
+
+```sh
+flatpak remote-add --user --if-not-exists conduit \
+  https://davidvanderklay.github.io/conduit/conduit.flatpakrepo
+flatpak install --user conduit media.conduit.desktop
+```
+
+Later releases are delivered through the normal `flatpak update` flow. See
+[Desktop releases](docs/releases.md#flatpak) for update, removal, and
+troubleshooting instructions. A standalone `.flatpak` bundle remains available
+on each GitHub release as a fallback.
+
 ## Self-hosting with Docker
 
 The provided Compose stack serves the browser client and API from one public
