@@ -5,6 +5,7 @@
     "build": "tauri build",
     "check": "cargo check --manifest-path src-tauri/Cargo.toml",
     "dev": "tauri dev",
+    "setup:windows": "powershell -ExecutionPolicy Bypass -File scripts/setup-windows.ps1",
     "test": "cargo test --manifest-path src-tauri/Cargo.toml"
   },
   "devDependencies": {

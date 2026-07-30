@@ -4,9 +4,9 @@
   "version": "0.1.0",
   "identifier": "media.conduit.desktop",
   "build": {
-    "beforeDevCommand": "pnpm --filter @conduit/web dev",
+    "beforeDevCommand": "pnpm --dir ../.. --filter @conduit/web dev",
     "devUrl": "http://localhost:5173",
-    "beforeBuildCommand": "pnpm core:build && pnpm --filter @conduit/web build",
+    "beforeBuildCommand": "pnpm --dir ../.. core:build && pnpm --dir ../.. --filter @conduit/web build",
     "frontendDist": "../../web/dist"
   },
   "app": {
