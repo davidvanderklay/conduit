@@ -1,0 +1,13 @@
+.git
+.github
+.direnv
+.devenv
+.env
+node_modules
+target
+coverage
+packages/core/pkg
+apps/server/dist
+apps/web/dist
+apps/desktop/src-tauri/gen
+apps/desktop/src-tauri/libmpv

@@ -381,7 +381,7 @@ function WebPlayer({
               }
             }}
             onDurationChange={(event) => setDuration(event.currentTarget.duration || 0)}
-            onLoadedMetadata={(event) => {
+            onLoadedMetadata={() => {
               refreshNativeTracks()
             }}
             onVolumeChange={(event) => {

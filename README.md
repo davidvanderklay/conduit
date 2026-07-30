@@ -25,7 +25,7 @@ Prerequisites are provided by the Nix flake:
 ```sh
 direnv allow
 cp .env.example .env
-docker compose up -d postgres
+docker compose -f compose.yaml -f compose.dev.yaml up -d postgres
 pnpm install
 pnpm core:build
 pnpm db:migrate
@@ -38,10 +38,27 @@ The web client runs at `http://localhost:5173` and the API server at
 See [Development](docs/development.md) for repository structure, individual
 commands, tests, database migrations, and desktop requirements.
 
+## Self-hosting with Docker
+
+The provided Compose stack serves the browser client and API from one public
+origin:
+
+```sh
+cp .env.docker.example .env
+# Replace both placeholder secrets in .env, then:
+docker compose up -d --build
+```
+
+Open `http://localhost:8080`. For a public deployment, set `CONDUIT_URL` to the
+final HTTPS URL and place the stack behind a TLS-terminating reverse proxy. See
+[Deployment and operations](docs/deployment.md) for configuration and upgrade
+details.
+
 ## Documentation
 
 - [User and authentication setup](docs/authentication.md)
 - [Deployment and operations](docs/deployment.md)
+- [Desktop releases](docs/releases.md)
 - [Development guide](docs/development.md)
 - [Project roadmap](docs/roadmap.md)
 - [Portable profile format](docs/portable-profile-format.md)

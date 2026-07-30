@@ -9,6 +9,9 @@ license = "AGPL-3.0-only"
 name = "conduit_desktop"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[features]
+custom-protocol = ["tauri/custom-protocol"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 

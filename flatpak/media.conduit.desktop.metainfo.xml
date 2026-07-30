@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>media.conduit.desktop</id>
+  <name>Conduit</name>
+  <summary>Self-hosted film and television client</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>AGPL-3.0-only</project_license>
+  <description>
+    <p>
+      Conduit is a self-hosted media client built around Stremio-compatible
+      add-ons, shared libraries, and synchronized watch progress.
+    </p>
+  </description>
+  <launchable type="desktop-id">media.conduit.desktop.desktop</launchable>
+  <url type="homepage">https://github.com/davidvanderklay/conduit</url>
+  <content_rating type="oars-1.1" />
+</component>

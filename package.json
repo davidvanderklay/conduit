@@ -4,6 +4,9 @@
   "scripts": {
     "build": "vp run ci:build",
     "check": "vp run ci:check",
+    "format": "vp fmt --write",
+    "lint": "vp lint --deny-warnings",
+    "lint:fix": "vp lint --fix --deny-warnings",
     "core:build": "wasm-pack build packages/core --target web --out-dir pkg",
     "admin:recover": "corepack pnpm --filter @conduit/server cli -- admin recover",
     "db:generate": "pnpm --filter @conduit/server db:generate",

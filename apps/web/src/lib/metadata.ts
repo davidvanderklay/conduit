@@ -4,7 +4,7 @@ const TEXT_LIMIT = 12_000
 
 function text(value: unknown, limit = TEXT_LIMIT): string | undefined {
   if (typeof value !== "string" && typeof value !== "number") return undefined
-  const normalized = String(value).replace(/\0/g, "").trim().slice(0, limit)
+  const normalized = String(value).replaceAll(String.fromCharCode(0), "").trim().slice(0, limit)
   return normalized || undefined
 }
 

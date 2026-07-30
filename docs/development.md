@@ -53,12 +53,17 @@ Never commit `.env`.
 ## Start development
 
 ```sh
-docker compose up -d postgres
+docker compose -f compose.yaml -f compose.dev.yaml up -d postgres
 pnpm install
 pnpm core:build
 pnpm db:migrate
 pnpm dev
 ```
+
+The development overlay publishes PostgreSQL on `localhost:5432`. Running
+`docker compose up -d postgres` without `compose.dev.yaml` starts the
+production-only database network and does not expose PostgreSQL to host
+commands such as `pnpm db:migrate`.
 
 Run individual applications:
 
@@ -93,6 +98,11 @@ pnpm check
 pnpm test
 pnpm build
 ```
+
+`pnpm check` includes linting, Rust formatting, Clippy, and TypeScript checks.
+Use `pnpm lint:fix` for safe JavaScript/TypeScript lint fixes and `pnpm format`
+to format the repository. CI only verifies code; it never pushes formatting
+changes back to a branch.
 
 Server and web packages can be checked independently:
 

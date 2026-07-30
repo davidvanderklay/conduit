@@ -1,10 +1,51 @@
 # Deployment and operations
 
-Conduit's production packaging is still evolving. The current supported path is
-a source build with PostgreSQL, a Node.js API process, and static web assets
-served by a web server or CDN.
+The recommended self-hosted deployment is the provided Docker Compose stack. It
+runs PostgreSQL, the Node.js API, and an Nginx web frontend. Nginx serves the SPA
+and proxies API requests, so users only connect to one public origin.
 
-## Build
+## Docker Compose
+
+Copy the deployment environment template and replace both generated secrets:
+
+```sh
+cp .env.docker.example .env
+openssl rand -base64 32
+openssl rand -hex 32
+docker compose up -d --build
+```
+
+The defaults serve Conduit at `http://localhost:8080`. A public deployment
+normally changes only:
+
+```env
+CONDUIT_URL=https://conduit.example
+CONDUIT_PORT=8080
+BETTER_AUTH_SECRET=<output of openssl rand -base64 32>
+ADDON_ENCRYPTION_KEY=<output of openssl rand -hex 32>
+```
+
+`CONDUIT_URL` configures both the browser origin and Better Auth's external URL.
+The browser uses the origin it loaded from as its default API, so no separate
+frontend API setting is required. Only the web container publishes a host port;
+the API and PostgreSQL remain on the Compose network. Database migrations run
+automatically before the API starts.
+
+Terminate HTTPS at a reverse proxy and forward it to `CONDUIT_PORT`. Preserve
+the original host and scheme. OAuth callbacks use
+`$CONDUIT_URL/api/auth/callback/...`.
+
+Upgrade with:
+
+```sh
+docker compose pull
+docker compose up -d --build
+docker compose ps
+```
+
+Back up the `conduit-postgres` volume and `.env` before upgrading.
+
+## Source build
 
 ```sh
 pnpm install --frozen-lockfile
@@ -43,7 +84,7 @@ Run migrations before starting a newly deployed server version:
 pnpm db:migrate
 ```
 
-## Reverse proxy
+## Separate frontend and API deployments
 
 Terminate HTTPS at a trusted reverse proxy and forward the API/auth routes to
 the server. Preserve the original host and scheme. Configure exact public
@@ -55,11 +96,11 @@ WEB_ORIGIN=https://conduit.example
 VITE_API_URL=https://api.conduit.example
 ```
 
-`VITE_API_URL` is compiled into every client as its **default server**. Users can
-choose **Change server** on the sign-in screen to connect to another Conduit
-API. That selection is stored only on their device and takes effect after the
-client reloads. Choosing the default server again removes the local override,
-so a later client release can change the baked-in default cleanly.
+`VITE_API_URL` is compiled into a client as its **default server** when set. If
+it is omitted, a browser build uses its own origin and a packaged desktop build
+falls back to `http://localhost:3000`. Users can choose **Change server** on the
+sign-in screen. That selection is stored only on their device and takes effect
+after reload.
 
 Custom servers must:
 
