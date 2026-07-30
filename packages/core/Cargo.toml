@@ -2,7 +2,7 @@
 name = "conduit-core"
 version = "0.1.0"
 edition = "2021"
-license = "MIT"
+license = "AGPL-3.0-only"
 description = "Shared client application engine for Conduit"
 
 [lib]
