@@ -41,6 +41,7 @@ jobs:
             libmpv-dev \
             libegl1-mesa-dev
       - run: pnpm install --frozen-lockfile
+      - run: pnpm core:build
       - run: pnpm check
       - run: pnpm test
       - run: pnpm build
