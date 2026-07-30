@@ -9,12 +9,10 @@ import { Card } from "./ui/card"
 import { PosterWatchStatus } from "./poster-watch-status"
 
 export function SearchView({
-  profileId,
   addons,
   query,
   onSelect,
 }: {
-  profileId: string
   addons: InstalledAddon[]
   query: string
   onSelect: (item: CatalogItem) => void

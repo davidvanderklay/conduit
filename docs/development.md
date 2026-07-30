@@ -53,7 +53,7 @@ Never commit `.env`.
 ## Start development
 
 ```sh
-docker compose up -d postgres
+docker compose -f compose.yaml -f compose.dev.yaml up -d postgres
 pnpm install
 pnpm core:build
 pnpm db:migrate
@@ -93,6 +93,11 @@ pnpm check
 pnpm test
 pnpm build
 ```
+
+`pnpm check` includes linting, Rust formatting, Clippy, and TypeScript checks.
+Use `pnpm lint:fix` for safe JavaScript/TypeScript lint fixes and `pnpm format`
+to format the repository. CI only verifies code; it never pushes formatting
+changes back to a branch.
 
 Server and web packages can be checked independently:
 

@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Conduit
+Comment=Self-hosted film and television client
+Exec=conduit
+Icon=media.conduit.desktop
+Categories=AudioVideo;Video;
+Terminal=false
