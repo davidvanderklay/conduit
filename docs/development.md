@@ -60,6 +60,11 @@ pnpm db:migrate
 pnpm dev
 ```
 
+The development overlay publishes PostgreSQL on `localhost:5432`. Running
+`docker compose up -d postgres` without `compose.dev.yaml` starts the
+production-only database network and does not expose PostgreSQL to host
+commands such as `pnpm db:migrate`.
+
 Run individual applications:
 
 ```sh
