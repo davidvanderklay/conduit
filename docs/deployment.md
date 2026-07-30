@@ -123,6 +123,193 @@ Restrict `/admin` and `/v1/admin/*` at the reverse proxy or VPN for additional
 network isolation. This supplements, rather than replaces, Conduit's server-side
 owner authorization.
 
+## Public demo: Render, Neon, and Cloudflare Pages
+
+This is the supported approximately-$0 demo stack. As of July 30, 2026, Neon
+Free includes 0.5 GB storage and 100 compute-hours per project, Cloudflare Pages
+Free includes 500 builds per month, and Render provides 750 Free web-service
+hours per workspace. A single service needs at most 744 hours in a 31-day month.
+Render suspends an idle Free service after 15 minutes and can take about a minute
+to wake it. Free tiers are intended for demos rather than availability-sensitive
+production.
+
+The architecture has no durable application disk. PostgreSQL is the only durable
+state. Browser and desktop clients fetch media directly from media sources.
+
+### 1. Accounts and local CLIs
+
+Create free accounts for [Neon](https://console.neon.tech/),
+[Render](https://dashboard.render.com/register), and
+[Cloudflare](https://dash.cloudflare.com/sign-up). Do not select a paid Render
+instance.
+
+Authenticate the CLIs locally:
+
+```sh
+npx neonctl@latest auth
+render login
+npx wrangler@4 login
+```
+
+Install Render from its official CLI release or Homebrew. The other two commands
+deliberately use temporary CLI installations so the versions are explicit and
+nothing is added to this workspace.
+
+### 2. Neon
+
+Create the project and print its pooled connection string:
+
+```sh
+npx neonctl@latest projects create --name conduit-demo
+npx neonctl@latest connection-string --project-id <project-id> --pooled
+```
+
+Save the project ID and pooled URL in a password manager. The pooled host contains
+`-pooler` and the URL must retain `sslmode=require`. Do not put it in a repository
+file or shell history. The deployment uses this URL for both migrations and the
+API connection pool.
+
+Neon suspends an idle Free compute after about five minutes. The first database
+operation after suspension wakes it. A sleeping Render API has the longer cold
+start and displays a loading response while it wakes. Retry the client after the
+service is awake if its initial eight-second server test times out.
+
+### 3. Cloudflare Pages project
+
+Create the Direct Upload project first so its stable origin can be configured on
+the API:
+
+```sh
+npx wrangler@4 pages project create conduit-media --production-branch=main
+```
+
+The production origin used by this repository is
+`https://conduit-media-3cj.pages.dev`. The committed `_redirects` file makes
+`/admin` and other client-side routes fall back to the SPA.
+
+### 4. Render API
+
+Generate these values once, store them in a password manager, and never rotate
+them merely to redeploy:
+
+```sh
+openssl rand -base64 32
+openssl rand -hex 32
+```
+
+The committed `render.yaml` Blueprint defines a Free Ohio service, `/health`
+checks, deploys only after GitHub checks pass, and prompts for values that must
+not be committed. In Render, choose **New > Blueprint**, connect this repository,
+and enter:
+
+- `DATABASE_URL`: the pooled Neon URL, including `sslmode=require`;
+- `BETTER_AUTH_SECRET`: the saved base64 value;
+- `ADDON_ENCRYPTION_KEY`: the saved 64-character hexadecimal value; and
+- `BETTER_AUTH_URL`: `https://conduit-api.onrender.com` (or the exact hostname
+  Render assigns if the name receives a suffix).
+
+The default Docker stage is the API. It runs `node dist/migrate.js` before
+Fastify; a failed migration exits the container, so `/health` never admits a
+partially migrated deployment. Render has no persistent application disk.
+
+Inspect and operate the service with:
+
+```sh
+render services --output json
+render logs --resources <service-id> --tail
+curl --fail --retry 5 --retry-all-errors --retry-delay 15 https://<api-host>/health
+```
+
+### 5. Deploy Cloudflare Pages and configure GitHub
+
+Make the first local deployment:
+
+```sh
+VITE_API_URL=https://<api-host> pnpm core:build
+VITE_API_URL=https://<api-host> pnpm --filter @conduit/web build
+npx wrangler@4 pages deploy apps/web/dist --project-name=conduit-media --branch=main
+```
+
+Direct Upload is intentional: the repository workflow owns the build and pins
+all build inputs. Cloudflare does not allow a Direct Upload project to be
+converted to Git integration later.
+
+Create a Cloudflare API token scoped to **Account / Cloudflare Pages / Edit**,
+then configure the repository:
+
+```sh
+gh variable set PRODUCTION_API_URL --body 'https://<api-host>'
+gh variable set CLOUDFLARE_PAGES_PROJECT --body 'conduit-media'
+gh secret set CLOUDFLARE_ACCOUNT_ID
+gh secret set CLOUDFLARE_API_TOKEN
+gh workflow run deploy-demo-web.yml
+gh run watch
+```
+
+The same `PRODUCTION_API_URL` repository variable is compiled into every tagged
+desktop release, including the sandboxed Flatpak build. The release workflow
+fails rather than accidentally shipping localhost when the variable is absent.
+Local development still uses localhost, and users can still choose a different
+server. Existing installations that previously saved a custom server keep that
+preference until they select the default server again.
+
+There must be no trailing slash in any origin.
+
+### 6. First owner, registration, OAuth, and admin
+
+Open the Pages URL and immediately create the first local account; the first
+account becomes the unique instance owner. Registration closes automatically
+after that account unless the owner explicitly enables open registration in
+`/admin`. Leave it closed for an invitation-only demo.
+
+`/admin` is public as a route but every admin API operation enforces the owner's
+server-side role. Render Free does not provide path-specific network isolation,
+so role authorization is the primary control on this stack.
+Use a strong owner password, store recovery codes offline, and test
+`pnpm admin:recover` from a trusted checkout before relying on OAuth alone.
+
+CORS and Better Auth trust exactly `WEB_ORIGIN` plus the packaged Tauri origins.
+Credentials are allowed only for those origins. If OAuth is enabled, register:
+
+```text
+https://<api-host>/api/auth/callback/google
+```
+
+Use the exact callback displayed by `/admin`, keep OAuth auto-registration off
+unless public sign-up is intentional, and retain the owner password until
+recovery has been tested. Split-origin browser cookies can be affected by user
+third-party-cookie policy; desktop bearer authentication is not.
+
+### Operations
+
+Before every upgrade, export both database and secret backups. A database dump
+uses Neon's direct (non-pooled) URL:
+
+```sh
+pg_dump --format=custom --no-owner --no-acl '<direct-neon-url>' > conduit.dump
+pg_restore --clean --if-exists --no-owner --no-acl --dbname '<restore-direct-url>' conduit.dump
+```
+
+Restore into a new Neon project or branch first, test it, then update the Render
+`DATABASE_URL`. Never test a destructive restore over the only production
+database. Neon Free also has a limited restore window, but an external `pg_dump`
+is the portable backup.
+
+For an application rollback, choose the previous healthy Render deployment and
+Cloudflare Pages deployment in their dashboards or redeploy a known Git commit.
+Do not roll application code back across an irreversible schema migration without
+restoring its matching database dump. Inspect with:
+
+```sh
+render deploys list <service-id>
+render logs --resources <service-id>
+npx wrangler@4 pages deployment list --project-name=conduit-media
+```
+
+Monitor `/health`, Neon storage, Neon compute hours, Render instance type and
+workspace hours, and Cloudflare build count. The expected steady-state bill is
+$0 only while all resources remain on their named Free tiers.
+
 ## OAuth deployment checklist
 
 1. Set the final HTTPS `BETTER_AUTH_URL`.

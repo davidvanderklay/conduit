@@ -1,5 +1,8 @@
 name: Desktop release
 
+env:
+  VITE_API_URL: ${{ vars.PRODUCTION_API_URL }}
+
 on:
   push:
     tags:
@@ -24,7 +27,19 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  production-config:
+    name: Validate production server
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Require an HTTPS production API
+        run: |
+          case "$VITE_API_URL" in
+            https://*) ;;
+            *) echo "Set the PRODUCTION_API_URL repository variable to the public HTTPS API." >&2; exit 1 ;;
+          esac
+
   windows:
+    needs: production-config
     if: github.event_name != 'workflow_dispatch' || inputs.target == 'all'
     name: Windows NSIS
     runs-on: windows-latest
@@ -59,6 +74,7 @@ jobs:
           if-no-files-found: error
 
   linux-appimage:
+    needs: production-config
     if: github.event_name != 'workflow_dispatch' || inputs.target == 'all'
     name: Linux AppImage
     runs-on: ubuntu-22.04
@@ -101,6 +117,7 @@ jobs:
           if-no-files-found: error
 
   linux-flatpak:
+    needs: production-config
     if: github.event_name != 'workflow_dispatch' || inputs.target == 'all' || inputs.target == 'flatpak'
     name: Linux Flatpak
     runs-on: ubuntu-22.04
@@ -121,6 +138,19 @@ jobs:
         run: |
           RELEASE_DATE="$(git show -s --format=%cs "$GITHUB_SHA")" \
             node scripts/set-release-version.mjs "${GITHUB_REF_NAME#v}"
+      - name: Configure production server
+        run: |
+          node -e '
+            const fs = require("node:fs");
+            const path = "flatpak/media.conduit.desktop.yml";
+            const source = fs.readFileSync(path, "utf8");
+            const marker = "        CARGO_HOME: /run/build/conduit/cargo";
+            if (!source.includes(marker)) throw new Error("Flatpak environment marker not found");
+            fs.writeFileSync(
+              path,
+              source.replace(marker, `${marker}\n        VITE_API_URL: ${JSON.stringify(process.env.VITE_API_URL)}`),
+            );
+          '
       - name: Import repository signing key
         if: github.ref_type == 'tag'
         id: gpg
@@ -247,6 +277,7 @@ jobs:
           path: flatpak-site
 
   macos:
+    needs: production-config
     if: github.event_name != 'workflow_dispatch' || inputs.target == 'all'
     name: macOS ${{ matrix.arch }}
     strategy:
