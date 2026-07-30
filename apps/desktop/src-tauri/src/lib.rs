@@ -207,24 +207,6 @@ pub fn run() {
         .expect("failed to run Conduit desktop");
 }
 
-#[cfg(test)]
-mod desktop_auth_tests {
-    use super::parse_callback_target;
-
-    #[test]
-    fn accepts_only_the_oauth_loopback_path() {
-        assert_eq!(
-            parse_callback_target(b"GET /oauth/callback?code=abc HTTP/1.1\r\nHost: localhost\r\n"),
-            Some("/oauth/callback?code=abc")
-        );
-        assert_eq!(parse_callback_target(b"GET / HTTP/1.1\r\n"), None);
-        assert_eq!(
-            parse_callback_target(b"POST /oauth/callback?code=abc HTTP/1.1\r\n"),
-            None
-        );
-    }
-}
-
 #[cfg(target_os = "linux")]
 fn configure_linux_webkit() {
     let wayland_session = std::env::var_os("WAYLAND_DISPLAY").is_some();
@@ -257,5 +239,23 @@ fn configure_linux_webkit() {
         && std::env::var_os("__NV_DISABLE_EXPLICIT_SYNC").is_none()
     {
         std::env::set_var("__NV_DISABLE_EXPLICIT_SYNC", "1");
+    }
+}
+
+#[cfg(test)]
+mod desktop_auth_tests {
+    use super::parse_callback_target;
+
+    #[test]
+    fn accepts_only_the_oauth_loopback_path() {
+        assert_eq!(
+            parse_callback_target(b"GET /oauth/callback?code=abc HTTP/1.1\r\nHost: localhost\r\n"),
+            Some("/oauth/callback?code=abc")
+        );
+        assert_eq!(parse_callback_target(b"GET / HTTP/1.1\r\n"), None);
+        assert_eq!(
+            parse_callback_target(b"POST /oauth/callback?code=abc HTTP/1.1\r\n"),
+            None
+        );
     }
 }
