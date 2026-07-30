@@ -1,7 +1,7 @@
 {
   "name": "@conduit/desktop",
   "private": true,
-  "license": "AGPL-3.0-only",
+  "license": "MIT",
   "scripts": {
     "build": "tauri build",
     "check": "cargo check --manifest-path src-tauri/Cargo.toml",

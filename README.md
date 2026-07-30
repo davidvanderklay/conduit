@@ -108,6 +108,5 @@ the focus remains a cohesive film and television experience.
 
 ## License
 
-Conduit is licensed under the GNU Affero General Public License v3.0 only
-(`AGPL-3.0-only`). See [LICENSE](LICENSE) and
+Conduit is licensed under the MIT License. See [LICENSE](LICENSE) and
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
