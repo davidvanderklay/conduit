@@ -7,6 +7,7 @@ import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.coroutines.delay
 import platform.AVFoundation.*
 import platform.CoreMedia.CMTimeGetSeconds
+import platform.CoreMedia.CMTimeMakeWithSeconds
 import platform.Foundation.NSURL
 import platform.Foundation.NSNotificationCenter
 import platform.UIKit.UIView
@@ -31,6 +32,7 @@ private class PlayerContainer : UIView() {
 actual fun NativePlayer(
     url: String?,
     active: Boolean,
+    startPositionMs: Long,
     modifier: Modifier,
     onState: (PlaybackState) -> Unit,
 ) {
@@ -40,6 +42,7 @@ actual fun NativePlayer(
     DisposableEffect(player, url, active) {
         val item = url?.let(NSURL::URLWithString)?.let { AVPlayerItem(URL = it) }
         player.replaceCurrentItemWithPlayerItem(item)
+        if (startPositionMs > 0) player.seekToTime(CMTimeMakeWithSeconds(startPositionMs / 1000.0, 600))
         if (active && item != null) player.play() else player.pause()
         onDispose {
             player.pause()

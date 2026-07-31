@@ -7,6 +7,7 @@ import io.ktor.client.request.bearerAuth
 import io.ktor.client.request.get
 import io.ktor.client.request.post
 import io.ktor.client.request.patch
+import io.ktor.client.request.put
 import io.ktor.client.request.delete
 import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
@@ -112,6 +113,7 @@ data class ProgressSummary(
 
 @Serializable
 data class ProgressResponse(val items: List<ProgressSummary>)
+@Serializable private data class ProgressItemResponse(val item: ProgressSummary? = null)
 
 @Serializable
 data class ProfileSnapshot(
@@ -404,6 +406,29 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
                 continueWatching = responses[3].body<ProgressResponse>().items,
             )
         }
+
+    suspend fun loadProgress(baseUrl: String, token: String, profileId: String, videoId: String): ProgressSummary? {
+        val response = client.get("$baseUrl/v1/profiles/$profileId/progress/${videoId.encodeURLPathPart()}") { bearerAuth(token) }
+        if (!response.status.isSuccess()) throw ServerRequestException("Unable to load playback progress", response.status.value)
+        return response.body<ProgressItemResponse>().item
+    }
+
+    suspend fun saveProgress(
+        baseUrl: String, token: String, profileId: String, videoId: String,
+        mediaType: String, mediaId: String, name: String, poster: String?,
+        videoTitle: String?, season: Int?, episode: Int?, positionMs: Long, durationMs: Long,
+    ) {
+        if (durationMs <= 0) return
+        val response = client.put("$baseUrl/v1/profiles/$profileId/progress/${videoId.encodeURLPathPart()}") {
+            bearerAuth(token); contentType(ContentType.Application.Json); setBody(buildJsonObject {
+                put("mediaType", mediaType); put("mediaId", mediaId); put("name", name)
+                poster?.let { put("poster", it) }; videoTitle?.let { put("videoTitle", it) }
+                season?.let { put("season", it) }; episode?.let { put("episode", it) }
+                put("positionMs", positionMs.coerceAtLeast(0)); put("durationMs", durationMs.coerceAtLeast(0))
+            })
+        }
+        if (!response.status.isSuccess()) throw ServerRequestException("Unable to save playback progress", response.status.value)
+    }
 
     suspend fun loadHomeCatalogs(addons: List<InstalledAddonSummary>): HomeCatalogResult = coroutineScope {
         val requests = addons

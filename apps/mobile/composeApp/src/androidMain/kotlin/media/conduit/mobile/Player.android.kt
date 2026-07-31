@@ -20,6 +20,7 @@ import kotlinx.coroutines.delay
 actual fun NativePlayer(
     url: String?,
     active: Boolean,
+    startPositionMs: Long,
     modifier: Modifier,
     onState: (PlaybackState) -> Unit,
 ) {
@@ -37,6 +38,7 @@ actual fun NativePlayer(
         player.addListener(listener)
         if (url != null) {
             player.setMediaItem(MediaItem.fromUri(url))
+            if (startPositionMs > 0) player.seekTo(startPositionMs)
             player.prepare()
             player.playWhenReady = active
         }
