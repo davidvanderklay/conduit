@@ -953,6 +953,7 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
             id: profile.id,
             name: profile.name,
             isKids: profile.isKids,
+            usesPrimaryAddons: profile.usesPrimaryAddons,
             avatarColor: profile.avatarColor,
             avatarUrl: profile.avatarUrl,
           })),
@@ -1010,6 +1011,7 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
         body: Type.Object({
           name: Type.String({ minLength: 1, maxLength: 80, pattern: "\\S" }),
           isKids: Type.Optional(Type.Boolean()),
+          usesPrimaryAddons: Type.Optional(Type.Boolean()),
           avatarColor: Type.Optional(Type.String({ pattern: "^#[0-9A-Fa-f]{6}$" })),
           avatarUrl: Type.Optional(Type.String({ maxLength: 2048, pattern: "^https?://" })),
           copyAddonsFromProfileId: Type.Optional(Type.String({ format: "uuid" })),
@@ -1023,6 +1025,7 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
       const body = request.body as {
         name: string
         isKids?: boolean
+        usesPrimaryAddons?: boolean
         avatarColor?: string
         avatarUrl?: string
         copyAddonsFromProfileId?: string
@@ -1064,12 +1067,15 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
             householdId,
             name: body.name.trim(),
             isKids: body.isKids ?? false,
+            usesPrimaryAddons: body.usesPrimaryAddons ?? false,
             avatarColor: body.avatarColor,
             avatarUrl: body.avatarUrl,
           })
-          .returning({ id: profiles.id, name: profiles.name, isKids: profiles.isKids, avatarColor: profiles.avatarColor, avatarUrl: profiles.avatarUrl })
+          .returning({ id: profiles.id, name: profiles.name, isKids: profiles.isKids, usesPrimaryAddons: profiles.usesPrimaryAddons, avatarColor: profiles.avatarColor, avatarUrl: profiles.avatarUrl })
 
-        if (body.copyAddonsFromProfileId) {
+        if (body.usesPrimaryAddons) {
+          return created!
+        } else if (body.copyAddonsFromProfileId) {
           if (sourceAddons.length === 0) return created!
           await tx.insert(addonInstallations).values(
             sourceAddons.map((addon) => ({
@@ -1103,6 +1109,7 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
           {
             name: Type.Optional(Type.String({ minLength: 1, maxLength: 80 })),
             isKids: Type.Optional(Type.Boolean()),
+            usesPrimaryAddons: Type.Optional(Type.Boolean()),
             avatarColor: Type.Optional(Type.Union([Type.String({ pattern: "^#[0-9A-Fa-f]{6}$" }), Type.Null()])),
             avatarUrl: Type.Optional(Type.Union([Type.String({ maxLength: 2048, pattern: "^https?://" }), Type.Null()])),
           },
@@ -1114,7 +1121,7 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
       const user = await requireUser(request, reply, auth)
       if (!user) return
       const { profileId } = request.params as { profileId: string }
-      const body = request.body as { name?: string; isKids?: boolean; avatarColor?: string | null; avatarUrl?: string | null }
+      const body = request.body as { name?: string; isKids?: boolean; usesPrimaryAddons?: boolean; avatarColor?: string | null; avatarUrl?: string | null }
       if (!(await canAccessProfile(db, user.id, profileId))) return reply.forbidden()
 
       const [profile] = await db
@@ -1122,12 +1129,13 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
         .set({
           ...(body.name !== undefined ? { name: body.name.trim() } : {}),
           ...(body.isKids !== undefined ? { isKids: body.isKids } : {}),
+          ...(body.usesPrimaryAddons !== undefined ? { usesPrimaryAddons: body.usesPrimaryAddons } : {}),
           ...(body.avatarColor !== undefined ? { avatarColor: body.avatarColor } : {}),
           ...(body.avatarUrl !== undefined ? { avatarUrl: body.avatarUrl } : {}),
           updatedAt: new Date(),
         })
         .where(eq(profiles.id, profileId))
-        .returning({ id: profiles.id, name: profiles.name, isKids: profiles.isKids, avatarColor: profiles.avatarColor, avatarUrl: profiles.avatarUrl })
+        .returning({ id: profiles.id, name: profiles.name, isKids: profiles.isKids, usesPrimaryAddons: profiles.usesPrimaryAddons, avatarColor: profiles.avatarColor, avatarUrl: profiles.avatarUrl })
       return { profile }
     },
   )
@@ -1339,10 +1347,11 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
         return reply.forbidden()
       }
 
+      const effectiveProfileId = await resolveAddonProfileId(db, profileId)
       const addons = await db
         .select()
         .from(addonInstallations)
-        .where(eq(addonInstallations.profileId, profileId))
+        .where(eq(addonInstallations.profileId, effectiveProfileId))
         .orderBy(asc(addonInstallations.position), asc(addonInstallations.createdAt))
 
       return {
@@ -1382,6 +1391,9 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
       }
 
       const manifestId = typeof body.manifest.id === "string" ? body.manifest.id.trim() : ""
+      if ((await resolveAddonProfileId(db, profileId)) !== profileId) {
+        return reply.conflict("This profile uses the primary profile's add-ons")
+      }
       const manifestName = typeof body.manifest.name === "string" ? body.manifest.name.trim() : ""
       if (!manifestId || !manifestName) {
         return reply.badRequest("manifest must include a non-empty id and name")
@@ -1440,6 +1452,9 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
       if (!(await canAccessProfile(db, user.id, profileId))) {
         return reply.forbidden()
       }
+      if ((await resolveAddonProfileId(db, profileId)) !== profileId) {
+        return reply.conflict("This profile uses the primary profile's add-ons")
+      }
 
       await db
         .delete(addonInstallations)
@@ -1471,6 +1486,9 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
       const { profileId, addonId } = request.params as { profileId: string; addonId: string }
       const body = request.body as { enabled?: boolean; position?: number }
       if (!(await canAccessProfile(db, user.id, profileId))) return reply.forbidden()
+      if ((await resolveAddonProfileId(db, profileId)) !== profileId) {
+        return reply.conflict("This profile uses the primary profile's add-ons")
+      }
 
       await db.transaction(async (tx) => {
         if (body.position !== undefined) {
@@ -2021,6 +2039,22 @@ async function canAccessProfile(db: Database, userId: string, profileId: string)
     .where(and(eq(profiles.id, profileId), eq(householdMembers.userId, userId)))
     .limit(1)
   return Boolean(row)
+}
+
+async function resolveAddonProfileId(db: Database, profileId: string): Promise<string> {
+  const [profile] = await db
+    .select({ householdId: profiles.householdId, usesPrimaryAddons: profiles.usesPrimaryAddons })
+    .from(profiles)
+    .where(eq(profiles.id, profileId))
+    .limit(1)
+  if (!profile?.usesPrimaryAddons) return profileId
+  const [primary] = await db
+    .select({ id: profiles.id })
+    .from(profiles)
+    .where(eq(profiles.householdId, profile.householdId))
+    .orderBy(asc(profiles.createdAt))
+    .limit(1)
+  return primary?.id ?? profileId
 }
 
 function normalizeManifestUrl(value: string): string {
