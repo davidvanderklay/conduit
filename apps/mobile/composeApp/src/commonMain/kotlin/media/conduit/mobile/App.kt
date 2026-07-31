@@ -390,6 +390,7 @@ private fun AppShell(
     val profiles = account.bootstrap.households.flatMap { it.profiles }
     val activeProfile = profiles.firstOrNull { it.id == state.activeProfileId } ?: profiles.firstOrNull()
     val syncRepository = remember(api, secureStore) { ProfileSyncRepository(api, secureStore) }
+    val appScope = rememberCoroutineScope()
     var profileSync by remember(activeProfile?.id) {
         mutableStateOf(
             ProfileSyncState(snapshot = activeProfile?.let { syncRepository.cached(it.id) }),
@@ -446,6 +447,7 @@ private fun AppShell(
                         state, platform, account, activeProfile, profileSync, api, selectedMedia,
                         selectedVideoId, selectMedia, { selectedMedia = null }, dispatch, onSignOut, onProfilesChanged,
                         { profileFlowActive = it },
+                        { activeProfile?.let { profile -> appScope.launch { profileSync = syncRepository.synchronize(state.endpoint!!.baseUrl, account.session.token, profile.id) } } },
                         Modifier.weight(1f),
                     )
                 }
@@ -454,6 +456,7 @@ private fun AppShell(
                     state, platform, account, activeProfile, profileSync, api, selectedMedia,
                     selectedVideoId, selectMedia, { selectedMedia = null }, dispatch, onSignOut, onProfilesChanged,
                     { profileFlowActive = it },
+                    { activeProfile?.let { profile -> appScope.launch { profileSync = syncRepository.synchronize(state.endpoint!!.baseUrl, account.session.token, profile.id) } } },
                     Modifier.padding(padding),
                 )
             }
@@ -499,6 +502,7 @@ private fun DestinationContent(
     onSignOut: () -> Unit,
     onProfilesChanged: (String?) -> Unit,
     onProfileFlowChanged: (Boolean) -> Unit,
+    onProfileDataChanged: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Box(modifier.fillMaxSize()) {
@@ -522,7 +526,7 @@ private fun DestinationContent(
             )
             AppDestination.Profile -> ProfileSettingsScreen(
                 state, platform, account, activeProfile, profileSync, api, dispatch, onSignOut,
-                onProfilesChanged, onProfileFlowChanged,
+                onProfilesChanged, onProfileFlowChanged, onProfileDataChanged,
                 Modifier.fillMaxSize(),
             )
         }
