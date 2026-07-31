@@ -588,7 +588,7 @@ function WebPlayer({
           </div>
 
           {showSettings && (
-            <div className="absolute bottom-16 right-4 max-h-[70%] w-[46rem] max-w-[calc(100%-2rem)] overflow-y-auto overscroll-contain rounded-xl border border-zinc-700 bg-zinc-950/95 p-4 shadow-2xl">
+            <div className="absolute bottom-20 right-4 max-h-[70%] w-[46rem] max-w-[calc(100%-2rem)] overflow-y-auto overscroll-contain rounded-xl border border-zinc-700 bg-zinc-950/95 p-4 shadow-2xl">
               <div className="mb-3 flex items-center gap-2">
                 <Captions size={16} />
                 <h3 className="font-display text-sm font-semibold">Subtitles</h3>
