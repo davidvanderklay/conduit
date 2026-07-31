@@ -43,6 +43,7 @@ export function Player({
   profileId,
   progressMetadata,
   addons,
+  onEnded,
   onClose,
 }: {
   url: string
@@ -51,6 +52,7 @@ export function Player({
   profileId: string
   progressMetadata: ProgressMetadata
   addons: InstalledAddon[]
+  onEnded?: () => void | Promise<void>
   onClose: () => void
 }) {
   if (isDesktop()) {
@@ -62,6 +64,7 @@ export function Player({
         profileId={profileId}
         progressMetadata={progressMetadata}
         addons={addons}
+        onEnded={onEnded}
         onClose={onClose}
       />
     )
@@ -74,6 +77,7 @@ export function Player({
       profileId={profileId}
       progressMetadata={progressMetadata}
       addons={addons}
+      onEnded={onEnded}
       onClose={onClose}
     />
   )
@@ -86,6 +90,7 @@ function WebPlayer({
   profileId,
   progressMetadata,
   addons,
+  onEnded,
   onClose,
 }: {
   url: string
@@ -94,6 +99,7 @@ function WebPlayer({
   profileId: string
   progressMetadata: ProgressMetadata
   addons: InstalledAddon[]
+  onEnded?: () => void | Promise<void>
   onClose: () => void
 }) {
   const preferences = readPreferences()
@@ -382,7 +388,13 @@ function WebPlayer({
             }}
             onEnded={(event) => {
               setPlaying(false)
-              void saveProgress(event.currentTarget.duration, event.currentTarget.duration, true)
+              void saveProgress(
+                event.currentTarget.duration,
+                event.currentTarget.duration,
+                true,
+              )
+                .then(() => onEnded?.())
+                .catch(() => undefined)
             }}
             onDurationChange={(event) => setDuration(event.currentTarget.duration || 0)}
             onLoadedMetadata={() => {

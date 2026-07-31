@@ -1015,7 +1015,6 @@ function MediaHome({
             return (
               <ContinueWatching
                 profileId={profile.id}
-                addons={addons}
                 onSeeMore={onHistory}
                 onSelect={(item, videoId) => {
                   setSelectedItem(item)
