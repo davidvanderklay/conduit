@@ -5,6 +5,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import media.conduit.mobile.foundation.*
@@ -406,7 +407,7 @@ private fun AppShell(
                             NavigationBarItem(
                                 selected = state.destination == destination,
                                 onClick = { dispatch(AppAction.Navigate(destination)) },
-                                icon = { Text(destination.label.take(1)) },
+                                icon = { Text(destination.glyph) },
                                 label = { Text(destination.label) },
                             )
                         }
@@ -422,19 +423,19 @@ private fun AppShell(
                             NavigationRailItem(
                                 selected = state.destination == destination,
                                 onClick = { dispatch(AppAction.Navigate(destination)) },
-                                icon = { Text(destination.label.take(1)) },
+                                icon = { Text(destination.glyph) },
                                 label = { Text(destination.label) },
                             )
                         }
                     }
                     DestinationContent(
-                        state, platform, account, activeProfile, profileSync, dispatch, onSignOut,
+                        state, platform, account, activeProfile, profileSync, api, dispatch, onSignOut,
                         Modifier.weight(1f),
                     )
                 }
             } else {
                 DestinationContent(
-                    state, platform, account, activeProfile, profileSync, dispatch, onSignOut,
+                    state, platform, account, activeProfile, profileSync, api, dispatch, onSignOut,
                     Modifier.padding(padding),
                 )
             }
@@ -449,30 +450,65 @@ private fun DestinationContent(
     account: AccountStatus.SignedIn,
     activeProfile: ProfileSummary?,
     profileSync: ProfileSyncState,
+    api: ConduitApi,
     dispatch: (AppAction) -> Unit,
     onSignOut: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Column(
-        modifier.fillMaxSize().safeContentPadding().verticalScroll(rememberScrollState()).padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        Text(state.destination.label, style = MaterialTheme.typography.headlineMedium)
-        if (profileSync.refreshing) LinearProgressIndicator(Modifier.fillMaxWidth())
-        if (profileSync.offline) {
-            Text("Offline · showing encrypted cached data", color = MaterialTheme.colorScheme.tertiary)
-        }
-        profileSync.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+    Box(modifier.fillMaxSize().safeContentPadding()) {
         when (state.destination) {
-            AppDestination.Discover -> {
-                activeProfile?.let { Text("Watching as ${it.name}") }
+            AppDestination.Home -> HomeScreen(activeProfile, profileSync, api, Modifier.fillMaxSize())
+            AppDestination.Search -> SearchFoundation(Modifier.fillMaxSize())
+            AppDestination.Library -> Column(
+                Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                Text("Library", style = MaterialTheme.typography.headlineMedium)
+                LibrarySummary(profileSync.snapshot)
+            }
+            AppDestination.Settings -> Column(
+                Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                Text("Settings", style = MaterialTheme.typography.headlineMedium)
+                SettingsFoundation(
+                    state, platform, account, activeProfile, profileSync, dispatch, onSignOut,
+                )
+                HorizontalDivider()
                 ArchitectureDemo()
             }
-            AppDestination.Library -> LibrarySummary(profileSync.snapshot)
-            AppDestination.Settings -> SettingsFoundation(
-                state, platform, account, activeProfile, profileSync, dispatch, onSignOut,
-            )
         }
+        if (profileSync.refreshing) LinearProgressIndicator(Modifier.fillMaxWidth().align(Alignment.TopCenter))
+    }
+}
+
+private val AppDestination.glyph: String
+    get() = when (this) {
+        AppDestination.Home -> "⌂"
+        AppDestination.Search -> "⌕"
+        AppDestination.Library -> "▣"
+        AppDestination.Settings -> "⚙"
+    }
+
+@Composable
+private fun SearchFoundation(modifier: Modifier = Modifier) {
+    var query by remember { mutableStateOf("") }
+    Column(modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
+        Text("Search", style = MaterialTheme.typography.headlineMedium)
+        OutlinedTextField(
+            value = query,
+            onValueChange = { query = it },
+            placeholder = { Text("Movies, series, and episodes") },
+            leadingIcon = { Text("⌕") },
+            singleLine = true,
+            shape = MaterialTheme.shapes.extraLarge,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Text(
+            if (query.isBlank()) "Search across every compatible installed add-on."
+            else "Catalog search is the next part of this mobile slice.",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 

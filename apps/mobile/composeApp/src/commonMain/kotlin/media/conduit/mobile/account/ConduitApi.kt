@@ -19,6 +19,9 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.jsonArray
+import io.ktor.http.encodeURLPathPart
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 
@@ -84,9 +87,14 @@ data class ProgressSummary(
     val mediaType: String,
     val mediaId: String,
     val name: String,
+    val poster: String? = null,
+    val videoTitle: String? = null,
+    val season: Int? = null,
+    val episode: Int? = null,
     val positionMs: Long,
     val durationMs: Long,
     val watched: Boolean,
+    val dismissed: Boolean = false,
     val updatedAt: String,
 )
 
@@ -99,6 +107,31 @@ data class ProfileSnapshot(
     val addons: List<InstalledAddonSummary>,
     val library: List<LibraryItemSummary>,
     val progress: List<ProgressSummary>,
+)
+
+@Serializable
+data class CatalogItem(
+    val id: String,
+    val type: String,
+    val name: String,
+    val poster: String? = null,
+    val background: String? = null,
+    val description: String? = null,
+    val releaseInfo: String? = null,
+)
+
+@Serializable
+private data class CatalogResponse(val metas: List<CatalogItem> = emptyList())
+
+data class HomeCatalog(
+    val key: String,
+    val title: String,
+    val items: List<CatalogItem>,
+)
+
+data class HomeCatalogResult(
+    val catalogs: List<HomeCatalog>,
+    val failedRequests: Int,
 )
 
 @Serializable
@@ -245,6 +278,52 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
                 progress = responses[2].body<ProgressResponse>().items,
             )
         }
+
+    suspend fun loadHomeCatalogs(addons: List<InstalledAddonSummary>): HomeCatalogResult = coroutineScope {
+        val requests = addons
+            .filter { it.enabled }
+            .flatMap { addon ->
+                addon.manifest["catalogs"]?.jsonArray.orEmpty()
+                    .mapNotNull { it as? JsonObject }
+                    .filter { catalog ->
+                        catalog["extra"]?.jsonArray.orEmpty().none { extra ->
+                            (extra as? JsonObject)?.get("isRequired")?.jsonPrimitive?.booleanOrNull == true
+                        }
+                    }
+                    .take(3)
+                    .mapNotNull { catalog ->
+                        val id = catalog["id"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+                        val type = catalog["type"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+                        val addonName = addon.manifest["name"]?.jsonPrimitive?.contentOrNull ?: addon.manifestId
+                        val title = catalog["name"]?.jsonPrimitive?.contentOrNull ?: "$addonName · $id"
+                        Triple(addon, Pair(type, id), title)
+                    }
+            }
+            .map { (addon, resource, title) ->
+                async {
+                    runCatching {
+                        val (type, id) = resource
+                        val manifestUrl = addon.manifestUrl.substringBefore('?').substringBefore('#')
+                        val base = manifestUrl.substringBeforeLast('/', manifestUrl).trimEnd('/')
+                        val url = "$base/catalog/${type.encodeURLPathPart()}/${id.encodeURLPathPart()}.json"
+                        val response = client.get(url)
+                        if (!response.status.isSuccess()) {
+                            throw ServerRequestException("$title returned HTTP ${response.status.value}")
+                        }
+                        HomeCatalog(
+                            key = "${addon.id}:$type:$id",
+                            title = title,
+                            items = response.body<CatalogResponse>().metas,
+                        )
+                    }
+                }
+            }
+        val results = requests.map { it.await() }
+        HomeCatalogResult(
+            catalogs = results.mapNotNull { it.getOrNull() },
+            failedRequests = results.count { it.isFailure },
+        )
+    }
 
     suspend fun generateRecoveryCodes(baseUrl: String, token: String): List<String> {
         val response = client.post("$baseUrl/v1/auth/recovery-codes") { bearerAuth(token) }
