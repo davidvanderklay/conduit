@@ -12,6 +12,7 @@ export interface NativePlayerSnapshot {
   running: boolean
   ended: boolean
   paused: boolean
+  loading: boolean
   position: number
   duration: number
   volume: number
