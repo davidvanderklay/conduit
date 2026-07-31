@@ -12,9 +12,19 @@ data class StoredSession(
     val expiresAt: String? = null,
 )
 
+@Serializable
+data class PendingOAuth(
+    val serverBaseUrl: String,
+    val requestId: String,
+    val verifier: String,
+    val authorizationUrl: String,
+    val expiresAt: String,
+)
+
 class SessionVault(private val secureStore: SecureStore) {
     private val json = Json { ignoreUnknownKeys = true }
     private val key = "account.session.v1"
+    private val oauthKey = "account.oauth-pending.v1"
 
     fun loadFor(serverBaseUrl: String): StoredSession? = secureStore.get(key)
         ?.let { runCatching { json.decodeFromString<StoredSession>(it) }.getOrNull() }
@@ -23,4 +33,13 @@ class SessionVault(private val secureStore: SecureStore) {
     fun save(session: StoredSession) = secureStore.put(key, json.encodeToString(session))
 
     fun clear() = secureStore.remove(key)
+
+    fun pendingOAuth(serverBaseUrl: String): PendingOAuth? = secureStore.get(oauthKey)
+        ?.let { runCatching { json.decodeFromString<PendingOAuth>(it) }.getOrNull() }
+        ?.takeIf { it.serverBaseUrl == serverBaseUrl }
+
+    fun savePendingOAuth(value: PendingOAuth) =
+        secureStore.put(oauthKey, json.encodeToString(value))
+
+    fun clearPendingOAuth() = secureStore.remove(oauthKey)
 }

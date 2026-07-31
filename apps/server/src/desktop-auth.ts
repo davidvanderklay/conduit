@@ -24,6 +24,28 @@ export function validateLoopbackCallback(value: string): string {
   return url.toString()
 }
 
+export function validateMobileCallback(value: string): string {
+  let url: URL
+  try {
+    url = new URL(value)
+  } catch {
+    throw new Error("Mobile callback must be a valid URL")
+  }
+  if (
+    url.protocol !== "conduit:" ||
+    url.hostname !== "oauth" ||
+    url.pathname !== "/callback" ||
+    url.port ||
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash
+  ) {
+    throw new Error("Mobile callback must be conduit://oauth/callback")
+  }
+  return url.toString()
+}
+
 export function pkceChallenge(verifier: string): string {
   return createHash("sha256").update(verifier).digest("base64url")
 }

@@ -42,9 +42,16 @@ private fun AccountGate(
     val repository = remember(api, services.secure) {
         AccountRepository(api, SessionVault(services.secure))
     }
+    val oauthPlatform = rememberMobileOAuthPlatform()
     var account by remember(endpoint.baseUrl) { mutableStateOf<AccountStatus>(AccountStatus.Loading) }
     DisposableEffect(api) { onDispose(api::close) }
     LaunchedEffect(repository) { account = repository.restore(endpoint) }
+    LaunchedEffect(oauthPlatform.callbackUrl) {
+        val callback = oauthPlatform.callbackUrl ?: return@LaunchedEffect
+        account = AccountStatus.Loading
+        account = repository.completeOAuth(endpoint, callback)
+        oauthPlatform.consumeCallback()
+    }
 
     when (val current = account) {
         AccountStatus.Loading -> CenteredStatus("Connecting to ${endpoint.label}…")
@@ -59,6 +66,10 @@ private fun AccountGate(
             onRegister = { email, password ->
                 account = AccountStatus.Loading
                 account = repository.register(endpoint, current.authentication, email, password)
+            },
+            onOAuth = {
+                val pending = repository.startOAuth(endpoint, oauthPlatform.createPkce())
+                oauthPlatform.openSystemBrowser(pending.authorizationUrl)
             },
             onChangeServer = { dispatch(AppAction.ForgetEndpoint) },
         )
@@ -175,6 +186,7 @@ private fun SignInScreen(
     initialError: String?,
     onSignIn: suspend (String, String) -> Unit,
     onRegister: suspend (String, String) -> Unit,
+    onOAuth: suspend () -> Unit,
     onChangeServer: () -> Unit,
 ) {
     var email by remember { mutableStateOf("") }
@@ -238,7 +250,18 @@ private fun SignInScreen(
                 }
             }
             authentication.oidc.takeIf { it.enabled }?.let {
-                Text("${it.displayName ?: "Browser sign-in"} will be added with the mobile deep-link handoff.")
+                OutlinedButton(
+                    enabled = !pending,
+                    onClick = {
+                        pending = true
+                        scope.launch {
+                            runCatching { onOAuth() }
+                                .onFailure { cause -> error = cause.message ?: "Unable to start OAuth" }
+                            pending = false
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text(it.displayName ?: "Continue in browser") }
             }
             TextButton(onClick = onChangeServer) { Text("Use another server") }
         }

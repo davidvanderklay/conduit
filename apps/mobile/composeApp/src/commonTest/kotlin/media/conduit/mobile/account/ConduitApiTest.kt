@@ -138,6 +138,34 @@ class ConduitApiTest {
         assertEquals("fixture", offline.snapshot?.addons?.single()?.manifestId)
     }
 
+    @Test
+    fun mobileOAuthCorrelatesCallbackAndPersistsExchangedSession() = runTest {
+        val engine = MockEngine { request ->
+            val body = when (request.url.encodedPath) {
+                "/v1/auth/mobile/start" ->
+                    """{"requestId":"request-12345678901234567890123456789012","expiresAt":"2026-07-31T01:00:00Z","authorizationUrl":"https://conduit.example/v1/auth/mobile/authorize?request=abc"}"""
+                "/v1/auth/mobile/exchange" ->
+                    """{"token":"oauth-session","expiresAt":"2026-08-07T00:00:00Z"}"""
+                "/v1/bootstrap" -> """{"households":[]}"""
+                else -> error("Unexpected path ${request.url.encodedPath}")
+            }
+            respond(body, HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "application/json"))
+        }
+        val api = ConduitApi(HttpClient(engine) { install(ContentNegotiation) { json() } })
+        val vault = SessionVault(MemorySecureStore())
+        val repository = AccountRepository(api, vault)
+        val endpoint = ServerEndpoint("https://conduit.example", "conduit.example")
+        val pending = repository.startOAuth(endpoint, PkcePair("v".repeat(43), "c".repeat(43)))
+
+        val result = repository.completeOAuth(
+            endpoint,
+            "conduit://oauth/callback?request=${pending.requestId}&code=${"x".repeat(43)}",
+        )
+        assertIs<AccountStatus.SignedIn>(result)
+        assertEquals("oauth-session", vault.loadFor(endpoint.baseUrl)?.token)
+        assertEquals(null, vault.pendingOAuth(endpoint.baseUrl))
+    }
+
     private fun mockClient(response: (path: String, authorization: String?) -> String): HttpClient {
         val engine = MockEngine { request ->
             respond(

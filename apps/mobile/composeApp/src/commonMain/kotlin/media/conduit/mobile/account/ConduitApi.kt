@@ -99,6 +99,16 @@ data class ProfileSnapshot(
 @Serializable
 data class RecoveryCodesResponse(val codes: List<String>)
 
+@Serializable
+data class MobileAuthStart(
+    val requestId: String,
+    val expiresAt: String,
+    val authorizationUrl: String,
+)
+
+@Serializable
+data class MobileAuthExchange(val token: String, val expiresAt: String)
+
 data class ValidatedServer(
     val authentication: AuthenticationConfiguration,
 )
@@ -236,6 +246,44 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
             )
         }
         return response.body<RecoveryCodesResponse>().codes
+    }
+
+    suspend fun startMobileAuth(baseUrl: String, challenge: String): MobileAuthStart {
+        val response = client.post("$baseUrl/v1/auth/mobile/start") {
+            contentType(ContentType.Application.Json)
+            setBody(
+                buildJsonObject {
+                    put("callbackUrl", "conduit://oauth/callback")
+                    put("codeChallenge", challenge)
+                },
+            )
+        }
+        if (!response.status.isSuccess()) {
+            throw ServerRequestException("OAuth start returned HTTP ${response.status.value}")
+        }
+        return response.body()
+    }
+
+    suspend fun exchangeMobileAuth(
+        baseUrl: String,
+        requestId: String,
+        code: String,
+        verifier: String,
+    ): MobileAuthExchange {
+        val response = client.post("$baseUrl/v1/auth/mobile/exchange") {
+            contentType(ContentType.Application.Json)
+            setBody(
+                buildJsonObject {
+                    put("requestId", requestId)
+                    put("code", code)
+                    put("verifier", verifier)
+                },
+            )
+        }
+        if (!response.status.isSuccess()) {
+            throw ServerRequestException("OAuth exchange was rejected", response.status.value)
+        }
+        return response.body()
     }
 
     fun close() = client.close()

@@ -87,6 +87,24 @@ a custom URL protocol or place an OAuth client secret in the desktop binary.
 The provider callback shown in `/admin` does not change. Administrators still
 register only the server's Google or OIDC callback URL.
 
+### Mobile OAuth
+
+Android uses the system browser and a separate `/v1/auth/mobile/*` handoff. The
+app generates a PKCE verifier, stores the pending request in encrypted device
+storage, and registers the exact `conduit://oauth/callback` deep link. The
+server accepts no alternate scheme, host, path, credentials, query, or fragment
+when creating a request. After provider authentication it redirects a one-time
+code—not a session token—to the app, where request correlation and PKCE exchange
+produce the seven-day mobile bearer session.
+
+Desktop and mobile requests currently share the short-lived authentication
+request table, but every authorize, completion, error, and exchange endpoint
+revalidates its callback type. A request created for one platform cannot be
+consumed through the other platform's endpoints. The custom scheme is safe
+against code interception because another app does not possess the encrypted
+PKCE verifier; supported Android releases should still prefer verified App
+Links if a stable project-owned callback domain is introduced later.
+
 ## Custom OpenID Connect
 
 Select **Custom OpenID Connect** in `/admin` and provide:
