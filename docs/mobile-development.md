@@ -127,3 +127,9 @@ cd apps/mobile
 See [ADR 0004](adr/0004-mobile-server-session-foundation.md) for token scoping,
 Android Keystore ownership, and the intentionally deferred mobile OAuth and iOS
 Keychain work.
+
+After validation, sign in with a local server account or create one when the
+server permits registration. The app stores the bearer session in Android
+Keystore-backed ciphertext, loads households and profiles from `/v1/bootstrap`,
+and restores the session after restart. Sign out from Settings and verify that
+the login screen returns.

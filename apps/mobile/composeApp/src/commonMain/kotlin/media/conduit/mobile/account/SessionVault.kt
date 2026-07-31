@@ -9,7 +9,7 @@ import media.conduit.mobile.foundation.SecureStore
 data class StoredSession(
     val serverBaseUrl: String,
     val token: String,
-    val expiresAt: String,
+    val expiresAt: String? = null,
 )
 
 class SessionVault(private val secureStore: SecureStore) {

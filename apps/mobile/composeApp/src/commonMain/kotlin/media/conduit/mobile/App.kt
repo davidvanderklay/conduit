@@ -10,6 +10,8 @@ import androidx.compose.ui.unit.dp
 import media.conduit.mobile.foundation.*
 import media.conduit.mobile.account.ConduitApi
 import media.conduit.mobile.account.SessionVault
+import media.conduit.mobile.account.*
+import kotlinx.coroutines.launch
 
 @Composable
 fun App() {
@@ -24,7 +26,210 @@ fun App() {
         if (state.endpoint == null) {
             ServerSetup(state, dispatch)
         } else {
-            AppShell(state, services.info, dispatch)
+            AccountGate(state, services, dispatch)
+        }
+    }
+}
+
+@Composable
+private fun AccountGate(
+    state: AppState,
+    services: PlatformServices,
+    dispatch: (AppAction) -> Unit,
+) {
+    val endpoint = state.endpoint ?: return
+    val api = remember(endpoint.baseUrl) { ConduitApi() }
+    val repository = remember(api, services.secure) {
+        AccountRepository(api, SessionVault(services.secure))
+    }
+    var account by remember(endpoint.baseUrl) { mutableStateOf<AccountStatus>(AccountStatus.Loading) }
+    DisposableEffect(api) { onDispose(api::close) }
+    LaunchedEffect(repository) { account = repository.restore(endpoint) }
+
+    when (val current = account) {
+        AccountStatus.Loading -> CenteredStatus("Connecting to ${endpoint.label}…")
+        is AccountStatus.SignedOut -> SignInScreen(
+            endpoint = endpoint,
+            authentication = current.authentication,
+            initialError = current.error,
+            onSignIn = { email, password ->
+                account = AccountStatus.Loading
+                account = repository.signIn(endpoint, current.authentication, email, password)
+            },
+            onRegister = { email, password ->
+                account = AccountStatus.Loading
+                account = repository.register(endpoint, current.authentication, email, password)
+            },
+            onChangeServer = { dispatch(AppAction.ForgetEndpoint) },
+        )
+        is AccountStatus.SignedIn -> {
+            if (current.bootstrap.households.isEmpty()) {
+                HouseholdSetup(
+                    onCreate = { household, profile ->
+                        account = AccountStatus.Loading
+                        account = repository.createHousehold(endpoint, current, household, profile)
+                    },
+                )
+            } else {
+                AppShell(
+                    state = state,
+                    platform = services.info,
+                    account = current,
+                    dispatch = dispatch,
+                    onSignOut = {
+                        account = AccountStatus.Loading
+                        account = repository.signOut(endpoint, current.session)
+                    },
+                )
+            }
+        }
+        is AccountStatus.Error -> ConnectionError(
+            message = current.message,
+            onRetry = {
+                account = AccountStatus.Loading
+                account = repository.restore(endpoint)
+            },
+            onChangeServer = { dispatch(AppAction.ForgetEndpoint) },
+        )
+    }
+}
+
+@Composable
+private fun HouseholdSetup(onCreate: suspend (String, String) -> Unit) {
+    var household by remember { mutableStateOf("Home") }
+    var profile by remember { mutableStateOf("") }
+    var pending by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    Surface(Modifier.fillMaxSize()) {
+        Column(
+            Modifier.safeContentPadding().widthIn(max = 560.dp).fillMaxWidth().padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Text("Create your household", style = MaterialTheme.typography.headlineMedium)
+            Text("Profiles, add-ons, and watch state synchronize through your Conduit server.")
+            OutlinedTextField(
+                household, { household = it }, label = { Text("Household name") },
+                singleLine = true, modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                profile, { profile = it }, label = { Text("Your profile name") },
+                singleLine = true, modifier = Modifier.fillMaxWidth(),
+            )
+            Button(
+                enabled = !pending && household.isNotBlank() && profile.isNotBlank(),
+                onClick = {
+                    pending = true
+                    scope.launch { onCreate(household, profile); pending = false }
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text(if (pending) "Creating…" else "Create household") }
+        }
+    }
+}
+
+@Composable
+private fun CenteredStatus(message: String) {
+    Surface(Modifier.fillMaxSize()) {
+        Column(
+            Modifier.fillMaxSize().padding(24.dp),
+            verticalArrangement = Arrangement.Center,
+        ) {
+            CircularProgressIndicator()
+            Spacer(Modifier.height(16.dp))
+            Text(message)
+        }
+    }
+}
+
+@Composable
+private fun SignInScreen(
+    endpoint: ServerEndpoint,
+    authentication: AuthenticationConfiguration,
+    initialError: String?,
+    onSignIn: suspend (String, String) -> Unit,
+    onRegister: suspend (String, String) -> Unit,
+    onChangeServer: () -> Unit,
+) {
+    var email by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    var error by remember(initialError) { mutableStateOf(initialError) }
+    var pending by remember { mutableStateOf(false) }
+    var registering by remember { mutableStateOf(authentication.needsOwner) }
+    val scope = rememberCoroutineScope()
+    Surface(Modifier.fillMaxSize()) {
+        Column(
+            Modifier.safeContentPadding().widthIn(max = 560.dp).fillMaxWidth().padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Text(
+                if (registering) "Create your Conduit account" else "Sign in to Conduit",
+                style = MaterialTheme.typography.headlineMedium,
+            )
+            Text(endpoint.baseUrl, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            OutlinedTextField(
+                value = email,
+                onValueChange = { email = it; error = null },
+                label = { Text("Email") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                value = password,
+                onValueChange = { password = it; error = null },
+                label = { Text("Password") },
+                singleLine = true,
+                visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            Button(
+                enabled = !pending && email.isNotBlank() && password.isNotBlank(),
+                onClick = {
+                    pending = true
+                    scope.launch {
+                        runCatching {
+                            if (registering) onRegister(email, password) else onSignIn(email, password)
+                        }
+                            .onFailure { error = it.message ?: "Unable to sign in" }
+                        pending = false
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    if (pending) "Please wait…" else if (registering) "Create account" else "Sign in",
+                )
+            }
+            if (authentication.localRegistration) {
+                Text(
+                    if (authentication.needsOwner) "This server still needs its owner account."
+                    else "This server allows new local accounts.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                TextButton(onClick = { registering = !registering; error = null }) {
+                    Text(if (registering) "I already have an account" else "Create a local account")
+                }
+            }
+            authentication.oidc.takeIf { it.enabled }?.let {
+                Text("${it.displayName ?: "Browser sign-in"} will be added with the mobile deep-link handoff.")
+            }
+            TextButton(onClick = onChangeServer) { Text("Use another server") }
+        }
+    }
+}
+
+@Composable
+private fun ConnectionError(message: String, onRetry: suspend () -> Unit, onChangeServer: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    Surface(Modifier.fillMaxSize()) {
+        Column(
+            Modifier.fillMaxSize().padding(24.dp),
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Text("Server unavailable", style = MaterialTheme.typography.headlineSmall)
+            Text(message, color = MaterialTheme.colorScheme.error)
+            Button(onClick = { scope.launch { onRetry() } }) { Text("Retry") }
+            TextButton(onClick = onChangeServer) { Text("Use another server") }
         }
     }
 }
@@ -94,8 +299,17 @@ private fun ServerSetup(state: AppState, dispatch: (AppAction) -> Unit) {
 private fun AppShell(
     state: AppState,
     platform: PlatformInfo,
+    account: AccountStatus.SignedIn,
     dispatch: (AppAction) -> Unit,
+    onSignOut: suspend () -> Unit,
 ) {
+    val profiles = account.bootstrap.households.flatMap { it.profiles }
+    val activeProfile = profiles.firstOrNull { it.id == state.activeProfileId } ?: profiles.firstOrNull()
+    LaunchedEffect(activeProfile?.id, state.activeProfileId) {
+        if (activeProfile != null && activeProfile.id != state.activeProfileId) {
+            dispatch(AppAction.SelectProfile(activeProfile.id))
+        }
+    }
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val expanded = maxWidth >= 720.dp
         val snackbarHostState = remember { SnackbarHostState() }
@@ -135,10 +349,14 @@ private fun AppShell(
                             )
                         }
                     }
-                    DestinationContent(state, platform, dispatch, Modifier.weight(1f))
+                    DestinationContent(
+                        state, platform, account, activeProfile, dispatch, onSignOut, Modifier.weight(1f),
+                    )
                 }
             } else {
-                DestinationContent(state, platform, dispatch, Modifier.padding(padding))
+                DestinationContent(
+                    state, platform, account, activeProfile, dispatch, onSignOut, Modifier.padding(padding),
+                )
             }
         }
     }
@@ -148,7 +366,10 @@ private fun AppShell(
 private fun DestinationContent(
     state: AppState,
     platform: PlatformInfo,
+    account: AccountStatus.SignedIn,
+    activeProfile: ProfileSummary?,
     dispatch: (AppAction) -> Unit,
+    onSignOut: suspend () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -157,12 +378,17 @@ private fun DestinationContent(
     ) {
         Text(state.destination.label, style = MaterialTheme.typography.headlineMedium)
         when (state.destination) {
-            AppDestination.Discover -> ArchitectureDemo()
+            AppDestination.Discover -> {
+                activeProfile?.let { Text("Watching as ${it.name}") }
+                ArchitectureDemo()
+            }
             AppDestination.Library -> EmptyFoundationState(
                 "Your library will live here",
                 "Library synchronization belongs to a later roadmap milestone.",
             )
-            AppDestination.Settings -> SettingsFoundation(state, platform, dispatch)
+            AppDestination.Settings -> SettingsFoundation(
+                state, platform, account, activeProfile, dispatch, onSignOut,
+            )
         }
     }
 }
@@ -178,7 +404,31 @@ private fun EmptyFoundationState(title: String, detail: String) {
 }
 
 @Composable
-private fun SettingsFoundation(state: AppState, platform: PlatformInfo, dispatch: (AppAction) -> Unit) {
+private fun SettingsFoundation(
+    state: AppState,
+    platform: PlatformInfo,
+    account: AccountStatus.SignedIn,
+    activeProfile: ProfileSummary?,
+    dispatch: (AppAction) -> Unit,
+    onSignOut: suspend () -> Unit,
+) {
+    val scope = rememberCoroutineScope()
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Profiles", style = MaterialTheme.typography.titleLarge)
+            account.bootstrap.households.forEach { household ->
+                Text(household.name, style = MaterialTheme.typography.titleMedium)
+                household.profiles.forEach { profile ->
+                    FilterChip(
+                        selected = profile.id == activeProfile?.id,
+                        onClick = { dispatch(AppAction.SelectProfile(profile.id)) },
+                        label = { Text(profile.name) },
+                    )
+                }
+            }
+            OutlinedButton(onClick = { scope.launch { onSignOut() } }) { Text("Sign out") }
+        }
+    }
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Server", style = MaterialTheme.typography.titleLarge)
