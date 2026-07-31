@@ -9,6 +9,12 @@ data class ServerEndpoint(
     val hosted: Boolean = false,
 )
 
+val DefaultServerEndpoint = ServerEndpoint(
+    baseUrl = "https://conduit-api-62gd.onrender.com",
+    label = "Default server",
+    hosted = true,
+)
+
 sealed interface EndpointValidation {
     data class Valid(val endpoint: ServerEndpoint) : EndpointValidation
     data class Invalid(val message: String) : EndpointValidation
@@ -38,7 +44,7 @@ object ServerEndpointValidator {
             return EndpointValidation.Invalid("Enter a valid server host without credentials")
         }
         val host = authority.substringBefore(':').lowercase()
-        val localDevelopmentHost = host == "localhost" || host == "127.0.0.1" || host == "10.0.2.2"
+        val localDevelopmentHost = host == "localhost" || host == "127.0.0.1" || host == "10.0.2.2" || host.startsWith("192.168.") || host.startsWith("10.") || host.matches(Regex("172\\.(1[6-9]|2[0-9]|3[01])\\..*"))
         if (scheme != "https" && !localDevelopmentHost) {
             return EndpointValidation.Invalid("Use HTTPS unless connecting to a local development server")
         }

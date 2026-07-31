@@ -14,11 +14,15 @@ import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.AccountCircle
 import androidx.compose.material.icons.rounded.VideoLibrary
+import androidx.compose.material.icons.rounded.Movie
+import androidx.compose.material.icons.rounded.Public
+import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -87,6 +91,10 @@ private fun AccountGate(
                     account = repository.register(endpoint, current.authentication, email, password)
                 }
             },
+            onRecover = { email, code, password ->
+                account = AccountStatus.Loading
+                accountScope.launch { account = repository.recover(endpoint, current.authentication, email, code, password) }
+            },
             onOAuth = {
                 accountScope.launch {
                     runCatching {
@@ -101,7 +109,18 @@ private fun AccountGate(
                     }
                 }
             },
-            onChangeServer = { dispatch(AppAction.ForgetEndpoint) },
+            serverError = state.setupError,
+            serverPending = state.pendingEndpoint != null,
+            onConnectServer = { rawUrl ->
+                dispatch(AppAction.SetupInputChanged(rawUrl))
+                dispatch(AppAction.ConnectRequested)
+                val candidate = if (rawUrl.trimEnd('/') == DefaultServerEndpoint.baseUrl) DefaultServerEndpoint else (ServerEndpointValidator.validate(rawUrl) as? EndpointValidation.Valid)?.endpoint
+                if (candidate != null) accountScope.launch {
+                    runCatching { api.validate(candidate.baseUrl) }
+                        .onSuccess { dispatch(AppAction.ConnectionSucceeded(candidate)) }
+                        .onFailure { dispatch(AppAction.ConnectionFailed(it.message ?: "Unable to connect to this Conduit server")) }
+                }
+            },
         )
         is AccountStatus.SignedIn -> {
             if (current.bootstrap.households.isEmpty()) {
@@ -223,50 +242,60 @@ private fun SignInScreen(
     initialError: String?,
     onSignIn: (String, String) -> Unit,
     onRegister: (String, String) -> Unit,
+    onRecover: (String, String, String) -> Unit,
     onOAuth: () -> Unit,
-    onChangeServer: () -> Unit,
+    serverError: String?,
+    serverPending: Boolean,
+    onConnectServer: (String) -> Unit,
 ) {
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var error by remember(initialError) { mutableStateOf(initialError) }
     var pending by remember(initialError) { mutableStateOf(false) }
     var registering by remember { mutableStateOf(authentication.needsOwner) }
-    Surface(Modifier.fillMaxSize()) {
-        Column(
-            Modifier.safeContentPadding().widthIn(max = 560.dp).fillMaxWidth().padding(24.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            Text(
-                if (registering) "Create your Conduit account" else "Sign in to Conduit",
-                style = MaterialTheme.typography.headlineMedium,
-            )
-            Text(endpoint.baseUrl, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    var recovering by remember { mutableStateOf(false) }
+    var recoveryCode by remember { mutableStateOf("") }
+    var serverExpanded by remember { mutableStateOf(false) }
+    var useDefault by remember(endpoint.baseUrl) { mutableStateOf(endpoint == DefaultServerEndpoint) }
+    var customServer by remember(endpoint.baseUrl) { mutableStateOf(if (endpoint == DefaultServerEndpoint) "" else endpoint.baseUrl) }
+    Box(Modifier.fillMaxSize().background(Brush.radialGradient(listOf(MaterialTheme.colorScheme.primary.copy(.09f), MaterialTheme.colorScheme.background), radius = 900f)), contentAlignment = Alignment.Center) {
+        Column(Modifier.safeContentPadding().verticalScroll(rememberScrollState()).widthIn(max = 460.dp).fillMaxWidth().padding(horizontal = 20.dp, vertical = 28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(bottom = 24.dp)) { Surface(color = MaterialTheme.colorScheme.primary, contentColor = Color.Black, shape = RoundedCornerShape(12.dp), modifier = Modifier.size(40.dp)) { Box(contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Movie, null, modifier = Modifier.size(22.dp)) } }; Text("conduit", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) }
+            Card(colors = CardDefaults.cardColors(containerColor = Color(0xF218181B)), border = BorderStroke(1.dp, Color.White.copy(.09f)), shape = RoundedCornerShape(22.dp), modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(15.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(if (recovering) "Recover your account" else if (registering) if (authentication.needsOwner) "Set up Conduit" else "Create your account" else "Welcome back", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+            Text(if (recovering) "Enter one of the recovery codes you saved." else if (registering) "Create a private account for this Conduit instance." else "Sign in to continue to your household.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+            authentication.oidc.takeIf { it.enabled && !recovering }?.let {
+                Button(enabled = !pending, onClick = { pending = true; onOAuth() }, colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color(0xFF202023)), modifier = Modifier.fillMaxWidth().height(50.dp)) { Text(it.displayName ?: "Continue with Google", fontWeight = FontWeight.SemiBold) }
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) { HorizontalDivider(Modifier.weight(1f), color = Color.White.copy(.1f)); Text("  OR CONTINUE WITH EMAIL  ", color = Color.White.copy(.3f), style = MaterialTheme.typography.labelSmall); HorizontalDivider(Modifier.weight(1f), color = Color.White.copy(.1f)) }
+            }
             OutlinedTextField(
                 value = email,
                 onValueChange = { email = it; error = null },
-                label = { Text("Email") },
+                label = { Text("Email address") }, placeholder = { Text("you@example.com") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
+            if (recovering) OutlinedTextField(value = recoveryCode, onValueChange = { recoveryCode = it; error = null }, label = { Text("Recovery code") }, placeholder = { Text("XXXX-XXXX-XXXX-XXXX") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(
                 value = password,
                 onValueChange = { password = it; error = null },
-                label = { Text("Password") },
+                label = { Text(if (recovering) "New password" else "Password") }, placeholder = { Text(if (registering || recovering) "At least 8 characters" else "Enter your password") },
                 singleLine = true,
                 visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
                 modifier = Modifier.fillMaxWidth(),
             )
             error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             Button(
-                enabled = !pending && email.isNotBlank() && password.length >= 8,
+                enabled = !pending && email.isNotBlank() && password.length >= 8 && (!recovering || recoveryCode.isNotBlank()),
                 onClick = {
                     pending = true
-                    if (registering) onRegister(email, password) else onSignIn(email, password)
+                    if (recovering) onRecover(email, recoveryCode, password) else if (registering) onRegister(email, password) else onSignIn(email, password)
                 },
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text(
-                    if (pending) "Please wait…" else if (registering) "Create account" else "Sign in",
+                    if (pending) "Please wait…" else if (recovering) "Reset password" else if (registering) "Create account" else "Sign in",
                 )
             }
             if (password.isNotEmpty() && password.length < 8) {
@@ -276,29 +305,32 @@ private fun SignInScreen(
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
-            if (authentication.localRegistration) {
-                Text(
-                    if (authentication.needsOwner) "This server still needs its owner account."
-                    else "This server allows new local accounts.",
-                    style = MaterialTheme.typography.bodySmall,
-                )
+            if (!recovering && !registering) TextButton(onClick = { recovering = true; error = null; password = "" }) { Text("Use recovery code") }
+            if (recovering) TextButton(onClick = { recovering = false; error = null; password = "" }) { Text("Back to sign in") }
+            if (authentication.localRegistration && !recovering) {
                 TextButton(onClick = { registering = !registering; error = null }) {
-                    Text(if (registering) "I already have an account" else "Create a local account")
+                    Text(if (registering) "Already have an account? Sign in" else "New to this instance? Create a local account")
                 }
             }
-            authentication.oidc.takeIf { it.enabled }?.let {
-                OutlinedButton(
-                    enabled = !pending,
-                    onClick = {
-                        pending = true
-                        onOAuth()
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                ) { Text(it.displayName ?: "Continue in browser") }
+                }
             }
-            TextButton(onClick = onChangeServer) { Text("Use another server") }
+            Spacer(Modifier.height(14.dp))
+            Surface(onClick = { serverExpanded = !serverExpanded }, shape = RoundedCornerShape(24.dp), color = Color(0xB21D1D20), border = BorderStroke(1.dp, Color.White.copy(.1f))) { Row(Modifier.padding(horizontal = 14.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) { Box(Modifier.size(7.dp).background(Color(0xFF34D399), androidx.compose.foundation.shape.CircleShape)); Spacer(Modifier.width(8.dp)); Text(if (endpoint == DefaultServerEndpoint) "Default server" else endpoint.label, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelMedium); Text("  ·  Change server", fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.labelMedium) } }
+            if (serverExpanded) Card(Modifier.fillMaxWidth().padding(top = 12.dp), colors = CardDefaults.cardColors(containerColor = Color(0xF218181B)), border = BorderStroke(1.dp, Color.White.copy(.1f))) { Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.Public, null, tint = MaterialTheme.colorScheme.primary); Spacer(Modifier.width(10.dp)); Column { Text("Choose your server", fontWeight = FontWeight.Bold); Text("Your choice stays on this device.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) } }
+                ServerChoiceRow("Default server", DefaultServerEndpoint.baseUrl, useDefault) { useDefault = true }
+                ServerChoiceRow("Self-hosted server", "Connect directly to your own instance", !useDefault) { useDefault = false }
+                if (!useDefault) OutlinedTextField(value = customServer, onValueChange = { customServer = it }, label = { Text("Server address") }, placeholder = { Text("https://conduit.example.com") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                serverError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+                Button(onClick = { onConnectServer(if (useDefault) DefaultServerEndpoint.baseUrl else customServer) }, enabled = !serverPending && (useDefault || customServer.isNotBlank()), modifier = Modifier.fillMaxWidth()) { if (serverPending) { CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp); Spacer(Modifier.width(8.dp)) }; Text(if (serverPending) "Checking server…" else "Connect") }
+            } }
         }
     }
+}
+
+@Composable
+private fun ServerChoiceRow(title: String, detail: String, selected: Boolean, onClick: () -> Unit) {
+    Surface(onClick = onClick, color = if (selected) MaterialTheme.colorScheme.primary.copy(.12f) else Color.White.copy(.035f), border = BorderStroke(1.dp, if (selected) MaterialTheme.colorScheme.primary.copy(.6f) else Color.White.copy(.08f)), shape = RoundedCornerShape(14.dp)) { Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text(title, fontWeight = FontWeight.SemiBold); Text(detail, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, maxLines = 1) }; if (selected) Icon(Icons.Rounded.CheckCircle, null, tint = MaterialTheme.colorScheme.primary) } }
 }
 
 @Composable

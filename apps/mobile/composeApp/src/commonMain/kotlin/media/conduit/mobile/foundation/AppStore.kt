@@ -87,7 +87,7 @@ class AppStore(
     private fun loadState(): AppState {
         val endpoint = settings.get(endpointKey)?.let { encoded ->
             runCatching { json.decodeFromString<ServerEndpoint>(encoded) }.getOrNull()
-        }
+        } ?: DefaultServerEndpoint
         return AppState(
             endpoint = endpoint,
             activeProfileId = settings.get(activeProfileKey),

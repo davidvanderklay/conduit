@@ -285,6 +285,14 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
         )
     }
 
+    suspend fun recoverAccount(baseUrl: String, email: String, code: String, password: String) {
+        val response = client.post("$baseUrl/v1/auth/recover") {
+            contentType(ContentType.Application.Json)
+            setBody(buildJsonObject { put("email", email.trim()); put("code", code.trim()); put("password", password) })
+        }
+        if (!response.status.isSuccess()) throw ServerRequestException(response.bodyAsText().ifBlank { "Recovery failed" }, response.status.value)
+    }
+
     private suspend fun authenticate(url: String, credentials: JsonElement): AuthenticatedSession {
         val response = client.post(url) {
             contentType(ContentType.Application.Json)
