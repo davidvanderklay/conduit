@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -22,20 +24,26 @@ import coil3.compose.AsyncImage
 import kotlinx.coroutines.launch
 import media.conduit.mobile.account.*
 
+internal class HomeScreenCache {
+    val result = mutableStateOf<HomeCatalogResult?>(null)
+    val loading = mutableStateOf(false)
+    val catalogError = mutableStateOf<String?>(null)
+}
+
 @Composable
 internal fun HomeScreen(
     profile: ProfileSummary?,
     sync: ProfileSyncState,
     api: ConduitApi,
     onSelect: (CatalogItem, String?) -> Unit,
+    listState: LazyListState = rememberLazyListState(),
+    cache: HomeScreenCache = remember { HomeScreenCache() },
     modifier: Modifier = Modifier,
 ) {
     val scope = rememberCoroutineScope()
-    var result by remember(sync.snapshot?.profileId, sync.snapshot?.addons) {
-        mutableStateOf<HomeCatalogResult?>(null)
-    }
-    var loading by remember(sync.snapshot?.profileId) { mutableStateOf(false) }
-    var catalogError by remember(sync.snapshot?.profileId) { mutableStateOf<String?>(null) }
+    var result by cache.result
+    var loading by cache.loading
+    var catalogError by cache.catalogError
 
     fun load() {
         val addons = sync.snapshot?.addons ?: return
@@ -54,6 +62,7 @@ internal fun HomeScreen(
     val library = sync.snapshot?.library.orEmpty().sortedByDescending { it.updatedAt }.take(14)
 
     LazyColumn(
+        state = listState,
         modifier = modifier.fillMaxSize().statusBarsPadding(),
         contentPadding = PaddingValues(start = 10.dp, end = 10.dp, top = 14.dp, bottom = 112.dp),
         verticalArrangement = Arrangement.spacedBy(28.dp),

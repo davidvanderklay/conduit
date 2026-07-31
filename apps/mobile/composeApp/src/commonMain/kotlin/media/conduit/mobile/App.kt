@@ -7,6 +7,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Home
@@ -14,7 +15,6 @@ import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.AccountCircle
 import androidx.compose.material.icons.rounded.VideoLibrary
 import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Modifier
@@ -510,8 +510,30 @@ private fun DestinationContent(
     onProfileDataChanged: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val destinationState = rememberSaveableStateHolder()
+    val homeListState = rememberLazyListState()
+    val homeCache = remember(activeProfile?.id) { HomeScreenCache() }
+    LaunchedEffect(state.destination) {
+        if (state.destination != AppDestination.Profile) onProfileFlowChanged(false)
+    }
     Box(modifier.fillMaxSize()) {
+        AppDestination.entries.forEach { destination ->
+            val active = selectedMedia == null && state.destination == destination
+            val tabModifier = if (active) Modifier.fillMaxSize() else Modifier.size(0.dp)
+            when (destination) {
+                AppDestination.Home -> HomeScreen(activeProfile, profileSync, api, onSelectMedia, homeListState, homeCache, tabModifier)
+                AppDestination.Search -> SearchDiscoverScreen(
+                    addons = profileSync.snapshot?.addons.orEmpty(), api = api,
+                    onSelect = { onSelectMedia(it, null) }, modifier = tabModifier,
+                )
+                AppDestination.Library -> MobileLibraryScreen(
+                    snapshot = profileSync.snapshot, onSelect = { onSelectMedia(it, null) }, modifier = tabModifier,
+                )
+                AppDestination.Profile -> ProfileSettingsScreen(
+                    state, platform, account, activeProfile, profileSync, api, dispatch, onSignOut,
+                    onProfilesChanged, { if (active) onProfileFlowChanged(it) }, onProfileDataChanged, tabModifier,
+                )
+            }
+        }
         if (selectedMedia != null) {
             MediaDetailsScreen(
                 item = selectedMedia,
@@ -525,22 +547,7 @@ private fun DestinationContent(
                 onProgressChanged = onProfileDataChanged,
                 onBack = onCloseMedia,
             )
-        } else destinationState.SaveableStateProvider(state.destination.name) { when (state.destination) {
-            AppDestination.Home -> HomeScreen(activeProfile, profileSync, api, onSelectMedia, Modifier.fillMaxSize())
-            AppDestination.Search -> SearchDiscoverScreen(
-                addons = profileSync.snapshot?.addons.orEmpty(), api = api,
-                onSelect = { onSelectMedia(it, null) }, modifier = Modifier.fillMaxSize(),
-            )
-            AppDestination.Library -> MobileLibraryScreen(
-                snapshot = profileSync.snapshot, onSelect = { onSelectMedia(it, null) },
-                modifier = Modifier.fillMaxSize(),
-            )
-            AppDestination.Profile -> ProfileSettingsScreen(
-                state, platform, account, activeProfile, profileSync, api, dispatch, onSignOut,
-                onProfilesChanged, onProfileFlowChanged, onProfileDataChanged,
-                Modifier.fillMaxSize(),
-            )
-        } }
+        }
         if (profileSync.refreshing) LinearProgressIndicator(Modifier.fillMaxWidth().align(Alignment.TopCenter))
     }
 }
