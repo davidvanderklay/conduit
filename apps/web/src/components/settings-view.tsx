@@ -357,12 +357,13 @@ export function SettingsView({ profile }: { profile: Profile }) {
           </div>
           <div className="mt-6 grid gap-3 sm:grid-cols-2">
             <Toggle label="Autoplay next episode" checked={preferences.autoplay} onChange={(value) => update("autoplay", value)} />
-            <Toggle label="Hardware acceleration" checked={preferences.hardwareAcceleration} onChange={(value) => update("hardwareAcceleration", value)} />
+            <Toggle label="Desktop hardware acceleration" checked={preferences.hardwareAcceleration} onChange={(value) => update("hardwareAcceleration", value)} />
             <Toggle label="Reduced motion" checked={preferences.reducedMotion} onChange={(value) => update("reducedMotion", value)} />
           </div>
           <p className="mt-4 text-xs leading-5 text-zinc-500">
             Read-ahead uses bounded temporary memory on desktop and tunes HLS buffering on the web.
-            Browsers may still evict buffered media. This is not a download or offline cache.
+            The desktop app uses libmpv for broad container and codec support; the hosted web app
+            remains limited to formats supported by the browser. This is not a download or offline cache.
           </p>
           {saved && <p className="mt-4 text-xs text-emerald-300">Saved on this device</p>}
           </SettingsCard>

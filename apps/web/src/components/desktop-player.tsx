@@ -69,6 +69,24 @@ export function nativePlaybackEnded(
     )
 }
 
+export function nativePlaybackDescription(snapshot: NativePlayerSnapshot): string {
+  const codecs = [snapshot.videoCodec, snapshot.audioCodec]
+    .filter(Boolean)
+    .map((codec) => codec!.toUpperCase())
+    .join(" / ")
+  const details = [
+    "Direct Play",
+    snapshot.container?.toUpperCase(),
+    codecs,
+    snapshot.hardwareDecoder
+      ? `Hardware (${snapshot.hardwareDecoder})`
+      : snapshot.videoCodec
+        ? "Software"
+        : "",
+  ].filter(Boolean)
+  return details.join(" · ")
+}
+
 function isSpaciousViewport(): boolean {
   return usesExpandedPlayerControls(window.innerWidth, window.innerHeight)
 }
@@ -174,7 +192,12 @@ export function DesktopPlayer({
     lastNativeSnapshot.current = undefined
     lastPlayback.current = { position: 0, duration: 0 }
     document.documentElement.classList.add("native-playback")
-    void openNativePlayer(url, mediaTitle, preferences.readAheadSeconds)
+    void openNativePlayer(
+      url,
+      mediaTitle,
+      preferences.readAheadSeconds,
+      preferences.hardwareAcceleration,
+    )
       .then(async (initial) => {
         if (cancelled) return
         setSnapshot(initial)
@@ -625,7 +648,19 @@ export function DesktopPlayer({
           >
             <Play className="rotate-180 fill-current" size={21} />
           </button>
-          <PlayerHeadingText heading={heading} expanded={expandedControls} />
+          <div className="min-w-0">
+            <PlayerHeadingText heading={heading} expanded={expandedControls} />
+            {snapshot && (
+              <p
+                className={`mt-1 truncate text-zinc-400 ${
+                  expandedControls ? "text-sm" : "text-xs"
+                }`}
+                title={nativePlaybackDescription(snapshot)}
+              >
+                {nativePlaybackDescription(snapshot)}
+              </p>
+            )}
+          </div>
         </div>
         <button
           className={`pointer-events-auto grid shrink-0 place-items-center rounded-full bg-black/60 text-zinc-200 hover:bg-white/15 ${
