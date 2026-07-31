@@ -1051,7 +1051,7 @@ function TrackMenu({
       const bounds = anchor.current?.getBoundingClientRect()
       if (!bounds) return
       setPosition({
-        bottom: Math.max(16, window.innerHeight - bounds.top + 10),
+        bottom: Math.max(32, window.innerHeight - bounds.top + 32),
         right: Math.max(16, window.innerWidth - bounds.right),
         maxHeight: Math.max(160, Math.min(window.innerHeight * 0.6, bounds.top - 24)),
       })

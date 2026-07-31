@@ -40,6 +40,10 @@ export function SubtitlePicker({
   const selectedGroup = groups.find((group) => group.code === selectedCode)
 
   useEffect(() => {
+    setSelectedCode(activeGroup?.code)
+  }, [activeGroup?.code])
+
+  useEffect(() => {
     if (selectedCode && !groups.some((group) => group.code === selectedCode)) {
       setSelectedCode(undefined)
     }
@@ -59,10 +63,12 @@ export function SubtitlePicker({
         </p>
         <button
           className={`mb-1 w-full rounded-lg px-3 py-2 text-left text-sm ${
-            off ? "bg-amber-400 text-zinc-950" : "text-zinc-300 hover:bg-zinc-800"
+            off && !selectedCode
+              ? "bg-amber-400 text-zinc-950"
+              : "text-zinc-300 hover:bg-zinc-800"
           }`}
           onClick={onOff}
-          aria-pressed={off}
+          aria-pressed={off && !selectedCode}
         >
           Off
         </button>
@@ -70,11 +76,16 @@ export function SubtitlePicker({
           <button
             key={group.code}
             className={`mb-1 flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm ${
-              selectedCode === group.code || activeGroup?.code === group.code
+              selectedCode === group.code ||
+              (!selectedCode && activeGroup?.code === group.code)
                 ? "bg-zinc-800 text-white"
                 : "text-zinc-300 hover:bg-zinc-800"
             }`}
-            onClick={() => setSelectedCode(group.code)}
+            onClick={() => {
+              setSelectedCode(group.code)
+              const activeTrack = group.tracks.find((track) => track.active)
+              onSelect(activeTrack?.key ?? group.tracks[0]!.key)
+            }}
             aria-expanded={selectedCode === group.code}
           >
             <span>{group.label}</span>
