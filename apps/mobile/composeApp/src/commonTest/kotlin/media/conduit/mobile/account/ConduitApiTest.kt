@@ -15,6 +15,8 @@ import kotlin.test.assertTrue
 import kotlin.test.assertIs
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.Json
 import media.conduit.mobile.foundation.MemorySecureStore
 import media.conduit.mobile.foundation.ServerEndpoint
 
@@ -221,6 +223,27 @@ class ConduitApiTest {
         assertEquals("Details", api.loadMeta(listOf(addon), "movie", "tt1").description)
         assertEquals("Direct", api.loadStreams(listOf(addon), "movie", "tt1").single().stream.name)
         assertEquals(listOf("/config/meta/movie/tt1.json", "/config/stream/movie/tt1.json"), requested)
+    }
+
+    @Test
+    fun streamParsingAcceptsProviderHeaderValuesAndNonNumericFileIndexes() = runTest {
+        val engine = MockEngine {
+            respond(
+                """{"streams":[{"url":"https://video.example/live","fileIdx":"2","behaviorHints":{"proxyHeaders":{"request":{"Referer":"https://provider.example/","X-Flag":1}}}}]}""",
+                HttpStatusCode.OK,
+                headersOf(HttpHeaders.ContentType, "application/json"),
+            )
+        }
+        val api = ConduitApi(HttpClient(engine) { install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) } })
+        val addon = InstalledAddonSummary(
+            id = "a1", manifestId = "fixture", manifestUrl = "https://addon.example/manifest.json",
+            manifest = Json.parseToJsonElement("""{"name":"Fixture"}""").jsonObject,
+            position = 0, enabled = true,
+        )
+
+        val stream = api.loadStreams(listOf(addon), "movie", "tt1").single().stream
+        assertEquals("https://video.example/live", stream.url)
+        assertEquals("https://provider.example/", stream.behaviorHints?.proxyHeaders?.request?.get("Referer")?.jsonPrimitive?.content)
     }
 
     @Test
