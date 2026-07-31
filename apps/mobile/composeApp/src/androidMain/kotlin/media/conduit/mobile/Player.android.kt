@@ -2,6 +2,8 @@ package media.conduit.mobile
 
 import android.app.Activity
 import android.content.pm.ActivityInfo
+import android.os.SystemClock
+import android.widget.Toast
 import androidx.annotation.OptIn
 import androidx.compose.runtime.*
 import androidx.compose.foundation.background
@@ -69,12 +71,26 @@ actual fun NativePlayer(
     var draggedPosition by remember(player) { mutableFloatStateOf(0f) }
     var trackPanel by remember { mutableStateOf<Int?>(null) }
     var tracksRevision by remember { mutableIntStateOf(0) }
+    var trackFallback by remember(player) { mutableStateOf<androidx.media3.common.TrackSelectionParameters?>(null) }
+    var lastTrackChangeAt by remember(player) { mutableLongStateOf(0L) }
 
     DisposableEffect(player, url) {
         val previousOrientation = activity?.requestedOrientation
         var resumed = false
         val listener = object : Player.Listener {
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                val fallback = trackFallback
+                if (fallback != null && SystemClock.elapsedRealtime() - lastTrackChangeAt < 8_000) {
+                    val restorePosition = player.currentPosition.coerceAtLeast(0)
+                    player.trackSelectionParameters = fallback
+                    trackFallback = null
+                    playbackError = null
+                    player.prepare()
+                    player.seekTo(restorePosition)
+                    player.play()
+                    Toast.makeText(context, "That track is not supported on this device. Restored the previous audio selection.", Toast.LENGTH_LONG).show()
+                    return
+                }
                 playbackError = when (error.errorCode) {
                     androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FAILED,
                     androidx.media3.common.PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
@@ -82,7 +98,13 @@ actual fun NativePlayer(
                     else -> error.cause?.message ?: error.message
                 }
             }
-            override fun onTracksChanged(tracks: Tracks) { tracksRevision++ }
+            override fun onTracksChanged(tracks: Tracks) {
+                tracksRevision++
+                val audio = tracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
+                if (audio.isNotEmpty() && audio.none { group -> (0 until group.length).any(group::isTrackSupported) }) {
+                    playbackError = "None of this stream's audio formats can be decoded by this device. Choose another stream for working audio."
+                }
+            }
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_READY && !resumed) {
                     resumed = true
@@ -165,10 +187,6 @@ actual fun NativePlayer(
                     PlayerControlButton(Icons.Rounded.Forward10, "Forward 10 seconds") { player.seekForward(); controlsVisible = true }
                 }
                 Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(horizontal = 22.dp, vertical = 14.dp)) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        PlayerTimePill(formatPlayerTime(if (dragging) draggedPosition.toLong() else positionMs))
-                        PlayerTimePill(formatPlayerTime(durationMs))
-                    }
                     Slider(
                         value = if (dragging) draggedPosition else positionMs.toFloat(),
                         onValueChange = { dragging = true; draggedPosition = it },
@@ -176,6 +194,10 @@ actual fun NativePlayer(
                         valueRange = 0f..durationMs.coerceAtLeast(1).toFloat(),
                         colors = SliderDefaults.colors(thumbColor = MaterialTheme.colorScheme.primary, activeTrackColor = MaterialTheme.colorScheme.primary, inactiveTrackColor = Color.White.copy(.35f)),
                     )
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        PlayerTimePill(formatPlayerTime(if (dragging) draggedPosition.toLong() else positionMs))
+                        PlayerTimePill(formatPlayerTime(durationMs))
+                    }
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Spacer(Modifier.weight(1f))
                         val speeds = listOf(.5f, .75f, 1f, 1.25f, 1.5f, 2f)
@@ -189,7 +211,7 @@ actual fun NativePlayer(
         }
         trackPanel?.let { type ->
             @Suppress("UNUSED_EXPRESSION") tracksRevision
-            PlayerTrackPanel(player, type, onDismiss = { trackPanel = null })
+            PlayerTrackPanel(player, type, onBeforeSelection = { trackFallback = player.trackSelectionParameters; lastTrackChangeAt = SystemClock.elapsedRealtime() }, onDismiss = { trackPanel = null })
         }
     }
 }
@@ -202,29 +224,50 @@ private fun PlayerTimePill(value: String) {
 }
 
 @Composable
-private fun BoxScope.PlayerTrackPanel(player: ExoPlayer, type: Int, onDismiss: () -> Unit) {
+private fun BoxScope.PlayerTrackPanel(player: ExoPlayer, type: Int, onBeforeSelection: () -> Unit, onDismiss: () -> Unit) {
     val groups = player.currentTracks.groups.filter { it.type == type }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val options = groups.flatMap { group -> (0 until group.length).map { index -> PlayerTrackOption(group, index) } }
+    val selectedOption = options.firstOrNull { it.group.isTrackSelected(it.index) }
+    var subtitlePage by remember { mutableStateOf("overview") }
+    var chosenLanguage by remember(selectedOption?.languageKey) { mutableStateOf(selectedOption?.languageKey ?: options.firstOrNull { it.supported }?.languageKey) }
+    fun select(option: PlayerTrackOption, close: Boolean) {
+        onBeforeSelection()
+        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().setTrackTypeDisabled(type, false).clearOverridesOfType(type).addOverride(TrackSelectionOverride(option.group.mediaTrackGroup, option.index)).build()
+        chosenLanguage = option.languageKey
+        if (close) onDismiss() else subtitlePage = "overview"
+    }
     Surface(modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight().fillMaxWidth(.48f), color = Color(0xF21A1A1D), shape = RoundedCornerShape(topStart = 28.dp, bottomStart = 28.dp), shadowElevation = 18.dp) {
         Column(Modifier.padding(20.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(if (type == C.TRACK_TYPE_AUDIO) "Audio" else "Subtitles", color = Color.White, style = MaterialTheme.typography.headlineSmall)
+                if (type == C.TRACK_TYPE_TEXT && subtitlePage != "overview") IconButton(onClick = { subtitlePage = "overview" }) { Icon(Icons.Rounded.ArrowBack, "Back", tint = Color.White) }
+                Text(if (type == C.TRACK_TYPE_AUDIO) "Audio" else when (subtitlePage) { "language" -> "Subtitle language"; "variant" -> "Subtitle variant"; else -> "Subtitles" }, color = Color.White, style = MaterialTheme.typography.headlineSmall)
                 Spacer(Modifier.weight(1f)); IconButton(onClick = onDismiss) { Icon(Icons.Rounded.Close, "Close", tint = Color.White) }
             }
-            Text(if (type == C.TRACK_TYPE_AUDIO) "Choose an audio language" else "Choose a subtitle language and variant", color = Color.White.copy(.6f))
+            Text(if (type == C.TRACK_TYPE_AUDIO) "Choose an audio language" else when (subtitlePage) { "language" -> "A compatible variant is selected automatically"; "variant" -> "Override the selected variant"; else -> "Language, variant, and appearance" }, color = Color.White.copy(.6f))
             Spacer(Modifier.height(14.dp))
             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (type == C.TRACK_TYPE_TEXT) item {
-                    PlayerTrackRow("Off", !groups.any { it.isSelected }) {
-                        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().clearOverridesOfType(type).setTrackTypeDisabled(type, true).build(); onDismiss()
+                if (type == C.TRACK_TYPE_TEXT && subtitlePage == "overview") {
+                    item { PlayerTrackRow("Off", selectedOption == null) { player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().clearOverridesOfType(type).setTrackTypeDisabled(type, true).build(); onDismiss() } }
+                    item { PlayerTrackRow("Language  ·  ${selectedOption?.languageName ?: "Choose"}", false) { subtitlePage = "language" } }
+                    item { PlayerTrackRow("Variant  ·  ${selectedOption?.variantName ?: "Automatic"}", false, selectedOption != null) { subtitlePage = "variant" } }
+                    item { PlayerTrackRow("Subtitle settings  ·  Managed by Android", false) { Toast.makeText(context, "Subtitle appearance follows your Android caption preferences.", Toast.LENGTH_LONG).show() } }
+                } else if (type == C.TRACK_TYPE_TEXT && subtitlePage == "language") {
+                    options.distinctBy(PlayerTrackOption::languageKey).forEach { option ->
+                        item(option.languageKey) { PlayerTrackRow(option.languageName, option.languageKey == selectedOption?.languageKey, option.supported) { select(options.firstOrNull { it.languageKey == option.languageKey && it.supported } ?: option, false) } }
                     }
-                }
-                groups.forEach { group ->
+                } else if (type == C.TRACK_TYPE_TEXT && subtitlePage == "variant") {
+                    options.filter { it.languageKey == chosenLanguage }.forEach { option ->
+                        item("${option.languageKey}:${option.index}:${option.group.mediaTrackGroup.id}") { PlayerTrackRow(listOf(option.variantName, if (!option.supported) "Unsupported on this device" else "").filter { it.isNotBlank() }.joinToString(" · "), option.selected, option.supported) { select(option, false) } }
+                    }
+                } else groups.forEach { group ->
                     items((0 until group.length).toList()) { index ->
                         val format = group.getTrackFormat(index)
                         val language = format.label ?: format.language?.let { java.util.Locale.forLanguageTag(it).displayLanguage } ?: if (type == C.TRACK_TYPE_AUDIO) "Audio track ${index + 1}" else "Subtitle ${index + 1}"
                         val detail = listOfNotNull(format.language?.uppercase(), format.roleFlags.takeIf { it != 0 }?.let { "Variant ${index + 1}" }).joinToString(" · ")
-                        PlayerTrackRow(listOf(language, detail).filter { it.isNotBlank() }.joinToString("  "), group.isTrackSelected(index)) {
-                            player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().setTrackTypeDisabled(type, false).clearOverridesOfType(type).addOverride(TrackSelectionOverride(group.mediaTrackGroup, index)).build(); onDismiss()
+                        val supported = group.isTrackSupported(index)
+                        PlayerTrackRow(listOf(language, detail, if (!supported) "Unsupported on this device" else "").filter { it.isNotBlank() }.joinToString("  ·  "), group.isTrackSelected(index), supported) {
+                            select(PlayerTrackOption(group, index), true)
                         }
                     }
                 }
@@ -233,10 +276,19 @@ private fun BoxScope.PlayerTrackPanel(player: ExoPlayer, type: Int, onDismiss: (
     }
 }
 
+private data class PlayerTrackOption(val group: Tracks.Group, val index: Int) {
+    private val format get() = group.getTrackFormat(index)
+    val supported get() = group.isTrackSupported(index)
+    val selected get() = group.isTrackSelected(index)
+    val languageKey get() = format.language ?: "und"
+    val languageName get() = format.language?.let { java.util.Locale.forLanguageTag(it).displayLanguage.replaceFirstChar(Char::uppercase) } ?: "Unknown language"
+    val variantName get() = format.label?.takeIf { it.isNotBlank() } ?: listOfNotNull(format.sampleMimeType?.substringAfter('/'), format.codecs).joinToString(" · ").ifBlank { "Default" }
+}
+
 @Composable
-private fun PlayerTrackRow(label: String, selected: Boolean, onClick: () -> Unit) {
-    Surface(onClick = onClick, color = if (selected) MaterialTheme.colorScheme.primary.copy(.18f) else Color.White.copy(.06f), shape = RoundedCornerShape(14.dp), border = if (selected) androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null) {
-        Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) { Text(label, color = Color.White, modifier = Modifier.weight(1f)); if (selected) Icon(Icons.Rounded.CheckCircle, null, tint = MaterialTheme.colorScheme.primary) }
+private fun PlayerTrackRow(label: String, selected: Boolean, enabled: Boolean = true, onClick: () -> Unit) {
+    Surface(onClick = onClick, enabled = enabled, color = if (selected) MaterialTheme.colorScheme.primary.copy(.18f) else Color.White.copy(.06f), shape = RoundedCornerShape(14.dp), border = if (selected) androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null) {
+        Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) { Text(label, color = Color.White.copy(if (enabled) 1f else .38f), modifier = Modifier.weight(1f)); if (selected) Icon(Icons.Rounded.CheckCircle, null, tint = MaterialTheme.colorScheme.primary) else if (!enabled) Icon(Icons.Rounded.Block, null, tint = Color.White.copy(.35f)) }
     }
 }
 
