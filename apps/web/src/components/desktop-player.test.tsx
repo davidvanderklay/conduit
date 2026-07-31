@@ -23,7 +23,6 @@ const snapshot = {
   position: 10,
   duration: 100,
   bufferedDuration: 30,
-  downloadBytesPerSecond: 2_000_000,
   volume: 80,
   tracks: [
     {
@@ -116,6 +115,54 @@ describe("DesktopPlayer track menus", () => {
 
   it("resets stale overlay pixels after native playback opens", () => {
     expect(startupOverlayResets).toBe(1)
+  })
+
+  it("clears the initial loading overlay when media duration becomes available", async () => {
+    desktop.openNativePlayer.mockResolvedValueOnce({
+      ...snapshot,
+      duration: 0,
+    })
+    desktop.nativePlayerSnapshot.mockResolvedValueOnce(snapshot)
+
+    await act(async () => {
+      root.render(
+        <DesktopPlayer
+          url="https://example.com/next-video.mp4"
+          type="movie"
+          videoId="tt456"
+          profileId="00000000-0000-4000-8000-000000000001"
+          progressMetadata={{ mediaType: "movie", mediaId: "tt456", name: "Next video" }}
+          addons={[]}
+          onClose={() => undefined}
+        />,
+      )
+      await Promise.resolve()
+    })
+    expect(document.querySelector('[aria-label="Video loading"]')).not.toBeNull()
+    desktop.resetNativeOverlaySurface.mockClear()
+
+    await act(async () => {
+      vi.advanceTimersByTime(1000)
+      await Promise.resolve()
+    })
+    act(() => vi.advanceTimersByTime(1))
+
+    expect(document.querySelector('[aria-label="Video loading"]')).toBeNull()
+    expect(desktop.resetNativeOverlaySurface).toHaveBeenCalledOnce()
+  })
+
+  it("does not mount the center loading overlay for cache pauses", async () => {
+    desktop.nativePlayerSnapshot.mockResolvedValueOnce({
+      ...snapshot,
+      loading: true,
+    })
+
+    await act(async () => {
+      vi.advanceTimersByTime(1000)
+      await Promise.resolve()
+    })
+
+    expect(document.querySelector('[aria-label="Video loading"]')).toBeNull()
   })
 
   it("unmounts the menu when its close button is clicked", () => {

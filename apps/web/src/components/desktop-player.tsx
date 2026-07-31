@@ -33,7 +33,6 @@ import {
 import { loadSubtitles, type Video } from "../lib/core"
 import { nativeMediaTitle, playerHeading, type PlayerHeading } from "../lib/player-title"
 import { readPreferences, writePreferences } from "../lib/preferences"
-import { bufferStatus } from "../lib/playback-buffer"
 import {
   configuredTrackLanguage,
   matchesTrackLanguage,
@@ -126,6 +125,7 @@ export function DesktopPlayer({
   const previousMenuContent = useRef("")
   const previousChromeVisible = useRef(true)
   const previousEpisodeDrawerOpen = useRef(false)
+  const previousLoadingOverlayVisible = useRef(false)
   const previousPaused = useRef(false)
   const resumed = useRef(false)
   const endedHandled = useRef(false)
@@ -178,10 +178,6 @@ export function DesktopPlayer({
       .then(async (initial) => {
         if (cancelled) return
         setSnapshot(initial)
-        // WebKitGTK can retain pixels from the page that was visible before
-        // its background became transparent. Reallocate the overlay after the
-        // player DOM has committed, matching the repaint caused by fullscreen.
-        resetOverlay()
         await nativePlayerCommand(["set", "sub-pos", preferences.subtitlePosition])
         const resolved = await resolveAddonSubtitles(addons, type, videoId)
         if (!cancelled) {
@@ -219,7 +215,7 @@ export function DesktopPlayer({
       document.documentElement.classList.remove("native-playback")
       if (!closing.current) void stopNativePlayer()
     }
-  }, [addons, mediaTitle, resetOverlay, type, url, videoId])
+  }, [addons, mediaTitle, type, url, videoId])
 
   useEffect(() => {
     if (
@@ -550,6 +546,16 @@ export function DesktopPlayer({
     episodeDrawerOpen ||
     !snapshot
   const expandedControls = fullscreen || spaciousViewport
+  const loadingOverlayVisible = !error && (!snapshot || snapshot.duration <= 0)
+
+  useLayoutEffect(() => {
+    const overlayHidden =
+      previousLoadingOverlayVisible.current && !loadingOverlayVisible
+    previousLoadingOverlayVisible.current = loadingOverlayVisible
+    if (!overlayHidden) return
+    resetOverlay()
+    redrawControls()
+  }, [loadingOverlayVisible, redrawControls, resetOverlay])
 
   useLayoutEffect(() => {
     redrawControls()
@@ -646,7 +652,7 @@ export function DesktopPlayer({
             </p>
           </Card>
         </div>
-      ) : !snapshot || snapshot.loading || snapshot.duration <= 0 ? (
+      ) : loadingOverlayVisible ? (
         <div
           className="pointer-events-none absolute inset-0 z-10 grid place-items-center"
           role="status"
@@ -928,18 +934,6 @@ export function DesktopPlayer({
                   <span className="text-zinc-500">--:--:-- / --:--:--</span>
                 )}
               </span>
-              <span
-                className={`hidden tabular-nums text-zinc-500 lg:block ${
-                  expandedControls ? "text-xs" : "text-[11px]"
-                }`}
-                title="Temporary in-memory media buffer and current download throughput"
-              >
-                {bufferStatus(
-                  snapshot.bufferedDuration,
-                  snapshot.downloadBytesPerSecond,
-                )}
-              </span>
-
               <div className="flex-1" />
 
               <div ref={audioButton} data-track-menu-trigger>

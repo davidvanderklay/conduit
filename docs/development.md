@@ -139,8 +139,8 @@ The device-level **Network read-ahead** preference defaults to 30 seconds and
 can be set from 10 to 120 seconds. Desktop network playback enables mpv's
 packet cache, targets three buffered seconds before starting or resuming, keeps up
 to 150 MiB forward and 75 MiB backward, retries supported FFmpeg-backed streams,
-and uses a 30-second network timeout. Cache duration and current throughput are
-reported locally in the player controls.
+and uses a 30-second network timeout. The seek timeline shows the currently
+buffered extent without adding diagnostic text to the player controls.
 
 Desktop caching is intentionally memory-only. mpv's built-in disk cache is a
 temporary append-only file that is not reusable after the player closes, so it

@@ -17,7 +17,7 @@ import { addonsForResource } from "../lib/addons"
 import { loadSubtitles, type Subtitle, type Video } from "../lib/core"
 import { isDesktop } from "../lib/desktop"
 import { readPreferences, writePreferences } from "../lib/preferences"
-import { bufferStatus, playbackBufferState } from "../lib/playback-buffer"
+import { playbackBufferState } from "../lib/playback-buffer"
 import { playerHeading, type PlayerHeading } from "../lib/player-title"
 import { videoObjectFit, type VideoScale } from "../lib/video-scale"
 import { usePlaybackProgress } from "../lib/progress"
@@ -150,7 +150,6 @@ function WebPlayer({
   const [waiting, setWaiting] = useState(true)
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
-  const [bufferedAhead, setBufferedAhead] = useState(0)
   const [bufferedEnd, setBufferedEnd] = useState(0)
   const [volume, setVolume] = useState(preferences.volume / 100)
   const [muted, setMuted] = useState(false)
@@ -474,7 +473,6 @@ function WebPlayer({
               const video = event.currentTarget
               const nextBuffer = playbackBufferState(video.buffered, video.currentTime)
               setCurrentTime(video.currentTime)
-              setBufferedAhead(nextBuffer.ahead)
               setBufferedEnd(nextBuffer.end)
               if (resumed.current) {
                 void saveProgress(video.currentTime, video.duration)
@@ -483,7 +481,6 @@ function WebPlayer({
             onProgress={(event) => {
               const video = event.currentTarget
               const nextBuffer = playbackBufferState(video.buffered, video.currentTime)
-              setBufferedAhead(nextBuffer.ahead)
               setBufferedEnd(nextBuffer.end)
             }}
             onEnded={(event) => {
@@ -616,12 +613,6 @@ function WebPlayer({
                 {duration > 0
                   ? `${formatTime(currentTime)} / ${formatTime(duration)}`
                   : "--:--:-- / --:--:--"}
-              </span>
-              <span
-                className="hidden text-xs tabular-nums text-zinc-500 lg:block"
-                title="Browser-reported temporary media buffer"
-              >
-                {bufferStatus(bufferedAhead)}
               </span>
               <div className="flex-1" />
               <span className="hidden max-w-40 truncate text-xs text-zinc-400 md:block">
