@@ -3,6 +3,7 @@ package media.conduit.mobile
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -24,6 +25,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -37,6 +39,12 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.booleanOrNull
 import media.conduit.mobile.account.*
 import media.conduit.mobile.foundation.*
+
+private val VideoItem.displayTitle: String
+    get() = title?.takeIf(String::isNotBlank)
+        ?: name?.takeIf(String::isNotBlank)
+        ?: overview?.lineSequence()?.firstOrNull()?.take(80)?.takeIf(String::isNotBlank)
+        ?: "Episode ${episode ?: ""}".trim()
 
 @Composable
 internal fun MobileLibraryScreen(
@@ -200,6 +208,7 @@ internal fun MediaDetailsScreen(
     var resumePosition by remember(item.id) { mutableStateOf(0L) }
     var episodesOpen by remember(item.id) { mutableStateOf(false) }
     var currentAddonName by remember(item.id) { mutableStateOf<String?>(null) }
+    var selectedSeason by remember(item.id) { mutableStateOf<Int?>(null) }
     val scope = rememberCoroutineScope()
     LaunchedEffect(item.id, item.type, addons) {
         runCatching { api.loadMeta(addons, item.type, item.id) }
@@ -232,7 +241,7 @@ internal fun MediaDetailsScreen(
         val activeProfile = profile ?: return
         val video = selectedVideo
         api.saveProgress(baseUrl, token, activeProfile.id, video?.id ?: item.id, item.type, item.id,
-            meta?.name ?: item.name, meta?.poster ?: item.poster, video?.title, video?.season, video?.episode,
+            meta?.name ?: item.name, meta?.poster ?: item.poster, video?.displayTitle, video?.season, video?.episode,
             playback.positionMs, playback.durationMs)
         onProgressChanged()
     }
@@ -281,10 +290,10 @@ internal fun MediaDetailsScreen(
             ) { playback = it }
             IconButton(onClick = { scope.launch { runCatching { persistProgress() }; playing = null } }, modifier = Modifier.statusBarsPadding().padding(12.dp).background(Color.Black.copy(.55f), CircleShape).align(Alignment.TopStart)) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = Color.White) }
             if (playback.loading && playback.error == null) CircularProgressIndicator(Modifier.align(Alignment.Center), color = Color.White)
-            playback.error?.let { message -> Surface(color = Color.Black.copy(.82f), shape = RoundedCornerShape(16.dp), modifier = Modifier.align(Alignment.Center).padding(28.dp)) { Column(Modifier.padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) { Icon(Icons.Rounded.ErrorOutline, null, tint = MaterialTheme.colorScheme.error); Spacer(Modifier.height(8.dp)); Text("Playback failed", color = Color.White, fontWeight = FontWeight.Bold); Text(message, color = Color.White.copy(.7f), style = MaterialTheme.typography.bodySmall); Spacer(Modifier.height(14.dp)); Button(onClick = { playing = null }) { Text("Choose another stream") } } } }
+            playback.error?.let { message -> Box(Modifier.matchParentSize().background(Color.Black.copy(.72f)).clickable(enabled = true, onClick = {}), contentAlignment = Alignment.Center) { Surface(color = Color(0xF21A1A1D), shape = RoundedCornerShape(18.dp), modifier = Modifier.padding(28.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(.45f))) { Column(Modifier.padding(22.dp), horizontalAlignment = Alignment.CenterHorizontally) { Icon(Icons.Rounded.ErrorOutline, null, tint = MaterialTheme.colorScheme.error); Spacer(Modifier.height(8.dp)); Text("Playback failed", color = Color.White, fontWeight = FontWeight.Bold); Text(message, color = Color.White.copy(.7f), style = MaterialTheme.typography.bodySmall); Spacer(Modifier.height(14.dp)); Button(onClick = { playing = null }) { Text("Choose another stream") } } } } }
             if (!episodesOpen && nextVideo != null && playback.durationMs > 0 && playback.durationMs - playback.positionMs in 1..30_000) {
                 Surface(Modifier.align(Alignment.BottomEnd).padding(24.dp), color = Color(0xF21A1A1D), shape = RoundedCornerShape(18.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(.5f))) {
-                    Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) { Column { Text("Up next", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium); Text(nextVideo.title ?: "Episode ${nextVideo.episode ?: ""}", color = Color.White, fontWeight = FontWeight.Bold) }; Spacer(Modifier.width(18.dp)); Button(onClick = { playNext(nextVideo) }) { Text("Play now") } }
+                    Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) { Column { Text("Up next", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium); Text(nextVideo.displayTitle, color = Color.White, fontWeight = FontWeight.Bold) }; Spacer(Modifier.width(18.dp)); Button(onClick = { playNext(nextVideo) }) { Text("Play now") } }
                 }
             }
             if (episodesOpen) PlayerEpisodeDrawer(orderedVideos, selectedVideo, snapshot, onDismiss = { episodesOpen = false }) { episodesOpen = false; playNext(it) }
@@ -292,16 +301,19 @@ internal fun MediaDetailsScreen(
         return
     }
     if (streamPageOpen) {
-        StreamSelectionScreen(meta?.name ?: item.name, streams.orEmpty(), streamsLoading, streamsError, onBack = { streamPageOpen = false; streams = null }) { source ->
+        StreamSelectionScreen(meta?.name ?: item.name, meta?.background ?: meta?.poster ?: item.background ?: item.poster, selectedVideo, streams.orEmpty(), streamsLoading, streamsError, onBack = { streamPageOpen = false; streams = null }) { source ->
             if (source.stream.url != null) { currentAddonName = source.addonName; playing = source.stream }
         }
         return
     }
 
     val details = meta
+    val seriesProgress = snapshot?.progress.orEmpty().filter { it.mediaId == item.id && !it.watched }.maxByOrNull { it.updatedAt }
+    val resumeVideo = details?.videos?.firstOrNull { it.id == seriesProgress?.videoId }
+    LaunchedEffect(details?.id, resumeVideo?.season) { if (selectedSeason == null) selectedSeason = resumeVideo?.season ?: details?.videos?.firstOrNull()?.season }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
         item {
-            Box(Modifier.fillMaxWidth().height(310.dp)) {
+            Box(Modifier.fillMaxWidth().height(if (item.type == "movie") 390.dp else 350.dp)) {
                 AsyncImage(
                     model = details?.background ?: item.background ?: details?.poster ?: item.poster,
                     contentDescription = item.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize(),
@@ -310,7 +322,7 @@ internal fun MediaDetailsScreen(
                 IconButton(onClick = onBack, modifier = Modifier.statusBarsPadding().padding(12.dp).background(Color.Black.copy(.5f), CircleShape)) {
                     Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = Color.White)
                 }
-                Column(Modifier.align(Alignment.BottomStart).padding(horizontal = 20.dp)) {
+                Column(Modifier.align(Alignment.BottomStart).padding(horizontal = 20.dp, vertical = 16.dp)) {
                     Text(details?.name ?: item.name, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
                     Text(
                         listOfNotNull(details?.releaseInfo, details?.runtime, details?.imdbRating?.let { "★ $it" }).joinToString("  ·  "),
@@ -323,26 +335,35 @@ internal fun MediaDetailsScreen(
             Column(Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 if (details == null && error == null) CircularProgressIndicator()
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                Button(onClick = { requestStreams() }, modifier = Modifier.fillMaxWidth()) {
-                    Icon(Icons.Rounded.PlayArrow, null); Spacer(Modifier.width(8.dp)); Text("Choose stream")
+                Button(onClick = { val target = resumeVideo ?: selectedVideo; selectedVideo = target; requestStreams(target) }, modifier = Modifier.fillMaxWidth().height(54.dp)) {
+                    Icon(Icons.Rounded.PlayArrow, null); Spacer(Modifier.width(8.dp)); Text(if (resumeVideo != null) "Resume S${resumeVideo.season ?: 0}E${resumeVideo.episode ?: 0}" else "Play")
                 }
                 details?.genres?.takeIf { it.isNotEmpty() }?.let { genres ->
                     Text(genres.joinToString("  ·  "), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
                 }
                 details?.description?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyLarge) }
-                details?.cast?.takeIf { it.isNotEmpty() }?.let { Text("Cast\n${it.take(8).joinToString(", ")}") }
+                if (item.type == "movie") details?.cast?.takeIf { it.isNotEmpty() }?.let { cast ->
+                    Text("Cast", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) { items(cast.take(10)) { person -> Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(76.dp)) { Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.size(68.dp)) { Box(contentAlignment = Alignment.Center) { Text(person.split(' ').mapNotNull { it.firstOrNull() }.take(2).joinToString(""), fontWeight = FontWeight.Bold) } }; Text(person, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelSmall) } } }
+                }
             }
         }
         details?.videos?.takeIf { it.isNotEmpty() }?.let { videos ->
-            item { Text("Episodes", modifier = Modifier.padding(20.dp), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) }
-            items(videos, key = VideoItem::id) { video ->
-                ListItem(
-                    headlineContent = { Text(video.title ?: "Episode ${video.episode ?: ""}") },
-                    supportingContent = { Text(listOfNotNull(video.season?.let { "S$it" }, video.episode?.let { "E$it" }).joinToString(" · ")) },
-                    leadingContent = { AsyncImage(video.thumbnail, null, Modifier.size(96.dp, 58.dp).clip(RoundedCornerShape(8.dp)), contentScale = ContentScale.Crop) },
-                    trailingContent = { Icon(Icons.Rounded.PlayArrow, null) },
-                    modifier = Modifier.clickable { selectedVideo = video; requestStreams(video) },
-                )
+            val seasons = videos.mapNotNull(VideoItem::season).distinct().sorted()
+            item {
+                Column(Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Text("Seasons", modifier = Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) { items(seasons) { season -> FilterChip(selected = selectedSeason == season, onClick = { selectedSeason = season }, label = { Text(if (season == 0) "Specials" else "Season $season") }) } }
+                    Text(if (selectedSeason == 0) "Specials" else "Season ${selectedSeason ?: 1}", modifier = Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        items(videos.filter { it.season == selectedSeason }, key = VideoItem::id) { video ->
+                            val progress = snapshot?.progress?.firstOrNull { it.videoId == video.id }
+                            Surface(onClick = { selectedVideo = video; requestStreams(video) }, modifier = Modifier.width(260.dp), shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceVariant.copy(.65f)) {
+                                Column { Box { AsyncImage(video.thumbnail ?: details.background, null, Modifier.fillMaxWidth().height(142.dp), contentScale = ContentScale.Crop); Surface(Modifier.padding(8.dp), color = Color.Black.copy(.65f), shape = RoundedCornerShape(8.dp)) { Text("S${video.season ?: 0}E${video.episode ?: 0}", color = Color.White, modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp), style = MaterialTheme.typography.labelSmall) } }; Column(Modifier.padding(12.dp)) { Text(video.displayTitle, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis); (video.overview ?: video.description)?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall) }; if (progress != null && progress.durationMs > 0) LinearProgressIndicator({ progress.positionMs.toFloat() / progress.durationMs }, Modifier.fillMaxWidth().padding(top = 8.dp), color = MaterialTheme.colorScheme.primary) } }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -352,7 +373,9 @@ internal fun MediaDetailsScreen(
 private fun BoxScope.PlayerEpisodeDrawer(videos: List<VideoItem>, current: VideoItem?, snapshot: ProfileSnapshot?, onDismiss: () -> Unit, onSelect: (VideoItem) -> Unit) {
     var season by remember(current?.id, videos) { mutableStateOf(current?.season ?: videos.firstOrNull()?.season ?: 1) }
     val seasons = videos.mapNotNull(VideoItem::season).distinct().sorted()
-    Surface(Modifier.align(Alignment.CenterEnd).fillMaxHeight().fillMaxWidth(.52f), color = Color(0xF21A1A1D), shape = RoundedCornerShape(topStart = 28.dp, bottomStart = 28.dp), shadowElevation = 20.dp) {
+    Box(Modifier.matchParentSize().background(Color.Black.copy(.32f)).clickable(onClick = onDismiss))
+    var dragDistance by remember { mutableFloatStateOf(0f) }
+    Surface(Modifier.align(Alignment.CenterEnd).fillMaxHeight().fillMaxWidth(.52f).pointerInput(Unit) { detectHorizontalDragGestures(onDragEnd = { if (dragDistance > 100f) onDismiss(); dragDistance = 0f }, onDragCancel = { dragDistance = 0f }) { change, amount -> change.consume(); dragDistance += amount } }, color = Color(0xF21A1A1D), shape = RoundedCornerShape(topStart = 28.dp, bottomStart = 28.dp), shadowElevation = 20.dp) {
         Column(Modifier.padding(18.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) { Text("Episodes", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold); Spacer(Modifier.weight(1f)); IconButton(onClick = onDismiss) { Icon(Icons.Rounded.Close, "Close", tint = Color.White) } }
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) { items(seasons) { value -> FilterChip(selected = season == value, onClick = { season = value }, label = { Text("Season $value") }) } }
@@ -363,7 +386,7 @@ private fun BoxScope.PlayerEpisodeDrawer(videos: List<VideoItem>, current: Video
                     Surface(onClick = { onSelect(video) }, color = if (video.id == current?.id) MaterialTheme.colorScheme.primary.copy(.14f) else Color.White.copy(.05f), shape = RoundedCornerShape(16.dp), border = if (video.id == current?.id) BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null) {
                         Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
                             Box { AsyncImage(video.thumbnail, null, Modifier.size(120.dp, 68.dp).clip(RoundedCornerShape(10.dp)), contentScale = ContentScale.Crop); if (progress?.watched == true) Icon(Icons.Rounded.CheckCircle, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.align(Alignment.TopEnd).padding(4.dp)) }
-                            Spacer(Modifier.width(12.dp)); Column(Modifier.weight(1f)) { Text("${video.episode ?: ""}. ${video.title ?: "Episode"}", color = Color.White, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis); video.overview?.let { Text(it, color = Color.White.copy(.55f), maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall) }; if (progress != null && !progress.watched && progress.durationMs > 0) LinearProgressIndicator({ progress.positionMs.toFloat() / progress.durationMs }, Modifier.fillMaxWidth().padding(top = 7.dp), color = MaterialTheme.colorScheme.primary) }
+                            Spacer(Modifier.width(12.dp)); Column(Modifier.weight(1f)) { Text("${video.episode ?: ""}. ${video.displayTitle}", color = Color.White, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis); (video.overview ?: video.description)?.let { Text(it, color = Color.White.copy(.55f), maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall) }; if (progress != null && !progress.watched && progress.durationMs > 0) LinearProgressIndicator({ progress.positionMs.toFloat() / progress.durationMs }, Modifier.fillMaxWidth().padding(top = 7.dp), color = MaterialTheme.colorScheme.primary) }
                         }
                     }
                 }
@@ -375,6 +398,8 @@ private fun BoxScope.PlayerEpisodeDrawer(videos: List<VideoItem>, current: Video
 @Composable
 private fun StreamSelectionScreen(
     title: String,
+    artwork: String?,
+    episode: VideoItem?,
     streams: List<StreamSource>,
     loading: Boolean,
     error: String?,
@@ -382,9 +407,10 @@ private fun StreamSelectionScreen(
     onSelect: (StreamSource) -> Unit,
 ) {
     Column(Modifier.fillMaxSize()) {
+        artwork?.let { Box(Modifier.fillMaxWidth().height(150.dp)) { AsyncImage(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop); Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Black.copy(.12f), MaterialTheme.colorScheme.background)))) } }
         Row(Modifier.fillMaxWidth().statusBarsPadding().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") }
-            Column { Text("Choose a stream", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold); Text(title, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            Column { Text("Choose a stream", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold); Text(listOfNotNull(title, episode?.let { "S${it.season ?: 0}E${it.episode ?: 0} · ${it.displayTitle}" }).joinToString(" · "), color = MaterialTheme.colorScheme.onSurfaceVariant) }
         }
         if (loading) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) { CircularProgressIndicator(); Text("Finding streams…", color = MaterialTheme.colorScheme.onSurfaceVariant) } }
         else if (error != null) Box(Modifier.fillMaxSize().padding(28.dp), contentAlignment = Alignment.Center) { Text(error, color = MaterialTheme.colorScheme.error) }

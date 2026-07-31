@@ -139,6 +139,7 @@ data class CatalogItem(
 data class VideoItem(
     val id: String,
     val title: String? = null,
+    val name: String? = null,
     val season: Int? = null,
     val episode: Int? = null,
     val released: String? = null,
