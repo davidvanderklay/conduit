@@ -45,6 +45,24 @@ export function PlayerEpisodeDrawer({
     setSeason(current?.season ?? 1)
   }, [current?.id, current?.season])
 
+  useEffect(() => {
+    if (!open) return
+
+    const dismissOutside = (event: PointerEvent) => {
+      const target = event.target
+      if (
+        target instanceof Element &&
+        target.closest("[data-player-episode-drawer]")
+      ) {
+        return
+      }
+      onOpenChange(false)
+    }
+
+    document.addEventListener("pointerdown", dismissOutside, true)
+    return () => document.removeEventListener("pointerdown", dismissOutside, true)
+  }, [onOpenChange, open])
+
   if (!context) return null
   if (!open) {
     return (
@@ -61,7 +79,10 @@ export function PlayerEpisodeDrawer({
   }
 
   return (
-    <div className="absolute inset-y-0 right-0 z-30 flex w-[min(92vw,430px)] items-stretch p-2 pl-0">
+    <div
+      data-player-episode-drawer
+      className="absolute inset-y-0 right-0 z-30 flex w-[min(92vw,430px)] items-stretch p-2 pl-0"
+    >
       <button
         type="button"
         className="my-auto grid h-28 w-11 shrink-0 place-items-center rounded-l-full border border-r-0 border-white/10 bg-zinc-950/95 text-zinc-300 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
