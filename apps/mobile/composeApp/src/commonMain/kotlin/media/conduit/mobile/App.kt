@@ -43,6 +43,7 @@ private fun AccountGate(
         AccountRepository(api, SessionVault(services.secure))
     }
     val oauthPlatform = rememberMobileOAuthPlatform()
+    val accountScope = rememberCoroutineScope()
     var account by remember(endpoint.baseUrl) { mutableStateOf<AccountStatus>(AccountStatus.Loading) }
     DisposableEffect(api) { onDispose(api::close) }
     LaunchedEffect(repository) { account = repository.restore(endpoint) }
@@ -60,16 +61,28 @@ private fun AccountGate(
             authentication = current.authentication,
             initialError = current.error,
             onSignIn = { email, password ->
-                account = AccountStatus.Loading
-                account = repository.signIn(endpoint, current.authentication, email, password)
+                accountScope.launch {
+                    account = repository.signIn(endpoint, current.authentication, email, password)
+                }
             },
             onRegister = { email, password ->
-                account = AccountStatus.Loading
-                account = repository.register(endpoint, current.authentication, email, password)
+                accountScope.launch {
+                    account = repository.register(endpoint, current.authentication, email, password)
+                }
             },
             onOAuth = {
-                val pending = repository.startOAuth(endpoint, oauthPlatform.createPkce())
-                oauthPlatform.openSystemBrowser(pending.authorizationUrl)
+                accountScope.launch {
+                    runCatching {
+                        repository.startOAuth(endpoint, oauthPlatform.createPkce())
+                    }.onSuccess { pending ->
+                        oauthPlatform.openSystemBrowser(pending.authorizationUrl)
+                    }.onFailure { cause ->
+                        account = AccountStatus.SignedOut(
+                            current.authentication,
+                            cause.message ?: "Unable to start OAuth",
+                        )
+                    }
+                }
             },
             onChangeServer = { dispatch(AppAction.ForgetEndpoint) },
         )
@@ -77,8 +90,9 @@ private fun AccountGate(
             if (current.bootstrap.households.isEmpty()) {
                 HouseholdSetup(
                     onCreate = { household, profile ->
-                        account = AccountStatus.Loading
-                        account = repository.createHousehold(endpoint, current, household, profile)
+                        accountScope.launch {
+                            account = repository.createHousehold(endpoint, current, household, profile)
+                        }
                     },
                 )
             } else {
@@ -90,8 +104,9 @@ private fun AccountGate(
                     secureStore = services.secure,
                     dispatch = dispatch,
                     onSignOut = {
-                        account = AccountStatus.Loading
-                        account = repository.signOut(endpoint, current.session)
+                        accountScope.launch {
+                            account = repository.signOut(endpoint, current.session)
+                        }
                     },
                 )
             }
@@ -104,7 +119,7 @@ private fun AccountGate(
             message = current.message,
             onRetry = {
                 account = AccountStatus.Loading
-                account = repository.restore(endpoint)
+                accountScope.launch { account = repository.restore(endpoint) }
             },
             onChangeServer = { dispatch(AppAction.ForgetEndpoint) },
         )
@@ -133,11 +148,10 @@ private fun RecoveryCodesScreen(codes: List<String>, onSaved: () -> Unit) {
 }
 
 @Composable
-private fun HouseholdSetup(onCreate: suspend (String, String) -> Unit) {
+private fun HouseholdSetup(onCreate: (String, String) -> Unit) {
     var household by remember { mutableStateOf("Home") }
     var profile by remember { mutableStateOf("") }
     var pending by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
     Surface(Modifier.fillMaxSize()) {
         Column(
             Modifier.safeContentPadding().widthIn(max = 560.dp).fillMaxWidth().padding(24.dp),
@@ -157,7 +171,7 @@ private fun HouseholdSetup(onCreate: suspend (String, String) -> Unit) {
                 enabled = !pending && household.isNotBlank() && profile.isNotBlank(),
                 onClick = {
                     pending = true
-                    scope.launch { onCreate(household, profile); pending = false }
+                    onCreate(household, profile)
                 },
                 modifier = Modifier.fillMaxWidth(),
             ) { Text(if (pending) "Creating…" else "Create household") }
@@ -184,17 +198,16 @@ private fun SignInScreen(
     endpoint: ServerEndpoint,
     authentication: AuthenticationConfiguration,
     initialError: String?,
-    onSignIn: suspend (String, String) -> Unit,
-    onRegister: suspend (String, String) -> Unit,
-    onOAuth: suspend () -> Unit,
+    onSignIn: (String, String) -> Unit,
+    onRegister: (String, String) -> Unit,
+    onOAuth: () -> Unit,
     onChangeServer: () -> Unit,
 ) {
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var error by remember(initialError) { mutableStateOf(initialError) }
-    var pending by remember { mutableStateOf(false) }
+    var pending by remember(initialError) { mutableStateOf(false) }
     var registering by remember { mutableStateOf(authentication.needsOwner) }
-    val scope = rememberCoroutineScope()
     Surface(Modifier.fillMaxSize()) {
         Column(
             Modifier.safeContentPadding().widthIn(max = 560.dp).fillMaxWidth().padding(24.dp),
@@ -225,13 +238,7 @@ private fun SignInScreen(
                 enabled = !pending && email.isNotBlank() && password.isNotBlank(),
                 onClick = {
                     pending = true
-                    scope.launch {
-                        runCatching {
-                            if (registering) onRegister(email, password) else onSignIn(email, password)
-                        }
-                            .onFailure { error = it.message ?: "Unable to sign in" }
-                        pending = false
-                    }
+                    if (registering) onRegister(email, password) else onSignIn(email, password)
                 },
                 modifier = Modifier.fillMaxWidth(),
             ) {
@@ -254,11 +261,7 @@ private fun SignInScreen(
                     enabled = !pending,
                     onClick = {
                         pending = true
-                        scope.launch {
-                            runCatching { onOAuth() }
-                                .onFailure { cause -> error = cause.message ?: "Unable to start OAuth" }
-                            pending = false
-                        }
+                        onOAuth()
                     },
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text(it.displayName ?: "Continue in browser") }
@@ -269,8 +272,7 @@ private fun SignInScreen(
 }
 
 @Composable
-private fun ConnectionError(message: String, onRetry: suspend () -> Unit, onChangeServer: () -> Unit) {
-    val scope = rememberCoroutineScope()
+private fun ConnectionError(message: String, onRetry: () -> Unit, onChangeServer: () -> Unit) {
     Surface(Modifier.fillMaxSize()) {
         Column(
             Modifier.fillMaxSize().padding(24.dp),
@@ -278,7 +280,7 @@ private fun ConnectionError(message: String, onRetry: suspend () -> Unit, onChan
         ) {
             Text("Server unavailable", style = MaterialTheme.typography.headlineSmall)
             Text(message, color = MaterialTheme.colorScheme.error)
-            Button(onClick = { scope.launch { onRetry() } }) { Text("Retry") }
+            Button(onClick = onRetry) { Text("Retry") }
             TextButton(onClick = onChangeServer) { Text("Use another server") }
         }
     }
@@ -353,7 +355,7 @@ private fun AppShell(
     api: ConduitApi,
     secureStore: SecureStore,
     dispatch: (AppAction) -> Unit,
-    onSignOut: suspend () -> Unit,
+    onSignOut: () -> Unit,
 ) {
     val profiles = account.bootstrap.households.flatMap { it.profiles }
     val activeProfile = profiles.firstOrNull { it.id == state.activeProfileId } ?: profiles.firstOrNull()
@@ -439,7 +441,7 @@ private fun DestinationContent(
     activeProfile: ProfileSummary?,
     profileSync: ProfileSyncState,
     dispatch: (AppAction) -> Unit,
-    onSignOut: suspend () -> Unit,
+    onSignOut: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -506,9 +508,8 @@ private fun SettingsFoundation(
     activeProfile: ProfileSummary?,
     profileSync: ProfileSyncState,
     dispatch: (AppAction) -> Unit,
-    onSignOut: suspend () -> Unit,
+    onSignOut: () -> Unit,
 ) {
-    val scope = rememberCoroutineScope()
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Profiles", style = MaterialTheme.typography.titleLarge)
@@ -522,7 +523,7 @@ private fun SettingsFoundation(
                     )
                 }
             }
-            OutlinedButton(onClick = { scope.launch { onSignOut() } }) { Text("Sign out") }
+            OutlinedButton(onClick = onSignOut) { Text("Sign out") }
             Text("${profileSync.snapshot?.addons?.size ?: 0} synchronized add-ons")
         }
     }
