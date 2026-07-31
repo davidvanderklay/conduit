@@ -112,3 +112,18 @@ bounded inputs, and serialized access to opaque handles. See
 Host dispatch tasks must finish before destroying an engine. The iOS and
 Android device matrices must be completed before accepting ADR 0001 or closing
 issue #41.
+
+## Server connection checkpoint
+
+With the development server on port 3000, enter `http://10.0.2.2:3000` in the
+emulator. The app calls `/health` and `/v1/auth/config` and saves the endpoint
+only after both succeed. Run the platform security test on a running emulator:
+
+```sh
+cd apps/mobile
+./gradlew :composeApp:connectedDebugAndroidTest
+```
+
+See [ADR 0004](adr/0004-mobile-server-session-foundation.md) for token scoping,
+Android Keystore ownership, and the intentionally deferred mobile OAuth and iOS
+Keychain work.

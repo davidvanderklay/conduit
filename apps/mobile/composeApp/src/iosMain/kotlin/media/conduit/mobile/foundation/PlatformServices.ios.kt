@@ -16,6 +16,8 @@ actual fun rememberPlatformServices(): PlatformServices = remember {
     val device = UIDevice.currentDevice
     PlatformServices(
         settings = AppleSettingsStore(NSUserDefaults.standardUserDefaults),
+        // Replace with a Keychain-backed adapter before iOS authentication is enabled.
+        secure = MemorySecureStore(),
         info = PlatformInfo(
             name = device.systemName,
             version = device.systemVersion,
