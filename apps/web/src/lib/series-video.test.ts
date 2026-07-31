@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest"
 import type { WatchProgress } from "./api"
 import type { Video } from "./core"
-import { eligibleSeriesVideos, nextSeriesVideo, selectSeriesVideo } from "./metadata"
+import {
+  adjacentSeriesVideo,
+  eligibleSeriesVideos,
+  nextSeriesVideo,
+  selectSeriesVideo,
+} from "./metadata"
 
 const NOW = new Date("2026-07-30T12:00:00Z")
 
@@ -43,6 +48,11 @@ describe("series resume selection", () => {
 
   it("selects the next unwatched episode after the current episode", () => {
     expect(nextSeriesVideo(videos, "s1e2", [], NOW)?.id).toBe("s2e1")
+  })
+
+  it("uses immediate metadata neighbors for sequential playback even when watched", () => {
+    expect(adjacentSeriesVideo(videos, "s1e2", 1, NOW)?.id).toBe("s2e1")
+    expect(adjacentSeriesVideo(videos, "s2e1", -1, NOW)?.id).toBe("s1e2")
   })
 
   it("advances from the latest completed episode instead of returning to an older gap", () => {

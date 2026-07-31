@@ -191,6 +191,18 @@ export function nextSeriesVideo(
   return eligible.slice(currentIndex + 1).find((video) => !watched.has(video.id))
 }
 
+export function adjacentSeriesVideo(
+  videos: Video[],
+  currentVideoId: string,
+  direction: -1 | 1,
+  now = new Date(),
+): Video | undefined {
+  const eligible = eligibleSeriesVideos(videos, now)
+  const currentIndex = eligible.findIndex((video) => video.id === currentVideoId)
+  if (currentIndex < 0) return undefined
+  return eligible[currentIndex + direction]
+}
+
 export function sortSeasons(values: number[]): number[] {
   return [...new Set(values)].sort((a, b) => {
     if (a === 0) return 1

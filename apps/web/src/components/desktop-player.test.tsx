@@ -7,6 +7,7 @@ import {
   DesktopPlayer,
   dedupeAddonSubtitles,
   filterAddedAddonSubtitles,
+  nativePlaybackEnded,
   usesExpandedPlayerControls,
 } from "./desktop-player"
 
@@ -275,6 +276,22 @@ describe("DesktopPlayer track menus", () => {
     ]
 
     expect(dedupeAddonSubtitles(subtitles)).toEqual([subtitles[0], subtitles[2]])
+  })
+})
+
+describe("native playback completion", () => {
+  it("detects mpv clearing its timeline immediately after EOF", () => {
+    expect(nativePlaybackEnded(
+      { ...snapshot, position: 99, duration: 100, ended: false },
+      { ...snapshot, position: 0, duration: 0, ended: false },
+    )).toBe(true)
+  })
+
+  it("does not treat an uninitialized timeline as EOF", () => {
+    expect(nativePlaybackEnded(
+      undefined,
+      { ...snapshot, position: 0, duration: 0, ended: false },
+    )).toBe(false)
   })
 })
 

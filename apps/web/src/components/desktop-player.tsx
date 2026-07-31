@@ -10,6 +10,7 @@ import {
   Play,
   RotateCcw,
   RotateCw,
+  SkipForward,
   Volume2,
   VolumeX,
   X,
@@ -47,6 +48,21 @@ export function usesExpandedPlayerControls(width: number, height: number): boole
   return width >= 1200 && height >= 700
 }
 
+export function nativePlaybackEnded(
+  previous: NativePlayerSnapshot | undefined,
+  next: NativePlayerSnapshot,
+): boolean {
+  return next.ended ||
+    Boolean(
+      previous?.duration &&
+      next.duration <= 0 &&
+      (
+        previous.position / previous.duration >= 0.9 ||
+        previous.duration - previous.position <= 2
+      ),
+    )
+}
+
 function isSpaciousViewport(): boolean {
   return usesExpandedPlayerControls(window.innerWidth, window.innerHeight)
 }
@@ -58,6 +74,8 @@ export function DesktopPlayer({
   profileId,
   progressMetadata,
   addons,
+  nextEpisodeLabel,
+  onNextEpisode,
   onEnded,
   onClose,
 }: {
@@ -67,6 +85,8 @@ export function DesktopPlayer({
   profileId: string
   progressMetadata: ProgressMetadata
   addons: InstalledAddon[]
+  nextEpisodeLabel?: string
+  onNextEpisode?: () => void | Promise<void>
   onEnded?: () => void | Promise<void>
   onClose: () => void
 }) {
@@ -93,6 +113,7 @@ export function DesktopPlayer({
   const resumed = useRef(false)
   const endedHandled = useRef(false)
   const lastPlayback = useRef({ position: 0, duration: 0 })
+  const lastNativeSnapshot = useRef<NativePlayerSnapshot | undefined>(undefined)
   const pendingAddonSubtitle = useRef(new Set<string>())
   const preferredAudioApplied = useRef(false)
   const preferredSubtitleApplied = useRef(false)
@@ -126,6 +147,9 @@ export function DesktopPlayer({
     preferredAudioApplied.current = false
     preferredSubtitleApplied.current = false
     setAddonSubtitlesResolved(false)
+    endedHandled.current = false
+    lastNativeSnapshot.current = undefined
+    lastPlayback.current = { position: 0, duration: 0 }
     document.documentElement.classList.add("native-playback")
     void openNativePlayer(url, mediaTitle)
       .then(async (initial) => {
@@ -144,7 +168,13 @@ export function DesktopPlayer({
     const poll = window.setInterval(() => {
       void nativePlayerSnapshot()
         .then((next) => {
-          if (!cancelled) setSnapshot(next)
+          if (cancelled) return
+          const previous = lastNativeSnapshot.current
+          const resolved = nativePlaybackEnded(previous, next)
+            ? { ...next, ended: true }
+            : next
+          lastNativeSnapshot.current = resolved
+          setSnapshot(resolved)
         })
         .catch(() => undefined)
     }, 1000)
@@ -271,8 +301,10 @@ export function DesktopPlayer({
     if (!snapshot?.ended || endedHandled.current) return
     endedHandled.current = true
     const duration = snapshot.duration || lastPlayback.current.duration
+    void Promise.resolve(onEnded?.()).catch((cause: unknown) => {
+      setError(cause instanceof Error ? cause.message : String(cause))
+    })
     void saveProgress(duration, duration, true)
-      .then(() => onEnded?.())
       .catch((cause: unknown) => {
         setError(cause instanceof Error ? cause.message : String(cause))
       })
@@ -696,6 +728,15 @@ export function DesktopPlayer({
                 <RotateCw size={21} />
                 <span className="absolute text-[9px] font-bold">10</span>
               </PlayerIcon>
+              {onNextEpisode && (
+                <PlayerIcon
+                  label={`Next episode${nextEpisodeLabel ? `: ${nextEpisodeLabel}` : ""}`}
+                  expanded={expandedControls}
+                  onClick={() => void onNextEpisode()}
+                >
+                  <SkipForward size={21} />
+                </PlayerIcon>
+              )}
               <PlayerIcon
                 label={snapshot.volume === 0 ? "Unmute" : "Mute"}
                 expanded={expandedControls}
