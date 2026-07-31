@@ -91,6 +91,7 @@ actual fun NativePlayer(
                     Toast.makeText(context, "That track is not supported on this device. Restored the previous audio selection.", Toast.LENGTH_LONG).show()
                     return
                 }
+                player.pause()
                 playbackError = when (error.errorCode) {
                     androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FAILED,
                     androidx.media3.common.PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
@@ -102,6 +103,7 @@ actual fun NativePlayer(
                 tracksRevision++
                 val audio = tracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
                 if (audio.isNotEmpty() && audio.none { group -> (0 until group.length).any(group::isTrackSupported) }) {
+                    player.pause()
                     playbackError = "None of this stream's audio formats can be decoded by this device. Choose another stream for working audio."
                 }
             }
@@ -198,13 +200,12 @@ actual fun NativePlayer(
                         PlayerTimePill(formatPlayerTime(if (dragging) draggedPosition.toLong() else positionMs))
                         PlayerTimePill(formatPlayerTime(durationMs))
                     }
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Spacer(Modifier.weight(1f))
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceEvenly) {
                         val speeds = listOf(.5f, .75f, 1f, 1.25f, 1.5f, 2f)
-                        TextButton(onClick = { val current = player.playbackParameters.speed; player.setPlaybackSpeed(speeds[(speeds.indexOfFirst { it == current }.takeIf { it >= 0 } ?: 1).let { (it + 1) % speeds.size }]); controlsVisible = true }) { Text("${player.playbackParameters.speed}×", color = Color.White) }
-                        IconButton(onClick = { trackPanel = C.TRACK_TYPE_AUDIO; controlsVisible = true }) { Icon(Icons.Rounded.Headphones, "Audio tracks", tint = Color.White) }
-                        IconButton(onClick = { trackPanel = C.TRACK_TYPE_TEXT; controlsVisible = true }) { Icon(Icons.Rounded.Subtitles, "Subtitles", tint = Color.White) }
-                        if (hasEpisodes) IconButton(onClick = onEpisodes) { Icon(Icons.Rounded.PlaylistPlay, "Episodes", tint = Color.White) }
+                        PlayerBottomAction(Icons.Rounded.Speed, "${player.playbackParameters.speed}×") { val current = player.playbackParameters.speed; player.setPlaybackSpeed(speeds[(speeds.indexOfFirst { it == current }.takeIf { it >= 0 } ?: 1).let { (it + 1) % speeds.size }]); controlsVisible = true }
+                        PlayerBottomAction(Icons.Rounded.Headphones, "Audio") { trackPanel = C.TRACK_TYPE_AUDIO; controlsVisible = true }
+                        PlayerBottomAction(Icons.Rounded.Subtitles, "Subtitles") { trackPanel = C.TRACK_TYPE_TEXT; controlsVisible = true }
+                        if (hasEpisodes) PlayerBottomAction(Icons.Rounded.PlaylistPlay, "Episodes", onEpisodes)
                     }
                 }
             }
@@ -236,6 +237,10 @@ private fun BoxScope.PlayerTrackPanel(player: ExoPlayer, type: Int, onBeforeSele
         player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().setTrackTypeDisabled(type, false).clearOverridesOfType(type).addOverride(TrackSelectionOverride(option.group.mediaTrackGroup, option.index)).build()
         chosenLanguage = option.languageKey
         if (close) onDismiss() else subtitlePage = "overview"
+    }
+    if (type == C.TRACK_TYPE_TEXT) {
+        FullscreenSubtitlePanel(player, options, selectedOption, onBeforeSelection, onDismiss)
+        return
     }
     Surface(modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight().fillMaxWidth(.48f), color = Color(0xF21A1A1D), shape = RoundedCornerShape(topStart = 28.dp, bottomStart = 28.dp), shadowElevation = 18.dp) {
         Column(Modifier.padding(20.dp)) {
@@ -274,6 +279,27 @@ private fun BoxScope.PlayerTrackPanel(player: ExoPlayer, type: Int, onBeforeSele
             }
         }
     }
+}
+
+@Composable
+private fun BoxScope.FullscreenSubtitlePanel(player: ExoPlayer, options: List<PlayerTrackOption>, selected: PlayerTrackOption?, onBeforeSelection: () -> Unit, onDismiss: () -> Unit) {
+    var language by remember(selected?.languageKey) { mutableStateOf(selected?.languageKey ?: options.firstOrNull { it.supported }?.languageKey) }
+    fun choose(option: PlayerTrackOption) { onBeforeSelection(); language = option.languageKey; player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false).clearOverridesOfType(C.TRACK_TYPE_TEXT).addOverride(TrackSelectionOverride(option.group.mediaTrackGroup, option.index)).build() }
+    Surface(Modifier.fillMaxSize(), color = Color(0xFA0D0C22)) {
+        Box {
+            Row(Modifier.fillMaxSize().padding(horizontal = 30.dp, vertical = 28.dp), horizontalArrangement = Arrangement.spacedBy(30.dp)) {
+                Column(Modifier.weight(1f)) { Text("Subtitle Languages", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold); Spacer(Modifier.height(18.dp)); LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) { item { PlayerTrackRow("Disabled", selected == null) { player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().clearOverridesOfType(C.TRACK_TYPE_TEXT).setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build() } }; options.distinctBy(PlayerTrackOption::languageKey).forEach { option -> item(option.languageKey) { PlayerTrackRow(option.languageName, language == option.languageKey, option.supported) { val best = options.firstOrNull { it.languageKey == option.languageKey && it.supported } ?: option; choose(best) } } } } }
+                Column(Modifier.weight(1f)) { Text("Subtitle Variants", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold); Spacer(Modifier.height(18.dp)); LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) { options.filter { it.languageKey == language }.forEach { option -> item("${option.group.mediaTrackGroup.id}:${option.index}") { PlayerTrackRow(option.variantName, option.selected, option.supported) { choose(option) } } } } }
+                Column(Modifier.weight(1f)) { Text("Subtitle Settings", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold); Spacer(Modifier.weight(1f)); Text("Subtitle appearance follows Android system settings. Change it under Accessibility → Caption preferences for consistent styling across apps.", color = Color.White.copy(.72f), style = MaterialTheme.typography.bodyLarge); Spacer(Modifier.weight(1f)) }
+            }
+            IconButton(onClick = onDismiss, Modifier.align(Alignment.TopEnd).padding(12.dp)) { Icon(Icons.Rounded.Close, "Close", tint = Color.White, modifier = Modifier.size(34.dp)) }
+        }
+    }
+}
+
+@Composable
+private fun PlayerBottomAction(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
+    TextButton(onClick = onClick) { Icon(icon, null, tint = Color.White); Spacer(Modifier.width(7.dp)); Text(label, color = Color.White) }
 }
 
 private data class PlayerTrackOption(val group: Tracks.Group, val index: Int) {
