@@ -2,8 +2,11 @@ package media.conduit.mobile
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Home
@@ -12,6 +15,7 @@ import androidx.compose.material.icons.rounded.AccountCircle
 import androidx.compose.material.icons.rounded.VideoLibrary
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -415,24 +419,7 @@ private fun AppShell(
         }
         Scaffold(
             snackbarHost = { SnackbarHost(snackbarHostState) },
-            bottomBar = {
-                if (!expanded && selectedMedia == null) {
-                    NavigationBar(
-                        containerColor = Color(0xFF111113),
-                        tonalElevation = 0.dp,
-                    ) {
-                        AppDestination.entries.forEach { destination ->
-                            MobileNavigationItem(
-                                destination = destination,
-                                selected = state.destination == destination,
-                                profile = activeProfile,
-                                onClick = { dispatch(AppAction.Navigate(destination)) },
-                                modifier = Modifier.weight(1f),
-                            )
-                        }
-                    }
-                }
-            },
+            contentWindowInsets = WindowInsets(0, 0, 0, 0),
         ) { padding ->
             if (expanded) {
                 Row(Modifier.fillMaxSize().padding(padding)) {
@@ -461,6 +448,28 @@ private fun AppShell(
                 )
             }
         }
+        if (!expanded && selectedMedia == null) {
+            Surface(
+                color = Color(0xDD202023),
+                shape = RoundedCornerShape(32.dp),
+                border = BorderStroke(1.dp, Color.White.copy(alpha = .12f)),
+                shadowElevation = 14.dp,
+                modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding()
+                    .padding(horizontal = 14.dp, vertical = 10.dp).fillMaxWidth(),
+            ) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
+                    AppDestination.entries.forEach { destination ->
+                        MobileNavigationItem(
+                            destination = destination,
+                            selected = state.destination == destination,
+                            profile = activeProfile,
+                            onClick = { dispatch(AppAction.Navigate(destination)) },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -480,7 +489,7 @@ private fun DestinationContent(
     onSignOut: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Box(modifier.fillMaxSize().safeContentPadding()) {
+    Box(modifier.fillMaxSize()) {
         if (selectedMedia != null) {
             MediaDetailsScreen(
                 item = selectedMedia,
@@ -526,7 +535,9 @@ private fun RowScope.MobileNavigationItem(
 ) {
     val color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
     Column(
-        modifier.clickable(onClick = onClick).padding(top = 10.dp, bottom = 8.dp),
+        modifier.clip(RoundedCornerShape(24.dp))
+            .background(if (selected) MaterialTheme.colorScheme.primary.copy(alpha = .12f) else Color.Transparent)
+            .clickable(onClick = onClick).padding(top = 8.dp, bottom = 7.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {

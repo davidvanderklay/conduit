@@ -54,8 +54,8 @@ internal fun HomeScreen(
     val library = sync.snapshot?.library.orEmpty().sortedByDescending { it.updatedAt }.take(14)
 
     LazyColumn(
-        modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 24.dp, bottom = 32.dp),
+        modifier = modifier.fillMaxSize().statusBarsPadding(),
+        contentPadding = PaddingValues(start = 10.dp, end = 10.dp, top = 14.dp, bottom = 112.dp),
         verticalArrangement = Arrangement.spacedBy(28.dp),
     ) {
         item {
@@ -160,7 +160,7 @@ private fun ShelfTitle(title: String) {
 
 @Composable
 private fun PosterCard(name: String, poster: String?, caption: String?, onClick: () -> Unit) {
-    Column(Modifier.width(132.dp).clickable(onClick = onClick), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(Modifier.width(112.dp).clickable(onClick = onClick), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Box(
             Modifier.fillMaxWidth().aspectRatio(2f / 3f).clip(RoundedCornerShape(12.dp))
                 .background(MaterialTheme.colorScheme.surfaceVariant),
