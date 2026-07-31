@@ -122,6 +122,13 @@ class AccountRepository(
         )
     }
 
+    suspend fun recover(endpoint: ServerEndpoint, authentication: AuthenticationConfiguration, email: String, code: String, password: String): AccountStatus = try {
+        api.recoverAccount(endpoint.baseUrl, email, code, password)
+        AccountStatus.SignedOut(authentication, "Password reset. You can sign in now.")
+    } catch (cause: Exception) {
+        AccountStatus.SignedOut(authentication, cause.message ?: "Recovery failed")
+    }
+
     suspend fun signOut(endpoint: ServerEndpoint, session: StoredSession): AccountStatus {
         runCatching { api.signOut(endpoint.baseUrl, session.token) }
         vault.clear()
