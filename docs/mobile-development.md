@@ -5,6 +5,11 @@ UI. The fixture resolves locally through Rust and plays the Creative Commons
 licensed **Big Buck Bunny** MP4 from the Internet Archive directly in the
 platform player.
 
+Issue #49 extends the same project with the shared application foundation:
+first-run server selection, responsive primary navigation, reducer-style local
+state, platform preference/device adapters, and CI. Authentication and live
+connection probing intentionally remain later roadmap work.
+
 ## Repository layout
 
 - `apps/mobile/composeApp`: shared Compose UI plus Android/iOS adapters
