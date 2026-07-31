@@ -7,6 +7,7 @@ import io.ktor.client.request.bearerAuth
 import io.ktor.client.request.get
 import io.ktor.client.request.post
 import io.ktor.client.request.patch
+import io.ktor.client.request.delete
 import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
@@ -347,6 +348,37 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
         }
         if (!response.status.isSuccess()) throw ServerRequestException("Profile update returned HTTP ${response.status.value}", response.status.value)
         return response.body<ProfileResponse>().profile
+    }
+
+    suspend fun installAddon(baseUrl: String, token: String, profileId: String, rawUrl: String) {
+        val manifestUrl = rawUrl.trim().let { if (it.startsWith("stremio://")) "https://${it.removePrefix("stremio://")}" else it }
+        val manifestResponse = client.get(manifestUrl)
+        if (!manifestResponse.status.isSuccess()) throw ServerRequestException("Manifest returned HTTP ${manifestResponse.status.value}")
+        val manifest = manifestResponse.body<JsonObject>()
+        val response = client.post("$baseUrl/v1/profiles/$profileId/addons") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody(buildJsonObject { put("manifestUrl", manifestUrl); put("manifest", manifest) })
+        }
+        if (!response.status.isSuccess()) throw ServerRequestException(response.bodyAsText().ifBlank { "Add-on installation returned HTTP ${response.status.value}" }, response.status.value)
+    }
+
+    suspend fun setAddonEnabled(baseUrl: String, token: String, profileId: String, addonId: String, enabled: Boolean) {
+        val response = client.patch("$baseUrl/v1/profiles/$profileId/addons/$addonId") {
+            bearerAuth(token); contentType(ContentType.Application.Json); setBody(buildJsonObject { put("enabled", enabled) })
+        }
+        if (!response.status.isSuccess()) throw ServerRequestException("Unable to update add-on", response.status.value)
+    }
+
+    suspend fun moveAddon(baseUrl: String, token: String, profileId: String, addonId: String, position: Int) {
+        val response = client.patch("$baseUrl/v1/profiles/$profileId/addons/$addonId") {
+            bearerAuth(token); contentType(ContentType.Application.Json); setBody(buildJsonObject { put("position", position) })
+        }
+        if (!response.status.isSuccess()) throw ServerRequestException("Unable to reorder add-on", response.status.value)
+    }
+
+    suspend fun removeAddon(baseUrl: String, token: String, profileId: String, addonId: String) {
+        val response = client.delete("$baseUrl/v1/profiles/$profileId/addons/$addonId") { bearerAuth(token) }
+        if (!response.status.isSuccess()) throw ServerRequestException("Unable to remove add-on", response.status.value)
     }
 
     suspend fun synchronizeProfile(baseUrl: String, token: String, profileId: String): ProfileSnapshot =

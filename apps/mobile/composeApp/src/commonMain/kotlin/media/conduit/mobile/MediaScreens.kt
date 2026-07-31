@@ -29,6 +29,11 @@ import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.booleanOrNull
 import media.conduit.mobile.account.*
 import media.conduit.mobile.foundation.*
 
@@ -316,6 +321,7 @@ internal fun ProfileSettingsScreen(
     onSignOut: () -> Unit,
     onProfilesChanged: (String?) -> Unit,
     onProfileFlowChanged: (Boolean) -> Unit,
+    onProfileDataChanged: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var route by remember { mutableStateOf<ProfileRoute>(ProfileRoute.Settings) }
@@ -326,6 +332,7 @@ internal fun ProfileSettingsScreen(
         ProfileRoute.Switcher -> return ProfileSwitcherScreen(account.bootstrap.households.flatMap { it.profiles }, activeProfile, { route = ProfileRoute.Overview }, { route = ProfileRoute.Edit(it) }, { route = ProfileRoute.Create }, { dispatch(AppAction.SelectProfile(it.id)); route = ProfileRoute.Overview }, modifier)
         ProfileRoute.Create -> return ProfileEditorScreen(null, activeProfile, api, state, account, { route = ProfileRoute.Switcher }, onProfilesChanged, modifier)
         is ProfileRoute.Edit -> return ProfileEditorScreen(current.profile, activeProfile, api, state, account, { route = ProfileRoute.Overview }, onProfilesChanged, modifier)
+        ProfileRoute.Addons -> return AddonManagerScreen(activeProfile, profileSync.snapshot?.addons.orEmpty(), api, state, account, { route = ProfileRoute.Settings }, onProfileDataChanged, modifier)
         ProfileRoute.Settings -> Unit
     }
     val sections = listOf(
@@ -336,6 +343,7 @@ internal fun ProfileSettingsScreen(
         SettingSection("General", listOf(
             SettingEntry("General", "Appearance and layout", Icons.Rounded.Tune),
             SettingEntry("Content & discovery", "Add-ons, catalogs, and search", Icons.Rounded.Explore),
+            SettingEntry("Add-ons", "Install and manage content providers", Icons.Rounded.Extension),
             SettingEntry("Downloads", "Offline media and storage", Icons.Rounded.Download),
             SettingEntry("Playback", "Player, subtitles, and behavior", Icons.Rounded.PlayCircle),
             SettingEntry("Integrations", "Connected media services", Icons.Rounded.Extension),
@@ -393,7 +401,7 @@ internal fun ProfileSettingsScreen(
                     leadingContent = { Icon(entry.icon, null, tint = MaterialTheme.colorScheme.primary) },
                     trailingContent = { Icon(Icons.Rounded.ChevronRight, null) },
                     colors = ListItemDefaults.colors(containerColor = Color.White.copy(alpha = .035f)),
-                    modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable { if (entry.title == "Profile") route = ProfileRoute.Overview },
+                    modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable { when (entry.title) { "Profile" -> route = ProfileRoute.Overview; "Add-ons" -> route = ProfileRoute.Addons } },
                 )
             }
         }
@@ -412,6 +420,7 @@ private sealed interface ProfileRoute {
     data object Overview : ProfileRoute
     data object Switcher : ProfileRoute
     data object Create : ProfileRoute
+    data object Addons : ProfileRoute
     data class Edit(val profile: ProfileSummary) : ProfileRoute
 }
 
@@ -522,6 +531,112 @@ private fun ProfileEditorScreen(profile: ProfileSummary?, active: ProfileSummary
         item { Button(onClick = { scope.launch { saving = true; error = null; runCatching { val endpoint = requireNotNull(state.endpoint); val cleanUrl = url.trim().ifBlank { null }; require(cleanUrl == null || cleanUrl.startsWith("https://") || cleanUrl.startsWith("http://")) { "Avatar URL must begin with http:// or https://" }; require(name.isNotBlank()) { "Enter a profile name" }; if (profile == null) { val household = account.bootstrap.households.first(); api.createProfile(endpoint.baseUrl, account.session.token, household.id, name, kids, usesPrimaryAddons, color, cleanUrl) } else api.updateProfile(endpoint.baseUrl, account.session.token, profile.id, name, kids, usesPrimaryAddons, color, cleanUrl) }.onSuccess { onSaved(it.id); onBack() }.onFailure { error = it.message ?: "Unable to save profile" }; saving = false } }, enabled = !saving, modifier = Modifier.padding(horizontal = 10.dp).fillMaxWidth().height(54.dp)) { if (saving) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp) else Text(if (profile == null) "Create profile" else "Save changes") } }
     }
 }
+
+@Composable
+private fun AddonManagerScreen(
+    profile: ProfileSummary?, initialAddons: List<InstalledAddonSummary>, api: ConduitApi,
+    state: AppState, account: AccountStatus.SignedIn, onBack: () -> Unit,
+    onChanged: () -> Unit, modifier: Modifier,
+) {
+    val scope = rememberCoroutineScope()
+    var addons by remember(initialAddons) { mutableStateOf(initialAddons) }
+    var manifestUrl by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var removeTarget by remember { mutableStateOf<InstalledAddonSummary?>(null) }
+    val linked = profile?.usesPrimaryAddons == true
+    fun runMutation(block: suspend (String, String, String) -> Unit) {
+        val endpoint = state.endpoint ?: return
+        val profileId = profile?.id ?: return
+        scope.launch {
+            busy = true; error = null
+            runCatching {
+                block(endpoint.baseUrl, account.session.token, profileId)
+                addons = api.synchronizeProfile(endpoint.baseUrl, account.session.token, profileId).addons
+                onChanged()
+            }.onFailure { error = it.message ?: "Unable to update add-ons" }
+            busy = false
+        }
+    }
+    removeTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { removeTarget = null },
+            title = { Text("Remove add-on?") },
+            text = { Text("${target.manifest["name"]?.jsonPrimitive?.contentOrNull ?: target.manifestId} will stop providing catalogs and streams for this profile.") },
+            confirmButton = { TextButton(onClick = { removeTarget = null; runMutation { base, token, id -> api.removeAddon(base, token, id, target.id) } }) { Text("Remove", color = MaterialTheme.colorScheme.error) } },
+            dismissButton = { TextButton(onClick = { removeTarget = null }) { Text("Cancel") } },
+        )
+    }
+    val activeCount = addons.count { it.enabled }
+    val catalogCount = addons.filter { it.enabled }.sumOf { it.manifest["catalogs"]?.let { value -> runCatching { value.jsonArray.size }.getOrDefault(0) } ?: 0 }
+    LazyColumn(modifier, contentPadding = PaddingValues(start = 10.dp, end = 10.dp, bottom = 40.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        item { ProfileHeader("Add-ons", onBack) }
+        item { AddonSectionLabel("Overview") }
+        item { Surface(color = Color.White.copy(.075f), shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
+            Row(Modifier.fillMaxWidth().padding(vertical = 18.dp), verticalAlignment = Alignment.CenterVertically) {
+                listOf(addons.size to "Add-ons", activeCount to "Active", catalogCount to "Catalogs").forEachIndexed { index, stat ->
+                    if (index > 0) VerticalDivider(Modifier.height(54.dp), color = Color.White.copy(.1f))
+                    Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) { Text("${stat.first}", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold); Text(stat.second, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                }
+            }
+        } }
+        if (linked) item {
+            Surface(color = MaterialTheme.colorScheme.primary.copy(.1f), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
+                Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.Link, null, tint = MaterialTheme.colorScheme.primary); Spacer(Modifier.width(12.dp)); Column { Text("Using primary add-ons", fontWeight = FontWeight.Bold); Text("This list is managed by the primary profile.", color = MaterialTheme.colorScheme.onSurfaceVariant) } }
+            }
+        } else {
+            item { AddonSectionLabel("Add add-on") }
+            item { Surface(color = Color.White.copy(.075f), shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(manifestUrl, { manifestUrl = it }, modifier = Modifier.fillMaxWidth(), placeholder = { Text("https://…/manifest.json") }, singleLine = true)
+                Button(onClick = { val url = manifestUrl; runMutation { base, token, id -> api.installAddon(base, token, id, url) }; manifestUrl = "" }, enabled = !busy && manifestUrl.isNotBlank(), modifier = Modifier.fillMaxWidth().height(52.dp)) { Text(if (busy) "Verifying…" else "Install add-on") }
+            } } }
+        }
+        error?.let { item { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 16.dp)) } }
+        item { AddonSectionLabel("Installed add-ons") }
+        if (addons.isEmpty()) item { Text("No add-ons installed.", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(20.dp)) }
+        items(addons, key = { it.id }) { addon ->
+            val index = addons.indexOfFirst { it.id == addon.id }
+            val name = addon.manifest["name"]?.jsonPrimitive?.contentOrNull ?: addon.manifestId
+            val description = addon.manifest["description"]?.jsonPrimitive?.contentOrNull ?: addon.manifestUrl
+            val version = addon.manifest["version"]?.jsonPrimitive?.contentOrNull
+            val logo = addon.manifest["logo"]?.jsonPrimitive?.contentOrNull
+            val resources = addon.manifest["resources"]?.let { runCatching { it.jsonArray.size }.getOrDefault(0) } ?: 0
+            val catalogs = addon.manifest["catalogs"]?.let { runCatching { it.jsonArray.size }.getOrDefault(0) } ?: 0
+            val types = addon.manifest["types"]?.let { value -> runCatching { value.jsonArray.mapNotNull { it.jsonPrimitive.contentOrNull } }.getOrDefault(emptyList()) } ?: emptyList()
+            val hints = addon.manifest["behaviorHints"]?.let { runCatching { it.jsonObject }.getOrNull() }
+            val configurable = hints?.get("configurable")?.jsonPrimitive?.booleanOrNull == true || hints?.get("configurationRequired")?.jsonPrimitive?.booleanOrNull == true
+            Surface(color = Color.White.copy(.075f), shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Surface(shape = RoundedCornerShape(14.dp), color = Color.White.copy(.045f), modifier = Modifier.size(62.dp)) {
+                            if (!logo.isNullOrBlank()) AsyncImage(logo, "$name logo", Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+                            else Icon(Icons.Rounded.Extension, null, Modifier.padding(16.dp), tint = MaterialTheme.colorScheme.primary)
+                        }
+                        Spacer(Modifier.width(14.dp)); Column(Modifier.weight(1f)) { Text(name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis); version?.let { Text("Version $it", color = MaterialTheme.colorScheme.onSurfaceVariant) } }
+                        Switch(addon.enabled, { enabled -> runMutation { base, token, id -> api.setAddonEnabled(base, token, id, addon.id, enabled) } }, enabled = !linked && !busy)
+                    }
+                    if (!linked) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        IconButton(onClick = { runMutation { base, token, id -> api.moveAddon(base, token, id, addon.id, index - 1) } }, enabled = index > 0 && !busy) { Icon(Icons.Rounded.ArrowUpward, "Move $name up") }
+                        IconButton(onClick = { runMutation { base, token, id -> api.moveAddon(base, token, id, addon.id, index + 1) } }, enabled = index < addons.lastIndex && !busy) { Icon(Icons.Rounded.ArrowDownward, "Move $name down") }
+                        IconButton(onClick = { runMutation { base, token, id -> api.installAddon(base, token, id, addon.manifestUrl) } }, enabled = !busy) { Icon(Icons.Rounded.Refresh, "Refresh $name") }
+                        if (configurable) Icon(Icons.Rounded.Settings, "Configurable", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(12.dp))
+                        IconButton(onClick = { removeTarget = addon }, enabled = !busy) { Icon(Icons.Rounded.DeleteOutline, "Remove $name", tint = MaterialTheme.colorScheme.error) }
+                    }
+                    HorizontalDivider(color = Color.White.copy(.08f))
+                    Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) { AddonBadge(if (addon.enabled) "Active" else "Disabled"); AddonBadge("$resources resources"); AddonBadge("$catalogs catalogs") }
+                    if (configurable) AddonBadge("Configurable")
+                    Text(description, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    val capability = (types + listOfNotNull(addon.manifest["resources"]?.let { "resources" })).distinct().joinToString(" / ")
+                    if (capability.isNotBlank()) Text(capability, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
+        if (busy) item { LinearProgressIndicator(Modifier.padding(horizontal = 10.dp).fillMaxWidth()) }
+    }
+}
+
+@Composable private fun AddonSectionLabel(text: String) { Text(text, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp, start = 2.dp)) }
+@Composable private fun AddonBadge(text: String) { Surface(color = Color.White.copy(.06f), shape = RoundedCornerShape(50)) { Text(text, Modifier.padding(horizontal = 10.dp, vertical = 5.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) } }
 
 private data class SettingEntry(val title: String, val description: String, val icon: ImageVector)
 private data class SettingSection(val title: String, val entries: List<SettingEntry>)
