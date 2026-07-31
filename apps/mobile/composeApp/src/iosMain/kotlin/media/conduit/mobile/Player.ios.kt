@@ -5,6 +5,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.interop.UIKitView
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.coroutines.delay
+import media.conduit.mobile.account.SubtitleItem
 import platform.AVFoundation.*
 import platform.CoreMedia.CMTimeGetSeconds
 import platform.CoreMedia.CMTimeMakeWithSeconds
@@ -34,6 +35,7 @@ actual fun NativePlayer(
     active: Boolean,
     startPositionMs: Long,
     requestHeaders: Map<String, String>,
+    subtitles: List<SubtitleItem>,
     hasEpisodes: Boolean,
     onEpisodes: () -> Unit,
     modifier: Modifier,
