@@ -85,4 +85,8 @@ jobs:
         run: ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358" apps/mobile/scripts/build-rust-android.sh
       - name: Test and assemble Android application
         working-directory: apps/mobile
-        run: ./gradlew --no-daemon :composeApp:testDebugUnitTest :composeApp:assembleDebug
+        run: >-
+          ./gradlew --no-daemon
+          :composeApp:testDebugUnitTest
+          :composeApp:assembleDebug
+          :composeApp:assembleDebugAndroidTest

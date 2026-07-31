@@ -8,12 +8,16 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import media.conduit.mobile.foundation.*
+import media.conduit.mobile.account.ConduitApi
+import media.conduit.mobile.account.SessionVault
 
 @Composable
 fun App() {
     ConduitTheme {
         val services = rememberPlatformServices()
-        val store = remember(services.settings) { AppStore(services.settings) }
+        val store = remember(services.settings, services.secure) {
+            AppStore(services.settings, SessionVault(services.secure))
+        }
         var state by remember { mutableStateOf(store.state) }
         val dispatch: (AppAction) -> Unit = { state = store.dispatch(it) }
 
@@ -27,6 +31,20 @@ fun App() {
 
 @Composable
 private fun ServerSetup(state: AppState, dispatch: (AppAction) -> Unit) {
+    val api = remember { ConduitApi() }
+    DisposableEffect(api) { onDispose(api::close) }
+    LaunchedEffect(state.pendingEndpoint) {
+        val endpoint = state.pendingEndpoint ?: return@LaunchedEffect
+        runCatching { api.validate(endpoint.baseUrl) }
+            .onSuccess { dispatch(AppAction.ConnectionSucceeded(endpoint)) }
+            .onFailure { cause ->
+                dispatch(
+                    AppAction.ConnectionFailed(
+                        cause.message ?: "Unable to connect to this Conduit server",
+                    ),
+                )
+            }
+    }
     Surface(Modifier.fillMaxSize()) {
         BoxWithConstraints(Modifier.fillMaxSize().safeContentPadding()) {
             Column(
@@ -50,11 +68,20 @@ private fun ServerSetup(state: AppState, dispatch: (AppAction) -> Unit) {
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Button(
-                    onClick = { dispatch(AppAction.SaveEndpoint) },
+                    onClick = { dispatch(AppAction.ConnectRequested) },
+                    enabled = state.pendingEndpoint == null,
                     modifier = Modifier.fillMaxWidth(),
-                ) { Text("Continue") }
+                ) {
+                    if (state.pendingEndpoint != null) {
+                        CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Checking server…")
+                    } else {
+                        Text("Continue")
+                    }
+                }
                 Text(
-                    "Authentication and connection probing arrive in the accounts milestone.",
+                    "Conduit checks server health and authentication capabilities before saving it.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

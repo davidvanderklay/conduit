@@ -20,6 +20,9 @@ actual fun rememberPlatformServices(): PlatformServices {
             settings = AndroidSettingsStore(
                 context.getSharedPreferences("conduit_device", 0),
             ),
+            secure = AndroidSecureStore(
+                context.getSharedPreferences("conduit_secure_values", 0),
+            ),
             info = PlatformInfo(
                 name = "Android",
                 version = Build.VERSION.RELEASE,
