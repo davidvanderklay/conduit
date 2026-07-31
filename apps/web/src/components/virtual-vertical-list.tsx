@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from "react"
+import { useRef, type ReactNode } from "react"
 import { useVirtualizer } from "@tanstack/react-virtual"
 
 export function VirtualVerticalList<T>({
@@ -29,8 +29,6 @@ export function VirtualVerticalList<T>({
     getItemKey: (index) => itemKey(items[index]!),
     useFlushSync: false,
   })
-
-  useEffect(() => virtualizer.measure(), [items, virtualizer])
 
   return (
     <div ref={listRef} className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
