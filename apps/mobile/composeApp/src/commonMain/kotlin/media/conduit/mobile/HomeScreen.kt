@@ -49,10 +49,7 @@ internal fun HomeScreen(
     }
     LaunchedEffect(sync.snapshot?.profileId, sync.snapshot?.addons) { load() }
 
-    val continueWatching = sync.snapshot?.progress.orEmpty()
-        .filter { !it.watched && it.durationMs > 0 && it.positionMs > 0 }
-        .sortedByDescending { it.updatedAt }
-        .take(14)
+    val continueWatching = sync.snapshot?.continueWatching.orEmpty()
     val library = sync.snapshot?.library.orEmpty().sortedByDescending { it.updatedAt }.take(14)
 
     LazyColumn(
@@ -197,7 +194,12 @@ private fun ContinueCard(item: ProgressSummary) {
             LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth().height(4.dp).align(Alignment.BottomCenter))
         }
         Text(item.name, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
-        Text("${item.positionMs / 60_000} min watched", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
+        Text(
+            item.videoTitle ?: listOfNotNull(item.season?.let { "S$it" }, item.episode?.let { "E$it" })
+                .joinToString(" · ").ifBlank { "${item.positionMs / 60_000} min watched" },
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.labelSmall,
+        )
     }
 }
 
