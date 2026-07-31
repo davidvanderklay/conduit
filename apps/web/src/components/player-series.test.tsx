@@ -7,6 +7,7 @@ import type { Video } from "../lib/core"
 import {
   NEXT_EPISODE_COUNTDOWN,
   NextEpisodePrompt,
+  PlayerEpisodeDrawer,
   shouldShowNextEpisodePrompt,
 } from "./player-series"
 
@@ -27,6 +28,7 @@ describe("next episode prompt", () => {
 
   beforeEach(() => {
     vi.useFakeTimers()
+    Element.prototype.scrollIntoView = vi.fn()
     host = document.createElement("div")
     document.body.append(host)
     root = createRoot(host)
@@ -115,5 +117,80 @@ describe("next episode prompt", () => {
     act(() => renderAt(20))
     act(() => renderAt(90))
     expect(host.textContent).not.toContain("Next on Example")
+  })
+
+  it("reports when seeking removes the prompt so native overlays can clear it", () => {
+    const visibility = vi.fn()
+    const renderAt = (position: number) => {
+      root.render(
+        <NextEpisodePrompt
+          seriesName="Example"
+          episode={episode}
+          position={position}
+          duration={100}
+          paused={false}
+          autoplay={false}
+          onDismiss={vi.fn()}
+          onVisibilityChange={visibility}
+          onWatchNow={vi.fn()}
+        />,
+      )
+    }
+    act(() => renderAt(20))
+    expect(visibility).not.toHaveBeenCalled()
+    act(() => renderAt(80))
+    expect(visibility).toHaveBeenLastCalledWith(true)
+    act(() => renderAt(20))
+    expect(visibility).toHaveBeenLastCalledWith(false)
+  })
+
+  it("selecting the current episode still opens its source context", () => {
+    const select = vi.fn()
+    const openChange = vi.fn()
+    act(() => {
+      root.render(
+        <PlayerEpisodeDrawer
+          open
+          context={{
+            name: "Example",
+            videos: [episode],
+            progress: [],
+            currentVideoId: episode.id,
+          }}
+          onOpenChange={openChange}
+          onSelect={select}
+        />,
+      )
+    })
+    const currentEpisode = host.querySelector<HTMLButtonElement>(
+      `[data-video-id="${episode.id}"]`,
+    )
+    act(() => currentEpisode?.click())
+    expect(openChange).toHaveBeenCalledWith(false)
+    expect(select).toHaveBeenCalledWith(episode)
+  })
+
+  it("keeps the closed drawer handle geometry and shadow stable on hover", () => {
+    act(() => {
+      root.render(
+        <PlayerEpisodeDrawer
+          open={false}
+          context={{
+            name: "Example",
+            videos: [episode],
+            progress: [],
+            currentVideoId: episode.id,
+          }}
+          onOpenChange={vi.fn()}
+          onSelect={vi.fn()}
+        />,
+      )
+    })
+    const handle = host.querySelector<HTMLButtonElement>(
+      'button[aria-label="Open episode list"]',
+    )
+    expect(handle?.className).not.toContain("shadow")
+    expect(handle?.className).not.toContain("transition")
+    expect(handle?.className).not.toContain("hover:w-")
   })
 })

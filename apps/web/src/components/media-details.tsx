@@ -184,6 +184,15 @@ export function MediaDetails({
     await playEpisode(nextEpisode)
   }
 
+  const openEpisodeSources = (video: Video) => {
+    episodeTransition.current += 1
+    setStreamResolutionError(undefined)
+    setPlaying(undefined)
+    setSelectedVideoId(video.id)
+    setSelectedSeason(video.season ?? 1)
+    seriesReturnVideoId.current = video.id
+  }
+
   return (
     <>
       <div
@@ -316,7 +325,7 @@ export function MediaDetails({
           }
           nextEpisode={nextEpisode}
           nextEpisodeLabel={nextEpisode ? episodeLabel(nextEpisode) : undefined}
-          onSelectEpisode={playEpisode}
+          onSelectEpisode={openEpisodeSources}
           onNextEpisode={
             nextEpisode ? () => playEpisode(nextEpisode) : undefined
           }

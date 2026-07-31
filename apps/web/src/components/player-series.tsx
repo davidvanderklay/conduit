@@ -50,7 +50,7 @@ export function PlayerEpisodeDrawer({
     return (
       <button
         type="button"
-        className="absolute right-0 top-1/2 z-30 flex h-28 w-11 -translate-y-1/2 items-center justify-center rounded-l-full border border-r-0 border-white/10 bg-zinc-950/90 text-zinc-300 shadow-2xl backdrop-blur transition hover:w-13 hover:bg-zinc-900 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+        className="absolute right-0 top-1/2 z-30 flex h-28 w-11 -translate-y-1/2 items-center justify-center rounded-l-full border border-r-0 border-white/10 bg-zinc-950/95 text-zinc-300 backdrop-blur hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
         aria-label="Open episode list"
         aria-expanded="false"
         onClick={() => onOpenChange(true)}
@@ -64,7 +64,7 @@ export function PlayerEpisodeDrawer({
     <div className="absolute inset-y-0 right-0 z-30 flex w-[min(92vw,430px)] items-stretch p-2 pl-0">
       <button
         type="button"
-        className="my-auto grid h-28 w-11 shrink-0 place-items-center rounded-l-full border border-r-0 border-white/10 bg-zinc-950/95 text-zinc-300 shadow-2xl hover:bg-zinc-900 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+        className="my-auto grid h-28 w-11 shrink-0 place-items-center rounded-l-full border border-r-0 border-white/10 bg-zinc-950/95 text-zinc-300 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
         aria-label="Close episode list"
         aria-expanded="true"
         onClick={() => onOpenChange(false)}
@@ -79,10 +79,6 @@ export function PlayerEpisodeDrawer({
         className="h-full flex-1 rounded-l-none"
         onSeasonChange={setSeason}
         onSelect={(video) => {
-          if (video.id === context.currentVideoId) {
-            onOpenChange(false)
-            return
-          }
           onOpenChange(false)
           onSelect(video)
         }}
@@ -99,6 +95,7 @@ export function NextEpisodePrompt({
   paused,
   autoplay,
   onDismiss,
+  onVisibilityChange,
   onWatchNow,
 }: {
   seriesName: string
@@ -108,15 +105,23 @@ export function NextEpisodePrompt({
   paused: boolean
   autoplay: boolean
   onDismiss: () => void
+  onVisibilityChange?: (visible: boolean) => void
   onWatchNow: () => void
 }) {
   const [dismissed, setDismissed] = useState(false)
   const [countdown, setCountdown] = useState(NEXT_EPISODE_COUNTDOWN)
   const transitioned = useRef(false)
+  const previousVisible = useRef(false)
   const watchNow = useRef(onWatchNow)
   watchNow.current = onWatchNow
   const visible = !dismissed &&
     shouldShowNextEpisodePrompt(position, duration, Boolean(episode))
+
+  useEffect(() => {
+    if (previousVisible.current === visible) return
+    previousVisible.current = visible
+    onVisibilityChange?.(visible)
+  }, [onVisibilityChange, visible])
 
   useEffect(() => {
     if (!visible || !autoplay || paused || transitioned.current) return
