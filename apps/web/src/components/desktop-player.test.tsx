@@ -70,6 +70,7 @@ vi.mock("../lib/progress", () => ({
 describe("DesktopPlayer track menus", () => {
   let host: HTMLDivElement
   let root: Root
+  let startupOverlayResets: number
 
   beforeEach(async () => {
     vi.useFakeTimers()
@@ -95,6 +96,9 @@ describe("DesktopPlayer track menus", () => {
       )
       await Promise.resolve()
     })
+    act(() => vi.advanceTimersByTime(1))
+    startupOverlayResets = desktop.resetNativeOverlaySurface.mock.calls.length
+    vi.clearAllMocks()
   })
 
   afterEach(() => {
@@ -105,6 +109,10 @@ describe("DesktopPlayer track menus", () => {
     vi.useRealTimers()
     vi.unstubAllGlobals()
     vi.clearAllMocks()
+  })
+
+  it("resets stale overlay pixels after native playback opens", () => {
+    expect(startupOverlayResets).toBe(1)
   })
 
   it("unmounts the menu when its close button is clicked", () => {
@@ -183,6 +191,7 @@ describe("DesktopPlayer track menus", () => {
       )
       await Promise.resolve()
     })
+    act(() => vi.advanceTimersByTime(1))
     desktop.resetNativeOverlaySurface.mockClear()
 
     click(button("Next episode: S1 E2"))
