@@ -10,6 +10,17 @@ coverage/
 
 target/
 packages/core/pkg/
+apps/mobile/.gradle/
+apps/mobile/.idea/
+apps/mobile/.kotlin/
+apps/mobile/build/
+apps/mobile/composeApp/build/
+apps/mobile/composeApp/src/androidMain/jniLibs/
+apps/mobile/local.properties
+apps/mobile/iosApp/Pods/
+apps/mobile/iosApp/build/
+apps/mobile/iosApp/*.xcodeproj/xcuserdata/
+apps/mobile/native/
 
 apps/server/.local/
 apps/desktop/src-tauri/gen/
