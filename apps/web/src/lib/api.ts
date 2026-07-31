@@ -79,6 +79,7 @@ export interface WatchProgress {
   positionMs: number
   durationMs: number
   watched: boolean
+  dismissed?: boolean
   updatedAt: string
 }
 

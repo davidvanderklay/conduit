@@ -1,9 +1,27 @@
+import { useEffect, useMemo, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Check, Film, History, Play, Trash2 } from "lucide-react"
+import {
+  Check,
+  ChevronDown,
+  EyeOff,
+  Film,
+  History,
+  Info,
+  Play,
+  Trash2,
+} from "lucide-react"
 import { api, type WatchProgress } from "../lib/api"
 import type { CatalogItem } from "../lib/core"
+import { useLibrary, useLibraryToggle } from "../lib/library"
 import { posterCoverClass, posterGridClass } from "../lib/poster-layout"
 import { Card } from "./ui/card"
+import { PaginationControls } from "./pagination-controls"
+import { PosterActionMenu, type PosterAction } from "./poster-action-menu"
+import { VirtualPosterGrid } from "./virtual-poster-grid"
+
+type Filter = "all" | "movie" | "series"
+type Sort = "recent" | "oldest" | "title-asc" | "title-desc"
+const PAGE_SIZE = 48
 
 export function useProgressList(profileId: string, view: "continue" | "history", limit = 50) {
   return useQuery({
@@ -34,14 +52,12 @@ export function ContinueWatching({
           className="text-xs font-semibold text-zinc-500 transition hover:text-amber-300"
           onClick={onSeeMore}
         >
-          See more
+          See all
         </button>
       </div>
       <div className={posterGridClass}>
         {items.map((item) => (
-          <div className="group relative" key={item.videoId}>
-            <ProgressCard item={item} profileId={profileId} onSelect={onSelect} />
-          </div>
+          <ProgressCard item={item} profileId={profileId} onSelect={onSelect} key={item.videoId} />
         ))}
       </div>
     </section>
@@ -55,28 +71,74 @@ export function HistoryView({
   profileId: string
   onSelect: (item: CatalogItem, videoId: string) => void
 }) {
-  const progress = useProgressList(profileId, "history")
+  const progress = useProgressList(profileId, "history", 1000)
+  const [filter, setFilter] = useState<Filter>("all")
+  const [sort, setSort] = useState<Sort>("recent")
+  const [page, setPage] = useState(0)
+  const grouped = useMemo(() => {
+    const latest = new Map<string, WatchProgress>()
+    for (const item of progress.data ?? []) {
+      const key = `${item.mediaType}:${item.mediaId}`
+      const current = latest.get(key)
+      if (!current || Date.parse(item.updatedAt) > Date.parse(current.updatedAt)) latest.set(key, item)
+    }
+    return [...latest.values()]
+      .filter((item) => filter === "all" || item.mediaType === filter)
+      .sort((a, b) => {
+        if (sort === "title-asc") return a.name.localeCompare(b.name)
+        if (sort === "title-desc") return b.name.localeCompare(a.name)
+        const delta = Date.parse(b.updatedAt) - Date.parse(a.updatedAt)
+        return sort === "oldest" ? -delta : delta
+      })
+  }, [filter, progress.data, sort])
+  const pageItems = grouped.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
+  useEffect(() => setPage(0), [filter, sort])
+
   return (
     <main className="mx-auto max-w-[2200px] px-4 py-9 sm:px-6 lg:px-8 xl:px-10">
       <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-400">
         Your activity
       </p>
       <h1 className="mt-2 font-display text-3xl font-semibold">Watch history</h1>
-      <p className="mt-2 text-zinc-500">Resume, update watched state, or remove an entry.</p>
-      {progress.data?.length ? (
-        <div className="mt-8 space-y-3">
-          {progress.data.map((item) => (
-            <HistoryRow key={item.videoId} item={item} profileId={profileId} onSelect={onSelect} />
-          ))}
+      <p className="mt-2 text-zinc-500">Titles you have watched, whether or not they are saved.</p>
+      <div className="mt-7 flex flex-wrap gap-3">
+        <HistorySelect
+          label="Media type"
+          value={filter}
+          options={[["all", "Movies & series"], ["movie", "Movies"], ["series", "Series"]]}
+          onChange={(value) => setFilter(value as Filter)}
+        />
+        <HistorySelect
+          label="Sort history"
+          value={sort}
+          options={[
+            ["recent", "Recently watched"],
+            ["oldest", "Oldest watched"],
+            ["title-asc", "Title A–Z"],
+            ["title-desc", "Title Z–A"],
+          ]}
+          onChange={(value) => setSort(value as Sort)}
+        />
+      </div>
+      {pageItems.length > 0 ? (
+        <div className="mt-9">
+          <VirtualPosterGrid
+            items={pageItems}
+            itemKey={(item) => `${item.mediaType}:${item.mediaId}`}
+            renderItem={(item) => (
+              <ProgressCard item={item} profileId={profileId} onSelect={onSelect} history />
+            )}
+          />
         </div>
       ) : (
         <Card className="mt-8 grid min-h-64 place-items-center border-dashed text-zinc-500">
           <div className="text-center">
             <History className="mx-auto mb-3 text-zinc-700" />
-            No watch history yet.
+            {progress.isLoading ? "Loading watch history…" : "No watch history yet."}
           </div>
         </Card>
       )}
+      <PaginationControls page={page} pageSize={PAGE_SIZE} total={grouped.length} onChange={setPage} />
     </main>
   )
 }
@@ -85,12 +147,69 @@ function ProgressCard({
   item,
   profileId,
   onSelect,
+  history = false,
 }: {
   item: WatchProgress
   profileId: string
   onSelect: (item: CatalogItem, videoId: string) => void
+  history?: boolean
+}) {
+  const catalogItem = toCatalogItem(item)
+  const percent = item.durationMs ? Math.min(100, (item.positionMs / item.durationMs) * 100) : 0
+  const open = () =>
+    onSelect(catalogItem, item.mediaType === "series" && !history ? item.mediaId : item.videoId)
+  return (
+    <div>
+      <button className="w-full text-left" onClick={open}>
+        <div className={`relative ${posterCoverClass}`}>
+          {item.poster ? (
+            <img className="h-full w-full object-cover" src={item.poster} alt="" loading="lazy" />
+          ) : (
+            <div className="grid h-full place-items-center text-zinc-700"><Film /></div>
+          )}
+          {percent > 0 && (
+            <span className="absolute inset-x-0 bottom-0 h-1 bg-zinc-700">
+              <span className="block h-full bg-amber-400" style={{ width: `${percent}%` }} />
+            </span>
+          )}
+        </div>
+      </button>
+      <div className="mt-2 flex items-start gap-1">
+        <button className="min-w-0 flex-1 text-left" onClick={open}>
+          <p className="line-clamp-1 text-sm font-medium">{item.name}</p>
+          <p className="line-clamp-1 text-xs text-zinc-500">{episodeLabel(item)}</p>
+        </button>
+        <ProgressMenu item={item} profileId={profileId} onOpen={open} history={history} />
+      </div>
+    </div>
+  )
+}
+
+function ProgressMenu({
+  item,
+  profileId,
+  onOpen,
+  history,
+}: {
+  item: WatchProgress
+  profileId: string
+  onOpen: () => void
+  history: boolean
 }) {
   const queryClient = useQueryClient()
+  const library = useLibrary(profileId)
+  const libraryToggle = useLibraryToggle(profileId, toCatalogItem(item))
+  const saved = library.data?.items.some(
+    (entry) => entry.type === item.mediaType && entry.id === item.mediaId,
+  )
+  const patch = useMutation({
+    mutationFn: (body: { watched?: boolean; dismissed?: boolean }) =>
+      api(`/v1/profiles/${profileId}/progress/${encodeURIComponent(item.videoId)}`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["progress", profileId] }),
+  })
   const remove = useMutation({
     mutationFn: () =>
       api(`/v1/profiles/${profileId}/progress/${encodeURIComponent(item.videoId)}`, {
@@ -98,110 +217,70 @@ function ProgressCard({
       }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["progress", profileId] }),
   })
-  const percent = item.durationMs ? Math.min(100, (item.positionMs / item.durationMs) * 100) : 0
-  return (
-    <>
-      <button
-        className="w-full text-left"
-        onClick={() =>
-          onSelect(
-            toCatalogItem(item),
-            item.mediaType === "series" ? item.mediaId : item.videoId,
-          )
-        }
-      >
-        <div className={`relative ${posterCoverClass}`}>
-          {item.poster ? (
-            <img
-              className="h-full w-full object-cover"
-              src={item.poster}
-              alt=""
-              loading="lazy"
-              decoding="async"
-              width={300}
-              height={450}
-            />
-          ) : (
-            <div className="grid h-full place-items-center text-zinc-700">
-              <Film />
-            </div>
-          )}
-          <span className="absolute inset-x-0 bottom-0 h-1 bg-zinc-700">
-            <span className="block h-full bg-amber-400" style={{ width: `${percent}%` }} />
-          </span>
-        </div>
-        <p className="mt-2 line-clamp-1 text-sm font-medium">{item.name}</p>
-        <p className="line-clamp-1 text-xs text-zinc-500">{episodeLabel(item)}</p>
-      </button>
-      <button
-        className="absolute left-2 top-2 grid size-8 place-items-center rounded-full bg-zinc-950/90 text-zinc-300 opacity-0 shadow-lg ring-1 ring-white/10 transition hover:bg-red-500 hover:text-white group-hover:opacity-100 focus-visible:opacity-100"
-        aria-label={`Remove ${item.name} from watch history`}
-        disabled={remove.isPending}
-        onClick={() => remove.mutate()}
-      >
-        <Trash2 size={15} />
-      </button>
-    </>
-  )
+  const actions: PosterAction[] = [
+    { label: item.positionMs > 0 && !item.watched ? "Resume" : "Play", icon: <Play size={16} />, onSelect: onOpen },
+    { label: "Details", icon: <Info size={16} />, onSelect: onOpen },
+    {
+      label: item.watched
+        ? "Mark unwatched"
+        : item.mediaType === "series" ? "Mark episode watched" : "Mark watched",
+      icon: <Check size={16} />,
+      onSelect: () => patch.mutate({ watched: !item.watched }),
+      disabled: patch.isPending,
+    },
+  ]
+  if (history) {
+    if (saved) {
+      actions.push({
+        label: "Remove from library",
+        icon: <Trash2 size={16} />,
+        onSelect: () => libraryToggle.toggle(),
+        destructive: true,
+        disabled: libraryToggle.loading,
+      })
+    }
+    actions.push({
+      label: "Remove from history",
+      icon: <Trash2 size={16} />,
+      onSelect: () => remove.mutate(),
+      destructive: true,
+      disabled: remove.isPending,
+    })
+  } else {
+    actions.push({
+      label: "Dismiss",
+      icon: <EyeOff size={16} />,
+      onSelect: () => patch.mutate({ dismissed: true }),
+      disabled: patch.isPending,
+    })
+  }
+  return <PosterActionMenu title={item.name} actions={actions} />
 }
 
-function HistoryRow({
-  item,
-  profileId,
-  onSelect,
+function HistorySelect({
+  label,
+  value,
+  options,
+  onChange,
 }: {
-  item: WatchProgress
-  profileId: string
-  onSelect: (item: CatalogItem, videoId: string) => void
+  label: string
+  value: string
+  options: Array<[string, string]>
+  onChange: (value: string) => void
 }) {
-  const queryClient = useQueryClient()
-  const path = `/v1/profiles/${profileId}/progress/${encodeURIComponent(item.videoId)}`
-  const update = useMutation({
-    mutationFn: (watched: boolean) =>
-      api(path, { method: "PATCH", body: JSON.stringify({ watched }) }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["progress", profileId] }),
-  })
-  const remove = useMutation({
-    mutationFn: () => api(path, { method: "DELETE" }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["progress", profileId] }),
-  })
   return (
-    <Card className="flex items-center gap-4 p-3">
-      <button
-        className="flex min-w-0 flex-1 items-center gap-4 text-left"
-        onClick={() => onSelect(toCatalogItem(item), item.videoId)}
+    <label className="relative min-w-44">
+      <span className="sr-only">{label}</span>
+      <select
+        aria-label={label}
+        className="library-select h-11 w-full appearance-none rounded-xl border border-zinc-700 bg-zinc-900 px-4 pr-10 text-sm font-medium text-zinc-100 outline-none hover:border-zinc-600 focus:border-amber-400"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
       >
-        <div className="grid size-16 shrink-0 place-items-center overflow-hidden rounded-lg bg-zinc-900 text-zinc-700">
-          {item.poster ? (
-            <img className="h-full w-full object-cover" src={item.poster} alt="" />
-          ) : (
-            <Film />
-          )}
-        </div>
-        <div className="min-w-0">
-          <p className="truncate font-medium">{item.name}</p>
-          <p className="truncate text-sm text-zinc-500">
-            {episodeLabel(item)} ·{" "}
-            {item.watched ? "Watched" : `${Math.round(item.positionMs / 60000)} min in`}
-          </p>
-        </div>
-        <Play className="shrink-0 text-amber-400" size={18} />
-      </button>
-      <button
-        aria-label={item.watched ? "Mark unwatched" : "Mark watched"}
-        className="p-2 text-zinc-500 hover:text-amber-300"
-        onClick={() => update.mutate(!item.watched)}
-      >
-        <Check size={18} />
-      </button>
-      <button
-        aria-label="Remove from history"
-        className="p-2 text-zinc-500 hover:text-red-400"
-        onClick={() => remove.mutate()}
-      >
-        <Trash2 size={18} />
-      </button>
-    </Card>
+        {options.map(([option, name]) => <option value={option} key={option}>{name}</option>)}
+      </select>
+      <ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400" size={16} />
+    </label>
   )
 }
 

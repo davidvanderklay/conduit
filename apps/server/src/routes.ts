@@ -1009,6 +1009,7 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
             positionMs: item.positionMs,
             durationMs: item.durationMs,
             watched: item.watched,
+            dismissed: item.dismissed ?? false,
             updatedAt: new Date(item.updatedAt),
           }
           await tx
@@ -1417,6 +1418,7 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
                 and(
                   eq(watchProgress.profileId, profileId),
                   notLike(watchProgress.videoId, `${LEGACY_COMPLETION_MARKER_PREFIX}%`),
+                  eq(watchProgress.dismissed, false),
                   sql`${watchProgress.updatedAt} >= ${staleAfter}`,
                 ),
               )
@@ -1492,6 +1494,7 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
           positionMs: Type.Integer({ minimum: 0 }),
           durationMs: Type.Integer({ minimum: 0 }),
           watched: Type.Optional(Type.Boolean()),
+          dismissed: Type.Optional(Type.Boolean()),
         }),
       },
     },
@@ -1515,6 +1518,7 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
         positionMs: watched ? body.durationMs || body.positionMs : body.positionMs,
         durationMs: body.durationMs,
         watched,
+        dismissed: body.dismissed ?? false,
         updatedAt: new Date(),
       }
       const [item] = await db
@@ -1537,20 +1541,25 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
           profileId: Type.String({ format: "uuid" }),
           videoId: Type.String({ minLength: 1, maxLength: 512 }),
         }),
-        body: Type.Object({ watched: Type.Boolean() }),
+        body: Type.Object({
+          watched: Type.Optional(Type.Boolean()),
+          dismissed: Type.Optional(Type.Boolean()),
+        }, { minProperties: 1 }),
       },
     },
     async (request, reply) => {
       const user = await requireUser(request, reply, auth)
       if (!user) return
       const { profileId, videoId } = request.params as { profileId: string; videoId: string }
-      const { watched } = request.body as { watched: boolean }
+      const { watched, dismissed } = request.body as { watched?: boolean; dismissed?: boolean }
       if (!(await canAccessProfile(db, user.id, profileId))) return reply.forbidden()
       const [item] = await db
         .update(watchProgress)
         .set({
-          watched,
-          ...(watched ? { positionMs: sql`${watchProgress.durationMs}` } : { positionMs: 0 }),
+          ...(watched !== undefined ? { watched } : {}),
+          ...(watched === true ? { positionMs: sql`${watchProgress.durationMs}` } : {}),
+          ...(watched === false ? { positionMs: 0 } : {}),
+          ...(dismissed !== undefined ? { dismissed } : {}),
           updatedAt: new Date(),
         })
         .where(and(eq(watchProgress.profileId, profileId), eq(watchProgress.videoId, videoId)))
@@ -1594,6 +1603,7 @@ interface ProgressBody {
   positionMs: number
   durationMs: number
   watched?: boolean
+  dismissed?: boolean
 }
 
 export function isPlaybackComplete(positionMs: number, durationMs: number): boolean {
@@ -1633,6 +1643,7 @@ function toProgressItem(item: typeof watchProgress.$inferSelect) {
     positionMs: item.positionMs,
     durationMs: item.durationMs,
     watched: item.watched,
+    dismissed: item.dismissed,
     updatedAt: item.updatedAt.toISOString(),
   }
 }

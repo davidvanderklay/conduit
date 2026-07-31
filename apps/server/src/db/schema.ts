@@ -229,6 +229,7 @@ export const watchProgress = pgTable(
     positionMs: integer("position_ms").notNull().default(0),
     durationMs: integer("duration_ms").notNull().default(0),
     watched: boolean("watched").notNull().default(false),
+    dismissed: boolean("dismissed").notNull().default(false),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
