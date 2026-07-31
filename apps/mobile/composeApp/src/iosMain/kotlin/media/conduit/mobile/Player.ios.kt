@@ -33,6 +33,7 @@ actual fun NativePlayer(
     url: String?,
     active: Boolean,
     startPositionMs: Long,
+    requestHeaders: Map<String, String>,
     modifier: Modifier,
     onState: (PlaybackState) -> Unit,
 ) {
@@ -64,6 +65,7 @@ actual fun NativePlayer(
             val duration = player.currentItem?.duration?.let(::CMTimeGetSeconds) ?: 0.0
             currentCallback(
                 PlaybackState(
+                    loading = duration <= 0.0,
                     playing = player.rate != 0f,
                     positionMs = if (position.isFinite()) (position * 1000).toLong() else 0,
                     durationMs = if (duration.isFinite()) (duration * 1000).toLong() else 0,

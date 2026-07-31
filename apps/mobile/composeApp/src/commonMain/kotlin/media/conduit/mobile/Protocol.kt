@@ -85,6 +85,7 @@ sealed interface EngineState {
 
 @Serializable
 data class PlaybackState(
+    val loading: Boolean = true,
     val playing: Boolean = false,
     val positionMs: Long = 0,
     val durationMs: Long = 0,
