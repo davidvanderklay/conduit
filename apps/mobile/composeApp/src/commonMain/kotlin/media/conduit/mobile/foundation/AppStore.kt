@@ -5,14 +5,15 @@ import kotlinx.serialization.json.Json
 import media.conduit.mobile.account.SessionVault
 
 enum class AppDestination(val label: String) {
-    Discover("Discover"),
+    Home("Home"),
+    Search("Search"),
     Library("Library"),
     Settings("Settings"),
 }
 
 data class AppState(
     val endpoint: ServerEndpoint? = null,
-    val destination: AppDestination = AppDestination.Discover,
+    val destination: AppDestination = AppDestination.Home,
     val activeProfileId: String? = null,
     val setupInput: String = "",
     val setupError: String? = null,

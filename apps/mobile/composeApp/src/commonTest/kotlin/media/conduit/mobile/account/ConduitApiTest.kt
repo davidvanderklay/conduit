@@ -14,6 +14,7 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 import kotlin.test.assertIs
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.jsonObject
 import media.conduit.mobile.foundation.MemorySecureStore
 import media.conduit.mobile.foundation.ServerEndpoint
 
@@ -155,6 +156,40 @@ class ConduitApiTest {
         val offline = repository.synchronize("https://conduit.example", "token", "p1")
         assertTrue(offline.offline)
         assertEquals("fixture", offline.snapshot?.addons?.single()?.manifestId)
+    }
+
+    @Test
+    fun homeCatalogsUseManifestResourcePathsAndToleratePartialFailure() = runTest {
+        val requested = mutableListOf<String>()
+        val engine = MockEngine { request ->
+            requested += request.url.encodedPath
+            if (request.url.encodedPath.contains("series")) {
+                respond("unavailable", HttpStatusCode.ServiceUnavailable)
+            } else {
+                respond(
+                    """{"metas":[{"id":"tt1","type":"movie","name":"A Movie","poster":"https://img.example/poster.jpg"}]}""",
+                    HttpStatusCode.OK,
+                    headersOf(HttpHeaders.ContentType, "application/json"),
+                )
+            }
+        }
+        val api = ConduitApi(HttpClient(engine) { install(ContentNegotiation) { json() } })
+        val addon = InstalledAddonSummary(
+            id = "a1",
+            manifestId = "fixture",
+            manifestUrl = "https://addon.example/configured/manifest.json?secret=removed",
+            manifest = kotlinx.serialization.json.Json.parseToJsonElement(
+                """{"name":"Fixture","catalogs":[{"id":"popular","type":"movie","name":"Popular"},{"id":"popular","type":"series","name":"Series"}]}""",
+            ).jsonObject,
+            position = 0,
+            enabled = true,
+        )
+
+        val result = api.loadHomeCatalogs(listOf(addon))
+
+        assertEquals(listOf("/configured/catalog/movie/popular.json", "/configured/catalog/series/popular.json"), requested)
+        assertEquals("A Movie", result.catalogs.single().items.single().name)
+        assertEquals(1, result.failedRequests)
     }
 
     @Test
