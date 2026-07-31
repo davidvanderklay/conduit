@@ -8,6 +8,7 @@ import {
   dedupeAddonSubtitles,
   filterAddedAddonSubtitles,
   nativePlaybackEnded,
+  nativePlaybackDescription,
   usesExpandedPlayerControls,
 } from "./desktop-player"
 
@@ -24,6 +25,11 @@ const snapshot = {
   duration: 100,
   bufferedDuration: 30,
   volume: 80,
+  playbackPath: "directPlay" as const,
+  container: "matroska",
+  videoCodec: "hevc",
+  audioCodec: "eac3",
+  hardwareDecoder: "nvdec",
   tracks: [
     {
       id: 1,
@@ -60,6 +66,22 @@ const desktop = vi.hoisted(() => ({
   stopNativePlayer: vi.fn(async () => undefined),
   toggleNativeFullscreen: vi.fn(async () => false),
 }))
+
+describe("native playback status", () => {
+  it("reports codecs and the active hardware decoder", () => {
+    expect(nativePlaybackDescription(snapshot)).toBe(
+      "Direct Play · MATROSKA · HEVC / EAC3 · Hardware (nvdec)",
+    )
+  })
+
+  it("reports software decoding once video metadata is known", () => {
+    expect(nativePlaybackDescription({
+      ...snapshot,
+      audioCodec: undefined,
+      hardwareDecoder: undefined,
+    })).toBe("Direct Play · MATROSKA · HEVC · Software")
+  })
+})
 
 vi.mock("../lib/desktop", () => desktop)
 vi.mock("../lib/progress", () => ({

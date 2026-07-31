@@ -57,6 +57,18 @@ pub struct PlayerSnapshot {
     pub volume: f64,
     pub title: Option<String>,
     pub tracks: Vec<PlayerTrack>,
+    pub playback_path: PlaybackPath,
+    pub container: Option<String>,
+    pub video_codec: Option<String>,
+    pub audio_codec: Option<String>,
+    pub hardware_decoder: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum PlaybackPath {
+    #[default]
+    DirectPlay,
 }
 
 struct PlayerSession {
@@ -75,6 +87,7 @@ impl PlayerManager {
         url: &str,
         title: &str,
         read_ahead_seconds: u32,
+        hardware_acceleration: bool,
     ) -> Result<PlayerSnapshot, PlayerError> {
         if !valid_media_url(url) {
             return Err(PlayerError::InvalidUrl);
@@ -115,18 +128,22 @@ impl PlayerManager {
                     initializer.set_option(name, value)?;
                 }
             }
-            #[cfg(target_os = "linux")]
-            {
-                // Decode on NVIDIA, but copy decoded frames back before
-                // uploading them through libmpv's OpenGL renderer. This avoids
-                // the fragile CUDA/OpenGL zero-copy interop path while keeping
-                // high-resolution playback and seeking off the CPU.
-                initializer.set_option("hwdec", "nvdec-copy,auto-copy-safe")?;
-                initializer.set_option("gpu-hwdec-interop", "no")?;
-                initializer.set_option("vd-lavc-dr", "no")?;
+            if hardware_acceleration {
+                #[cfg(target_os = "linux")]
+                {
+                    // Decode on NVIDIA, but copy decoded frames back before
+                    // uploading them through libmpv's OpenGL renderer. This avoids
+                    // the fragile CUDA/OpenGL zero-copy interop path while keeping
+                    // high-resolution playback and seeking off the CPU.
+                    initializer.set_option("hwdec", "nvdec-copy,auto-copy-safe")?;
+                    initializer.set_option("gpu-hwdec-interop", "no")?;
+                    initializer.set_option("vd-lavc-dr", "no")?;
+                }
+                #[cfg(not(target_os = "linux"))]
+                initializer.set_option("hwdec", "auto-safe")?;
+            } else {
+                initializer.set_option("hwdec", "no")?;
             }
-            #[cfg(not(target_os = "linux"))]
-            initializer.set_option("hwdec", "auto-safe")?;
             initializer.set_option("audio-channels", "auto-safe")?;
             initializer.set_option("video-timing-offset", "0")?;
             Ok(())
@@ -203,8 +220,23 @@ impl PlayerManager {
             volume: mpv.get_property::<f64>("volume").unwrap_or(100.0),
             title: mpv.get_property::<String>("media-title").ok(),
             tracks,
+            // The desktop player gives the source directly to libmpv. libmpv
+            // already contains the demux/decode compatibility layer, so no
+            // Conduit proxy or child transcoder is involved.
+            playback_path: PlaybackPath::DirectPlay,
+            container: non_empty_property(mpv, "file-format"),
+            video_codec: non_empty_property(mpv, "video-format"),
+            audio_codec: non_empty_property(mpv, "audio-codec-name"),
+            hardware_decoder: non_empty_property(mpv, "hwdec-current")
+                .filter(|decoder| decoder != "no"),
         })
     }
+}
+
+fn non_empty_property(mpv: &Mpv, name: &str) -> Option<String> {
+    mpv.get_property::<String>(name)
+        .ok()
+        .filter(|value| !value.is_empty())
 }
 
 fn network_buffer_options(read_ahead_seconds: u32) -> Vec<(&'static str, String)> {
@@ -420,5 +452,14 @@ mod tests {
         );
         assert_eq!(options.get("cache-pause-initial"), Some(&"yes".to_string()));
         assert_eq!(options.get("network-timeout"), Some(&"30".to_string()));
+    }
+
+    #[test]
+    fn serializes_the_native_compatibility_path_for_the_webview() {
+        let value = serde_json::to_value(PlayerSnapshot::default()).unwrap();
+
+        assert_eq!(value["playbackPath"], "directPlay");
+        assert!(value.get("videoCodec").is_some());
+        assert!(value.get("hardwareDecoder").is_some());
     }
 }

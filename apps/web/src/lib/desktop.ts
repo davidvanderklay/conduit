@@ -19,6 +19,11 @@ export interface NativePlayerSnapshot {
   volume: number
   title?: string
   tracks: NativeTrack[]
+  playbackPath: "directPlay"
+  container?: string
+  videoCodec?: string
+  audioCodec?: string
+  hardwareDecoder?: string
 }
 
 export function isDesktop(): boolean {
@@ -34,8 +39,9 @@ export function openNativePlayer(
   url: string,
   title: string,
   readAheadSeconds: number,
+  hardwareAcceleration: boolean,
 ): Promise<NativePlayerSnapshot> {
-  return invoke("player_open", { url, title, readAheadSeconds })
+  return invoke("player_open", { url, title, readAheadSeconds, hardwareAcceleration })
 }
 
 export function nativePlayerSnapshot(): Promise<NativePlayerSnapshot> {
