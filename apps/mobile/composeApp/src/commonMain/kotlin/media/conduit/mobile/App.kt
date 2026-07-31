@@ -418,7 +418,11 @@ private fun AppShell(
         selectedVideoId = videoId
     }
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        val expanded = maxWidth >= 720.dp
+        // A rotated phone can be wider than 720dp while still having very little
+        // vertical room. Treat only genuinely large windows as the expanded
+        // layout so rotation does not move the active screen to a new branch and
+        // discard transient state such as the selected playback stream.
+        val expanded = maxWidth >= 720.dp && maxHeight >= 600.dp
         val snackbarHostState = remember { SnackbarHostState() }
         LaunchedEffect(state.notice) {
             state.notice?.let {
