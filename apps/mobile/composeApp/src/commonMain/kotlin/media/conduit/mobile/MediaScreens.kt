@@ -43,8 +43,8 @@ internal fun MobileLibraryScreen(
         .filter { filter == "all" || it.type == filter }
         .let { if (sortNewest) it.sortedByDescending(LibraryItemSummary::updatedAt) else it.sortedBy(LibraryItemSummary::name) }
 
-    Column(modifier) {
-        Column(Modifier.padding(horizontal = 18.dp, vertical = 20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    Column(modifier.statusBarsPadding()) {
+        Column(Modifier.padding(horizontal = 10.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Library", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
             Text("Your saved movies and series", color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -66,8 +66,8 @@ internal fun MobileLibraryScreen(
         } else {
             LazyVerticalGrid(
                 columns = GridCells.Fixed(3),
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 28.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                contentPadding = PaddingValues(start = 10.dp, end = 10.dp, bottom = 112.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp),
             ) {
                 items(items, key = { "${it.type}:${it.id}" }) { item ->
@@ -102,31 +102,54 @@ internal fun SearchDiscoverScreen(
         loading = false
     }
     val visible = if (query.isBlank()) discover else results
-    Column(modifier) {
-        Column(Modifier.background(MaterialTheme.colorScheme.background).padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            Text("Search", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
-            OutlinedTextField(
-                value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("Movies, series, and episodes") },
-                leadingIcon = { Icon(Icons.Rounded.Search, null) },
-                trailingIcon = if (query.isNotBlank()) {{ IconButton(onClick = { query = "" }) { Icon(Icons.Rounded.Close, "Clear") } }} else null,
-                singleLine = true, shape = RoundedCornerShape(18.dp),
+    LazyColumn(
+        modifier = modifier.statusBarsPadding(),
+        contentPadding = PaddingValues(bottom = 112.dp),
+        verticalArrangement = Arrangement.spacedBy(18.dp),
+    ) {
+        item {
+            Text(
+                "Search", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(start = 10.dp, end = 10.dp, top = 8.dp),
             )
-            Text(if (query.isBlank()) "Discover" else "Results", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
         }
-        if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
+        stickyHeader {
+            Column(
+                Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background.copy(alpha = .97f))
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                OutlinedTextField(
+                    value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("Movies, series, and episodes") },
+                    leadingIcon = { Icon(Icons.Rounded.Search, null) },
+                    trailingIcon = if (query.isNotBlank()) {{ IconButton(onClick = { query = "" }) { Icon(Icons.Rounded.Close, "Clear") } }} else null,
+                    singleLine = true, shape = RoundedCornerShape(18.dp),
+                )
+                Text(if (query.isBlank()) "Discover" else "Results", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+            }
+        }
+        if (loading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
         if (!loading && visible.isEmpty()) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(if (query.isBlank()) "No discover catalogs available." else "No results for “$query”.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            item {
+                Box(Modifier.fillMaxWidth().height(240.dp), contentAlignment = Alignment.Center) {
+                    Text(if (query.isBlank()) "No discover catalogs available." else "No results for “$query”.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
         } else {
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(3),
-                contentPadding = PaddingValues(16.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(20.dp),
-            ) {
-                items(visible, key = { "${it.type}:${it.id}" }) { item ->
-                    MediaPoster(item.name, item.poster, item.releaseInfo ?: item.type) { onSelect(item) }
+            visible.chunked(3).forEachIndexed { rowIndex, rowItems ->
+                item(key = "search-row-$rowIndex-${query}") {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        rowItems.forEach { item ->
+                            Box(Modifier.weight(1f)) {
+                                MediaPoster(item.name, item.poster, item.releaseInfo ?: item.type) { onSelect(item) }
+                            }
+                        }
+                        repeat(3 - rowItems.size) { Spacer(Modifier.weight(1f)) }
+                    }
                 }
             }
         }
@@ -182,7 +205,7 @@ internal fun MediaDetailsScreen(
 
     if (playing?.url != null) {
         Column(Modifier.fillMaxSize().background(Color.Black)) {
-            Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().statusBarsPadding().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = { playing = null }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = Color.White) }
                 Text(meta?.name ?: item.name, color = Color.White, fontWeight = FontWeight.SemiBold)
             }
@@ -206,7 +229,7 @@ internal fun MediaDetailsScreen(
                     contentDescription = item.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize(),
                 )
                 Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Black.copy(.15f), MaterialTheme.colorScheme.background))))
-                IconButton(onClick = onBack, modifier = Modifier.padding(12.dp).background(Color.Black.copy(.5f), CircleShape)) {
+                IconButton(onClick = onBack, modifier = Modifier.statusBarsPadding().padding(12.dp).background(Color.Black.copy(.5f), CircleShape)) {
                     Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = Color.White)
                 }
                 Column(Modifier.align(Alignment.BottomStart).padding(horizontal = 20.dp)) {
@@ -255,7 +278,7 @@ private fun StreamSelectionScreen(
     onSelect: (StreamSource) -> Unit,
 ) {
     Column(Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().statusBarsPadding().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") }
             Column { Text("Choose a stream", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold); Text(title, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         }
@@ -303,7 +326,15 @@ internal fun ProfileSettingsScreen(
         SettingEntry("Privacy policy", "Data and privacy details", Icons.Rounded.PrivacyTip),
         SettingEntry("Advanced settings", "Server and diagnostics", Icons.Rounded.SettingsSuggest),
     )
-    LazyColumn(modifier, contentPadding = PaddingValues(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    var settingsQuery by remember { mutableStateOf("") }
+    val visibleSections = sections.filter {
+        settingsQuery.isBlank() || "${it.title} ${it.description}".contains(settingsQuery.trim(), ignoreCase = true)
+    }
+    LazyColumn(
+        modifier.statusBarsPadding(),
+        contentPadding = PaddingValues(start = 10.dp, end = 10.dp, top = 10.dp, bottom = 112.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
         item {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 8.dp)) {
                 Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(58.dp)) {
@@ -313,6 +344,20 @@ internal fun ProfileSettingsScreen(
                 Column { Text(activeProfile?.name ?: "Profile", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold); Text(state.endpoint?.label.orEmpty(), color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
         }
+        stickyHeader {
+            OutlinedTextField(
+                value = settingsQuery,
+                onValueChange = { settingsQuery = it },
+                modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background.copy(alpha = .97f)).padding(vertical = 6.dp),
+                placeholder = { Text("Search settings") },
+                leadingIcon = { Icon(Icons.Rounded.Search, null) },
+                trailingIcon = if (settingsQuery.isNotBlank()) {{
+                    IconButton(onClick = { settingsQuery = "" }) { Icon(Icons.Rounded.Close, "Clear") }
+                }} else null,
+                singleLine = true,
+                shape = RoundedCornerShape(18.dp),
+            )
+        }
         item {
             Text("Switch profile", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -321,7 +366,7 @@ internal fun ProfileSettingsScreen(
                 }
             }
         }
-        items(sections) { entry ->
+        items(visibleSections) { entry ->
             ListItem(
                 headlineContent = { Text(entry.title, fontWeight = FontWeight.Medium) },
                 supportingContent = { Text(entry.description) },
@@ -330,6 +375,9 @@ internal fun ProfileSettingsScreen(
                 colors = ListItemDefaults.colors(containerColor = Color.White.copy(alpha = .035f)),
                 modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable { },
             )
+        }
+        if (visibleSections.isEmpty()) {
+            item { Text("No settings match “$settingsQuery”.", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(16.dp)) }
         }
         item {
             OutlinedButton(onClick = onSignOut, modifier = Modifier.fillMaxWidth()) { Text("Sign out") }
