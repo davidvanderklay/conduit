@@ -32,7 +32,7 @@ import {
 } from "../lib/desktop"
 import { loadSubtitles, type Video } from "../lib/core"
 import { nativeMediaTitle, playerHeading, type PlayerHeading } from "../lib/player-title"
-import { readPreferences } from "../lib/preferences"
+import { readPreferences, writePreferences } from "../lib/preferences"
 import {
   configuredTrackLanguage,
   matchesTrackLanguage,
@@ -46,6 +46,7 @@ import {
   type PlayerSeriesContext,
 } from "./player-series"
 import { VideoScaleControl } from "./video-scale-control"
+import { SubtitlePicker } from "./subtitle-picker"
 
 type TrackMenuName = "audio" | "subtitles"
 
@@ -101,6 +102,7 @@ export function DesktopPlayer({
   onEnded?: (allowAutoplay?: boolean) => void | Promise<void>
   onClose: () => void
 }) {
+  const preferences = readPreferences()
   const [snapshot, setSnapshot] = useState<NativePlayerSnapshot>()
   const heading = playerHeading(progressMetadata)
   const mediaTitle = nativeMediaTitle(progressMetadata)
@@ -113,6 +115,7 @@ export function DesktopPlayer({
   const [addonSubtitles, setAddonSubtitles] = useState<ResolvedAddonSubtitle[]>([])
   const [addonSubtitlesResolved, setAddonSubtitlesResolved] = useState(false)
   const [selectedAddonSubtitle, setSelectedAddonSubtitle] = useState<string>()
+  const [subtitlePosition, setSubtitlePosition] = useState(preferences.subtitlePosition)
   const [episodeDrawerOpen, setEpisodeDrawerOpen] = useState(false)
   const hideTimer = useRef<number | undefined>(undefined)
   const closing = useRef(false)
@@ -135,7 +138,6 @@ export function DesktopPlayer({
   const pendingAddonSubtitle = useRef(new Set<string>())
   const preferredAudioApplied = useRef(false)
   const preferredSubtitleApplied = useRef(false)
-  const preferences = readPreferences()
   const preferredAudioLanguage = configuredTrackLanguage(preferences.audioLanguage, addons)
   const preferredSubtitleLanguage = configuredTrackLanguage(preferences.subtitleLanguage, addons)
   const { progress, save: saveProgress } = usePlaybackProgress(
@@ -175,6 +177,7 @@ export function DesktopPlayer({
       .then(async (initial) => {
         if (cancelled) return
         setSnapshot(initial)
+        await nativePlayerCommand(["set", "sub-pos", preferences.subtitlePosition])
         const resolved = await resolveAddonSubtitles(addons, type, videoId)
         if (!cancelled) {
           setAddonSubtitles(resolved)
@@ -719,6 +722,15 @@ export function DesktopPlayer({
                 empty="No embedded or add-on subtitles."
                 addonSubtitles={addonSubtitles}
                 selectedAddonSubtitle={selectedAddonSubtitle}
+                preferredLanguage={preferences.subtitleLanguage}
+                subtitlePosition={subtitlePosition}
+                onSubtitlePosition={(value) => {
+                  setSubtitlePosition(value)
+                  writePreferences({ ...readPreferences(), subtitlePosition: value })
+                  void nativePlayerCommand(["set", "sub-pos", value]).catch((cause: unknown) => {
+                    setError(cause instanceof Error ? cause.message : String(cause))
+                  })
+                }}
                 allowOff
                 onSelect={(track) => void selectTrack("sid", track)}
                 onSelectAddon={async (subtitle) => {
@@ -1004,6 +1016,9 @@ function TrackMenu({
   allowOff,
   addonSubtitles,
   selectedAddonSubtitle,
+  preferredLanguage,
+  subtitlePosition,
+  onSubtitlePosition,
   onSelect,
   onSelectAddon,
   onOff,
@@ -1016,6 +1031,9 @@ function TrackMenu({
   allowOff?: boolean
   addonSubtitles?: ResolvedAddonSubtitle[]
   selectedAddonSubtitle?: string
+  preferredLanguage?: string
+  subtitlePosition?: number
+  onSubtitlePosition?: (value: number) => void
   onSelect: (track: NativeTrack) => void
   onSelectAddon?: (subtitle: ResolvedAddonSubtitle) => void
   onOff?: () => void
@@ -1042,7 +1060,9 @@ function TrackMenu({
   return createPortal(
     <div
       data-track-menu
-      className="fixed z-[100] w-80 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-xl border border-white/10 bg-zinc-950 p-2 shadow-2xl"
+      className={`fixed z-[100] max-w-[calc(100vw-2rem)] overflow-y-auto rounded-xl border border-white/10 bg-zinc-950 p-2 shadow-2xl ${
+        allowOff ? "w-[46rem]" : "w-80"
+      }`}
       style={position}
       role="menu"
       onPointerDown={(event) => event.stopPropagation()}
@@ -1058,18 +1078,46 @@ function TrackMenu({
           <X size={15} />
         </button>
       </div>
-      {allowOff && (
-        <button
-          className={`mb-1 block w-full rounded-lg px-3 py-2 text-left text-sm ${
-            tracks.some((track) => track.selected) || selectedAddonSubtitle
-              ? "text-zinc-400 hover:bg-zinc-800"
-              : "bg-amber-400 text-zinc-950"
-          }`}
-          onClick={onOff}
-        >
-          Off
-        </button>
-      )}
+      {allowOff ? (
+        <SubtitlePicker
+          items={[
+            ...tracks.map((track) => ({
+              key: `track:${track.id}`,
+              language: track.lang || track.title,
+              title: trackName(track, title),
+              detail: [track.codec?.toUpperCase(), track.external ? "External" : "Embedded"]
+                .filter(Boolean)
+                .join(" · "),
+              active: track.selected,
+            })),
+            ...availableAddonSubtitles.map((subtitle) => ({
+              key: `addon:${subtitle.key}`,
+              language: subtitle.language,
+              title: languageName(subtitle.language) || subtitle.language,
+              detail: subtitle.display.split(" · ").slice(1).join(" · ") || "Add-on subtitle",
+              active: selectedAddonSubtitle === subtitle.key,
+            })),
+          ]}
+          preferredLanguage={preferredLanguage}
+          off={!tracks.some((track) => track.selected) && !selectedAddonSubtitle}
+          position={subtitlePosition ?? 90}
+          onPositionChange={(value) => onSubtitlePosition?.(value)}
+          onOff={() => onOff?.()}
+          onSelect={(key) => {
+            if (key.startsWith("track:")) {
+              const id = key.slice("track:".length)
+              const track = tracks.find((candidate) => String(candidate.id) === id)
+              if (track) onSelect(track)
+            } else {
+              const subtitle = availableAddonSubtitles.find(
+                (candidate) => candidate.key === key.slice("addon:".length),
+              )
+              if (subtitle) onSelectAddon?.(subtitle)
+            }
+          }}
+        />
+      ) : (
+        <>
       {tracks.map((track) => (
         <button
           key={track.id}
@@ -1108,6 +1156,8 @@ function TrackMenu({
       ))}
       {!tracks.length && !availableAddonSubtitles.length && (
         <p className="px-3 py-2 text-sm text-zinc-500">{empty}</p>
+      )}
+        </>
       )}
     </div>,
     document.body,

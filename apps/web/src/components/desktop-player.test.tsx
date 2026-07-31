@@ -331,15 +331,20 @@ describe("DesktopPlayer track menus", () => {
 
   it("applies a selected subtitle and keeps the updated menu open", async () => {
     click(button("Subtitles: Off"))
+    click(button("Spanish"))
+    const variant = [...document.querySelectorAll<HTMLButtonElement>("button")]
+      .filter((candidate) => candidate.textContent?.includes("Spanish"))
+      .at(-1)
+    expect(variant).toBeDefined()
 
     await act(async () => {
-      button("Spanish").dispatchEvent(new MouseEvent("click", { bubbles: true }))
+      variant?.dispatchEvent(new MouseEvent("click", { bubbles: true }))
       await Promise.resolve()
     })
 
     expect(desktop.nativePlayerCommand).toHaveBeenCalledWith(["set", "sid", 3])
     expect(document.querySelector('[role="menu"]')).not.toBeNull()
-    expect(button("Spanish").className).toContain("bg-amber-400")
+    expect(variant?.className).toContain("bg-amber-400")
     expect(button("Off").className).not.toContain("bg-amber-400")
   })
 

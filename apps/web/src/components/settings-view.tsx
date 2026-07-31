@@ -352,6 +352,7 @@ export function SettingsView({ profile }: { profile: Profile }) {
             <SelectSetting label="Theme" value={preferences.theme} options={[["dark", "Dark"], ["system", "System"]]} onChange={(value) => update("theme", value as DevicePreferences["theme"])} />
             <RangeSetting label={`Default volume · ${preferences.volume}%`} value={preferences.volume} min={0} max={100} onChange={(value) => update("volume", value)} />
             <RangeSetting label={`Subtitle size · ${preferences.subtitleSize}%`} value={preferences.subtitleSize} min={75} max={200} onChange={(value) => update("subtitleSize", value)} />
+            <RangeSetting label={`Subtitle position · ${preferences.subtitlePosition}%`} value={preferences.subtitlePosition} min={10} max={100} onChange={(value) => update("subtitlePosition", value)} />
           </div>
           <div className="mt-6 grid gap-3 sm:grid-cols-2">
             <Toggle label="Autoplay next episode" checked={preferences.autoplay} onChange={(value) => update("autoplay", value)} />
@@ -451,6 +452,7 @@ function importedPreferences(
     audioLanguage: typeof value.audioLanguage === "string" ? value.audioLanguage : current.audioLanguage,
     subtitleLanguage: typeof value.subtitleLanguage === "string" ? value.subtitleLanguage : current.subtitleLanguage,
     subtitleSize: boundedNumber(value.subtitleSize, current.subtitleSize, 75, 200),
+    subtitlePosition: boundedNumber(value.subtitlePosition, current.subtitlePosition, 10, 100),
     autoplay: typeof value.autoplay === "boolean" ? value.autoplay : current.autoplay,
     volume: boundedNumber(value.volume, current.volume, 0, 100),
     hardwareAcceleration: typeof value.hardwareAcceleration === "boolean" ? value.hardwareAcceleration : current.hardwareAcceleration,

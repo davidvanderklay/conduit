@@ -24,8 +24,13 @@ describe("device preferences", () => {
   })
 
   it("validates numeric ranges", () => {
-    const value = readPreferences(storage(JSON.stringify({ volume: 900, subtitleSize: 2 })))
+    const value = readPreferences(storage(JSON.stringify({
+      volume: 900,
+      subtitleSize: 2,
+      subtitlePosition: 900,
+    })))
     expect(value.volume).toBe(100)
     expect(value.subtitleSize).toBe(75)
+    expect(value.subtitlePosition).toBe(100)
   })
 })

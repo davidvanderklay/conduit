@@ -16,7 +16,7 @@ import type { InstalledAddon, ProgressMetadata } from "../lib/api"
 import { addonsForResource } from "../lib/addons"
 import { loadSubtitles, type Subtitle, type Video } from "../lib/core"
 import { isDesktop } from "../lib/desktop"
-import { readPreferences } from "../lib/preferences"
+import { readPreferences, writePreferences } from "../lib/preferences"
 import { playerHeading, type PlayerHeading } from "../lib/player-title"
 import { videoObjectFit, type VideoScale } from "../lib/video-scale"
 import { usePlaybackProgress } from "../lib/progress"
@@ -27,6 +27,7 @@ import {
   type PlayerSeriesContext,
 } from "./player-series"
 import { VideoScaleControl } from "./video-scale-control"
+import { SubtitlePicker } from "./subtitle-picker"
 
 interface PlayerSubtitle extends Subtitle {
   key: string
@@ -155,6 +156,7 @@ function WebPlayer({
   const [selectedSubtitle, setSelectedSubtitle] = useState("off")
   const [subtitleError, setSubtitleError] = useState<string>()
   const [subtitleLoading, setSubtitleLoading] = useState(true)
+  const [subtitlePosition, setSubtitlePosition] = useState(preferences.subtitlePosition)
   const [audioChoices, setAudioChoices] = useState<AudioChoice[]>([])
   const [selectedAudio, setSelectedAudio] = useState<number>()
   const [videoScale, setVideoScale] = useState<VideoScale>("fit")
@@ -243,7 +245,16 @@ function WebPlayer({
           })
       })
       setSubtitles((current) => [...found, ...current.filter((subtitle) => subtitle.embedded)])
-      if (!found.length && candidates.length) setSubtitleError("No add-on subtitles were returned.")
+      const failed = results.filter((result) => result.status === "rejected").length
+      if (failed) {
+        setSubtitleError(
+          found.length
+            ? `${failed} subtitle provider${failed === 1 ? "" : "s"} could not be loaded. Other results are still available.`
+            : "Subtitle providers could not be loaded.",
+        )
+      } else if (!found.length && candidates.length) {
+        setSubtitleError("No add-on subtitles were returned.")
+      }
       setSubtitleLoading(false)
     })
     return () => {
@@ -303,7 +314,7 @@ function WebPlayer({
     }
   }, [])
 
-  const chooseSubtitle = async (key: string) => {
+  const chooseSubtitle = async (key: string, cuePosition = subtitlePosition) => {
     const video = videoRef.current
     if (!video) return
     setSelectedSubtitle(key)
@@ -320,14 +331,18 @@ function WebPlayer({
     if (!subtitle) return
     if (subtitle.embedded) {
       const index = Number(key.replace("embedded-", ""))
-      if (video.textTracks[index]) video.textTracks[index].mode = "showing"
+      const textTrack = video.textTracks[index]
+      if (textTrack) {
+        textTrack.mode = "showing"
+        applyTextTrackPosition(textTrack, cuePosition)
+      }
       return
     }
     try {
       const response = await fetch(subtitle.url)
       if (!response.ok) throw new Error(`Subtitle request returned HTTP ${response.status}`)
       const body = await response.text()
-      const vtt = toWebVtt(body)
+      const vtt = positionWebVtt(toWebVtt(body), cuePosition)
       const objectUrl = URL.createObjectURL(new Blob([vtt], { type: "text/vtt" }))
       subtitleObjectUrl.current = objectUrl
       const track = document.createElement("track")
@@ -377,6 +392,21 @@ function WebPlayer({
 
   const selectedSubtitleLabel =
     subtitles.find((subtitle) => subtitle.key === selectedSubtitle)?.display ?? "Off"
+  const subtitleItems = subtitles.map((subtitle) => ({
+    key: subtitle.key,
+    language: subtitle.lang ?? subtitle.language ?? subtitle.display,
+    title: subtitle.embedded
+      ? subtitle.display
+      : subtitle.label || languageName(subtitle.lang ?? subtitle.language) || "Subtitle",
+    detail: subtitle.embedded ? "Embedded" : subtitle.addonName || "Add-on subtitle",
+    active: selectedSubtitle === subtitle.key,
+  }))
+
+  const changeSubtitlePosition = (value: number) => {
+    setSubtitlePosition(value)
+    writePreferences({ ...readPreferences(), subtitlePosition: value })
+    if (selectedSubtitle !== "off") void chooseSubtitle(selectedSubtitle, value)
+  }
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black p-0 sm:p-4">
@@ -558,24 +588,22 @@ function WebPlayer({
           </div>
 
           {showSettings && (
-            <div className="absolute bottom-16 right-4 max-h-[65%] w-80 overflow-y-auto rounded-xl border border-zinc-700 bg-zinc-950/95 p-4 shadow-2xl">
-              <TrackSection icon={<Captions size={16} />} title="Subtitles">
-                <TrackOption
-                  active={selectedSubtitle === "off"}
-                  label="Off"
-                  onClick={() => void chooseSubtitle("off")}
-                />
-                {subtitleLoading && <p className="px-2 py-2 text-xs text-zinc-500">Loading…</p>}
-                {subtitles.map((subtitle) => (
-                  <TrackOption
-                    key={subtitle.key}
-                    active={selectedSubtitle === subtitle.key}
-                    label={subtitle.display}
-                    onClick={() => void chooseSubtitle(subtitle.key)}
-                  />
-                ))}
-                {subtitleError && <p className="px-2 py-2 text-xs text-red-400">{subtitleError}</p>}
-              </TrackSection>
+            <div className="absolute bottom-16 right-4 max-h-[70%] w-[46rem] max-w-[calc(100%-2rem)] overflow-y-auto rounded-xl border border-zinc-700 bg-zinc-950/95 p-4 shadow-2xl">
+              <div className="mb-3 flex items-center gap-2">
+                <Captions size={16} />
+                <h3 className="font-display text-sm font-semibold">Subtitles</h3>
+              </div>
+              <SubtitlePicker
+                items={subtitleItems}
+                preferredLanguage={preferences.subtitleLanguage}
+                off={selectedSubtitle === "off"}
+                loading={subtitleLoading}
+                error={subtitleError}
+                position={subtitlePosition}
+                onPositionChange={changeSubtitlePosition}
+                onOff={() => void chooseSubtitle("off")}
+                onSelect={(key) => void chooseSubtitle(key)}
+              />
               <TrackSection icon={<Volume2 size={16} />} title="Audio">
                 {audioChoices.length ? (
                   audioChoices.map((choice) => (
@@ -699,6 +727,23 @@ function toWebVtt(source: string): string {
   return `WEBVTT\n\n${normalized
     .replace(/^\d+\s*$/gm, "")
     .replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, "$1.$2")}`
+}
+
+function positionWebVtt(source: string, position: number): string {
+  return source.replace(
+    /^(\d{2}:\d{2}(?::\d{2})?\.\d{3}\s+-->\s+\d{2}:\d{2}(?::\d{2})?\.\d{3})(.*)$/gm,
+    (_, timing: string, settings: string) =>
+      `${timing}${/\bline:/.test(settings) ? settings : `${settings} line:${position}%`}`,
+  )
+}
+
+function applyTextTrackPosition(track: TextTrack, position: number): void {
+  for (const cue of Array.from(track.cues ?? [])) {
+    if (!("line" in cue) || !("snapToLines" in cue)) continue
+    const positionedCue = cue as TextTrackCue & { line: number | "auto"; snapToLines: boolean }
+    positionedCue.snapToLines = false
+    positionedCue.line = position
+  }
 }
 
 function languageName(code?: string): string | undefined {
