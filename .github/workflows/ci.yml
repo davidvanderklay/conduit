@@ -58,3 +58,31 @@ jobs:
         run: apps/desktop/scripts/setup-windows.ps1
       - name: Check Windows-specific Rust
         run: cargo check -p conduit-desktop
+
+  mobile-android:
+    name: Android mobile foundation
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: android-actions/setup-android@v3
+      - name: Install pinned Android SDK components
+        run: >-
+          sdkmanager
+          "platforms;android-36"
+          "build-tools;36.0.0"
+          "ndk;28.2.13676358"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,x86_64-linux-android
+      - uses: Swatinem/rust-cache@v2
+      - name: Install pinned Rust Android packager
+        run: cargo install cargo-ndk --version 3.5.4 --locked
+      - name: Build Rust JNI libraries
+        run: ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358" apps/mobile/scripts/build-rust-android.sh
+      - name: Test and assemble Android application
+        working-directory: apps/mobile
+        run: ./gradlew --no-daemon :composeApp:testDebugUnitTest :composeApp:assembleDebug
