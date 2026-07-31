@@ -186,7 +186,7 @@ data class StreamItem(
 data class StreamSource(val addonName: String, val stream: StreamItem)
 
 @Serializable
-data class SubtitleItem(val id: String? = null, val url: String, val lang: String? = null)
+data class SubtitleItem(val id: String? = null, val url: String, val lang: String? = null, val addonName: String? = null)
 
 @Serializable
 private data class SubtitlesResponse(val subtitles: List<SubtitleItem> = emptyList())
@@ -531,7 +531,8 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
                 runCatching {
                     val response = client.get(resourceUrl(addon.manifestUrl, "subtitles", type, videoId))
                     if (!response.status.isSuccess()) error("subtitle request failed")
-                    response.body<SubtitlesResponse>().subtitles
+                    val addonName = addon.manifest["name"]?.jsonPrimitive?.contentOrNull ?: addon.manifestId
+                    response.body<SubtitlesResponse>().subtitles.map { it.copy(addonName = addonName) }
                 }.getOrDefault(emptyList())
             }
         }.flatMap { it.await() }.distinctBy(SubtitleItem::url)

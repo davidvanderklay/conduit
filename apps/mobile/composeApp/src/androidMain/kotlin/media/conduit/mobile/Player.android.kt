@@ -9,6 +9,7 @@ import androidx.annotation.OptIn
 import androidx.compose.runtime.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -20,6 +21,7 @@ import androidx.compose.material3.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
@@ -137,7 +139,8 @@ actual fun NativePlayer(
                 setSubtitleConfigurations(subtitles.map { subtitle ->
                     val lower = subtitle.url.substringBefore('?').lowercase()
                     val mime = when { lower.endsWith(".vtt") -> MimeTypes.TEXT_VTT; lower.endsWith(".ass") || lower.endsWith(".ssa") -> MimeTypes.TEXT_SSA; lower.endsWith(".ttml") || lower.endsWith(".xml") -> MimeTypes.APPLICATION_TTML; else -> MimeTypes.APPLICATION_SUBRIP }
-                    MediaItem.SubtitleConfiguration.Builder(Uri.parse(subtitle.url)).setMimeType(mime).setLanguage(subtitle.lang).setLabel(subtitle.id ?: subtitle.lang ?: "External subtitle").build()
+                    val language = subtitle.lang?.let { java.util.Locale.forLanguageTag(it.replace('_', '-')).displayLanguage } ?: "Subtitle"
+                    MediaItem.SubtitleConfiguration.Builder(Uri.parse(subtitle.url)).setMimeType(mime).setLanguage(subtitle.lang).setLabel("$language · ${subtitle.addonName ?: "Add-on"}").build()
                 })
             }.build()
             player.setMediaItem(item)
@@ -191,15 +194,13 @@ actual fun NativePlayer(
             modifier = Modifier.fillMaxSize(),
         )
         if (controlsVisible) {
-            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .42f)).clickable { controlsVisible = true }) {
-                Row(Modifier.align(Alignment.Center), horizontalArrangement = Arrangement.spacedBy(28.dp), verticalAlignment = Alignment.CenterVertically) {
-                    PlayerControlButton(Icons.Rounded.Replay10, "Back 10 seconds") { player.seekBack(); controlsVisible = true }
+            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .42f)).pointerInput(player) { detectTapGestures(onTap = { controlsVisible = true }, onDoubleTap = { offset -> if (offset.x < size.width / 2f) player.seekBack() else player.seekForward(); controlsVisible = true }) }) {
+                Row(Modifier.align(Alignment.Center), verticalAlignment = Alignment.CenterVertically) {
                     FilledIconButton(onClick = { if (player.isPlaying) player.pause() else player.play(); controlsVisible = true }, modifier = Modifier.size(64.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color.White, contentColor = Color.Black)) {
                         Icon(if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, if (playing) "Pause" else "Play", modifier = Modifier.size(38.dp))
                     }
-                    PlayerControlButton(Icons.Rounded.Forward10, "Forward 10 seconds") { player.seekForward(); controlsVisible = true }
                 }
-                Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(horizontal = 18.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(0.dp)) {
+                Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(start = 18.dp, end = 18.dp, top = 6.dp, bottom = 14.dp), verticalArrangement = Arrangement.spacedBy(0.dp)) {
                     Slider(
                         value = if (dragging) draggedPosition else positionMs.toFloat(),
                         onValueChange = { dragging = true; draggedPosition = it },
@@ -219,7 +220,7 @@ actual fun NativePlayer(
                         if (hasEpisodes) PlayerBottomAction(Icons.Rounded.PlaylistPlay, "Episodes", landscape, onEpisodes)
                     }
                 }
-                if ((!landscape || durationMs <= 0) && hasEpisodes) IconButton(onClick = onEpisodes, modifier = Modifier.align(Alignment.BottomEnd).padding(12.dp).background(Color.Black.copy(.58f), CircleShape)) { Icon(Icons.Rounded.PlaylistPlay, "Episodes", tint = Color.White) }
+                if ((!landscape || durationMs <= 0) && hasEpisodes) IconButton(onClick = onEpisodes, modifier = Modifier.align(Alignment.BottomEnd).padding(end = 14.dp, bottom = 72.dp).background(Color.Black.copy(.58f), CircleShape)) { Icon(Icons.Rounded.PlaylistPlay, "Episodes", tint = Color.White) }
             }
         }
         trackPanel?.let { type ->
@@ -321,7 +322,13 @@ private data class PlayerTrackOption(val group: Tracks.Group, val index: Int) {
     private val labelLanguage get() = format.label?.substringBefore('(')?.substringBefore('[')?.trim()?.lowercase()
     val languageKey get() = format.language?.takeIf { it.isNotBlank() }?.substringBefore('-') ?: when (labelLanguage) { "english" -> "en"; "spanish", "español" -> "es"; "german", "deutsch" -> "de"; "arabic", "العربية" -> "ar"; "japanese", "日本語" -> "ja"; "indonesian", "bahasa indonesia" -> "id"; "french", "français" -> "fr"; "italian", "italiano" -> "it"; "portuguese", "português" -> "pt"; else -> labelLanguage ?: "und" }
     val languageName get() = languageKey.takeUnless { it == "und" }?.let { java.util.Locale.forLanguageTag(it).displayLanguage.replaceFirstChar(Char::uppercase) } ?: format.label ?: "Unknown language"
-    val variantName get() = listOfNotNull(format.label?.takeIf { it.isNotBlank() }, format.sampleMimeType?.substringAfter('/'), format.codecs, format.bitrate.takeIf { it > 0 }?.let { "${it / 1000} kbps" }).distinct().joinToString(" · ").ifBlank { "Default" }
+    val variantName get(): String {
+        val label = format.label?.trim().orEmpty()
+        if ('·' in label) return label.substringAfter('·').trim().ifBlank { "Add-on subtitle" }
+        val normalizedLabel = label.substringBefore('(').trim().lowercase()
+        val languageOnly = normalizedLabel in setOf("english", "spanish", "español", "german", "deutsch", "arabic", "japanese", "turkish", "zh", "chinese", "indonesian", "french", "italian", "portuguese")
+        return if (label.isBlank() || languageOnly) "Embedded" else "$label · Embedded"
+    }
 }
 
 @Composable
@@ -329,11 +336,6 @@ private fun PlayerTrackRow(label: String, selected: Boolean, enabled: Boolean = 
     Surface(onClick = onClick, enabled = enabled, color = if (selected) MaterialTheme.colorScheme.primary.copy(.18f) else Color.White.copy(.06f), shape = RoundedCornerShape(14.dp), border = if (selected) androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null) {
         Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) { Text(label, color = Color.White.copy(if (enabled) 1f else .38f), modifier = Modifier.weight(1f)); if (selected) Icon(Icons.Rounded.CheckCircle, null, tint = MaterialTheme.colorScheme.primary) else if (!enabled) Icon(Icons.Rounded.Block, null, tint = Color.White.copy(.35f)) }
     }
-}
-
-@Composable
-private fun PlayerControlButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
-    IconButton(onClick = onClick, modifier = Modifier.size(54.dp)) { Icon(icon, label, tint = Color.White, modifier = Modifier.size(36.dp)) }
 }
 
 private fun formatPlayerTime(milliseconds: Long): String {

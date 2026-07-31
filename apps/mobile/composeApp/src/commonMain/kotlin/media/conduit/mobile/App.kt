@@ -14,6 +14,7 @@ import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.AccountCircle
 import androidx.compose.material.icons.rounded.VideoLibrary
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Modifier
@@ -509,6 +510,7 @@ private fun DestinationContent(
     onProfileDataChanged: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val destinationState = rememberSaveableStateHolder()
     Box(modifier.fillMaxSize()) {
         if (selectedMedia != null) {
             MediaDetailsScreen(
@@ -523,7 +525,7 @@ private fun DestinationContent(
                 onProgressChanged = onProfileDataChanged,
                 onBack = onCloseMedia,
             )
-        } else when (state.destination) {
+        } else destinationState.SaveableStateProvider(state.destination.name) { when (state.destination) {
             AppDestination.Home -> HomeScreen(activeProfile, profileSync, api, onSelectMedia, Modifier.fillMaxSize())
             AppDestination.Search -> SearchDiscoverScreen(
                 addons = profileSync.snapshot?.addons.orEmpty(), api = api,
@@ -538,7 +540,7 @@ private fun DestinationContent(
                 onProfilesChanged, onProfileFlowChanged, onProfileDataChanged,
                 Modifier.fillMaxSize(),
             )
-        }
+        } }
         if (profileSync.refreshing) LinearProgressIndicator(Modifier.fillMaxWidth().align(Alignment.TopCenter))
     }
 }

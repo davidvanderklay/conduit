@@ -253,6 +253,8 @@ internal fun MediaDetailsScreen(
         val preferredAddon = currentAddonName
         scope.launch {
             runCatching { persistProgress() }
+            playing = null
+            playback = PlaybackState()
             selectedVideo = video
             resumePosition = 0L
             streamsLoading = true
@@ -297,8 +299,8 @@ internal fun MediaDetailsScreen(
             if (playback.loading && playback.error == null) CircularProgressIndicator(Modifier.align(Alignment.Center), color = Color.White)
             playback.error?.let { message -> Box(Modifier.matchParentSize().background(Color.Black.copy(.72f)).clickable(enabled = true, onClick = {}), contentAlignment = Alignment.Center) { Surface(color = Color(0xF21A1A1D), shape = RoundedCornerShape(18.dp), modifier = Modifier.padding(28.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(.45f))) { Column(Modifier.padding(22.dp), horizontalAlignment = Alignment.CenterHorizontally) { Icon(Icons.Rounded.ErrorOutline, null, tint = MaterialTheme.colorScheme.error); Spacer(Modifier.height(8.dp)); Text("Playback failed", color = Color.White, fontWeight = FontWeight.Bold); Text(message, color = Color.White.copy(.7f), style = MaterialTheme.typography.bodySmall); Spacer(Modifier.height(14.dp)); Button(onClick = { playing = null }) { Text("Choose another stream") } } } } }
             if (!episodesOpen && nextVideo != null && playback.durationMs > 0 && playback.durationMs - playback.positionMs in 1..30_000) {
-                Surface(Modifier.align(Alignment.BottomEnd).padding(end = 24.dp, bottom = 118.dp).widthIn(min = 360.dp, max = 480.dp), color = Color(0xE619191B), shape = RoundedCornerShape(22.dp), border = BorderStroke(1.dp, Color.White.copy(.16f)), shadowElevation = 18.dp) {
-                    Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) { AsyncImage(nextVideo.thumbnail ?: meta?.background, null, Modifier.size(112.dp, 68.dp).clip(RoundedCornerShape(13.dp)), contentScale = ContentScale.Crop); Spacer(Modifier.width(14.dp)); Column(Modifier.weight(1f)) { Text("NEXT EPISODE", color = Color.White.copy(.6f), style = MaterialTheme.typography.labelSmall); Text("S${nextVideo.season ?: 0}E${nextVideo.episode ?: 0} · ${nextVideo.displayTitle}", color = Color.White, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis) }; OutlinedButton(onClick = { playNext(nextVideo) }, border = BorderStroke(1.dp, Color.White.copy(.35f))) { Icon(Icons.Rounded.PlayArrow, null); Spacer(Modifier.width(4.dp)); Text("Play") } }
+                Surface(Modifier.align(Alignment.BottomEnd).padding(end = 18.dp, bottom = 112.dp).widthIn(min = 300.dp, max = 365.dp), color = Color(0xE619191B), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, Color.White.copy(.16f)), shadowElevation = 18.dp) {
+                    Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) { AsyncImage(nextVideo.thumbnail ?: meta?.background, null, Modifier.size(88.dp, 54.dp).clip(RoundedCornerShape(11.dp)), contentScale = ContentScale.Crop); Spacer(Modifier.width(10.dp)); Column(Modifier.weight(1f)) { Text("NEXT EPISODE", color = Color.White.copy(.6f), style = MaterialTheme.typography.labelSmall); Text("S${nextVideo.season ?: 0}E${nextVideo.episode ?: 0} · ${nextVideo.displayTitle}", color = Color.White, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis) }; FilledTonalIconButton(onClick = { playNext(nextVideo) }) { Icon(Icons.Rounded.PlayArrow, "Play next") } }
                 }
             }
             if (episodesOpen) PlayerEpisodeDrawer(orderedVideos, selectedVideo, snapshot, onDismiss = { episodesOpen = false }) { video ->
