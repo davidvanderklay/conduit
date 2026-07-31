@@ -36,6 +36,7 @@ thread_local! {
 }
 
 static REDRAW_PENDING: AtomicBool = AtomicBool::new(false);
+static RENDER_ACTIVE: AtomicBool = AtomicBool::new(false);
 static WEBVIEW_RESET_PENDING: AtomicBool = AtomicBool::new(false);
 
 extern "C" {
@@ -148,6 +149,7 @@ pub fn install(context: NonNull<mpv_handle>, window: &WebviewWindow) -> Result<(
             set_webview_background(&surface.webview, 0.0);
             surface.webview.set_opacity(1.0);
             surface.render = Some(render);
+            RENDER_ACTIVE.store(true, Ordering::Release);
             surface.area.set_opacity(1.0);
             surface.overlay.queue_draw();
             surface.webview.queue_draw();
@@ -160,6 +162,10 @@ pub fn install(context: NonNull<mpv_handle>, window: &WebviewWindow) -> Result<(
 }
 
 pub fn uninstall() -> Result<(), String> {
+    // Stop accepting libmpv update callbacks before taking its render context
+    // away. A callback racing teardown can otherwise enqueue a GTK render
+    // after the context's GPU resources have started being destroyed.
+    RENDER_ACTIVE.store(false, Ordering::Release);
     REDRAW_PENDING.store(false, Ordering::Release);
 
     // libmpv requires every OpenGL render operation, including destruction of
@@ -182,6 +188,12 @@ pub fn uninstall() -> Result<(), String> {
 
     #[cfg(debug_assertions)]
     eprintln!("Conduit: releasing Linux video render context");
+    // Drain every command submitted through this GL context before libmpv
+    // frees textures, framebuffers, and synchronization objects. Doing this
+    // only after dropping RenderContext is too late on NVIDIA: the driver can
+    // execute an already-queued command against freed GPU virtual memory,
+    // producing Xid 31 MMU faults and freezing the desktop.
+    finish_gl();
     drop(render);
     finish_gl();
     #[cfg(debug_assertions)]
@@ -301,12 +313,17 @@ pub fn reset_webview() {
 }
 
 fn schedule_redraw() {
+    if !RENDER_ACTIVE.load(Ordering::Acquire) {
+        return;
+    }
     if REDRAW_PENDING.swap(true, Ordering::AcqRel) {
         return;
     }
     glib::idle_add_once(|| {
         REDRAW_PENDING.store(false, Ordering::Release);
-        refresh();
+        if RENDER_ACTIVE.load(Ordering::Acquire) {
+            refresh();
+        }
     });
 }
 
