@@ -16,6 +16,7 @@ import {
 
 const snapshot = {
   running: true,
+  ended: false,
   paused: false,
   position: 10,
   duration: 100,
@@ -167,7 +168,7 @@ describe("DesktopPlayer track menus", () => {
     act(() => vi.advanceTimersByTime(1))
     act(() => vi.advanceTimersByTime(1))
     expect(document.querySelector('[role="status"]')).toBeNull()
-    expect(desktop.resetNativeOverlaySurface).toHaveBeenCalledOnce()
+    expect(desktop.resetNativeOverlaySurface).toHaveBeenCalledTimes(2)
   })
 
   it("hides inactive controls and cursor, then restores them on mouse movement", () => {

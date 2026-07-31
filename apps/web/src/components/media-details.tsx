@@ -29,6 +29,7 @@ import {
 import {
   displayDate,
   episodeLabel,
+  nextSeriesVideo,
   normalizeMetaItem,
   safeExternalUrl,
   selectSeriesVideo,
@@ -36,6 +37,7 @@ import {
   sortSeasons,
   trailerUrl,
 } from "../lib/metadata"
+import { readPreferences } from "../lib/preferences"
 import { Button } from "./ui/button"
 import { Player } from "./player"
 import { LibraryToggle } from "./library-toggle"
@@ -84,7 +86,8 @@ export function MediaDetails({
   const episodeMode = item.type === "series" && Boolean(selectedVideo)
   const activeVideoId = episodeMode ? selectedVideoId : item.id
   const progress = useQuery({
-    queryKey: ["progress", profileId],
+    queryKey: ["series-progress", profileId, item.type, item.id],
+    refetchOnMount: "always",
     queryFn: () =>
       api<{ items: WatchProgress[] }>(
         `/v1/profiles/${profileId}/progress?view=status&limit=1000`,
@@ -136,6 +139,24 @@ export function MediaDetails({
   const browse = (target: MetadataBrowseTarget) => {
     onClose()
     onBrowse?.(target)
+  }
+
+  const autoplayNextEpisode = async () => {
+    if (
+      item.type !== "series" ||
+      !selectedVideo ||
+      !readPreferences().autoplay
+    ) return
+    const next = nextSeriesVideo(videos, selectedVideo.id, progress.data ?? [])
+    if (!next) {
+      setPlaying(undefined)
+      return
+    }
+    const nextStreams = await resolveStreams(addons, item.type, next.id)
+    setSelectedVideoId(next.id)
+    setSelectedSeason(next.season ?? 1)
+    seriesReturnVideoId.current = next.id
+    setPlaying(nextStreams.find((stream) => stream.url))
   }
 
   return (
@@ -254,6 +275,7 @@ export function MediaDetails({
             episode: selectedVideo?.episode,
           }}
           addons={addons}
+          onEnded={autoplayNextEpisode}
           onClose={() => setPlaying(undefined)}
         />
       )}
@@ -711,7 +733,12 @@ function EpisodeWatchAction({
             }),
           })
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["progress", profileId] }),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["progress", profileId] }),
+        queryClient.invalidateQueries({ queryKey: ["series-progress", profileId] }),
+      ])
+    },
   })
   return (
     <Button variant="secondary" disabled={mutation.isPending} onClick={() => mutation.mutate()}>

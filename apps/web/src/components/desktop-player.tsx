@@ -58,6 +58,7 @@ export function DesktopPlayer({
   profileId,
   progressMetadata,
   addons,
+  onEnded,
   onClose,
 }: {
   url: string
@@ -66,6 +67,7 @@ export function DesktopPlayer({
   profileId: string
   progressMetadata: ProgressMetadata
   addons: InstalledAddon[]
+  onEnded?: () => void | Promise<void>
   onClose: () => void
 }) {
   const [snapshot, setSnapshot] = useState<NativePlayerSnapshot>()
@@ -89,6 +91,8 @@ export function DesktopPlayer({
   const previousChromeVisible = useRef(true)
   const previousPaused = useRef(false)
   const resumed = useRef(false)
+  const endedHandled = useRef(false)
+  const lastPlayback = useRef({ position: 0, duration: 0 })
   const pendingAddonSubtitle = useRef(new Set<string>())
   const preferredAudioApplied = useRef(false)
   const preferredSubtitleApplied = useRef(false)
@@ -252,10 +256,27 @@ export function DesktopPlayer({
 
   useEffect(() => {
     if (!snapshot || !resumed.current) return
+    if (snapshot.duration > 0) {
+      lastPlayback.current = {
+        position: snapshot.position,
+        duration: snapshot.duration,
+      }
+    }
     const justPaused = snapshot.paused && !previousPaused.current
     previousPaused.current = snapshot.paused
     void saveProgress(snapshot.position, snapshot.duration, justPaused)
   }, [saveProgress, snapshot])
+
+  useEffect(() => {
+    if (!snapshot?.ended || endedHandled.current) return
+    endedHandled.current = true
+    const duration = snapshot.duration || lastPlayback.current.duration
+    void saveProgress(duration, duration, true)
+      .then(() => onEnded?.())
+      .catch((cause: unknown) => {
+        setError(cause instanceof Error ? cause.message : String(cause))
+      })
+  }, [onEnded, saveProgress, snapshot])
 
   useEffect(() => {
     const syncWindowLayout = () => {
@@ -500,6 +521,7 @@ export function DesktopPlayer({
           expanded={expandedControls}
           onIndicatorHidden={resetOverlay}
           onChange={(scale) => {
+            resetOverlay()
             setVideoScale(scale)
             void applyNativeVideoScale(scale).catch((cause: unknown) => {
               setError(cause instanceof Error ? cause.message : String(cause))

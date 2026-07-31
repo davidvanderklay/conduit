@@ -161,15 +161,34 @@ export function selectSeriesVideo(
   const eligible = eligibleSeriesVideos(videos, now)
   const eligibleIds = new Set(eligible.map((video) => video.id))
   const byId = new Map(progress.map((entry) => [entry.videoId, entry]))
-  const preferred = preferredVideoId ? byId.get(preferredVideoId) : undefined
-  if (preferredVideoId && eligibleIds.has(preferredVideoId) && preferred && !preferred.watched) {
+  if (preferredVideoId && eligibleIds.has(preferredVideoId)) {
     return eligible.find((video) => video.id === preferredVideoId)
   }
-  const resumable = progress
-    .filter((entry) => eligibleIds.has(entry.videoId) && !entry.watched && entry.positionMs > 0)
+  const latest = progress
+    .filter((entry) => eligibleIds.has(entry.videoId))
     .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))[0]
-  if (resumable) return eligible.find((video) => video.id === resumable.videoId)
+  if (latest && !latest.watched && latest.positionMs > 0) {
+    return eligible.find((video) => video.id === latest.videoId)
+  }
+  if (latest?.watched) {
+    return nextSeriesVideo(videos, latest.videoId, progress, now)
+  }
   return eligible.find((video) => !byId.get(video.id)?.watched)
+}
+
+export function nextSeriesVideo(
+  videos: Video[],
+  currentVideoId: string,
+  progress: WatchProgress[],
+  now = new Date(),
+): Video | undefined {
+  const eligible = eligibleSeriesVideos(videos, now)
+  const currentIndex = eligible.findIndex((video) => video.id === currentVideoId)
+  if (currentIndex < 0) return undefined
+  const watched = new Set(
+    progress.filter((entry) => entry.watched).map((entry) => entry.videoId),
+  )
+  return eligible.slice(currentIndex + 1).find((video) => !watched.has(video.id))
 }
 
 export function sortSeasons(values: number[]): number[] {

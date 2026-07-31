@@ -48,6 +48,7 @@ pub struct PlayerTrack {
 #[serde(rename_all = "camelCase")]
 pub struct PlayerSnapshot {
     pub running: bool,
+    pub ended: bool,
     pub paused: bool,
     pub position: f64,
     pub duration: f64,
@@ -176,6 +177,7 @@ impl PlayerManager {
             .unwrap_or_default();
         Ok(PlayerSnapshot {
             running: true,
+            ended: mpv.get_property::<bool>("eof-reached").unwrap_or(false),
             paused: mpv.get_property::<bool>("pause").unwrap_or(false),
             position: mpv.get_property::<f64>("time-pos").unwrap_or_default(),
             duration: mpv.get_property::<f64>("duration").unwrap_or_default(),

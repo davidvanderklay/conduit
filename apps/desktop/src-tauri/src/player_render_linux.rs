@@ -26,7 +26,6 @@ const GL_FRAMEBUFFER_BINDING: u32 = 0x8CA6;
 struct EmbeddedSurface {
     area: GLArea,
     overlay: Overlay,
-    vbox: gtk::Box,
     webview: Widget,
     window: gtk::ApplicationWindow,
     render: Option<RenderContext>,
@@ -72,8 +71,10 @@ pub fn initialize(window: &WebviewWindow) -> Result<(), String> {
     area.set_app_paintable(true);
     area.set_hexpand(true);
     area.set_vexpand(true);
-    area.connect_render(|_, _| {
-        let _ = render();
+    area.connect_render(|area, _| {
+        if let Err(error) = render(area) {
+            eprintln!("Conduit: Linux video render failed: {error}");
+        }
         glib::Propagation::Stop
     });
     area.connect_resize(|area, _, _| area.queue_render());
@@ -95,7 +96,6 @@ pub fn initialize(window: &WebviewWindow) -> Result<(), String> {
         *surface.borrow_mut() = Some(EmbeddedSurface {
             area,
             overlay,
-            vbox,
             webview,
             window: gtk_window,
             render: None,
@@ -180,22 +180,23 @@ pub fn uninstall() -> Result<(), String> {
     #[cfg(debug_assertions)]
     eprintln!("Conduit: releasing Linux video render context");
     drop(render);
+    finish_gl();
     #[cfg(debug_assertions)]
     eprintln!("Conduit: Linux video render context released");
 
-    let surface = SURFACE.with(|surface| surface.borrow_mut().take());
-    if let Some(surface) = surface {
-        surface.area.set_opacity(0.0);
-        surface.webview.set_opacity(1.0);
-        set_webview_background(&surface.webview, 1.0);
-        surface.window.remove(&surface.overlay);
-        surface.overlay.remove(&surface.webview);
-        surface.vbox.add(&surface.webview);
-        surface.window.add(&surface.vbox);
-        surface.window.show_all();
-        surface.webview.queue_draw();
-        surface.window.queue_draw();
-    }
+    // Keep the GtkGLArea and its OpenGL context alive between videos. NVIDIA
+    // may still have work queued against the context after libmpv teardown;
+    // destroying and immediately recreating the widget can otherwise let a
+    // stale GTK render callback target resources from the replacement context.
+    SURFACE.with(|surface| {
+        if let Some(surface) = surface.borrow().as_ref() {
+            surface.area.set_opacity(0.0);
+            surface.webview.set_opacity(1.0);
+            set_webview_background(&surface.webview, 1.0);
+            surface.webview.queue_draw();
+            surface.overlay.queue_draw();
+        }
+    });
     Ok(())
 }
 
@@ -331,20 +332,23 @@ fn schedule_redraw() {
     });
 }
 
-fn render() -> Result<(), String> {
+fn render(callback_area: &GLArea) -> Result<(), String> {
     SURFACE.with(|surface| {
         let surface = surface.borrow();
         let Some(surface) = surface.as_ref() else {
             return Ok(());
         };
-        surface.area.make_current();
-        surface.area.attach_buffers();
-        if let Some(error) = surface.area.error() {
+        if callback_area != &surface.area {
+            return Ok(());
+        }
+        callback_area.make_current();
+        callback_area.attach_buffers();
+        if let Some(error) = callback_area.error() {
             return Err(format!("OpenGL context failed: {error}"));
         }
-        let scale = surface.area.scale_factor().max(1);
-        let width = (surface.area.allocated_width() * scale).max(1);
-        let height = (surface.area.allocated_height() * scale).max(1);
+        let scale = callback_area.scale_factor().max(1);
+        let width = (callback_area.allocated_width() * scale).max(1);
+        let height = (callback_area.allocated_height() * scale).max(1);
         let Some(render) = surface.render.as_ref() else {
             return Ok(());
         };
@@ -352,6 +356,13 @@ fn render() -> Result<(), String> {
             .render::<()>(current_framebuffer(), width, height, true)
             .map_err(|error| format!("libmpv render: {error:?}"))
     })
+}
+
+fn finish_gl() {
+    type Finish = unsafe extern "C" fn();
+    if let Some(finish) = resolve_gl::<Finish>("glFinish") {
+        unsafe { finish() };
+    }
 }
 
 fn current_framebuffer() -> i32 {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import type { WatchProgress } from "./api"
 import type { Video } from "./core"
-import { eligibleSeriesVideos, selectSeriesVideo } from "./metadata"
+import { eligibleSeriesVideos, nextSeriesVideo, selectSeriesVideo } from "./metadata"
 
 const NOW = new Date("2026-07-30T12:00:00Z")
 
@@ -23,15 +23,33 @@ describe("series resume selection", () => {
     expect(selectSeriesVideo(videos, [row("s1e1", false)], undefined, NOW)?.id).toBe("s1e1")
   })
 
+  it("honors an explicit episode link instead of replacing it with another resume", () => {
+    expect(selectSeriesVideo(videos, [row("s1e1", false)], "s2e1", NOW)?.id).toBe("s2e1")
+  })
+
   it("advances completed episodes across season boundaries", () => {
-    expect(selectSeriesVideo(videos, [row("s1e1", true)], "s1e1", NOW)?.id).toBe("s1e2")
-    expect(selectSeriesVideo(videos, [row("s1e1", true), row("s1e2", true)], "s1e2", NOW)?.id)
+    expect(selectSeriesVideo(videos, [row("s1e1", true)], undefined, NOW)?.id).toBe("s1e2")
+    expect(selectSeriesVideo(videos, [
+      row("s1e1", true, "2026-07-01T00:00:00Z"),
+      row("s1e2", true, "2026-07-02T00:00:00Z"),
+    ], undefined, NOW)?.id)
       .toBe("s2e1")
   })
 
   it("returns no target when fully caught up", () => {
     expect(selectSeriesVideo(videos, videos.map((video) => row(video.id, true)), undefined, NOW))
       .toBeUndefined()
+  })
+
+  it("selects the next unwatched episode after the current episode", () => {
+    expect(nextSeriesVideo(videos, "s1e2", [], NOW)?.id).toBe("s2e1")
+  })
+
+  it("advances from the latest completed episode instead of returning to an older gap", () => {
+    expect(selectSeriesVideo(videos, [
+      row("s1e1", false, "2026-07-01T00:00:00Z"),
+      row("s1e2", true, "2026-07-02T00:00:00Z"),
+    ], undefined, NOW)?.id).toBe("s2e1")
   })
 
   it("ignores specials, unavailable, future, and unnumbered videos", () => {
