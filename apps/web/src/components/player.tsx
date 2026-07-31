@@ -14,13 +14,18 @@ import {
 import type Hls from "hls.js"
 import type { InstalledAddon, ProgressMetadata } from "../lib/api"
 import { addonsForResource } from "../lib/addons"
-import { loadSubtitles, type Subtitle } from "../lib/core"
+import { loadSubtitles, type Subtitle, type Video } from "../lib/core"
 import { isDesktop } from "../lib/desktop"
 import { readPreferences } from "../lib/preferences"
 import { playerHeading, type PlayerHeading } from "../lib/player-title"
 import { videoObjectFit, type VideoScale } from "../lib/video-scale"
 import { usePlaybackProgress } from "../lib/progress"
 import { DesktopPlayer } from "./desktop-player"
+import {
+  NextEpisodePrompt,
+  PlayerEpisodeDrawer,
+  type PlayerSeriesContext,
+} from "./player-series"
 import { VideoScaleControl } from "./video-scale-control"
 
 interface PlayerSubtitle extends Subtitle {
@@ -44,7 +49,10 @@ export function Player({
   profileId,
   progressMetadata,
   addons,
+  seriesContext,
+  nextEpisode,
   nextEpisodeLabel,
+  onSelectEpisode,
   onNextEpisode,
   onEnded,
   onClose,
@@ -55,9 +63,12 @@ export function Player({
   profileId: string
   progressMetadata: ProgressMetadata
   addons: InstalledAddon[]
+  seriesContext?: PlayerSeriesContext
+  nextEpisode?: Video
   nextEpisodeLabel?: string
+  onSelectEpisode?: (video: Video) => void | Promise<void>
   onNextEpisode?: () => void | Promise<void>
-  onEnded?: () => void | Promise<void>
+  onEnded?: (allowAutoplay?: boolean) => void | Promise<void>
   onClose: () => void
 }) {
   if (isDesktop()) {
@@ -69,7 +80,10 @@ export function Player({
         profileId={profileId}
         progressMetadata={progressMetadata}
         addons={addons}
+        seriesContext={seriesContext}
+        nextEpisode={nextEpisode}
         nextEpisodeLabel={nextEpisodeLabel}
+        onSelectEpisode={onSelectEpisode}
         onNextEpisode={onNextEpisode}
         onEnded={onEnded}
         onClose={onClose}
@@ -84,7 +98,10 @@ export function Player({
       profileId={profileId}
       progressMetadata={progressMetadata}
       addons={addons}
+      seriesContext={seriesContext}
+      nextEpisode={nextEpisode}
       nextEpisodeLabel={nextEpisodeLabel}
+      onSelectEpisode={onSelectEpisode}
       onNextEpisode={onNextEpisode}
       onEnded={onEnded}
       onClose={onClose}
@@ -99,7 +116,10 @@ function WebPlayer({
   profileId,
   progressMetadata,
   addons,
+  seriesContext,
+  nextEpisode,
   nextEpisodeLabel,
+  onSelectEpisode,
   onNextEpisode,
   onEnded,
   onClose,
@@ -110,9 +130,12 @@ function WebPlayer({
   profileId: string
   progressMetadata: ProgressMetadata
   addons: InstalledAddon[]
+  seriesContext?: PlayerSeriesContext
+  nextEpisode?: Video
   nextEpisodeLabel?: string
+  onSelectEpisode?: (video: Video) => void | Promise<void>
   onNextEpisode?: () => void | Promise<void>
-  onEnded?: () => void | Promise<void>
+  onEnded?: (allowAutoplay?: boolean) => void | Promise<void>
   onClose: () => void
 }) {
   const preferences = readPreferences()
@@ -135,6 +158,9 @@ function WebPlayer({
   const [audioChoices, setAudioChoices] = useState<AudioChoice[]>([])
   const [selectedAudio, setSelectedAudio] = useState<number>()
   const [videoScale, setVideoScale] = useState<VideoScale>("fit")
+  const [episodeDrawerOpen, setEpisodeDrawerOpen] = useState(false)
+  const nextTransitionSuppressed = useRef(false)
+  const nextTransitionRequested = useRef(false)
   const { progress, save: saveProgress } = usePlaybackProgress(
     profileId,
     videoId,
@@ -401,7 +427,12 @@ function WebPlayer({
             }}
             onEnded={(event) => {
               setPlaying(false)
-              void Promise.resolve(onEnded?.()).catch(() => undefined)
+              if (!nextTransitionRequested.current) {
+                nextTransitionRequested.current = true
+                void Promise.resolve(
+                  onEnded?.(!nextTransitionSuppressed.current),
+                ).catch(() => undefined)
+              }
               void saveProgress(
                 event.currentTarget.duration,
                 event.currentTarget.duration,
@@ -423,6 +454,35 @@ function WebPlayer({
               <LoaderCircle className="animate-spin text-white" size={42} />
             </div>
           )}
+          {!episodeDrawerOpen && (
+            <NextEpisodePrompt
+              seriesName={seriesContext?.name ?? progressMetadata.name}
+              episode={nextEpisode}
+              position={currentTime}
+              duration={duration}
+              paused={!playing}
+              autoplay={preferences.autoplay}
+              onDismiss={() => {
+                nextTransitionSuppressed.current = true
+              }}
+              onWatchNow={() => {
+                if (nextTransitionRequested.current) return
+                nextTransitionRequested.current = true
+                void saveProgress(duration, duration, true)
+                void onNextEpisode?.()
+              }}
+            />
+          )}
+          <PlayerEpisodeDrawer
+            open={episodeDrawerOpen}
+            context={seriesContext}
+            onOpenChange={setEpisodeDrawerOpen}
+            onSelect={(video) => {
+              if (nextTransitionRequested.current) return
+              nextTransitionRequested.current = true
+              void onSelectEpisode?.(video)
+            }}
+          />
           <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/95 via-black/60 to-transparent px-4 pb-4 pt-16 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
             <input
               className="mb-3 h-1 w-full cursor-pointer accent-amber-400"
@@ -443,7 +503,11 @@ function WebPlayer({
               {onNextEpisode && (
                 <Control
                   label={`Next episode${nextEpisodeLabel ? `: ${nextEpisodeLabel}` : ""}`}
-                  onClick={() => void onNextEpisode()}
+                  onClick={() => {
+                    if (nextTransitionRequested.current) return
+                    nextTransitionRequested.current = true
+                    void onNextEpisode()
+                  }}
                 >
                   <SkipForward size={21} />
                 </Control>

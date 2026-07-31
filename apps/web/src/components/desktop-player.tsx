@@ -30,7 +30,7 @@ import {
   type NativePlayerSnapshot,
   type NativeTrack,
 } from "../lib/desktop"
-import { loadSubtitles } from "../lib/core"
+import { loadSubtitles, type Video } from "../lib/core"
 import { nativeMediaTitle, playerHeading, type PlayerHeading } from "../lib/player-title"
 import { readPreferences } from "../lib/preferences"
 import {
@@ -40,6 +40,11 @@ import {
 import { mpvVideoScaleCommands, type VideoScale } from "../lib/video-scale"
 import { usePlaybackProgress } from "../lib/progress"
 import { Card } from "./ui/card"
+import {
+  NextEpisodePrompt,
+  PlayerEpisodeDrawer,
+  type PlayerSeriesContext,
+} from "./player-series"
 import { VideoScaleControl } from "./video-scale-control"
 
 type TrackMenuName = "audio" | "subtitles"
@@ -74,7 +79,10 @@ export function DesktopPlayer({
   profileId,
   progressMetadata,
   addons,
+  seriesContext,
+  nextEpisode,
   nextEpisodeLabel,
+  onSelectEpisode,
   onNextEpisode,
   onEnded,
   onClose,
@@ -85,9 +93,12 @@ export function DesktopPlayer({
   profileId: string
   progressMetadata: ProgressMetadata
   addons: InstalledAddon[]
+  seriesContext?: PlayerSeriesContext
+  nextEpisode?: Video
   nextEpisodeLabel?: string
+  onSelectEpisode?: (video: Video) => void | Promise<void>
   onNextEpisode?: () => void | Promise<void>
-  onEnded?: () => void | Promise<void>
+  onEnded?: (allowAutoplay?: boolean) => void | Promise<void>
   onClose: () => void
 }) {
   const [snapshot, setSnapshot] = useState<NativePlayerSnapshot>()
@@ -102,6 +113,7 @@ export function DesktopPlayer({
   const [addonSubtitles, setAddonSubtitles] = useState<ResolvedAddonSubtitle[]>([])
   const [addonSubtitlesResolved, setAddonSubtitlesResolved] = useState(false)
   const [selectedAddonSubtitle, setSelectedAddonSubtitle] = useState<string>()
+  const [episodeDrawerOpen, setEpisodeDrawerOpen] = useState(false)
   const hideTimer = useRef<number | undefined>(undefined)
   const closing = useRef(false)
   const audioButton = useRef<HTMLDivElement>(null)
@@ -109,9 +121,12 @@ export function DesktopPlayer({
   const previousMenu = useRef<TrackMenuName | undefined>(undefined)
   const previousMenuContent = useRef("")
   const previousChromeVisible = useRef(true)
+  const previousEpisodeDrawerOpen = useRef(false)
   const previousPaused = useRef(false)
   const resumed = useRef(false)
   const endedHandled = useRef(false)
+  const nextTransitionSuppressed = useRef(false)
+  const nextTransitionRequested = useRef(false)
   const lastPlayback = useRef({ position: 0, duration: 0 })
   const lastNativeSnapshot = useRef<NativePlayerSnapshot | undefined>(undefined)
   const pendingAddonSubtitle = useRef(new Set<string>())
@@ -148,6 +163,8 @@ export function DesktopPlayer({
     preferredSubtitleApplied.current = false
     setAddonSubtitlesResolved(false)
     endedHandled.current = false
+    nextTransitionSuppressed.current = false
+    nextTransitionRequested.current = false
     lastNativeSnapshot.current = undefined
     lastPlayback.current = { position: 0, duration: 0 }
     document.documentElement.classList.add("native-playback")
@@ -301,9 +318,14 @@ export function DesktopPlayer({
     if (!snapshot?.ended || endedHandled.current) return
     endedHandled.current = true
     const duration = snapshot.duration || lastPlayback.current.duration
-    void Promise.resolve(onEnded?.()).catch((cause: unknown) => {
-      setError(cause instanceof Error ? cause.message : String(cause))
-    })
+    if (!nextTransitionRequested.current) {
+      nextTransitionRequested.current = true
+      void Promise.resolve(
+        onEnded?.(!nextTransitionSuppressed.current),
+      ).catch((cause: unknown) => {
+        setError(cause instanceof Error ? cause.message : String(cause))
+      })
+    }
     void saveProgress(duration, duration, true)
       .catch((cause: unknown) => {
         setError(cause instanceof Error ? cause.message : String(cause))
@@ -482,7 +504,11 @@ export function DesktopPlayer({
           ].join("|")
         : ""
   const chromeVisible =
-    controlsVisible || Boolean(snapshot?.paused) || Boolean(activeMenu) || !snapshot
+    controlsVisible ||
+    Boolean(snapshot?.paused) ||
+    Boolean(activeMenu) ||
+    episodeDrawerOpen ||
+    !snapshot
   const expandedControls = fullscreen || spaciousViewport
 
   useLayoutEffect(() => {
@@ -498,6 +524,13 @@ export function DesktopPlayer({
     previousMenuContent.current = menuContentSignature
     previousChromeVisible.current = chromeVisible
   }, [activeMenu, chromeVisible, menuContentSignature, redrawControls, resetOverlay])
+
+  useLayoutEffect(() => {
+    if (previousEpisodeDrawerOpen.current === episodeDrawerOpen) return
+    previousEpisodeDrawerOpen.current = episodeDrawerOpen
+    resetOverlay()
+    redrawControls()
+  }, [episodeDrawerOpen, redrawControls, resetOverlay])
 
   // The Linux player layers a transparent WebKitGTK surface over GtkGLArea.
   // Explicitly invalidate that surface whenever dynamic control pixels move;
@@ -579,6 +612,42 @@ export function DesktopPlayer({
           </p>
         </div>
       ) : null}
+
+      {snapshot && !error && !episodeDrawerOpen && (
+        <NextEpisodePrompt
+          seriesName={seriesContext?.name ?? progressMetadata.name}
+          episode={nextEpisode}
+          position={snapshot.position}
+          duration={snapshot.duration || lastPlayback.current.duration}
+          paused={snapshot.paused}
+          autoplay={preferences.autoplay}
+          onDismiss={() => {
+            nextTransitionSuppressed.current = true
+            resetOverlay()
+          }}
+          onWatchNow={() => {
+            if (nextTransitionRequested.current) return
+            nextTransitionRequested.current = true
+            const duration = snapshot.duration || lastPlayback.current.duration
+            void saveProgress(duration, duration, true)
+            void Promise.resolve(onNextEpisode?.()).catch((cause: unknown) => {
+              setError(cause instanceof Error ? cause.message : String(cause))
+            })
+          }}
+        />
+      )}
+      <PlayerEpisodeDrawer
+        open={episodeDrawerOpen}
+        context={seriesContext}
+        onOpenChange={setEpisodeDrawerOpen}
+        onSelect={(video) => {
+          if (nextTransitionRequested.current) return
+          nextTransitionRequested.current = true
+          void Promise.resolve(onSelectEpisode?.(video)).catch((cause: unknown) => {
+            setError(cause instanceof Error ? cause.message : String(cause))
+          })
+        }}
+      />
 
       {snapshot && !error && (
         <div
@@ -732,7 +801,11 @@ export function DesktopPlayer({
                 <PlayerIcon
                   label={`Next episode${nextEpisodeLabel ? `: ${nextEpisodeLabel}` : ""}`}
                   expanded={expandedControls}
-                  onClick={() => void onNextEpisode()}
+                  onClick={() => {
+                    if (nextTransitionRequested.current) return
+                    nextTransitionRequested.current = true
+                    void onNextEpisode()
+                  }}
                 >
                   <SkipForward size={21} />
                 </PlayerIcon>
