@@ -2,6 +2,7 @@ package media.conduit.mobile.account
 
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
+import io.ktor.client.statement.bodyAsText
 import io.ktor.client.request.bearerAuth
 import io.ktor.client.request.get
 import io.ktor.client.request.post
@@ -11,7 +12,11 @@ import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.JsonObject
 import kotlinx.coroutines.async
@@ -176,9 +181,13 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
             setBody(credentials)
         }
         if (!response.status.isSuccess()) {
+            val serverMessage = runCatching {
+                Json.parseToJsonElement(response.bodyAsText())
+                    .jsonObject["message"]?.jsonPrimitive?.contentOrNull
+            }.getOrNull()
             throw ServerRequestException(
                 if (response.status.value == 401) "Incorrect email or password" else
-                    "Authentication returned HTTP ${response.status.value}",
+                    serverMessage ?: "Authentication returned HTTP ${response.status.value}",
                 response.status.value,
             )
         }
