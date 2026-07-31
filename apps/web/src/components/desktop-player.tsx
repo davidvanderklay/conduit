@@ -620,18 +620,19 @@ export function DesktopPlayer({
           </button>
           <PlayerHeadingText heading={heading} expanded={expandedControls} />
         </div>
-        <VideoScaleControl
-          value={videoScale}
-          expanded={expandedControls}
-          onIndicatorHidden={resetOverlay}
-          onChange={(scale) => {
-            resetOverlay()
-            setVideoScale(scale)
-            void applyNativeVideoScale(scale).catch((cause: unknown) => {
-              setError(cause instanceof Error ? cause.message : String(cause))
-            })
+        <button
+          className={`pointer-events-auto grid shrink-0 place-items-center rounded-full bg-black/60 text-zinc-200 hover:bg-white/15 ${
+            expandedControls ? "size-13 [&_svg]:size-7" : "size-10"
+          }`}
+          type="button"
+          aria-label={fullscreen ? "Exit fullscreen" : "Fullscreen"}
+          title={fullscreen ? "Exit fullscreen" : "Fullscreen"}
+          onClick={() => {
+            void toggleNativeFullscreen().then(setFullscreen)
           }}
-        />
+        >
+          {fullscreen ? <Minimize size={20} /> : <Maximize size={20} />}
+        </button>
       </div>
 
       {error ? (
@@ -941,15 +942,19 @@ export function DesktopPlayer({
                   <Captions size={22} />
                 </PlayerIcon>
               </div>
-              <PlayerIcon
-                label={fullscreen ? "Exit fullscreen" : "Fullscreen"}
+              <VideoScaleControl
+                value={videoScale}
                 expanded={expandedControls}
-                onClick={() => {
-                  void toggleNativeFullscreen().then(setFullscreen)
+                indicatorPlacement="above"
+                onIndicatorHidden={resetOverlay}
+                onChange={(scale) => {
+                  resetOverlay()
+                  setVideoScale(scale)
+                  void applyNativeVideoScale(scale).catch((cause: unknown) => {
+                    setError(cause instanceof Error ? cause.message : String(cause))
+                  })
                 }}
-              >
-                {fullscreen ? <Minimize size={20} /> : <Maximize size={20} />}
-              </PlayerIcon>
+              />
             </div>
           </div>
         </div>

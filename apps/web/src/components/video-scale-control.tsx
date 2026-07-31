@@ -9,11 +9,13 @@ import {
 export function VideoScaleControl({
   value,
   expanded = false,
+  indicatorPlacement = "below",
   onIndicatorHidden,
   onChange,
 }: {
   value: VideoScale
   expanded?: boolean
+  indicatorPlacement?: "above" | "below"
   onIndicatorHidden?: () => void
   onChange: (value: VideoScale) => void
 }) {
@@ -49,7 +51,11 @@ export function VideoScaleControl({
       </button>
       {indicator && (
         <div
-          className="pointer-events-none absolute right-0 top-[calc(100%+0.75rem)] whitespace-nowrap rounded-full bg-zinc-950 px-4 py-2 text-sm font-semibold text-zinc-100 shadow-2xl ring-1 ring-white/10"
+          className={`pointer-events-none absolute right-0 whitespace-nowrap rounded-full bg-zinc-950 px-4 py-2 text-sm font-semibold text-zinc-100 shadow-2xl ring-1 ring-white/10 ${
+            indicatorPlacement === "above"
+              ? "bottom-[calc(100%+0.75rem)]"
+              : "top-[calc(100%+0.75rem)]"
+          }`}
           role="status"
         >
           Video scale: {VIDEO_SCALE_OPTIONS.find((option) => option.value === indicator)!.label}
