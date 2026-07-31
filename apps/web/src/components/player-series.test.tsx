@@ -170,6 +170,58 @@ describe("next episode prompt", () => {
     expect(select).toHaveBeenCalledWith(episode)
   })
 
+  it("closes the open episode drawer when a pointer gesture starts outside it", () => {
+    const openChange = vi.fn()
+    act(() => {
+      root.render(
+        <PlayerEpisodeDrawer
+          open
+          context={{
+            name: "Example",
+            videos: [episode],
+            progress: [],
+            currentVideoId: episode.id,
+          }}
+          onOpenChange={openChange}
+          onSelect={vi.fn()}
+        />,
+      )
+    })
+
+    act(() => {
+      document.body.dispatchEvent(new Event("pointerdown", { bubbles: true }))
+    })
+
+    expect(openChange).toHaveBeenCalledOnce()
+    expect(openChange).toHaveBeenCalledWith(false)
+  })
+
+  it("keeps the episode drawer open when interacting inside it", () => {
+    const openChange = vi.fn()
+    act(() => {
+      root.render(
+        <PlayerEpisodeDrawer
+          open
+          context={{
+            name: "Example",
+            videos: [episode],
+            progress: [],
+            currentVideoId: episode.id,
+          }}
+          onOpenChange={openChange}
+          onSelect={vi.fn()}
+        />,
+      )
+    })
+    const drawer = host.querySelector("[data-player-episode-drawer]")
+
+    act(() => {
+      drawer?.dispatchEvent(new Event("pointerdown", { bubbles: true }))
+    })
+
+    expect(openChange).not.toHaveBeenCalled()
+  })
+
   it("keeps the closed drawer handle geometry and shadow stable on hover", () => {
     act(() => {
       root.render(
