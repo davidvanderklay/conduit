@@ -10,6 +10,7 @@ import { decryptSecret, encryptSecret, stableSecretHash } from "./crypto.js"
 import type { Database } from "./db/index.js"
 import type { RuntimeAuthSettings } from "./instance-auth.js"
 import { hashAdminRecoveryToken } from "./admin-recovery.js"
+import { defaultAddonInstallations } from "./default-addons.js"
 import {
   accounts,
   adminRecoveryTokens,
@@ -732,6 +733,9 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
             name: body.profileName.trim(),
           })
           .returning()
+        await tx
+          .insert(addonInstallations)
+          .values(defaultAddonInstallations(profile!.id, config.addonEncryptionKey))
         return { household: household!, profile: profile! }
       })
 
@@ -800,7 +804,8 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
           })
           .returning({ id: profiles.id, name: profiles.name, isKids: profiles.isKids })
 
-        if (sourceAddons.length > 0) {
+        if (body.copyAddonsFromProfileId) {
+          if (sourceAddons.length === 0) return created!
           await tx.insert(addonInstallations).values(
             sourceAddons.map((addon) => ({
               profileId: created!.id,
@@ -812,6 +817,10 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
               enabled: addon.enabled,
             })),
           )
+        } else {
+          await tx
+            .insert(addonInstallations)
+            .values(defaultAddonInstallations(created!.id, config.addonEncryptionKey))
         }
         return created!
       })
