@@ -133,6 +133,27 @@ The Tauri 2 client reuses the web interface and delegates playback to embedded
 libmpv. Selecting a stream renders libmpv beneath Conduit's controls and supports
 seek, pause, embedded tracks, and add-on subtitles.
 
+### Playback buffering policy
+
+The device-level **Network read-ahead** preference defaults to 30 seconds and
+can be set from 10 to 120 seconds. Desktop network playback enables mpv's
+packet cache, targets three buffered seconds before starting or resuming, keeps up
+to 150 MiB forward and 75 MiB backward, retries supported FFmpeg-backed streams,
+and uses a 30-second network timeout. Cache duration and current throughput are
+reported locally in the player controls.
+
+Desktop caching is intentionally memory-only. mpv's built-in disk cache is a
+temporary append-only file that is not reusable after the player closes, so it
+cannot provide a predictably bounded persistent cache. Conduit must not present
+that mode as an offline download or durable cache.
+
+For HLS sources using HLS.js, the preference controls its forward and backward
+buffer targets while the byte target remains 60 MiB. Native HLS and progressive
+web playback remain subject to the browser, source response headers, CORS, and
+device eviction policy. The UI reports the browser's current buffered range but
+does not promise durable storage. Media remains client-to-source on every
+platform; the Conduit server never proxies video to force caching.
+
 OAuth on desktop is intentionally different from OAuth in the browser build.
 `desktop_auth_listen` binds a short-lived random loopback port, and the frontend
 opens the Better Auth authorization URL with Tauri's opener plugin. After the

@@ -17,6 +17,7 @@ import { addonsForResource } from "../lib/addons"
 import { loadSubtitles, type Subtitle, type Video } from "../lib/core"
 import { isDesktop } from "../lib/desktop"
 import { readPreferences, writePreferences } from "../lib/preferences"
+import { bufferStatus, playbackBufferState } from "../lib/playback-buffer"
 import { playerHeading, type PlayerHeading } from "../lib/player-title"
 import { videoObjectFit, type VideoScale } from "../lib/video-scale"
 import { usePlaybackProgress } from "../lib/progress"
@@ -149,6 +150,8 @@ function WebPlayer({
   const [waiting, setWaiting] = useState(true)
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
+  const [bufferedAhead, setBufferedAhead] = useState(0)
+  const [bufferedEnd, setBufferedEnd] = useState(0)
   const [volume, setVolume] = useState(preferences.volume / 100)
   const [muted, setMuted] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
@@ -275,7 +278,12 @@ function WebPlayer({
       void import("hls.js").then(({ default: HlsPlayer }) => {
         if (cancelled) return
         if (HlsPlayer.isSupported()) {
-          hls = new HlsPlayer()
+          hls = new HlsPlayer({
+            maxBufferLength: preferences.readAheadSeconds,
+            maxMaxBufferLength: Math.max(60, preferences.readAheadSeconds * 2),
+            backBufferLength: Math.max(30, preferences.readAheadSeconds),
+            maxBufferSize: 60 * 1024 * 1024,
+          })
           hlsRef.current = hls
           hls.on(HlsPlayer.Events.AUDIO_TRACKS_UPDATED, (_, data) => {
             setAudioChoices(
@@ -306,7 +314,12 @@ function WebPlayer({
       video.removeAttribute("src")
       video.load()
     }
-  }, [preferences.autoplay, preferences.volume, url])
+  }, [
+    preferences.autoplay,
+    preferences.readAheadSeconds,
+    preferences.volume,
+    url,
+  ])
 
   useEffect(() => {
     return () => {
@@ -458,10 +471,20 @@ function WebPlayer({
             onPlaying={() => setWaiting(false)}
             onWaiting={() => setWaiting(true)}
             onTimeUpdate={(event) => {
-              setCurrentTime(event.currentTarget.currentTime)
+              const video = event.currentTarget
+              const nextBuffer = playbackBufferState(video.buffered, video.currentTime)
+              setCurrentTime(video.currentTime)
+              setBufferedAhead(nextBuffer.ahead)
+              setBufferedEnd(nextBuffer.end)
               if (resumed.current) {
-                void saveProgress(event.currentTarget.currentTime, event.currentTarget.duration)
+                void saveProgress(video.currentTime, video.duration)
               }
+            }}
+            onProgress={(event) => {
+              const video = event.currentTarget
+              const nextBuffer = playbackBufferState(video.buffered, video.currentTime)
+              setBufferedAhead(nextBuffer.ahead)
+              setBufferedEnd(nextBuffer.end)
             }}
             onEnded={(event) => {
               setPlaying(false)
@@ -529,7 +552,17 @@ function WebPlayer({
           />
           <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/95 via-black/60 to-transparent px-4 pb-4 pt-16 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
             <input
-              className="mb-3 h-1 w-full cursor-pointer accent-amber-400"
+              className="web-player-seek mb-3 block w-full cursor-pointer"
+              style={
+                {
+                  "--player-progress": `${
+                    duration > 0 ? Math.min(100, currentTime / duration * 100) : 0
+                  }%`,
+                  "--player-buffered": `${
+                    duration > 0 ? Math.min(100, bufferedEnd / duration * 100) : 0
+                  }%`,
+                } as React.CSSProperties
+              }
               type="range"
               min={0}
               max={duration || 0}
@@ -583,6 +616,12 @@ function WebPlayer({
                 {duration > 0
                   ? `${formatTime(currentTime)} / ${formatTime(duration)}`
                   : "--:--:-- / --:--:--"}
+              </span>
+              <span
+                className="hidden text-xs tabular-nums text-zinc-500 lg:block"
+                title="Browser-reported temporary media buffer"
+              >
+                {bufferStatus(bufferedAhead)}
               </span>
               <div className="flex-1" />
               <span className="hidden max-w-40 truncate text-xs text-zinc-400 md:block">

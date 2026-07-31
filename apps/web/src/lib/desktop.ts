@@ -15,6 +15,8 @@ export interface NativePlayerSnapshot {
   loading: boolean
   position: number
   duration: number
+  bufferedDuration: number
+  downloadBytesPerSecond: number
   volume: number
   title?: string
   tracks: NativeTrack[]
@@ -29,8 +31,12 @@ async function invoke<T>(command: string, args?: Record<string, unknown>): Promi
   return tauriInvoke<T>(command, args)
 }
 
-export function openNativePlayer(url: string, title: string): Promise<NativePlayerSnapshot> {
-  return invoke("player_open", { url, title })
+export function openNativePlayer(
+  url: string,
+  title: string,
+  readAheadSeconds: number,
+): Promise<NativePlayerSnapshot> {
+  return invoke("player_open", { url, title, readAheadSeconds })
 }
 
 export function nativePlayerSnapshot(): Promise<NativePlayerSnapshot> {

@@ -53,6 +53,8 @@ pub struct PlayerSnapshot {
     pub loading: bool,
     pub position: f64,
     pub duration: f64,
+    pub buffered_duration: f64,
+    pub download_bytes_per_second: u64,
     pub volume: f64,
     pub title: Option<String>,
     pub tracks: Vec<PlayerTrack>,
@@ -73,6 +75,7 @@ impl PlayerManager {
         app: &AppHandle,
         url: &str,
         title: &str,
+        read_ahead_seconds: u32,
     ) -> Result<PlayerSnapshot, PlayerError> {
         if !valid_media_url(url) {
             return Err(PlayerError::InvalidUrl);
@@ -108,6 +111,11 @@ impl PlayerManager {
             initializer.set_option("input-default-bindings", "no")?;
             initializer.set_option("input-cursor", "no")?;
             initializer.set_option("osd-level", "0")?;
+            if is_network_media_url(url) {
+                for (name, value) in network_buffer_options(read_ahead_seconds) {
+                    initializer.set_option(name, value)?;
+                }
+            }
             #[cfg(target_os = "linux")]
             {
                 // Decode on NVIDIA, but copy decoded frames back before
@@ -189,11 +197,41 @@ impl PlayerManager {
                 .unwrap_or(false),
             position: mpv.get_property::<f64>("time-pos").unwrap_or_default(),
             duration: mpv.get_property::<f64>("duration").unwrap_or_default(),
+            buffered_duration: mpv
+                .get_property::<f64>("demuxer-cache-duration")
+                .unwrap_or_default()
+                .max(0.0),
+            download_bytes_per_second: mpv
+                .get_property::<i64>("cache-speed")
+                .unwrap_or_default()
+                .max(0) as u64,
             volume: mpv.get_property::<f64>("volume").unwrap_or(100.0),
             title: mpv.get_property::<String>("media-title").ok(),
             tracks,
         })
     }
+}
+
+fn network_buffer_options(read_ahead_seconds: u32) -> Vec<(&'static str, String)> {
+    let seconds = read_ahead_seconds.clamp(10, 120);
+    vec![
+        ("cache", "yes".into()),
+        // mpv's on-disk cache is append-only and only deleted after playback,
+        // so keep Conduit's cache bounded in memory.
+        ("cache-on-disk", "no".into()),
+        ("cache-secs", seconds.to_string()),
+        ("demuxer-readahead-secs", seconds.to_string()),
+        ("demuxer-max-bytes", "150MiB".into()),
+        ("demuxer-max-back-bytes", "75MiB".into()),
+        ("cache-pause", "yes".into()),
+        ("cache-pause-initial", "yes".into()),
+        ("cache-pause-wait", seconds.min(3).to_string()),
+        ("network-timeout", "30".into()),
+        (
+            "stream-lavf-o",
+            "reconnect=1,reconnect_streamed=1,reconnect_delay_max=5".into(),
+        ),
+    ]
 }
 
 fn argv_command(mpv: &Mpv, args: &[&str]) -> Result<(), PlayerError> {
@@ -233,6 +271,10 @@ fn value_to_arg(value: &Value) -> String {
 
 fn valid_media_url(url: &str) -> bool {
     matches!(url.split(':').next(), Some("http" | "https" | "file"))
+}
+
+fn is_network_media_url(url: &str) -> bool {
+    matches!(url.split(':').next(), Some("http" | "https"))
 }
 
 fn mpv_node_to_json(node: MpvNode) -> Value {
@@ -364,5 +406,24 @@ mod tests {
         assert!(valid_media_url("file:///C:/Users/test/video.mp4"));
         assert!(!valid_media_url("javascript:alert(1)"));
         assert!(!valid_media_url("C:\\Users\\test\\video.mp4"));
+        assert!(is_network_media_url("https://example.test/video.mp4"));
+        assert!(!is_network_media_url("file:///C:/Users/test/video.mp4"));
+    }
+
+    #[test]
+    fn bounds_and_explicitly_configures_network_buffering() {
+        let options = network_buffer_options(500)
+            .into_iter()
+            .collect::<std::collections::HashMap<_, _>>();
+
+        assert_eq!(options.get("cache"), Some(&"yes".to_string()));
+        assert_eq!(options.get("cache-on-disk"), Some(&"no".to_string()));
+        assert_eq!(options.get("cache-secs"), Some(&"120".to_string()));
+        assert_eq!(
+            options.get("demuxer-max-back-bytes"),
+            Some(&"75MiB".to_string())
+        );
+        assert_eq!(options.get("cache-pause-initial"), Some(&"yes".to_string()));
+        assert_eq!(options.get("network-timeout"), Some(&"30".to_string()));
     }
 }
