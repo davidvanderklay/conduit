@@ -7,6 +7,7 @@ import {
   PictureInPicture,
   Play,
   Settings2,
+  SkipForward,
   Volume2,
   VolumeX,
 } from "lucide-react"
@@ -43,6 +44,8 @@ export function Player({
   profileId,
   progressMetadata,
   addons,
+  nextEpisodeLabel,
+  onNextEpisode,
   onEnded,
   onClose,
 }: {
@@ -52,6 +55,8 @@ export function Player({
   profileId: string
   progressMetadata: ProgressMetadata
   addons: InstalledAddon[]
+  nextEpisodeLabel?: string
+  onNextEpisode?: () => void | Promise<void>
   onEnded?: () => void | Promise<void>
   onClose: () => void
 }) {
@@ -64,6 +69,8 @@ export function Player({
         profileId={profileId}
         progressMetadata={progressMetadata}
         addons={addons}
+        nextEpisodeLabel={nextEpisodeLabel}
+        onNextEpisode={onNextEpisode}
         onEnded={onEnded}
         onClose={onClose}
       />
@@ -77,6 +84,8 @@ export function Player({
       profileId={profileId}
       progressMetadata={progressMetadata}
       addons={addons}
+      nextEpisodeLabel={nextEpisodeLabel}
+      onNextEpisode={onNextEpisode}
       onEnded={onEnded}
       onClose={onClose}
     />
@@ -90,6 +99,8 @@ function WebPlayer({
   profileId,
   progressMetadata,
   addons,
+  nextEpisodeLabel,
+  onNextEpisode,
   onEnded,
   onClose,
 }: {
@@ -99,6 +110,8 @@ function WebPlayer({
   profileId: string
   progressMetadata: ProgressMetadata
   addons: InstalledAddon[]
+  nextEpisodeLabel?: string
+  onNextEpisode?: () => void | Promise<void>
   onEnded?: () => void | Promise<void>
   onClose: () => void
 }) {
@@ -388,12 +401,12 @@ function WebPlayer({
             }}
             onEnded={(event) => {
               setPlaying(false)
+              void Promise.resolve(onEnded?.()).catch(() => undefined)
               void saveProgress(
                 event.currentTarget.duration,
                 event.currentTarget.duration,
                 true,
               )
-                .then(() => onEnded?.())
                 .catch(() => undefined)
             }}
             onDurationChange={(event) => setDuration(event.currentTarget.duration || 0)}
@@ -427,6 +440,14 @@ function WebPlayer({
               <Control label={playing ? "Pause" : "Play"} onClick={togglePlayback}>
                 {playing ? <Pause size={21} /> : <Play size={21} />}
               </Control>
+              {onNextEpisode && (
+                <Control
+                  label={`Next episode${nextEpisodeLabel ? `: ${nextEpisodeLabel}` : ""}`}
+                  onClick={() => void onNextEpisode()}
+                >
+                  <SkipForward size={21} />
+                </Control>
+              )}
               <Control
                 label={muted ? "Unmute" : "Mute"}
                 onClick={() => {

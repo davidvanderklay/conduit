@@ -27,9 +27,9 @@ import {
   type Video,
 } from "../lib/core"
 import {
+  adjacentSeriesVideo,
   displayDate,
   episodeLabel,
-  nextSeriesVideo,
   normalizeMetaItem,
   safeExternalUrl,
   selectSeriesVideo,
@@ -71,6 +71,8 @@ export function MediaDetails({
   )
   const [selectedSeason, setSelectedSeason] = useState<number>()
   const [playing, setPlaying] = useState<ResolvedStream>()
+  const queryClient = useQueryClient()
+  const episodeTransition = useRef(0)
   const initialSeriesVideoResolved = useRef(false)
   const episodeRailScrollTop = useRef<number | undefined>(undefined)
   const seriesReturnVideoId = useRef<string | undefined>(
@@ -83,8 +85,12 @@ export function MediaDetails({
   const meta = metadata.data ?? normalizeMetaItem(item, item)
   const videos = meta.videos ?? []
   const selectedVideo = videos.find((video) => video.id === selectedVideoId)
+  const nextEpisode = selectedVideo
+    ? adjacentSeriesVideo(videos, selectedVideo.id, 1)
+    : undefined
   const episodeMode = item.type === "series" && Boolean(selectedVideo)
   const activeVideoId = episodeMode ? selectedVideoId : item.id
+  const addonIds = addons.map((addon) => addon.id)
   const progress = useQuery({
     queryKey: ["series-progress", profileId, item.type, item.id],
     refetchOnMount: "always",
@@ -94,9 +100,16 @@ export function MediaDetails({
       ).then((result) => result.items),
   })
   const streams = useQuery({
-    queryKey: ["streams", item.type, activeVideoId, addons.map((addon) => addon.id)],
+    queryKey: ["streams", item.type, activeVideoId, addonIds],
     enabled: item.type !== "series" || episodeMode,
     queryFn: () => resolveStreams(addons, item.type, activeVideoId!),
+    staleTime: 5 * 60 * 1000,
+  })
+  useQuery({
+    queryKey: ["streams", item.type, nextEpisode?.id, addonIds],
+    enabled: Boolean(playing && nextEpisode),
+    queryFn: () => resolveStreams(addons, item.type, nextEpisode!.id),
+    staleTime: 5 * 60 * 1000,
   })
 
   useEffect(() => {
@@ -141,22 +154,32 @@ export function MediaDetails({
     onBrowse?.(target)
   }
 
+  const playEpisode = async (video: Video) => {
+    const transition = ++episodeTransition.current
+    const currentAddon = playing?.addonName
+    setPlaying(undefined)
+    setSelectedVideoId(video.id)
+    setSelectedSeason(video.season ?? 1)
+    seriesReturnVideoId.current = video.id
+    const nextStreams = await queryClient.fetchQuery({
+      queryKey: ["streams", item.type, video.id, addonIds],
+      queryFn: () => resolveStreams(addons, item.type, video.id),
+      staleTime: 5 * 60 * 1000,
+    })
+    if (transition !== episodeTransition.current) return
+    const playable = nextStreams.filter((stream) => stream.url)
+    const stream =
+      playable.find((candidate) => candidate.addonName === currentAddon) ??
+      playable[0]
+    setPlaying(stream)
+  }
+
   const autoplayNextEpisode = async () => {
-    if (
-      item.type !== "series" ||
-      !selectedVideo ||
-      !readPreferences().autoplay
-    ) return
-    const next = nextSeriesVideo(videos, selectedVideo.id, progress.data ?? [])
-    if (!next) {
+    if (!nextEpisode || !readPreferences().autoplay) {
       setPlaying(undefined)
       return
     }
-    const nextStreams = await resolveStreams(addons, item.type, next.id)
-    setSelectedVideoId(next.id)
-    setSelectedSeason(next.season ?? 1)
-    seriesReturnVideoId.current = next.id
-    setPlaying(nextStreams.find((stream) => stream.url))
+    await playEpisode(nextEpisode)
   }
 
   return (
@@ -275,8 +298,15 @@ export function MediaDetails({
             episode: selectedVideo?.episode,
           }}
           addons={addons}
+          nextEpisodeLabel={nextEpisode ? episodeLabel(nextEpisode) : undefined}
+          onNextEpisode={
+            nextEpisode ? () => playEpisode(nextEpisode) : undefined
+          }
           onEnded={autoplayNextEpisode}
-          onClose={() => setPlaying(undefined)}
+          onClose={() => {
+            episodeTransition.current += 1
+            setPlaying(undefined)
+          }}
         />
       )}
     </>
