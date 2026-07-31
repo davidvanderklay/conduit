@@ -186,6 +186,12 @@ data class StreamItem(
 data class StreamSource(val addonName: String, val stream: StreamItem)
 
 @Serializable
+data class SubtitleItem(val id: String? = null, val url: String, val lang: String? = null)
+
+@Serializable
+private data class SubtitlesResponse(val subtitles: List<SubtitleItem> = emptyList())
+
+@Serializable
 private data class MetaResponse(val meta: MetaItem? = null)
 
 @Serializable
@@ -517,6 +523,18 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
             throw ServerRequestException(reason ?: "Every installed add-on failed to load streams")
         }
         streams
+    }
+
+    suspend fun loadSubtitles(addons: List<InstalledAddonSummary>, type: String, videoId: String): List<SubtitleItem> = coroutineScope {
+        addons.filter { it.enabled }.map { addon ->
+            async {
+                runCatching {
+                    val response = client.get(resourceUrl(addon.manifestUrl, "subtitles", type, videoId))
+                    if (!response.status.isSuccess()) error("subtitle request failed")
+                    response.body<SubtitlesResponse>().subtitles
+                }.getOrDefault(emptyList())
+            }
+        }.flatMap { it.await() }.distinctBy(SubtitleItem::url)
     }
 
     suspend fun searchCatalogs(addons: List<InstalledAddonSummary>, query: String): List<CatalogItem> = coroutineScope {

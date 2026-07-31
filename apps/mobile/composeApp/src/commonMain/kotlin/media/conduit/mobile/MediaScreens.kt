@@ -209,6 +209,7 @@ internal fun MediaDetailsScreen(
     var resumePosition by remember(item.id) { mutableStateOf(0L) }
     var episodesOpen by remember(item.id) { mutableStateOf(false) }
     var currentAddonName by remember(item.id) { mutableStateOf<String?>(null) }
+    var externalSubtitles by remember(item.id) { mutableStateOf<List<SubtitleItem>>(emptyList()) }
     var selectedSeason by remember(item.id) { mutableStateOf<Int?>(null) }
     val detailsSeasonListState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -234,6 +235,7 @@ internal fun MediaDetailsScreen(
         }
     }
     val playingVideoId = selectedVideo?.id ?: item.id
+    LaunchedEffect(playingVideoId, addons) { externalSubtitles = runCatching { api.loadSubtitles(addons, item.type, playingVideoId) }.getOrDefault(emptyList()) }
     LaunchedEffect(playingVideoId, profile?.id) {
         resumePosition = snapshot?.progress?.firstOrNull { it.videoId == playingVideoId }?.takeUnless { it.watched }?.positionMs
             ?: profile?.let { runCatching { api.loadProgress(baseUrl, token, it.id, playingVideoId) }.getOrNull()?.takeUnless { progress -> progress.watched }?.positionMs }
@@ -281,24 +283,28 @@ internal fun MediaDetailsScreen(
     }
     val orderedVideos = meta?.videos.orEmpty().sortedWith(compareBy<VideoItem> { it.season ?: 0 }.thenBy { it.episode ?: 0 })
     val nextVideo = orderedVideos.indexOfFirst { it.id == selectedVideo?.id }.takeIf { it >= 0 }?.let { orderedVideos.getOrNull(it + 1) }
-    LaunchedEffect(playback.ended) { if (playback.ended) nextVideo?.let(::playNext) ?: runCatching { persistProgress() } }
+    LaunchedEffect(playback.ended) { if (playback.ended) runCatching { persistProgress() } }
 
     if (playing?.url != null) {
         Box(Modifier.fillMaxSize().background(Color.Black)) {
             NativePlayer(
                 url = playing!!.url!!, active = true, startPositionMs = resumePosition,
                 requestHeaders = playing!!.behaviorHints?.proxyHeaders?.request.orEmpty().mapNotNull { (key, value) -> value.jsonPrimitive.contentOrNull?.let { key to it } }.toMap(),
+                subtitles = externalSubtitles,
                 hasEpisodes = orderedVideos.isNotEmpty(), onEpisodes = { episodesOpen = true }, modifier = Modifier.fillMaxSize(),
             ) { playback = it }
             IconButton(onClick = { scope.launch { runCatching { persistProgress() }; playing = null } }, modifier = Modifier.statusBarsPadding().padding(12.dp).background(Color.Black.copy(.55f), CircleShape).align(Alignment.TopStart)) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = Color.White) }
             if (playback.loading && playback.error == null) CircularProgressIndicator(Modifier.align(Alignment.Center), color = Color.White)
             playback.error?.let { message -> Box(Modifier.matchParentSize().background(Color.Black.copy(.72f)).clickable(enabled = true, onClick = {}), contentAlignment = Alignment.Center) { Surface(color = Color(0xF21A1A1D), shape = RoundedCornerShape(18.dp), modifier = Modifier.padding(28.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(.45f))) { Column(Modifier.padding(22.dp), horizontalAlignment = Alignment.CenterHorizontally) { Icon(Icons.Rounded.ErrorOutline, null, tint = MaterialTheme.colorScheme.error); Spacer(Modifier.height(8.dp)); Text("Playback failed", color = Color.White, fontWeight = FontWeight.Bold); Text(message, color = Color.White.copy(.7f), style = MaterialTheme.typography.bodySmall); Spacer(Modifier.height(14.dp)); Button(onClick = { playing = null }) { Text("Choose another stream") } } } } }
             if (!episodesOpen && nextVideo != null && playback.durationMs > 0 && playback.durationMs - playback.positionMs in 1..30_000) {
-                Surface(Modifier.align(Alignment.BottomEnd).padding(24.dp), color = Color(0xF21A1A1D), shape = RoundedCornerShape(18.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(.5f))) {
-                    Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) { Column { Text("Up next", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium); Text(nextVideo.displayTitle, color = Color.White, fontWeight = FontWeight.Bold) }; Spacer(Modifier.width(18.dp)); Button(onClick = { playNext(nextVideo) }) { Text("Play now") } }
+                Surface(Modifier.align(Alignment.BottomEnd).padding(end = 24.dp, bottom = 118.dp).widthIn(min = 360.dp, max = 480.dp), color = Color(0xE619191B), shape = RoundedCornerShape(22.dp), border = BorderStroke(1.dp, Color.White.copy(.16f)), shadowElevation = 18.dp) {
+                    Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) { AsyncImage(nextVideo.thumbnail ?: meta?.background, null, Modifier.size(112.dp, 68.dp).clip(RoundedCornerShape(13.dp)), contentScale = ContentScale.Crop); Spacer(Modifier.width(14.dp)); Column(Modifier.weight(1f)) { Text("NEXT EPISODE", color = Color.White.copy(.6f), style = MaterialTheme.typography.labelSmall); Text("S${nextVideo.season ?: 0}E${nextVideo.episode ?: 0} · ${nextVideo.displayTitle}", color = Color.White, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis) }; OutlinedButton(onClick = { playNext(nextVideo) }, border = BorderStroke(1.dp, Color.White.copy(.35f))) { Icon(Icons.Rounded.PlayArrow, null); Spacer(Modifier.width(4.dp)); Text("Play") } }
                 }
             }
-            if (episodesOpen) PlayerEpisodeDrawer(orderedVideos, selectedVideo, snapshot, onDismiss = { episodesOpen = false }) { episodesOpen = false; playNext(it) }
+            if (episodesOpen) PlayerEpisodeDrawer(orderedVideos, selectedVideo, snapshot, onDismiss = { episodesOpen = false }) { video ->
+                episodesOpen = false
+                scope.launch { runCatching { persistProgress() }; selectedVideo = video; playing = null; requestStreams(video) }
+            }
         }
         return
     }

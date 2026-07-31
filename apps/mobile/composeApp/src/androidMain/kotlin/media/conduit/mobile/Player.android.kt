@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
@@ -38,6 +39,8 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.delay
+import media.conduit.mobile.account.SubtitleItem
+import android.net.Uri
 
 @OptIn(UnstableApi::class)
 @Composable
@@ -46,6 +49,7 @@ actual fun NativePlayer(
     active: Boolean,
     startPositionMs: Long,
     requestHeaders: Map<String, String>,
+    subtitles: List<SubtitleItem>,
     hasEpisodes: Boolean,
     onEpisodes: () -> Unit,
     modifier: Modifier,
@@ -56,7 +60,7 @@ actual fun NativePlayer(
     val activity = context as? Activity
     val landscape = context.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     val currentCallback by rememberUpdatedState(onState)
-    val player = remember(url, requestHeaders) {
+    val player = remember(url, requestHeaders, subtitles) {
         val http = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
             .setUserAgent("Conduit Mobile")
@@ -130,6 +134,11 @@ actual fun NativePlayer(
                     ".mpd" in lower || "format=mpd" in lower -> setMimeType(MimeTypes.APPLICATION_MPD)
                     ".ism" in lower || ".isml" in lower -> setMimeType(MimeTypes.APPLICATION_SS)
                 }
+                setSubtitleConfigurations(subtitles.map { subtitle ->
+                    val lower = subtitle.url.substringBefore('?').lowercase()
+                    val mime = when { lower.endsWith(".vtt") -> MimeTypes.TEXT_VTT; lower.endsWith(".ass") || lower.endsWith(".ssa") -> MimeTypes.TEXT_SSA; lower.endsWith(".ttml") || lower.endsWith(".xml") -> MimeTypes.APPLICATION_TTML; else -> MimeTypes.APPLICATION_SUBRIP }
+                    MediaItem.SubtitleConfiguration.Builder(Uri.parse(subtitle.url)).setMimeType(mime).setLanguage(subtitle.lang).setLabel(subtitle.id ?: subtitle.lang ?: "External subtitle").build()
+                })
             }.build()
             player.setMediaItem(item)
             player.prepare()
@@ -202,7 +211,7 @@ actual fun NativePlayer(
                         PlayerTimePill(formatPlayerTime(if (dragging) draggedPosition.toLong() else positionMs))
                         PlayerTimePill(formatPlayerTime(durationMs))
                     }
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceEvenly) {
+                    if (landscape && durationMs > 0) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceEvenly) {
                         val speeds = listOf(.5f, .75f, 1f, 1.25f, 1.5f, 2f)
                         PlayerBottomAction(Icons.Rounded.Speed, "${player.playbackParameters.speed}×", landscape) { val current = player.playbackParameters.speed; player.setPlaybackSpeed(speeds[(speeds.indexOfFirst { it == current }.takeIf { it >= 0 } ?: 1).let { (it + 1) % speeds.size }]); controlsVisible = true }
                         PlayerBottomAction(Icons.Rounded.Headphones, "Audio", landscape) { trackPanel = C.TRACK_TYPE_AUDIO; controlsVisible = true }
@@ -210,6 +219,7 @@ actual fun NativePlayer(
                         if (hasEpisodes) PlayerBottomAction(Icons.Rounded.PlaylistPlay, "Episodes", landscape, onEpisodes)
                     }
                 }
+                if ((!landscape || durationMs <= 0) && hasEpisodes) IconButton(onClick = onEpisodes, modifier = Modifier.align(Alignment.BottomEnd).padding(12.dp).background(Color.Black.copy(.58f), CircleShape)) { Icon(Icons.Rounded.PlaylistPlay, "Episodes", tint = Color.White) }
             }
         }
         trackPanel?.let { type ->

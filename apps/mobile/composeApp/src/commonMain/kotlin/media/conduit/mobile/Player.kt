@@ -2,6 +2,7 @@ package media.conduit.mobile
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import media.conduit.mobile.account.SubtitleItem
 
 @Composable
 expect fun NativePlayer(
@@ -9,6 +10,7 @@ expect fun NativePlayer(
     active: Boolean,
     startPositionMs: Long = 0,
     requestHeaders: Map<String, String> = emptyMap(),
+    subtitles: List<SubtitleItem> = emptyList(),
     hasEpisodes: Boolean = false,
     onEpisodes: () -> Unit = {},
     modifier: Modifier = Modifier,
