@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -23,9 +24,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import media.conduit.mobile.foundation.*
 import media.conduit.mobile.account.ConduitApi
 import media.conduit.mobile.account.SessionVault
@@ -255,18 +259,28 @@ private fun SignInScreen(
     var registering by remember { mutableStateOf(authentication.needsOwner) }
     var recovering by remember { mutableStateOf(false) }
     var recoveryCode by remember { mutableStateOf("") }
-    var serverExpanded by remember { mutableStateOf(false) }
+    var showServerDialog by remember { mutableStateOf(false) }
     var useDefault by remember(endpoint.baseUrl) { mutableStateOf(endpoint == DefaultServerEndpoint) }
     var customServer by remember(endpoint.baseUrl) { mutableStateOf(if (endpoint == DefaultServerEndpoint) "" else endpoint.baseUrl) }
     Box(Modifier.fillMaxSize().background(Brush.radialGradient(listOf(MaterialTheme.colorScheme.primary.copy(.09f), MaterialTheme.colorScheme.background), radius = 900f)), contentAlignment = Alignment.Center) {
         Column(Modifier.safeContentPadding().verticalScroll(rememberScrollState()).widthIn(max = 460.dp).fillMaxWidth().padding(horizontal = 20.dp, vertical = 28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(bottom = 24.dp)) { Surface(color = MaterialTheme.colorScheme.primary, contentColor = Color.Black, shape = RoundedCornerShape(12.dp), modifier = Modifier.size(40.dp)) { Box(contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Movie, null, modifier = Modifier.size(22.dp)) } }; Text("conduit", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) }
-            Card(colors = CardDefaults.cardColors(containerColor = Color(0xF218181B)), border = BorderStroke(1.dp, Color.White.copy(.09f)), shape = RoundedCornerShape(22.dp), modifier = Modifier.fillMaxWidth()) {
+            Row(Modifier.fillMaxWidth().padding(bottom = 18.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) { Surface(color = MaterialTheme.colorScheme.primary, contentColor = Color.Black, shape = RoundedCornerShape(12.dp), modifier = Modifier.size(40.dp)) { Box(contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Movie, null, modifier = Modifier.size(22.dp)) } }; Text("conduit", color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) }
+                Spacer(Modifier.weight(1f))
+                Surface(onClick = { showServerDialog = true }, shape = RoundedCornerShape(20.dp), color = Color(0xE61D1D20), contentColor = Color.White, border = BorderStroke(1.dp, Color.White.copy(.13f))) {
+                    Row(Modifier.padding(horizontal = 11.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(7.dp).background(Color(0xFF34D399), androidx.compose.foundation.shape.CircleShape))
+                        Spacer(Modifier.width(7.dp))
+                        Text(if (endpoint == DefaultServerEndpoint) "Default" else endpoint.label, color = Color.White.copy(.86f), style = MaterialTheme.typography.labelMedium, maxLines = 1)
+                    }
+                }
+            }
+            Card(colors = CardDefaults.cardColors(containerColor = Color(0xFA18181B), contentColor = Color.White), border = BorderStroke(1.dp, Color.White.copy(.11f)), shape = RoundedCornerShape(22.dp), modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(15.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(if (recovering) "Recover your account" else if (registering) if (authentication.needsOwner) "Set up Conduit" else "Create your account" else "Welcome back", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+            Text(if (recovering) "Recover your account" else if (registering) if (authentication.needsOwner) "Set up Conduit" else "Create your account" else "Welcome back", color = Color.White, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
             Text(if (recovering) "Enter one of the recovery codes you saved." else if (registering) "Create a private account for this Conduit instance." else "Sign in to continue to your household.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
             authentication.oidc.takeIf { it.enabled && !recovering }?.let {
-                Button(enabled = !pending, onClick = { pending = true; onOAuth() }, colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color(0xFF202023)), modifier = Modifier.fillMaxWidth().height(50.dp)) { Text(it.displayName ?: "Continue with Google", fontWeight = FontWeight.SemiBold) }
+                Button(enabled = !pending, onClick = { pending = true; onOAuth() }, colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color(0xFF202124), disabledContainerColor = Color(0xFFE6E6E6), disabledContentColor = Color(0xFF5F6368)), shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth().height(50.dp)) { GoogleMark(); Spacer(Modifier.width(12.dp)); Text(it.displayName ?: "Continue with Google", fontWeight = FontWeight.SemiBold) }
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) { HorizontalDivider(Modifier.weight(1f), color = Color.White.copy(.1f)); Text("  OR CONTINUE WITH EMAIL  ", color = Color.White.copy(.3f), style = MaterialTheme.typography.labelSmall); HorizontalDivider(Modifier.weight(1f), color = Color.White.copy(.1f)) }
             }
             OutlinedTextField(
@@ -292,7 +306,9 @@ private fun SignInScreen(
                     pending = true
                     if (recovering) onRecover(email, recoveryCode, password) else if (registering) onRegister(email, password) else onSignIn(email, password)
                 },
-                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = Color(0xFF141414), disabledContainerColor = Color.White.copy(.10f), disabledContentColor = Color.White.copy(.34f)),
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier.fillMaxWidth().height(50.dp),
             ) {
                 Text(
                     if (pending) "Please wait…" else if (recovering) "Reset password" else if (registering) "Create account" else "Sign in",
@@ -305,32 +321,66 @@ private fun SignInScreen(
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
-            if (!recovering && !registering) TextButton(onClick = { recovering = true; error = null; password = "" }) { Text("Use recovery code") }
-            if (recovering) TextButton(onClick = { recovering = false; error = null; password = "" }) { Text("Back to sign in") }
+            if (!recovering && !registering) TextButton(onClick = { recovering = true; error = null; password = "" }) { Text("Use recovery code", color = Color.White.copy(.72f)) }
+            if (recovering) TextButton(onClick = { recovering = false; error = null; password = "" }) { Text("Back to sign in", color = Color.White.copy(.72f)) }
             if (authentication.localRegistration && !recovering) {
                 TextButton(onClick = { registering = !registering; error = null }) {
-                    Text(if (registering) "Already have an account? Sign in" else "New to this instance? Create a local account")
+                    Text(if (registering) "Already have an account? Sign in" else "New to this instance? Create a local account", color = Color.White.copy(.82f))
                 }
             }
                 }
             }
-            Spacer(Modifier.height(14.dp))
-            Surface(onClick = { serverExpanded = !serverExpanded }, shape = RoundedCornerShape(24.dp), color = Color(0xB21D1D20), border = BorderStroke(1.dp, Color.White.copy(.1f))) { Row(Modifier.padding(horizontal = 14.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) { Box(Modifier.size(7.dp).background(Color(0xFF34D399), androidx.compose.foundation.shape.CircleShape)); Spacer(Modifier.width(8.dp)); Text(if (endpoint == DefaultServerEndpoint) "Default server" else endpoint.label, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelMedium); Text("  ·  Change server", fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.labelMedium) } }
-            if (serverExpanded) Card(Modifier.fillMaxWidth().padding(top = 12.dp), colors = CardDefaults.cardColors(containerColor = Color(0xF218181B)), border = BorderStroke(1.dp, Color.White.copy(.1f))) { Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        }
+        if (showServerDialog) Dialog(onDismissRequest = { if (!serverPending) showServerDialog = false }) {
+            Surface(Modifier.fillMaxWidth().widthIn(max = 440.dp), shape = RoundedCornerShape(24.dp), color = Color(0xFF18181B), contentColor = Color.White, border = BorderStroke(1.dp, Color.White.copy(.12f)), tonalElevation = 8.dp) {
+              Column(Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.Public, null, tint = MaterialTheme.colorScheme.primary); Spacer(Modifier.width(10.dp)); Column { Text("Choose your server", fontWeight = FontWeight.Bold); Text("Your choice stays on this device.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) } }
                 ServerChoiceRow("Default server", DefaultServerEndpoint.baseUrl, useDefault) { useDefault = true }
                 ServerChoiceRow("Self-hosted server", "Connect directly to your own instance", !useDefault) { useDefault = false }
                 if (!useDefault) OutlinedTextField(value = customServer, onValueChange = { customServer = it }, label = { Text("Server address") }, placeholder = { Text("https://conduit.example.com") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 serverError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-                Button(onClick = { onConnectServer(if (useDefault) DefaultServerEndpoint.baseUrl else customServer) }, enabled = !serverPending && (useDefault || customServer.isNotBlank()), modifier = Modifier.fillMaxWidth()) { if (serverPending) { CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp); Spacer(Modifier.width(8.dp)) }; Text(if (serverPending) "Checking server…" else "Connect") }
-            } }
-        }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.End)) {
+                    TextButton(onClick = { showServerDialog = false }, enabled = !serverPending) { Text("Cancel", color = Color.White.copy(.7f)) }
+                    Button(onClick = { onConnectServer(if (useDefault) DefaultServerEndpoint.baseUrl else customServer) }, enabled = !serverPending && (useDefault || customServer.isNotBlank())) { if (serverPending) { CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp); Spacer(Modifier.width(8.dp)) }; Text(if (serverPending) "Checking…" else "Connect") }
+                }
+              }
+            }
+          }
+    }
+}
+
+@Composable
+private fun GoogleMark() {
+    Canvas(Modifier.size(19.dp)) {
+        val stroke = size.minDimension * .19f
+        val inset = stroke / 2f
+        val arcSize = androidx.compose.ui.geometry.Size(size.width - stroke, size.height - stroke)
+        val topLeft = androidx.compose.ui.geometry.Offset(inset, inset)
+        val style = Stroke(stroke, cap = StrokeCap.Butt)
+        drawArc(Color(0xFF4285F4), -42f, 96f, false, topLeft, arcSize, style = style)
+        drawArc(Color(0xFF34A853), 54f, 86f, false, topLeft, arcSize, style = style)
+        drawArc(Color(0xFFFBBC05), 140f, 70f, false, topLeft, arcSize, style = style)
+        drawArc(Color(0xFFEA4335), 210f, 108f, false, topLeft, arcSize, style = style)
+        drawLine(
+            color = Color(0xFF4285F4),
+            start = androidx.compose.ui.geometry.Offset(size.width * .53f, size.height * .51f),
+            end = androidx.compose.ui.geometry.Offset(size.width * .92f, size.height * .51f),
+            strokeWidth = stroke,
+            cap = StrokeCap.Butt,
+        )
+        drawLine(
+            color = Color(0xFF4285F4),
+            start = androidx.compose.ui.geometry.Offset(size.width * .82f, size.height * .48f),
+            end = androidx.compose.ui.geometry.Offset(size.width * .82f, size.height * .72f),
+            strokeWidth = stroke,
+            cap = StrokeCap.Butt,
+        )
     }
 }
 
 @Composable
 private fun ServerChoiceRow(title: String, detail: String, selected: Boolean, onClick: () -> Unit) {
-    Surface(onClick = onClick, color = if (selected) MaterialTheme.colorScheme.primary.copy(.12f) else Color.White.copy(.035f), border = BorderStroke(1.dp, if (selected) MaterialTheme.colorScheme.primary.copy(.6f) else Color.White.copy(.08f)), shape = RoundedCornerShape(14.dp)) { Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text(title, fontWeight = FontWeight.SemiBold); Text(detail, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, maxLines = 1) }; if (selected) Icon(Icons.Rounded.CheckCircle, null, tint = MaterialTheme.colorScheme.primary) } }
+    Surface(onClick = onClick, color = if (selected) MaterialTheme.colorScheme.primary.copy(.12f) else Color.White.copy(.035f), contentColor = Color.White, border = BorderStroke(1.dp, if (selected) MaterialTheme.colorScheme.primary.copy(.6f) else Color.White.copy(.08f)), shape = RoundedCornerShape(14.dp)) { Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text(title, color = Color.White, fontWeight = FontWeight.SemiBold); Text(detail, color = Color.White.copy(.55f), style = MaterialTheme.typography.bodySmall, maxLines = 1) }; if (selected) Icon(Icons.Rounded.CheckCircle, null, tint = MaterialTheme.colorScheme.primary) } }
 }
 
 @Composable
