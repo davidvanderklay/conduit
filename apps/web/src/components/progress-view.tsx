@@ -1,7 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Check, Film, History, Play, Trash2 } from "lucide-react"
-import { api, type WatchProgress } from "../lib/api"
-import type { CatalogItem } from "../lib/core"
+import { api, type InstalledAddon, type WatchProgress } from "../lib/api"
+import { addonsForResource } from "../lib/addons"
+import { loadMeta, type CatalogItem } from "../lib/core"
+import { selectSeriesVideo } from "../lib/metadata"
 import { posterCoverClass, posterGridClass } from "../lib/poster-layout"
 import { Card } from "./ui/card"
 
@@ -17,14 +19,17 @@ export function useProgressList(profileId: string, view: "continue" | "history",
 
 export function ContinueWatching({
   profileId,
+  addons,
   onSelect,
   onSeeMore,
 }: {
   profileId: string
+  addons: InstalledAddon[]
   onSelect: (item: CatalogItem, videoId: string) => void
   onSeeMore: () => void
 }) {
   const progress = useProgressList(profileId, "continue", 14)
+  const status = useProgressList(profileId, "history", 1000)
   if (!progress.data?.length) return null
   return (
     <section>
@@ -40,12 +45,68 @@ export function ContinueWatching({
       <div className={posterGridClass}>
         {progress.data.map((item) => (
           <div className="group relative" key={item.videoId}>
-            <ProgressCard item={item} profileId={profileId} onSelect={onSelect} />
+            <ResolvedProgressCard
+              item={item}
+              allProgress={status.data ?? []}
+              addons={addons}
+              profileId={profileId}
+              onSelect={onSelect}
+            />
           </div>
         ))}
       </div>
     </section>
   )
+}
+
+function ResolvedProgressCard({
+  item,
+  allProgress,
+  addons,
+  profileId,
+  onSelect,
+}: {
+  item: WatchProgress
+  allProgress: WatchProgress[]
+  addons: InstalledAddon[]
+  profileId: string
+  onSelect: (item: CatalogItem, videoId: string) => void
+}) {
+  const metadata = useQuery({
+    queryKey: ["continue-meta", item.mediaType, item.mediaId, addons.map((addon) => addon.id)],
+    enabled: item.mediaType === "series",
+    queryFn: async () => {
+      const candidates = addonsForResource(addons, "meta", item.mediaType, item.mediaId)
+      const attempts = await Promise.allSettled(
+        candidates.map((addon) => loadMeta(addon.manifestUrl, item.mediaType, item.mediaId)),
+      )
+      return attempts.find(
+        (result): result is PromiseFulfilledResult<Awaited<ReturnType<typeof loadMeta>>> =>
+          result.status === "fulfilled",
+      )?.value
+    },
+  })
+  if (item.mediaType !== "series") {
+    return <ProgressCard item={item} profileId={profileId} onSelect={onSelect} />
+  }
+  if (!metadata.isSuccess || !metadata.data) return null
+  const mediaProgress = allProgress.filter(
+    (entry) => entry.mediaType === item.mediaType && entry.mediaId === item.mediaId,
+  )
+  const target = selectSeriesVideo(metadata.data.videos ?? [], mediaProgress, item.videoId)
+  if (!target) return null
+  const targetProgress = mediaProgress.find((entry) => entry.videoId === target.id)
+  const resolved: WatchProgress = targetProgress ?? {
+    ...item,
+    videoId: target.id,
+    videoTitle: target.title,
+    season: target.season,
+    episode: target.episode,
+    positionMs: 0,
+    durationMs: 0,
+    watched: false,
+  }
+  return <ProgressCard item={resolved} profileId={profileId} onSelect={onSelect} />
 }
 
 export function HistoryView({

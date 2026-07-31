@@ -31,6 +31,7 @@ import {
   episodeLabel,
   normalizeMetaItem,
   safeExternalUrl,
+  selectSeriesVideo,
   seasonLabel,
   sortSeasons,
   trailerUrl,
@@ -68,6 +69,7 @@ export function MediaDetails({
   )
   const [selectedSeason, setSelectedSeason] = useState<number>()
   const [playing, setPlaying] = useState<ResolvedStream>()
+  const initialSeriesVideoResolved = useRef(false)
   const episodeRailScrollTop = useRef<number | undefined>(undefined)
   const seriesReturnVideoId = useRef<string | undefined>(
     initialVideoId && initialVideoId !== item.id ? initialVideoId : undefined,
@@ -84,15 +86,29 @@ export function MediaDetails({
   const progress = useQuery({
     queryKey: ["progress", profileId],
     queryFn: () =>
-      api<{ items: WatchProgress[] }>(`/v1/profiles/${profileId}/progress?limit=100`).then(
-        (result) => result.items,
-      ),
+      api<{ items: WatchProgress[] }>(
+        `/v1/profiles/${profileId}/progress?view=status&limit=1000`,
+      ).then((result) => result.items),
   })
   const streams = useQuery({
     queryKey: ["streams", item.type, activeVideoId, addons.map((addon) => addon.id)],
     enabled: item.type !== "series" || episodeMode,
     queryFn: () => resolveStreams(addons, item.type, activeVideoId!),
   })
+
+  useEffect(() => {
+    if (
+      initialSeriesVideoResolved.current ||
+      item.type !== "series" ||
+      !metadata.isSuccess ||
+      !progress.isSuccess ||
+      !videos.length
+    ) return
+    initialSeriesVideoResolved.current = true
+    const target = selectSeriesVideo(videos, progress.data ?? [], initialVideoId)
+    setSelectedVideoId(target?.id)
+    seriesReturnVideoId.current = target?.id
+  }, [initialVideoId, item.type, metadata.isSuccess, progress.data, progress.isSuccess, videos])
 
   useEffect(() => {
     if (selectedVideo && selectedSeason == null) {
