@@ -8,7 +8,7 @@ import androidx.compose.material3.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.AccountCircle
 import androidx.compose.material.icons.rounded.VideoLibrary
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -398,6 +398,12 @@ private fun AppShell(
             dispatch(AppAction.SelectProfile(activeProfile.id))
         }
     }
+    var selectedMedia by remember { mutableStateOf<CatalogItem?>(null) }
+    var selectedVideoId by remember { mutableStateOf<String?>(null) }
+    val selectMedia: (CatalogItem, String?) -> Unit = { item, videoId ->
+        selectedMedia = item
+        selectedVideoId = videoId
+    }
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val expanded = maxWidth >= 720.dp
         val snackbarHostState = remember { SnackbarHostState() }
@@ -410,7 +416,7 @@ private fun AppShell(
         Scaffold(
             snackbarHost = { SnackbarHost(snackbarHostState) },
             bottomBar = {
-                if (!expanded) {
+                if (!expanded && selectedMedia == null) {
                     NavigationBar(
                         containerColor = Color(0xFF111113),
                         tonalElevation = 0.dp,
@@ -419,6 +425,7 @@ private fun AppShell(
                             MobileNavigationItem(
                                 destination = destination,
                                 selected = state.destination == destination,
+                                profile = activeProfile,
                                 onClick = { dispatch(AppAction.Navigate(destination)) },
                                 modifier = Modifier.weight(1f),
                             )
@@ -441,13 +448,15 @@ private fun AppShell(
                         }
                     }
                     DestinationContent(
-                        state, platform, account, activeProfile, profileSync, api, dispatch, onSignOut,
+                        state, platform, account, activeProfile, profileSync, api, selectedMedia,
+                        selectedVideoId, selectMedia, { selectedMedia = null }, dispatch, onSignOut,
                         Modifier.weight(1f),
                     )
                 }
             } else {
                 DestinationContent(
-                    state, platform, account, activeProfile, profileSync, api, dispatch, onSignOut,
+                    state, platform, account, activeProfile, profileSync, api, selectedMedia,
+                    selectedVideoId, selectMedia, { selectedMedia = null }, dispatch, onSignOut,
                     Modifier.padding(padding),
                 )
             }
@@ -463,32 +472,37 @@ private fun DestinationContent(
     activeProfile: ProfileSummary?,
     profileSync: ProfileSyncState,
     api: ConduitApi,
+    selectedMedia: CatalogItem?,
+    selectedVideoId: String?,
+    onSelectMedia: (CatalogItem, String?) -> Unit,
+    onCloseMedia: () -> Unit,
     dispatch: (AppAction) -> Unit,
     onSignOut: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Box(modifier.fillMaxSize().safeContentPadding()) {
-        when (state.destination) {
-            AppDestination.Home -> HomeScreen(activeProfile, profileSync, api, Modifier.fillMaxSize())
-            AppDestination.Search -> SearchFoundation(Modifier.fillMaxSize())
-            AppDestination.Library -> Column(
-                Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
-                Text("Library", style = MaterialTheme.typography.headlineMedium)
-                LibrarySummary(profileSync.snapshot)
-            }
-            AppDestination.Settings -> Column(
-                Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
-                Text("Settings", style = MaterialTheme.typography.headlineMedium)
-                SettingsFoundation(
-                    state, platform, account, activeProfile, profileSync, dispatch, onSignOut,
-                )
-                HorizontalDivider()
-                ArchitectureDemo()
-            }
+        if (selectedMedia != null) {
+            MediaDetailsScreen(
+                item = selectedMedia,
+                initialVideoId = selectedVideoId,
+                addons = profileSync.snapshot?.addons.orEmpty(),
+                api = api,
+                onBack = onCloseMedia,
+            )
+        } else when (state.destination) {
+            AppDestination.Home -> HomeScreen(activeProfile, profileSync, api, onSelectMedia, Modifier.fillMaxSize())
+            AppDestination.Search -> SearchDiscoverScreen(
+                addons = profileSync.snapshot?.addons.orEmpty(), api = api,
+                onSelect = { onSelectMedia(it, null) }, modifier = Modifier.fillMaxSize(),
+            )
+            AppDestination.Library -> MobileLibraryScreen(
+                snapshot = profileSync.snapshot, onSelect = { onSelectMedia(it, null) },
+                modifier = Modifier.fillMaxSize(),
+            )
+            AppDestination.Profile -> ProfileSettingsScreen(
+                state, platform, account, activeProfile, profileSync, dispatch, onSignOut,
+                Modifier.fillMaxSize(),
+            )
         }
         if (profileSync.refreshing) LinearProgressIndicator(Modifier.fillMaxWidth().align(Alignment.TopCenter))
     }
@@ -499,13 +513,14 @@ private val AppDestination.icon: ImageVector
         AppDestination.Home -> Icons.Rounded.Home
         AppDestination.Search -> Icons.Rounded.Search
         AppDestination.Library -> Icons.Rounded.VideoLibrary
-        AppDestination.Settings -> Icons.Rounded.Settings
+        AppDestination.Profile -> Icons.Rounded.AccountCircle
     }
 
 @Composable
 private fun RowScope.MobileNavigationItem(
     destination: AppDestination,
     selected: Boolean,
+    profile: ProfileSummary?,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -515,7 +530,20 @@ private fun RowScope.MobileNavigationItem(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Icon(destination.icon, destination.label, tint = color, modifier = Modifier.size(24.dp))
+        if (destination == AppDestination.Profile) {
+            Surface(
+                color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                contentColor = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                shape = MaterialTheme.shapes.extraLarge,
+                modifier = Modifier.size(25.dp),
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(profile?.name?.take(1)?.uppercase() ?: "P", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                }
+            }
+        } else {
+            Icon(destination.icon, destination.label, tint = color, modifier = Modifier.size(24.dp))
+        }
         Text(
             destination.label,
             color = color,
