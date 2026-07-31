@@ -175,6 +175,8 @@ private fun ArchitectureDemo() {
     var engineState by remember { mutableStateOf<EngineState?>(null) }
     var playback by remember { mutableStateOf(PlaybackState()) }
     var playerOpen by remember { mutableStateOf(false) }
+    var requestSequence by remember { mutableStateOf(0L) }
+    var activeRequestId by remember { mutableStateOf<String?>(null) }
     val resolved = engineState as? EngineState.Resolved
 
     DisposableEffect(client) {
@@ -189,7 +191,9 @@ private fun ArchitectureDemo() {
             Text("Architecture demo", style = MaterialTheme.typography.titleLarge)
             Text("Deterministic local add-on fixture")
             Button(onClick = {
-                engineState = client.dispatch(EngineAction.ResolveFixture())
+                val requestId = "fixture-${++requestSequence}"
+                activeRequestId = requestId
+                engineState = client.dispatch(EngineAction.ResolveStreams(requestId = requestId))
                 playerOpen = false
             }) { Text("Resolve catalog item") }
             when (val current = engineState) {
@@ -218,7 +222,7 @@ private fun ArchitectureDemo() {
         playback.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         OutlinedButton(onClick = {
             playerOpen = false
-            engineState = client.dispatch(EngineAction.Cancel())
+            activeRequestId?.let { engineState = client.dispatch(EngineAction.Cancel(requestId = it)) }
         }) { Text("Close player") }
     }
 }

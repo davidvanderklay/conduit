@@ -3,7 +3,7 @@ package media.conduit.mobile
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
-const val ProtocolVersion = 1
+const val ProtocolVersion = 2
 const val TestStreamUrl =
     "https://archive.org/download/BigBuckBunny_124/Content/big_buck_bunny_720p_surround.mp4"
 
@@ -21,9 +21,10 @@ sealed interface EngineAction {
     val protocolVersion: Int
 
     @Serializable
-    @SerialName("resolveFixture")
-    data class ResolveFixture(
+    @SerialName("resolveStreams")
+    data class ResolveStreams(
         override val protocolVersion: Int = ProtocolVersion,
+        val requestId: String,
         val manifestUrl: String = "https://fixture.conduit.invalid/manifest.json",
         val manifestJson: String = FixtureManifest,
         val streamsJson: String = FixtureStreams,
@@ -33,7 +34,10 @@ sealed interface EngineAction {
 
     @Serializable
     @SerialName("cancel")
-    data class Cancel(override val protocolVersion: Int = ProtocolVersion) : EngineAction
+    data class Cancel(
+        override val protocolVersion: Int = ProtocolVersion,
+        val requestId: String,
+    ) : EngineAction
 
     @Serializable
     @SerialName("close")
@@ -48,6 +52,7 @@ sealed interface EngineState {
     @SerialName("resolved")
     data class Resolved(
         override val protocolVersion: Int,
+        val requestId: String,
         val generation: Long,
         val addonName: String,
         val requestUrl: String,
@@ -59,6 +64,7 @@ sealed interface EngineState {
     @SerialName("cancelled")
     data class Cancelled(
         override val protocolVersion: Int,
+        val requestId: String,
         val generation: Long,
     ) : EngineState
 
@@ -70,8 +76,10 @@ sealed interface EngineState {
     @SerialName("error")
     data class Error(
         override val protocolVersion: Int,
+        val requestId: String? = null,
         val code: String,
         val message: String,
+        val recoverable: Boolean,
     ) : EngineState
 }
 

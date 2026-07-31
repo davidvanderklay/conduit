@@ -8,7 +8,7 @@ class ProtocolTest {
     @Test
     fun decodesVersionedResolvedState() {
         val state = ProtocolJson.decodeFromString<EngineState>(
-            """{"type":"resolved","protocolVersion":1,"generation":1,"addonName":"Fixture","requestUrl":"https://example.invalid/stream/movie/id.json","streamUrl":"$TestStreamUrl","streamTitle":"Test"}""",
+            """{"type":"resolved","protocolVersion":2,"requestId":"request-7","generation":1,"addonName":"Fixture","requestUrl":"https://example.invalid/stream/movie/id.json","streamUrl":"$TestStreamUrl","streamTitle":"Test"}""",
         )
         assertIs<EngineState.Resolved>(state)
         assertEquals(ProtocolVersion, state.protocolVersion)
@@ -17,7 +17,7 @@ class ProtocolTest {
 
     @Test
     fun actionShapeIsStable() {
-        val encoded = ProtocolJson.encodeToString<EngineAction>(EngineAction.Cancel())
-        assertEquals("""{"type":"cancel","protocolVersion":1}""", encoded)
+        val encoded = ProtocolJson.encodeToString<EngineAction>(EngineAction.Cancel(requestId = "request-7"))
+        assertEquals("""{"type":"cancel","protocolVersion":2,"requestId":"request-7"}""", encoded)
     }
 }
