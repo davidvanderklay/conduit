@@ -16,16 +16,16 @@ export function useProgressList(profileId: string, view: "continue" | "history",
 }
 
 export function ContinueWatching({
+  items,
   profileId,
   onSelect,
   onSeeMore,
 }: {
+  items: WatchProgress[]
   profileId: string
   onSelect: (item: CatalogItem, videoId: string) => void
   onSeeMore: () => void
 }) {
-  const progress = useProgressList(profileId, "continue", 14)
-  if (!progress.data?.length) return null
   return (
     <section>
       <div className="mb-4 flex items-center justify-between gap-4">
@@ -38,7 +38,7 @@ export function ContinueWatching({
         </button>
       </div>
       <div className={posterGridClass}>
-        {progress.data.map((item) => (
+        {items.map((item) => (
           <div className="group relative" key={item.videoId}>
             <ProgressCard item={item} profileId={profileId} onSelect={onSelect} />
           </div>
