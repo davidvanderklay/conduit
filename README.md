@@ -74,6 +74,7 @@ details.
 - [User and authentication setup](docs/authentication.md)
 - [Deployment and operations](docs/deployment.md)
 - [Desktop releases](docs/releases.md)
+- [Media compatibility](docs/media-compatibility.md)
 - [Development guide](docs/development.md)
 - [Project roadmap](docs/roadmap.md)
 - [Portable profile format](docs/portable-profile-format.md)

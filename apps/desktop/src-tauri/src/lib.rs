@@ -97,9 +97,16 @@ async fn player_open(
     url: String,
     title: String,
     read_ahead_seconds: u32,
+    hardware_acceleration: bool,
 ) -> Result<PlayerSnapshot, String> {
     player
-        .open(&app, &url, &title, read_ahead_seconds)
+        .open(
+            &app,
+            &url,
+            &title,
+            read_ahead_seconds,
+            hardware_acceleration,
+        )
         .map_err(|error| error.to_string())
 }
 
