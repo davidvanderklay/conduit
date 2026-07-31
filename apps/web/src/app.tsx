@@ -1,7 +1,13 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { ArrowLeft, Check, Film, Globe2, Search, Server, Shield, X } from "lucide-react"
-import { api, type Bootstrap, type InstalledAddon, type Profile } from "./lib/api"
+import {
+  api,
+  type Bootstrap,
+  type InstalledAddon,
+  type Profile,
+  type WatchProgress,
+} from "./lib/api"
 import { API_URL, DESKTOP_SESSION_TOKEN, authClient } from "./lib/auth"
 import {
   DEFAULT_SERVER_URL,
@@ -25,7 +31,7 @@ import { SettingsView } from "./components/settings-view"
 import { LibraryView } from "./components/library-view"
 import { CalendarView } from "./components/calendar-view"
 import { PosterWatchStatus, PosterWatchStatusProvider } from "./components/poster-watch-status"
-import { ContinueWatching, HistoryView } from "./components/progress-view"
+import { ContinueWatching, HistoryView, useProgressList } from "./components/progress-view"
 import { applyPreferences, readPreferences } from "./lib/preferences"
 import { isDesktop } from "./lib/desktop"
 import {
@@ -925,7 +931,7 @@ interface HomeCatalog {
 }
 
 type HomeFeedItem =
-  | { key: "continue"; kind: "continue" }
+  | { key: "continue"; kind: "continue"; items: WatchProgress[] }
   | { key: "error"; kind: "error"; errors: string[] }
   | { key: string; kind: "catalog"; catalog: HomeCatalog }
 
@@ -944,6 +950,7 @@ function MediaHome({
 }) {
   const [selectedItem, setSelectedItem] = useState<CatalogItem>()
   const [selectedVideoId, setSelectedVideoId] = useState<string>()
+  const continueWatching = useProgressList(profile.id, "continue", 14)
   const catalogs = useQuery({
     queryKey: ["catalogs", profile.id, addons.map((addon) => [addon.id, addon.enabled])],
     enabled: addons.length > 0,
@@ -978,7 +985,9 @@ function MediaHome({
     },
   })
   const feedItems: HomeFeedItem[] = [
-    { key: "continue", kind: "continue" },
+    ...(continueWatching.data?.length
+      ? [{ key: "continue" as const, kind: "continue" as const, items: continueWatching.data }]
+      : []),
     ...(catalogs.data?.errors.length
       ? [{ key: "error" as const, kind: "error" as const, errors: catalogs.data.errors }]
       : []),
@@ -1014,6 +1023,7 @@ function MediaHome({
           if (feedItem.kind === "continue") {
             return (
               <ContinueWatching
+                items={feedItem.items}
                 profileId={profile.id}
                 onSeeMore={onHistory}
                 onSelect={(item, videoId) => {
