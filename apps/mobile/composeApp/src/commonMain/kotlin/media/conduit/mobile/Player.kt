@@ -8,6 +8,7 @@ expect fun NativePlayer(
     url: String?,
     active: Boolean,
     startPositionMs: Long = 0,
+    requestHeaders: Map<String, String> = emptyMap(),
     modifier: Modifier = Modifier,
     onState: (PlaybackState) -> Unit,
 )

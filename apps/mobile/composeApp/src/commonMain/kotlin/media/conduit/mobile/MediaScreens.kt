@@ -191,6 +191,9 @@ internal fun MediaDetailsScreen(
     var error by remember(item.id) { mutableStateOf<String?>(null) }
     var selectedVideo by remember(item.id) { mutableStateOf<VideoItem?>(null) }
     var streams by remember(item.id) { mutableStateOf<List<StreamSource>?>(null) }
+    var streamPageOpen by remember(item.id) { mutableStateOf(false) }
+    var streamsLoading by remember(item.id) { mutableStateOf(false) }
+    var streamsError by remember(item.id) { mutableStateOf<String?>(null) }
     var playing by remember(item.id) { mutableStateOf<StreamItem?>(null) }
     var playback by remember(item.id) { mutableStateOf(PlaybackState()) }
     var resumePosition by remember(item.id) { mutableStateOf(0L) }
@@ -204,9 +207,17 @@ internal fun MediaDetailsScreen(
             }.onFailure { error = it.message }
     }
     fun requestStreams(video: VideoItem? = selectedVideo) {
+        streamPageOpen = true
+        streamsLoading = true
+        streamsError = null
         val videoId = video?.id ?: item.id
         streams = null
-        scope.launch { streams = api.loadStreams(addons, item.type, videoId) }
+        scope.launch {
+            runCatching { api.loadStreams(addons, item.type, videoId) }
+                .onSuccess { streams = it }
+                .onFailure { streamsError = it.message ?: "Unable to load streams" }
+            streamsLoading = false
+        }
     }
     val playingVideoId = selectedVideo?.id ?: item.id
     LaunchedEffect(playingVideoId, profile?.id) {
@@ -225,7 +236,7 @@ internal fun MediaDetailsScreen(
     PlatformBackHandler {
         when {
             playing != null -> scope.launch { runCatching { persistProgress() }; playing = null }
-            streams != null -> streams = null
+            streamPageOpen -> { streamPageOpen = false; streams = null }
             else -> onBack()
         }
     }
@@ -235,18 +246,16 @@ internal fun MediaDetailsScreen(
     LaunchedEffect(playback.ended) { if (playback.ended) runCatching { persistProgress() } }
 
     if (playing?.url != null) {
-        Column(Modifier.fillMaxSize().background(Color.Black)) {
-            Row(Modifier.fillMaxWidth().statusBarsPadding().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = { scope.launch { runCatching { persistProgress() }; playing = null } }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = Color.White) }
-                Text(meta?.name ?: item.name, color = Color.White, fontWeight = FontWeight.SemiBold)
-            }
-            NativePlayer(playing!!.url!!, true, resumePosition, Modifier.fillMaxWidth().aspectRatio(16f / 9f)) { playback = it }
-            if (resumePosition > 0) Text("Resumed at ${resumePosition / 60_000} min", color = Color.White.copy(.7f), modifier = Modifier.padding(16.dp))
+        Box(Modifier.fillMaxSize().background(Color.Black)) {
+            NativePlayer(playing!!.url!!, true, resumePosition, playing!!.behaviorHints?.proxyHeaders?.request.orEmpty(), Modifier.fillMaxSize()) { playback = it }
+            IconButton(onClick = { scope.launch { runCatching { persistProgress() }; playing = null } }, modifier = Modifier.statusBarsPadding().padding(12.dp).background(Color.Black.copy(.55f), CircleShape).align(Alignment.TopStart)) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = Color.White) }
+            if (playback.loading && playback.error == null) CircularProgressIndicator(Modifier.align(Alignment.Center), color = Color.White)
+            playback.error?.let { message -> Surface(color = Color.Black.copy(.82f), shape = RoundedCornerShape(16.dp), modifier = Modifier.align(Alignment.Center).padding(28.dp)) { Column(Modifier.padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) { Icon(Icons.Rounded.ErrorOutline, null, tint = MaterialTheme.colorScheme.error); Spacer(Modifier.height(8.dp)); Text("Playback failed", color = Color.White, fontWeight = FontWeight.Bold); Text(message, color = Color.White.copy(.7f), style = MaterialTheme.typography.bodySmall) } } }
         }
         return
     }
-    if (streams != null) {
-        StreamSelectionScreen(meta?.name ?: item.name, streams.orEmpty(), onBack = { streams = null }) { source ->
+    if (streamPageOpen) {
+        StreamSelectionScreen(meta?.name ?: item.name, streams.orEmpty(), streamsLoading, streamsError, onBack = { streamPageOpen = false; streams = null }) { source ->
             if (source.stream.url != null) playing = source.stream
         }
         return
@@ -306,6 +315,8 @@ internal fun MediaDetailsScreen(
 private fun StreamSelectionScreen(
     title: String,
     streams: List<StreamSource>,
+    loading: Boolean,
+    error: String?,
     onBack: () -> Unit,
     onSelect: (StreamSource) -> Unit,
 ) {
@@ -314,7 +325,9 @@ private fun StreamSelectionScreen(
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") }
             Column { Text("Choose a stream", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold); Text(title, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         }
-        if (streams.isEmpty()) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("No streams were returned.") }
+        if (loading) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) { CircularProgressIndicator(); Text("Finding streams…", color = MaterialTheme.colorScheme.onSurfaceVariant) } }
+        else if (error != null) Box(Modifier.fillMaxSize().padding(28.dp), contentAlignment = Alignment.Center) { Text(error, color = MaterialTheme.colorScheme.error) }
+        else if (streams.isEmpty()) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("No streams were returned.") }
         else LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             items(streams) { source ->
                 Surface(

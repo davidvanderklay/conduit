@@ -167,6 +167,10 @@ data class MetaItem(
 )
 
 @Serializable
+data class StreamProxyHeaders(val request: Map<String, String> = emptyMap())
+@Serializable
+data class StreamBehaviorHints(val proxyHeaders: StreamProxyHeaders? = null, val filename: String? = null)
+@Serializable
 data class StreamItem(
     val url: String? = null,
     val externalUrl: String? = null,
@@ -175,6 +179,7 @@ data class StreamItem(
     val name: String? = null,
     val title: String? = null,
     val description: String? = null,
+    val behaviorHints: StreamBehaviorHints? = null,
 )
 
 data class StreamSource(val addonName: String, val stream: StreamItem)
