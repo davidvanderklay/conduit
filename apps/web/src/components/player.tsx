@@ -18,6 +18,7 @@ import { loadSubtitles, type Subtitle, type Video } from "../lib/core"
 import { isDesktop } from "../lib/desktop"
 import { readPreferences, writePreferences } from "../lib/preferences"
 import { playbackBufferState } from "../lib/playback-buffer"
+import { browserPlaybackError } from "../lib/playback-compatibility"
 import { playerHeading, type PlayerHeading } from "../lib/player-title"
 import { videoObjectFit, type VideoScale } from "../lib/video-scale"
 import { usePlaybackProgress } from "../lib/progress"
@@ -148,6 +149,7 @@ function WebPlayer({
   const subtitleObjectUrl = useRef<string | null>(null)
   const [playing, setPlaying] = useState(false)
   const [waiting, setWaiting] = useState(true)
+  const [playbackError, setPlaybackError] = useState<string>()
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
   const [bufferedEnd, setBufferedEnd] = useState(0)
@@ -272,6 +274,7 @@ function WebPlayer({
     let cancelled = false
     let hls: Hls | undefined
     setWaiting(true)
+    setPlaybackError(undefined)
 
     if (isHls(url)) {
       void import("hls.js").then(({ default: HlsPlayer }) => {
@@ -296,6 +299,9 @@ function WebPlayer({
             setSelectedAudio(hls?.audioTrack ?? 0)
           })
           hls.on(HlsPlayer.Events.AUDIO_TRACK_SWITCHED, (_, data) => setSelectedAudio(data.id))
+          hls.on(HlsPlayer.Events.ERROR, (_, data) => {
+            if (data.fatal) setPlaybackError(browserPlaybackError())
+          })
           hls.loadSource(url)
           hls.attachMedia(video)
         } else {
@@ -468,6 +474,10 @@ function WebPlayer({
               }
             }}
             onPlaying={() => setWaiting(false)}
+            onError={(event) => {
+              setWaiting(false)
+              setPlaybackError(browserPlaybackError(event.currentTarget.error?.code))
+            }}
             onWaiting={() => setWaiting(true)}
             onTimeUpdate={(event) => {
               const video = event.currentTarget
@@ -507,7 +517,14 @@ function WebPlayer({
               setMuted(event.currentTarget.muted)
             }}
           />
-          {waiting && (
+          {playbackError ? (
+            <div className="absolute inset-0 grid place-items-center p-5">
+              <div className="w-full max-w-lg rounded-xl border border-red-950 bg-zinc-950/95 p-6">
+                <p className="font-medium text-red-400">Could not play this stream</p>
+                <p className="mt-2 text-sm leading-6 text-zinc-400">{playbackError}</p>
+              </div>
+            </div>
+          ) : waiting && (
             <div
               className="pointer-events-none absolute inset-0 grid place-items-center"
               role="status"
