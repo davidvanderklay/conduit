@@ -51,5 +51,11 @@ not be enabled there until a Keychain adapter is implemented and tested.
 Connection probing is now real and can fail with an actionable error without
 persisting a bad endpoint. Unit tests use Ktor's deterministic mock engine, and
 an Android instrumentation test exercises Keystore encryption on an emulator.
-This checkpoint does not claim mobile OAuth/deep links or iOS Keychain support;
-those remain within issue #43.
+Android OAuth uses a dedicated server handoff, the system browser, an exact
+custom-scheme callback, PKCE, correlated single-use codes, and encrypted pending
+state that survives activity recreation. Desktop and mobile endpoints validate
+their callback type at every stage even though their temporary rows share a
+table.
+
+iOS Keychain and deep-link verification remain unverified and therefore stay
+outside this Android-first acceptance checkpoint.

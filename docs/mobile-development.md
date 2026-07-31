@@ -139,3 +139,9 @@ profile. After one successful refresh, stop the local server and reopen the app;
 the same profile should render its encrypted cached snapshot with an Offline
 label. A newly registered account must show its one-time recovery codes before
 household creation.
+
+When OAuth is enabled, **Continue with Google** (or the configured OIDC label)
+opens the system browser. Successful authentication returns through
+`conduit://oauth/callback`; the app verifies the request, exchanges the PKCE
+code, deletes pending state, and loads the household. A cancelled, mismatched,
+expired, or replayed callback must show an error and must not create a session.

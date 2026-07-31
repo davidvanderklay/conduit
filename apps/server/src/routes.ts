@@ -33,6 +33,7 @@ import {
   secureEqual,
   validPkceVerifier,
   validateLoopbackCallback,
+  validateMobileCallback,
 } from "./desktop-auth.js"
 import {
   PORTABLE_DATA_FORMAT,
@@ -124,6 +125,47 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
     },
   )
 
+  app.post(
+    "/v1/auth/mobile/start",
+    {
+      schema: {
+        body: Type.Object({
+          callbackUrl: Type.String({ maxLength: 100 }),
+          codeChallenge: Type.String({ minLength: 43, maxLength: 128 }),
+        }),
+      },
+    },
+    async (request, reply) => {
+      if (!consumeRecoveryAttempt(desktopAuthAttempts, request.ip)) {
+        return reply.tooManyRequests("Too many mobile sign-in attempts. Try again later.")
+      }
+      const body = request.body as { callbackUrl: string; codeChallenge: string }
+      let callbackUrl: string
+      try {
+        callbackUrl = validateMobileCallback(body.callbackUrl)
+      } catch (cause) {
+        return reply.badRequest(cause instanceof Error ? cause.message : "Invalid callback")
+      }
+      if (!/^[A-Za-z0-9_-]{43}$/.test(body.codeChallenge)) {
+        return reply.badRequest("Invalid PKCE challenge")
+      }
+      const id = randomBytes(32).toString("base64url")
+      const expiresAt = new Date(Date.now() + DESKTOP_AUTH_TTL_MS)
+      await db.delete(desktopAuthRequests).where(lt(desktopAuthRequests.expiresAt, new Date()))
+      await db.insert(desktopAuthRequests).values({
+        id,
+        callbackUrl,
+        codeChallenge: body.codeChallenge,
+        expiresAt,
+      })
+      return {
+        requestId: id,
+        expiresAt: expiresAt.toISOString(),
+        authorizationUrl: `${config.authUrl.replace(/\/$/, "")}/v1/auth/mobile/authorize?request=${encodeURIComponent(id)}`,
+      }
+    },
+  )
+
   app.get("/v1/auth/desktop/authorize", async (request, reply) => {
     const query = request.query as { request?: string }
     if (!query.request) return reply.badRequest("Missing desktop authentication request")
@@ -140,6 +182,11 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
       )
       .limit(1)
     if (!handoff) return reply.unauthorized("This desktop sign-in request is invalid or expired")
+    try {
+      validateLoopbackCallback(handoff.callbackUrl)
+    } catch {
+      return reply.unauthorized("This authentication request is not for desktop")
+    }
     if (!authSettings.oidc) {
       return redirectDesktopAuthError(reply, handoff.callbackUrl, query.request, "oauth_disabled")
     }
@@ -196,11 +243,75 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
     return reply.redirect(result.url)
   })
 
+  app.get("/v1/auth/mobile/authorize", async (request, reply) => {
+    const query = request.query as { request?: string }
+    if (!query.request) return reply.badRequest("Missing mobile authentication request")
+    const [handoff] = await db
+      .select({ callbackUrl: desktopAuthRequests.callbackUrl })
+      .from(desktopAuthRequests)
+      .where(
+        and(
+          eq(desktopAuthRequests.id, query.request),
+          isNull(desktopAuthRequests.usedAt),
+          isNull(desktopAuthRequests.userId),
+          gt(desktopAuthRequests.expiresAt, new Date()),
+        ),
+      )
+      .limit(1)
+    if (!handoff) return reply.unauthorized("This mobile sign-in request is invalid or expired")
+    try {
+      validateMobileCallback(handoff.callbackUrl)
+    } catch {
+      return reply.unauthorized("This authentication request is not for mobile")
+    }
+    if (!authSettings.oidc) {
+      return redirectDesktopAuthError(reply, handoff.callbackUrl, query.request, "oauth_disabled")
+    }
+
+    const requestId = encodeURIComponent(query.request)
+    const callbackURL = `${config.authUrl.replace(/\/$/, "")}/v1/auth/mobile/complete?request=${requestId}`
+    const errorCallbackURL = `${config.authUrl.replace(/\/$/, "")}/v1/auth/mobile/error?request=${requestId}`
+    const authPath = authSettings.oidc.provider === "google"
+      ? "/api/auth/sign-in/social"
+      : "/api/auth/sign-in/oauth2"
+    const body = authSettings.oidc.provider === "google"
+      ? { provider: "google", callbackURL, errorCallbackURL, newUserCallbackURL: callbackURL }
+      : { providerId: "conduit-oidc", callbackURL, errorCallbackURL, newUserCallbackURL: callbackURL }
+    const headers = fromNodeHeaders(request.headers)
+    headers.set("content-type", "application/json")
+    headers.set("origin", new URL(config.authUrl).origin)
+    const response = await auth.handler(
+      new Request(new URL(authPath, config.authUrl), {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+      }),
+    )
+    const cookies = response.headers.getSetCookie()
+    if (cookies.length > 0) reply.header("set-cookie", cookies)
+    const result = (await response.json().catch(() => null)) as { url?: unknown } | null
+    if (!response.ok || typeof result?.url !== "string") {
+      return redirectDesktopAuthError(reply, handoff.callbackUrl, query.request, "oauth_start_failed")
+    }
+    return reply.redirect(result.url)
+  })
+
   app.get("/v1/auth/desktop/complete", async (request, reply) => {
     const query = request.query as { request?: string }
     if (!query.request) return reply.badRequest("Missing desktop authentication request")
     const user = await requireUser(request, reply, auth)
     if (!user) return
+    const [candidate] = await db
+      .select({ callbackUrl: desktopAuthRequests.callbackUrl })
+      .from(desktopAuthRequests)
+      .where(eq(desktopAuthRequests.id, query.request))
+      .limit(1)
+    try {
+      if (!candidate) throw new Error("missing")
+      validateLoopbackCallback(candidate.callbackUrl)
+    } catch {
+      return reply.unauthorized("This authentication request is not for desktop")
+    }
     const code = randomBytes(32).toString("base64url")
     const [handoff] = await db
       .update(desktopAuthRequests)
@@ -224,6 +335,47 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
     return reply.redirect(callback.toString())
   })
 
+  app.get("/v1/auth/mobile/complete", async (request, reply) => {
+    const query = request.query as { request?: string }
+    if (!query.request) return reply.badRequest("Missing mobile authentication request")
+    const user = await requireUser(request, reply, auth)
+    if (!user) return
+    const [candidate] = await db
+      .select({ callbackUrl: desktopAuthRequests.callbackUrl })
+      .from(desktopAuthRequests)
+      .where(eq(desktopAuthRequests.id, query.request))
+      .limit(1)
+    try {
+      if (!candidate) throw new Error("missing")
+      validateMobileCallback(candidate.callbackUrl)
+    } catch {
+      return reply.unauthorized("This authentication request is not for mobile")
+    }
+    const code = randomBytes(32).toString("base64url")
+    const [handoff] = await db
+      .update(desktopAuthRequests)
+      .set({ userId: user.id, codeHash: hashDesktopCode(code, config.authSecret) })
+      .where(
+        and(
+          eq(desktopAuthRequests.id, query.request),
+          isNull(desktopAuthRequests.usedAt),
+          isNull(desktopAuthRequests.userId),
+          gt(desktopAuthRequests.expiresAt, new Date()),
+        ),
+      )
+      .returning({ callbackUrl: desktopAuthRequests.callbackUrl })
+    if (!handoff) return reply.unauthorized("This mobile sign-in request is invalid or expired")
+    try {
+      validateMobileCallback(handoff.callbackUrl)
+    } catch {
+      return reply.unauthorized("This authentication request is not for mobile")
+    }
+    const callback = new URL(handoff.callbackUrl)
+    callback.searchParams.set("request", query.request)
+    callback.searchParams.set("code", code)
+    return reply.redirect(callback.toString())
+  })
+
   app.get("/v1/auth/desktop/error", async (request, reply) => {
     const query = request.query as { request?: string; error?: string }
     if (!query.request) return reply.badRequest("Missing desktop authentication request")
@@ -239,6 +391,37 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
       )
       .limit(1)
     if (!handoff) return reply.unauthorized("This desktop sign-in request is invalid or expired")
+    try {
+      validateLoopbackCallback(handoff.callbackUrl)
+    } catch {
+      return reply.unauthorized("This authentication request is not for desktop")
+    }
+    const callback = new URL(handoff.callbackUrl)
+    callback.searchParams.set("request", query.request)
+    callback.searchParams.set("error", query.error ?? "oauth_failed")
+    return reply.redirect(callback.toString())
+  })
+
+  app.get("/v1/auth/mobile/error", async (request, reply) => {
+    const query = request.query as { request?: string; error?: string }
+    if (!query.request) return reply.badRequest("Missing mobile authentication request")
+    const [handoff] = await db
+      .select({ callbackUrl: desktopAuthRequests.callbackUrl })
+      .from(desktopAuthRequests)
+      .where(
+        and(
+          eq(desktopAuthRequests.id, query.request),
+          isNull(desktopAuthRequests.usedAt),
+          gt(desktopAuthRequests.expiresAt, new Date()),
+        ),
+      )
+      .limit(1)
+    if (!handoff) return reply.unauthorized("This mobile sign-in request is invalid or expired")
+    try {
+      validateMobileCallback(handoff.callbackUrl)
+    } catch {
+      return reply.unauthorized("This authentication request is not for mobile")
+    }
     const callback = new URL(handoff.callbackUrl)
     callback.searchParams.set("request", query.request)
     callback.searchParams.set("error", query.error ?? "oauth_failed")
@@ -266,6 +449,7 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
       const exchanged = await db.transaction(async (tx) => {
         const [handoff] = await tx
           .select({
+            callbackUrl: desktopAuthRequests.callbackUrl,
             codeHash: desktopAuthRequests.codeHash,
             codeChallenge: desktopAuthRequests.codeChallenge,
             userId: desktopAuthRequests.userId,
@@ -280,6 +464,11 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
           )
           .for("update")
           .limit(1)
+        try {
+          if (handoff) validateLoopbackCallback(handoff.callbackUrl)
+        } catch {
+          return false
+        }
         if (
           !handoff?.userId ||
           !handoff.codeHash ||
@@ -308,6 +497,74 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
         return true
       })
       if (!exchanged) return reply.unauthorized("This desktop sign-in code is invalid or expired")
+      return { token, expiresAt: expiresAt.toISOString() }
+    },
+  )
+
+  app.post(
+    "/v1/auth/mobile/exchange",
+    {
+      schema: {
+        body: Type.Object({
+          requestId: Type.String({ minLength: 32, maxLength: 100 }),
+          code: Type.String({ minLength: 32, maxLength: 100 }),
+          verifier: Type.String({ minLength: 43, maxLength: 128 }),
+        }),
+      },
+    },
+    async (request, reply) => {
+      const body = request.body as { requestId: string; code: string; verifier: string }
+      if (!validPkceVerifier(body.verifier)) return reply.badRequest("Invalid PKCE verifier")
+      const codeHash = hashDesktopCode(body.code, config.authSecret)
+      const challenge = pkceChallenge(body.verifier)
+      const token = randomBytes(32).toString("base64url")
+      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+      const exchanged = await db.transaction(async (tx) => {
+        const [handoff] = await tx
+          .select({
+            callbackUrl: desktopAuthRequests.callbackUrl,
+            codeHash: desktopAuthRequests.codeHash,
+            codeChallenge: desktopAuthRequests.codeChallenge,
+            userId: desktopAuthRequests.userId,
+          })
+          .from(desktopAuthRequests)
+          .where(
+            and(
+              eq(desktopAuthRequests.id, body.requestId),
+              isNull(desktopAuthRequests.usedAt),
+              gt(desktopAuthRequests.expiresAt, new Date()),
+            ),
+          )
+          .for("update")
+          .limit(1)
+        try {
+          if (handoff) validateMobileCallback(handoff.callbackUrl)
+        } catch {
+          return false
+        }
+        if (
+          !handoff?.userId ||
+          !handoff.codeHash ||
+          !secureEqual(handoff.codeHash, codeHash) ||
+          !secureEqual(handoff.codeChallenge, challenge)
+        ) {
+          return false
+        }
+        await tx
+          .update(desktopAuthRequests)
+          .set({ usedAt: new Date() })
+          .where(and(eq(desktopAuthRequests.id, body.requestId), isNull(desktopAuthRequests.usedAt)))
+        await tx.insert(sessions).values({
+          id: randomBytes(24).toString("base64url"),
+          token,
+          userId: handoff.userId,
+          expiresAt,
+          ipAddress: request.ip,
+          userAgent: request.headers["user-agent"] ?? "Conduit mobile",
+        })
+        return true
+      })
+      if (!exchanged) return reply.unauthorized("This mobile sign-in code is invalid or expired")
       return { token, expiresAt: expiresAt.toISOString() }
     },
   )
