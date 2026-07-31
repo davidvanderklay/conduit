@@ -237,6 +237,49 @@ describe("DesktopPlayer track menus", () => {
     for (const region of chrome) expect(region.classList.contains("visible")).toBe(true)
   })
 
+  it("coalesces continuous timeline changes into one exact seek", () => {
+    const seek = document.querySelector<HTMLInputElement>('input[aria-label="Seek"]')
+    expect(seek).not.toBeNull()
+    desktop.nativePlayerCommand.mockClear()
+
+    act(() => {
+      changeRange(seek!, 20)
+      changeRange(seek!, 45)
+      changeRange(seek!, 70)
+    })
+
+    expect(desktop.nativePlayerCommand).not.toHaveBeenCalled()
+    act(() => vi.advanceTimersByTime(179))
+    expect(desktop.nativePlayerCommand).not.toHaveBeenCalled()
+    act(() => vi.advanceTimersByTime(1))
+    expect(desktop.nativePlayerCommand).toHaveBeenCalledTimes(1)
+    expect(desktop.nativePlayerCommand).toHaveBeenCalledWith([
+      "seek",
+      70,
+      "absolute+exact",
+    ])
+  })
+
+  it("commits the latest timeline position immediately on pointer release", () => {
+    const seek = document.querySelector<HTMLInputElement>('input[aria-label="Seek"]')
+    expect(seek).not.toBeNull()
+    desktop.nativePlayerCommand.mockClear()
+
+    act(() => {
+      changeRange(seek!, 55)
+      seek!.dispatchEvent(new Event("pointerup", { bubbles: true }))
+    })
+
+    expect(desktop.nativePlayerCommand).toHaveBeenCalledTimes(1)
+    expect(desktop.nativePlayerCommand).toHaveBeenCalledWith([
+      "seek",
+      55,
+      "absolute+exact",
+    ])
+    act(() => vi.advanceTimersByTime(500))
+    expect(desktop.nativePlayerCommand).toHaveBeenCalledTimes(1)
+  })
+
   it("unmounts the menu when its trigger is clicked again", () => {
     click(button("Audio: English"))
     click(button("Audio: English"))
@@ -358,4 +401,13 @@ function click(target: HTMLButtonElement): void {
   act(() => {
     target.dispatchEvent(new MouseEvent("click", { bubbles: true }))
   })
+}
+
+function changeRange(target: HTMLInputElement, value: number): void {
+  const setter = Object.getOwnPropertyDescriptor(
+    HTMLInputElement.prototype,
+    "value",
+  )?.set
+  setter?.call(target, String(value))
+  target.dispatchEvent(new Event("input", { bubbles: true }))
 }

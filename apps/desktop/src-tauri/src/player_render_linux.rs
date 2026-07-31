@@ -322,7 +322,16 @@ fn schedule_redraw() {
     glib::idle_add_once(|| {
         REDRAW_PENDING.store(false, Ordering::Release);
         if RENDER_ACTIVE.load(Ordering::Acquire) {
-            refresh();
+            // libmpv calls this for every decoded video frame. Only invalidate
+            // the GLArea here. Repainting the transparent WebKit widget and
+            // the entire GTK overlay at video frame rate floods Xwayland with
+            // full-window damage, eventually starving Mutter while audio
+            // continues normally.
+            SURFACE.with(|surface| {
+                if let Some(surface) = surface.borrow().as_ref() {
+                    surface.area.queue_render();
+                }
+            });
         }
     });
 }

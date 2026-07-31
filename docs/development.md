@@ -167,8 +167,8 @@ For development outside Nix:
   NSIS installer with the DLL included.
 
 Linux playback uses libmpv's OpenGL render API. X11 is supported directly.
-Wayland uses XWayland by default; `CONDUIT_NATIVE_WAYLAND=1` enables the
-experimental native path.
+Wayland sessions use the native backend by default. `CONDUIT_XWAYLAND=1`
+enables the XWayland fallback for diagnostic compatibility testing.
 
 ### Windows playback test matrix
 
