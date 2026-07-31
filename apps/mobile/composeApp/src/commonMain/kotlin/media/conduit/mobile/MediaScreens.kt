@@ -5,6 +5,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -197,6 +198,8 @@ internal fun MediaDetailsScreen(
     var playing by remember(item.id) { mutableStateOf<StreamItem?>(null) }
     var playback by remember(item.id) { mutableStateOf(PlaybackState()) }
     var resumePosition by remember(item.id) { mutableStateOf(0L) }
+    var episodesOpen by remember(item.id) { mutableStateOf(false) }
+    var currentAddonName by remember(item.id) { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     LaunchedEffect(item.id, item.type, addons) {
         runCatching { api.loadMeta(addons, item.type, item.id) }
@@ -233,6 +236,28 @@ internal fun MediaDetailsScreen(
             playback.positionMs, playback.durationMs)
         onProgressChanged()
     }
+    fun playNext(video: VideoItem) {
+        val preferredAddon = currentAddonName
+        scope.launch {
+            runCatching { persistProgress() }
+            selectedVideo = video
+            resumePosition = 0L
+            streamsLoading = true
+            val choices = runCatching { api.loadStreams(addons, item.type, video.id) }.getOrDefault(emptyList())
+            streamsLoading = false
+            val choice = choices.firstOrNull { it.addonName == preferredAddon && it.stream.url != null }
+                ?: choices.firstOrNull { it.stream.url != null }
+            if (choice != null) {
+                currentAddonName = choice.addonName
+                playing = choice.stream
+            } else {
+                streams = choices
+                streamsError = if (choices.isEmpty()) "No streams were returned for the next episode." else null
+                streamPageOpen = true
+                playing = null
+            }
+        }
+    }
     PlatformBackHandler {
         when {
             playing != null -> scope.launch { runCatching { persistProgress() }; playing = null }
@@ -243,20 +268,32 @@ internal fun MediaDetailsScreen(
     LaunchedEffect(playing, playingVideoId) {
         while (playing != null) { delay(15_000); runCatching { persistProgress() } }
     }
-    LaunchedEffect(playback.ended) { if (playback.ended) runCatching { persistProgress() } }
+    val orderedVideos = meta?.videos.orEmpty().sortedWith(compareBy<VideoItem> { it.season ?: 0 }.thenBy { it.episode ?: 0 })
+    val nextVideo = orderedVideos.indexOfFirst { it.id == selectedVideo?.id }.takeIf { it >= 0 }?.let { orderedVideos.getOrNull(it + 1) }
+    LaunchedEffect(playback.ended) { if (playback.ended) nextVideo?.let(::playNext) ?: runCatching { persistProgress() } }
 
     if (playing?.url != null) {
         Box(Modifier.fillMaxSize().background(Color.Black)) {
-            NativePlayer(playing!!.url!!, true, resumePosition, playing!!.behaviorHints?.proxyHeaders?.request.orEmpty().mapNotNull { (key, value) -> value.jsonPrimitive.contentOrNull?.let { key to it } }.toMap(), Modifier.fillMaxSize()) { playback = it }
+            NativePlayer(
+                url = playing!!.url!!, active = true, startPositionMs = resumePosition,
+                requestHeaders = playing!!.behaviorHints?.proxyHeaders?.request.orEmpty().mapNotNull { (key, value) -> value.jsonPrimitive.contentOrNull?.let { key to it } }.toMap(),
+                hasEpisodes = orderedVideos.isNotEmpty(), onEpisodes = { episodesOpen = true }, modifier = Modifier.fillMaxSize(),
+            ) { playback = it }
             IconButton(onClick = { scope.launch { runCatching { persistProgress() }; playing = null } }, modifier = Modifier.statusBarsPadding().padding(12.dp).background(Color.Black.copy(.55f), CircleShape).align(Alignment.TopStart)) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = Color.White) }
             if (playback.loading && playback.error == null) CircularProgressIndicator(Modifier.align(Alignment.Center), color = Color.White)
             playback.error?.let { message -> Surface(color = Color.Black.copy(.82f), shape = RoundedCornerShape(16.dp), modifier = Modifier.align(Alignment.Center).padding(28.dp)) { Column(Modifier.padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) { Icon(Icons.Rounded.ErrorOutline, null, tint = MaterialTheme.colorScheme.error); Spacer(Modifier.height(8.dp)); Text("Playback failed", color = Color.White, fontWeight = FontWeight.Bold); Text(message, color = Color.White.copy(.7f), style = MaterialTheme.typography.bodySmall); Spacer(Modifier.height(14.dp)); Button(onClick = { playing = null }) { Text("Choose another stream") } } } }
+            if (!episodesOpen && nextVideo != null && playback.durationMs > 0 && playback.durationMs - playback.positionMs in 1..30_000) {
+                Surface(Modifier.align(Alignment.BottomEnd).padding(24.dp), color = Color(0xF21A1A1D), shape = RoundedCornerShape(18.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(.5f))) {
+                    Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) { Column { Text("Up next", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium); Text(nextVideo.title ?: "Episode ${nextVideo.episode ?: ""}", color = Color.White, fontWeight = FontWeight.Bold) }; Spacer(Modifier.width(18.dp)); Button(onClick = { playNext(nextVideo) }) { Text("Play now") } }
+                }
+            }
+            if (episodesOpen) PlayerEpisodeDrawer(orderedVideos, selectedVideo, snapshot, onDismiss = { episodesOpen = false }) { episodesOpen = false; playNext(it) }
         }
         return
     }
     if (streamPageOpen) {
         StreamSelectionScreen(meta?.name ?: item.name, streams.orEmpty(), streamsLoading, streamsError, onBack = { streamPageOpen = false; streams = null }) { source ->
-            if (source.stream.url != null) playing = source.stream
+            if (source.stream.url != null) { currentAddonName = source.addonName; playing = source.stream }
         }
         return
     }
@@ -306,6 +343,30 @@ internal fun MediaDetailsScreen(
                     trailingContent = { Icon(Icons.Rounded.PlayArrow, null) },
                     modifier = Modifier.clickable { selectedVideo = video; requestStreams(video) },
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun BoxScope.PlayerEpisodeDrawer(videos: List<VideoItem>, current: VideoItem?, snapshot: ProfileSnapshot?, onDismiss: () -> Unit, onSelect: (VideoItem) -> Unit) {
+    var season by remember(current?.id, videos) { mutableStateOf(current?.season ?: videos.firstOrNull()?.season ?: 1) }
+    val seasons = videos.mapNotNull(VideoItem::season).distinct().sorted()
+    Surface(Modifier.align(Alignment.CenterEnd).fillMaxHeight().fillMaxWidth(.52f), color = Color(0xF21A1A1D), shape = RoundedCornerShape(topStart = 28.dp, bottomStart = 28.dp), shadowElevation = 20.dp) {
+        Column(Modifier.padding(18.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) { Text("Episodes", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold); Spacer(Modifier.weight(1f)); IconButton(onClick = onDismiss) { Icon(Icons.Rounded.Close, "Close", tint = Color.White) } }
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) { items(seasons) { value -> FilterChip(selected = season == value, onClick = { season = value }, label = { Text("Season $value") }) } }
+            Spacer(Modifier.height(10.dp))
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                items(videos.filter { it.season == season }, key = VideoItem::id) { video ->
+                    val progress = snapshot?.progress?.firstOrNull { it.videoId == video.id }
+                    Surface(onClick = { onSelect(video) }, color = if (video.id == current?.id) MaterialTheme.colorScheme.primary.copy(.14f) else Color.White.copy(.05f), shape = RoundedCornerShape(16.dp), border = if (video.id == current?.id) BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null) {
+                        Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Box { AsyncImage(video.thumbnail, null, Modifier.size(120.dp, 68.dp).clip(RoundedCornerShape(10.dp)), contentScale = ContentScale.Crop); if (progress?.watched == true) Icon(Icons.Rounded.CheckCircle, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.align(Alignment.TopEnd).padding(4.dp)) }
+                            Spacer(Modifier.width(12.dp)); Column(Modifier.weight(1f)) { Text("${video.episode ?: ""}. ${video.title ?: "Episode"}", color = Color.White, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis); video.overview?.let { Text(it, color = Color.White.copy(.55f), maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall) }; if (progress != null && !progress.watched && progress.durationMs > 0) LinearProgressIndicator({ progress.positionMs.toFloat() / progress.durationMs }, Modifier.fillMaxWidth().padding(top = 7.dp), color = MaterialTheme.colorScheme.primary) }
+                        }
+                    }
+                }
             }
         }
     }
