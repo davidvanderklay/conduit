@@ -2,6 +2,7 @@ package media.conduit.mobile
 
 import android.app.Activity
 import android.content.pm.ActivityInfo
+import android.content.res.Configuration
 import android.os.SystemClock
 import android.widget.Toast
 import androidx.annotation.OptIn
@@ -53,6 +54,7 @@ actual fun NativePlayer(
     val context = androidx.compose.ui.platform.LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val activity = context as? Activity
+    val landscape = context.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     val currentCallback by rememberUpdatedState(onState)
     val player = remember(url, requestHeaders) {
         val http = DefaultHttpDataSource.Factory()
@@ -188,13 +190,13 @@ actual fun NativePlayer(
                     }
                     PlayerControlButton(Icons.Rounded.Forward10, "Forward 10 seconds") { player.seekForward(); controlsVisible = true }
                 }
-                Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(horizontal = 22.dp, vertical = 14.dp)) {
+                Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(horizontal = 18.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(0.dp)) {
                     Slider(
                         value = if (dragging) draggedPosition else positionMs.toFloat(),
                         onValueChange = { dragging = true; draggedPosition = it },
                         onValueChangeFinished = { player.seekTo(draggedPosition.toLong()); dragging = false; controlsVisible = true },
                         valueRange = 0f..durationMs.coerceAtLeast(1).toFloat(),
-                        colors = SliderDefaults.colors(thumbColor = MaterialTheme.colorScheme.primary, activeTrackColor = MaterialTheme.colorScheme.primary, inactiveTrackColor = Color.White.copy(.35f)),
+                        colors = SliderDefaults.colors(thumbColor = MaterialTheme.colorScheme.primary, activeTrackColor = MaterialTheme.colorScheme.primary, inactiveTrackColor = Color.White.copy(.35f)), modifier = Modifier.height(30.dp),
                     )
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         PlayerTimePill(formatPlayerTime(if (dragging) draggedPosition.toLong() else positionMs))
@@ -202,10 +204,10 @@ actual fun NativePlayer(
                     }
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceEvenly) {
                         val speeds = listOf(.5f, .75f, 1f, 1.25f, 1.5f, 2f)
-                        PlayerBottomAction(Icons.Rounded.Speed, "${player.playbackParameters.speed}×") { val current = player.playbackParameters.speed; player.setPlaybackSpeed(speeds[(speeds.indexOfFirst { it == current }.takeIf { it >= 0 } ?: 1).let { (it + 1) % speeds.size }]); controlsVisible = true }
-                        PlayerBottomAction(Icons.Rounded.Headphones, "Audio") { trackPanel = C.TRACK_TYPE_AUDIO; controlsVisible = true }
-                        PlayerBottomAction(Icons.Rounded.Subtitles, "Subtitles") { trackPanel = C.TRACK_TYPE_TEXT; controlsVisible = true }
-                        if (hasEpisodes) PlayerBottomAction(Icons.Rounded.PlaylistPlay, "Episodes", onEpisodes)
+                        PlayerBottomAction(Icons.Rounded.Speed, "${player.playbackParameters.speed}×", landscape) { val current = player.playbackParameters.speed; player.setPlaybackSpeed(speeds[(speeds.indexOfFirst { it == current }.takeIf { it >= 0 } ?: 1).let { (it + 1) % speeds.size }]); controlsVisible = true }
+                        PlayerBottomAction(Icons.Rounded.Headphones, "Audio", landscape) { trackPanel = C.TRACK_TYPE_AUDIO; controlsVisible = true }
+                        PlayerBottomAction(Icons.Rounded.Subtitles, "Subtitles", landscape) { trackPanel = C.TRACK_TYPE_TEXT; controlsVisible = true }
+                        if (hasEpisodes) PlayerBottomAction(Icons.Rounded.PlaylistPlay, "Episodes", landscape, onEpisodes)
                     }
                 }
             }
@@ -298,17 +300,18 @@ private fun BoxScope.FullscreenSubtitlePanel(player: ExoPlayer, options: List<Pl
 }
 
 @Composable
-private fun PlayerBottomAction(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
-    TextButton(onClick = onClick) { Icon(icon, null, tint = Color.White); Spacer(Modifier.width(7.dp)); Text(label, color = Color.White) }
+private fun PlayerBottomAction(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, showLabel: Boolean, onClick: () -> Unit) {
+    TextButton(onClick = onClick, contentPadding = PaddingValues(horizontal = if (showLabel) 10.dp else 6.dp, vertical = 2.dp)) { Icon(icon, label, tint = Color.White); if (showLabel) { Spacer(Modifier.width(6.dp)); Text(label, color = Color.White) } }
 }
 
 private data class PlayerTrackOption(val group: Tracks.Group, val index: Int) {
     private val format get() = group.getTrackFormat(index)
     val supported get() = group.isTrackSupported(index)
     val selected get() = group.isTrackSelected(index)
-    val languageKey get() = format.language ?: "und"
-    val languageName get() = format.language?.let { java.util.Locale.forLanguageTag(it).displayLanguage.replaceFirstChar(Char::uppercase) } ?: "Unknown language"
-    val variantName get() = format.label?.takeIf { it.isNotBlank() } ?: listOfNotNull(format.sampleMimeType?.substringAfter('/'), format.codecs).joinToString(" · ").ifBlank { "Default" }
+    private val labelLanguage get() = format.label?.substringBefore('(')?.substringBefore('[')?.trim()?.lowercase()
+    val languageKey get() = format.language?.takeIf { it.isNotBlank() }?.substringBefore('-') ?: when (labelLanguage) { "english" -> "en"; "spanish", "español" -> "es"; "german", "deutsch" -> "de"; "arabic", "العربية" -> "ar"; "japanese", "日本語" -> "ja"; "indonesian", "bahasa indonesia" -> "id"; "french", "français" -> "fr"; "italian", "italiano" -> "it"; "portuguese", "português" -> "pt"; else -> labelLanguage ?: "und" }
+    val languageName get() = languageKey.takeUnless { it == "und" }?.let { java.util.Locale.forLanguageTag(it).displayLanguage.replaceFirstChar(Char::uppercase) } ?: format.label ?: "Unknown language"
+    val variantName get() = listOfNotNull(format.label?.takeIf { it.isNotBlank() }, format.sampleMimeType?.substringAfter('/'), format.codecs, format.bitrate.takeIf { it > 0 }?.let { "${it / 1000} kbps" }).distinct().joinToString(" · ").ifBlank { "Default" }
 }
 
 @Composable
