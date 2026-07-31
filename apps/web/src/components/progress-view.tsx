@@ -17,6 +17,7 @@ import { posterCoverClass, posterGridClass } from "../lib/poster-layout"
 import { Card } from "./ui/card"
 import { PaginationControls } from "./pagination-controls"
 import { PosterActionMenu, type PosterAction } from "./poster-action-menu"
+import { PosterResumeButton } from "./poster-resume-button"
 import { VirtualPosterGrid } from "./virtual-poster-grid"
 
 type Filter = "all" | "movie" | "series"
@@ -160,20 +161,25 @@ function ProgressCard({
     onSelect(catalogItem, item.mediaType === "series" && !history ? item.mediaId : item.videoId)
   return (
     <div>
-      <button className="w-full text-left" onClick={open}>
-        <div className={`relative ${posterCoverClass}`}>
+      <div className={`relative ${posterCoverClass}`}>
+        <button
+          className="absolute inset-0 w-full text-left"
+          aria-label={`View ${item.name}`}
+          onClick={open}
+        >
           {item.poster ? (
             <img className="h-full w-full object-cover" src={item.poster} alt="" loading="lazy" />
           ) : (
             <div className="grid h-full place-items-center text-zinc-700"><Film /></div>
           )}
-          {percent > 0 && (
-            <span className="absolute inset-x-0 bottom-0 h-1 bg-zinc-700">
-              <span className="block h-full bg-amber-400" style={{ width: `${percent}%` }} />
-            </span>
-          )}
-        </div>
-      </button>
+        </button>
+        {percent > 0 && (
+          <span className="pointer-events-none absolute inset-x-0 bottom-0 h-1 bg-zinc-700">
+            <span className="block h-full bg-amber-400" style={{ width: `${percent}%` }} />
+          </span>
+        )}
+        <PosterResumeButton title={item.name} progress={item} onResume={open} />
+      </div>
       <div className="mt-2 flex items-start gap-1">
         <button className="min-w-0 flex-1 text-left" onClick={open}>
           <p className="line-clamp-1 text-sm font-medium">{item.name}</p>

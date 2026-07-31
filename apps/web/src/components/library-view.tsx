@@ -9,6 +9,7 @@ import { useLibrary, useLibraryToggle } from "../lib/library"
 import { PosterWatchStatus } from "./poster-watch-status"
 import { PosterActionMenu } from "./poster-action-menu"
 import { PaginationControls } from "./pagination-controls"
+import { PosterResumeButton } from "./poster-resume-button"
 import { VirtualPosterGrid } from "./virtual-poster-grid"
 import { Card } from "./ui/card"
 
@@ -176,8 +177,12 @@ export function LibraryView({
                 : 0
             return (
               <div>
-                <button className="w-full text-left" onClick={() => onSelect(catalogItem)}>
-                  <div className={`relative ${posterCoverClass}`}>
+                <div className={`relative ${posterCoverClass}`}>
+                  <button
+                    className="absolute inset-0 w-full text-left"
+                    aria-label={`View ${catalogItem.name}`}
+                    onClick={() => onSelect(catalogItem)}
+                  >
                     {catalogItem.poster ? (
                       <img
                         className="h-full w-full object-cover"
@@ -193,16 +198,21 @@ export function LibraryView({
                         <Film />
                       </div>
                     )}
-                    {percent > 0 && (
-                      <span className="absolute inset-x-0 bottom-0 h-1 bg-zinc-700/90">
-                        <span
-                          className="block h-full bg-amber-400"
-                          style={{ width: `${percent}%` }}
-                        />
-                      </span>
-                    )}
-                  </div>
-                </button>
+                  </button>
+                  {percent > 0 && (
+                    <span className="pointer-events-none absolute inset-x-0 bottom-0 h-1 bg-zinc-700/90">
+                      <span
+                        className="block h-full bg-amber-400"
+                        style={{ width: `${percent}%` }}
+                      />
+                    </span>
+                  )}
+                  <PosterResumeButton
+                    title={catalogItem.name}
+                    progress={latest}
+                    onResume={() => onSelect(catalogItem)}
+                  />
+                </div>
                 <div className="mt-2 flex items-start gap-1">
                   <button
                     className="min-w-0 flex-1 text-left"
