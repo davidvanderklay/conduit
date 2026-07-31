@@ -5,6 +5,7 @@ export interface DevicePreferences {
   audioLanguage: string
   subtitleLanguage: string
   subtitleSize: number
+  subtitlePosition: number
   autoplay: boolean
   volume: number
   hardwareAcceleration: boolean
@@ -19,6 +20,7 @@ export const defaultPreferences: DevicePreferences = {
   audioLanguage: "en",
   subtitleLanguage: "en",
   subtitleSize: 100,
+  subtitlePosition: 90,
   autoplay: true,
   volume: 100,
   hardwareAcceleration: true,
@@ -34,6 +36,11 @@ export function readPreferences(storage: Storage = localStorage): DevicePreferen
       ...defaultPreferences,
       ...value,
       subtitleSize: clamp(Number(value.subtitleSize ?? defaultPreferences.subtitleSize), 75, 200),
+      subtitlePosition: clamp(
+        Number(value.subtitlePosition ?? defaultPreferences.subtitlePosition),
+        10,
+        100,
+      ),
       volume: clamp(Number(value.volume ?? defaultPreferences.volume), 0, 100),
     }
   } catch {
@@ -52,6 +59,7 @@ export function writePreferences(
 
 export function applyPreferences(preferences: DevicePreferences): void {
   document.documentElement.style.setProperty("--subtitle-scale", `${preferences.subtitleSize / 100}`)
+  document.documentElement.style.setProperty("--subtitle-position", `${preferences.subtitlePosition}%`)
   document.documentElement.classList.toggle("reduce-motion", preferences.reducedMotion)
 }
 
