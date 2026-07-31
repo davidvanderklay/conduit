@@ -197,6 +197,33 @@ class ConduitApiTest {
     }
 
     @Test
+    fun metadataAndStreamsUseStremioResourcePaths() = runTest {
+        val requested = mutableListOf<String>()
+        val engine = MockEngine { request ->
+            requested += request.url.encodedPath
+            val body = when {
+                request.url.encodedPath.contains("/meta/") ->
+                    """{"meta":{"id":"tt1","type":"movie","name":"A Movie","description":"Details"}}"""
+                request.url.encodedPath.contains("/stream/") ->
+                    """{"streams":[{"url":"https://video.example/movie.mp4","name":"Direct"}]}"""
+                else -> error("Unexpected path ${request.url.encodedPath}")
+            }
+            respond(body, HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "application/json"))
+        }
+        val api = ConduitApi(HttpClient(engine) { install(ContentNegotiation) { json() } })
+        val addon = InstalledAddonSummary(
+            id = "a1", manifestId = "fixture",
+            manifestUrl = "https://addon.example/config/manifest.json",
+            manifest = kotlinx.serialization.json.Json.parseToJsonElement("""{"name":"Fixture"}""").jsonObject,
+            position = 0, enabled = true,
+        )
+
+        assertEquals("Details", api.loadMeta(listOf(addon), "movie", "tt1").description)
+        assertEquals("Direct", api.loadStreams(listOf(addon), "movie", "tt1").single().stream.name)
+        assertEquals(listOf("/config/meta/movie/tt1.json", "/config/stream/movie/tt1.json"), requested)
+    }
+
+    @Test
     fun mobileOAuthCorrelatesCallbackAndPersistsExchangedSession() = runTest {
         val engine = MockEngine { request ->
             val body = when (request.url.encodedPath) {

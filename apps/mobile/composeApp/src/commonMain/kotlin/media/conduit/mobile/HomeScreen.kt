@@ -27,6 +27,7 @@ internal fun HomeScreen(
     profile: ProfileSummary?,
     sync: ProfileSyncState,
     api: ConduitApi,
+    onSelect: (CatalogItem, String?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val scope = rememberCoroutineScope()
@@ -83,7 +84,12 @@ internal fun HomeScreen(
             item {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     items(continueWatching, key = { it.videoId }) { item ->
-                        ContinueCard(item)
+                        ContinueCard(item) {
+                            onSelect(
+                                CatalogItem(item.mediaId, item.mediaType, item.name, poster = item.poster),
+                                if (item.mediaType == "series") item.mediaId else item.videoId,
+                            )
+                        }
                     }
                 }
             }
@@ -93,7 +99,9 @@ internal fun HomeScreen(
             item {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     items(library, key = { it.id }) { item ->
-                        PosterCard(item.name, item.poster, item.type)
+                        PosterCard(item.name, item.poster, item.type) {
+                            onSelect(CatalogItem(item.id, item.type, item.name, poster = item.poster), null)
+                        }
                     }
                 }
             }
@@ -119,7 +127,7 @@ internal fun HomeScreen(
             item(key = catalog.key) {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     items(catalog.items, key = { "${catalog.key}:${it.type}:${it.id}" }) { item ->
-                        PosterCard(item.name, item.poster, item.releaseInfo ?: item.type)
+                        PosterCard(item.name, item.poster, item.releaseInfo ?: item.type) { onSelect(item, null) }
                     }
                 }
             }
@@ -151,8 +159,8 @@ private fun ShelfTitle(title: String) {
 }
 
 @Composable
-private fun PosterCard(name: String, poster: String?, caption: String?) {
-    Column(Modifier.width(132.dp).clickable { }, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+private fun PosterCard(name: String, poster: String?, caption: String?, onClick: () -> Unit) {
+    Column(Modifier.width(132.dp).clickable(onClick = onClick), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Box(
             Modifier.fillMaxWidth().aspectRatio(2f / 3f).clip(RoundedCornerShape(12.dp))
                 .background(MaterialTheme.colorScheme.surfaceVariant),
@@ -176,9 +184,9 @@ private fun PosterCard(name: String, poster: String?, caption: String?) {
 }
 
 @Composable
-private fun ContinueCard(item: ProgressSummary) {
+private fun ContinueCard(item: ProgressSummary, onClick: () -> Unit) {
     val progress = (item.positionMs.toFloat() / item.durationMs.toFloat()).coerceIn(0f, 1f)
-    Column(Modifier.width(210.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(Modifier.width(210.dp).clickable(onClick = onClick), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceVariant)) {
             Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(Color(0xFF342B55), Color(0xFF17151E)))))
             AsyncImage(

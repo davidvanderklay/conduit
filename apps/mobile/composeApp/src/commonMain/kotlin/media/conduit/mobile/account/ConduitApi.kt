@@ -122,6 +122,56 @@ data class CatalogItem(
 )
 
 @Serializable
+data class VideoItem(
+    val id: String,
+    val title: String? = null,
+    val season: Int? = null,
+    val episode: Int? = null,
+    val released: String? = null,
+    val thumbnail: String? = null,
+    val overview: String? = null,
+    val description: String? = null,
+)
+
+@Serializable
+data class MetaItem(
+    val id: String,
+    val type: String,
+    val name: String,
+    val poster: String? = null,
+    val background: String? = null,
+    val logo: String? = null,
+    val description: String? = null,
+    val releaseInfo: String? = null,
+    val runtime: String? = null,
+    val genres: List<String> = emptyList(),
+    val imdbRating: String? = null,
+    val contentRating: String? = null,
+    val director: List<String> = emptyList(),
+    val cast: List<String> = emptyList(),
+    val videos: List<VideoItem> = emptyList(),
+)
+
+@Serializable
+data class StreamItem(
+    val url: String? = null,
+    val externalUrl: String? = null,
+    val infoHash: String? = null,
+    val fileIdx: Int? = null,
+    val name: String? = null,
+    val title: String? = null,
+    val description: String? = null,
+)
+
+data class StreamSource(val addonName: String, val stream: StreamItem)
+
+@Serializable
+private data class MetaResponse(val meta: MetaItem? = null)
+
+@Serializable
+private data class StreamsResponse(val streams: List<StreamItem> = emptyList())
+
+@Serializable
 private data class CatalogResponse(val metas: List<CatalogItem> = emptyList())
 
 data class HomeCatalog(
@@ -326,6 +376,79 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
             catalogs = results.mapNotNull { it.getOrNull() },
             failedRequests = results.count { it.isFailure },
         )
+    }
+
+    suspend fun loadMeta(addons: List<InstalledAddonSummary>, type: String, id: String): MetaItem = coroutineScope {
+        val results = addons.filter { it.enabled }.map { addon ->
+            async {
+                runCatching {
+                    val response = client.get(resourceUrl(addon.manifestUrl, "meta", type, id))
+                    if (!response.status.isSuccess()) error("metadata request failed")
+                    response.body<MetaResponse>().meta ?: error("add-on returned no metadata")
+                }
+            }
+        }.map { it.await() }
+        results.firstNotNullOfOrNull { it.getOrNull() }
+            ?: throw ServerRequestException("No installed add-on returned metadata for this title")
+    }
+
+    suspend fun loadStreams(
+        addons: List<InstalledAddonSummary>,
+        type: String,
+        videoId: String,
+    ): List<StreamSource> = coroutineScope {
+        addons.filter { it.enabled }.map { addon ->
+            async {
+                runCatching {
+                    val response = client.get(resourceUrl(addon.manifestUrl, "stream", type, videoId))
+                    if (!response.status.isSuccess()) error("stream request failed")
+                    val name = addon.manifest["name"]?.jsonPrimitive?.contentOrNull ?: addon.manifestId
+                    response.body<StreamsResponse>().streams.map { StreamSource(name, it) }
+                }.getOrDefault(emptyList())
+            }
+        }.flatMap { it.await() }
+    }
+
+    suspend fun searchCatalogs(addons: List<InstalledAddonSummary>, query: String): List<CatalogItem> = coroutineScope {
+        val requests = addons.filter { it.enabled }.flatMap { addon ->
+            addon.manifest["catalogs"]?.jsonArray.orEmpty().mapNotNull { it as? JsonObject }
+                .filter { catalog ->
+                    catalog["extra"]?.jsonArray.orEmpty().any { extra ->
+                        (extra as? JsonObject)?.get("name")?.jsonPrimitive?.contentOrNull == "search"
+                    }
+                }
+                .mapNotNull { catalog ->
+                    val type = catalog["type"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+                    val id = catalog["id"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+                    Triple(addon, type, id)
+                }
+        }.map { (addon, type, id) ->
+            async {
+                runCatching {
+                    val url = resourceUrl(addon.manifestUrl, "catalog", type, id, "search", query)
+                    val response = client.get(url)
+                    if (!response.status.isSuccess()) error("search failed")
+                    response.body<CatalogResponse>().metas
+                }.getOrDefault(emptyList())
+            }
+        }
+        requests.flatMap { it.await() }.distinctBy { "${it.type}:${it.id}" }
+    }
+
+    private fun resourceUrl(
+        manifestUrl: String,
+        resource: String,
+        type: String,
+        id: String,
+        extraName: String? = null,
+        extraValue: String? = null,
+    ): String {
+        val cleanManifest = manifestUrl.substringBefore('?').substringBefore('#')
+        val base = cleanManifest.substringBeforeLast('/', cleanManifest).trimEnd('/')
+        val path = "$base/${resource.encodeURLPathPart()}/${type.encodeURLPathPart()}/${id.encodeURLPathPart()}"
+        return if (extraName != null && extraValue != null) {
+            "$path/${extraName.encodeURLPathPart()}=${extraValue.encodeURLPathPart()}.json"
+        } else "$path.json"
     }
 
     suspend fun generateRecoveryCodes(baseUrl: String, token: String): List<String> {

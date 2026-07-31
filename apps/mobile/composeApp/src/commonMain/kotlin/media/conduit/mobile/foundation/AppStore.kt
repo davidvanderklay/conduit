@@ -8,7 +8,7 @@ enum class AppDestination(val label: String) {
     Home("Home"),
     Search("Search"),
     Library("Library"),
-    Settings("Settings"),
+    Profile("Profile"),
 }
 
 data class AppState(
