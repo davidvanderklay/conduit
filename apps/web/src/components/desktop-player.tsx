@@ -644,11 +644,15 @@ export function DesktopPlayer({
             </p>
           </Card>
         </div>
-      ) : !snapshot ? (
-        <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center">
-          <p className="flex items-center gap-2 rounded-full bg-black/75 px-4 py-2 text-zinc-300">
-            <LoaderCircle className="animate-spin" size={18} /> Starting native playback…
-          </p>
+      ) : !snapshot || snapshot.loading || snapshot.duration <= 0 ? (
+        <div
+          className="pointer-events-none absolute inset-0 z-10 grid place-items-center"
+          role="status"
+          aria-label="Video loading"
+        >
+          <div className="rounded-full bg-black/55 p-3 shadow-lg backdrop-blur-sm">
+            <LoaderCircle className="animate-spin text-white" size={36} />
+          </div>
         </div>
       ) : null}
 
@@ -903,8 +907,14 @@ export function DesktopPlayer({
                   expandedControls ? "text-sm" : "text-xs"
                 }`}
               >
-                {formatTime(snapshot.position)}
-                <span className="text-zinc-500"> / {formatTime(snapshot.duration)}</span>
+                {snapshot.duration > 0 ? (
+                  <>
+                    {formatTime(snapshot.position)}
+                    <span className="text-zinc-500"> / {formatTime(snapshot.duration)}</span>
+                  </>
+                ) : (
+                  <span className="text-zinc-500">--:--:-- / --:--:--</span>
+                )}
               </span>
 
               <div className="flex-1" />

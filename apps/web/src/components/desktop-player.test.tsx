@@ -19,6 +19,7 @@ const snapshot = {
   running: true,
   ended: false,
   paused: false,
+  loading: false,
   position: 10,
   duration: 100,
   volume: 80,

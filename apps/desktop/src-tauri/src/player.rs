@@ -50,6 +50,7 @@ pub struct PlayerSnapshot {
     pub running: bool,
     pub ended: bool,
     pub paused: bool,
+    pub loading: bool,
     pub position: f64,
     pub duration: f64,
     pub volume: f64,
@@ -183,6 +184,9 @@ impl PlayerManager {
             running: true,
             ended: mpv.get_property::<bool>("eof-reached").unwrap_or(false),
             paused: mpv.get_property::<bool>("pause").unwrap_or(false),
+            loading: mpv
+                .get_property::<bool>("paused-for-cache")
+                .unwrap_or(false),
             position: mpv.get_property::<f64>("time-pos").unwrap_or_default(),
             duration: mpv.get_property::<f64>("duration").unwrap_or_default(),
             volume: mpv.get_property::<f64>("volume").unwrap_or(100.0),

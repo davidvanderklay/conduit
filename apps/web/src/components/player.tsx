@@ -480,8 +480,14 @@ function WebPlayer({
             }}
           />
           {waiting && (
-            <div className="pointer-events-none absolute inset-0 grid place-items-center">
-              <LoaderCircle className="animate-spin text-white" size={42} />
+            <div
+              className="pointer-events-none absolute inset-0 grid place-items-center"
+              role="status"
+              aria-label="Video loading"
+            >
+              <div className="rounded-full bg-black/55 p-3 shadow-lg backdrop-blur-sm">
+                <LoaderCircle className="animate-spin text-white" size={36} />
+              </div>
             </div>
           )}
           {!episodeDrawerOpen && (
@@ -566,7 +572,9 @@ function WebPlayer({
                 }}
               />
               <span className="text-xs tabular-nums text-zinc-300">
-                {formatTime(currentTime)} / {formatTime(duration)}
+                {duration > 0
+                  ? `${formatTime(currentTime)} / ${formatTime(duration)}`
+                  : "--:--:-- / --:--:--"}
               </span>
               <div className="flex-1" />
               <span className="hidden max-w-40 truncate text-xs text-zinc-400 md:block">
