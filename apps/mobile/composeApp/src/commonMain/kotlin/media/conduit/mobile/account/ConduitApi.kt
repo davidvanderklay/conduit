@@ -167,7 +167,7 @@ data class MetaItem(
 )
 
 @Serializable
-data class StreamProxyHeaders(val request: Map<String, String> = emptyMap())
+data class StreamProxyHeaders(val request: Map<String, JsonElement> = emptyMap())
 @Serializable
 data class StreamBehaviorHints(val proxyHeaders: StreamProxyHeaders? = null, val filename: String? = null)
 @Serializable
@@ -175,7 +175,7 @@ data class StreamItem(
     val url: String? = null,
     val externalUrl: String? = null,
     val infoHash: String? = null,
-    val fileIdx: Int? = null,
+    val fileIdx: JsonElement? = null,
     val name: String? = null,
     val title: String? = null,
     val description: String? = null,
@@ -500,16 +500,22 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
         type: String,
         videoId: String,
     ): List<StreamSource> = coroutineScope {
-        addons.filter { it.enabled }.map { addon ->
+        val results = addons.filter { it.enabled }.map { addon ->
             async {
                 runCatching {
                     val response = client.get(resourceUrl(addon.manifestUrl, "stream", type, videoId))
                     if (!response.status.isSuccess()) error("stream request failed")
                     val name = addon.manifest["name"]?.jsonPrimitive?.contentOrNull ?: addon.manifestId
                     response.body<StreamsResponse>().streams.map { StreamSource(name, it) }
-                }.getOrDefault(emptyList())
+                }
             }
-        }.flatMap { it.await() }
+        }.map { it.await() }
+        val streams = results.flatMap { it.getOrDefault(emptyList()) }
+        if (streams.isEmpty() && results.isNotEmpty() && results.all { it.isFailure }) {
+            val reason = results.firstNotNullOfOrNull { it.exceptionOrNull()?.message }
+            throw ServerRequestException(reason ?: "Every installed add-on failed to load streams")
+        }
+        streams
     }
 
     suspend fun searchCatalogs(addons: List<InstalledAddonSummary>, query: String): List<CatalogItem> = coroutineScope {
