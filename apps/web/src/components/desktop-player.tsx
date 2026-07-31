@@ -177,6 +177,10 @@ export function DesktopPlayer({
       .then(async (initial) => {
         if (cancelled) return
         setSnapshot(initial)
+        // WebKitGTK can retain pixels from the page that was visible before
+        // its background became transparent. Reallocate the overlay after the
+        // player DOM has committed, matching the repaint caused by fullscreen.
+        resetOverlay()
         await nativePlayerCommand(["set", "sub-pos", preferences.subtitlePosition])
         const resolved = await resolveAddonSubtitles(addons, type, videoId)
         if (!cancelled) {
@@ -214,7 +218,7 @@ export function DesktopPlayer({
       document.documentElement.classList.remove("native-playback")
       if (!closing.current) void stopNativePlayer()
     }
-  }, [addons, mediaTitle, type, url, videoId])
+  }, [addons, mediaTitle, resetOverlay, type, url, videoId])
 
   useEffect(() => {
     if (
