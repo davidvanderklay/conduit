@@ -15,6 +15,7 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.ui.PlayerView
@@ -39,21 +40,29 @@ actual fun NativePlayer(
             .setAllowCrossProtocolRedirects(true)
             .setUserAgent("Conduit Mobile")
             .setDefaultRequestProperties(requestHeaders)
-        ExoPlayer.Builder(context).setMediaSourceFactory(DefaultMediaSourceFactory(http)).build()
+        val renderers = DefaultRenderersFactory(context).setEnableDecoderFallback(true)
+        ExoPlayer.Builder(context, renderers).setMediaSourceFactory(DefaultMediaSourceFactory(http)).build()
     }
+    var playbackError by remember(player) { mutableStateOf<String?>(null) }
 
     DisposableEffect(player, url) {
         val previousOrientation = activity?.requestedOrientation
         var resumed = false
         val listener = object : Player.Listener {
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
-                currentCallback(PlaybackState(loading = false, error = error.cause?.message ?: error.message))
+                playbackError = when (error.errorCode) {
+                    androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FAILED,
+                    androidx.media3.common.PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
+                    -> "This device cannot decode this stream's video format. Try a 1080p H.264/AVC stream or a physical device with HEVC support."
+                    else -> error.cause?.message ?: error.message
+                }
             }
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_READY && !resumed) {
                     resumed = true
                     val duration = player.duration.coerceAtLeast(0)
                     if (startPositionMs > 0 && startPositionMs < duration - 5_000) player.seekTo(startPositionMs)
+                    activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
                 }
             }
             override fun onRenderedFirstFrame() {
@@ -97,6 +106,7 @@ actual fun NativePlayer(
                         positionMs = player.currentPosition.coerceAtLeast(0),
                         durationMs = player.duration.coerceAtLeast(0),
                         ended = player.playbackState == Player.STATE_ENDED,
+                        error = playbackError,
                     ),
                 )
                 delay(500)
