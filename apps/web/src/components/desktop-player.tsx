@@ -320,6 +320,7 @@ export function DesktopPlayer({
     const duration = snapshot.duration || lastPlayback.current.duration
     if (!nextTransitionRequested.current) {
       nextTransitionRequested.current = true
+      resetOverlay()
       void Promise.resolve(
         onEnded?.(!nextTransitionSuppressed.current),
       ).catch((cause: unknown) => {
@@ -330,7 +331,7 @@ export function DesktopPlayer({
       .catch((cause: unknown) => {
         setError(cause instanceof Error ? cause.message : String(cause))
       })
-  }, [onEnded, saveProgress, snapshot])
+  }, [onEnded, resetOverlay, saveProgress, snapshot])
 
   useEffect(() => {
     const syncWindowLayout = () => {
@@ -625,9 +626,13 @@ export function DesktopPlayer({
             nextTransitionSuppressed.current = true
             resetOverlay()
           }}
+          onVisibilityChange={(visible) => {
+            if (!visible) resetOverlay()
+          }}
           onWatchNow={() => {
             if (nextTransitionRequested.current) return
             nextTransitionRequested.current = true
+            resetOverlay()
             const duration = snapshot.duration || lastPlayback.current.duration
             void saveProgress(duration, duration, true)
             void Promise.resolve(onNextEpisode?.()).catch((cause: unknown) => {
@@ -643,6 +648,7 @@ export function DesktopPlayer({
         onSelect={(video) => {
           if (nextTransitionRequested.current) return
           nextTransitionRequested.current = true
+          resetOverlay()
           void Promise.resolve(onSelectEpisode?.(video)).catch((cause: unknown) => {
             setError(cause instanceof Error ? cause.message : String(cause))
           })
@@ -804,6 +810,7 @@ export function DesktopPlayer({
                   onClick={() => {
                     if (nextTransitionRequested.current) return
                     nextTransitionRequested.current = true
+                    resetOverlay()
                     void onNextEpisode()
                   }}
                 >

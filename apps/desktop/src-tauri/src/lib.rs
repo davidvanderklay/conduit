@@ -153,6 +153,9 @@ fn player_toggle_fullscreen(app: AppHandle) -> Result<bool, String> {
     window
         .set_fullscreen(fullscreen)
         .map_err(|error| error.to_string())?;
+    #[cfg(target_os = "linux")]
+    app.run_on_main_thread(crate::player_render_linux::reconfigure)
+        .map_err(|error| error.to_string())?;
     Ok(fullscreen)
 }
 

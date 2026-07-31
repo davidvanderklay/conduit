@@ -87,6 +87,9 @@ pub fn initialize(window: &WebviewWindow) -> Result<(), String> {
     overlay.set_overlay_pass_through(&webview, false);
     webview.set_hexpand(true);
     webview.set_vexpand(true);
+    // Tauri's Linux undecorated-resize handler walks exactly two parents from
+    // WebView and downcasts the result to gtk::Window. Keep Overlay directly
+    // under the window so WebView -> Overlay -> Window remains valid.
     gtk_window.add(&overlay);
     overlay.show_all();
     gtk_window.show_all();
@@ -149,9 +152,9 @@ pub fn install(context: NonNull<mpv_handle>, window: &WebviewWindow) -> Result<(
             surface.overlay.queue_draw();
             surface.webview.queue_draw();
             surface.area.queue_render();
-            force_configure(surface);
         }
     });
+    reconfigure();
     schedule_redraw();
     Ok(())
 }
@@ -200,43 +203,17 @@ pub fn uninstall() -> Result<(), String> {
     Ok(())
 }
 
-fn force_configure(surface: &EmbeddedSurface) {
-    let fullscreen = surface
-        .window
-        .window()
-        .is_some_and(|window| window.state().contains(gdk::WindowState::FULLSCREEN));
-    if fullscreen {
-        let window = surface.window.clone();
-        window.unfullscreen();
-        glib::idle_add_local_once(move || {
-            window.fullscreen();
-            window.queue_draw();
-        });
-        return;
-    }
-    if surface.window.is_maximized() {
-        let window = surface.window.clone();
-        window.unmaximize();
-        glib::idle_add_local_once(move || {
-            window.maximize();
-            window.queue_draw();
-        });
-        return;
-    }
-    let width = surface.window.allocated_width().max(2);
-    let height = surface.window.allocated_height().max(2);
-    let window = surface.window.clone();
-    window.resize(width - 1, height);
-    glib::idle_add_local_once(move || {
-        window.resize(width, height);
-        window.queue_draw();
-    });
-}
-
 pub fn reconfigure() {
     SURFACE.with(|surface| {
         if let Some(surface) = surface.borrow().as_ref() {
-            force_configure(surface);
+            surface.window.queue_resize();
+            surface.overlay.queue_resize();
+            surface.webview.queue_resize();
+            surface.area.queue_resize();
+            surface.window.queue_draw();
+            surface.overlay.queue_draw();
+            surface.webview.queue_draw();
+            surface.area.queue_render();
         }
     });
 }
@@ -283,9 +260,10 @@ pub fn reset_webview() {
     // replace its backing allocation. Reproduce that effect on the WebView
     // alone while it is invisible, without changing window geometry.
     let allocation = webview.allocation();
+    let full = Allocation::new(0, 0, allocation.width().max(1), allocation.height().max(1));
     let nudged = Allocation::new(
-        allocation.x(),
-        allocation.y(),
+        0,
+        0,
         (allocation.width() - 1).max(1),
         allocation.height().max(1),
     );
@@ -304,7 +282,7 @@ pub fn reset_webview() {
             glib::ControlFlow::Continue
         }
         1 => {
-            webview.size_allocate(&allocation);
+            webview.size_allocate(&full);
             webview.queue_draw();
             overlay.queue_draw();
             area.queue_render();

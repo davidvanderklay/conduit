@@ -148,6 +148,51 @@ describe("DesktopPlayer track menus", () => {
     expect(usesExpandedPlayerControls(1600, 699)).toBe(false)
   })
 
+  it("does not repeatedly reset the overlay during a fullscreen transition", async () => {
+    desktop.refreshNativeSurface.mockClear()
+    desktop.resetNativeOverlaySurface.mockClear()
+
+    await act(async () => {
+      button("Fullscreen").click()
+      await Promise.resolve()
+    })
+
+    expect(desktop.refreshNativeSurface).not.toHaveBeenCalled()
+    expect(desktop.resetNativeOverlaySurface).not.toHaveBeenCalled()
+  })
+
+  it("clears transient overlay pixels before manual next-episode playback", async () => {
+    const next = vi.fn()
+    await act(async () => {
+      root.render(
+        <DesktopPlayer
+          url="https://example.com/video.mp4"
+          type="series"
+          videoId="series:1:1"
+          profileId="00000000-0000-4000-8000-000000000001"
+          progressMetadata={{
+            mediaType: "series",
+            mediaId: "series",
+            name: "Test series",
+          }}
+          addons={[]}
+          nextEpisodeLabel="S1 E2"
+          onNextEpisode={next}
+          onClose={() => undefined}
+        />,
+      )
+      await Promise.resolve()
+    })
+    desktop.resetNativeOverlaySurface.mockClear()
+
+    click(button("Next episode: S1 E2"))
+    act(() => vi.advanceTimersByTime(1))
+    act(() => vi.advanceTimersByTime(1))
+
+    expect(next).toHaveBeenCalledOnce()
+    expect(desktop.resetNativeOverlaySurface).toHaveBeenCalledOnce()
+  })
+
   it("cycles scaling modes, applies mpv properties, and briefly shows the mode", async () => {
     click(button("Video scale: Fit"))
     await act(async () => {
