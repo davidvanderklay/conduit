@@ -6,6 +6,7 @@ import io.ktor.client.statement.bodyAsText
 import io.ktor.client.request.bearerAuth
 import io.ktor.client.request.get
 import io.ktor.client.request.post
+import io.ktor.client.request.patch
 import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
@@ -43,7 +44,16 @@ data class AuthenticationConfiguration(
 )
 
 @Serializable
-data class ProfileSummary(val id: String, val name: String, val isKids: Boolean)
+data class ProfileSummary(
+    val id: String,
+    val name: String,
+    val isKids: Boolean,
+    val avatarColor: String? = null,
+    val avatarUrl: String? = null,
+)
+
+@Serializable
+private data class ProfileResponse(val profile: ProfileSummary)
 
 @Serializable
 data class HouseholdSummary(
@@ -306,6 +316,37 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
                 response.status.value,
             )
         }
+    }
+
+    suspend fun createProfile(
+        baseUrl: String, token: String, householdId: String, name: String,
+        isKids: Boolean, avatarColor: String, avatarUrl: String?, copyAddonsFromProfileId: String?,
+    ): ProfileSummary {
+        val response = client.post("$baseUrl/v1/households/$householdId/profiles") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody(buildJsonObject {
+                put("name", name.trim()); put("isKids", isKids); put("avatarColor", avatarColor)
+                avatarUrl?.let { put("avatarUrl", it) }
+                copyAddonsFromProfileId?.let { put("copyAddonsFromProfileId", it) }
+            })
+        }
+        if (!response.status.isSuccess()) throw ServerRequestException("Profile creation returned HTTP ${response.status.value}", response.status.value)
+        return response.body<ProfileResponse>().profile
+    }
+
+    suspend fun updateProfile(
+        baseUrl: String, token: String, profileId: String, name: String,
+        isKids: Boolean, avatarColor: String, avatarUrl: String?,
+    ): ProfileSummary {
+        val response = client.patch("$baseUrl/v1/profiles/$profileId") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody(buildJsonObject {
+                put("name", name.trim()); put("isKids", isKids); put("avatarColor", avatarColor)
+                if (avatarUrl == null) put("avatarUrl", kotlinx.serialization.json.JsonNull) else put("avatarUrl", avatarUrl)
+            })
+        }
+        if (!response.status.isSuccess()) throw ServerRequestException("Profile update returned HTTP ${response.status.value}", response.status.value)
+        return response.body<ProfileResponse>().profile
     }
 
     suspend fun synchronizeProfile(baseUrl: String, token: String, profileId: String): ProfileSnapshot =

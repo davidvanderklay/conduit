@@ -953,6 +953,8 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
             id: profile.id,
             name: profile.name,
             isKids: profile.isKids,
+            avatarColor: profile.avatarColor,
+            avatarUrl: profile.avatarUrl,
           })),
       })),
     }
@@ -1008,6 +1010,8 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
         body: Type.Object({
           name: Type.String({ minLength: 1, maxLength: 80, pattern: "\\S" }),
           isKids: Type.Optional(Type.Boolean()),
+          avatarColor: Type.Optional(Type.String({ pattern: "^#[0-9A-Fa-f]{6}$" })),
+          avatarUrl: Type.Optional(Type.String({ maxLength: 2048, pattern: "^https?://" })),
           copyAddonsFromProfileId: Type.Optional(Type.String({ format: "uuid" })),
         }),
       },
@@ -1019,6 +1023,8 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
       const body = request.body as {
         name: string
         isKids?: boolean
+        avatarColor?: string
+        avatarUrl?: string
         copyAddonsFromProfileId?: string
       }
 
@@ -1058,8 +1064,10 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
             householdId,
             name: body.name.trim(),
             isKids: body.isKids ?? false,
+            avatarColor: body.avatarColor,
+            avatarUrl: body.avatarUrl,
           })
-          .returning({ id: profiles.id, name: profiles.name, isKids: profiles.isKids })
+          .returning({ id: profiles.id, name: profiles.name, isKids: profiles.isKids, avatarColor: profiles.avatarColor, avatarUrl: profiles.avatarUrl })
 
         if (body.copyAddonsFromProfileId) {
           if (sourceAddons.length === 0) return created!
@@ -1095,6 +1103,8 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
           {
             name: Type.Optional(Type.String({ minLength: 1, maxLength: 80 })),
             isKids: Type.Optional(Type.Boolean()),
+            avatarColor: Type.Optional(Type.Union([Type.String({ pattern: "^#[0-9A-Fa-f]{6}$" }), Type.Null()])),
+            avatarUrl: Type.Optional(Type.Union([Type.String({ maxLength: 2048, pattern: "^https?://" }), Type.Null()])),
           },
           { minProperties: 1 },
         ),
@@ -1104,7 +1114,7 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
       const user = await requireUser(request, reply, auth)
       if (!user) return
       const { profileId } = request.params as { profileId: string }
-      const body = request.body as { name?: string; isKids?: boolean }
+      const body = request.body as { name?: string; isKids?: boolean; avatarColor?: string | null; avatarUrl?: string | null }
       if (!(await canAccessProfile(db, user.id, profileId))) return reply.forbidden()
 
       const [profile] = await db
@@ -1112,10 +1122,12 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
         .set({
           ...(body.name !== undefined ? { name: body.name.trim() } : {}),
           ...(body.isKids !== undefined ? { isKids: body.isKids } : {}),
+          ...(body.avatarColor !== undefined ? { avatarColor: body.avatarColor } : {}),
+          ...(body.avatarUrl !== undefined ? { avatarUrl: body.avatarUrl } : {}),
           updatedAt: new Date(),
         })
         .where(eq(profiles.id, profileId))
-        .returning({ id: profiles.id, name: profiles.name, isKids: profiles.isKids })
+        .returning({ id: profiles.id, name: profiles.name, isKids: profiles.isKids, avatarColor: profiles.avatarColor, avatarUrl: profiles.avatarUrl })
       return { profile }
     },
   )
