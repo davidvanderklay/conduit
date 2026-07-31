@@ -129,6 +129,9 @@ export function DesktopPlayer({
   const nextTransitionRequested = useRef(false)
   const lastPlayback = useRef({ position: 0, duration: 0 })
   const lastNativeSnapshot = useRef<NativePlayerSnapshot | undefined>(undefined)
+  const seekActive = useRef(false)
+  const seekDraft = useRef<number | undefined>(undefined)
+  const seekCommitTimer = useRef<number | undefined>(undefined)
   const pendingAddonSubtitle = useRef(new Set<string>())
   const preferredAudioApplied = useRef(false)
   const preferredSubtitleApplied = useRef(false)
@@ -191,7 +194,11 @@ export function DesktopPlayer({
             ? { ...next, ended: true }
             : next
           lastNativeSnapshot.current = resolved
-          setSnapshot(resolved)
+          setSnapshot(
+            seekActive.current && seekDraft.current !== undefined
+              ? { ...resolved, position: seekDraft.current }
+              : resolved,
+          )
         })
         .catch(() => undefined)
     }, 1000)
@@ -200,6 +207,7 @@ export function DesktopPlayer({
       cancelled = true
       window.clearInterval(poll)
       window.clearTimeout(hideTimer.current)
+      window.clearTimeout(seekCommitTimer.current)
       document.documentElement.classList.remove("native-playback")
       if (!closing.current) void stopNativePlayer()
     }
@@ -406,6 +414,29 @@ export function DesktopPlayer({
     )
     showControls()
   }, [showControls, snapshot])
+
+  const commitSeek = useCallback(() => {
+    window.clearTimeout(seekCommitTimer.current)
+    seekCommitTimer.current = undefined
+    const position = seekDraft.current
+    seekDraft.current = undefined
+    seekActive.current = false
+    if (position === undefined) return
+    void nativePlayerCommand(["seek", position, "absolute+exact"])
+  }, [])
+
+  const previewSeek = useCallback((position: number) => {
+    seekActive.current = true
+    seekDraft.current = position
+    setSnapshot((current) => (current ? { ...current, position } : current))
+
+    // Range inputs emit continuously while dragged. An exact mpv seek may
+    // decode every frame from the preceding keyframe, so issuing one for each
+    // pixel of motion can queue enough decoder work to freeze the desktop.
+    // Commit once the gesture pauses; pointer/key release commits immediately.
+    window.clearTimeout(seekCommitTimer.current)
+    seekCommitTimer.current = window.setTimeout(commitSeek, 180)
+  }, [commitSeek])
 
   useEffect(() => {
     if (!activeMenu) return
@@ -770,9 +801,12 @@ export function DesktopPlayer({
               aria-label="Seek"
               onChange={(event) => {
                 const position = Number(event.target.value)
-                void nativePlayerCommand(["seek", position, "absolute+exact"])
-                setSnapshot((current) => (current ? { ...current, position } : current))
+                previewSeek(position)
               }}
+              onPointerUp={commitSeek}
+              onPointerCancel={commitSeek}
+              onKeyUp={commitSeek}
+              onBlur={commitSeek}
             />
 
             <div

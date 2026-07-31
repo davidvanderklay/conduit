@@ -213,17 +213,19 @@ pub fn run() {
 #[cfg(target_os = "linux")]
 fn configure_linux_webkit() {
     let wayland_session = std::env::var_os("WAYLAND_DISPLAY").is_some();
-    let native_wayland_requested = std::env::var_os("CONDUIT_NATIVE_WAYLAND").is_some();
-    let xwayland_available = std::env::var_os("DISPLAY").is_some();
-    let native_wayland = wayland_session && (native_wayland_requested || !xwayland_available);
+    let xwayland_requested = std::env::var_os("CONDUIT_XWAYLAND").is_some();
+    let native_wayland = wayland_session && !xwayland_requested;
     let nvidia_driver = std::path::Path::new("/proc/driver/nvidia/version").exists();
 
-    if wayland_session && !native_wayland_requested && xwayland_available {
-        // WebKitGTK's input and presentation surfaces become stale when they
-        // are layered above GtkGLArea on native Wayland. XWayland keeps the
-        // same desktop session while providing stable OpenGL composition.
+    if native_wayland && std::env::var_os("GDK_BACKEND").is_none() {
+        // Stay on the compositor's native display path. A fullscreen
+        // GtkGLArea continuously swapping through XWayland can leave
+        // XWayland spinning even after the client exits on NVIDIA.
+        std::env::set_var("GDK_BACKEND", "wayland");
+        eprintln!("Conduit: using native Wayland video composition");
+    } else if wayland_session && xwayland_requested {
         std::env::set_var("GDK_BACKEND", "x11");
-        eprintln!("Conduit: using XWayland for stable embedded video composition");
+        eprintln!("Conduit: using requested XWayland video composition");
     }
 
     if (native_wayland || nvidia_driver)

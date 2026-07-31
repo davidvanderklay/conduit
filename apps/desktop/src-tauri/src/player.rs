@@ -109,7 +109,11 @@ impl PlayerManager {
             initializer.set_option("osd-level", "0")?;
             #[cfg(target_os = "linux")]
             {
-                initializer.set_option("hwdec", "no")?;
+                // Decode on NVIDIA, but copy decoded frames back before
+                // uploading them through libmpv's OpenGL renderer. This avoids
+                // the fragile CUDA/OpenGL zero-copy interop path while keeping
+                // high-resolution playback and seeking off the CPU.
+                initializer.set_option("hwdec", "nvdec-copy,auto-copy-safe")?;
                 initializer.set_option("gpu-hwdec-interop", "no")?;
                 initializer.set_option("vd-lavc-dr", "no")?;
             }
