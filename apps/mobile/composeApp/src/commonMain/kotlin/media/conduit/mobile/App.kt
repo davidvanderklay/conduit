@@ -124,6 +124,12 @@ private fun AccountGate(
                             account = repository.signOut(endpoint, current.session)
                         }
                     },
+                    onProfilesChanged = { selectedId ->
+                        accountScope.launch {
+                            account = repository.restore(endpoint)
+                            selectedId?.let { dispatch(AppAction.SelectProfile(it)) }
+                        }
+                    },
                 )
             }
         }
@@ -379,6 +385,7 @@ private fun AppShell(
     secureStore: SecureStore,
     dispatch: (AppAction) -> Unit,
     onSignOut: () -> Unit,
+    onProfilesChanged: (String?) -> Unit,
 ) {
     val profiles = account.bootstrap.households.flatMap { it.profiles }
     val activeProfile = profiles.firstOrNull { it.id == state.activeProfileId } ?: profiles.firstOrNull()
@@ -403,6 +410,7 @@ private fun AppShell(
         }
     }
     var selectedMedia by remember { mutableStateOf<CatalogItem?>(null) }
+    var profileFlowActive by remember { mutableStateOf(false) }
     var selectedVideoId by remember { mutableStateOf<String?>(null) }
     val selectMedia: (CatalogItem, String?) -> Unit = { item, videoId ->
         selectedMedia = item
@@ -436,19 +444,21 @@ private fun AppShell(
                     }
                     DestinationContent(
                         state, platform, account, activeProfile, profileSync, api, selectedMedia,
-                        selectedVideoId, selectMedia, { selectedMedia = null }, dispatch, onSignOut,
+                        selectedVideoId, selectMedia, { selectedMedia = null }, dispatch, onSignOut, onProfilesChanged,
+                        { profileFlowActive = it },
                         Modifier.weight(1f),
                     )
                 }
             } else {
                 DestinationContent(
                     state, platform, account, activeProfile, profileSync, api, selectedMedia,
-                    selectedVideoId, selectMedia, { selectedMedia = null }, dispatch, onSignOut,
+                    selectedVideoId, selectMedia, { selectedMedia = null }, dispatch, onSignOut, onProfilesChanged,
+                    { profileFlowActive = it },
                     Modifier.padding(padding),
                 )
             }
         }
-        if (!expanded && selectedMedia == null) {
+        if (!expanded && selectedMedia == null && !profileFlowActive) {
             Surface(
                 color = Color(0xDD202023),
                 shape = RoundedCornerShape(32.dp),
@@ -487,6 +497,8 @@ private fun DestinationContent(
     onCloseMedia: () -> Unit,
     dispatch: (AppAction) -> Unit,
     onSignOut: () -> Unit,
+    onProfilesChanged: (String?) -> Unit,
+    onProfileFlowChanged: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Box(modifier.fillMaxSize()) {
@@ -509,7 +521,8 @@ private fun DestinationContent(
                 modifier = Modifier.fillMaxSize(),
             )
             AppDestination.Profile -> ProfileSettingsScreen(
-                state, platform, account, activeProfile, profileSync, dispatch, onSignOut,
+                state, platform, account, activeProfile, profileSync, api, dispatch, onSignOut,
+                onProfilesChanged, onProfileFlowChanged,
                 Modifier.fillMaxSize(),
             )
         }
