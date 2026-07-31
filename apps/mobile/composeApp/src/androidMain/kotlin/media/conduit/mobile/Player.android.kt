@@ -195,12 +195,13 @@ actual fun NativePlayer(
         )
         if (controlsVisible) {
             Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .42f)).pointerInput(player) { detectTapGestures(onTap = { controlsVisible = true }, onDoubleTap = { offset -> if (offset.x < size.width / 2f) player.seekBack() else player.seekForward(); controlsVisible = true }) }) {
+                val loadingOrPortrait = !landscape || durationMs <= 0
                 Row(Modifier.align(Alignment.Center), verticalAlignment = Alignment.CenterVertically) {
                     FilledIconButton(onClick = { if (player.isPlaying) player.pause() else player.play(); controlsVisible = true }, modifier = Modifier.size(64.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color.White, contentColor = Color.Black)) {
                         Icon(if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, if (playing) "Pause" else "Play", modifier = Modifier.size(38.dp))
                     }
                 }
-                Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(start = 18.dp, end = 18.dp, top = 6.dp, bottom = 14.dp), verticalArrangement = Arrangement.spacedBy(0.dp)) {
+                Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(start = 18.dp, end = 18.dp, top = 6.dp, bottom = if (loadingOrPortrait) 66.dp else 14.dp), verticalArrangement = Arrangement.spacedBy(0.dp)) {
                     Slider(
                         value = if (dragging) draggedPosition else positionMs.toFloat(),
                         onValueChange = { dragging = true; draggedPosition = it },
@@ -212,7 +213,7 @@ actual fun NativePlayer(
                         PlayerTimePill(formatPlayerTime(if (dragging) draggedPosition.toLong() else positionMs))
                         PlayerTimePill(formatPlayerTime(durationMs))
                     }
-                    if (landscape && durationMs > 0) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceEvenly) {
+                    if (!loadingOrPortrait) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceEvenly) {
                         val speeds = listOf(.5f, .75f, 1f, 1.25f, 1.5f, 2f)
                         PlayerBottomAction(Icons.Rounded.Speed, "${player.playbackParameters.speed}×", landscape) { val current = player.playbackParameters.speed; player.setPlaybackSpeed(speeds[(speeds.indexOfFirst { it == current }.takeIf { it >= 0 } ?: 1).let { (it + 1) % speeds.size }]); controlsVisible = true }
                         PlayerBottomAction(Icons.Rounded.Headphones, "Audio", landscape) { trackPanel = C.TRACK_TYPE_AUDIO; controlsVisible = true }
@@ -220,7 +221,7 @@ actual fun NativePlayer(
                         if (hasEpisodes) PlayerBottomAction(Icons.Rounded.PlaylistPlay, "Episodes", landscape, onEpisodes)
                     }
                 }
-                if ((!landscape || durationMs <= 0) && hasEpisodes) IconButton(onClick = onEpisodes, modifier = Modifier.align(Alignment.BottomEnd).padding(end = 14.dp, bottom = 72.dp).background(Color.Black.copy(.58f), CircleShape)) { Icon(Icons.Rounded.PlaylistPlay, "Episodes", tint = Color.White) }
+                if (loadingOrPortrait && hasEpisodes) IconButton(onClick = onEpisodes, modifier = Modifier.align(Alignment.BottomEnd).padding(end = 14.dp, bottom = 8.dp).background(Color.Black.copy(.58f), CircleShape)) { Icon(Icons.Rounded.PlaylistPlay, "Episodes", tint = Color.White) }
             }
         }
         trackPanel?.let { type ->
@@ -297,12 +298,14 @@ private fun BoxScope.PlayerTrackPanel(player: ExoPlayer, type: Int, onBeforeSele
 @Composable
 private fun BoxScope.FullscreenSubtitlePanel(player: ExoPlayer, options: List<PlayerTrackOption>, selected: PlayerTrackOption?, onBeforeSelection: () -> Unit, onDismiss: () -> Unit) {
     var language by remember(selected?.languageKey) { mutableStateOf(selected?.languageKey ?: options.firstOrNull { it.supported }?.languageKey) }
-    fun choose(option: PlayerTrackOption) { onBeforeSelection(); language = option.languageKey; player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false).clearOverridesOfType(C.TRACK_TYPE_TEXT).addOverride(TrackSelectionOverride(option.group.mediaTrackGroup, option.index)).build() }
+    var selectedTrackKey by remember { mutableStateOf(selected?.key) }
+    LaunchedEffect(selected?.key) { selectedTrackKey = selected?.key }
+    fun choose(option: PlayerTrackOption) { onBeforeSelection(); language = option.languageKey; selectedTrackKey = option.key; player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false).clearOverridesOfType(C.TRACK_TYPE_TEXT).addOverride(TrackSelectionOverride(option.group.mediaTrackGroup, option.index)).build() }
     Surface(Modifier.fillMaxSize(), color = Color(0xFA0D0C22)) {
         Box {
             Row(Modifier.fillMaxSize().padding(horizontal = 30.dp, vertical = 28.dp), horizontalArrangement = Arrangement.spacedBy(30.dp)) {
-                Column(Modifier.weight(1f)) { Text("Subtitle Languages", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold); Spacer(Modifier.height(18.dp)); LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) { item { PlayerTrackRow("Disabled", selected == null) { player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().clearOverridesOfType(C.TRACK_TYPE_TEXT).setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build() } }; options.distinctBy(PlayerTrackOption::languageKey).forEach { option -> item(option.languageKey) { PlayerTrackRow(option.languageName, language == option.languageKey, option.supported) { val best = options.firstOrNull { it.languageKey == option.languageKey && it.supported } ?: option; choose(best) } } } } }
-                Column(Modifier.weight(1f)) { Text("Subtitle Variants", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold); Spacer(Modifier.height(18.dp)); LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) { options.filter { it.languageKey == language }.forEach { option -> item("${option.group.mediaTrackGroup.id}:${option.index}") { PlayerTrackRow(option.variantName, option.selected, option.supported) { choose(option) } } } } }
+                Column(Modifier.weight(1f)) { Text("Subtitle Languages", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold); Spacer(Modifier.height(18.dp)); LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) { item { PlayerTrackRow("Disabled", selectedTrackKey == null) { selectedTrackKey = null; player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().clearOverridesOfType(C.TRACK_TYPE_TEXT).setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build() } }; options.distinctBy(PlayerTrackOption::languageKey).forEach { option -> item(option.languageKey) { PlayerTrackRow(option.languageName, selectedTrackKey != null && language == option.languageKey, option.supported) { val best = options.firstOrNull { it.languageKey == option.languageKey && it.supported } ?: option; choose(best) } } } } }
+                Column(Modifier.weight(1f)) { Text("Subtitle Variants", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold); Spacer(Modifier.height(18.dp)); LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) { options.filter { it.languageKey == language }.forEach { option -> item(option.key) { PlayerTrackRow(option.variantName, option.key == selectedTrackKey, option.supported) { choose(option) } } } } }
                 Column(Modifier.weight(1f)) { Text("Subtitle Settings", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold); Spacer(Modifier.weight(1f)); Text("Subtitle appearance follows Android system settings. Change it under Accessibility → Caption preferences for consistent styling across apps.", color = Color.White.copy(.72f), style = MaterialTheme.typography.bodyLarge); Spacer(Modifier.weight(1f)) }
             }
             IconButton(onClick = onDismiss, Modifier.align(Alignment.TopEnd).padding(12.dp)) { Icon(Icons.Rounded.Close, "Close", tint = Color.White, modifier = Modifier.size(34.dp)) }
@@ -319,6 +322,7 @@ private data class PlayerTrackOption(val group: Tracks.Group, val index: Int) {
     private val format get() = group.getTrackFormat(index)
     val supported get() = group.isTrackSupported(index)
     val selected get() = group.isTrackSelected(index)
+    val key get() = "${group.mediaTrackGroup.id}:$index"
     private val labelLanguage get() = format.label?.substringBefore('(')?.substringBefore('[')?.trim()?.lowercase()
     val languageKey get() = format.language?.takeIf { it.isNotBlank() }?.substringBefore('-') ?: when (labelLanguage) { "english" -> "en"; "spanish", "español" -> "es"; "german", "deutsch" -> "de"; "arabic", "العربية" -> "ar"; "japanese", "日本語" -> "ja"; "indonesian", "bahasa indonesia" -> "id"; "french", "français" -> "fr"; "italian", "italiano" -> "it"; "portuguese", "português" -> "pt"; else -> labelLanguage ?: "und" }
     val languageName get() = languageKey.takeUnless { it == "und" }?.let { java.util.Locale.forLanguageTag(it).displayLanguage.replaceFirstChar(Char::uppercase) } ?: format.label ?: "Unknown language"
