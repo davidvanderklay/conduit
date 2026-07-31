@@ -421,7 +421,15 @@ function WebPlayer({
           </button>
           <PlayerHeadingText heading={heading} />
           <div className="ml-auto">
-            <VideoScaleControl value={videoScale} onChange={setVideoScale} />
+            <button
+              className="grid size-10 place-items-center rounded-full bg-black/60 text-zinc-200 hover:bg-white/15"
+              type="button"
+              aria-label="Fullscreen"
+              title="Fullscreen"
+              onClick={toggleFullscreen}
+            >
+              <Expand size={21} />
+            </button>
           </div>
         </div>
         <div
@@ -589,9 +597,11 @@ function WebPlayer({
               >
                 <PictureInPicture size={21} />
               </Control>
-              <Control label="Fullscreen" onClick={toggleFullscreen}>
-                <Expand size={21} />
-              </Control>
+              <VideoScaleControl
+                value={videoScale}
+                indicatorPlacement="above"
+                onChange={setVideoScale}
+              />
             </div>
           </div>
 
