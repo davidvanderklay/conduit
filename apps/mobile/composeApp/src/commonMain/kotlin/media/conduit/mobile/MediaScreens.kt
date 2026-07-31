@@ -329,20 +329,32 @@ internal fun ProfileSettingsScreen(
         ProfileRoute.Settings -> Unit
     }
     val sections = listOf(
-        SettingEntry("Account", "Sign-in, security, and recovery", Icons.Rounded.Person),
-        SettingEntry("General", "Appearance and layout", Icons.Rounded.Tune),
-        SettingEntry("Content & discovery", "Add-ons, catalogs, and search", Icons.Rounded.Explore),
-        SettingEntry("Downloads", "Offline media and storage", Icons.Rounded.Download),
-        SettingEntry("Playback", "Player, subtitles, and behavior", Icons.Rounded.PlayCircle),
-        SettingEntry("Integrations", "Connected media services", Icons.Rounded.Extension),
-        SettingEntry("Notifications", "Episode and app alerts", Icons.Rounded.Notifications),
-        SettingEntry("Supporters & contributors", "Community and open source", Icons.Rounded.Favorite),
-        SettingEntry("Privacy policy", "Data and privacy details", Icons.Rounded.PrivacyTip),
-        SettingEntry("Advanced settings", "Server and diagnostics", Icons.Rounded.SettingsSuggest),
+        SettingSection("Account", listOf(
+            SettingEntry("Profile", "Profiles, appearance, and viewing overview", Icons.Rounded.AccountCircle),
+            SettingEntry("Account", "Sign-in, security, and recovery", Icons.Rounded.Person),
+        )),
+        SettingSection("General", listOf(
+            SettingEntry("General", "Appearance and layout", Icons.Rounded.Tune),
+            SettingEntry("Content & discovery", "Add-ons, catalogs, and search", Icons.Rounded.Explore),
+            SettingEntry("Downloads", "Offline media and storage", Icons.Rounded.Download),
+            SettingEntry("Playback", "Player, subtitles, and behavior", Icons.Rounded.PlayCircle),
+            SettingEntry("Integrations", "Connected media services", Icons.Rounded.Extension),
+            SettingEntry("Notifications", "Episode and app alerts", Icons.Rounded.Notifications),
+        )),
+        SettingSection("About", listOf(
+            SettingEntry("Supporters & contributors", "Community and open source", Icons.Rounded.Favorite),
+            SettingEntry("Privacy policy", "Data and privacy details", Icons.Rounded.PrivacyTip),
+            SettingEntry("Licenses & attribution", "Open-source software and acknowledgements", Icons.Rounded.Description),
+        )),
+        SettingSection("Advanced", listOf(
+            SettingEntry("Advanced settings", "Server and diagnostics", Icons.Rounded.SettingsSuggest),
+        )),
     )
     var settingsQuery by remember { mutableStateOf("") }
-    val visibleSections = sections.filter {
-        settingsQuery.isBlank() || "${it.title} ${it.description}".contains(settingsQuery.trim(), ignoreCase = true)
+    val visibleSections = sections.mapNotNull { section ->
+        val query = settingsQuery.trim()
+        val entries = section.entries.filter { query.isBlank() || "${section.title} ${it.title} ${it.description}".contains(query, ignoreCase = true) }
+        entries.takeIf { it.isNotEmpty() }?.let { SettingSection(section.title, it) }
     }
     LazyColumn(
         modifier.statusBarsPadding(),
@@ -370,15 +382,20 @@ internal fun ProfileSettingsScreen(
                 shape = RoundedCornerShape(18.dp),
             )
         }
-        items(visibleSections) { entry ->
-            ListItem(
-                headlineContent = { Text(entry.title, fontWeight = FontWeight.Medium) },
-                supportingContent = { Text(entry.description) },
-                leadingContent = { Icon(entry.icon, null, tint = MaterialTheme.colorScheme.primary) },
-                trailingContent = { Icon(Icons.Rounded.ChevronRight, null) },
-                colors = ListItemDefaults.colors(containerColor = Color.White.copy(alpha = .035f)),
-                modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable { },
-            )
+        visibleSections.forEach { section ->
+            item(key = "section-${section.title}") {
+                Text(section.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 6.dp, top = 10.dp, bottom = 2.dp))
+            }
+            items(section.entries, key = { "${section.title}-${it.title}" }) { entry ->
+                ListItem(
+                    headlineContent = { Text(entry.title, fontWeight = FontWeight.Medium) },
+                    supportingContent = { Text(entry.description) },
+                    leadingContent = { Icon(entry.icon, null, tint = MaterialTheme.colorScheme.primary) },
+                    trailingContent = { Icon(Icons.Rounded.ChevronRight, null) },
+                    colors = ListItemDefaults.colors(containerColor = Color.White.copy(alpha = .035f)),
+                    modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable { if (entry.title == "Profile") route = ProfileRoute.Overview },
+                )
+            }
         }
         if (visibleSections.isEmpty()) {
             item { Text("No settings match “$settingsQuery”.", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(16.dp)) }
@@ -507,3 +524,4 @@ private fun ProfileEditorScreen(profile: ProfileSummary?, active: ProfileSummary
 }
 
 private data class SettingEntry(val title: String, val description: String, val icon: ImageVector)
+private data class SettingSection(val title: String, val entries: List<SettingEntry>)
