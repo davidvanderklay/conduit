@@ -33,6 +33,7 @@ export interface PortableProfileData {
     positionMs: number
     durationMs: number
     watched: boolean
+    dismissed?: boolean
     updatedAt: string
   }>
   addons: Array<{
@@ -109,6 +110,9 @@ export function validatePortableData(value: unknown): PortableProfileData {
     assertInteger(raw.positionMs, `${path}.positionMs`)
     assertInteger(raw.durationMs, `${path}.durationMs`)
     if (typeof raw.watched !== "boolean") throw new Error(`${path}.watched must be a boolean`)
+    if (raw.dismissed !== undefined && typeof raw.dismissed !== "boolean") {
+      throw new Error(`${path}.dismissed must be a boolean`)
+    }
     assertTimestamp(raw.updatedAt, `${path}.updatedAt`)
     assertUnique(videoIds, raw.videoId, path)
   }

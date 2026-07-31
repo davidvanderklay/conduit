@@ -1,12 +1,15 @@
-import { useMemo, useState } from "react"
-import { useQuery } from "@tanstack/react-query"
-import { AlertCircle, ChevronDown, Film, LoaderCircle } from "lucide-react"
+import { useEffect, useMemo, useState } from "react"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { AlertCircle, Check, ChevronDown, Film, Info, LoaderCircle, Play, Trash2 } from "lucide-react"
 import { api, type InstalledAddon, type LibraryItem, type WatchProgress } from "../lib/api"
 import { addonsForResource } from "../lib/addons"
 import { loadMeta, type CatalogItem } from "../lib/core"
-import { posterCoverClass, posterGridClass } from "../lib/poster-layout"
-import { useLibrary } from "../lib/library"
+import { posterCoverClass } from "../lib/poster-layout"
+import { useLibrary, useLibraryToggle } from "../lib/library"
 import { PosterWatchStatus } from "./poster-watch-status"
+import { PosterActionMenu } from "./poster-action-menu"
+import { PaginationControls } from "./pagination-controls"
+import { VirtualPosterGrid } from "./virtual-poster-grid"
 import { Card } from "./ui/card"
 
 type Filter = "all" | "movie" | "series"
@@ -17,6 +20,8 @@ interface DisplayItem {
   catalogItem: CatalogItem
   metadataAvailable: boolean
 }
+
+const PAGE_SIZE = 48
 
 export function LibraryView({
   profileId,
@@ -29,6 +34,7 @@ export function LibraryView({
 }) {
   const [filter, setFilter] = useState<Filter>("all")
   const [sort, setSort] = useState<Sort>("last-watched")
+  const [page, setPage] = useState(0)
   const library = useLibrary(profileId)
   const progress = useQuery({
     queryKey: ["progress", profileId, "status"],
@@ -37,17 +43,54 @@ export function LibraryView({
         `/v1/profiles/${profileId}/progress?view=status&limit=1000`,
       ).then((result) => result.items),
   })
+  const latestProgress = useMemo(() => {
+    const latest = new Map<string, WatchProgress>()
+    for (const entry of progress.data ?? []) {
+      if (entry.videoId.startsWith("conduit:completion:")) continue
+      const key = `${entry.mediaType}:${entry.mediaId}`
+      const current = latest.get(key)
+      if (!current || Date.parse(entry.updatedAt) > Date.parse(current.updatedAt)) {
+        latest.set(key, entry)
+      }
+    }
+    return latest
+  }, [progress.data])
+  const orderedItems = useMemo(() => {
+    const filtered = (library.data?.items ?? []).filter(
+      (item) => filter === "all" || item.type === filter,
+    )
+    return [...filtered].sort((a, b) => {
+      if (sort === "last-watched") {
+        const aProgress = latestProgress.get(`${a.type}:${a.id}`)
+        const bProgress = latestProgress.get(`${b.type}:${b.id}`)
+        if (aProgress && bProgress) {
+          const delta = Date.parse(bProgress.updatedAt) - Date.parse(aProgress.updatedAt)
+          if (delta) return delta
+        }
+        if (aProgress) return -1
+        if (bProgress) return 1
+        return Date.parse(b.createdAt) - Date.parse(a.createdAt)
+      }
+      if (sort === "title-asc") return a.name.localeCompare(b.name)
+      if (sort === "title-desc") return b.name.localeCompare(a.name)
+      const delta = Date.parse(a.createdAt) - Date.parse(b.createdAt)
+      return sort === "added-asc" ? delta : -delta
+    })
+  }, [filter, latestProgress, library.data?.items, sort])
+  const pageItems = orderedItems.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
+  useEffect(() => setPage(0), [filter, sort])
+
   const resolved = useQuery({
     queryKey: [
       "library-metadata",
       profileId,
-      library.data?.items.map((item) => `${item.type}:${item.id}:${item.updatedAt}`),
+      pageItems.map((item) => `${item.type}:${item.id}:${item.updatedAt}`),
       addons.map((addon) => [addon.id, addon.enabled]),
     ],
     enabled: Boolean(library.data),
     queryFn: async (): Promise<DisplayItem[]> =>
       Promise.all(
-        (library.data?.items ?? []).map(async (item) => {
+        pageItems.map(async (item) => {
           const candidates = addonsForResource(addons, "meta", item.type, item.id)
           const attempts = await Promise.allSettled(
             candidates.map((addon) => loadMeta(addon.manifestUrl, item.type, item.id)),
@@ -64,40 +107,7 @@ export function LibraryView({
         }),
       ),
   })
-  const latestProgress = useMemo(() => {
-    const latest = new Map<string, WatchProgress>()
-    for (const entry of progress.data ?? []) {
-      if (entry.videoId.startsWith("conduit:completion:")) continue
-      const key = `${entry.mediaType}:${entry.mediaId}`
-      const current = latest.get(key)
-      if (!current || Date.parse(entry.updatedAt) > Date.parse(current.updatedAt)) {
-        latest.set(key, entry)
-      }
-    }
-    return latest
-  }, [progress.data])
-  const items = useMemo(() => {
-    const filtered = (resolved.data ?? []).filter(
-      ({ item }) => filter === "all" || item.type === filter,
-    )
-    return [...filtered].sort((a, b) => {
-      if (sort === "last-watched") {
-        const aProgress = latestProgress.get(`${a.item.type}:${a.item.id}`)
-        const bProgress = latestProgress.get(`${b.item.type}:${b.item.id}`)
-        const progressDelta =
-          (bProgress ? Date.parse(bProgress.updatedAt) : Number.NEGATIVE_INFINITY) -
-          (aProgress ? Date.parse(aProgress.updatedAt) : Number.NEGATIVE_INFINITY)
-        if (Number.isFinite(progressDelta) && progressDelta !== 0) return progressDelta
-        if (aProgress && !bProgress) return -1
-        if (!aProgress && bProgress) return 1
-        return Date.parse(b.item.createdAt) - Date.parse(a.item.createdAt)
-      }
-      if (sort === "title-asc") return a.catalogItem.name.localeCompare(b.catalogItem.name)
-      if (sort === "title-desc") return b.catalogItem.name.localeCompare(a.catalogItem.name)
-      const delta = Date.parse(a.item.createdAt) - Date.parse(b.item.createdAt)
-      return sort === "added-asc" ? delta : -delta
-    })
-  }, [filter, latestProgress, resolved.data, sort])
+  const items = resolved.data ?? []
 
   return (
     <main className="mx-auto max-w-[2200px] px-4 py-9 sm:px-6 lg:px-8 xl:px-10">
@@ -154,15 +164,18 @@ export function LibraryView({
         </Card>
       )}
       {items.length > 0 && (
-        <div className={`mt-9 ${posterGridClass}`}>
-          {items.map(({ item, catalogItem, metadataAvailable }) => {
+        <div className="mt-9">
+          <VirtualPosterGrid
+            items={items}
+            itemKey={({ item }) => `${item.type}:${item.id}`}
+            renderItem={({ item, catalogItem, metadataAvailable }) => {
             const latest = latestProgress.get(`${item.type}:${item.id}`)
             const percent =
               latest && latest.durationMs > 0
                 ? Math.min(100, (latest.positionMs / latest.durationMs) * 100)
                 : 0
             return (
-              <div className="group relative" key={`${item.type}:${item.id}`}>
+              <div>
                 <button className="w-full text-left" onClick={() => onSelect(catalogItem)}>
                   <div className={`relative ${posterCoverClass}`}>
                     {catalogItem.poster ? (
@@ -189,22 +202,91 @@ export function LibraryView({
                       </span>
                     )}
                   </div>
-                  <p className="mt-2 line-clamp-2 text-sm font-medium">{catalogItem.name}</p>
-                  {!metadataAvailable && (
-                    <p className="mt-1 text-xs text-amber-400">
-                      Using saved details · source unavailable
-                    </p>
-                  )}
                 </button>
+                <div className="mt-2 flex items-start gap-1">
+                  <button
+                    className="min-w-0 flex-1 text-left"
+                    onClick={() => onSelect(catalogItem)}
+                  >
+                    <p className="line-clamp-2 text-sm font-medium">{catalogItem.name}</p>
+                    {!metadataAvailable && (
+                      <p className="mt-1 text-xs text-amber-400">
+                        Using saved details · source unavailable
+                      </p>
+                    )}
+                  </button>
+                  <LibraryPosterMenu
+                    profileId={profileId}
+                    item={catalogItem}
+                    latest={latest}
+                    onSelect={() => onSelect(catalogItem)}
+                  />
+                </div>
                 <div className="pointer-events-none absolute right-2 top-2">
                   <PosterWatchStatus item={catalogItem} addons={addons} />
                 </div>
               </div>
             )
-          })}
+          }}
+          />
         </div>
       )}
+      <PaginationControls
+        page={page}
+        pageSize={PAGE_SIZE}
+        total={orderedItems.length}
+        onChange={setPage}
+      />
     </main>
+  )
+}
+
+function LibraryPosterMenu({
+  profileId,
+  item,
+  latest,
+  onSelect,
+}: {
+  profileId: string
+  item: CatalogItem
+  latest?: WatchProgress
+  onSelect: () => void
+}) {
+  const library = useLibraryToggle(profileId, item)
+  const queryClient = useQueryClient()
+  const watched = useMutation({
+    mutationFn: () =>
+      latest
+        ? api(`/v1/profiles/${profileId}/progress/${encodeURIComponent(latest.videoId)}`, {
+            method: "PATCH",
+            body: JSON.stringify({ watched: !latest.watched }),
+          })
+        : Promise.resolve(),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["progress", profileId] }),
+  })
+  return (
+    <PosterActionMenu
+      title={item.name}
+      actions={[
+        { label: "Play", icon: <Play size={16} />, onSelect },
+        { label: "Details", icon: <Info size={16} />, onSelect },
+        ...(latest
+          ? [{
+              label: latest.watched ? "Mark unwatched" : item.type === "series" ? "Mark episode watched" : "Mark watched",
+              icon: <Check size={16} />,
+              onSelect: () => watched.mutate(),
+              disabled: watched.isPending,
+            }]
+          : []),
+        {
+          label: "Remove from library",
+          icon: <Trash2 size={16} />,
+          onSelect: () => library.toggle(),
+          destructive: true,
+          disabled: library.loading,
+        },
+      ]}
+    />
   )
 }
 
