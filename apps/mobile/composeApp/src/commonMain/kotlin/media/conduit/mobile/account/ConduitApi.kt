@@ -107,6 +107,7 @@ data class ProfileSnapshot(
     val addons: List<InstalledAddonSummary>,
     val library: List<LibraryItemSummary>,
     val progress: List<ProgressSummary>,
+    val continueWatching: List<ProgressSummary> = emptyList(),
 )
 
 @Serializable
@@ -263,7 +264,8 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
             val addons = async { get("/v1/profiles/$profileId/addons") }
             val library = async { get("/v1/profiles/$profileId/library") }
             val progress = async { get("/v1/profiles/$profileId/progress?view=history&limit=250") }
-            val responses = listOf(addons.await(), library.await(), progress.await())
+            val continueWatching = async { get("/v1/profiles/$profileId/progress?view=continue&limit=14") }
+            val responses = listOf(addons.await(), library.await(), progress.await(), continueWatching.await())
             responses.firstOrNull { !it.status.isSuccess() }?.let { response ->
                 throw ServerRequestException(
                     if (response.status.value == 401) "Your session has expired" else
@@ -276,6 +278,7 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
                 addons = responses[0].body<AddonsResponse>().addons,
                 library = responses[1].body<LibraryResponse>().items,
                 progress = responses[2].body<ProgressResponse>().items,
+                continueWatching = responses[3].body<ProgressResponse>().items,
             )
         }
 

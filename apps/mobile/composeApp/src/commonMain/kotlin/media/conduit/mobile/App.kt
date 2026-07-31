@@ -1,12 +1,21 @@
 package media.conduit.mobile
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Home
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.VideoLibrary
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import media.conduit.mobile.foundation.*
 import media.conduit.mobile.account.ConduitApi
@@ -402,13 +411,16 @@ private fun AppShell(
             snackbarHost = { SnackbarHost(snackbarHostState) },
             bottomBar = {
                 if (!expanded) {
-                    NavigationBar {
+                    NavigationBar(
+                        containerColor = Color(0xFF111113),
+                        tonalElevation = 0.dp,
+                    ) {
                         AppDestination.entries.forEach { destination ->
-                            NavigationBarItem(
+                            MobileNavigationItem(
+                                destination = destination,
                                 selected = state.destination == destination,
                                 onClick = { dispatch(AppAction.Navigate(destination)) },
-                                icon = { Text(destination.glyph) },
-                                label = { Text(destination.label) },
+                                modifier = Modifier.weight(1f),
                             )
                         }
                     }
@@ -423,7 +435,7 @@ private fun AppShell(
                             NavigationRailItem(
                                 selected = state.destination == destination,
                                 onClick = { dispatch(AppAction.Navigate(destination)) },
-                                icon = { Text(destination.glyph) },
+                                icon = { Icon(destination.icon, destination.label) },
                                 label = { Text(destination.label) },
                             )
                         }
@@ -482,13 +494,36 @@ private fun DestinationContent(
     }
 }
 
-private val AppDestination.glyph: String
+private val AppDestination.icon: ImageVector
     get() = when (this) {
-        AppDestination.Home -> "⌂"
-        AppDestination.Search -> "⌕"
-        AppDestination.Library -> "▣"
-        AppDestination.Settings -> "⚙"
+        AppDestination.Home -> Icons.Rounded.Home
+        AppDestination.Search -> Icons.Rounded.Search
+        AppDestination.Library -> Icons.Rounded.VideoLibrary
+        AppDestination.Settings -> Icons.Rounded.Settings
     }
+
+@Composable
+private fun RowScope.MobileNavigationItem(
+    destination: AppDestination,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+    Column(
+        modifier.clickable(onClick = onClick).padding(top = 10.dp, bottom = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Icon(destination.icon, destination.label, tint = color, modifier = Modifier.size(24.dp))
+        Text(
+            destination.label,
+            color = color,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+        )
+    }
+}
 
 @Composable
 private fun SearchFoundation(modifier: Modifier = Modifier) {
@@ -499,7 +534,7 @@ private fun SearchFoundation(modifier: Modifier = Modifier) {
             value = query,
             onValueChange = { query = it },
             placeholder = { Text("Movies, series, and episodes") },
-            leadingIcon = { Text("⌕") },
+            leadingIcon = { Icon(Icons.Rounded.Search, null) },
             singleLine = true,
             shape = MaterialTheme.shapes.extraLarge,
             modifier = Modifier.fillMaxWidth(),

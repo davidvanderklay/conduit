@@ -34,6 +34,7 @@ kotlin {
             implementation(compose.runtime)
             implementation(compose.foundation)
             implementation(compose.material3)
+            implementation(compose.materialIconsExtended)
             implementation(compose.ui)
             implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1")
             implementation("io.ktor:ktor-client-core:3.5.1")
