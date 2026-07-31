@@ -96,9 +96,10 @@ async fn player_open(
     player: State<'_, PlayerManager>,
     url: String,
     title: String,
+    read_ahead_seconds: u32,
 ) -> Result<PlayerSnapshot, String> {
     player
-        .open(&app, &url, &title)
+        .open(&app, &url, &title, read_ahead_seconds)
         .map_err(|error| error.to_string())
 }
 

@@ -33,6 +33,7 @@ import {
 import { loadSubtitles, type Video } from "../lib/core"
 import { nativeMediaTitle, playerHeading, type PlayerHeading } from "../lib/player-title"
 import { readPreferences, writePreferences } from "../lib/preferences"
+import { bufferStatus } from "../lib/playback-buffer"
 import {
   configuredTrackLanguage,
   matchesTrackLanguage,
@@ -173,7 +174,7 @@ export function DesktopPlayer({
     lastNativeSnapshot.current = undefined
     lastPlayback.current = { position: 0, duration: 0 }
     document.documentElement.classList.add("native-playback")
-    void openNativePlayer(url, mediaTitle)
+    void openNativePlayer(url, mediaTitle, preferences.readAheadSeconds)
       .then(async (initial) => {
         if (cancelled) return
         setSnapshot(initial)
@@ -812,6 +813,16 @@ export function DesktopPlayer({
                       ? Math.min(100, (snapshot.position / snapshot.duration) * 100)
                       : 0
                   }%`,
+                  "--player-buffered": `${
+                    snapshot.duration > 0
+                      ? Math.min(
+                          100,
+                          ((snapshot.position + snapshot.bufferedDuration) /
+                            snapshot.duration) *
+                            100,
+                        )
+                      : 0
+                  }%`,
                 } as React.CSSProperties
               }
               type="range"
@@ -915,6 +926,17 @@ export function DesktopPlayer({
                   </>
                 ) : (
                   <span className="text-zinc-500">--:--:-- / --:--:--</span>
+                )}
+              </span>
+              <span
+                className={`hidden tabular-nums text-zinc-500 lg:block ${
+                  expandedControls ? "text-xs" : "text-[11px]"
+                }`}
+                title="Temporary in-memory media buffer and current download throughput"
+              >
+                {bufferStatus(
+                  snapshot.bufferedDuration,
+                  snapshot.downloadBytesPerSecond,
                 )}
               </span>
 

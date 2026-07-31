@@ -351,6 +351,7 @@ export function SettingsView({ profile }: { profile: Profile }) {
             <SelectSetting label="Resume behavior" value={preferences.resumeBehavior} options={[["ask", "Ask every time"], ["always", "Always resume"], ["restart", "Start over"]]} onChange={(value) => update("resumeBehavior", value as DevicePreferences["resumeBehavior"])} />
             <SelectSetting label="Theme" value={preferences.theme} options={[["dark", "Dark"], ["system", "System"]]} onChange={(value) => update("theme", value as DevicePreferences["theme"])} />
             <RangeSetting label={`Default volume · ${preferences.volume}%`} value={preferences.volume} min={0} max={100} onChange={(value) => update("volume", value)} />
+            <RangeSetting label={`Network read-ahead · ${preferences.readAheadSeconds}s`} value={preferences.readAheadSeconds} min={10} max={120} step={10} onChange={(value) => update("readAheadSeconds", value)} />
             <RangeSetting label={`Subtitle size · ${preferences.subtitleSize}%`} value={preferences.subtitleSize} min={75} max={200} onChange={(value) => update("subtitleSize", value)} />
             <RangeSetting label={`Subtitle position · ${preferences.subtitlePosition}%`} value={preferences.subtitlePosition} min={10} max={100} onChange={(value) => update("subtitlePosition", value)} />
           </div>
@@ -359,6 +360,10 @@ export function SettingsView({ profile }: { profile: Profile }) {
             <Toggle label="Hardware acceleration" checked={preferences.hardwareAcceleration} onChange={(value) => update("hardwareAcceleration", value)} />
             <Toggle label="Reduced motion" checked={preferences.reducedMotion} onChange={(value) => update("reducedMotion", value)} />
           </div>
+          <p className="mt-4 text-xs leading-5 text-zinc-500">
+            Read-ahead uses bounded temporary memory on desktop and tunes HLS buffering on the web.
+            Browsers may still evict buffered media. This is not a download or offline cache.
+          </p>
           {saved && <p className="mt-4 text-xs text-emerald-300">Saved on this device</p>}
           </SettingsCard>
 
@@ -453,6 +458,7 @@ function importedPreferences(
     subtitleLanguage: typeof value.subtitleLanguage === "string" ? value.subtitleLanguage : current.subtitleLanguage,
     subtitleSize: boundedNumber(value.subtitleSize, current.subtitleSize, 75, 200),
     subtitlePosition: boundedNumber(value.subtitlePosition, current.subtitlePosition, 10, 100),
+    readAheadSeconds: boundedNumber(value.readAheadSeconds, current.readAheadSeconds, 10, 120),
     autoplay: typeof value.autoplay === "boolean" ? value.autoplay : current.autoplay,
     volume: boundedNumber(value.volume, current.volume, 0, 100),
     hardwareAcceleration: typeof value.hardwareAcceleration === "boolean" ? value.hardwareAcceleration : current.hardwareAcceleration,
@@ -489,8 +495,8 @@ function SelectSetting({ label, value, onChange, options = [["auto", "Automatic"
   return <label className="text-sm text-zinc-400">{label}<select className="mt-2 h-11 w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 text-zinc-100 outline-none focus:border-amber-400" value={value} onChange={(event) => onChange(event.target.value)}>{options.map(([option, name]) => <option value={option} key={option}>{name}</option>)}</select></label>
 }
 
-function RangeSetting({ label, value, min, max, onChange }: { label: string; value: number; min: number; max: number; onChange: (value: number) => void }) {
-  return <label className="text-sm text-zinc-400">{label}<input className="mt-4 w-full accent-amber-400" type="range" min={min} max={max} value={value} onChange={(event) => onChange(Number(event.target.value))} /></label>
+function RangeSetting({ label, value, min, max, step, onChange }: { label: string; value: number; min: number; max: number; step?: number; onChange: (value: number) => void }) {
+  return <label className="text-sm text-zinc-400">{label}<input className="mt-4 w-full accent-amber-400" type="range" min={min} max={max} step={step} value={value} onChange={(event) => onChange(Number(event.target.value))} /></label>
 }
 
 function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (value: boolean) => void }) {

@@ -28,9 +28,11 @@ describe("device preferences", () => {
       volume: 900,
       subtitleSize: 2,
       subtitlePosition: 900,
+      readAheadSeconds: 900,
     })))
     expect(value.volume).toBe(100)
     expect(value.subtitleSize).toBe(75)
     expect(value.subtitlePosition).toBe(100)
+    expect(value.readAheadSeconds).toBe(120)
   })
 })

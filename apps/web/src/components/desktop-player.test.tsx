@@ -22,6 +22,8 @@ const snapshot = {
   loading: false,
   position: 10,
   duration: 100,
+  bufferedDuration: 30,
+  downloadBytesPerSecond: 2_000_000,
   volume: 80,
   tracks: [
     {

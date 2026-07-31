@@ -6,6 +6,7 @@ export interface DevicePreferences {
   subtitleLanguage: string
   subtitleSize: number
   subtitlePosition: number
+  readAheadSeconds: number
   autoplay: boolean
   volume: number
   hardwareAcceleration: boolean
@@ -21,6 +22,7 @@ export const defaultPreferences: DevicePreferences = {
   subtitleLanguage: "en",
   subtitleSize: 100,
   subtitlePosition: 90,
+  readAheadSeconds: 30,
   autoplay: true,
   volume: 100,
   hardwareAcceleration: true,
@@ -40,6 +42,11 @@ export function readPreferences(storage: Storage = localStorage): DevicePreferen
         Number(value.subtitlePosition ?? defaultPreferences.subtitlePosition),
         10,
         100,
+      ),
+      readAheadSeconds: clamp(
+        Number(value.readAheadSeconds ?? defaultPreferences.readAheadSeconds),
+        10,
+        120,
       ),
       volume: clamp(Number(value.volume ?? defaultPreferences.volume), 0, 100),
     }
