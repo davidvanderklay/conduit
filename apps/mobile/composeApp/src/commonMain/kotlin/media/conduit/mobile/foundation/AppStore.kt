@@ -13,6 +13,7 @@ enum class AppDestination(val label: String) {
 data class AppState(
     val endpoint: ServerEndpoint? = null,
     val destination: AppDestination = AppDestination.Discover,
+    val activeProfileId: String? = null,
     val setupInput: String = "",
     val setupError: String? = null,
     val pendingEndpoint: ServerEndpoint? = null,
@@ -26,6 +27,7 @@ sealed interface AppAction {
     data class ConnectionFailed(val message: String) : AppAction
     data object ForgetEndpoint : AppAction
     data class Navigate(val destination: AppDestination) : AppAction
+    data class SelectProfile(val profileId: String) : AppAction
     data object DismissNotice : AppAction
 }
 
@@ -35,6 +37,7 @@ class AppStore(
 ) {
     private val json = Json { ignoreUnknownKeys = true }
     private val endpointKey = "server.endpoint.v1"
+    private val activeProfileKey = "account.active-profile.v1"
 
     var state: AppState = loadState()
         private set
@@ -56,6 +59,10 @@ class AppStore(
                 AppState(notice = "Server connection removed")
             }
             is AppAction.Navigate -> state.copy(destination = action.destination)
+            is AppAction.SelectProfile -> {
+                settings.put(activeProfileKey, action.profileId)
+                state.copy(activeProfileId = action.profileId, notice = "Profile selected")
+            }
             AppAction.DismissNotice -> state.copy(notice = null)
         }
         return state
@@ -80,6 +87,10 @@ class AppStore(
         val endpoint = settings.get(endpointKey)?.let { encoded ->
             runCatching { json.decodeFromString<ServerEndpoint>(encoded) }.getOrNull()
         }
-        return AppState(endpoint = endpoint, setupInput = endpoint?.baseUrl.orEmpty())
+        return AppState(
+            endpoint = endpoint,
+            activeProfileId = settings.get(activeProfileKey),
+            setupInput = endpoint?.baseUrl.orEmpty(),
+        )
     }
 }

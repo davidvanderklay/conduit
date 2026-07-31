@@ -26,6 +26,13 @@ or forgetting a server clears the vault before another origin can be selected.
 Android encrypts the serialized session with AES-GCM and a non-exportable key
 in Android Keystore; preferences contain only IV and ciphertext.
 
+Local email sign-in and registration use Better Auth's `set-auth-token` bearer
+header, not persisted cookies. After authentication, mobile loads
+`/v1/bootstrap`, creates the first household/profile when needed, and persists
+only the selected profile identifier in ordinary settings. A 401 clears an
+expired session; network and server failures retain the encrypted token and
+offer retry or server recovery paths.
+
 The existing desktop OAuth endpoint remains loopback-only. Mobile deep links
 must receive a separate server contract and callback validator rather than
 weakening desktop's security assumptions. iOS networking source is present,
@@ -37,5 +44,6 @@ not be enabled there until a Keychain adapter is implemented and tested.
 Connection probing is now real and can fail with an actionable error without
 persisting a bad endpoint. Unit tests use Ktor's deterministic mock engine, and
 an Android instrumentation test exercises Keystore encryption on an emulator.
-This checkpoint does not claim sign-in, token exchange, profile selection,
-offline caches, or synchronization; those remain within issue #43.
+This checkpoint does not claim mobile OAuth/deep links, recovery-code display,
+offline data caches, or library/progress/add-on synchronization; those remain
+within issue #43.

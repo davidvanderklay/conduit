@@ -74,4 +74,12 @@ class AppStoreTest {
         assertNull(state.endpoint)
         assertEquals("https://expected.example.test", state.pendingEndpoint?.baseUrl)
     }
+
+    @Test
+    fun selectedProfilePersistsLocally() {
+        val settings = MemorySettingsStore()
+        val store = AppStore(settings)
+        store.dispatch(AppAction.SelectProfile("profile-7"))
+        assertEquals("profile-7", AppStore(settings).state.activeProfileId)
+    }
 }
