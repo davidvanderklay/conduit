@@ -34,6 +34,8 @@ actual fun NativePlayer(
     active: Boolean,
     startPositionMs: Long,
     requestHeaders: Map<String, String>,
+    hasEpisodes: Boolean,
+    onEpisodes: () -> Unit,
     modifier: Modifier,
     onState: (PlaybackState) -> Unit,
 ) {

@@ -7,6 +7,9 @@ import androidx.compose.runtime.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
@@ -23,13 +26,14 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.Player
 import androidx.media3.common.C
+import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.ui.PlayerView
-import androidx.media3.ui.TrackSelectionDialogBuilder
 import kotlinx.coroutines.delay
 
 @OptIn(UnstableApi::class)
@@ -39,6 +43,8 @@ actual fun NativePlayer(
     active: Boolean,
     startPositionMs: Long,
     requestHeaders: Map<String, String>,
+    hasEpisodes: Boolean,
+    onEpisodes: () -> Unit,
     modifier: Modifier,
     onState: (PlaybackState) -> Unit,
 ) {
@@ -61,7 +67,8 @@ actual fun NativePlayer(
     var playing by remember(player) { mutableStateOf(false) }
     var dragging by remember(player) { mutableStateOf(false) }
     var draggedPosition by remember(player) { mutableFloatStateOf(0f) }
-    var speedMenu by remember { mutableStateOf(false) }
+    var trackPanel by remember { mutableStateOf<Int?>(null) }
+    var tracksRevision by remember { mutableIntStateOf(0) }
 
     DisposableEffect(player, url) {
         val previousOrientation = activity?.requestedOrientation
@@ -75,6 +82,7 @@ actual fun NativePlayer(
                     else -> error.cause?.message ?: error.message
                 }
             }
+            override fun onTracksChanged(tracks: Tracks) { tracksRevision++ }
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_READY && !resumed) {
                     resumed = true
@@ -157,6 +165,10 @@ actual fun NativePlayer(
                     PlayerControlButton(Icons.Rounded.Forward10, "Forward 10 seconds") { player.seekForward(); controlsVisible = true }
                 }
                 Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(horizontal = 22.dp, vertical = 14.dp)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        PlayerTimePill(formatPlayerTime(if (dragging) draggedPosition.toLong() else positionMs))
+                        PlayerTimePill(formatPlayerTime(durationMs))
+                    }
                     Slider(
                         value = if (dragging) draggedPosition else positionMs.toFloat(),
                         onValueChange = { dragging = true; draggedPosition = it },
@@ -165,20 +177,66 @@ actual fun NativePlayer(
                         colors = SliderDefaults.colors(thumbColor = MaterialTheme.colorScheme.primary, activeTrackColor = MaterialTheme.colorScheme.primary, inactiveTrackColor = Color.White.copy(.35f)),
                     )
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text("${formatPlayerTime(if (dragging) draggedPosition.toLong() else positionMs)} / ${formatPlayerTime(durationMs)}", color = Color.White, style = MaterialTheme.typography.labelMedium)
                         Spacer(Modifier.weight(1f))
-                        Box {
-                            TextButton(onClick = { speedMenu = true }) { Text("${player.playbackParameters.speed}×", color = Color.White) }
-                            DropdownMenu(expanded = speedMenu, onDismissRequest = { speedMenu = false }) {
-                                listOf(.5f, .75f, 1f, 1.25f, 1.5f, 2f).forEach { speed -> DropdownMenuItem(text = { Text("${speed}×") }, onClick = { player.setPlaybackSpeed(speed); speedMenu = false; controlsVisible = true }) }
-                            }
-                        }
-                        IconButton(onClick = { TrackSelectionDialogBuilder(context, "Audio", player, C.TRACK_TYPE_AUDIO).build().show(); controlsVisible = true }) { Icon(Icons.Rounded.Headphones, "Audio tracks", tint = Color.White) }
-                        IconButton(onClick = { TrackSelectionDialogBuilder(context, "Subtitles", player, C.TRACK_TYPE_TEXT).build().show(); controlsVisible = true }) { Icon(Icons.Rounded.Subtitles, "Subtitles", tint = Color.White) }
+                        val speeds = listOf(.5f, .75f, 1f, 1.25f, 1.5f, 2f)
+                        TextButton(onClick = { val current = player.playbackParameters.speed; player.setPlaybackSpeed(speeds[(speeds.indexOfFirst { it == current }.takeIf { it >= 0 } ?: 1).let { (it + 1) % speeds.size }]); controlsVisible = true }) { Text("${player.playbackParameters.speed}×", color = Color.White) }
+                        IconButton(onClick = { trackPanel = C.TRACK_TYPE_AUDIO; controlsVisible = true }) { Icon(Icons.Rounded.Headphones, "Audio tracks", tint = Color.White) }
+                        IconButton(onClick = { trackPanel = C.TRACK_TYPE_TEXT; controlsVisible = true }) { Icon(Icons.Rounded.Subtitles, "Subtitles", tint = Color.White) }
+                        if (hasEpisodes) IconButton(onClick = onEpisodes) { Icon(Icons.Rounded.PlaylistPlay, "Episodes", tint = Color.White) }
                     }
                 }
             }
         }
+        trackPanel?.let { type ->
+            @Suppress("UNUSED_EXPRESSION") tracksRevision
+            PlayerTrackPanel(player, type, onDismiss = { trackPanel = null })
+        }
+    }
+}
+
+@Composable
+private fun PlayerTimePill(value: String) {
+    Surface(color = Color.Black.copy(.65f), shape = RoundedCornerShape(18.dp), border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(.22f))) {
+        Text(value, color = Color.White, modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp), style = MaterialTheme.typography.labelLarge)
+    }
+}
+
+@Composable
+private fun BoxScope.PlayerTrackPanel(player: ExoPlayer, type: Int, onDismiss: () -> Unit) {
+    val groups = player.currentTracks.groups.filter { it.type == type }
+    Surface(modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight().fillMaxWidth(.48f), color = Color(0xF21A1A1D), shape = RoundedCornerShape(topStart = 28.dp, bottomStart = 28.dp), shadowElevation = 18.dp) {
+        Column(Modifier.padding(20.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(if (type == C.TRACK_TYPE_AUDIO) "Audio" else "Subtitles", color = Color.White, style = MaterialTheme.typography.headlineSmall)
+                Spacer(Modifier.weight(1f)); IconButton(onClick = onDismiss) { Icon(Icons.Rounded.Close, "Close", tint = Color.White) }
+            }
+            Text(if (type == C.TRACK_TYPE_AUDIO) "Choose an audio language" else "Choose a subtitle language and variant", color = Color.White.copy(.6f))
+            Spacer(Modifier.height(14.dp))
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (type == C.TRACK_TYPE_TEXT) item {
+                    PlayerTrackRow("Off", !groups.any { it.isSelected }) {
+                        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().clearOverridesOfType(type).setTrackTypeDisabled(type, true).build(); onDismiss()
+                    }
+                }
+                groups.forEach { group ->
+                    items((0 until group.length).toList()) { index ->
+                        val format = group.getTrackFormat(index)
+                        val language = format.label ?: format.language?.let { java.util.Locale.forLanguageTag(it).displayLanguage } ?: if (type == C.TRACK_TYPE_AUDIO) "Audio track ${index + 1}" else "Subtitle ${index + 1}"
+                        val detail = listOfNotNull(format.language?.uppercase(), format.roleFlags.takeIf { it != 0 }?.let { "Variant ${index + 1}" }).joinToString(" · ")
+                        PlayerTrackRow(listOf(language, detail).filter { it.isNotBlank() }.joinToString("  "), group.isTrackSelected(index)) {
+                            player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().setTrackTypeDisabled(type, false).clearOverridesOfType(type).addOverride(TrackSelectionOverride(group.mediaTrackGroup, index)).build(); onDismiss()
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlayerTrackRow(label: String, selected: Boolean, onClick: () -> Unit) {
+    Surface(onClick = onClick, color = if (selected) MaterialTheme.colorScheme.primary.copy(.18f) else Color.White.copy(.06f), shape = RoundedCornerShape(14.dp), border = if (selected) androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null) {
+        Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) { Text(label, color = Color.White, modifier = Modifier.weight(1f)); if (selected) Icon(Icons.Rounded.CheckCircle, null, tint = MaterialTheme.colorScheme.primary) }
     }
 }
 

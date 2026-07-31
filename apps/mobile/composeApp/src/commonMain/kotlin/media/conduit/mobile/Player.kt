@@ -9,6 +9,8 @@ expect fun NativePlayer(
     active: Boolean,
     startPositionMs: Long = 0,
     requestHeaders: Map<String, String> = emptyMap(),
+    hasEpisodes: Boolean = false,
+    onEpisodes: () -> Unit = {},
     modifier: Modifier = Modifier,
     onState: (PlaybackState) -> Unit,
 )
