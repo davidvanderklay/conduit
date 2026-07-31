@@ -108,6 +108,36 @@ class ConduitApiTest {
         assertEquals("keep-this-token", vault.loadFor(endpoint.baseUrl)?.token)
     }
 
+    @Test
+    fun profileSyncCachesSensitiveAddonConfigurationForOfflineUse() = runTest {
+        var online = true
+        val engine = MockEngine { request ->
+            if (!online) return@MockEngine respond("offline", HttpStatusCode.ServiceUnavailable)
+            val body = when {
+                request.url.encodedPath.endsWith("/addons") ->
+                    """{"addons":[{"id":"a1","manifestId":"fixture","manifestUrl":"https://secret.example/manifest.json?token=private","manifest":{"id":"fixture","name":"Fixture"},"position":0,"enabled":true}]}"""
+                request.url.encodedPath.endsWith("/library") ->
+                    """{"items":[{"id":"movie:1","type":"movie","name":"A Movie","updatedAt":"2026-07-31T00:00:00Z"}]}"""
+                request.url.encodedPath.endsWith("/progress") ->
+                    """{"items":[{"videoId":"v1","mediaType":"movie","mediaId":"1","name":"A Movie","positionMs":1000,"durationMs":2000,"watched":false,"updatedAt":"2026-07-31T00:00:00Z"}]}"""
+                else -> error("Unexpected path ${request.url.encodedPath}")
+            }
+            respond(body, HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "application/json"))
+        }
+        val client = HttpClient(engine) { install(ContentNegotiation) { json() } }
+        val secure = MemorySecureStore()
+        val repository = ProfileSyncRepository(ConduitApi(client), secure)
+
+        val fresh = repository.synchronize("https://conduit.example", "token", "p1")
+        assertEquals("A Movie", fresh.snapshot?.library?.single()?.name)
+        assertTrue(fresh.offline.not())
+
+        online = false
+        val offline = repository.synchronize("https://conduit.example", "token", "p1")
+        assertTrue(offline.offline)
+        assertEquals("fixture", offline.snapshot?.addons?.single()?.manifestId)
+    }
+
     private fun mockClient(response: (path: String, authorization: String?) -> String): HttpClient {
         val engine = MockEngine { request ->
             respond(

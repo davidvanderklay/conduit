@@ -33,6 +33,13 @@ only the selected profile identifier in ordinary settings. A 401 clears an
 expired session; network and server failures retain the encrypted token and
 offer retry or server recovery paths.
 
+The selected profile synchronizes add-ons, library, and progress concurrently
+from the existing server endpoints. Its offline snapshot is stored in the same
+Keystore-encrypted store as sessions because configured add-on URLs may contain
+secrets. A refresh failure renders cached state with an explicit offline label;
+it never substitutes cached data from another profile. New local accounts show
+fresh one-time recovery codes before household setup.
+
 The existing desktop OAuth endpoint remains loopback-only. Mobile deep links
 must receive a separate server contract and callback validator rather than
 weakening desktop's security assumptions. iOS networking source is present,
@@ -44,6 +51,5 @@ not be enabled there until a Keychain adapter is implemented and tested.
 Connection probing is now real and can fail with an actionable error without
 persisting a bad endpoint. Unit tests use Ktor's deterministic mock engine, and
 an Android instrumentation test exercises Keystore encryption on an emulator.
-This checkpoint does not claim mobile OAuth/deep links, recovery-code display,
-offline data caches, or library/progress/add-on synchronization; those remain
-within issue #43.
+This checkpoint does not claim mobile OAuth/deep links or iOS Keychain support;
+those remain within issue #43.
