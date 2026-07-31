@@ -13,6 +13,9 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import kotlinx.serialization.json.JsonObject
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 
 @Serializable
 data class ServerHealth(val status: String)
@@ -44,6 +47,57 @@ data class HouseholdSummary(
 
 @Serializable
 data class BootstrapResponse(val households: List<HouseholdSummary>)
+
+@Serializable
+data class InstalledAddonSummary(
+    val id: String,
+    val manifestId: String,
+    val manifestUrl: String,
+    val manifest: JsonObject,
+    val position: Int,
+    val enabled: Boolean,
+)
+
+@Serializable
+data class AddonsResponse(val addons: List<InstalledAddonSummary>)
+
+@Serializable
+data class LibraryItemSummary(
+    val id: String,
+    val type: String,
+    val name: String,
+    val poster: String? = null,
+    val updatedAt: String,
+)
+
+@Serializable
+data class LibraryResponse(val items: List<LibraryItemSummary>)
+
+@Serializable
+data class ProgressSummary(
+    val videoId: String,
+    val mediaType: String,
+    val mediaId: String,
+    val name: String,
+    val positionMs: Long,
+    val durationMs: Long,
+    val watched: Boolean,
+    val updatedAt: String,
+)
+
+@Serializable
+data class ProgressResponse(val items: List<ProgressSummary>)
+
+@Serializable
+data class ProfileSnapshot(
+    val profileId: String,
+    val addons: List<InstalledAddonSummary>,
+    val library: List<LibraryItemSummary>,
+    val progress: List<ProgressSummary>,
+)
+
+@Serializable
+data class RecoveryCodesResponse(val codes: List<String>)
 
 data class ValidatedServer(
     val authentication: AuthenticationConfiguration,
@@ -149,6 +203,39 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
                 response.status.value,
             )
         }
+    }
+
+    suspend fun synchronizeProfile(baseUrl: String, token: String, profileId: String): ProfileSnapshot =
+        coroutineScope {
+            suspend fun get(path: String) = client.get("$baseUrl$path") { bearerAuth(token) }
+            val addons = async { get("/v1/profiles/$profileId/addons") }
+            val library = async { get("/v1/profiles/$profileId/library") }
+            val progress = async { get("/v1/profiles/$profileId/progress?view=history&limit=250") }
+            val responses = listOf(addons.await(), library.await(), progress.await())
+            responses.firstOrNull { !it.status.isSuccess() }?.let { response ->
+                throw ServerRequestException(
+                    if (response.status.value == 401) "Your session has expired" else
+                        "Profile synchronization returned HTTP ${response.status.value}",
+                    response.status.value,
+                )
+            }
+            ProfileSnapshot(
+                profileId = profileId,
+                addons = responses[0].body<AddonsResponse>().addons,
+                library = responses[1].body<LibraryResponse>().items,
+                progress = responses[2].body<ProgressResponse>().items,
+            )
+        }
+
+    suspend fun generateRecoveryCodes(baseUrl: String, token: String): List<String> {
+        val response = client.post("$baseUrl/v1/auth/recovery-codes") { bearerAuth(token) }
+        if (!response.status.isSuccess()) {
+            throw ServerRequestException(
+                "Recovery-code generation returned HTTP ${response.status.value}",
+                response.status.value,
+            )
+        }
+        return response.body<RecoveryCodesResponse>().codes
     }
 
     fun close() = client.close()

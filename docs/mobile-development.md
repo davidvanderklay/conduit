@@ -133,3 +133,9 @@ server permits registration. The app stores the bearer session in Android
 Keystore-backed ciphertext, loads households and profiles from `/v1/bootstrap`,
 and restores the session after restart. Sign out from Settings and verify that
 the login screen returns.
+
+Library, history, and installed add-on summaries refresh for the selected
+profile. After one successful refresh, stop the local server and reopen the app;
+the same profile should render its encrypted cached snapshot with an Offline
+label. A newly registered account must show its one-time recovery codes before
+household creation.

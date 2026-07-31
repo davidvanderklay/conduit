@@ -75,6 +75,8 @@ private fun AccountGate(
                     state = state,
                     platform = services.info,
                     account = current,
+                    api = api,
+                    secureStore = services.secure,
                     dispatch = dispatch,
                     onSignOut = {
                         account = AccountStatus.Loading
@@ -83,6 +85,10 @@ private fun AccountGate(
                 )
             }
         }
+        is AccountStatus.RecoveryCodes -> RecoveryCodesScreen(
+            codes = current.codes,
+            onSaved = { account = current.signedIn },
+        )
         is AccountStatus.Error -> ConnectionError(
             message = current.message,
             onRetry = {
@@ -91,6 +97,27 @@ private fun AccountGate(
             },
             onChangeServer = { dispatch(AppAction.ForgetEndpoint) },
         )
+    }
+}
+
+@Composable
+private fun RecoveryCodesScreen(codes: List<String>, onSaved: () -> Unit) {
+    Surface(Modifier.fillMaxSize()) {
+        Column(
+            Modifier.safeContentPadding().verticalScroll(rememberScrollState()).padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Text("Save your recovery codes", style = MaterialTheme.typography.headlineMedium)
+            Text("Each code works once. Store them outside this device before continuing.")
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    codes.forEach { Text(it, style = MaterialTheme.typography.bodyLarge) }
+                }
+            }
+            Button(onClick = onSaved, modifier = Modifier.fillMaxWidth()) {
+                Text("I saved these codes")
+            }
+        }
     }
 }
 
@@ -300,11 +327,28 @@ private fun AppShell(
     state: AppState,
     platform: PlatformInfo,
     account: AccountStatus.SignedIn,
+    api: ConduitApi,
+    secureStore: SecureStore,
     dispatch: (AppAction) -> Unit,
     onSignOut: suspend () -> Unit,
 ) {
     val profiles = account.bootstrap.households.flatMap { it.profiles }
     val activeProfile = profiles.firstOrNull { it.id == state.activeProfileId } ?: profiles.firstOrNull()
+    val syncRepository = remember(api, secureStore) { ProfileSyncRepository(api, secureStore) }
+    var profileSync by remember(activeProfile?.id) {
+        mutableStateOf(
+            ProfileSyncState(snapshot = activeProfile?.let { syncRepository.cached(it.id) }),
+        )
+    }
+    LaunchedEffect(activeProfile?.id, account.session.token) {
+        val profile = activeProfile ?: return@LaunchedEffect
+        profileSync = profileSync.copy(refreshing = true)
+        profileSync = syncRepository.synchronize(
+            state.endpoint!!.baseUrl,
+            account.session.token,
+            profile.id,
+        )
+    }
     LaunchedEffect(activeProfile?.id, state.activeProfileId) {
         if (activeProfile != null && activeProfile.id != state.activeProfileId) {
             dispatch(AppAction.SelectProfile(activeProfile.id))
@@ -350,12 +394,14 @@ private fun AppShell(
                         }
                     }
                     DestinationContent(
-                        state, platform, account, activeProfile, dispatch, onSignOut, Modifier.weight(1f),
+                        state, platform, account, activeProfile, profileSync, dispatch, onSignOut,
+                        Modifier.weight(1f),
                     )
                 }
             } else {
                 DestinationContent(
-                    state, platform, account, activeProfile, dispatch, onSignOut, Modifier.padding(padding),
+                    state, platform, account, activeProfile, profileSync, dispatch, onSignOut,
+                    Modifier.padding(padding),
                 )
             }
         }
@@ -368,6 +414,7 @@ private fun DestinationContent(
     platform: PlatformInfo,
     account: AccountStatus.SignedIn,
     activeProfile: ProfileSummary?,
+    profileSync: ProfileSyncState,
     dispatch: (AppAction) -> Unit,
     onSignOut: suspend () -> Unit,
     modifier: Modifier = Modifier,
@@ -377,18 +424,43 @@ private fun DestinationContent(
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Text(state.destination.label, style = MaterialTheme.typography.headlineMedium)
+        if (profileSync.refreshing) LinearProgressIndicator(Modifier.fillMaxWidth())
+        if (profileSync.offline) {
+            Text("Offline · showing encrypted cached data", color = MaterialTheme.colorScheme.tertiary)
+        }
+        profileSync.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         when (state.destination) {
             AppDestination.Discover -> {
                 activeProfile?.let { Text("Watching as ${it.name}") }
                 ArchitectureDemo()
             }
-            AppDestination.Library -> EmptyFoundationState(
-                "Your library will live here",
-                "Library synchronization belongs to a later roadmap milestone.",
-            )
+            AppDestination.Library -> LibrarySummary(profileSync.snapshot)
             AppDestination.Settings -> SettingsFoundation(
-                state, platform, account, activeProfile, dispatch, onSignOut,
+                state, platform, account, activeProfile, profileSync, dispatch, onSignOut,
             )
+        }
+    }
+}
+
+@Composable
+private fun LibrarySummary(snapshot: ProfileSnapshot?) {
+    val library = snapshot?.library.orEmpty()
+    val progress = snapshot?.progress.orEmpty()
+    if (snapshot == null) {
+        EmptyFoundationState("Synchronizing your library", "Connect to load this profile's media state.")
+        return
+    }
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("${library.size} library items", style = MaterialTheme.typography.titleLarge)
+            library.take(10).forEach { Text(it.name) }
+            if (library.isEmpty()) Text("Your synchronized library is empty.")
+        }
+    }
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("${progress.size} history entries", style = MaterialTheme.typography.titleLarge)
+            progress.take(10).forEach { Text(it.name) }
         }
     }
 }
@@ -409,6 +481,7 @@ private fun SettingsFoundation(
     platform: PlatformInfo,
     account: AccountStatus.SignedIn,
     activeProfile: ProfileSummary?,
+    profileSync: ProfileSyncState,
     dispatch: (AppAction) -> Unit,
     onSignOut: suspend () -> Unit,
 ) {
@@ -427,6 +500,7 @@ private fun SettingsFoundation(
                 }
             }
             OutlinedButton(onClick = { scope.launch { onSignOut() } }) { Text("Sign out") }
+            Text("${profileSync.snapshot?.addons?.size ?: 0} synchronized add-ons")
         }
     }
     Card(Modifier.fillMaxWidth()) {

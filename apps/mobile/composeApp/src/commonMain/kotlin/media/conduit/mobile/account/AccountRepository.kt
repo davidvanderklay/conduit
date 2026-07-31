@@ -12,6 +12,10 @@ sealed interface AccountStatus {
         val session: StoredSession,
         val bootstrap: BootstrapResponse,
     ) : AccountStatus
+    data class RecoveryCodes(
+        val codes: List<String>,
+        val signedIn: SignedIn,
+    ) : AccountStatus
     data class Error(val message: String) : AccountStatus
 }
 
@@ -66,7 +70,11 @@ class AccountRepository(
         val session = StoredSession(endpoint.baseUrl, authenticated.token)
         val bootstrap = api.bootstrap(endpoint.baseUrl, session.token)
         vault.save(session)
-        AccountStatus.SignedIn(session, bootstrap)
+        val signedIn = AccountStatus.SignedIn(session, bootstrap)
+        runCatching { api.generateRecoveryCodes(endpoint.baseUrl, session.token) }
+            .getOrNull()
+            ?.let { AccountStatus.RecoveryCodes(it, signedIn) }
+            ?: signedIn
     } catch (cause: Exception) {
         AccountStatus.SignedOut(
             authentication,
