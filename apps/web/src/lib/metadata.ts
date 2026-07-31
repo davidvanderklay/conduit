@@ -1,3 +1,4 @@
+import type { WatchProgress } from "./api"
 import type { CatalogItem, MetaItem, Trailer, TrailerStream, Video } from "./core"
 
 const TEXT_LIMIT = 12_000
@@ -133,6 +134,42 @@ export function episodeLabel(video: Video): string {
   }
   if (video.episode != null) return `Episode ${video.episode}`
   return "Episode"
+}
+
+export function eligibleSeriesVideos(videos: Video[], now = new Date()): Video[] {
+  return videos
+    .filter((video) => {
+      const release = video.released ? Date.parse(video.released) : Number.NaN
+      return video.available !== false &&
+        video.season != null &&
+        video.season > 0 &&
+        video.episode != null &&
+        (Number.isNaN(release) || release <= now.getTime())
+    })
+    .sort((a, b) =>
+      (a.season! - b.season!) ||
+      (a.episode! - b.episode!) ||
+      a.id.localeCompare(b.id))
+}
+
+export function selectSeriesVideo(
+  videos: Video[],
+  progress: WatchProgress[],
+  preferredVideoId?: string,
+  now = new Date(),
+): Video | undefined {
+  const eligible = eligibleSeriesVideos(videos, now)
+  const eligibleIds = new Set(eligible.map((video) => video.id))
+  const byId = new Map(progress.map((entry) => [entry.videoId, entry]))
+  const preferred = preferredVideoId ? byId.get(preferredVideoId) : undefined
+  if (preferredVideoId && eligibleIds.has(preferredVideoId) && preferred && !preferred.watched) {
+    return eligible.find((video) => video.id === preferredVideoId)
+  }
+  const resumable = progress
+    .filter((entry) => eligibleIds.has(entry.videoId) && !entry.watched && entry.positionMs > 0)
+    .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))[0]
+  if (resumable) return eligible.find((video) => video.id === resumable.videoId)
+  return eligible.find((video) => !byId.get(video.id)?.watched)
 }
 
 export function sortSeasons(values: number[]): number[] {

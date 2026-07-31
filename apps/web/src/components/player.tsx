@@ -380,6 +380,10 @@ function WebPlayer({
                 void saveProgress(event.currentTarget.currentTime, event.currentTarget.duration)
               }
             }}
+            onEnded={(event) => {
+              setPlaying(false)
+              void saveProgress(event.currentTarget.duration, event.currentTarget.duration, true)
+            }}
             onDurationChange={(event) => setDuration(event.currentTarget.duration || 0)}
             onLoadedMetadata={() => {
               refreshNativeTracks()
