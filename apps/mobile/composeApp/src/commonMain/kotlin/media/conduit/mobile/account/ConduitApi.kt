@@ -48,6 +48,7 @@ data class ProfileSummary(
     val id: String,
     val name: String,
     val isKids: Boolean,
+    val usesPrimaryAddons: Boolean = false,
     val avatarColor: String? = null,
     val avatarUrl: String? = null,
 )
@@ -320,14 +321,13 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
 
     suspend fun createProfile(
         baseUrl: String, token: String, householdId: String, name: String,
-        isKids: Boolean, avatarColor: String, avatarUrl: String?, copyAddonsFromProfileId: String?,
+        isKids: Boolean, usesPrimaryAddons: Boolean, avatarColor: String, avatarUrl: String?,
     ): ProfileSummary {
         val response = client.post("$baseUrl/v1/households/$householdId/profiles") {
             bearerAuth(token); contentType(ContentType.Application.Json)
             setBody(buildJsonObject {
-                put("name", name.trim()); put("isKids", isKids); put("avatarColor", avatarColor)
+                put("name", name.trim()); put("isKids", isKids); put("usesPrimaryAddons", usesPrimaryAddons); put("avatarColor", avatarColor)
                 avatarUrl?.let { put("avatarUrl", it) }
-                copyAddonsFromProfileId?.let { put("copyAddonsFromProfileId", it) }
             })
         }
         if (!response.status.isSuccess()) throw ServerRequestException("Profile creation returned HTTP ${response.status.value}", response.status.value)
@@ -336,12 +336,12 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
 
     suspend fun updateProfile(
         baseUrl: String, token: String, profileId: String, name: String,
-        isKids: Boolean, avatarColor: String, avatarUrl: String?,
+        isKids: Boolean, usesPrimaryAddons: Boolean, avatarColor: String, avatarUrl: String?,
     ): ProfileSummary {
         val response = client.patch("$baseUrl/v1/profiles/$profileId") {
             bearerAuth(token); contentType(ContentType.Application.Json)
             setBody(buildJsonObject {
-                put("name", name.trim()); put("isKids", isKids); put("avatarColor", avatarColor)
+                put("name", name.trim()); put("isKids", isKids); put("usesPrimaryAddons", usesPrimaryAddons); put("avatarColor", avatarColor)
                 if (avatarUrl == null) put("avatarUrl", kotlinx.serialization.json.JsonNull) else put("avatarUrl", avatarUrl)
             })
         }

@@ -370,14 +370,6 @@ internal fun ProfileSettingsScreen(
                 shape = RoundedCornerShape(18.dp),
             )
         }
-        item {
-            Text("Switch profile", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                account.bootstrap.households.flatMap { it.profiles }.forEach { profile ->
-                    FilterChip(selected = profile.id == activeProfile?.id, onClick = { dispatch(AppAction.SelectProfile(profile.id)) }, label = { Text(profile.name) })
-                }
-            }
-        }
         items(visibleSections) { entry ->
             ListItem(
                 headlineContent = { Text(entry.title, fontWeight = FontWeight.Medium) },
@@ -493,21 +485,24 @@ private fun ProfileSwitcherScreen(profiles: List<ProfileSummary>, active: Profil
 
 @Composable
 private fun ProfileEditorScreen(profile: ProfileSummary?, active: ProfileSummary?, api: ConduitApi, state: AppState, account: AccountStatus.SignedIn, onBack: () -> Unit, onSaved: (String?) -> Unit, modifier: Modifier) {
-    val scope = rememberCoroutineScope(); var name by remember { mutableStateOf(profile?.name.orEmpty()) }; var kids by remember { mutableStateOf(profile?.isKids ?: false) }; var color by remember { mutableStateOf(profile?.avatarColor ?: "#FFC107") }; var url by remember { mutableStateOf(profile?.avatarUrl.orEmpty()) }; var copyAddons by remember { mutableStateOf(profile == null) }; var saving by remember { mutableStateOf(false) }; var error by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope(); var name by remember { mutableStateOf(profile?.name.orEmpty()) }; var kids by remember { mutableStateOf(profile?.isKids ?: false) }; var color by remember { mutableStateOf(profile?.avatarColor ?: "#FFC107") }; var url by remember { mutableStateOf(profile?.avatarUrl.orEmpty()) }; var saving by remember { mutableStateOf(false) }; var error by remember { mutableStateOf<String?>(null) }
     val colors = listOf("#FFC107", "#FF8F00", "#E53935", "#8E24AA", "#3949AB", "#039BE5", "#00897B", "#43A047")
-    val preview = ProfileSummary(profile?.id ?: "new", name.ifBlank { "P" }, kids, color, url.trim().ifBlank { null })
+    val primary = account.bootstrap.households.firstOrNull { household -> household.profiles.any { it.id == (profile?.id ?: active?.id) } }?.profiles?.firstOrNull()
+    val canUsePrimary = profile == null || profile.id != primary?.id
+    var usesPrimaryAddons by remember { mutableStateOf(profile?.usesPrimaryAddons ?: false) }
+    val preview = ProfileSummary(profile?.id ?: "new", name.ifBlank { "P" }, kids, usesPrimaryAddons, color, url.trim().ifBlank { null })
     LazyColumn(modifier, contentPadding = PaddingValues(bottom = 130.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item { ProfileHeader(if (profile == null) "Add Profile" else "Edit Profile", onBack) }
         item { Column(Modifier.padding(horizontal = 10.dp), horizontalAlignment = Alignment.CenterHorizontally) { ProfileAvatar(preview, 104); Spacer(Modifier.height(10.dp)); Text(name.ifBlank { "New profile" }, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) } }
         item { Card(Modifier.padding(horizontal = 10.dp).fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             OutlinedTextField(name, { name = it }, label = { Text("Profile name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             Row(verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("Kids profile", fontWeight = FontWeight.Medium); Text("Use a child-friendly profile", color = MaterialTheme.colorScheme.onSurfaceVariant) }; Switch(kids, { kids = it }) }
-            if (profile == null) Row(verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("Copy current add-ons", fontWeight = FontWeight.Medium); Text("Start with ${active?.name ?: "this profile"}'s add-ons", color = MaterialTheme.colorScheme.onSurfaceVariant) }; Switch(copyAddons, { copyAddons = it }) }
+            if (canUsePrimary) Row(verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("Use primary add-ons", fontWeight = FontWeight.Medium); Text("Share ${primary?.name ?: "the primary profile"}'s live add-on setup", color = MaterialTheme.colorScheme.onSurfaceVariant) }; Switch(usesPrimaryAddons, { usesPrimaryAddons = it }) }
         } } }
         item { Card(Modifier.padding(horizontal = 10.dp).fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) { Text("Profile color", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold); Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { colors.forEach { option -> Surface(shape = CircleShape, color = profileColor(option), border = if (color == option) BorderStroke(3.dp, Color.White) else null, modifier = Modifier.size(36.dp).clickable { color = option }) {} } } } } }
         item { Card(Modifier.padding(horizontal = 10.dp).fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { Text("Custom avatar URL", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold); Text("Optional HTTPS image link. Leave empty to use your profile color.", color = MaterialTheme.colorScheme.onSurfaceVariant); OutlinedTextField(url, { url = it }, placeholder = { Text("https://example.com/avatar.png") }, singleLine = true, modifier = Modifier.fillMaxWidth()) } } }
         error?.let { item { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 18.dp)) } }
-        item { Button(onClick = { scope.launch { saving = true; error = null; runCatching { val endpoint = requireNotNull(state.endpoint); val cleanUrl = url.trim().ifBlank { null }; require(cleanUrl == null || cleanUrl.startsWith("https://") || cleanUrl.startsWith("http://")) { "Avatar URL must begin with http:// or https://" }; require(name.isNotBlank()) { "Enter a profile name" }; if (profile == null) { val household = account.bootstrap.households.first(); api.createProfile(endpoint.baseUrl, account.session.token, household.id, name, kids, color, cleanUrl, active?.id.takeIf { copyAddons }) } else api.updateProfile(endpoint.baseUrl, account.session.token, profile.id, name, kids, color, cleanUrl) }.onSuccess { onSaved(it.id); onBack() }.onFailure { error = it.message ?: "Unable to save profile" }; saving = false } }, enabled = !saving, modifier = Modifier.padding(horizontal = 10.dp).fillMaxWidth().height(54.dp)) { if (saving) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp) else Text(if (profile == null) "Create profile" else "Save changes") } }
+        item { Button(onClick = { scope.launch { saving = true; error = null; runCatching { val endpoint = requireNotNull(state.endpoint); val cleanUrl = url.trim().ifBlank { null }; require(cleanUrl == null || cleanUrl.startsWith("https://") || cleanUrl.startsWith("http://")) { "Avatar URL must begin with http:// or https://" }; require(name.isNotBlank()) { "Enter a profile name" }; if (profile == null) { val household = account.bootstrap.households.first(); api.createProfile(endpoint.baseUrl, account.session.token, household.id, name, kids, usesPrimaryAddons, color, cleanUrl) } else api.updateProfile(endpoint.baseUrl, account.session.token, profile.id, name, kids, usesPrimaryAddons, color, cleanUrl) }.onSuccess { onSaved(it.id); onBack() }.onFailure { error = it.message ?: "Unable to save profile" }; saving = false } }, enabled = !saving, modifier = Modifier.padding(horizontal = 10.dp).fillMaxWidth().height(54.dp)) { if (saving) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp) else Text(if (profile == null) "Create profile" else "Save changes") } }
     }
 }
 
