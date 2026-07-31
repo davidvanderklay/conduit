@@ -49,9 +49,12 @@ export function SubtitlePicker({
     onPositionChange(Math.max(10, Math.min(100, position + amount)))
 
   return (
-    <div className="grid min-h-52 grid-cols-1 gap-3 sm:grid-cols-[minmax(10rem,0.9fr)_minmax(12rem,1.1fr)_minmax(10rem,0.8fr)]">
-      <section aria-label="Subtitle languages">
-        <p className="mb-2 px-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+    <div className="grid grid-cols-1 gap-3 sm:h-80 sm:min-h-0 sm:grid-cols-[minmax(10rem,0.9fr)_minmax(12rem,1.1fr)_minmax(10rem,0.8fr)]">
+      <section
+        className="max-h-48 min-h-0 overflow-y-auto overscroll-contain pr-1 sm:max-h-none"
+        aria-label="Subtitle languages"
+      >
+        <p className="sticky top-0 z-10 mb-2 bg-zinc-950 px-2 pb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">
           Languages
         </p>
         <button
@@ -81,8 +84,11 @@ export function SubtitlePicker({
         {loading && <p className="px-3 py-2 text-xs text-zinc-500">Loading subtitles…</p>}
       </section>
 
-      <section className="border-zinc-800 sm:border-l sm:pl-3" aria-label="Subtitle variants">
-        <div className="mb-2 flex items-center gap-1 px-2">
+      <section
+        className="max-h-48 min-h-0 overflow-y-auto overscroll-contain border-zinc-800 pr-1 sm:max-h-none sm:border-l sm:pl-3"
+        aria-label="Subtitle variants"
+      >
+        <div className="sticky top-0 z-10 mb-2 flex items-center gap-1 bg-zinc-950 px-2 pb-1">
           {selectedGroup && (
             <button
               className="rounded p-1 text-zinc-400 hover:bg-zinc-800 hover:text-white sm:hidden"
@@ -118,7 +124,7 @@ export function SubtitlePicker({
         {error && <p role="alert" className="px-3 py-2 text-xs text-red-400">{error}</p>}
       </section>
 
-      <section className="border-zinc-800 sm:border-l sm:pl-3" aria-label="Subtitle settings">
+      <section className="min-h-0 border-zinc-800 sm:border-l sm:pl-3" aria-label="Subtitle settings">
         <p className="mb-2 px-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
           Settings
         </p>
