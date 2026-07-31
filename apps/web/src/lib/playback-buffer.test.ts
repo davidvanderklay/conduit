@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { bufferStatus, playbackBufferState } from "./playback-buffer"
+import { playbackBufferState } from "./playback-buffer"
 
 function ranges(values: Array<[number, number]>): TimeRanges {
   return {
@@ -19,10 +19,5 @@ describe("playback buffer state", () => {
       ahead: 0,
       end: 30,
     })
-  })
-
-  it("formats local buffer diagnostics", () => {
-    expect(bufferStatus(12.4, 2_000_000)).toBe("12s buffered · 16.0 Mbps")
-    expect(bufferStatus(0)).toBe("0s buffered")
   })
 })

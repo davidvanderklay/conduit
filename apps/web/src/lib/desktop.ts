@@ -16,7 +16,6 @@ export interface NativePlayerSnapshot {
   position: number
   duration: number
   bufferedDuration: number
-  downloadBytesPerSecond: number
   volume: number
   title?: string
   tracks: NativeTrack[]

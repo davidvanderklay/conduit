@@ -54,7 +54,6 @@ pub struct PlayerSnapshot {
     pub position: f64,
     pub duration: f64,
     pub buffered_duration: f64,
-    pub download_bytes_per_second: u64,
     pub volume: f64,
     pub title: Option<String>,
     pub tracks: Vec<PlayerTrack>,
@@ -201,10 +200,6 @@ impl PlayerManager {
                 .get_property::<f64>("demuxer-cache-duration")
                 .unwrap_or_default()
                 .max(0.0),
-            download_bytes_per_second: mpv
-                .get_property::<i64>("cache-speed")
-                .unwrap_or_default()
-                .max(0) as u64,
             volume: mpv.get_property::<f64>("volume").unwrap_or(100.0),
             title: mpv.get_property::<String>("media-title").ok(),
             tracks,
