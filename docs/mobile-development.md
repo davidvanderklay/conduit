@@ -105,7 +105,10 @@ simulator/real-device status.
 ## Known scope limits
 
 The spike does not fetch a third-party manifest, authenticate, synchronize
-progress, select tracks, enable PiP/casting, or implement P2P. `cancel` proves
-generation/lifetime semantics for a synchronous fixture; cancellable networking
-belongs in the next stable engine-boundary phase. The iOS and Android device
-matrices must be completed before accepting the ADR or closing issue #41.
+progress, select tracks, enable PiP/casting, or implement P2P. The mobile engine
+boundary now uses protocol v2 with correlated work and cancellation messages,
+bounded inputs, and serialized access to opaque handles. See
+[ADR 0003](adr/0003-mobile-engine-protocol-v2.md) for the ownership contract.
+Host dispatch tasks must finish before destroying an engine. The iOS and
+Android device matrices must be completed before accepting ADR 0001 or closing
+issue #41.
