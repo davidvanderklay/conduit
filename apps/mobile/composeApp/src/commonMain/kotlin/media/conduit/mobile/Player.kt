@@ -7,6 +7,7 @@ import androidx.compose.ui.Modifier
 expect fun NativePlayer(
     url: String?,
     active: Boolean,
+    startPositionMs: Long = 0,
     modifier: Modifier = Modifier,
     onState: (PlaybackState) -> Unit,
 )

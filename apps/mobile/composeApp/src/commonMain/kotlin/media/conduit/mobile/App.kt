@@ -512,6 +512,11 @@ private fun DestinationContent(
                 initialVideoId = selectedVideoId,
                 addons = profileSync.snapshot?.addons.orEmpty(),
                 api = api,
+                profile = activeProfile,
+                snapshot = profileSync.snapshot,
+                baseUrl = state.endpoint!!.baseUrl,
+                token = account.session.token,
+                onProgressChanged = onProfileDataChanged,
                 onBack = onCloseMedia,
             )
         } else when (state.destination) {

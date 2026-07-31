@@ -180,6 +180,11 @@ internal fun MediaDetailsScreen(
     initialVideoId: String?,
     addons: List<InstalledAddonSummary>,
     api: ConduitApi,
+    profile: ProfileSummary?,
+    snapshot: ProfileSnapshot?,
+    baseUrl: String,
+    token: String,
+    onProgressChanged: () -> Unit,
     onBack: () -> Unit,
 ) {
     var meta by remember(item.id, item.type) { mutableStateOf<MetaItem?>(null) }
@@ -187,14 +192,9 @@ internal fun MediaDetailsScreen(
     var selectedVideo by remember(item.id) { mutableStateOf<VideoItem?>(null) }
     var streams by remember(item.id) { mutableStateOf<List<StreamSource>?>(null) }
     var playing by remember(item.id) { mutableStateOf<StreamItem?>(null) }
+    var playback by remember(item.id) { mutableStateOf(PlaybackState()) }
+    var resumePosition by remember(item.id) { mutableStateOf(0L) }
     val scope = rememberCoroutineScope()
-    PlatformBackHandler {
-        when {
-            playing != null -> playing = null
-            streams != null -> streams = null
-            else -> onBack()
-        }
-    }
     LaunchedEffect(item.id, item.type, addons) {
         runCatching { api.loadMeta(addons, item.type, item.id) }
             .onSuccess {
@@ -208,14 +208,40 @@ internal fun MediaDetailsScreen(
         streams = null
         scope.launch { streams = api.loadStreams(addons, item.type, videoId) }
     }
+    val playingVideoId = selectedVideo?.id ?: item.id
+    LaunchedEffect(playingVideoId, profile?.id) {
+        resumePosition = snapshot?.progress?.firstOrNull { it.videoId == playingVideoId }?.takeUnless { it.watched }?.positionMs
+            ?: profile?.let { runCatching { api.loadProgress(baseUrl, token, it.id, playingVideoId) }.getOrNull()?.takeUnless { progress -> progress.watched }?.positionMs }
+            ?: 0L
+    }
+    suspend fun persistProgress() {
+        val activeProfile = profile ?: return
+        val video = selectedVideo
+        api.saveProgress(baseUrl, token, activeProfile.id, video?.id ?: item.id, item.type, item.id,
+            meta?.name ?: item.name, meta?.poster ?: item.poster, video?.title, video?.season, video?.episode,
+            playback.positionMs, playback.durationMs)
+        onProgressChanged()
+    }
+    PlatformBackHandler {
+        when {
+            playing != null -> scope.launch { runCatching { persistProgress() }; playing = null }
+            streams != null -> streams = null
+            else -> onBack()
+        }
+    }
+    LaunchedEffect(playing, playingVideoId) {
+        while (playing != null) { delay(15_000); runCatching { persistProgress() } }
+    }
+    LaunchedEffect(playback.ended) { if (playback.ended) runCatching { persistProgress() } }
 
     if (playing?.url != null) {
         Column(Modifier.fillMaxSize().background(Color.Black)) {
             Row(Modifier.fillMaxWidth().statusBarsPadding().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = { playing = null }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = Color.White) }
+                IconButton(onClick = { scope.launch { runCatching { persistProgress() }; playing = null } }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = Color.White) }
                 Text(meta?.name ?: item.name, color = Color.White, fontWeight = FontWeight.SemiBold)
             }
-            NativePlayer(playing!!.url!!, true, Modifier.fillMaxWidth().aspectRatio(16f / 9f)) { }
+            NativePlayer(playing!!.url!!, true, resumePosition, Modifier.fillMaxWidth().aspectRatio(16f / 9f)) { playback = it }
+            if (resumePosition > 0) Text("Resumed at ${resumePosition / 60_000} min", color = Color.White.copy(.7f), modifier = Modifier.padding(16.dp))
         }
         return
     }
