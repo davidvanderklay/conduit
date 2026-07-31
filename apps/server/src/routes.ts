@@ -1597,7 +1597,12 @@ interface ProgressBody {
 }
 
 export function isPlaybackComplete(positionMs: number, durationMs: number): boolean {
-  if (durationMs <= 0) return false
+  if (
+    !Number.isFinite(positionMs) ||
+    !Number.isFinite(durationMs) ||
+    positionMs < 0 ||
+    durationMs <= 0
+  ) return false
   return (
     positionMs / durationMs >= 0.9 ||
     (durationMs >= 600_000 && durationMs - positionMs <= 120_000)
@@ -1605,10 +1610,12 @@ export function isPlaybackComplete(positionMs: number, durationMs: number): bool
 }
 
 export function filterContinueWatching<
-  T extends { positionMs: number; watched: boolean; updatedAt: Date },
+  T extends { mediaType?: string; positionMs: number; watched: boolean; updatedAt: Date },
 >(items: T[], limit: number): T[] {
   return items
-    .filter((item) => !item.watched && item.positionMs >= 30_000)
+    .filter((item) =>
+      (item.mediaType === "series" && item.watched) ||
+      (!item.watched && item.positionMs >= 30_000))
     .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
     .slice(0, limit)
 }

@@ -103,7 +103,12 @@ function ProgressCard({
     <>
       <button
         className="w-full text-left"
-        onClick={() => onSelect(toCatalogItem(item), item.videoId)}
+        onClick={() =>
+          onSelect(
+            toCatalogItem(item),
+            item.mediaType === "series" ? item.mediaId : item.videoId,
+          )
+        }
       >
         <div className={`relative ${posterCoverClass}`}>
           {item.poster ? (
