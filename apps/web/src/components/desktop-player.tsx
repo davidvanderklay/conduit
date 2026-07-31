@@ -1060,7 +1060,7 @@ function TrackMenu({
   return createPortal(
     <div
       data-track-menu
-      className={`fixed z-[100] max-w-[calc(100vw-2rem)] overflow-y-auto rounded-xl border border-white/10 bg-zinc-950 p-2 shadow-2xl ${
+      className={`fixed z-[100] max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-white/10 bg-zinc-950 p-2 shadow-2xl ${
         allowOff ? "w-[46rem]" : "w-80"
       }`}
       style={position}
