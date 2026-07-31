@@ -61,11 +61,13 @@ private fun AccountGate(
             authentication = current.authentication,
             initialError = current.error,
             onSignIn = { email, password ->
+                account = AccountStatus.Loading
                 accountScope.launch {
                     account = repository.signIn(endpoint, current.authentication, email, password)
                 }
             },
             onRegister = { email, password ->
+                account = AccountStatus.Loading
                 accountScope.launch {
                     account = repository.register(endpoint, current.authentication, email, password)
                 }
@@ -235,7 +237,7 @@ private fun SignInScreen(
             )
             error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             Button(
-                enabled = !pending && email.isNotBlank() && password.isNotBlank(),
+                enabled = !pending && email.isNotBlank() && password.length >= 8,
                 onClick = {
                     pending = true
                     if (registering) onRegister(email, password) else onSignIn(email, password)
@@ -244,6 +246,13 @@ private fun SignInScreen(
             ) {
                 Text(
                     if (pending) "Please wait…" else if (registering) "Create account" else "Sign in",
+                )
+            }
+            if (password.isNotEmpty() && password.length < 8) {
+                Text(
+                    "Password must contain at least 8 characters.",
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
                 )
             }
             if (authentication.localRegistration) {

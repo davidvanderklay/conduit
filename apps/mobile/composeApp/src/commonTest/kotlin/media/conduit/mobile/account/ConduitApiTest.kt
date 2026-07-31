@@ -95,6 +95,25 @@ class ConduitApiTest {
     }
 
     @Test
+    fun registrationSurfacesServerValidationMessage() = runTest {
+        val engine = MockEngine {
+            respond(
+                """{"code":"PASSWORD_TOO_SHORT","message":"Password is too short"}""",
+                HttpStatusCode.UnprocessableEntity,
+                headersOf(HttpHeaders.ContentType, "application/json"),
+            )
+        }
+        val api = ConduitApi(HttpClient(engine) { install(ContentNegotiation) { json() } })
+
+        val failure = assertFailsWith<ServerRequestException> {
+            api.register("https://conduit.example", "alex@example.test", "short")
+        }
+
+        assertEquals(422, failure.statusCode)
+        assertEquals("Password is too short", failure.message)
+    }
+
+    @Test
     fun offlineRestoreRetainsEncryptedSession() = runTest {
         val engine = MockEngine {
             respond("unavailable", HttpStatusCode.ServiceUnavailable)
