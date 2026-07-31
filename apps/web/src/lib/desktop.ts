@@ -10,6 +10,7 @@ export interface NativeTrack {
 
 export interface NativePlayerSnapshot {
   running: boolean
+  ended: boolean
   paused: boolean
   position: number
   duration: number

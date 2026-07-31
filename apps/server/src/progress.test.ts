@@ -14,6 +14,9 @@ describe("watch completion", () => {
 
   it("does not complete media without a known duration", () => {
     expect(isPlaybackComplete(100_000, 0)).toBe(false)
+    expect(isPlaybackComplete(Number.NaN, 100_000)).toBe(false)
+    expect(isPlaybackComplete(100_000, Number.POSITIVE_INFINITY)).toBe(false)
+    expect(isPlaybackComplete(-1, 100_000)).toBe(false)
   })
 })
 
@@ -24,9 +27,11 @@ describe("continue watching", () => {
       { videoId: "completed-show", positionMs: 100_000, watched: true, updatedAt: new Date("2026-01-04") },
       { videoId: "movie", positionMs: 45_000, watched: false, updatedAt: new Date("2026-01-03") },
       { videoId: "barely-started", positionMs: 10_000, watched: false, updatedAt: new Date("2026-01-05") },
+      { videoId: "completed-series", mediaType: "series", positionMs: 100_000, watched: true, updatedAt: new Date("2026-01-06") },
     ]
 
     expect(filterContinueWatching(rows, 10).map((row) => row.videoId)).toEqual([
+      "completed-series",
       "movie",
       "show-episode-2",
     ])

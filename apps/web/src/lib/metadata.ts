@@ -1,3 +1,4 @@
+import type { WatchProgress } from "./api"
 import type { CatalogItem, MetaItem, Trailer, TrailerStream, Video } from "./core"
 
 const TEXT_LIMIT = 12_000
@@ -133,6 +134,73 @@ export function episodeLabel(video: Video): string {
   }
   if (video.episode != null) return `Episode ${video.episode}`
   return "Episode"
+}
+
+export function eligibleSeriesVideos(videos: Video[], now = new Date()): Video[] {
+  return videos
+    .filter((video) => {
+      const release = video.released ? Date.parse(video.released) : Number.NaN
+      return video.available !== false &&
+        video.season != null &&
+        video.season > 0 &&
+        video.episode != null &&
+        (Number.isNaN(release) || release <= now.getTime())
+    })
+    .sort((a, b) =>
+      (a.season! - b.season!) ||
+      (a.episode! - b.episode!) ||
+      a.id.localeCompare(b.id))
+}
+
+export function selectSeriesVideo(
+  videos: Video[],
+  progress: WatchProgress[],
+  preferredVideoId?: string,
+  now = new Date(),
+): Video | undefined {
+  const eligible = eligibleSeriesVideos(videos, now)
+  const eligibleIds = new Set(eligible.map((video) => video.id))
+  const byId = new Map(progress.map((entry) => [entry.videoId, entry]))
+  if (preferredVideoId && eligibleIds.has(preferredVideoId)) {
+    return eligible.find((video) => video.id === preferredVideoId)
+  }
+  const latest = progress
+    .filter((entry) => eligibleIds.has(entry.videoId))
+    .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))[0]
+  if (latest && !latest.watched && latest.positionMs > 0) {
+    return eligible.find((video) => video.id === latest.videoId)
+  }
+  if (latest?.watched) {
+    return nextSeriesVideo(videos, latest.videoId, progress, now)
+  }
+  return eligible.find((video) => !byId.get(video.id)?.watched)
+}
+
+export function nextSeriesVideo(
+  videos: Video[],
+  currentVideoId: string,
+  progress: WatchProgress[],
+  now = new Date(),
+): Video | undefined {
+  const eligible = eligibleSeriesVideos(videos, now)
+  const currentIndex = eligible.findIndex((video) => video.id === currentVideoId)
+  if (currentIndex < 0) return undefined
+  const watched = new Set(
+    progress.filter((entry) => entry.watched).map((entry) => entry.videoId),
+  )
+  return eligible.slice(currentIndex + 1).find((video) => !watched.has(video.id))
+}
+
+export function adjacentSeriesVideo(
+  videos: Video[],
+  currentVideoId: string,
+  direction: -1 | 1,
+  now = new Date(),
+): Video | undefined {
+  const eligible = eligibleSeriesVideos(videos, now)
+  const currentIndex = eligible.findIndex((video) => video.id === currentVideoId)
+  if (currentIndex < 0) return undefined
+  return eligible[currentIndex + direction]
 }
 
 export function sortSeasons(values: number[]): number[] {

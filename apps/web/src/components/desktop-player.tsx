@@ -10,6 +10,7 @@ import {
   Play,
   RotateCcw,
   RotateCw,
+  SkipForward,
   Volume2,
   VolumeX,
   X,
@@ -29,7 +30,7 @@ import {
   type NativePlayerSnapshot,
   type NativeTrack,
 } from "../lib/desktop"
-import { loadSubtitles } from "../lib/core"
+import { loadSubtitles, type Video } from "../lib/core"
 import { nativeMediaTitle, playerHeading, type PlayerHeading } from "../lib/player-title"
 import { readPreferences } from "../lib/preferences"
 import {
@@ -39,12 +40,32 @@ import {
 import { mpvVideoScaleCommands, type VideoScale } from "../lib/video-scale"
 import { usePlaybackProgress } from "../lib/progress"
 import { Card } from "./ui/card"
+import {
+  NextEpisodePrompt,
+  PlayerEpisodeDrawer,
+  type PlayerSeriesContext,
+} from "./player-series"
 import { VideoScaleControl } from "./video-scale-control"
 
 type TrackMenuName = "audio" | "subtitles"
 
 export function usesExpandedPlayerControls(width: number, height: number): boolean {
   return width >= 1200 && height >= 700
+}
+
+export function nativePlaybackEnded(
+  previous: NativePlayerSnapshot | undefined,
+  next: NativePlayerSnapshot,
+): boolean {
+  return next.ended ||
+    Boolean(
+      previous?.duration &&
+      next.duration <= 0 &&
+      (
+        previous.position / previous.duration >= 0.9 ||
+        previous.duration - previous.position <= 2
+      ),
+    )
 }
 
 function isSpaciousViewport(): boolean {
@@ -58,6 +79,12 @@ export function DesktopPlayer({
   profileId,
   progressMetadata,
   addons,
+  seriesContext,
+  nextEpisode,
+  nextEpisodeLabel,
+  onSelectEpisode,
+  onNextEpisode,
+  onEnded,
   onClose,
 }: {
   url: string
@@ -66,6 +93,12 @@ export function DesktopPlayer({
   profileId: string
   progressMetadata: ProgressMetadata
   addons: InstalledAddon[]
+  seriesContext?: PlayerSeriesContext
+  nextEpisode?: Video
+  nextEpisodeLabel?: string
+  onSelectEpisode?: (video: Video) => void | Promise<void>
+  onNextEpisode?: () => void | Promise<void>
+  onEnded?: (allowAutoplay?: boolean) => void | Promise<void>
   onClose: () => void
 }) {
   const [snapshot, setSnapshot] = useState<NativePlayerSnapshot>()
@@ -80,6 +113,7 @@ export function DesktopPlayer({
   const [addonSubtitles, setAddonSubtitles] = useState<ResolvedAddonSubtitle[]>([])
   const [addonSubtitlesResolved, setAddonSubtitlesResolved] = useState(false)
   const [selectedAddonSubtitle, setSelectedAddonSubtitle] = useState<string>()
+  const [episodeDrawerOpen, setEpisodeDrawerOpen] = useState(false)
   const hideTimer = useRef<number | undefined>(undefined)
   const closing = useRef(false)
   const audioButton = useRef<HTMLDivElement>(null)
@@ -87,8 +121,17 @@ export function DesktopPlayer({
   const previousMenu = useRef<TrackMenuName | undefined>(undefined)
   const previousMenuContent = useRef("")
   const previousChromeVisible = useRef(true)
+  const previousEpisodeDrawerOpen = useRef(false)
   const previousPaused = useRef(false)
   const resumed = useRef(false)
+  const endedHandled = useRef(false)
+  const nextTransitionSuppressed = useRef(false)
+  const nextTransitionRequested = useRef(false)
+  const lastPlayback = useRef({ position: 0, duration: 0 })
+  const lastNativeSnapshot = useRef<NativePlayerSnapshot | undefined>(undefined)
+  const seekActive = useRef(false)
+  const seekDraft = useRef<number | undefined>(undefined)
+  const seekCommitTimer = useRef<number | undefined>(undefined)
   const pendingAddonSubtitle = useRef(new Set<string>())
   const preferredAudioApplied = useRef(false)
   const preferredSubtitleApplied = useRef(false)
@@ -122,6 +165,11 @@ export function DesktopPlayer({
     preferredAudioApplied.current = false
     preferredSubtitleApplied.current = false
     setAddonSubtitlesResolved(false)
+    endedHandled.current = false
+    nextTransitionSuppressed.current = false
+    nextTransitionRequested.current = false
+    lastNativeSnapshot.current = undefined
+    lastPlayback.current = { position: 0, duration: 0 }
     document.documentElement.classList.add("native-playback")
     void openNativePlayer(url, mediaTitle)
       .then(async (initial) => {
@@ -140,7 +188,17 @@ export function DesktopPlayer({
     const poll = window.setInterval(() => {
       void nativePlayerSnapshot()
         .then((next) => {
-          if (!cancelled) setSnapshot(next)
+          if (cancelled) return
+          const previous = lastNativeSnapshot.current
+          const resolved = nativePlaybackEnded(previous, next)
+            ? { ...next, ended: true }
+            : next
+          lastNativeSnapshot.current = resolved
+          setSnapshot(
+            seekActive.current && seekDraft.current !== undefined
+              ? { ...resolved, position: seekDraft.current }
+              : resolved,
+          )
         })
         .catch(() => undefined)
     }, 1000)
@@ -149,6 +207,7 @@ export function DesktopPlayer({
       cancelled = true
       window.clearInterval(poll)
       window.clearTimeout(hideTimer.current)
+      window.clearTimeout(seekCommitTimer.current)
       document.documentElement.classList.remove("native-playback")
       if (!closing.current) void stopNativePlayer()
     }
@@ -252,10 +311,35 @@ export function DesktopPlayer({
 
   useEffect(() => {
     if (!snapshot || !resumed.current) return
+    if (snapshot.duration > 0) {
+      lastPlayback.current = {
+        position: snapshot.position,
+        duration: snapshot.duration,
+      }
+    }
     const justPaused = snapshot.paused && !previousPaused.current
     previousPaused.current = snapshot.paused
     void saveProgress(snapshot.position, snapshot.duration, justPaused)
   }, [saveProgress, snapshot])
+
+  useEffect(() => {
+    if (!snapshot?.ended || endedHandled.current) return
+    endedHandled.current = true
+    const duration = snapshot.duration || lastPlayback.current.duration
+    if (!nextTransitionRequested.current) {
+      nextTransitionRequested.current = true
+      resetOverlay()
+      void Promise.resolve(
+        onEnded?.(!nextTransitionSuppressed.current),
+      ).catch((cause: unknown) => {
+        setError(cause instanceof Error ? cause.message : String(cause))
+      })
+    }
+    void saveProgress(duration, duration, true)
+      .catch((cause: unknown) => {
+        setError(cause instanceof Error ? cause.message : String(cause))
+      })
+  }, [onEnded, resetOverlay, saveProgress, snapshot])
 
   useEffect(() => {
     const syncWindowLayout = () => {
@@ -330,6 +414,29 @@ export function DesktopPlayer({
     )
     showControls()
   }, [showControls, snapshot])
+
+  const commitSeek = useCallback(() => {
+    window.clearTimeout(seekCommitTimer.current)
+    seekCommitTimer.current = undefined
+    const position = seekDraft.current
+    seekDraft.current = undefined
+    seekActive.current = false
+    if (position === undefined) return
+    void nativePlayerCommand(["seek", position, "absolute+exact"])
+  }, [])
+
+  const previewSeek = useCallback((position: number) => {
+    seekActive.current = true
+    seekDraft.current = position
+    setSnapshot((current) => (current ? { ...current, position } : current))
+
+    // Range inputs emit continuously while dragged. An exact mpv seek may
+    // decode every frame from the preceding keyframe, so issuing one for each
+    // pixel of motion can queue enough decoder work to freeze the desktop.
+    // Commit once the gesture pauses; pointer/key release commits immediately.
+    window.clearTimeout(seekCommitTimer.current)
+    seekCommitTimer.current = window.setTimeout(commitSeek, 180)
+  }, [commitSeek])
 
   useEffect(() => {
     if (!activeMenu) return
@@ -429,7 +536,11 @@ export function DesktopPlayer({
           ].join("|")
         : ""
   const chromeVisible =
-    controlsVisible || Boolean(snapshot?.paused) || Boolean(activeMenu) || !snapshot
+    controlsVisible ||
+    Boolean(snapshot?.paused) ||
+    Boolean(activeMenu) ||
+    episodeDrawerOpen ||
+    !snapshot
   const expandedControls = fullscreen || spaciousViewport
 
   useLayoutEffect(() => {
@@ -445,6 +556,13 @@ export function DesktopPlayer({
     previousMenuContent.current = menuContentSignature
     previousChromeVisible.current = chromeVisible
   }, [activeMenu, chromeVisible, menuContentSignature, redrawControls, resetOverlay])
+
+  useLayoutEffect(() => {
+    if (previousEpisodeDrawerOpen.current === episodeDrawerOpen) return
+    previousEpisodeDrawerOpen.current = episodeDrawerOpen
+    resetOverlay()
+    redrawControls()
+  }, [episodeDrawerOpen, redrawControls, resetOverlay])
 
   // The Linux player layers a transparent WebKitGTK surface over GtkGLArea.
   // Explicitly invalidate that surface whenever dynamic control pixels move;
@@ -500,6 +618,7 @@ export function DesktopPlayer({
           expanded={expandedControls}
           onIndicatorHidden={resetOverlay}
           onChange={(scale) => {
+            resetOverlay()
             setVideoScale(scale)
             void applyNativeVideoScale(scale).catch((cause: unknown) => {
               setError(cause instanceof Error ? cause.message : String(cause))
@@ -525,6 +644,47 @@ export function DesktopPlayer({
           </p>
         </div>
       ) : null}
+
+      {snapshot && !error && !episodeDrawerOpen && (
+        <NextEpisodePrompt
+          seriesName={seriesContext?.name ?? progressMetadata.name}
+          episode={nextEpisode}
+          position={snapshot.position}
+          duration={snapshot.duration || lastPlayback.current.duration}
+          paused={snapshot.paused}
+          autoplay={preferences.autoplay}
+          onDismiss={() => {
+            nextTransitionSuppressed.current = true
+            resetOverlay()
+          }}
+          onVisibilityChange={(visible) => {
+            if (!visible) resetOverlay()
+          }}
+          onWatchNow={() => {
+            if (nextTransitionRequested.current) return
+            nextTransitionRequested.current = true
+            resetOverlay()
+            const duration = snapshot.duration || lastPlayback.current.duration
+            void saveProgress(duration, duration, true)
+            void Promise.resolve(onNextEpisode?.()).catch((cause: unknown) => {
+              setError(cause instanceof Error ? cause.message : String(cause))
+            })
+          }}
+        />
+      )}
+      <PlayerEpisodeDrawer
+        open={episodeDrawerOpen}
+        context={seriesContext}
+        onOpenChange={setEpisodeDrawerOpen}
+        onSelect={(video) => {
+          if (nextTransitionRequested.current) return
+          nextTransitionRequested.current = true
+          resetOverlay()
+          void Promise.resolve(onSelectEpisode?.(video)).catch((cause: unknown) => {
+            setError(cause instanceof Error ? cause.message : String(cause))
+          })
+        }}
+      />
 
       {snapshot && !error && (
         <div
@@ -641,9 +801,12 @@ export function DesktopPlayer({
               aria-label="Seek"
               onChange={(event) => {
                 const position = Number(event.target.value)
-                void nativePlayerCommand(["seek", position, "absolute+exact"])
-                setSnapshot((current) => (current ? { ...current, position } : current))
+                previewSeek(position)
               }}
+              onPointerUp={commitSeek}
+              onPointerCancel={commitSeek}
+              onKeyUp={commitSeek}
+              onBlur={commitSeek}
             />
 
             <div
@@ -674,6 +837,20 @@ export function DesktopPlayer({
                 <RotateCw size={21} />
                 <span className="absolute text-[9px] font-bold">10</span>
               </PlayerIcon>
+              {onNextEpisode && (
+                <PlayerIcon
+                  label={`Next episode${nextEpisodeLabel ? `: ${nextEpisodeLabel}` : ""}`}
+                  expanded={expandedControls}
+                  onClick={() => {
+                    if (nextTransitionRequested.current) return
+                    nextTransitionRequested.current = true
+                    resetOverlay()
+                    void onNextEpisode()
+                  }}
+                >
+                  <SkipForward size={21} />
+                </PlayerIcon>
+              )}
               <PlayerIcon
                 label={snapshot.volume === 0 ? "Unmute" : "Mute"}
                 expanded={expandedControls}

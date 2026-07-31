@@ -26,7 +26,6 @@ const GL_FRAMEBUFFER_BINDING: u32 = 0x8CA6;
 struct EmbeddedSurface {
     area: GLArea,
     overlay: Overlay,
-    vbox: gtk::Box,
     webview: Widget,
     window: gtk::ApplicationWindow,
     render: Option<RenderContext>,
@@ -37,6 +36,7 @@ thread_local! {
 }
 
 static REDRAW_PENDING: AtomicBool = AtomicBool::new(false);
+static RENDER_ACTIVE: AtomicBool = AtomicBool::new(false);
 static WEBVIEW_RESET_PENDING: AtomicBool = AtomicBool::new(false);
 
 extern "C" {
@@ -72,8 +72,10 @@ pub fn initialize(window: &WebviewWindow) -> Result<(), String> {
     area.set_app_paintable(true);
     area.set_hexpand(true);
     area.set_vexpand(true);
-    area.connect_render(|_, _| {
-        let _ = render();
+    area.connect_render(|area, _| {
+        if let Err(error) = render(area) {
+            eprintln!("Conduit: Linux video render failed: {error}");
+        }
         glib::Propagation::Stop
     });
     area.connect_resize(|area, _, _| area.queue_render());
@@ -86,6 +88,9 @@ pub fn initialize(window: &WebviewWindow) -> Result<(), String> {
     overlay.set_overlay_pass_through(&webview, false);
     webview.set_hexpand(true);
     webview.set_vexpand(true);
+    // Tauri's Linux undecorated-resize handler walks exactly two parents from
+    // WebView and downcasts the result to gtk::Window. Keep Overlay directly
+    // under the window so WebView -> Overlay -> Window remains valid.
     gtk_window.add(&overlay);
     overlay.show_all();
     gtk_window.show_all();
@@ -95,7 +100,6 @@ pub fn initialize(window: &WebviewWindow) -> Result<(), String> {
         *surface.borrow_mut() = Some(EmbeddedSurface {
             area,
             overlay,
-            vbox,
             webview,
             window: gtk_window,
             render: None,
@@ -145,18 +149,23 @@ pub fn install(context: NonNull<mpv_handle>, window: &WebviewWindow) -> Result<(
             set_webview_background(&surface.webview, 0.0);
             surface.webview.set_opacity(1.0);
             surface.render = Some(render);
+            RENDER_ACTIVE.store(true, Ordering::Release);
             surface.area.set_opacity(1.0);
             surface.overlay.queue_draw();
             surface.webview.queue_draw();
             surface.area.queue_render();
-            force_configure(surface);
         }
     });
+    reconfigure();
     schedule_redraw();
     Ok(())
 }
 
 pub fn uninstall() -> Result<(), String> {
+    // Stop accepting libmpv update callbacks before taking its render context
+    // away. A callback racing teardown can otherwise enqueue a GTK render
+    // after the context's GPU resources have started being destroyed.
+    RENDER_ACTIVE.store(false, Ordering::Release);
     REDRAW_PENDING.store(false, Ordering::Release);
 
     // libmpv requires every OpenGL render operation, including destruction of
@@ -179,63 +188,44 @@ pub fn uninstall() -> Result<(), String> {
 
     #[cfg(debug_assertions)]
     eprintln!("Conduit: releasing Linux video render context");
+    // Drain every command submitted through this GL context before libmpv
+    // frees textures, framebuffers, and synchronization objects. Doing this
+    // only after dropping RenderContext is too late on NVIDIA: the driver can
+    // execute an already-queued command against freed GPU virtual memory,
+    // producing Xid 31 MMU faults and freezing the desktop.
+    finish_gl();
     drop(render);
+    finish_gl();
     #[cfg(debug_assertions)]
     eprintln!("Conduit: Linux video render context released");
 
-    let surface = SURFACE.with(|surface| surface.borrow_mut().take());
-    if let Some(surface) = surface {
-        surface.area.set_opacity(0.0);
-        surface.webview.set_opacity(1.0);
-        set_webview_background(&surface.webview, 1.0);
-        surface.window.remove(&surface.overlay);
-        surface.overlay.remove(&surface.webview);
-        surface.vbox.add(&surface.webview);
-        surface.window.add(&surface.vbox);
-        surface.window.show_all();
-        surface.webview.queue_draw();
-        surface.window.queue_draw();
-    }
-    Ok(())
-}
-
-fn force_configure(surface: &EmbeddedSurface) {
-    let fullscreen = surface
-        .window
-        .window()
-        .is_some_and(|window| window.state().contains(gdk::WindowState::FULLSCREEN));
-    if fullscreen {
-        let window = surface.window.clone();
-        window.unfullscreen();
-        glib::idle_add_local_once(move || {
-            window.fullscreen();
-            window.queue_draw();
-        });
-        return;
-    }
-    if surface.window.is_maximized() {
-        let window = surface.window.clone();
-        window.unmaximize();
-        glib::idle_add_local_once(move || {
-            window.maximize();
-            window.queue_draw();
-        });
-        return;
-    }
-    let width = surface.window.allocated_width().max(2);
-    let height = surface.window.allocated_height().max(2);
-    let window = surface.window.clone();
-    window.resize(width - 1, height);
-    glib::idle_add_local_once(move || {
-        window.resize(width, height);
-        window.queue_draw();
+    // Keep the GtkGLArea and its OpenGL context alive between videos. NVIDIA
+    // may still have work queued against the context after libmpv teardown;
+    // destroying and immediately recreating the widget can otherwise let a
+    // stale GTK render callback target resources from the replacement context.
+    SURFACE.with(|surface| {
+        if let Some(surface) = surface.borrow().as_ref() {
+            surface.area.set_opacity(0.0);
+            surface.webview.set_opacity(1.0);
+            set_webview_background(&surface.webview, 1.0);
+            surface.webview.queue_draw();
+            surface.overlay.queue_draw();
+        }
     });
+    Ok(())
 }
 
 pub fn reconfigure() {
     SURFACE.with(|surface| {
         if let Some(surface) = surface.borrow().as_ref() {
-            force_configure(surface);
+            surface.window.queue_resize();
+            surface.overlay.queue_resize();
+            surface.webview.queue_resize();
+            surface.area.queue_resize();
+            surface.window.queue_draw();
+            surface.overlay.queue_draw();
+            surface.webview.queue_draw();
+            surface.area.queue_render();
         }
     });
 }
@@ -282,9 +272,10 @@ pub fn reset_webview() {
     // replace its backing allocation. Reproduce that effect on the WebView
     // alone while it is invisible, without changing window geometry.
     let allocation = webview.allocation();
+    let full = Allocation::new(0, 0, allocation.width().max(1), allocation.height().max(1));
     let nudged = Allocation::new(
-        allocation.x(),
-        allocation.y(),
+        0,
+        0,
         (allocation.width() - 1).max(1),
         allocation.height().max(1),
     );
@@ -303,7 +294,7 @@ pub fn reset_webview() {
             glib::ControlFlow::Continue
         }
         1 => {
-            webview.size_allocate(&allocation);
+            webview.size_allocate(&full);
             webview.queue_draw();
             overlay.queue_draw();
             area.queue_render();
@@ -322,29 +313,46 @@ pub fn reset_webview() {
 }
 
 fn schedule_redraw() {
+    if !RENDER_ACTIVE.load(Ordering::Acquire) {
+        return;
+    }
     if REDRAW_PENDING.swap(true, Ordering::AcqRel) {
         return;
     }
     glib::idle_add_once(|| {
         REDRAW_PENDING.store(false, Ordering::Release);
-        refresh();
+        if RENDER_ACTIVE.load(Ordering::Acquire) {
+            // libmpv calls this for every decoded video frame. Only invalidate
+            // the GLArea here. Repainting the transparent WebKit widget and
+            // the entire GTK overlay at video frame rate floods Xwayland with
+            // full-window damage, eventually starving Mutter while audio
+            // continues normally.
+            SURFACE.with(|surface| {
+                if let Some(surface) = surface.borrow().as_ref() {
+                    surface.area.queue_render();
+                }
+            });
+        }
     });
 }
 
-fn render() -> Result<(), String> {
+fn render(callback_area: &GLArea) -> Result<(), String> {
     SURFACE.with(|surface| {
         let surface = surface.borrow();
         let Some(surface) = surface.as_ref() else {
             return Ok(());
         };
-        surface.area.make_current();
-        surface.area.attach_buffers();
-        if let Some(error) = surface.area.error() {
+        if callback_area != &surface.area {
+            return Ok(());
+        }
+        callback_area.make_current();
+        callback_area.attach_buffers();
+        if let Some(error) = callback_area.error() {
             return Err(format!("OpenGL context failed: {error}"));
         }
-        let scale = surface.area.scale_factor().max(1);
-        let width = (surface.area.allocated_width() * scale).max(1);
-        let height = (surface.area.allocated_height() * scale).max(1);
+        let scale = callback_area.scale_factor().max(1);
+        let width = (callback_area.allocated_width() * scale).max(1);
+        let height = (callback_area.allocated_height() * scale).max(1);
         let Some(render) = surface.render.as_ref() else {
             return Ok(());
         };
@@ -352,6 +360,13 @@ fn render() -> Result<(), String> {
             .render::<()>(current_framebuffer(), width, height, true)
             .map_err(|error| format!("libmpv render: {error:?}"))
     })
+}
+
+fn finish_gl() {
+    type Finish = unsafe extern "C" fn();
+    if let Some(finish) = resolve_gl::<Finish>("glFinish") {
+        unsafe { finish() };
+    }
 }
 
 fn current_framebuffer() -> i32 {

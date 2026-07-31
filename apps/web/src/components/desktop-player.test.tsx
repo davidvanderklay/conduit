@@ -7,6 +7,7 @@ import {
   DesktopPlayer,
   dedupeAddonSubtitles,
   filterAddedAddonSubtitles,
+  nativePlaybackEnded,
   usesExpandedPlayerControls,
 } from "./desktop-player"
 
@@ -16,6 +17,7 @@ import {
 
 const snapshot = {
   running: true,
+  ended: false,
   paused: false,
   position: 10,
   duration: 100,
@@ -146,6 +148,51 @@ describe("DesktopPlayer track menus", () => {
     expect(usesExpandedPlayerControls(1600, 699)).toBe(false)
   })
 
+  it("does not repeatedly reset the overlay during a fullscreen transition", async () => {
+    desktop.refreshNativeSurface.mockClear()
+    desktop.resetNativeOverlaySurface.mockClear()
+
+    await act(async () => {
+      button("Fullscreen").click()
+      await Promise.resolve()
+    })
+
+    expect(desktop.refreshNativeSurface).not.toHaveBeenCalled()
+    expect(desktop.resetNativeOverlaySurface).not.toHaveBeenCalled()
+  })
+
+  it("clears transient overlay pixels before manual next-episode playback", async () => {
+    const next = vi.fn()
+    await act(async () => {
+      root.render(
+        <DesktopPlayer
+          url="https://example.com/video.mp4"
+          type="series"
+          videoId="series:1:1"
+          profileId="00000000-0000-4000-8000-000000000001"
+          progressMetadata={{
+            mediaType: "series",
+            mediaId: "series",
+            name: "Test series",
+          }}
+          addons={[]}
+          nextEpisodeLabel="S1 E2"
+          onNextEpisode={next}
+          onClose={() => undefined}
+        />,
+      )
+      await Promise.resolve()
+    })
+    desktop.resetNativeOverlaySurface.mockClear()
+
+    click(button("Next episode: S1 E2"))
+    act(() => vi.advanceTimersByTime(1))
+    act(() => vi.advanceTimersByTime(1))
+
+    expect(next).toHaveBeenCalledOnce()
+    expect(desktop.resetNativeOverlaySurface).toHaveBeenCalledOnce()
+  })
+
   it("cycles scaling modes, applies mpv properties, and briefly shows the mode", async () => {
     click(button("Video scale: Fit"))
     await act(async () => {
@@ -167,7 +214,7 @@ describe("DesktopPlayer track menus", () => {
     act(() => vi.advanceTimersByTime(1))
     act(() => vi.advanceTimersByTime(1))
     expect(document.querySelector('[role="status"]')).toBeNull()
-    expect(desktop.resetNativeOverlaySurface).toHaveBeenCalledOnce()
+    expect(desktop.resetNativeOverlaySurface).toHaveBeenCalledTimes(2)
   })
 
   it("hides inactive controls and cursor, then restores them on mouse movement", () => {
@@ -188,6 +235,49 @@ describe("DesktopPlayer track menus", () => {
 
     expect(player?.className).toContain("cursor-default")
     for (const region of chrome) expect(region.classList.contains("visible")).toBe(true)
+  })
+
+  it("coalesces continuous timeline changes into one exact seek", () => {
+    const seek = document.querySelector<HTMLInputElement>('input[aria-label="Seek"]')
+    expect(seek).not.toBeNull()
+    desktop.nativePlayerCommand.mockClear()
+
+    act(() => {
+      changeRange(seek!, 20)
+      changeRange(seek!, 45)
+      changeRange(seek!, 70)
+    })
+
+    expect(desktop.nativePlayerCommand).not.toHaveBeenCalled()
+    act(() => vi.advanceTimersByTime(179))
+    expect(desktop.nativePlayerCommand).not.toHaveBeenCalled()
+    act(() => vi.advanceTimersByTime(1))
+    expect(desktop.nativePlayerCommand).toHaveBeenCalledTimes(1)
+    expect(desktop.nativePlayerCommand).toHaveBeenCalledWith([
+      "seek",
+      70,
+      "absolute+exact",
+    ])
+  })
+
+  it("commits the latest timeline position immediately on pointer release", () => {
+    const seek = document.querySelector<HTMLInputElement>('input[aria-label="Seek"]')
+    expect(seek).not.toBeNull()
+    desktop.nativePlayerCommand.mockClear()
+
+    act(() => {
+      changeRange(seek!, 55)
+      seek!.dispatchEvent(new Event("pointerup", { bubbles: true }))
+    })
+
+    expect(desktop.nativePlayerCommand).toHaveBeenCalledTimes(1)
+    expect(desktop.nativePlayerCommand).toHaveBeenCalledWith([
+      "seek",
+      55,
+      "absolute+exact",
+    ])
+    act(() => vi.advanceTimersByTime(500))
+    expect(desktop.nativePlayerCommand).toHaveBeenCalledTimes(1)
   })
 
   it("unmounts the menu when its trigger is clicked again", () => {
@@ -277,6 +367,22 @@ describe("DesktopPlayer track menus", () => {
   })
 })
 
+describe("native playback completion", () => {
+  it("detects mpv clearing its timeline immediately after EOF", () => {
+    expect(nativePlaybackEnded(
+      { ...snapshot, position: 99, duration: 100, ended: false },
+      { ...snapshot, position: 0, duration: 0, ended: false },
+    )).toBe(true)
+  })
+
+  it("does not treat an uninitialized timeline as EOF", () => {
+    expect(nativePlaybackEnded(
+      undefined,
+      { ...snapshot, position: 0, duration: 0, ended: false },
+    )).toBe(false)
+  })
+})
+
 function button(label: string): HTMLButtonElement {
   const match = [...document.querySelectorAll("button")].find(
     (candidate) =>
@@ -295,4 +401,13 @@ function click(target: HTMLButtonElement): void {
   act(() => {
     target.dispatchEvent(new MouseEvent("click", { bubbles: true }))
   })
+}
+
+function changeRange(target: HTMLInputElement, value: number): void {
+  const setter = Object.getOwnPropertyDescriptor(
+    HTMLInputElement.prototype,
+    "value",
+  )?.set
+  setter?.call(target, String(value))
+  target.dispatchEvent(new Event("input", { bubbles: true }))
 }

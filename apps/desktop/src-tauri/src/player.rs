@@ -48,6 +48,7 @@ pub struct PlayerTrack {
 #[serde(rename_all = "camelCase")]
 pub struct PlayerSnapshot {
     pub running: bool,
+    pub ended: bool,
     pub paused: bool,
     pub position: f64,
     pub duration: f64,
@@ -108,7 +109,11 @@ impl PlayerManager {
             initializer.set_option("osd-level", "0")?;
             #[cfg(target_os = "linux")]
             {
-                initializer.set_option("hwdec", "no")?;
+                // Decode on NVIDIA, but copy decoded frames back before
+                // uploading them through libmpv's OpenGL renderer. This avoids
+                // the fragile CUDA/OpenGL zero-copy interop path while keeping
+                // high-resolution playback and seeking off the CPU.
+                initializer.set_option("hwdec", "nvdec-copy,auto-copy-safe")?;
                 initializer.set_option("gpu-hwdec-interop", "no")?;
                 initializer.set_option("vd-lavc-dr", "no")?;
             }
@@ -176,6 +181,7 @@ impl PlayerManager {
             .unwrap_or_default();
         Ok(PlayerSnapshot {
             running: true,
+            ended: mpv.get_property::<bool>("eof-reached").unwrap_or(false),
             paused: mpv.get_property::<bool>("pause").unwrap_or(false),
             position: mpv.get_property::<f64>("time-pos").unwrap_or_default(),
             duration: mpv.get_property::<f64>("duration").unwrap_or_default(),
