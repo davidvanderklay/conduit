@@ -27,6 +27,9 @@ import kotlinx.serialization.json.jsonArray
 import io.ktor.http.encodeURLPathPart
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.supervisorScope
+import kotlinx.coroutines.channels.Channel
 
 @Serializable
 data class ServerHealth(val status: String)
@@ -225,6 +228,19 @@ data class HomeCatalogResult(
     val failedRequests: Int,
 )
 
+private fun InstalledAddonSummary.supportsResource(resource: String, type: String, id: String): Boolean {
+    val resources = manifest["resources"]?.jsonArray ?: return false
+    return resources.any { entry ->
+        val primitiveName = runCatching { entry.jsonPrimitive.contentOrNull }.getOrNull()
+        if (primitiveName != null) return@any primitiveName == resource
+        val definition = runCatching { entry.jsonObject }.getOrNull() ?: return@any false
+        if (definition["name"]?.jsonPrimitive?.contentOrNull != resource) return@any false
+        val types = definition["types"]?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull }.orEmpty()
+        val prefixes = definition["idPrefixes"]?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull }.orEmpty()
+        (types.isEmpty() || type in types) && (prefixes.isEmpty() || prefixes.any(id::startsWith))
+    }
+}
+
 @Serializable
 data class RecoveryCodesResponse(val codes: List<String>)
 
@@ -247,6 +263,7 @@ data class AuthenticatedSession(val token: String)
 class ServerRequestException(message: String, val statusCode: Int? = null) : Exception(message)
 
 class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
+    private val metadataCache = linkedMapOf<String, MetaItem>()
     suspend fun validate(baseUrl: String): ValidatedServer {
         val healthResponse = client.get("$baseUrl/health")
         if (!healthResponse.status.isSuccess()) {
@@ -510,18 +527,33 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
         )
     }
 
-    suspend fun loadMeta(addons: List<InstalledAddonSummary>, type: String, id: String): MetaItem = coroutineScope {
-        val results = addons.filter { it.enabled }.map { addon ->
-            async {
-                runCatching {
+    suspend fun loadMeta(addons: List<InstalledAddonSummary>, type: String, id: String): MetaItem {
+        val key = "$type:$id"
+        metadataCache[key]?.let { return it }
+        val candidates = addons.filter { it.enabled && it.supportsResource("meta", type, id) }
+        if (candidates.isEmpty()) throw ServerRequestException("No installed add-on provides metadata for this title")
+        return supervisorScope {
+            val results = Channel<Result<MetaItem>>(candidates.size)
+            val jobs = candidates.map { addon -> launch {
+                results.send(runCatching {
                     val response = client.get(resourceUrl(addon.manifestUrl, "meta", type, id))
                     if (!response.status.isSuccess()) error("metadata request failed")
                     response.body<MetaResponse>().meta ?: error("add-on returned no metadata")
+                })
+            } }
+            var lastFailure: Throwable? = null
+            repeat(candidates.size) {
+                val result = results.receive()
+                result.getOrNull()?.let { metadata ->
+                    jobs.forEach { it.cancel() }
+                    if (metadataCache.size >= 128) metadataCache.remove(metadataCache.keys.first())
+                    metadataCache[key] = metadata
+                    return@supervisorScope metadata
                 }
+                lastFailure = result.exceptionOrNull()
             }
-        }.map { it.await() }
-        results.firstNotNullOfOrNull { it.getOrNull() }
-            ?: throw ServerRequestException("No installed add-on returned metadata for this title")
+            throw ServerRequestException(lastFailure?.message ?: "No installed add-on returned metadata for this title")
+        }
     }
 
     suspend fun loadStreams(
@@ -529,7 +561,7 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
         type: String,
         videoId: String,
     ): List<StreamSource> = coroutineScope {
-        val results = addons.filter { it.enabled }.map { addon ->
+        val results = addons.filter { it.enabled && it.supportsResource("stream", type, videoId) }.map { addon ->
             async {
                 runCatching {
                     val response = client.get(resourceUrl(addon.manifestUrl, "stream", type, videoId))
@@ -548,7 +580,7 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
     }
 
     suspend fun loadSubtitles(addons: List<InstalledAddonSummary>, type: String, videoId: String): List<SubtitleItem> = coroutineScope {
-        addons.filter { it.enabled }.map { addon ->
+        addons.filter { it.enabled && it.supportsResource("subtitles", type, videoId) }.map { addon ->
             async {
                 runCatching {
                     val response = client.get(resourceUrl(addon.manifestUrl, "subtitles", type, videoId))

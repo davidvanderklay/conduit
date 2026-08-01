@@ -216,7 +216,7 @@ class ConduitApiTest {
         val addon = InstalledAddonSummary(
             id = "a1", manifestId = "fixture",
             manifestUrl = "https://addon.example/config/manifest.json",
-            manifest = kotlinx.serialization.json.Json.parseToJsonElement("""{"name":"Fixture"}""").jsonObject,
+            manifest = kotlinx.serialization.json.Json.parseToJsonElement("""{"name":"Fixture","resources":["meta","stream"]}""").jsonObject,
             position = 0, enabled = true,
         )
 
@@ -237,7 +237,7 @@ class ConduitApiTest {
         val api = ConduitApi(HttpClient(engine) { install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) } })
         val addon = InstalledAddonSummary(
             id = "a1", manifestId = "fixture", manifestUrl = "https://addon.example/manifest.json",
-            manifest = Json.parseToJsonElement("""{"name":"Fixture"}""").jsonObject,
+            manifest = Json.parseToJsonElement("""{"name":"Fixture","resources":["stream"]}""").jsonObject,
             position = 0, enabled = true,
         )
 
