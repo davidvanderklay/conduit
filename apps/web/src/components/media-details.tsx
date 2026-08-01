@@ -115,6 +115,8 @@ export function MediaDetails({
     if (
       initialSeriesVideoResolved.current ||
       item.type !== "series" ||
+      !initialVideoId ||
+      initialVideoId === item.id ||
       !metadata.isSuccess ||
       !progress.isSuccess ||
       !videos.length

@@ -38,6 +38,13 @@ body {
   background: #000;
 }
 
+.poster-cover {
+  /* Isolate poster image paints so WebKitGTK does not invalidate neighboring
+     cards while a virtualized row moves through the scroll viewport. */
+  contain: layout paint;
+  isolation: isolate;
+}
+
 .linux-desktop.desktop-scrolling body {
   background: #09090b;
 }
