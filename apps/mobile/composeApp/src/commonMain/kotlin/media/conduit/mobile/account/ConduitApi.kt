@@ -228,6 +228,8 @@ data class HomeCatalogResult(
     val failedRequests: Int,
 )
 
+private data class SearchCatalogRequest(val addon: InstalledAddonSummary, val type: String, val id: String, val name: String)
+
 private fun InstalledAddonSummary.supportsResource(resource: String, type: String, id: String): Boolean {
     val resources = manifest["resources"]?.jsonArray ?: return false
     return resources.any { entry ->
@@ -592,7 +594,7 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
         }.flatMap { it.await() }.distinctBy(SubtitleItem::url)
     }
 
-    suspend fun searchCatalogs(addons: List<InstalledAddonSummary>, query: String): List<CatalogItem> = coroutineScope {
+    suspend fun searchCatalogs(addons: List<InstalledAddonSummary>, query: String): List<HomeCatalog> = coroutineScope {
         val requests = addons.filter { it.enabled }.flatMap { addon ->
             addon.manifest["catalogs"]?.jsonArray.orEmpty().mapNotNull { it as? JsonObject }
                 .filter { catalog ->
@@ -603,19 +605,26 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
                 .mapNotNull { catalog ->
                     val type = catalog["type"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
                     val id = catalog["id"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
-                    Triple(addon, type, id)
+                    val name = catalog["name"]?.jsonPrimitive?.contentOrNull ?: id.replaceFirstChar(Char::uppercase)
+                    SearchCatalogRequest(addon, type, id, name)
                 }
-        }.map { (addon, type, id) ->
+        }.map { (addon, type, id, catalogName) ->
             async {
                 runCatching {
                     val url = resourceUrl(addon.manifestUrl, "catalog", type, id, "search", query)
                     val response = client.get(url)
                     if (!response.status.isSuccess()) error("search failed")
-                    response.body<CatalogResponse>().metas
-                }.getOrDefault(emptyList())
+                    val addonName = addon.manifest["name"]?.jsonPrimitive?.contentOrNull ?: addon.manifestId
+                    val typeLabel = when (type.lowercase()) { "movie" -> "Movies"; "series" -> "Series"; else -> type.replaceFirstChar(Char::uppercase) }
+                    HomeCatalog(
+                        key = "search:${addon.id}:$type:$id",
+                        title = "$catalogName · $typeLabel · $addonName",
+                        items = response.body<CatalogResponse>().metas.distinctBy { "${it.type}:${it.id}" },
+                    )
+                }.getOrNull()
             }
         }
-        requests.flatMap { it.await() }.distinctBy { "${it.type}:${it.id}" }
+        requests.mapNotNull { it.await() }.filter { it.items.isNotEmpty() }
     }
 
     private fun resourceUrl(

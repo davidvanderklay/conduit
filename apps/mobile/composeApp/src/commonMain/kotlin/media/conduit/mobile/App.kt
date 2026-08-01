@@ -524,16 +524,24 @@ private fun AppShell(
     var profileFlowActive by remember { mutableStateOf(false) }
     var selectedVideoId by remember { mutableStateOf<String?>(null) }
     val homeListState = rememberLazyListState()
+    val searchListState = rememberLazyListState()
+    val libraryGridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
+    val settingsListState = rememberLazyListState()
     var adaptiveCompact by remember { mutableStateOf(false) }
-    LaunchedEffect(homeListState, state.destination) {
-        if (state.destination != AppDestination.Home) {
-            adaptiveCompact = false
-            return@LaunchedEffect
+    LaunchedEffect(state.destination, homeListState, searchListState, libraryGridState, settingsListState) {
+        fun position(): Long = when (state.destination) {
+            AppDestination.Home -> (homeListState.firstVisibleItemIndex.toLong() shl 32) or homeListState.firstVisibleItemScrollOffset.toLong()
+            AppDestination.Search -> (searchListState.firstVisibleItemIndex.toLong() shl 32) or searchListState.firstVisibleItemScrollOffset.toLong()
+            AppDestination.Library -> (libraryGridState.firstVisibleItemIndex.toLong() shl 32) or libraryGridState.firstVisibleItemScrollOffset.toLong()
+            AppDestination.Profile -> (settingsListState.firstVisibleItemIndex.toLong() shl 32) or settingsListState.firstVisibleItemScrollOffset.toLong()
         }
-        var previous = 0L
-        snapshotFlow { (homeListState.firstVisibleItemIndex.toLong() shl 32) or homeListState.firstVisibleItemScrollOffset.toLong() }
+        var previous = position()
+        adaptiveCompact = previous != 0L
+        snapshotFlow { position() }
             .collect { current ->
-                adaptiveCompact = current > previous && current != 0L
+                if (current == 0L) adaptiveCompact = false
+                else if (current > previous) adaptiveCompact = true
+                else if (current < previous) adaptiveCompact = false
                 previous = current
             }
     }
@@ -576,7 +584,7 @@ private fun AppShell(
                         selectedVideoId, selectMedia, { selectedMedia = null }, dispatch, onSignOut, onProfilesChanged,
                         { profileFlowActive = it },
                         { activeProfile?.let { profile -> appScope.launch { profileSync = syncRepository.synchronize(state.endpoint!!.baseUrl, account.session.token, profile.id) } } },
-                        preferences, onPreferencesChanged, homeListState,
+                        preferences, onPreferencesChanged, homeListState, searchListState, libraryGridState, settingsListState,
                         Modifier.weight(1f),
                     )
                 }
@@ -586,7 +594,7 @@ private fun AppShell(
                     selectedVideoId, selectMedia, { selectedMedia = null }, dispatch, onSignOut, onProfilesChanged,
                     { profileFlowActive = it },
                     { activeProfile?.let { profile -> appScope.launch { profileSync = syncRepository.synchronize(state.endpoint!!.baseUrl, account.session.token, profile.id) } } },
-                    preferences, onPreferencesChanged, homeListState,
+                    preferences, onPreferencesChanged, homeListState, searchListState, libraryGridState, settingsListState,
                     Modifier.padding(padding),
                 )
             }
@@ -641,6 +649,9 @@ private fun DestinationContent(
     preferences: DevicePreferences,
     onPreferencesChanged: (DevicePreferences) -> Unit,
     homeListState: androidx.compose.foundation.lazy.LazyListState,
+    searchListState: androidx.compose.foundation.lazy.LazyListState,
+    libraryGridState: androidx.compose.foundation.lazy.grid.LazyGridState,
+    settingsListState: androidx.compose.foundation.lazy.LazyListState,
     modifier: Modifier = Modifier,
 ) {
     val homeCache = remember(activeProfile?.id) { HomeScreenCache() }
@@ -655,15 +666,15 @@ private fun DestinationContent(
                 AppDestination.Home -> HomeScreen(activeProfile, profileSync, api, onSelectMedia, homeListState, homeCache, tabModifier)
                 AppDestination.Search -> SearchDiscoverScreen(
                     addons = profileSync.snapshot?.addons.orEmpty(), api = api,
-                    onSelect = { onSelectMedia(it, null) }, modifier = tabModifier,
+                    onSelect = { onSelectMedia(it, null) }, listState = searchListState, modifier = tabModifier,
                 )
                 AppDestination.Library -> MobileLibraryScreen(
-                    snapshot = profileSync.snapshot, onSelect = { onSelectMedia(it, null) }, modifier = tabModifier,
+                    snapshot = profileSync.snapshot, onSelect = { onSelectMedia(it, null) }, gridState = libraryGridState, modifier = tabModifier,
                 )
                 AppDestination.Profile -> ProfileSettingsScreen(
                     state, platform, account, activeProfile, profileSync, api, dispatch, onSignOut,
                     onProfilesChanged, { if (active) onProfileFlowChanged(it) }, onProfileDataChanged,
-                    preferences, onPreferencesChanged, tabModifier,
+                    preferences, onPreferencesChanged, settingsListState = settingsListState, modifier = tabModifier,
                 )
             }
         }
