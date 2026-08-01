@@ -704,7 +704,7 @@ function AuthenticatedApp({
                       name: values.name,
                       isKids: values.isKids,
                       usesPrimaryAddons: values.usesPrimaryAddons,
-                      avatarColor: values.avatarColor,
+                      ...(values.avatarColor ? { avatarColor: values.avatarColor } : {}),
                       ...(values.avatarUrl ? { avatarUrl: values.avatarUrl } : {}),
                       ...(values.copyAddons ? { copyAddonsFromProfileId: activeProfile.id } : {}),
                     }),
