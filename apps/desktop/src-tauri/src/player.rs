@@ -107,6 +107,8 @@ impl PlayerManager {
         let nvidia_driver = std::path::Path::new("/proc/driver/nvidia/version").exists();
         #[cfg(target_os = "linux")]
         let hwdec_override = std::env::var("CONDUIT_MPV_HWDEC").ok();
+        #[cfg(target_os = "linux")]
+        let vaapi_device = linux_vaapi_device();
         let mpv_debug_logging = std::env::var_os("CONDUIT_MPV_LOG").is_some();
 
         let mpv = Mpv::with_initializer(|initializer| {
@@ -127,7 +129,10 @@ impl PlayerManager {
             initializer.set_option("force-window", "immediate")?;
             initializer.set_option("terminal", if mpv_debug_logging { "yes" } else { "no" })?;
             if mpv_debug_logging {
-                initializer.set_option("msg-level", "all=warn,vd=trace,ffmpeg=trace,vo=debug")?;
+                initializer.set_option(
+                    "msg-level",
+                    "all=warn,vd=trace,vaapi=trace,ffmpeg=trace,vo=debug",
+                )?;
                 eprintln!("Conduit: enabled mpv hardware-decoder diagnostics");
             }
             initializer.set_option("input-default-bindings", "no")?;
@@ -150,6 +155,15 @@ impl PlayerManager {
                         .as_deref()
                         .unwrap_or_else(|| linux_hwdec_order(nvidia_driver));
                     initializer.set_option("hwdec", hwdec)?;
+                    if let Some(device) = vaapi_device.as_deref() {
+                        // libmpv's display-derived VA device can fail inside a
+                        // Wayland Flatpak even though the DRM render node is
+                        // available. Copy-mode decoding does not require
+                        // Wayland interop, so bind VA-API to the matching
+                        // Intel/AMD render node directly.
+                        initializer.set_option("vaapi-device", device)?;
+                        eprintln!("Conduit: using VA-API DRM device {device}");
+                    }
                     if hwdec_override.is_some() {
                         eprintln!("Conduit: overriding mpv hardware decoder with {hwdec}");
                     }
@@ -446,6 +460,27 @@ fn linux_hwdec_order(nvidia_driver: bool) -> &'static str {
     } else {
         "vaapi-copy,vulkan-copy,drm-copy,auto-copy-safe"
     }
+}
+
+#[cfg(target_os = "linux")]
+fn linux_vaapi_device() -> Option<String> {
+    let entries = std::fs::read_dir("/sys/class/drm").ok()?;
+    let mut render_nodes = entries
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_name().to_string_lossy().starts_with("renderD"))
+        .collect::<Vec<_>>();
+    render_nodes.sort_by_key(|entry| entry.file_name());
+
+    render_nodes.into_iter().find_map(|entry| {
+        let vendor = std::fs::read_to_string(entry.path().join("device/vendor")).ok()?;
+        if !matches!(vendor.trim(), "0x8086" | "0x1002") {
+            return None;
+        }
+        let device = std::path::Path::new("/dev/dri").join(entry.file_name());
+        device
+            .exists()
+            .then(|| device.to_string_lossy().into_owned())
+    })
 }
 
 #[cfg(test)]
