@@ -604,7 +604,11 @@ function AuthenticatedApp({
   }, [activeProfileId])
 
   useEffect(() => {
-    if (activeProfileId && profiles.some((profile) => profile.id === activeProfileId)) {
+    if (
+      readPreferences().rememberLastProfile &&
+      activeProfileId &&
+      profiles.some((profile) => profile.id === activeProfileId)
+    ) {
       rememberLastProfileId(activeProfileId)
     }
   }, [activeProfileId, profiles])
