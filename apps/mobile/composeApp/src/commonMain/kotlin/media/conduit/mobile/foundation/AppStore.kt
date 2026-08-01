@@ -75,7 +75,14 @@ class AppStore(
 
     private fun beginConnection(): AppState = when (val result = ServerEndpointValidator.validate(state.setupInput)) {
         is EndpointValidation.Invalid -> state.copy(setupError = result.message, pendingEndpoint = null)
-        is EndpointValidation.Valid -> state.copy(setupError = null, pendingEndpoint = result.endpoint)
+        is EndpointValidation.Valid -> state.copy(
+            setupError = null,
+            pendingEndpoint = if (result.endpoint.baseUrl == DefaultServerEndpoint.baseUrl) {
+                DefaultServerEndpoint
+            } else {
+                result.endpoint
+            },
+        )
     }
 
     private fun saveEndpoint(endpoint: ServerEndpoint): AppState {

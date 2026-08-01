@@ -298,6 +298,7 @@ internal fun MediaDetailsScreen(
     val nextVideo = orderedVideos.indexOfFirst { it.id == selectedVideo?.id }.takeIf { it >= 0 }?.let { orderedVideos.getOrNull(it + 1) }
     LaunchedEffect(playback.ended) { if (playback.ended) runCatching { persistProgress() } }
     var openingOverlay by remember(playing?.url) { mutableStateOf(playing?.url != null) }
+    var playerControlsVisible by remember(playing?.url) { mutableStateOf(true) }
     LaunchedEffect(playback.loading, playback.error, playing?.url) {
         if (!playback.loading || playback.error != null) openingOverlay = false
     }
@@ -311,6 +312,7 @@ internal fun MediaDetailsScreen(
                 hasEpisodes = orderedVideos.isNotEmpty(), onEpisodes = { episodesOpen = true }, modifier = Modifier.fillMaxSize(),
                 touchGestures = preferences.touchGestures, holdToSpeed = preferences.holdToSpeed,
                 preferredAudioLanguage = preferences.preferredAudioLanguage,
+                onControlsVisibilityChanged = { playerControlsVisible = it },
             ) { playback = it }
             if (openingOverlay && playback.error == null) {
                 PlayerOpeningOverlay(
@@ -320,7 +322,7 @@ internal fun MediaDetailsScreen(
                     modifier = Modifier.matchParentSize(),
                 )
             }
-            IconButton(onClick = { scope.launch { runCatching { persistProgress() }; playing = null } }, modifier = Modifier.statusBarsPadding().padding(12.dp).background(Color.Black.copy(.55f), CircleShape).align(Alignment.TopStart)) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = Color.White) }
+            if (playerControlsVisible) IconButton(onClick = { scope.launch { runCatching { persistProgress() }; playing = null } }, modifier = Modifier.statusBarsPadding().padding(12.dp).background(Color.Black.copy(.55f), CircleShape).align(Alignment.TopStart)) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = Color.White) }
             playback.error?.let { message -> Box(Modifier.matchParentSize().background(Color.Black.copy(.72f)).clickable(enabled = true, onClick = {}), contentAlignment = Alignment.Center) { Surface(color = Color(0xF21A1A1D), shape = RoundedCornerShape(18.dp), modifier = Modifier.padding(28.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(.45f))) { Column(Modifier.padding(22.dp), horizontalAlignment = Alignment.CenterHorizontally) { Icon(Icons.Rounded.ErrorOutline, null, tint = MaterialTheme.colorScheme.error); Spacer(Modifier.height(8.dp)); Text("Playback failed", color = Color.White, fontWeight = FontWeight.Bold); Text(message, color = Color.White.copy(.7f), style = MaterialTheme.typography.bodySmall); Spacer(Modifier.height(14.dp)); Button(onClick = { playing = null }) { Text("Choose another stream") } } } } }
             if (!episodesOpen && nextVideo != null && playback.durationMs > 0 && playback.durationMs - playback.positionMs in 1..30_000) {
                 Surface(Modifier.align(Alignment.BottomEnd).padding(end = 18.dp, bottom = 112.dp).widthIn(min = 300.dp, max = 365.dp), color = Color(0xE619191B), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, Color.White.copy(.16f)), shadowElevation = 18.dp) {
