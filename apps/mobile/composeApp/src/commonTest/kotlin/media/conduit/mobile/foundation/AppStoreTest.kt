@@ -32,6 +32,20 @@ class AppStoreTest {
     }
 
     @Test
+    fun defaultServerConnectionCompletesWithCanonicalEndpoint() {
+        val settings = MemorySettingsStore()
+        val store = AppStore(settings)
+        store.dispatch(AppAction.SetupInputChanged(DefaultServerEndpoint.baseUrl))
+
+        val pending = assertNotNull(store.dispatch(AppAction.ConnectRequested).pendingEndpoint)
+        assertEquals(DefaultServerEndpoint, pending)
+
+        val connected = store.dispatch(AppAction.ConnectionSucceeded(DefaultServerEndpoint))
+        assertEquals(DefaultServerEndpoint, connected.endpoint)
+        assertNull(connected.pendingEndpoint)
+    }
+
+    @Test
     fun forgettingEndpointReturnsToDefaultServer() {
         val settings = MemorySettingsStore()
         val secure = MemorySecureStore()

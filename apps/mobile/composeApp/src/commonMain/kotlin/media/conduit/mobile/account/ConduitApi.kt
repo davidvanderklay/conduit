@@ -10,6 +10,7 @@ import io.ktor.client.request.patch
 import io.ktor.client.request.put
 import io.ktor.client.request.delete
 import io.ktor.client.request.setBody
+import io.ktor.client.plugins.timeout
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
@@ -267,7 +268,12 @@ class ServerRequestException(message: String, val statusCode: Int? = null) : Exc
 class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
     private val metadataCache = linkedMapOf<String, MetaItem>()
     suspend fun validate(baseUrl: String): ValidatedServer {
-        val healthResponse = client.get("$baseUrl/health")
+        val healthResponse = client.get("$baseUrl/health") {
+            timeout {
+                requestTimeoutMillis = 75_000
+                socketTimeoutMillis = 75_000
+            }
+        }
         if (!healthResponse.status.isSuccess()) {
             throw ServerRequestException(
                 "Health check returned HTTP ${healthResponse.status.value}",
@@ -278,7 +284,12 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
             throw ServerRequestException("The server returned an unexpected health response")
         }
 
-        val configResponse = client.get("$baseUrl/v1/auth/config")
+        val configResponse = client.get("$baseUrl/v1/auth/config") {
+            timeout {
+                requestTimeoutMillis = 75_000
+                socketTimeoutMillis = 75_000
+            }
+        }
         if (!configResponse.status.isSuccess()) {
             throw ServerRequestException(
                 "Authentication discovery returned HTTP ${configResponse.status.value}",

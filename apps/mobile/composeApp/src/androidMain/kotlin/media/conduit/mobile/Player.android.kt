@@ -61,6 +61,7 @@ actual fun NativePlayer(
     holdToSpeed: Boolean,
     preferredAudioLanguage: String,
     onEpisodes: () -> Unit,
+    onControlsVisibilityChanged: (Boolean) -> Unit,
     modifier: Modifier,
     onState: (PlaybackState) -> Unit,
 ) {
@@ -79,6 +80,7 @@ actual fun NativePlayer(
     }
     var playbackError by remember(player) { mutableStateOf<String?>(null) }
     var controlsVisible by remember(player) { mutableStateOf(true) }
+    LaunchedEffect(controlsVisible) { onControlsVisibilityChanged(controlsVisible) }
     var positionMs by remember(player) { mutableLongStateOf(0L) }
     var durationMs by remember(player) { mutableLongStateOf(0L) }
     var playing by remember(player) { mutableStateOf(false) }
