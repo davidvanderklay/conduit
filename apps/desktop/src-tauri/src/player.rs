@@ -103,6 +103,9 @@ impl PlayerManager {
             .map_err(|error| PlayerError::Surface(error.to_string()))?
             .0 as isize as i64;
 
+        #[cfg(target_os = "linux")]
+        let nvidia_driver = std::path::Path::new("/proc/driver/nvidia/version").exists();
+
         let mpv = Mpv::with_initializer(|initializer| {
             #[cfg(not(target_os = "windows"))]
             initializer.set_option("vo", "libmpv")?;
@@ -140,8 +143,13 @@ impl PlayerManager {
                         "hwdec",
                         "nvdec-copy,vaapi-copy,vulkan-copy,drm-copy,auto-copy-safe",
                     )?;
-                    initializer.set_option("gpu-hwdec-interop", "no")?;
-                    initializer.set_option("vd-lavc-dr", "no")?;
+                    if nvidia_driver {
+                        // NVIDIA's zero-copy CUDA/OpenGL interop has caused
+                        // black output in the embedded renderer. The selected
+                        // nvdec-copy path does not need that interop context.
+                        initializer.set_option("gpu-hwdec-interop", "no")?;
+                        initializer.set_option("vd-lavc-dr", "no")?;
+                    }
                 }
                 #[cfg(not(target_os = "linux"))]
                 initializer.set_option("hwdec", "auto-safe")?;
