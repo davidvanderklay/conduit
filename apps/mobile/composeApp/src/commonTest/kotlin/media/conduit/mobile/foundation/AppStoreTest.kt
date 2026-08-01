@@ -27,12 +27,12 @@ class AppStoreTest {
         val store = AppStore(settings)
         store.dispatch(AppAction.SetupInputChanged("not a url"))
         val state = store.dispatch(AppAction.ConnectRequested)
-        assertNull(state.endpoint)
+        assertEquals(DefaultServerEndpoint, state.endpoint)
         assertNotNull(state.setupError)
     }
 
     @Test
-    fun forgettingEndpointReturnsToSetup() {
+    fun forgettingEndpointReturnsToDefaultServer() {
         val settings = MemorySettingsStore()
         val secure = MemorySecureStore()
         val sessions = SessionVault(secure)
@@ -41,8 +41,8 @@ class AppStoreTest {
         val endpoint = assertNotNull(store.dispatch(AppAction.ConnectRequested).pendingEndpoint)
         store.dispatch(AppAction.ConnectionSucceeded(endpoint))
         sessions.save(StoredSession(endpoint.baseUrl, "secret", "2099-01-01T00:00:00Z"))
-        assertNull(store.dispatch(AppAction.ForgetEndpoint).endpoint)
-        assertNull(AppStore(settings).state.endpoint)
+        assertEquals(DefaultServerEndpoint, store.dispatch(AppAction.ForgetEndpoint).endpoint)
+        assertEquals(DefaultServerEndpoint, AppStore(settings).state.endpoint)
         assertNull(sessions.loadFor(endpoint.baseUrl))
     }
 
@@ -54,10 +54,10 @@ class AppStoreTest {
         assertNotNull(store.dispatch(AppAction.ConnectRequested).pendingEndpoint)
 
         val failed = store.dispatch(AppAction.ConnectionFailed("Connection refused"))
-        assertNull(failed.endpoint)
+        assertEquals(DefaultServerEndpoint, failed.endpoint)
         assertNull(failed.pendingEndpoint)
         assertEquals("Connection refused", failed.setupError)
-        assertNull(AppStore(settings).state.endpoint)
+        assertEquals(DefaultServerEndpoint, AppStore(settings).state.endpoint)
     }
 
     @Test
@@ -71,7 +71,7 @@ class AppStoreTest {
                 ServerEndpoint("https://stale.example.test", "stale.example.test"),
             ),
         )
-        assertNull(state.endpoint)
+        assertEquals(DefaultServerEndpoint, state.endpoint)
         assertEquals("https://expected.example.test", state.pendingEndpoint?.baseUrl)
     }
 

@@ -18,6 +18,7 @@ import androidx.compose.material.icons.rounded.VideoLibrary
 import androidx.compose.material.icons.rounded.Movie
 import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
@@ -28,6 +29,8 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import media.conduit.mobile.foundation.*
@@ -38,8 +41,11 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun App() {
-    ConduitTheme {
-        val services = rememberPlatformServices()
+    val services = rememberPlatformServices()
+    val preferencesRepository = remember(services.settings) { DevicePreferencesRepository(services.settings) }
+    var preferences by remember { mutableStateOf(preferencesRepository.load()) }
+    val updatePreferences: (DevicePreferences) -> Unit = { preferences = preferencesRepository.save(it) }
+    ConduitTheme(amoledBlack = preferences.amoledBlack) {
         val store = remember(services.settings, services.secure) {
             AppStore(services.settings, SessionVault(services.secure))
         }
@@ -49,7 +55,7 @@ fun App() {
         if (state.endpoint == null) {
             ServerSetup(state, dispatch)
         } else {
-            AccountGate(state, services, dispatch)
+            AccountGate(state, services, preferences, updatePreferences, dispatch)
         }
     }
 }
@@ -58,6 +64,8 @@ fun App() {
 private fun AccountGate(
     state: AppState,
     services: PlatformServices,
+    preferences: DevicePreferences,
+    onPreferencesChanged: (DevicePreferences) -> Unit,
     dispatch: (AppAction) -> Unit,
 ) {
     val endpoint = state.endpoint ?: return
@@ -142,6 +150,8 @@ private fun AccountGate(
                     account = current,
                     api = api,
                     secureStore = services.secure,
+                    preferences = preferences,
+                    onPreferencesChanged = onPreferencesChanged,
                     dispatch = dispatch,
                     onSignOut = {
                         accountScope.launch {
@@ -174,6 +184,7 @@ private fun AccountGate(
 
 @Composable
 private fun RecoveryCodesScreen(codes: List<String>, onSaved: () -> Unit) {
+    val clipboard = LocalClipboardManager.current
     Surface(Modifier.fillMaxSize()) {
         Column(
             Modifier.safeContentPadding().verticalScroll(rememberScrollState()).padding(24.dp),
@@ -183,9 +194,15 @@ private fun RecoveryCodesScreen(codes: List<String>, onSaved: () -> Unit) {
             Text("Each code works once. Store them outside this device before continuing.")
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    codes.forEach { Text(it, style = MaterialTheme.typography.bodyLarge) }
+                    codes.forEach { code ->
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text(code, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                            IconButton(onClick = { clipboard.setText(AnnotatedString(code)) }) { Icon(Icons.Rounded.ContentCopy, "Copy code") }
+                        }
+                    }
                 }
             }
+            OutlinedButton(onClick = { clipboard.setText(AnnotatedString(codes.joinToString("\n"))) }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Rounded.ContentCopy, null); Spacer(Modifier.width(8.dp)); Text("Copy all codes") }
             Button(onClick = onSaved, modifier = Modifier.fillMaxWidth()) {
                 Text("I saved these codes")
             }
@@ -466,6 +483,8 @@ private fun AppShell(
     account: AccountStatus.SignedIn,
     api: ConduitApi,
     secureStore: SecureStore,
+    preferences: DevicePreferences,
+    onPreferencesChanged: (DevicePreferences) -> Unit,
     dispatch: (AppAction) -> Unit,
     onSignOut: () -> Unit,
     onProfilesChanged: (String?) -> Unit,
@@ -496,6 +515,20 @@ private fun AppShell(
     var selectedMedia by remember { mutableStateOf<CatalogItem?>(null) }
     var profileFlowActive by remember { mutableStateOf(false) }
     var selectedVideoId by remember { mutableStateOf<String?>(null) }
+    val homeListState = rememberLazyListState()
+    var adaptiveCompact by remember { mutableStateOf(false) }
+    LaunchedEffect(homeListState, state.destination) {
+        if (state.destination != AppDestination.Home) {
+            adaptiveCompact = false
+            return@LaunchedEffect
+        }
+        var previous = 0L
+        snapshotFlow { (homeListState.firstVisibleItemIndex.toLong() shl 32) or homeListState.firstVisibleItemScrollOffset.toLong() }
+            .collect { current ->
+                adaptiveCompact = current > previous && current != 0L
+                previous = current
+            }
+    }
     val selectMedia: (CatalogItem, String?) -> Unit = { item, videoId ->
         selectedMedia = item
         selectedVideoId = videoId
@@ -535,6 +568,7 @@ private fun AppShell(
                         selectedVideoId, selectMedia, { selectedMedia = null }, dispatch, onSignOut, onProfilesChanged,
                         { profileFlowActive = it },
                         { activeProfile?.let { profile -> appScope.launch { profileSync = syncRepository.synchronize(state.endpoint!!.baseUrl, account.session.token, profile.id) } } },
+                        preferences, onPreferencesChanged, homeListState,
                         Modifier.weight(1f),
                     )
                 }
@@ -544,26 +578,31 @@ private fun AppShell(
                     selectedVideoId, selectMedia, { selectedMedia = null }, dispatch, onSignOut, onProfilesChanged,
                     { profileFlowActive = it },
                     { activeProfile?.let { profile -> appScope.launch { profileSync = syncRepository.synchronize(state.endpoint!!.baseUrl, account.session.token, profile.id) } } },
+                    preferences, onPreferencesChanged, homeListState,
                     Modifier.padding(padding),
                 )
             }
         }
         if (!expanded && selectedMedia == null && !profileFlowActive) {
+            val classic = preferences.navigationStyle == NavigationStyle.Classic
+            val compact = preferences.navigationStyle == NavigationStyle.Compact ||
+                (preferences.navigationStyle == NavigationStyle.Adaptive && adaptiveCompact)
             Surface(
-                color = Color(0xDD202023),
-                shape = RoundedCornerShape(32.dp),
-                border = BorderStroke(1.dp, Color.White.copy(alpha = .12f)),
-                shadowElevation = 14.dp,
+                color = if (classic) MaterialTheme.colorScheme.surfaceContainer else Color(0xDD202023),
+                shape = if (classic) RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp) else RoundedCornerShape(32.dp),
+                border = if (classic) null else BorderStroke(1.dp, Color.White.copy(alpha = .12f)),
+                shadowElevation = if (classic) 4.dp else 14.dp,
                 modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding()
-                    .padding(horizontal = 14.dp, vertical = 10.dp).fillMaxWidth(),
+                    .then(if (classic) Modifier.fillMaxWidth() else if (compact) Modifier.padding(horizontal = 64.dp, vertical = 10.dp).fillMaxWidth() else Modifier.padding(horizontal = 14.dp, vertical = 10.dp).fillMaxWidth()),
             ) {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = if (compact) 2.dp else 4.dp)) {
                     AppDestination.entries.forEach { destination ->
                         MobileNavigationItem(
                             destination = destination,
                             selected = state.destination == destination,
                             profile = activeProfile,
                             onClick = { dispatch(AppAction.Navigate(destination)) },
+                            showLabel = !compact,
                             modifier = Modifier.weight(1f),
                         )
                     }
@@ -590,9 +629,11 @@ private fun DestinationContent(
     onProfilesChanged: (String?) -> Unit,
     onProfileFlowChanged: (Boolean) -> Unit,
     onProfileDataChanged: () -> Unit,
+    preferences: DevicePreferences,
+    onPreferencesChanged: (DevicePreferences) -> Unit,
+    homeListState: androidx.compose.foundation.lazy.LazyListState,
     modifier: Modifier = Modifier,
 ) {
-    val homeListState = rememberLazyListState()
     val homeCache = remember(activeProfile?.id) { HomeScreenCache() }
     LaunchedEffect(state.destination) {
         if (state.destination != AppDestination.Profile) onProfileFlowChanged(false)
@@ -612,7 +653,8 @@ private fun DestinationContent(
                 )
                 AppDestination.Profile -> ProfileSettingsScreen(
                     state, platform, account, activeProfile, profileSync, api, dispatch, onSignOut,
-                    onProfilesChanged, { if (active) onProfileFlowChanged(it) }, onProfileDataChanged, tabModifier,
+                    onProfilesChanged, { if (active) onProfileFlowChanged(it) }, onProfileDataChanged,
+                    preferences, onPreferencesChanged, tabModifier,
                 )
             }
         }
@@ -648,13 +690,14 @@ private fun RowScope.MobileNavigationItem(
     selected: Boolean,
     profile: ProfileSummary?,
     onClick: () -> Unit,
+    showLabel: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
     Column(
         modifier.clip(RoundedCornerShape(24.dp))
             .background(if (selected) MaterialTheme.colorScheme.primary.copy(alpha = .12f) else Color.Transparent)
-            .clickable(onClick = onClick).padding(top = 8.dp, bottom = 7.dp),
+            .clickable(onClick = onClick).padding(top = if (showLabel) 8.dp else 10.dp, bottom = if (showLabel) 7.dp else 10.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
@@ -672,12 +715,7 @@ private fun RowScope.MobileNavigationItem(
         } else {
             Icon(destination.icon, destination.label, tint = color, modifier = Modifier.size(24.dp))
         }
-        Text(
-            destination.label,
-            color = color,
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-        )
+        if (showLabel) Text(destination.label, color = color, style = MaterialTheme.typography.labelMedium, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
     }
 }
 

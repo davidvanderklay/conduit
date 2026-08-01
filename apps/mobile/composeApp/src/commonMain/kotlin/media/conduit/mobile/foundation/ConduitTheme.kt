@@ -5,7 +5,7 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
-private val ConduitColors = darkColorScheme(
+private fun conduitColors(amoledBlack: Boolean) = darkColorScheme(
     primary = Color(0xFFFBBF24),
     onPrimary = Color(0xFF09090B),
     primaryContainer = Color(0xFF422006),
@@ -18,9 +18,9 @@ private val ConduitColors = darkColorScheme(
     onTertiary = Color(0xFF18181B),
     tertiaryContainer = Color(0xFF451A03),
     onTertiaryContainer = Color(0xFFFED7AA),
-    background = Color(0xFF09090B),
+    background = if (amoledBlack) Color.Black else Color(0xFF09090B),
     onBackground = Color(0xFFF4F4F5),
-    surface = Color(0xFF09090B),
+    surface = if (amoledBlack) Color.Black else Color(0xFF09090B),
     onSurface = Color(0xFFF4F4F5),
     surfaceVariant = Color(0xFF27272A),
     onSurfaceVariant = Color(0xFFA1A1AA),
@@ -34,6 +34,6 @@ private val ConduitColors = darkColorScheme(
 )
 
 @Composable
-fun ConduitTheme(content: @Composable () -> Unit) {
-    MaterialTheme(colorScheme = ConduitColors, content = content)
+fun ConduitTheme(amoledBlack: Boolean = false, content: @Composable () -> Unit) {
+    MaterialTheme(colorScheme = conduitColors(amoledBlack), content = content)
 }

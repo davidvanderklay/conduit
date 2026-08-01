@@ -5,6 +5,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -29,6 +30,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
@@ -462,6 +465,8 @@ internal fun ProfileSettingsScreen(
     onProfilesChanged: (String?) -> Unit,
     onProfileFlowChanged: (Boolean) -> Unit,
     onProfileDataChanged: () -> Unit,
+    preferences: DevicePreferences,
+    onPreferencesChanged: (DevicePreferences) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var route by remember { mutableStateOf<ProfileRoute>(ProfileRoute.Settings) }
@@ -473,6 +478,16 @@ internal fun ProfileSettingsScreen(
         ProfileRoute.Create -> return ProfileEditorScreen(null, activeProfile, api, state, account, { route = ProfileRoute.Switcher }, onProfilesChanged, modifier)
         is ProfileRoute.Edit -> return ProfileEditorScreen(current.profile, activeProfile, api, state, account, { route = ProfileRoute.Overview }, onProfilesChanged, modifier)
         ProfileRoute.Addons -> return AddonManagerScreen(activeProfile, profileSync.snapshot?.addons.orEmpty(), api, state, account, { route = ProfileRoute.Settings }, onProfileDataChanged, modifier)
+        ProfileRoute.Account -> return AccountSettingsScreen(state, account, api, onSignOut, { route = ProfileRoute.Settings }, modifier)
+        ProfileRoute.Appearance -> return AppearanceSettingsScreen(preferences, onPreferencesChanged, { route = ProfileRoute.Settings }, modifier)
+        ProfileRoute.Content -> return ContentSettingsScreen({ route = ProfileRoute.Settings }, { route = ProfileRoute.Addons }, modifier)
+        ProfileRoute.Playback -> return PlaybackSettingsScreen(platform, preferences, onPreferencesChanged, { route = ProfileRoute.Settings }, modifier)
+        ProfileRoute.Advanced -> return AdvancedSettingsScreen(preferences, onPreferencesChanged, { route = ProfileRoute.Settings }, { route = ProfileRoute.Diagnostics }, modifier)
+        ProfileRoute.Integrations -> return InformationalSettingsScreen("Integrations", "Connected services", listOf("Conduit currently uses your installed Stremio add-ons directly.", "Trakt, debrid, and metadata-service connections will appear here only when their credential storage and synchronization flows are implemented."), { route = ProfileRoute.Settings }, modifier)
+        ProfileRoute.Supporters -> return InformationalSettingsScreen("Supporters & contributors", "Conduit is open source", listOf("Contributors are acknowledged through the project repository.", "github.com/davidvanderklay/conduit", "A server-funding goal will appear here once a verified funding source is configured."), { route = ProfileRoute.Settings }, modifier)
+        ProfileRoute.Privacy -> return InformationalSettingsScreen("Privacy policy", "Your server, your data", listOf("Conduit stores account, profile, library, and viewing data on the server you choose.", "The current privacy and data model is documented at github.com/davidvanderklay/conduit#data-and-privacy-model."), { route = ProfileRoute.Settings }, modifier)
+        ProfileRoute.Licenses -> return InformationalSettingsScreen("Licenses & attribution", "Open-source software", listOf("Conduit — MIT License", "AndroidX Media3 — Apache License 2.0", "Ktor — Apache License 2.0", "Compose Multiplatform — Apache License 2.0", "Coil — Apache License 2.0", "Complete notices: THIRD_PARTY_NOTICES.md in the Conduit repository."), { route = ProfileRoute.Settings }, modifier)
+        ProfileRoute.Diagnostics -> return InformationalSettingsScreen("Debug information", "${platform.name} ${platform.version}", listOf("Device: ${platform.device}", "Server: ${state.endpoint?.baseUrl}", "Profile: ${activeProfile?.name ?: "None"}", "Add-ons: ${profileSync.snapshot?.addons?.size ?: 0}", "Debug logging: ${if (preferences.debugLogging) "enabled" else "disabled"}"), { route = ProfileRoute.Advanced }, modifier)
         ProfileRoute.Settings -> Unit
     }
     val sections = listOf(
@@ -481,13 +496,10 @@ internal fun ProfileSettingsScreen(
             SettingEntry("Account", "Sign-in, security, and recovery", Icons.Rounded.Person),
         )),
         SettingSection("General", listOf(
-            SettingEntry("General", "Appearance and layout", Icons.Rounded.Tune),
+            SettingEntry("Appearance & layout", "Theme, language, and navigation", Icons.Rounded.Tune),
             SettingEntry("Content & discovery", "Add-ons, catalogs, and search", Icons.Rounded.Explore),
-            SettingEntry("Add-ons", "Install and manage content providers", Icons.Rounded.Extension),
-            SettingEntry("Downloads", "Offline media and storage", Icons.Rounded.Download),
             SettingEntry("Playback", "Player, subtitles, and behavior", Icons.Rounded.PlayCircle),
             SettingEntry("Integrations", "Connected media services", Icons.Rounded.Extension),
-            SettingEntry("Notifications", "Episode and app alerts", Icons.Rounded.Notifications),
         )),
         SettingSection("About", listOf(
             SettingEntry("Supporters & contributors", "Community and open source", Icons.Rounded.Favorite),
@@ -541,7 +553,18 @@ internal fun ProfileSettingsScreen(
                     leadingContent = { Icon(entry.icon, null, tint = MaterialTheme.colorScheme.primary) },
                     trailingContent = { Icon(Icons.Rounded.ChevronRight, null) },
                     colors = ListItemDefaults.colors(containerColor = Color.White.copy(alpha = .035f)),
-                    modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable { when (entry.title) { "Profile" -> route = ProfileRoute.Overview; "Add-ons" -> route = ProfileRoute.Addons } },
+                    modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable { when (entry.title) {
+                        "Profile" -> route = ProfileRoute.Overview
+                        "Account" -> route = ProfileRoute.Account
+                        "Appearance & layout" -> route = ProfileRoute.Appearance
+                        "Content & discovery" -> route = ProfileRoute.Content
+                        "Playback" -> route = ProfileRoute.Playback
+                        "Integrations" -> route = ProfileRoute.Integrations
+                        "Supporters & contributors" -> route = ProfileRoute.Supporters
+                        "Privacy policy" -> route = ProfileRoute.Privacy
+                        "Licenses & attribution" -> route = ProfileRoute.Licenses
+                        "Advanced settings" -> route = ProfileRoute.Advanced
+                    } },
                 )
             }
         }
@@ -555,12 +578,149 @@ internal fun ProfileSettingsScreen(
     }
 }
 
+@Composable
+private fun SettingsPage(title: String, onBack: () -> Unit, modifier: Modifier, content: @Composable ColumnScope.() -> Unit) {
+    Column(modifier.fillMaxSize()) {
+        ProfileHeader(title, onBack)
+        Column(Modifier.weight(1f).verticalScroll(androidx.compose.foundation.rememberScrollState()).padding(horizontal = 10.dp, vertical = 6.dp).navigationBarsPadding().padding(bottom = 28.dp), verticalArrangement = Arrangement.spacedBy(12.dp), content = content)
+    }
+}
+
+@Composable
+private fun SettingsGroup(title: String, content: @Composable ColumnScope.() -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(title, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 6.dp, top = 8.dp))
+        Surface(color = Color.White.copy(.04f), shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, Color.White.copy(.06f))) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), content = content)
+        }
+    }
+}
+
+@Composable
+private fun SettingsToggle(title: String, description: String, checked: Boolean, enabled: Boolean = true, onChanged: (Boolean) -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) { Text(title, fontWeight = FontWeight.Medium, color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant); Text(description, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
+        Spacer(Modifier.width(12.dp)); Switch(checked, onChanged, enabled = enabled)
+    }
+}
+
+@Composable
+private fun SettingsAction(title: String, description: String, destructive: Boolean = false, onClick: () -> Unit) {
+    Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) { Text(title, fontWeight = FontWeight.Medium, color = if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface); Text(description, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
+        Icon(Icons.Rounded.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable
+private fun AccountSettingsScreen(state: AppState, account: AccountStatus.SignedIn, api: ConduitApi, onSignOut: () -> Unit, onBack: () -> Unit, modifier: Modifier) {
+    val scope = rememberCoroutineScope()
+    val clipboard = LocalClipboardManager.current
+    var methods by remember { mutableStateOf<AuthenticationMethods?>(null) }
+    var message by remember { mutableStateOf<String?>(null) }
+    var changingPassword by remember { mutableStateOf(false) }
+    var password by remember { mutableStateOf("") }
+    var recoveryCodes by remember { mutableStateOf<List<String>>(emptyList()) }
+    LaunchedEffect(account.session.token) { methods = runCatching { api.authenticationMethods(state.endpoint!!.baseUrl, account.session.token) }.getOrElse { message = it.message; null } }
+    SettingsPage("Account", onBack, modifier) {
+        SettingsGroup("STATUS") {
+            ListItem(headlineContent = { Text("Signed in", fontWeight = FontWeight.SemiBold) }, supportingContent = { Text(account.bootstrap.user?.email ?: "Conduit account") }, leadingContent = { Icon(Icons.Rounded.VerifiedUser, null, tint = Color(0xFF34D399)) }, colors = ListItemDefaults.colors(containerColor = Color.Transparent))
+            HorizontalDivider(color = Color.White.copy(.06f))
+            ListItem(headlineContent = { Text("Server") }, supportingContent = { Text(state.endpoint?.baseUrl.orEmpty(), maxLines = 1, overflow = TextOverflow.Ellipsis) }, colors = ListItemDefaults.colors(containerColor = Color.Transparent))
+        }
+        SettingsGroup("SECURITY") {
+            SettingsAction(if (methods?.passwordEnabled == true) "Change password" else "Enable password", if (methods == null) "Loading authentication methods…" else "Use email and password to sign in") { changingPassword = true }
+            if (methods?.passwordEnabled == true) {
+                HorizontalDivider(color = Color.White.copy(.06f))
+                SettingsAction("Disable password", if (methods?.linkedProviders?.isNotEmpty() == true) "Continue signing in with ${methods?.configuredProviderName ?: "your linked provider"}" else "Link another provider before disabling", destructive = true) {
+                    scope.launch { runCatching { api.setPasswordMode(state.endpoint!!.baseUrl, account.session.token, false) }.onSuccess { methods = methods?.copy(passwordEnabled = it); message = "Password disabled" }.onFailure { message = it.message } }
+                }
+            }
+            HorizontalDivider(color = Color.White.copy(.06f))
+            SettingsAction("Generate new recovery codes", "Old unused codes will stop working") { scope.launch { runCatching { api.generateRecoveryCodes(state.endpoint!!.baseUrl, account.session.token) }.onSuccess { recoveryCodes = it }.onFailure { message = it.message } } }
+        }
+        message?.let { Text(it, color = if (it.contains("disabled")) Color(0xFF34D399) else MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 6.dp)) }
+        OutlinedButton(onClick = onSignOut, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Icon(Icons.Rounded.Logout, null); Spacer(Modifier.width(8.dp)); Text("Sign out") }
+    }
+    if (changingPassword) AlertDialog(onDismissRequest = { changingPassword = false }, title = { Text(if (methods?.passwordEnabled == true) "Change password" else "Enable password") }, text = { OutlinedTextField(password, { password = it }, label = { Text("New password") }, visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(), singleLine = true) }, dismissButton = { TextButton({ changingPassword = false }) { Text("Cancel") } }, confirmButton = { Button(enabled = password.length >= 8, onClick = { scope.launch { runCatching { api.setPasswordMode(state.endpoint!!.baseUrl, account.session.token, true, password) }.onSuccess { methods = methods?.copy(passwordEnabled = it); changingPassword = false; password = ""; message = "Password updated" }.onFailure { message = it.message } } }) { Text("Save") } })
+    if (recoveryCodes.isNotEmpty()) AlertDialog(onDismissRequest = {}, title = { Text("Save your recovery codes") }, text = { Column(verticalArrangement = Arrangement.spacedBy(4.dp)) { Text("Each code can be used once. Store them somewhere safe.", color = MaterialTheme.colorScheme.onSurfaceVariant); recoveryCodes.forEach { code -> Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) { Text(code, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f)); IconButton({ clipboard.setText(AnnotatedString(code)) }) { Icon(Icons.Rounded.ContentCopy, "Copy code") } } }; OutlinedButton({ clipboard.setText(AnnotatedString(recoveryCodes.joinToString("\n"))) }, Modifier.fillMaxWidth()) { Icon(Icons.Rounded.ContentCopy, null); Spacer(Modifier.width(8.dp)); Text("Copy all") } } }, confirmButton = { Button({ recoveryCodes = emptyList() }) { Text("I saved them") } })
+}
+
+@Composable
+private fun AppearanceSettingsScreen(preferences: DevicePreferences, update: (DevicePreferences) -> Unit, onBack: () -> Unit, modifier: Modifier) {
+    var showNavigation by remember { mutableStateOf(false) }
+    SettingsPage("Appearance & layout", onBack, modifier) {
+        SettingsGroup("THEME") {
+            ListItem(headlineContent = { Text("Theme") }, supportingContent = { Text("Conduit dark") }, leadingContent = { Icon(Icons.Rounded.DarkMode, null) }, colors = ListItemDefaults.colors(containerColor = Color.Transparent))
+            SettingsToggle("AMOLED black", "Use pure black backgrounds on OLED displays", preferences.amoledBlack) { update(preferences.copy(amoledBlack = it)) }
+            SettingsToggle("Reduce animations", "Use simpler transitions and motion", preferences.reduceAnimations) { update(preferences.copy(reduceAnimations = it)) }
+        }
+        SettingsGroup("DISPLAY") {
+            SettingsAction("App language", "System default") { }
+            HorizontalDivider(color = Color.White.copy(.06f))
+            SettingsAction("Navigation style", preferences.navigationStyle.description) { showNavigation = true }
+        }
+    }
+    if (showNavigation) AlertDialog(onDismissRequest = { showNavigation = false }, title = { Text("Navigation style") }, text = { Column { NavigationStyle.entries.forEach { style -> Row(Modifier.fillMaxWidth().clickable { update(preferences.copy(navigationStyle = style)); showNavigation = false }.padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) { RadioButton(style == preferences.navigationStyle, null); Spacer(Modifier.width(8.dp)); Column { Text(style.label); Text(style.description, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) } } } } }, confirmButton = {})
+}
+
+@Composable
+private fun ContentSettingsScreen(onBack: () -> Unit, onAddons: () -> Unit, modifier: Modifier) = SettingsPage("Content & discovery", onBack, modifier) {
+    SettingsGroup("SOURCES") { SettingsAction("Add-ons", "Install, order, and manage Stremio add-ons", onClick = onAddons) }
+    SettingsGroup("DISCOVERY") { ListItem(headlineContent = { Text("Catalog customization") }, supportingContent = { Text("Catalog ordering and home customization are coming next") }, colors = ListItemDefaults.colors(containerColor = Color.Transparent)) }
+}
+
+@Composable
+private fun PlaybackSettingsScreen(platform: PlatformInfo, preferences: DevicePreferences, update: (DevicePreferences) -> Unit, onBack: () -> Unit, modifier: Modifier) {
+    val languages = listOf("System default", "English", "Spanish", "French", "German", "Japanese", "Korean")
+    var picker by remember { mutableStateOf<String?>(null) }
+    SettingsPage("Playback", onBack, modifier) {
+        SettingsGroup("PLAYER") {
+            SettingsToggle("Touch gestures", "Double-tap seeking and player gestures", preferences.touchGestures) { update(preferences.copy(touchGestures = it)) }
+            SettingsToggle("Hold to speed", "Hold the player to temporarily speed up", preferences.holdToSpeed) { update(preferences.copy(holdToSpeed = it)) }
+        }
+        SettingsGroup("AUDIO & SUBTITLES") {
+            SettingsAction("Preferred audio language", preferences.preferredAudioLanguage) { picker = "audio" }
+            HorizontalDivider(color = Color.White.copy(.06f)); SettingsAction("Preferred subtitle language", preferences.preferredSubtitleLanguage) { picker = "subtitle" }
+            HorizontalDivider(color = Color.White.copy(.06f)); SettingsToggle("Subtitle outline", "Improve readability on bright scenes", preferences.subtitleOutline) { update(preferences.copy(subtitleOutline = it)) }
+        }
+        SettingsGroup("AUTOPLAY") { SettingsToggle("Autoplay next episode", "Continue after the next-episode prompt", preferences.autoplayNextEpisode) { update(preferences.copy(autoplayNextEpisode = it)) } }
+        SettingsGroup("P2P STREAMING") {
+            SettingsToggle("Allow P2P sources", if (platform.p2pAvailable) "Master permission for peer-to-peer playback on this device" else "Not available in this build", preferences.p2pEnabled && platform.p2pAvailable, enabled = platform.p2pAvailable) { update(preferences.copy(p2pEnabled = it)) }
+            if (!platform.p2pAvailable) Text("This distribution does not include a P2P engine. Builds that permit P2P can expose this switch without changing the rest of the playback settings.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(bottom = 12.dp))
+        }
+    }
+    if (picker != null) AlertDialog(onDismissRequest = { picker = null }, title = { Text(if (picker == "audio") "Preferred audio language" else "Preferred subtitle language") }, text = { Column { languages.forEach { language -> Row(Modifier.fillMaxWidth().clickable { if (picker == "audio") update(preferences.copy(preferredAudioLanguage = language)) else update(preferences.copy(preferredSubtitleLanguage = language)); picker = null }.padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) { RadioButton((if (picker == "audio") preferences.preferredAudioLanguage else preferences.preferredSubtitleLanguage) == language, null); Spacer(Modifier.width(8.dp)); Text(language) } } } }, confirmButton = {})
+}
+
+@Composable
+private fun AdvancedSettingsScreen(preferences: DevicePreferences, update: (DevicePreferences) -> Unit, onBack: () -> Unit, onDiagnostics: () -> Unit, modifier: Modifier) = SettingsPage("Advanced settings", onBack, modifier) {
+    SettingsGroup("STARTUP") { SettingsToggle("Remember last profile", "Return to the profile used on this device", preferences.rememberLastProfile) { update(preferences.copy(rememberLastProfile = it)) } }
+    SettingsGroup("CACHE") { ListItem(headlineContent = { Text("Continue Watching cache") }, supportingContent = { Text("Viewing progress currently comes directly from your server; there is no separate local cache to clear") }, colors = ListItemDefaults.colors(containerColor = Color.Transparent)) }
+    SettingsGroup("DIAGNOSTICS") { SettingsToggle("Debug logging", "Collect additional local diagnostic information", preferences.debugLogging) { update(preferences.copy(debugLogging = it)) }; SettingsAction("View debug information", "Device, server, and build details", onClick = onDiagnostics) }
+}
+
+@Composable
+private fun InformationalSettingsScreen(title: String, heading: String, paragraphs: List<String>, onBack: () -> Unit, modifier: Modifier) = SettingsPage(title, onBack, modifier) {
+    SettingsGroup(heading.uppercase()) { paragraphs.forEachIndexed { index, paragraph -> if (index > 0) HorizontalDivider(color = Color.White.copy(.06f)); Text(paragraph, color = if (paragraph.startsWith("github.com")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 13.dp), style = MaterialTheme.typography.bodyMedium) } }
+}
+
 private sealed interface ProfileRoute {
     data object Settings : ProfileRoute
     data object Overview : ProfileRoute
     data object Switcher : ProfileRoute
     data object Create : ProfileRoute
     data object Addons : ProfileRoute
+    data object Account : ProfileRoute
+    data object Appearance : ProfileRoute
+    data object Content : ProfileRoute
+    data object Playback : ProfileRoute
+    data object Advanced : ProfileRoute
+    data object Integrations : ProfileRoute
+    data object Supporters : ProfileRoute
+    data object Privacy : ProfileRoute
+    data object Licenses : ProfileRoute
+    data object Diagnostics : ProfileRoute
     data class Edit(val profile: ProfileSummary) : ProfileRoute
 }
 

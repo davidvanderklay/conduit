@@ -67,7 +67,21 @@ data class HouseholdSummary(
 )
 
 @Serializable
-data class BootstrapResponse(val households: List<HouseholdSummary>)
+data class AccountUser(val email: String)
+
+@Serializable
+data class BootstrapResponse(val households: List<HouseholdSummary>, val user: AccountUser? = null)
+
+@Serializable
+data class AuthenticationMethods(
+    val passwordEnabled: Boolean,
+    val linkedProviders: List<String> = emptyList(),
+    val configuredProvider: String? = null,
+    val configuredProviderName: String? = null,
+)
+
+@Serializable
+data class PasswordModeResponse(val passwordEnabled: Boolean)
 
 @Serializable
 data class InstalledAddonSummary(
@@ -597,6 +611,22 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
             )
         }
         return response.body<RecoveryCodesResponse>().codes
+    }
+
+    suspend fun authenticationMethods(baseUrl: String, token: String): AuthenticationMethods {
+        val response = client.get("$baseUrl/v1/auth/methods") { bearerAuth(token) }
+        if (!response.status.isSuccess()) throw ServerRequestException("Unable to load authentication methods", response.status.value)
+        return response.body()
+    }
+
+    suspend fun setPasswordMode(baseUrl: String, token: String, enabled: Boolean, password: String? = null): Boolean {
+        val response = client.put("$baseUrl/v1/auth/password-mode") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody(buildJsonObject { put("enabled", enabled); password?.let { put("password", it) } })
+        }
+        if (!response.status.isSuccess()) throw ServerRequestException(response.bodyAsText().takeIf(String::isNotBlank) ?: "Unable to update password", response.status.value)
+        return response.body<PasswordModeResponse>().passwordEnabled
     }
 
     suspend fun startMobileAuth(baseUrl: String, challenge: String): MobileAuthStart {
