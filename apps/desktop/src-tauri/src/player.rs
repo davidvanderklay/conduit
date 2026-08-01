@@ -105,6 +105,9 @@ impl PlayerManager {
 
         #[cfg(target_os = "linux")]
         let nvidia_driver = std::path::Path::new("/proc/driver/nvidia/version").exists();
+        #[cfg(target_os = "linux")]
+        let hwdec_override = std::env::var("CONDUIT_MPV_HWDEC").ok();
+        let mpv_debug_logging = std::env::var_os("CONDUIT_MPV_LOG").is_some();
 
         let mpv = Mpv::with_initializer(|initializer| {
             #[cfg(not(target_os = "windows"))]
@@ -122,7 +125,11 @@ impl PlayerManager {
             initializer.set_option("force-window", "no")?;
             #[cfg(target_os = "windows")]
             initializer.set_option("force-window", "immediate")?;
-            initializer.set_option("terminal", "no")?;
+            initializer.set_option("terminal", if mpv_debug_logging { "yes" } else { "no" })?;
+            if mpv_debug_logging {
+                initializer.set_option("msg-level", "all=warn,vd=trace,ffmpeg=trace,vo=debug")?;
+                eprintln!("Conduit: enabled mpv hardware-decoder diagnostics");
+            }
             initializer.set_option("input-default-bindings", "no")?;
             initializer.set_option("input-cursor", "no")?;
             initializer.set_option("osd-level", "0")?;
@@ -139,7 +146,13 @@ impl PlayerManager {
                     // frames avoids driver-specific zero-copy interop failures
                     // with libmpv's embedded OpenGL renderer while still moving
                     // video decoding off the CPU.
-                    initializer.set_option("hwdec", linux_hwdec_order(nvidia_driver))?;
+                    let hwdec = hwdec_override
+                        .as_deref()
+                        .unwrap_or_else(|| linux_hwdec_order(nvidia_driver));
+                    initializer.set_option("hwdec", hwdec)?;
+                    if hwdec_override.is_some() {
+                        eprintln!("Conduit: overriding mpv hardware decoder with {hwdec}");
+                    }
                     if nvidia_driver {
                         // NVIDIA's zero-copy CUDA/OpenGL interop has caused
                         // black output in the embedded renderer. The selected
