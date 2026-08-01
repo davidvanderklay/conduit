@@ -8,8 +8,6 @@ import {
   Minimize,
   Pause,
   Play,
-  RotateCcw,
-  RotateCw,
   SkipForward,
   Volume2,
   VolumeX,
@@ -843,44 +841,62 @@ export function DesktopPlayer({
               />
             )}
 
-            <input
-              className={`player-seek block w-full cursor-pointer ${
-                expandedControls ? "h-2" : "h-1.5"
-              }`}
-              style={
-                {
-                  "--player-progress": `${
-                    snapshot.duration > 0
-                      ? Math.min(100, (snapshot.position / snapshot.duration) * 100)
-                      : 0
-                  }%`,
-                  "--player-buffered": `${
-                    snapshot.duration > 0
-                      ? Math.min(
-                          100,
-                          ((snapshot.position + snapshot.bufferedDuration) /
-                            snapshot.duration) *
+            <div className="flex items-center gap-3">
+              <span
+                className={`player-time player-time-elapsed tabular-nums text-zinc-300 ${
+                  expandedControls ? "text-sm" : "text-xs"
+                }`}
+                aria-label="Elapsed time"
+              >
+                {snapshot.duration > 0 ? formatTime(snapshot.position) : "--:--:--"}
+              </span>
+              <input
+                className={`player-seek block min-w-0 flex-1 cursor-pointer ${
+                  expandedControls ? "h-2" : "h-1.5"
+                }`}
+                style={
+                  {
+                    "--player-progress": `${
+                      snapshot.duration > 0
+                        ? Math.min(100, (snapshot.position / snapshot.duration) * 100)
+                        : 0
+                    }%`,
+                    "--player-buffered": `${
+                      snapshot.duration > 0
+                        ? Math.min(
                             100,
-                        )
-                      : 0
-                  }%`,
-                } as React.CSSProperties
-              }
-              type="range"
-              min={0}
-              max={snapshot.duration || 0}
-              step={0.1}
-              value={Math.min(snapshot.position, snapshot.duration || 0)}
-              aria-label="Seek"
-              onChange={(event) => {
-                const position = Number(event.target.value)
-                previewSeek(position)
-              }}
-              onPointerUp={commitSeek}
-              onPointerCancel={commitSeek}
-              onKeyUp={commitSeek}
-              onBlur={commitSeek}
-            />
+                            ((snapshot.position + snapshot.bufferedDuration) /
+                              snapshot.duration) *
+                              100,
+                          )
+                        : 0
+                    }%`,
+                  } as React.CSSProperties
+                }
+                type="range"
+                min={0}
+                max={snapshot.duration || 0}
+                step={0.1}
+                value={Math.min(snapshot.position, snapshot.duration || 0)}
+                aria-label="Seek"
+                onChange={(event) => {
+                  const position = Number(event.target.value)
+                  previewSeek(position)
+                }}
+                onPointerUp={commitSeek}
+                onPointerCancel={commitSeek}
+                onKeyUp={commitSeek}
+                onBlur={commitSeek}
+              />
+              <span
+                className={`player-time player-time-duration tabular-nums text-zinc-300 ${
+                  expandedControls ? "text-sm" : "text-xs"
+                }`}
+                aria-label="Total duration"
+              >
+                {snapshot.duration > 0 ? formatTime(snapshot.duration) : "--:--:--"}
+              </span>
+            </div>
 
             <div
               className={`flex items-center ${
@@ -888,27 +904,11 @@ export function DesktopPlayer({
               }`}
             >
               <PlayerIcon
-                label="Back 10 seconds"
-                expanded={expandedControls}
-                onClick={() => seekRelative(-10)}
-              >
-                <RotateCcw size={21} />
-                <span className="absolute text-[9px] font-bold">10</span>
-              </PlayerIcon>
-              <PlayerIcon
                 label={snapshot.paused ? "Play" : "Pause"}
                 expanded={expandedControls}
                 onClick={togglePlayback}
               >
                 {snapshot.paused ? <Play size={22} /> : <Pause size={22} />}
-              </PlayerIcon>
-              <PlayerIcon
-                label="Forward 10 seconds"
-                expanded={expandedControls}
-                onClick={() => seekRelative(10)}
-              >
-                <RotateCw size={21} />
-                <span className="absolute text-[9px] font-bold">10</span>
               </PlayerIcon>
               {onNextEpisode && (
                 <PlayerIcon
@@ -955,20 +955,6 @@ export function DesktopPlayer({
                   setSnapshot((current) => (current ? { ...current, volume } : current))
                 }}
               />
-              <span
-                className={`player-time ml-1 tabular-nums text-zinc-300 ${
-                  expandedControls ? "text-sm" : "text-xs"
-                }`}
-              >
-                {snapshot.duration > 0 ? (
-                  <>
-                    {formatTime(snapshot.position)}
-                    <span className="text-zinc-500"> / {formatTime(snapshot.duration)}</span>
-                  </>
-                ) : (
-                  <span className="text-zinc-500">--:--:-- / --:--:--</span>
-                )}
-              </span>
               <div className="flex-1" />
 
               <div ref={audioButton} data-track-menu-trigger>
