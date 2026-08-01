@@ -1,8 +1,8 @@
-# Desktop releases
+# Releases
 
 Pushing a semantic version tag creates a GitHub release with a Windows NSIS
-installer, Linux AppImage, Linux Flatpak, and macOS DMGs for Apple Silicon and
-Intel:
+installer, Linux AppImage, Linux Flatpak, macOS DMGs for Apple Silicon and
+Intel, and a signed universal Android APK:
 
 ```sh
 git tag v0.2.0
@@ -13,6 +13,48 @@ The workflow takes the application version from the tag, builds on native
 Windows, Ubuntu, Apple Silicon macOS, and Intel macOS runners, and generates
 release notes from the commits since the previous release. Run the workflow
 manually to test packaging without publishing a GitHub release.
+
+## Android
+
+The release APK contains both ARM64 and x86_64 native libraries. One APK is
+therefore sufficient for physical Android devices and the development
+emulator. Tagged builds use the tag as `versionName`, use the monotonically
+increasing Actions run number as `versionCode`, and publish both the APK and
+its SHA-256 checksum. Android releases use the application ID
+`media.conduit.mobile`.
+
+Release builds must use the same signing key forever so users can install
+updates over previous versions. Generate and securely back up a key once:
+
+```sh
+keytool -genkeypair \
+  -keystore conduit-android-release.jks \
+  -alias conduit \
+  -keyalg RSA \
+  -keysize 4096 \
+  -validity 10000
+```
+
+Configure these repository Actions secrets before creating the first tag:
+
+- `ANDROID_KEYSTORE_BASE64`: the base64-encoded keystore file
+- `ANDROID_KEYSTORE_PASSWORD`: the keystore password
+- `ANDROID_KEY_ALIAS`: the alias, `conduit` in the example above
+- `ANDROID_KEY_PASSWORD`: the key password
+
+With the GitHub CLI authenticated for this repository, the keystore can be
+uploaded without writing its encoded form to another file:
+
+```sh
+base64 --wrap=0 conduit-android-release.jks | gh secret set ANDROID_KEYSTORE_BASE64
+gh secret set ANDROID_KEYSTORE_PASSWORD
+gh secret set ANDROID_KEY_ALIAS
+gh secret set ANDROID_KEY_PASSWORD
+```
+
+Store an encrypted offline backup of the keystore and its passwords. Losing
+them makes it impossible to publish an update that existing installations will
+accept. Do not commit the keystore or its encoded contents.
 
 The Windows installer is currently unsigned. Windows will therefore show an
 unrecognized-publisher warning until a code-signing certificate is configured.
