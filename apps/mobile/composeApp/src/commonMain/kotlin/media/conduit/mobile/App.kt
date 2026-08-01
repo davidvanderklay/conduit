@@ -592,10 +592,11 @@ private fun AppShell(
                 shape = if (classic) RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp) else RoundedCornerShape(32.dp),
                 border = if (classic) null else BorderStroke(1.dp, Color.White.copy(alpha = .12f)),
                 shadowElevation = if (classic) 4.dp else 14.dp,
-                modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding()
+                modifier = Modifier.align(Alignment.BottomCenter)
+                    .then(if (classic) Modifier else Modifier.navigationBarsPadding())
                     .then(if (classic) Modifier.fillMaxWidth() else if (compact) Modifier.padding(horizontal = 64.dp, vertical = 10.dp).fillMaxWidth() else Modifier.padding(horizontal = 14.dp, vertical = 10.dp).fillMaxWidth()),
             ) {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = if (compact) 2.dp else 4.dp)) {
+                Row(Modifier.fillMaxWidth().then(if (classic) Modifier.navigationBarsPadding() else Modifier).padding(horizontal = 8.dp, vertical = if (compact) 2.dp else 4.dp)) {
                     AppDestination.entries.forEach { destination ->
                         MobileNavigationItem(
                             destination = destination,
@@ -668,6 +669,7 @@ private fun DestinationContent(
                 snapshot = profileSync.snapshot,
                 baseUrl = state.endpoint!!.baseUrl,
                 token = account.session.token,
+                preferences = preferences,
                 onProgressChanged = onProfileDataChanged,
                 onBack = onCloseMedia,
             )

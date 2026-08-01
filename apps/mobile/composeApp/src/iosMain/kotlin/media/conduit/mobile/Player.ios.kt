@@ -37,6 +37,8 @@ actual fun NativePlayer(
     requestHeaders: Map<String, String>,
     subtitles: List<SubtitleItem>,
     hasEpisodes: Boolean,
+    touchGestures: Boolean,
+    holdToSpeed: Boolean,
     onEpisodes: () -> Unit,
     modifier: Modifier,
     onState: (PlaybackState) -> Unit,
