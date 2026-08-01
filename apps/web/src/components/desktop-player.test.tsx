@@ -341,6 +341,19 @@ describe("DesktopPlayer track menus", () => {
     ])
   })
 
+  it("places separate elapsed and duration labels around the timeline", () => {
+    const seek = document.querySelector<HTMLInputElement>('input[aria-label="Seek"]')
+    const elapsed = document.querySelector<HTMLElement>('[aria-label="Elapsed time"]')
+    const duration = document.querySelector<HTMLElement>('[aria-label="Total duration"]')
+
+    expect(elapsed?.textContent).toBe("0:10")
+    expect(duration?.textContent).toBe("1:40")
+    expect(elapsed?.parentElement).toBe(seek?.parentElement)
+    expect(duration?.parentElement).toBe(seek?.parentElement)
+    expect(document.querySelector('button[aria-label="Back 10 seconds"]')).toBeNull()
+    expect(document.querySelector('button[aria-label="Forward 10 seconds"]')).toBeNull()
+  })
+
   it("commits the latest timeline position immediately on pointer release", () => {
     const seek = document.querySelector<HTMLInputElement>('input[aria-label="Seek"]')
     expect(seek).not.toBeNull()

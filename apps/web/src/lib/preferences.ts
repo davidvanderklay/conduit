@@ -13,6 +13,10 @@ export interface DevicePreferences {
   resumeBehavior: ResumeBehavior
   theme: ThemePreference
   reducedMotion: boolean
+  amoledBlack: boolean
+  subtitleOutline: boolean
+  rememberLastProfile: boolean
+  debugLogging: boolean
 }
 
 const KEY = "conduit.device-preferences.v1"
@@ -29,6 +33,10 @@ export const defaultPreferences: DevicePreferences = {
   resumeBehavior: "ask",
   theme: "dark",
   reducedMotion: false,
+  amoledBlack: false,
+  subtitleOutline: true,
+  rememberLastProfile: true,
+  debugLogging: false,
 }
 
 export function readPreferences(storage: Storage = localStorage): DevicePreferences {
@@ -68,6 +76,8 @@ export function applyPreferences(preferences: DevicePreferences): void {
   document.documentElement.style.setProperty("--subtitle-scale", `${preferences.subtitleSize / 100}`)
   document.documentElement.style.setProperty("--subtitle-position", `${preferences.subtitlePosition}%`)
   document.documentElement.classList.toggle("reduce-motion", preferences.reducedMotion)
+  document.documentElement.classList.toggle("amoled-black", preferences.amoledBlack)
+  document.documentElement.classList.toggle("subtitle-outline", preferences.subtitleOutline)
 }
 
 function clamp(value: number, minimum: number, maximum: number): number {

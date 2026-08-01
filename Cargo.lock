@@ -525,6 +525,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "conduit-mobile"
+version = "0.1.0"
+dependencies = [
+ "conduit-core",
+ "jni",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cookie"
 version = "0.18.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

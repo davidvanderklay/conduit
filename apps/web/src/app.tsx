@@ -604,7 +604,11 @@ function AuthenticatedApp({
   }, [activeProfileId])
 
   useEffect(() => {
-    if (activeProfileId && profiles.some((profile) => profile.id === activeProfileId)) {
+    if (
+      readPreferences().rememberLastProfile &&
+      activeProfileId &&
+      profiles.some((profile) => profile.id === activeProfileId)
+    ) {
       rememberLastProfileId(activeProfileId)
     }
   }, [activeProfileId, profiles])
@@ -699,6 +703,9 @@ function AuthenticatedApp({
                     body: JSON.stringify({
                       name: values.name,
                       isKids: values.isKids,
+                      usesPrimaryAddons: values.usesPrimaryAddons,
+                      ...(values.avatarColor ? { avatarColor: values.avatarColor } : {}),
+                      ...(values.avatarUrl ? { avatarUrl: values.avatarUrl } : {}),
                       ...(values.copyAddons ? { copyAddonsFromProfileId: activeProfile.id } : {}),
                     }),
                   },
@@ -736,8 +743,11 @@ function AuthenticatedApp({
       >
         <ProfileApp
           profile={activeProfile}
+          profiles={activeHousehold.profiles}
+          householdId={activeHousehold.id}
           section={section}
           onNavigate={navigate}
+          onSelectProfile={setActiveProfileId}
           searchInput={searchInput}
           query={query}
           discoverSelection={discoverSelection}
@@ -807,8 +817,11 @@ function HouseholdSetup() {
 
 function ProfileApp({
   profile,
+  profiles,
+  householdId,
   section,
   onNavigate,
+  onSelectProfile,
   searchInput,
   query,
   discoverSelection,
@@ -816,8 +829,11 @@ function ProfileApp({
   onMetadataBrowse,
 }: {
   profile: Profile
+  profiles: Profile[]
+  householdId: string
   section: AppSection
   onNavigate: (section: AppSection) => void
+  onSelectProfile: (profileId: string) => void
   searchInput: string
   query: string
   discoverSelection: DiscoverSelection
@@ -896,7 +912,15 @@ function ProfileApp({
           onRefresh={() => addons.refetch()}
         />
       )}
-      {!searchInput && section === "settings" && <SettingsView profile={profile} />}
+      {!searchInput && section === "settings" && (
+        <SettingsView
+          profile={profile}
+          profiles={profiles}
+          householdId={householdId}
+          onSelectProfile={onSelectProfile}
+          onNavigate={onNavigate}
+        />
+      )}
       {searchInput && (
         <SearchView
           addons={addons.data?.addons ?? []}

@@ -5,6 +5,7 @@ import {
   secureEqual,
   validPkceVerifier,
   validateLoopbackCallback,
+  validateMobileCallback,
 } from "./desktop-auth.js"
 
 describe("desktop authentication handoff", () => {
@@ -32,5 +33,14 @@ describe("desktop authentication handoff", () => {
   it("binds handoff codes to the server secret", () => {
     expect(hashDesktopCode("code", "secret-a")).toBe(hashDesktopCode("code", "secret-a"))
     expect(hashDesktopCode("code", "secret-a")).not.toBe(hashDesktopCode("code", "secret-b"))
+  })
+})
+
+describe("mobile authentication handoff", () => {
+  it("accepts only the exact Conduit callback", () => {
+    expect(validateMobileCallback("conduit://oauth/callback")).toBe("conduit://oauth/callback")
+    expect(() => validateMobileCallback("conduit://oauth/other")).toThrow()
+    expect(() => validateMobileCallback("conduit://oauth/callback?token=bad")).toThrow()
+    expect(() => validateMobileCallback("https://example.com/oauth/callback")).toThrow()
   })
 })

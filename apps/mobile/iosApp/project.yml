@@ -1,0 +1,24 @@
+name: ConduitMobileSpike
+options:
+  bundleIdPrefix: media.conduit
+settings:
+  base:
+    IPHONEOS_DEPLOYMENT_TARGET: "15.0"
+    SWIFT_VERSION: "5.10"
+targets:
+  ConduitMobileSpike:
+    type: application
+    platform: iOS
+    sources: [ConduitMobileSpike]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: media.conduit.mobile.spike
+        INFOPLIST_FILE: ConduitMobileSpike/Info.plist
+        FRAMEWORK_SEARCH_PATHS: "$(SRCROOT)/../composeApp/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)"
+        OTHER_LDFLAGS: "-framework ComposeApp"
+    preBuildScripts:
+      - name: Build Compose framework
+        script: |
+          cd "$SRCROOT/.."
+          ./gradlew :composeApp:embedAndSignAppleFrameworkForXcode
+        basedOnDependencyAnalysis: false
