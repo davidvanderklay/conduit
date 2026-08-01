@@ -59,6 +59,7 @@ private val VideoItem.displayTitle: String
 internal fun MobileLibraryScreen(
     snapshot: ProfileSnapshot?,
     onSelect: (CatalogItem) -> Unit,
+    gridState: androidx.compose.foundation.lazy.grid.LazyGridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState(),
     modifier: Modifier = Modifier,
 ) {
     var filter by remember { mutableStateOf("all") }
@@ -89,6 +90,7 @@ internal fun MobileLibraryScreen(
             }
         } else {
             LazyVerticalGrid(
+                state = gridState,
                 columns = GridCells.Fixed(3),
                 contentPadding = PaddingValues(start = 10.dp, end = 10.dp, bottom = 112.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -109,14 +111,15 @@ internal fun SearchDiscoverScreen(
     addons: List<InstalledAddonSummary>,
     api: ConduitApi,
     onSelect: (CatalogItem) -> Unit,
+    listState: androidx.compose.foundation.lazy.LazyListState = rememberLazyListState(),
     modifier: Modifier = Modifier,
 ) {
     var query by remember { mutableStateOf("") }
-    var results by remember(addons) { mutableStateOf<List<CatalogItem>>(emptyList()) }
-    var discover by remember(addons) { mutableStateOf<List<CatalogItem>>(emptyList()) }
+    var results by remember(addons) { mutableStateOf<List<HomeCatalog>>(emptyList()) }
+    var discover by remember(addons) { mutableStateOf<List<HomeCatalog>>(emptyList()) }
     var loading by remember { mutableStateOf(false) }
     LaunchedEffect(addons) {
-        discover = runCatching { api.loadHomeCatalogs(addons).catalogs.flatMap { it.items }.distinctBy { "${it.type}:${it.id}" } }.getOrDefault(emptyList())
+        discover = runCatching { api.loadHomeCatalogs(addons).catalogs }.getOrDefault(emptyList())
     }
     LaunchedEffect(query, addons) {
         if (query.isBlank()) { results = emptyList(); return@LaunchedEffect }
@@ -127,6 +130,7 @@ internal fun SearchDiscoverScreen(
     }
     val visible = if (query.isBlank()) discover else results
     LazyColumn(
+        state = listState,
         modifier = modifier.statusBarsPadding(),
         contentPadding = PaddingValues(bottom = 112.dp),
         verticalArrangement = Arrangement.spacedBy(18.dp),
@@ -161,18 +165,15 @@ internal fun SearchDiscoverScreen(
                 }
             }
         } else {
-            visible.chunked(3).forEachIndexed { rowIndex, rowItems ->
-                item(key = "search-row-$rowIndex-${query}") {
-                    Row(
-                        Modifier.fillMaxWidth().padding(horizontal = 10.dp),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        rowItems.forEach { item ->
-                            Box(Modifier.weight(1f)) {
-                                MediaPoster(item.name, item.poster, item.releaseInfo ?: item.type) { onSelect(item) }
-                            }
+            visible.forEach { catalog ->
+                item(key = "search-heading-${catalog.key}-$query") {
+                    Text(catalog.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 10.dp))
+                }
+                item(key = "search-rail-${catalog.key}-$query") {
+                    LazyRow(contentPadding = PaddingValues(horizontal = 10.dp), horizontalArrangement = Arrangement.spacedBy(11.dp)) {
+                        items(catalog.items, key = { "${catalog.key}:${it.type}:${it.id}" }) { item ->
+                            Box(Modifier.width(132.dp)) { MediaPoster(item.name, item.poster, item.releaseInfo ?: item.type) { onSelect(item) } }
                         }
-                        repeat(3 - rowItems.size) { Spacer(Modifier.weight(1f)) }
                     }
                 }
             }
@@ -502,6 +503,7 @@ internal fun ProfileSettingsScreen(
     onProfileDataChanged: () -> Unit,
     preferences: DevicePreferences,
     onPreferencesChanged: (DevicePreferences) -> Unit,
+    settingsListState: androidx.compose.foundation.lazy.LazyListState = rememberLazyListState(),
     modifier: Modifier = Modifier,
 ) {
     var route by remember { mutableStateOf<ProfileRoute>(ProfileRoute.Settings) }
@@ -552,7 +554,8 @@ internal fun ProfileSettingsScreen(
         entries.takeIf { it.isNotEmpty() }?.let { SettingSection(section.title, it) }
     }
     LazyColumn(
-        modifier.statusBarsPadding(),
+        state = settingsListState,
+        modifier = modifier.statusBarsPadding(),
         contentPadding = PaddingValues(start = 10.dp, end = 10.dp, top = 10.dp, bottom = 112.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
