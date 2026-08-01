@@ -32,6 +32,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
@@ -198,6 +199,7 @@ internal fun MediaDetailsScreen(
     snapshot: ProfileSnapshot?,
     baseUrl: String,
     token: String,
+    preferences: DevicePreferences,
     onProgressChanged: () -> Unit,
     onBack: () -> Unit,
 ) {
@@ -298,6 +300,7 @@ internal fun MediaDetailsScreen(
                 requestHeaders = playing!!.behaviorHints?.proxyHeaders?.request.orEmpty().mapNotNull { (key, value) -> value.jsonPrimitive.contentOrNull?.let { key to it } }.toMap(),
                 subtitles = externalSubtitles,
                 hasEpisodes = orderedVideos.isNotEmpty(), onEpisodes = { episodesOpen = true }, modifier = Modifier.fillMaxSize(),
+                touchGestures = preferences.touchGestures, holdToSpeed = preferences.holdToSpeed,
             ) { playback = it }
             IconButton(onClick = { scope.launch { runCatching { persistProgress() }; playing = null } }, modifier = Modifier.statusBarsPadding().padding(12.dp).background(Color.Black.copy(.55f), CircleShape).align(Alignment.TopStart)) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = Color.White) }
             if (playback.loading && playback.error == null) CircularProgressIndicator(Modifier.align(Alignment.Center), color = Color.White)
@@ -484,9 +487,9 @@ internal fun ProfileSettingsScreen(
         ProfileRoute.Playback -> return PlaybackSettingsScreen(platform, preferences, onPreferencesChanged, { route = ProfileRoute.Settings }, modifier)
         ProfileRoute.Advanced -> return AdvancedSettingsScreen(preferences, onPreferencesChanged, { route = ProfileRoute.Settings }, { route = ProfileRoute.Diagnostics }, modifier)
         ProfileRoute.Integrations -> return InformationalSettingsScreen("Integrations", "Connected services", listOf("Conduit currently uses your installed Stremio add-ons directly.", "Trakt, debrid, and metadata-service connections will appear here only when their credential storage and synchronization flows are implemented."), { route = ProfileRoute.Settings }, modifier)
-        ProfileRoute.Supporters -> return InformationalSettingsScreen("Supporters & contributors", "Conduit is open source", listOf("Contributors are acknowledged through the project repository.", "github.com/davidvanderklay/conduit", "A server-funding goal will appear here once a verified funding source is configured."), { route = ProfileRoute.Settings }, modifier)
-        ProfileRoute.Privacy -> return InformationalSettingsScreen("Privacy policy", "Your server, your data", listOf("Conduit stores account, profile, library, and viewing data on the server you choose.", "The current privacy and data model is documented at github.com/davidvanderklay/conduit#data-and-privacy-model."), { route = ProfileRoute.Settings }, modifier)
-        ProfileRoute.Licenses -> return InformationalSettingsScreen("Licenses & attribution", "Open-source software", listOf("Conduit — MIT License", "AndroidX Media3 — Apache License 2.0", "Ktor — Apache License 2.0", "Compose Multiplatform — Apache License 2.0", "Coil — Apache License 2.0", "Complete notices: THIRD_PARTY_NOTICES.md in the Conduit repository."), { route = ProfileRoute.Settings }, modifier)
+        ProfileRoute.Supporters -> return InformationalSettingsScreen("Supporters & contributors", "Conduit is open source", listOf("Contributors are acknowledged through the project repository.", "https://github.com/davidvanderklay/conduit", "A server-funding goal will appear here once a verified funding source is configured."), { route = ProfileRoute.Settings }, modifier)
+        ProfileRoute.Privacy -> return InformationalSettingsScreen("Privacy policy", "Your server, your data", listOf("Conduit stores account, profile, library, and viewing data on the server you choose.", "https://github.com/davidvanderklay/conduit#data-and-privacy-model"), { route = ProfileRoute.Settings }, modifier)
+        ProfileRoute.Licenses -> return InformationalSettingsScreen("Licenses & attribution", "Open-source software", listOf("Conduit — MIT License", "AndroidX Media3 — Apache License 2.0", "Ktor — Apache License 2.0", "Compose Multiplatform — Apache License 2.0", "Coil — Apache License 2.0", "https://github.com/davidvanderklay/conduit/blob/main/THIRD_PARTY_NOTICES.md"), { route = ProfileRoute.Settings }, modifier)
         ProfileRoute.Diagnostics -> return InformationalSettingsScreen("Debug information", "${platform.name} ${platform.version}", listOf("Device: ${platform.device}", "Server: ${state.endpoint?.baseUrl}", "Profile: ${activeProfile?.name ?: "None"}", "Add-ons: ${profileSync.snapshot?.addons?.size ?: 0}", "Debug logging: ${if (preferences.debugLogging) "enabled" else "disabled"}"), { route = ProfileRoute.Advanced }, modifier)
         ProfileRoute.Settings -> Unit
     }
@@ -702,7 +705,15 @@ private fun AdvancedSettingsScreen(preferences: DevicePreferences, update: (Devi
 
 @Composable
 private fun InformationalSettingsScreen(title: String, heading: String, paragraphs: List<String>, onBack: () -> Unit, modifier: Modifier) = SettingsPage(title, onBack, modifier) {
-    SettingsGroup(heading.uppercase()) { paragraphs.forEachIndexed { index, paragraph -> if (index > 0) HorizontalDivider(color = Color.White.copy(.06f)); Text(paragraph, color = if (paragraph.startsWith("github.com")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 13.dp), style = MaterialTheme.typography.bodyMedium) } }
+    val uriHandler = LocalUriHandler.current
+    SettingsGroup(heading.uppercase()) { paragraphs.forEachIndexed { index, paragraph ->
+        if (index > 0) HorizontalDivider(color = Color.White.copy(.06f))
+        val isLink = paragraph.startsWith("https://")
+        Row(Modifier.fillMaxWidth().then(if (isLink) Modifier.clickable { uriHandler.openUri(paragraph) } else Modifier).padding(vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(paragraph.removePrefix("https://"), color = if (isLink) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, textDecoration = if (isLink) androidx.compose.ui.text.style.TextDecoration.Underline else null)
+            if (isLink) Icon(Icons.Rounded.OpenInNew, "Open externally", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 10.dp))
+        }
+    } }
 }
 
 private sealed interface ProfileRoute {

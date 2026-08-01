@@ -41,6 +41,8 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import media.conduit.mobile.account.SubtitleItem
 import android.net.Uri
 
@@ -53,6 +55,8 @@ actual fun NativePlayer(
     requestHeaders: Map<String, String>,
     subtitles: List<SubtitleItem>,
     hasEpisodes: Boolean,
+    touchGestures: Boolean,
+    holdToSpeed: Boolean,
     onEpisodes: () -> Unit,
     modifier: Modifier,
     onState: (PlaybackState) -> Unit,
@@ -187,14 +191,26 @@ actual fun NativePlayer(
         }
     }
 
-    Box(modifier.background(Color.Black).clickable { controlsVisible = !controlsVisible }) {
+    Box(modifier.background(Color.Black).pointerInput(player, touchGestures, holdToSpeed, controlsVisible) {
+        detectTapGestures(
+            onPress = { if (holdToSpeed) coroutineScope { val release = async { tryAwaitRelease() }; delay(450); if (!release.isCompleted) { val previousSpeed = player.playbackParameters.speed; player.setPlaybackSpeed(2f); release.await(); player.setPlaybackSpeed(previousSpeed) } } else tryAwaitRelease() },
+            onTap = { controlsVisible = !controlsVisible },
+            onDoubleTap = if (touchGestures) {{ offset -> if (offset.x < size.width / 2f) player.seekBack() else player.seekForward(); controlsVisible = true }} else null,
+        )
+    }) {
         AndroidView(
             factory = { PlayerView(it).apply { this.player = player; useController = false; setShowBuffering(PlayerView.SHOW_BUFFERING_ALWAYS); keepScreenOn = true } },
             update = { it.player = player },
             modifier = Modifier.fillMaxSize(),
         )
         if (controlsVisible) {
-            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .42f)).pointerInput(player) { detectTapGestures(onTap = { controlsVisible = true }, onDoubleTap = { offset -> if (offset.x < size.width / 2f) player.seekBack() else player.seekForward(); controlsVisible = true }) }) {
+            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .42f)).pointerInput(player, touchGestures, holdToSpeed) {
+                detectTapGestures(
+                    onPress = { if (holdToSpeed) coroutineScope { val release = async { tryAwaitRelease() }; delay(450); if (!release.isCompleted) { val previousSpeed = player.playbackParameters.speed; player.setPlaybackSpeed(2f); release.await(); player.setPlaybackSpeed(previousSpeed) } } else tryAwaitRelease() },
+                    onTap = { controlsVisible = true },
+                    onDoubleTap = if (touchGestures) {{ offset -> if (offset.x < size.width / 2f) player.seekBack() else player.seekForward(); controlsVisible = true }} else null,
+                )
+            }) {
                 val loadingOrPortrait = !landscape || durationMs <= 0
                 Row(Modifier.align(Alignment.Center), verticalAlignment = Alignment.CenterVertically) {
                     FilledIconButton(onClick = { if (player.isPlaying) player.pause() else player.play(); controlsVisible = true }, modifier = Modifier.size(64.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color.White, contentColor = Color.Black)) {
