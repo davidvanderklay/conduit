@@ -185,8 +185,18 @@ body {
 }
 
 .player-time {
-  min-width: 8.5rem;
+  /* Like the seek and volume controls, each changing timestamp needs an
+     opaque erase surface when WebKitGTK is composited over the native video. */
+  min-width: 4.75rem;
   background: rgb(0 0 0);
+}
+
+.player-time-elapsed {
+  text-align: right;
+}
+
+.player-time-duration {
+  text-align: left;
 }
 
 button,
