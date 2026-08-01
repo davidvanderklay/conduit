@@ -1,0 +1,412 @@
+package media.conduit.mobile
+
+import android.app.Activity
+import android.content.pm.ActivityInfo
+import android.content.res.Configuration
+import android.os.SystemClock
+import android.widget.Toast
+import androidx.annotation.OptIn
+import androidx.compose.runtime.*
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.*
+import androidx.compose.material3.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
+import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
+import androidx.media3.common.Player
+import androidx.media3.common.C
+import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.Tracks
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.DefaultRenderersFactory
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.ui.PlayerView
+import androidx.media3.ui.AspectRatioFrameLayout
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import media.conduit.mobile.account.SubtitleItem
+import android.net.Uri
+
+@OptIn(UnstableApi::class)
+@Composable
+actual fun NativePlayer(
+    url: String?,
+    active: Boolean,
+    startPositionMs: Long,
+    requestHeaders: Map<String, String>,
+    subtitles: List<SubtitleItem>,
+    hasEpisodes: Boolean,
+    touchGestures: Boolean,
+    holdToSpeed: Boolean,
+    preferredAudioLanguage: String,
+    onEpisodes: () -> Unit,
+    modifier: Modifier,
+    onState: (PlaybackState) -> Unit,
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val activity = context as? Activity
+    val landscape = context.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val currentCallback by rememberUpdatedState(onState)
+    val player = remember(url, requestHeaders, subtitles) {
+        val http = DefaultHttpDataSource.Factory()
+            .setAllowCrossProtocolRedirects(true)
+            .setUserAgent("Conduit Mobile")
+            .setDefaultRequestProperties(requestHeaders)
+        val renderers = DefaultRenderersFactory(context).setEnableDecoderFallback(true)
+        ExoPlayer.Builder(context, renderers).setMediaSourceFactory(DefaultMediaSourceFactory(http)).build()
+    }
+    var playbackError by remember(player) { mutableStateOf<String?>(null) }
+    var controlsVisible by remember(player) { mutableStateOf(true) }
+    var positionMs by remember(player) { mutableLongStateOf(0L) }
+    var durationMs by remember(player) { mutableLongStateOf(0L) }
+    var playing by remember(player) { mutableStateOf(false) }
+    var dragging by remember(player) { mutableStateOf(false) }
+    var draggedPosition by remember(player) { mutableFloatStateOf(0f) }
+    var trackPanel by remember { mutableStateOf<Int?>(null) }
+    var tracksRevision by remember { mutableIntStateOf(0) }
+    var trackFallback by remember(player) { mutableStateOf<androidx.media3.common.TrackSelectionParameters?>(null) }
+    var lastTrackChangeAt by remember(player) { mutableLongStateOf(0L) }
+    var autoAudioSelection by remember(player) { mutableStateOf<String?>(null) }
+    var resizeMode by remember(player) { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
+    val preferredAudioCode = remember(preferredAudioLanguage) { audioLanguageCode(preferredAudioLanguage) }
+
+    DisposableEffect(player, url) {
+        var resumed = false
+        val listener = object : Player.Listener {
+            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                val fallback = trackFallback
+                if (fallback != null && SystemClock.elapsedRealtime() - lastTrackChangeAt < 8_000) {
+                    val restorePosition = player.currentPosition.coerceAtLeast(0)
+                    player.trackSelectionParameters = fallback
+                    trackFallback = null
+                    playbackError = null
+                    player.prepare()
+                    player.seekTo(restorePosition)
+                    player.play()
+                    Toast.makeText(context, "That track is not supported on this device. Restored the previous audio selection.", Toast.LENGTH_LONG).show()
+                    return
+                }
+                player.pause()
+                playbackError = when (error.errorCode) {
+                    androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FAILED,
+                    androidx.media3.common.PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
+                    -> "This device cannot decode this stream's video format. Try a 1080p H.264/AVC stream or a physical device with HEVC support."
+                    else -> error.cause?.message ?: error.message
+                }
+            }
+            override fun onTracksChanged(tracks: Tracks) {
+                tracksRevision++
+                val audio = tracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
+                if (audio.isNotEmpty() && audio.none { group -> (0 until group.length).any(group::isTrackSupported) }) {
+                    player.pause()
+                    playbackError = "None of this stream's audio formats can be decoded by this device. Choose another stream for working audio."
+                } else {
+                    val candidates = audio.flatMap { group -> (0 until group.length).filter(group::isTrackSupported).map { index -> group to index } }
+                    val best = candidates.maxByOrNull { (group, index) -> audioTrackScore(group.getTrackFormat(index), preferredAudioCode) }
+                    val selected = candidates.firstOrNull { (group, index) -> group.isTrackSelected(index) }
+                    if (best != null && audioTrackScore(best.first.getTrackFormat(best.second), preferredAudioCode) > (selected?.let { audioTrackScore(it.first.getTrackFormat(it.second), preferredAudioCode) } ?: Int.MIN_VALUE)) {
+                        val key = "${best.first.mediaTrackGroup.id}:${best.second}"
+                        if (autoAudioSelection != key) {
+                            autoAudioSelection = key
+                            player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().clearOverridesOfType(C.TRACK_TYPE_AUDIO).addOverride(TrackSelectionOverride(best.first.mediaTrackGroup, best.second)).build()
+                        }
+                    }
+                }
+            }
+            override fun onPlaybackStateChanged(state: Int) {
+                if (state == Player.STATE_READY && !resumed) {
+                    resumed = true
+                    val duration = player.duration.coerceAtLeast(0)
+                    if (startPositionMs > 0 && startPositionMs < duration - 5_000) player.seekTo(startPositionMs)
+                    activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                }
+            }
+            override fun onRenderedFirstFrame() {
+                activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            }
+        }
+        player.addListener(listener)
+        if (url != null) {
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            val item = MediaItem.Builder().setUri(url).apply {
+                val lower = url.lowercase().substringBefore('#')
+                when {
+                    ".m3u8" in lower || "format=m3u8" in lower -> setMimeType(MimeTypes.APPLICATION_M3U8)
+                    ".mpd" in lower || "format=mpd" in lower -> setMimeType(MimeTypes.APPLICATION_MPD)
+                    ".ism" in lower || ".isml" in lower -> setMimeType(MimeTypes.APPLICATION_SS)
+                }
+                setSubtitleConfigurations(subtitles.map { subtitle ->
+                    val lower = subtitle.url.substringBefore('?').lowercase()
+                    val mime = when { lower.endsWith(".vtt") -> MimeTypes.TEXT_VTT; lower.endsWith(".ass") || lower.endsWith(".ssa") -> MimeTypes.TEXT_SSA; lower.endsWith(".ttml") || lower.endsWith(".xml") -> MimeTypes.APPLICATION_TTML; else -> MimeTypes.APPLICATION_SUBRIP }
+                    val language = subtitle.lang?.let { java.util.Locale.forLanguageTag(it.replace('_', '-')).displayLanguage } ?: "Subtitle"
+                    MediaItem.SubtitleConfiguration.Builder(Uri.parse(subtitle.url)).setMimeType(mime).setLanguage(subtitle.lang).setLabel("$language · ${subtitle.addonName ?: "Add-on"}").build()
+                })
+            }.build()
+            player.setMediaItem(item)
+            preferredAudioCode?.let { code -> player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().setPreferredAudioLanguages(code).build() }
+            player.prepare()
+            player.playWhenReady = active
+        }
+        onDispose {
+            player.removeListener(listener)
+            player.release()
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+        }
+    }
+    DisposableEffect(player, lifecycle) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) player.pause()
+        }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
+    LaunchedEffect(player, lifecycle) {
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                currentCallback(
+                    PlaybackState(
+                        loading = player.playbackState == Player.STATE_BUFFERING || player.playbackState == Player.STATE_IDLE,
+                        playing = player.isPlaying,
+                        positionMs = player.currentPosition.coerceAtLeast(0),
+                        durationMs = player.duration.coerceAtLeast(0),
+                        ended = player.playbackState == Player.STATE_ENDED,
+                        error = playbackError,
+                    ),
+                )
+                if (!dragging) positionMs = player.currentPosition.coerceAtLeast(0)
+                durationMs = player.duration.coerceAtLeast(0)
+                playing = player.isPlaying
+                delay(500)
+            }
+        }
+    }
+    LaunchedEffect(controlsVisible, playing) {
+        if (controlsVisible && playing) {
+            delay(4_000)
+            controlsVisible = false
+        }
+    }
+
+    Box(modifier.background(Color.Black).pointerInput(player, resizeMode) { detectTransformGestures { _, _, zoom, _ ->
+        val next = when { zoom > 1.04f -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM; zoom < .96f -> AspectRatioFrameLayout.RESIZE_MODE_FIT; else -> resizeMode }
+        if (next != resizeMode) resizeMode = next
+    } }.pointerInput(player, touchGestures, holdToSpeed, controlsVisible) {
+        detectTapGestures(
+            onPress = { if (holdToSpeed) coroutineScope { val release = async { tryAwaitRelease() }; delay(450); if (!release.isCompleted) { val previousSpeed = player.playbackParameters.speed; player.setPlaybackSpeed(2f); release.await(); player.setPlaybackSpeed(previousSpeed) } } else tryAwaitRelease() },
+            onTap = { controlsVisible = true },
+            onDoubleTap = if (touchGestures) {{ offset -> if (offset.x < size.width / 2f) player.seekBack() else player.seekForward(); controlsVisible = true }} else null,
+        )
+    }) {
+        AndroidView(
+            factory = { PlayerView(it).apply { this.player = player; useController = false; setShowBuffering(PlayerView.SHOW_BUFFERING_ALWAYS); keepScreenOn = true } },
+            update = { it.player = player; it.resizeMode = resizeMode },
+            modifier = Modifier.fillMaxSize(),
+        )
+        if (controlsVisible) {
+            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .42f)).pointerInput(player, resizeMode) { detectTransformGestures { _, _, zoom, _ ->
+                val next = when { zoom > 1.04f -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM; zoom < .96f -> AspectRatioFrameLayout.RESIZE_MODE_FIT; else -> resizeMode }
+                if (next != resizeMode) resizeMode = next
+            } }.pointerInput(player, touchGestures, holdToSpeed) {
+                detectTapGestures(
+                    onPress = { if (holdToSpeed) coroutineScope { val release = async { tryAwaitRelease() }; delay(450); if (!release.isCompleted) { val previousSpeed = player.playbackParameters.speed; player.setPlaybackSpeed(2f); release.await(); player.setPlaybackSpeed(previousSpeed) } } else tryAwaitRelease() },
+                    onTap = { controlsVisible = false },
+                    onDoubleTap = if (touchGestures) {{ offset -> if (offset.x < size.width / 2f) player.seekBack() else player.seekForward(); controlsVisible = true }} else null,
+                )
+            }) {
+                val loadingOrPortrait = !landscape || durationMs <= 0
+                Row(Modifier.align(Alignment.Center), verticalAlignment = Alignment.CenterVertically) {
+                    FilledIconButton(onClick = { if (player.isPlaying) player.pause() else player.play(); controlsVisible = true }, modifier = Modifier.size(64.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color.White, contentColor = Color.Black)) {
+                        Icon(if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, if (playing) "Pause" else "Play", modifier = Modifier.size(38.dp))
+                    }
+                }
+                Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(start = 18.dp, end = 18.dp, top = 6.dp, bottom = if (loadingOrPortrait) 66.dp else 14.dp), verticalArrangement = Arrangement.spacedBy(0.dp)) {
+                    Slider(
+                        value = if (dragging) draggedPosition else positionMs.toFloat(),
+                        onValueChange = { dragging = true; draggedPosition = it },
+                        onValueChangeFinished = { player.seekTo(draggedPosition.toLong()); dragging = false; controlsVisible = true },
+                        valueRange = 0f..durationMs.coerceAtLeast(1).toFloat(),
+                        colors = SliderDefaults.colors(thumbColor = MaterialTheme.colorScheme.primary, activeTrackColor = MaterialTheme.colorScheme.primary, inactiveTrackColor = Color.White.copy(.35f)), modifier = Modifier.height(30.dp),
+                    )
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        PlayerTimePill(formatPlayerTime(if (dragging) draggedPosition.toLong() else positionMs))
+                        PlayerTimePill(formatPlayerTime(durationMs))
+                    }
+                    if (!loadingOrPortrait) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceEvenly) {
+                        val speeds = listOf(.5f, .75f, 1f, 1.25f, 1.5f, 2f)
+                        PlayerBottomAction(Icons.Rounded.Speed, "${player.playbackParameters.speed}×", landscape) { val current = player.playbackParameters.speed; player.setPlaybackSpeed(speeds[(speeds.indexOfFirst { it == current }.takeIf { it >= 0 } ?: 1).let { (it + 1) % speeds.size }]); controlsVisible = true }
+                        PlayerBottomAction(Icons.Rounded.Headphones, "Audio", landscape) { trackPanel = C.TRACK_TYPE_AUDIO; controlsVisible = true }
+                        PlayerBottomAction(Icons.Rounded.Subtitles, "Subtitles", landscape) { trackPanel = C.TRACK_TYPE_TEXT; controlsVisible = true }
+                        if (hasEpisodes) PlayerBottomAction(Icons.Rounded.PlaylistPlay, "Episodes", landscape, onEpisodes)
+                    }
+                }
+                if (loadingOrPortrait && hasEpisodes) IconButton(onClick = onEpisodes, modifier = Modifier.align(Alignment.BottomEnd).padding(end = 14.dp, bottom = 8.dp).background(Color.Black.copy(.58f), CircleShape)) { Icon(Icons.Rounded.PlaylistPlay, "Episodes", tint = Color.White) }
+            }
+        }
+        trackPanel?.let { type ->
+            @Suppress("UNUSED_EXPRESSION") tracksRevision
+            PlayerTrackPanel(player, type, onBeforeSelection = { trackFallback = player.trackSelectionParameters; lastTrackChangeAt = SystemClock.elapsedRealtime() }, onDismiss = { trackPanel = null })
+        }
+    }
+}
+
+private fun audioLanguageCode(preference: String): String? = when (preference) {
+    "System default" -> java.util.Locale.getDefault().language.takeIf(String::isNotBlank)
+    "English" -> "en"
+    "Spanish" -> "es"
+    "French" -> "fr"
+    "German" -> "de"
+    "Japanese" -> "ja"
+    "Korean" -> "ko"
+    else -> null
+}
+
+private fun audioTrackScore(format: androidx.media3.common.Format, preferredLanguage: String?): Int {
+    val language = format.language?.let { java.util.Locale.forLanguageTag(it.replace('_', '-')).language }
+    val label = format.label.orEmpty().lowercase()
+    val commentary = format.roleFlags and C.ROLE_FLAG_COMMENTARY != 0 || "commentary" in label || "description" in label
+    return (if (preferredLanguage != null && language == preferredLanguage) 1_000 else 0) +
+        (if (!commentary) 200 else -500) +
+        (if (format.selectionFlags and C.SELECTION_FLAG_DEFAULT != 0) 40 else 0) +
+        (format.channelCount.takeIf { it > 0 } ?: 0)
+}
+
+@Composable
+private fun PlayerTimePill(value: String) {
+    Surface(color = Color.Black.copy(.65f), shape = RoundedCornerShape(18.dp), border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(.22f))) {
+        Text(value, color = Color.White, modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp), style = MaterialTheme.typography.labelLarge)
+    }
+}
+
+@Composable
+private fun BoxScope.PlayerTrackPanel(player: ExoPlayer, type: Int, onBeforeSelection: () -> Unit, onDismiss: () -> Unit) {
+    val groups = player.currentTracks.groups.filter { it.type == type }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val options = groups.flatMap { group -> (0 until group.length).map { index -> PlayerTrackOption(group, index) } }
+    val selectedOption = options.firstOrNull { it.group.isTrackSelected(it.index) }
+    var subtitlePage by remember { mutableStateOf("overview") }
+    var chosenLanguage by remember(selectedOption?.languageKey) { mutableStateOf(selectedOption?.languageKey ?: options.firstOrNull { it.supported }?.languageKey) }
+    fun select(option: PlayerTrackOption, close: Boolean) {
+        onBeforeSelection()
+        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().setTrackTypeDisabled(type, false).clearOverridesOfType(type).addOverride(TrackSelectionOverride(option.group.mediaTrackGroup, option.index)).build()
+        chosenLanguage = option.languageKey
+        if (close) onDismiss() else subtitlePage = "overview"
+    }
+    if (type == C.TRACK_TYPE_TEXT) {
+        FullscreenSubtitlePanel(player, options, selectedOption, onBeforeSelection, onDismiss)
+        return
+    }
+    Surface(modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight().fillMaxWidth(.48f), color = Color(0xF21A1A1D), shape = RoundedCornerShape(topStart = 28.dp, bottomStart = 28.dp), shadowElevation = 18.dp) {
+        Column(Modifier.padding(20.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (type == C.TRACK_TYPE_TEXT && subtitlePage != "overview") IconButton(onClick = { subtitlePage = "overview" }) { Icon(Icons.Rounded.ArrowBack, "Back", tint = Color.White) }
+                Text(if (type == C.TRACK_TYPE_AUDIO) "Audio" else when (subtitlePage) { "language" -> "Subtitle language"; "variant" -> "Subtitle variant"; else -> "Subtitles" }, color = Color.White, style = MaterialTheme.typography.headlineSmall)
+                Spacer(Modifier.weight(1f)); IconButton(onClick = onDismiss) { Icon(Icons.Rounded.Close, "Close", tint = Color.White) }
+            }
+            Text(if (type == C.TRACK_TYPE_AUDIO) "Choose an audio language" else when (subtitlePage) { "language" -> "A compatible variant is selected automatically"; "variant" -> "Override the selected variant"; else -> "Language, variant, and appearance" }, color = Color.White.copy(.6f))
+            Spacer(Modifier.height(14.dp))
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (type == C.TRACK_TYPE_TEXT && subtitlePage == "overview") {
+                    item { PlayerTrackRow("Off", selectedOption == null) { player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().clearOverridesOfType(type).setTrackTypeDisabled(type, true).build(); onDismiss() } }
+                    item { PlayerTrackRow("Language  ·  ${selectedOption?.languageName ?: "Choose"}", false) { subtitlePage = "language" } }
+                    item { PlayerTrackRow("Variant  ·  ${selectedOption?.variantName ?: "Automatic"}", false, selectedOption != null) { subtitlePage = "variant" } }
+                    item { PlayerTrackRow("Subtitle settings  ·  Managed by Android", false) { Toast.makeText(context, "Subtitle appearance follows your Android caption preferences.", Toast.LENGTH_LONG).show() } }
+                } else if (type == C.TRACK_TYPE_TEXT && subtitlePage == "language") {
+                    options.distinctBy(PlayerTrackOption::languageKey).forEach { option ->
+                        item(option.languageKey) { PlayerTrackRow(option.languageName, option.languageKey == selectedOption?.languageKey, option.supported) { select(options.firstOrNull { it.languageKey == option.languageKey && it.supported } ?: option, false) } }
+                    }
+                } else if (type == C.TRACK_TYPE_TEXT && subtitlePage == "variant") {
+                    options.filter { it.languageKey == chosenLanguage }.forEach { option ->
+                        item("${option.languageKey}:${option.index}:${option.group.mediaTrackGroup.id}") { PlayerTrackRow(listOf(option.variantName, if (!option.supported) "Unsupported on this device" else "").filter { it.isNotBlank() }.joinToString(" · "), option.selected, option.supported) { select(option, false) } }
+                    }
+                } else groups.forEach { group ->
+                    items((0 until group.length).toList()) { index ->
+                        val format = group.getTrackFormat(index)
+                        val language = format.label ?: format.language?.let { java.util.Locale.forLanguageTag(it).displayLanguage } ?: if (type == C.TRACK_TYPE_AUDIO) "Audio track ${index + 1}" else "Subtitle ${index + 1}"
+                        val detail = listOfNotNull(format.language?.uppercase(), format.roleFlags.takeIf { it != 0 }?.let { "Variant ${index + 1}" }).joinToString(" · ")
+                        val supported = group.isTrackSupported(index)
+                        PlayerTrackRow(listOf(language, detail, if (!supported) "Unsupported on this device" else "").filter { it.isNotBlank() }.joinToString("  ·  "), group.isTrackSelected(index), supported) {
+                            select(PlayerTrackOption(group, index), true)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BoxScope.FullscreenSubtitlePanel(player: ExoPlayer, options: List<PlayerTrackOption>, selected: PlayerTrackOption?, onBeforeSelection: () -> Unit, onDismiss: () -> Unit) {
+    var language by remember(selected?.languageKey) { mutableStateOf(selected?.languageKey ?: options.firstOrNull { it.supported }?.languageKey) }
+    var selectedTrackKey by remember { mutableStateOf(selected?.key) }
+    LaunchedEffect(selected?.key) { selectedTrackKey = selected?.key }
+    fun choose(option: PlayerTrackOption) { onBeforeSelection(); language = option.languageKey; selectedTrackKey = option.key; player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false).clearOverridesOfType(C.TRACK_TYPE_TEXT).addOverride(TrackSelectionOverride(option.group.mediaTrackGroup, option.index)).build() }
+    Surface(Modifier.fillMaxSize(), color = Color(0xFA0D0C22)) {
+        Box {
+            Row(Modifier.fillMaxSize().padding(horizontal = 30.dp, vertical = 28.dp), horizontalArrangement = Arrangement.spacedBy(30.dp)) {
+                Column(Modifier.weight(1f)) { Text("Subtitle Languages", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold); Spacer(Modifier.height(18.dp)); LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) { item { PlayerTrackRow("Disabled", selectedTrackKey == null) { selectedTrackKey = null; player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().clearOverridesOfType(C.TRACK_TYPE_TEXT).setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build() } }; options.distinctBy(PlayerTrackOption::languageKey).forEach { option -> item(option.languageKey) { PlayerTrackRow(option.languageName, selectedTrackKey != null && language == option.languageKey, option.supported) { val best = options.firstOrNull { it.languageKey == option.languageKey && it.supported } ?: option; choose(best) } } } } }
+                Column(Modifier.weight(1f)) { Text("Subtitle Variants", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold); Spacer(Modifier.height(18.dp)); LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) { options.filter { it.languageKey == language }.forEach { option -> item(option.key) { PlayerTrackRow(option.variantName, option.key == selectedTrackKey, option.supported) { choose(option) } } } } }
+                Column(Modifier.weight(1f)) { Text("Subtitle Settings", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold); Spacer(Modifier.weight(1f)); Text("Subtitle appearance follows Android system settings. Change it under Accessibility → Caption preferences for consistent styling across apps.", color = Color.White.copy(.72f), style = MaterialTheme.typography.bodyLarge); Spacer(Modifier.weight(1f)) }
+            }
+            IconButton(onClick = onDismiss, Modifier.align(Alignment.TopEnd).padding(12.dp)) { Icon(Icons.Rounded.Close, "Close", tint = Color.White, modifier = Modifier.size(34.dp)) }
+        }
+    }
+}
+
+@Composable
+private fun PlayerBottomAction(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, showLabel: Boolean, onClick: () -> Unit) {
+    TextButton(onClick = onClick, contentPadding = PaddingValues(horizontal = if (showLabel) 10.dp else 6.dp, vertical = 2.dp)) { Icon(icon, label, tint = Color.White); if (showLabel) { Spacer(Modifier.width(6.dp)); Text(label, color = Color.White) } }
+}
+
+private data class PlayerTrackOption(val group: Tracks.Group, val index: Int) {
+    private val format get() = group.getTrackFormat(index)
+    val supported get() = group.isTrackSupported(index)
+    val selected get() = group.isTrackSelected(index)
+    val key get() = "${group.mediaTrackGroup.id}:$index"
+    private val labelLanguage get() = format.label?.substringBefore('(')?.substringBefore('[')?.trim()?.lowercase()
+    val languageKey get() = format.language?.takeIf { it.isNotBlank() }?.substringBefore('-') ?: when (labelLanguage) { "english" -> "en"; "spanish", "español" -> "es"; "german", "deutsch" -> "de"; "arabic", "العربية" -> "ar"; "japanese", "日本語" -> "ja"; "indonesian", "bahasa indonesia" -> "id"; "french", "français" -> "fr"; "italian", "italiano" -> "it"; "portuguese", "português" -> "pt"; else -> labelLanguage ?: "und" }
+    val languageName get() = languageKey.takeUnless { it == "und" }?.let { java.util.Locale.forLanguageTag(it).displayLanguage.replaceFirstChar(Char::uppercase) } ?: format.label ?: "Unknown language"
+    val variantName get(): String {
+        val label = format.label?.trim().orEmpty()
+        if ('·' in label) return label.substringAfter('·').trim().ifBlank { "Add-on subtitle" }
+        val normalizedLabel = label.substringBefore('(').trim().lowercase()
+        val languageOnly = normalizedLabel in setOf("english", "spanish", "español", "german", "deutsch", "arabic", "japanese", "turkish", "zh", "chinese", "indonesian", "french", "italian", "portuguese")
+        return if (label.isBlank() || languageOnly) "Embedded" else "$label · Embedded"
+    }
+}
+
+@Composable
+private fun PlayerTrackRow(label: String, selected: Boolean, enabled: Boolean = true, onClick: () -> Unit) {
+    Surface(onClick = onClick, enabled = enabled, color = if (selected) MaterialTheme.colorScheme.primary.copy(.18f) else Color.White.copy(.06f), shape = RoundedCornerShape(14.dp), border = if (selected) androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null) {
+        Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) { Text(label, color = Color.White.copy(if (enabled) 1f else .38f), modifier = Modifier.weight(1f)); if (selected) Icon(Icons.Rounded.CheckCircle, null, tint = MaterialTheme.colorScheme.primary) else if (!enabled) Icon(Icons.Rounded.Block, null, tint = Color.White.copy(.35f)) }
+    }
+}
+
+private fun formatPlayerTime(milliseconds: Long): String {
+    val seconds = milliseconds.coerceAtLeast(0) / 1_000
+    val hours = seconds / 3_600
+    val minutes = seconds % 3_600 / 60
+    val remainder = seconds % 60
+    return if (hours > 0) "$hours:${minutes.toString().padStart(2, '0')}:${remainder.toString().padStart(2, '0')}" else "$minutes:${remainder.toString().padStart(2, '0')}"
+}

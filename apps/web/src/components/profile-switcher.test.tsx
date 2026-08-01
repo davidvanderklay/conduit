@@ -84,6 +84,9 @@ describe("ProfileSwitcher", () => {
       name: "Taylor",
       isKids: false,
       copyAddons: true,
+      usesPrimaryAddons: false,
+      avatarColor: "#FFC107",
+      avatarUrl: null,
     })
     expect(document.querySelector('[role="dialog"]')).toBeNull()
   })

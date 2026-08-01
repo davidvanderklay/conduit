@@ -35,4 +35,16 @@ describe("device preferences", () => {
     expect(value.subtitlePosition).toBe(100)
     expect(value.readAheadSeconds).toBe(120)
   })
+
+  it("migrates older stored preferences with new desktop defaults", () => {
+    const value = readPreferences(storage(JSON.stringify({ volume: 42, autoplay: false })))
+    expect(value).toMatchObject({
+      volume: 42,
+      autoplay: false,
+      amoledBlack: false,
+      subtitleOutline: true,
+      rememberLastProfile: true,
+      debugLogging: false,
+    })
+  })
 })

@@ -4,6 +4,9 @@ export interface Profile {
   id: string
   name: string
   isKids: boolean
+  usesPrimaryAddons?: boolean
+  avatarColor?: string | null
+  avatarUrl?: string | null
 }
 
 export interface Household {
