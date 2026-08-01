@@ -200,6 +200,11 @@ export function DesktopPlayer({
         if (cancelled) return
         setSnapshot(initial)
         await nativePlayerCommand(["set", "sub-pos", preferences.subtitlePosition])
+        await nativePlayerCommand([
+          "set",
+          "sub-border-size",
+          preferences.subtitleOutline ? 3 : 0,
+        ])
         const resolved = await resolveAddonSubtitles(addons, type, videoId)
         if (!cancelled) {
           setAddonSubtitles(resolved)

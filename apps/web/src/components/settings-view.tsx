@@ -1,51 +1,90 @@
-import { useState, type FormEvent } from "react"
+import { useMemo, useState, type FormEvent, type ReactNode } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Database, Download, KeyRound, Monitor, Save, Upload, UserRound } from "lucide-react"
+import {
+  Activity,
+  ArrowLeft,
+  BadgeInfo,
+  Check,
+  ChevronRight,
+  Database,
+  Download,
+  ExternalLink,
+  Eye,
+  Film,
+  Gauge,
+  Heart,
+  KeyRound,
+  Link2,
+  LogOut,
+  Monitor,
+  Palette,
+  PlayCircle,
+  Puzzle,
+  Search,
+  ShieldCheck,
+  SlidersHorizontal,
+  Upload,
+  UserRound,
+  X,
+  type LucideIcon,
+} from "lucide-react"
 import { api, type Profile } from "../lib/api"
-import { authClient } from "../lib/auth"
+import { API_URL, authClient } from "../lib/auth"
+import { clearDesktopSessionToken } from "../lib/desktop-auth"
 import { isDesktop, prepareNativeTextSave } from "../lib/desktop"
 import {
   readPreferences,
   writePreferences,
   type DevicePreferences,
 } from "../lib/preferences"
-import { ViewShell } from "./addons-view"
+import { serverDisplayName as formatServerDisplayName } from "../lib/server"
 import { Button } from "./ui/button"
-import { Card } from "./ui/card"
 import { Input } from "./ui/input"
+
+type SettingsPage =
+  | "profile"
+  | "account"
+  | "appearance"
+  | "content"
+  | "playback"
+  | "integrations"
+  | "data"
+  | "about"
+  | "advanced"
+
+interface SettingsEntry {
+  id: SettingsPage
+  group: "Account" | "General" | "About" | "Advanced"
+  title: string
+  description: string
+  keywords: string
+  icon: LucideIcon
+}
+
+const settingsEntries: SettingsEntry[] = [
+  { id: "profile", group: "Account", title: "Profile", description: "Identity and viewing profile", keywords: "name kids household", icon: UserRound },
+  { id: "account", group: "Account", title: "Account & security", description: "Sign-in, password, and recovery", keywords: "login oauth codes sign out", icon: ShieldCheck },
+  { id: "appearance", group: "General", title: "Appearance & layout", description: "Theme, motion, and display", keywords: "amoled black animation language", icon: Palette },
+  { id: "content", group: "General", title: "Content & discovery", description: "Add-ons, catalogs, and search", keywords: "sources stremio home", icon: Puzzle },
+  { id: "playback", group: "General", title: "Playback", description: "Player, subtitles, and behavior", keywords: "audio language autoplay volume resume", icon: PlayCircle },
+  { id: "integrations", group: "General", title: "Integrations", description: "Connected media services", keywords: "trakt debrid metadata", icon: Link2 },
+  { id: "data", group: "General", title: "Your data", description: "Import, export, and portability", keywords: "backup transfer json library history", icon: Database },
+  { id: "about", group: "About", title: "About Conduit", description: "Project, privacy, and licenses", keywords: "contributors supporters attribution version", icon: BadgeInfo },
+  { id: "advanced", group: "Advanced", title: "Advanced settings", description: "Performance and diagnostics", keywords: "cache hardware read ahead debug server", icon: SlidersHorizontal },
+]
+
+const groups: SettingsEntry["group"][] = ["Account", "General", "About", "Advanced"]
+
+function serverDisplayName(): string {
+  return formatServerDisplayName(API_URL)
+}
 
 export function SettingsView({ profile }: { profile: Profile }) {
   const queryClient = useQueryClient()
+  const [page, setPage] = useState<SettingsPage>("profile")
+  const [query, setQuery] = useState("")
   const [preferences, setPreferences] = useState<DevicePreferences>(readPreferences)
   const [saved, setSaved] = useState(false)
-  const [includeSecrets, setIncludeSecrets] = useState(false)
-  const [importData, setImportData] = useState<Record<string, unknown> | null>(null)
-  const [importMode, setImportMode] = useState<"merge" | "replace">("merge")
-  const [importPreview, setImportPreview] = useState<ImportPreview | null>(null)
-  const [dataError, setDataError] = useState("")
-  const [dataBusy, setDataBusy] = useState(false)
-  const [recoveryCodes, setRecoveryCodes] = useState<string[]>([])
-  const [recoveryError, setRecoveryError] = useState("")
-  const [recoveryBusy, setRecoveryBusy] = useState(false)
-  const [accountPassword, setAccountPassword] = useState("")
-  const methods = useQuery({
-    queryKey: ["auth-methods"],
-    queryFn: () =>
-      api<{
-        passwordEnabled: boolean
-        linkedProviders: string[]
-        configuredProvider: "google" | "oidc" | null
-        configuredProviderName: string | null
-      }>("/v1/auth/methods"),
-  })
-  const updateProfile = useMutation({
-    mutationFn: (values: { name: string; isKids: boolean }) =>
-      api(`/v1/profiles/${profile.id}`, {
-        method: "PATCH",
-        body: JSON.stringify(values),
-      }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["bootstrap"] }),
-  })
 
   const update = <K extends keyof DevicePreferences>(key: K, value: DevicePreferences[K]) => {
     const next = { ...preferences, [key]: value }
@@ -55,451 +94,178 @@ export function SettingsView({ profile }: { profile: Profile }) {
     window.setTimeout(() => setSaved(false), 1200)
   }
 
+  const filtered = useMemo(() => {
+    const needle = query.trim().toLowerCase()
+    return needle
+      ? settingsEntries.filter((entry) =>
+          `${entry.group} ${entry.title} ${entry.description} ${entry.keywords}`.toLowerCase().includes(needle),
+        )
+      : settingsEntries
+  }, [query])
+  const active = settingsEntries.find((entry) => entry.id === page)!
+
   return (
-    <ViewShell
-      eyebrow="Profile & device"
-      title="Settings"
-      description="Profile changes synchronize with your household. Playback and appearance preferences stay on this device."
-    >
-      <div className="grid gap-6 xl:grid-cols-2 xl:items-start">
-        <div className="grid min-w-0 gap-6">
-          <SettingsCard icon={UserRound} title="Profile" scope="Synced">
-            <form
-              className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-end"
-              onSubmit={(event: FormEvent<HTMLFormElement>) => {
-                event.preventDefault()
-                const data = new FormData(event.currentTarget)
-                updateProfile.mutate({
-                  name: String(data.get("name")),
-                  isKids: data.get("isKids") === "on",
-                })
-              }}
-            >
-              <label className="text-sm text-zinc-400">
-                Display name
-                <Input className="mt-2" name="name" defaultValue={profile.name} required />
-              </label>
-              <label className="flex h-11 items-center gap-2 text-sm text-zinc-400">
-                <input type="checkbox" name="isKids" defaultChecked={profile.isKids} />
-                Kids profile
-              </label>
-              <Button disabled={updateProfile.isPending}><Save size={15} /> Save</Button>
-            </form>
-            {updateProfile.error && <p className="mt-3 text-sm text-red-400">{updateProfile.error.message}</p>}
-          </SettingsCard>
-
-          <SettingsCard icon={Database} title="Your data" scope="Portable">
-            <p className="text-sm leading-6 text-zinc-400">
-              Move this profile between conduit servers. Exports include the profile, library,
-              watch history and add-on order.
-            </p>
-            <label className="mt-4 flex items-start gap-2 text-sm text-zinc-400">
-              <input
-                className="mt-1"
-                type="checkbox"
-                checked={includeSecrets}
-                onChange={(event) => setIncludeSecrets(event.target.checked)}
-              />
-              <span>
-                Include add-on URLs for a complete transfer
-                <span className="mt-1 block text-xs text-amber-300">
-                  URLs can contain credentials. Store and share this file securely.
-                </span>
-              </span>
-            </label>
-            <Button
-              className="mt-4"
-              variant="secondary"
-              disabled={dataBusy}
-              onClick={async () => {
-                setDataBusy(true)
-                setDataError("")
-                try {
-                  const save = await prepareJsonSave(`conduit-${safeFilename(profile.name)}.json`)
-                  if (!save) return
-                  const data = await api<Record<string, unknown>>(
-                    `/v1/profiles/${profile.id}/export?includeSecrets=${includeSecrets}`,
-                  )
-                  data.preferences = preferences
-                  await save(data)
-                } catch (error) {
-                  setDataError(error instanceof Error ? error.message : "Export failed")
-                } finally {
-                  setDataBusy(false)
-                }
-              }}
-            >
-              <Download size={15} /> Export profile
-            </Button>
-
-            <div className="my-5 border-t border-zinc-800" />
-            <label className="block text-sm text-zinc-400">
-              Import a conduit JSON file
-              <Input
-                className="mt-2 file:mr-3 file:border-0 file:bg-transparent file:text-zinc-300"
-                type="file"
-                accept="application/json,.json"
-                onChange={async (event) => {
-                  const file = event.target.files?.[0]
-                  if (!file) return
-                  setDataBusy(true)
-                  setDataError("")
-                  setImportPreview(null)
-                  try {
-                    if (file.size > 10 * 1024 * 1024) throw new Error("Import exceeds the 10 MiB limit")
-                    const data = JSON.parse(await file.text()) as Record<string, unknown>
-                    const preview = await api<ImportPreview>(
-                      `/v1/profiles/${profile.id}/import/preview`,
-                      { method: "POST", body: JSON.stringify(data) },
-                    )
-                    setImportData(data)
-                    setImportPreview(preview)
-                  } catch (error) {
-                    setImportData(null)
-                    setDataError(error instanceof Error ? error.message : "Invalid import")
-                  } finally {
-                    setDataBusy(false)
-                  }
-                }}
-              />
-            </label>
-            {importPreview && (
-              <div className="mt-4 rounded-xl border border-zinc-800 bg-zinc-950 p-4 text-sm">
-                <p className="font-medium">{importPreview.profile.name}</p>
-                <p className="mt-1 text-zinc-500">
-                  {importPreview.counts.library} library · {importPreview.counts.progress} history ·{" "}
-                  {importPreview.importableAddons}/{importPreview.counts.addons} add-ons importable
-                </p>
-                {importPreview.warnings.map((warning) => (
-                  <p className="mt-2 text-amber-300" key={warning}>{warning}</p>
-                ))}
-                <div className="mt-4 flex flex-wrap items-center gap-3">
-                  <select
-                    className="h-10 rounded-lg border border-zinc-800 bg-zinc-950 px-3 text-sm"
-                    value={importMode}
-                    onChange={(event) => setImportMode(event.target.value as "merge" | "replace")}
-                  >
-                    <option value="merge">Merge with existing data</option>
-                    <option value="replace">Replace existing data</option>
-                  </select>
-                  <Button
-                    variant={importMode === "replace" ? "destructive" : "default"}
-                    disabled={dataBusy}
-                    onClick={async () => {
-                      if (!importData) return
-                      setDataBusy(true)
-                      setDataError("")
-                      try {
-                        await api(`/v1/profiles/${profile.id}/import`, {
-                          method: "POST",
-                          body: JSON.stringify({ mode: importMode, data: importData }),
-                        })
-                        if (isRecord(importData.preferences)) {
-                          const next = importedPreferences(preferences, importData.preferences)
-                          setPreferences(next)
-                          writePreferences(next)
-                        }
-                        await queryClient.invalidateQueries()
-                        setImportPreview(null)
-                        setImportData(null)
-                      } catch (error) {
-                        setDataError(error instanceof Error ? error.message : "Import failed")
-                      } finally {
-                        setDataBusy(false)
-                      }
-                    }}
-                  >
-                    <Upload size={15} /> Import {importMode === "replace" ? "and replace" : "and merge"}
-                  </Button>
-                </div>
-              </div>
-            )}
-            {dataError && <p className="mt-3 text-sm text-red-400">{dataError}</p>}
-          </SettingsCard>
+    <main className="mx-auto max-w-[1800px] px-4 py-7 sm:px-6 lg:px-8 xl:px-10">
+      <div className="mb-7 flex items-end justify-between gap-5">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-400">Profile & device</p>
+          <h1 className="mt-2 font-display text-3xl font-semibold tracking-tight">Settings</h1>
+          <p className="mt-2 text-sm text-zinc-500">Personalize Conduit and manage your account from one place.</p>
         </div>
-
-        <div className="grid min-w-0 gap-6">
-          <SettingsCard icon={KeyRound} title="Account recovery" scope="Private">
-            {methods.data && (
-              <div className="mb-5 rounded-xl border border-zinc-800 bg-zinc-950/60 p-4">
-                <p className="text-xs font-semibold uppercase tracking-wider text-zinc-600">
-                  Login methods
-                </p>
-                <div className="mt-3 flex flex-wrap gap-2 text-xs">
-                  <span className={`rounded-full px-2.5 py-1 ${methods.data.passwordEnabled ? "bg-emerald-950 text-emerald-300" : "bg-zinc-800 text-zinc-500"}`}>
-                    Password {methods.data.passwordEnabled ? "enabled" : "disabled"}
-                  </span>
-                  {methods.data.linkedProviders.map((provider) => (
-                    <span className="rounded-full bg-emerald-950 px-2.5 py-1 text-emerald-300" key={provider}>
-                      {provider === "google" ? "Google connected" : "OIDC connected"}
-                    </span>
-                  ))}
-                </div>
-                {methods.data.configuredProvider &&
-                  !methods.data.linkedProviders.includes(
-                    methods.data.configuredProvider === "google" ? "google" : "conduit-oidc",
-                  ) && (
-                    <Button
-                      className="mt-4"
-                      size="sm"
-                      variant="secondary"
-                      onClick={() => {
-                        const callbackURL = `${window.location.origin}/`
-                        if (methods.data.configuredProvider === "google") {
-                          void authClient.linkSocial({
-                            provider: "google",
-                            callbackURL,
-                          })
-                        } else {
-                          void authClient.oauth2.link({
-                            providerId: "conduit-oidc",
-                            callbackURL,
-                          })
-                        }
-                      }}
-                    >
-                      Connect {methods.data.configuredProviderName}
-                    </Button>
-                  )}
-                {methods.data.passwordEnabled &&
-                  methods.data.linkedProviders.length > 0 && (
-                    <Button
-                      className="mt-4"
-                      size="sm"
-                      variant="destructive"
-                      onClick={async () => {
-                        if (!window.confirm(
-                          "Disable local password login? Verify your OAuth login and save recovery codes first.",
-                        )) return
-                        await api("/v1/auth/password-mode", {
-                          method: "PUT",
-                          body: JSON.stringify({ enabled: false }),
-                        })
-                        await methods.refetch()
-                      }}
-                    >
-                      Disable local password
-                    </Button>
-                  )}
-                {!methods.data.passwordEnabled && (
-                  <form
-                    className="mt-4 flex gap-2"
-                    onSubmit={async (event) => {
-                      event.preventDefault()
-                      await api("/v1/auth/password-mode", {
-                        method: "PUT",
-                        body: JSON.stringify({ enabled: true, password: accountPassword }),
-                      })
-                      setAccountPassword("")
-                      await methods.refetch()
-                    }}
-                  >
-                    <Input
-                      type="password"
-                      value={accountPassword}
-                      minLength={8}
-                      placeholder="New local password"
-                      onChange={(event) => setAccountPassword(event.target.value)}
-                      required
-                    />
-                    <Button>Enable</Button>
-                  </form>
-                )}
-              </div>
-            )}
-            <p className="text-sm leading-6 text-zinc-400">
-              Recovery codes reset your local password without email. Generating a new set
-              immediately invalidates every old code.
-            </p>
-            {recoveryCodes.length > 0 && (
-              <pre className="mt-4 whitespace-pre-wrap rounded-xl bg-zinc-950 p-4 text-xs text-amber-300">
-                {recoveryCodes.join("\n")}
-              </pre>
-            )}
-            <Button
-              className="mt-4"
-              variant="secondary"
-              disabled={recoveryBusy}
-              onClick={async () => {
-                if (
-                  recoveryCodes.length === 0 &&
-                  !window.confirm("Replace any existing recovery codes with a new set?")
-                ) return
-                setRecoveryBusy(true)
-                setRecoveryError("")
-                try {
-                  const result = await api<{ codes: string[] }>("/v1/auth/recovery-codes", {
-                    method: "POST",
-                  })
-                  setRecoveryCodes(result.codes)
-                } catch (error) {
-                  setRecoveryError(error instanceof Error ? error.message : "Could not generate codes")
-                } finally {
-                  setRecoveryBusy(false)
-                }
-              }}
-            >
-              <KeyRound size={15} /> Generate new codes
-            </Button>
-            {recoveryError && <p className="mt-3 text-sm text-red-400">{recoveryError}</p>}
-          </SettingsCard>
-
-          <SettingsCard icon={Monitor} title="Playback & appearance" scope="This device">
-          <div className="grid gap-5 sm:grid-cols-2">
-            <SelectSetting label="Preferred audio" value={preferences.audioLanguage} onChange={(value) => update("audioLanguage", value)} />
-            <SelectSetting label="Preferred subtitles" value={preferences.subtitleLanguage} onChange={(value) => update("subtitleLanguage", value)} />
-            <SelectSetting label="Resume behavior" value={preferences.resumeBehavior} options={[["ask", "Ask every time"], ["always", "Always resume"], ["restart", "Start over"]]} onChange={(value) => update("resumeBehavior", value as DevicePreferences["resumeBehavior"])} />
-            <SelectSetting label="Theme" value={preferences.theme} options={[["dark", "Dark"], ["system", "System"]]} onChange={(value) => update("theme", value as DevicePreferences["theme"])} />
-            <RangeSetting label={`Default volume · ${preferences.volume}%`} value={preferences.volume} min={0} max={100} onChange={(value) => update("volume", value)} />
-            <RangeSetting label={`Network read-ahead · ${preferences.readAheadSeconds}s`} value={preferences.readAheadSeconds} min={10} max={120} step={10} onChange={(value) => update("readAheadSeconds", value)} />
-            <RangeSetting label={`Subtitle size · ${preferences.subtitleSize}%`} value={preferences.subtitleSize} min={75} max={200} onChange={(value) => update("subtitleSize", value)} />
-            <RangeSetting label={`Subtitle position · ${preferences.subtitlePosition}%`} value={preferences.subtitlePosition} min={10} max={100} onChange={(value) => update("subtitlePosition", value)} />
-          </div>
-          <div className="mt-6 grid gap-3 sm:grid-cols-2">
-            <Toggle label="Autoplay next episode" checked={preferences.autoplay} onChange={(value) => update("autoplay", value)} />
-            <Toggle label="Desktop hardware acceleration" checked={preferences.hardwareAcceleration} onChange={(value) => update("hardwareAcceleration", value)} />
-            <Toggle label="Reduced motion" checked={preferences.reducedMotion} onChange={(value) => update("reducedMotion", value)} />
-          </div>
-          <p className="mt-4 text-xs leading-5 text-zinc-500">
-            Read-ahead uses bounded temporary memory on desktop and tunes HLS buffering on the web.
-            The desktop app uses libmpv for broad container and codec support; the hosted web app
-            remains limited to formats supported by the browser. This is not a download or offline cache.
-          </p>
-          {saved && <p className="mt-4 text-xs text-emerald-300">Saved on this device</p>}
-          </SettingsCard>
-
-          <SettingsCard icon={Monitor} title="About" scope="Device">
-            <dl className="grid gap-3 text-sm sm:grid-cols-2">
-              <div><dt className="text-zinc-600">Application</dt><dd className="mt-1">conduit</dd></div>
-              <div><dt className="text-zinc-600">Client</dt><dd className="mt-1">{navigator.userAgent.includes("Tauri") ? "Desktop" : "Web"}</dd></div>
-            </dl>
-          </SettingsCard>
-        </div>
+        {saved && <span className="hidden items-center gap-2 rounded-full border border-emerald-900/70 bg-emerald-950/50 px-3 py-1.5 text-xs text-emerald-300 sm:flex"><Check size={13} /> Saved on this device</span>}
       </div>
-    </ViewShell>
+
+      <div className="grid min-h-[680px] overflow-hidden rounded-2xl border border-zinc-800/90 bg-zinc-950/65 shadow-2xl shadow-black/20 lg:grid-cols-[19rem_minmax(0,1fr)]">
+        <aside className="border-b border-zinc-800 bg-zinc-900/45 p-3 lg:border-b-0 lg:border-r lg:p-4">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-600" size={16} />
+            <input
+              className="h-11 w-full rounded-xl border border-zinc-800 bg-zinc-950/80 pl-10 pr-9 text-sm outline-none transition focus:border-amber-400/70 focus:ring-2 focus:ring-amber-400/10"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search settings"
+              aria-label="Search settings"
+            />
+            {query && <button className="absolute right-2 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-lg text-zinc-500 hover:bg-zinc-800 hover:text-white" onClick={() => setQuery("")} aria-label="Clear settings search"><X size={14} /></button>}
+          </div>
+
+          <nav className="mt-4 max-h-72 overflow-auto pr-1 lg:max-h-none" aria-label="Settings categories">
+            {groups.map((group) => {
+              const entries = filtered.filter((entry) => entry.group === group)
+              if (!entries.length) return null
+              return <div className="mb-5" key={group}>
+                <p className="mb-1.5 px-2 text-[10px] font-bold uppercase tracking-[0.18em] text-zinc-600">{group}</p>
+                <div className="space-y-1">
+                  {entries.map((entry) => <SettingsNavItem key={entry.id} entry={entry} active={page === entry.id} onClick={() => setPage(entry.id)} />)}
+                </div>
+              </div>
+            })}
+            {!filtered.length && <p className="px-3 py-8 text-center text-sm text-zinc-600">No settings match “{query}”.</p>}
+          </nav>
+        </aside>
+
+        <section className="min-w-0 bg-[radial-gradient(circle_at_85%_-10%,rgba(251,191,36,.055),transparent_24rem)]">
+          <header className="border-b border-zinc-800/80 px-5 py-5 sm:px-7 lg:px-10 lg:py-7">
+            <div className="flex items-center gap-4">
+              <div className="grid size-11 shrink-0 place-items-center rounded-xl border border-amber-400/15 bg-amber-400/10 text-amber-300"><active.icon size={21} /></div>
+              <div><h2 className="font-display text-xl font-semibold sm:text-2xl">{active.title}</h2><p className="mt-1 text-sm text-zinc-500">{active.description}</p></div>
+            </div>
+          </header>
+          <div className="mx-auto max-w-5xl p-5 sm:p-7 lg:p-10">
+            {page === "profile" && <ProfileSettings profile={profile} />}
+            {page === "account" && <AccountSettings onSignedOut={() => queryClient.clear()} />}
+            {page === "appearance" && <AppearanceSettings preferences={preferences} update={update} />}
+            {page === "content" && <ContentSettings />}
+            {page === "playback" && <PlaybackSettings preferences={preferences} update={update} />}
+            {page === "integrations" && <IntegrationsSettings />}
+            {page === "data" && <DataSettings profile={profile} preferences={preferences} onPreferences={setPreferences} />}
+            {page === "about" && <AboutSettings />}
+            {page === "advanced" && <AdvancedSettings preferences={preferences} update={update} profile={profile} />}
+          </div>
+        </section>
+      </div>
+    </main>
   )
 }
 
-interface ImportPreview {
-  profile: { name: string; isKids: boolean }
-  counts: { library: number; progress: number; addons: number }
-  importableAddons: number
-  warnings: string[]
+function SettingsNavItem({ entry, active, onClick }: { entry: SettingsEntry; active: boolean; onClick: () => void }) {
+  const Icon = entry.icon
+  return <button className={`group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition ${active ? "bg-amber-400/12 text-zinc-100 ring-1 ring-inset ring-amber-400/10" : "text-zinc-400 hover:bg-white/[.045] hover:text-zinc-100"}`} onClick={onClick} aria-current={active ? "page" : undefined}>
+    <Icon className={active ? "text-amber-300" : "text-zinc-600 group-hover:text-zinc-400"} size={17} />
+    <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{entry.title}</span><span className="mt-0.5 block truncate text-[11px] text-zinc-600">{entry.description}</span></span>
+    <ChevronRight className={active ? "text-amber-400/70" : "text-zinc-700"} size={15} />
+  </button>
 }
 
+function ProfileSettings({ profile }: { profile: Profile }) {
+  const queryClient = useQueryClient()
+  const updateProfile = useMutation({
+    mutationFn: (values: { name: string; isKids: boolean }) => api(`/v1/profiles/${profile.id}`, { method: "PATCH", body: JSON.stringify(values) }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["bootstrap"] }),
+  })
+  return <SettingsGroup title="PROFILE DETAILS" description="These changes sync with your household.">
+    <form className="space-y-5 p-5 sm:p-6" onSubmit={(event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const data = new FormData(event.currentTarget); updateProfile.mutate({ name: String(data.get("name")), isKids: data.get("isKids") === "on" }) }}>
+      <label className="block text-sm font-medium text-zinc-300">Display name<Input className="mt-2 max-w-xl" name="name" defaultValue={profile.name} required /></label>
+      <SettingToggle label="Kids profile" description="Use this profile for age-appropriate viewing." defaultChecked={profile.isKids} name="isKids" />
+      <div className="flex items-center gap-3"><Button disabled={updateProfile.isPending}>{updateProfile.isPending ? "Saving…" : "Save profile"}</Button>{updateProfile.isSuccess && <span className="text-xs text-emerald-300">Profile updated</span>}</div>
+      {updateProfile.error && <p className="text-sm text-red-400">{updateProfile.error.message}</p>}
+    </form>
+  </SettingsGroup>
+}
+
+function AppearanceSettings({ preferences, update }: PreferencePageProps) {
+  return <div className="space-y-7">
+    <SettingsGroup title="THEME"><SettingRow icon={Palette} title="Theme" description="Choose how Conduit follows your desktop appearance"><Select value={preferences.theme} onChange={(value) => update("theme", value as DevicePreferences["theme"])} options={[["dark", "Conduit dark"], ["system", "System default"]]} /></SettingRow><Divider /><SettingToggle label="AMOLED black" description="Use pure black backgrounds throughout the app." checked={preferences.amoledBlack} onChange={(value) => update("amoledBlack", value)} /></SettingsGroup>
+    <SettingsGroup title="DISPLAY"><SettingToggle label="Reduce animations" description="Use simpler transitions and less interface motion." checked={preferences.reducedMotion} onChange={(value) => update("reducedMotion", value)} /><Divider /><SettingRow icon={Eye} title="App language" description="Conduit currently follows your system language"><span className="text-sm text-zinc-500">System default</span></SettingRow></SettingsGroup>
+  </div>
+}
+
+function PlaybackSettings({ preferences, update }: PreferencePageProps) {
+  return <div className="space-y-7">
+    <SettingsGroup title="PLAYER"><SettingRow icon={PlayCircle} title="Resume behavior" description="What to do when opening something partially watched"><Select value={preferences.resumeBehavior} onChange={(value) => update("resumeBehavior", value as DevicePreferences["resumeBehavior"])} options={[["ask", "Ask every time"], ["always", "Always resume"], ["restart", "Start over"]]} /></SettingRow><Divider /><RangeRow label="Default volume" description="Starting player volume" value={preferences.volume} min={0} max={100} suffix="%" onChange={(value) => update("volume", value)} /></SettingsGroup>
+    <SettingsGroup title="AUDIO & SUBTITLES"><SettingRow icon={Film} title="Preferred audio language" description="Automatically select a matching audio track"><LanguageSelect value={preferences.audioLanguage} onChange={(value) => update("audioLanguage", value)} /></SettingRow><Divider /><SettingRow icon={Film} title="Preferred subtitle language" description="Automatically select matching subtitles"><LanguageSelect value={preferences.subtitleLanguage} onChange={(value) => update("subtitleLanguage", value)} /></SettingRow><Divider /><SettingToggle label="Subtitle outline" description="Add a dark edge for readability on bright scenes." checked={preferences.subtitleOutline} onChange={(value) => update("subtitleOutline", value)} /><Divider /><RangeRow label="Subtitle size" description="Scale subtitles relative to their authored size" value={preferences.subtitleSize} min={75} max={200} suffix="%" onChange={(value) => update("subtitleSize", value)} /><Divider /><RangeRow label="Subtitle position" description="Vertical position within the player" value={preferences.subtitlePosition} min={10} max={100} suffix="%" onChange={(value) => update("subtitlePosition", value)} /></SettingsGroup>
+    <SettingsGroup title="AUTOPLAY"><SettingToggle label="Autoplay next episode" description="Continue after the next-episode prompt." checked={preferences.autoplay} onChange={(value) => update("autoplay", value)} /></SettingsGroup>
+  </div>
+}
+
+function ContentSettings() {
+  return <div className="space-y-7"><SettingsGroup title="SOURCES"><InfoAction icon={Puzzle} title="Add-ons" description="Install, order, and manage Stremio add-ons from the Add-ons section in the main sidebar." /></SettingsGroup><SettingsGroup title="DISCOVERY"><InfoAction icon={Search} title="Catalog customization" description="Catalog ordering and home customization are coming next." muted /></SettingsGroup></div>
+}
+
+function IntegrationsSettings() {
+  return <SettingsGroup title="CONNECTED SERVICES"><InfoAction icon={Link2} title="Stremio add-ons" description="Conduit uses the add-ons installed for your active profile directly." /><Divider /><InfoAction icon={Gauge} title="Trakt, debrid, and metadata services" description="These will appear here once secure credential storage and synchronization are implemented." muted /></SettingsGroup>
+}
+
+function AboutSettings() {
+  return <div className="space-y-7"><SettingsGroup title="CONDUIT"><InfoAction icon={Heart} title="Supporters & contributors" description="Conduit is open source and built by its community." href="https://github.com/davidvanderklay/conduit" /><Divider /><InfoAction icon={ShieldCheck} title="Privacy policy" description="Your account, profile, library, and viewing data stay on the server you choose." href="https://github.com/davidvanderklay/conduit#data-and-privacy-model" /><Divider /><InfoAction icon={BadgeInfo} title="Licenses & attribution" description="Conduit is MIT licensed and includes open-source software listed in THIRD_PARTY_NOTICES.md." href="https://github.com/davidvanderklay/conduit/blob/main/THIRD_PARTY_NOTICES.md" /></SettingsGroup><SettingsGroup title="APPLICATION"><div className="grid gap-4 p-5 text-sm sm:grid-cols-2"><Stat label="Application" value="Conduit" /><Stat label="Client" value={isDesktop() ? "Desktop" : "Web"} /></div></SettingsGroup></div>
+}
+
+function AdvancedSettings({ preferences, update, profile }: PreferencePageProps & { profile: Profile }) {
+  return <div className="space-y-7"><SettingsGroup title="STARTUP"><SettingToggle label="Remember last profile" description="Return to the profile last used on this device." checked={preferences.rememberLastProfile} onChange={(value) => update("rememberLastProfile", value)} /></SettingsGroup><SettingsGroup title="PERFORMANCE"><SettingToggle label="Desktop hardware acceleration" description="Use the GPU decoder exposed by libmpv when available." checked={preferences.hardwareAcceleration} onChange={(value) => update("hardwareAcceleration", value)} /><Divider /><RangeRow label="Network read-ahead" description="Bounded temporary memory for smoother playback" value={preferences.readAheadSeconds} min={10} max={120} step={10} suffix="s" onChange={(value) => update("readAheadSeconds", value)} /></SettingsGroup><SettingsGroup title="CACHE"><InfoAction icon={Database} title="Continue Watching cache" description="Viewing progress comes directly from your server; there is no separate local cache to clear." muted /></SettingsGroup><SettingsGroup title="DIAGNOSTICS"><SettingToggle label="Debug logging" description="Collect additional local diagnostic information." checked={preferences.debugLogging} onChange={(value) => update("debugLogging", value)} /><Divider /><div className="grid gap-4 p-5 text-sm sm:grid-cols-2"><Stat label="Client" value={isDesktop() ? "Desktop" : "Web"} /><Stat label="Profile" value={profile.name} /><Stat label="Server" value={serverDisplayName()} /><Stat label="Debug logging" value={preferences.debugLogging ? "Enabled" : "Disabled"} /></div></SettingsGroup></div>
+}
+
+interface PreferencePageProps { preferences: DevicePreferences; update: <K extends keyof DevicePreferences>(key: K, value: DevicePreferences[K]) => void }
+
+function AccountSettings({ onSignedOut }: { onSignedOut: () => void }) {
+  const [password, setPassword] = useState("")
+  const [codes, setCodes] = useState<string[]>([])
+  const [message, setMessage] = useState("")
+  const methods = useQuery({ queryKey: ["auth-methods"], queryFn: () => api<{ passwordEnabled: boolean; linkedProviders: string[]; configuredProviderName: string | null }>("/v1/auth/methods") })
+  const generateCodes = async () => { if (!window.confirm("Replace any existing recovery codes with a new set?")) return; try { const result = await api<{ codes: string[] }>("/v1/auth/recovery-codes", { method: "POST" }); setCodes(result.codes) } catch (error) { setMessage(error instanceof Error ? error.message : "Could not generate codes") } }
+  return <div className="space-y-7"><SettingsGroup title="STATUS"><div className="flex items-center gap-4 p-5"><div className="grid size-10 place-items-center rounded-full bg-emerald-400/10 text-emerald-300"><ShieldCheck size={19} /></div><div><p className="font-medium">Signed in</p><p className="mt-1 text-sm text-zinc-500">Server: {serverDisplayName()}</p></div></div></SettingsGroup><SettingsGroup title="SECURITY"><div className="p-5"><div className="flex flex-wrap gap-2 text-xs"><Pill enabled={Boolean(methods.data?.passwordEnabled)}>Password {methods.data?.passwordEnabled ? "enabled" : "disabled"}</Pill>{methods.data?.linkedProviders.map((provider) => <Pill enabled key={provider}>{provider} connected</Pill>)}</div>{methods.data && !methods.data.passwordEnabled && <form className="mt-5 flex max-w-xl gap-2" onSubmit={async (event) => { event.preventDefault(); await api("/v1/auth/password-mode", { method: "PUT", body: JSON.stringify({ enabled: true, password }) }); setPassword(""); await methods.refetch() }}><Input type="password" minLength={8} value={password} onChange={(event) => setPassword(event.target.value)} placeholder="New local password" required /><Button>Enable</Button></form>}{methods.data?.passwordEnabled && methods.data.linkedProviders.length > 0 && <Button className="mt-5" variant="destructive" onClick={async () => { if (!window.confirm("Disable local password login?")) return; await api("/v1/auth/password-mode", { method: "PUT", body: JSON.stringify({ enabled: false }) }); await methods.refetch() }}>Disable password</Button>}</div><Divider /><div className="p-5"><p className="font-medium">Recovery codes</p><p className="mt-1 text-sm text-zinc-500">Each code works once. Generating a new set invalidates the old one.</p>{codes.length > 0 && <pre className="mt-4 whitespace-pre-wrap rounded-xl border border-amber-900/40 bg-amber-950/20 p-4 text-xs leading-6 text-amber-200">{codes.join("\n")}</pre>}<Button className="mt-4" variant="secondary" onClick={() => void generateCodes()}><KeyRound size={15} /> Generate new codes</Button>{message && <p className="mt-3 text-sm text-red-400">{message}</p>}</div></SettingsGroup><SettingsGroup title="SESSION"><div className="p-5"><Button variant="destructive" onClick={async () => { const result = await authClient.signOut(); if (!result.error) { clearDesktopSessionToken(); onSignedOut() } }}><LogOut size={15} /> Sign out</Button></div></SettingsGroup></div>
+}
+
+function DataSettings({ profile, preferences, onPreferences }: { profile: Profile; preferences: DevicePreferences; onPreferences: (value: DevicePreferences) => void }) {
+  const queryClient = useQueryClient()
+  const [includeSecrets, setIncludeSecrets] = useState(false)
+  const [importData, setImportData] = useState<Record<string, unknown> | null>(null)
+  const [preview, setPreview] = useState<ImportPreview | null>(null)
+  const [mode, setMode] = useState<"merge" | "replace">("merge")
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState("")
+  return <div className="space-y-7"><SettingsGroup title="EXPORT" description="Move this profile between Conduit servers."><div className="p-5"><p className="text-sm leading-6 text-zinc-400">Exports include the profile, library, watch history, add-on order, and device preferences.</p><label className="mt-4 flex max-w-2xl items-start gap-3 text-sm text-zinc-400"><input className="mt-1 accent-amber-400" type="checkbox" checked={includeSecrets} onChange={(event) => setIncludeSecrets(event.target.checked)} /><span>Include add-on URLs<span className="mt-1 block text-xs text-amber-300">URLs can contain credentials. Store this file securely.</span></span></label><Button className="mt-5" variant="secondary" disabled={busy} onClick={async () => { setBusy(true); setError(""); try { const save = await prepareJsonSave(`conduit-${safeFilename(profile.name)}.json`); if (!save) return; const data = await api<Record<string, unknown>>(`/v1/profiles/${profile.id}/export?includeSecrets=${includeSecrets}`); data.preferences = preferences; await save(data) } catch (cause) { setError(cause instanceof Error ? cause.message : "Export failed") } finally { setBusy(false) } }}><Download size={15} /> Export profile</Button></div></SettingsGroup><SettingsGroup title="IMPORT" description="Preview changes before applying them."><div className="p-5"><Input className="max-w-2xl file:mr-3 file:border-0 file:bg-transparent file:text-zinc-300" type="file" accept="application/json,.json" onChange={async (event) => { const file = event.target.files?.[0]; if (!file) return; setBusy(true); setError(""); try { if (file.size > 10 * 1024 * 1024) throw new Error("Import exceeds the 10 MiB limit"); const data = JSON.parse(await file.text()) as Record<string, unknown>; const result = await api<ImportPreview>(`/v1/profiles/${profile.id}/import/preview`, { method: "POST", body: JSON.stringify(data) }); setImportData(data); setPreview(result) } catch (cause) { setError(cause instanceof Error ? cause.message : "Invalid import") } finally { setBusy(false) } }} />{preview && <div className="mt-5 max-w-2xl rounded-xl border border-zinc-800 bg-zinc-950 p-4 text-sm"><p className="font-medium">{preview.profile.name}</p><p className="mt-1 text-zinc-500">{preview.counts.library} library · {preview.counts.progress} history · {preview.importableAddons}/{preview.counts.addons} add-ons importable</p>{preview.warnings.map((warning) => <p className="mt-2 text-amber-300" key={warning}>{warning}</p>)}<div className="mt-4 flex flex-wrap gap-3"><Select value={mode} onChange={(value) => setMode(value as "merge" | "replace")} options={[["merge", "Merge with existing"], ["replace", "Replace existing"]]} /><Button variant={mode === "replace" ? "destructive" : "default"} disabled={busy} onClick={async () => { if (!importData) return; setBusy(true); try { await api(`/v1/profiles/${profile.id}/import`, { method: "POST", body: JSON.stringify({ mode, data: importData }) }); if (isRecord(importData.preferences)) { const next = importedPreferences(preferences, importData.preferences); onPreferences(next); writePreferences(next) } await queryClient.invalidateQueries(); setPreview(null); setImportData(null) } catch (cause) { setError(cause instanceof Error ? cause.message : "Import failed") } finally { setBusy(false) } }}><Upload size={15} /> Import</Button></div></div>}</div></SettingsGroup>{error && <p className="text-sm text-red-400">{error}</p>}</div>
+}
+
+function SettingsGroup({ title, description, children }: { title: string; description?: string; children: ReactNode }) { return <div><div className="mb-2 px-1"><h3 className="text-[11px] font-bold uppercase tracking-[0.17em] text-amber-400/80">{title}</h3>{description && <p className="mt-1 text-xs text-zinc-600">{description}</p>}</div><div className="overflow-hidden rounded-2xl border border-zinc-800/90 bg-zinc-900/50 shadow-sm">{children}</div></div> }
+function Divider() { return <div className="mx-5 border-t border-zinc-800/80" /> }
+function SettingRow({ icon: Icon, title, description, children }: { icon: LucideIcon; title: string; description: string; children: ReactNode }) { return <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center"><div className="flex min-w-0 flex-1 items-center gap-3"><div className="grid size-9 shrink-0 place-items-center rounded-lg bg-zinc-800/80 text-zinc-400"><Icon size={17} /></div><div><p className="text-sm font-medium text-zinc-200">{title}</p><p className="mt-1 text-xs leading-5 text-zinc-500">{description}</p></div></div><div className="shrink-0 sm:max-w-xs">{children}</div></div> }
+function SettingToggle({ label, description, checked, onChange, defaultChecked, name }: { label: string; description: string; checked?: boolean; onChange?: (value: boolean) => void; defaultChecked?: boolean; name?: string }) {
+  const [localChecked, setLocalChecked] = useState(defaultChecked ?? false)
+  const enabled = checked ?? localChecked
+  return <label className="flex cursor-pointer items-center justify-between gap-6 p-5"><span><span className="block text-sm font-medium text-zinc-200">{label}</span><span className="mt-1 block text-xs leading-5 text-zinc-500">{description}</span></span><span className={`relative h-6 w-11 shrink-0 rounded-full transition ${enabled ? "bg-amber-400" : "bg-zinc-700"}`}><input className="peer sr-only" type="checkbox" name={name} checked={enabled} onChange={(event) => { setLocalChecked(event.target.checked); onChange?.(event.target.checked) }} /><span className={`absolute top-1 size-4 rounded-full bg-white shadow transition-all ${enabled ? "left-6" : "left-1"}`} /></span></label>
+}
+function RangeRow({ label, description, value, min, max, step, suffix, onChange }: { label: string; description: string; value: number; min: number; max: number; step?: number; suffix: string; onChange: (value: number) => void }) { return <div className="p-5"><div className="flex items-start justify-between gap-4"><div><p className="text-sm font-medium text-zinc-200">{label}</p><p className="mt-1 text-xs text-zinc-500">{description}</p></div><span className="rounded-lg bg-zinc-800 px-2.5 py-1 text-xs font-semibold tabular-nums text-zinc-300">{value}{suffix}</span></div><input className="mt-4 w-full accent-amber-400" type="range" value={value} min={min} max={max} step={step} onChange={(event) => onChange(Number(event.target.value))} aria-label={label} /></div> }
+function Select({ value, options, onChange }: { value: string; options: string[][]; onChange: (value: string) => void }) { return <select className="h-10 min-w-44 rounded-xl border border-zinc-700 bg-zinc-950 px-3 text-sm text-zinc-200 outline-none focus:border-amber-400" value={value} onChange={(event) => onChange(event.target.value)}>{options.map(([id, label]) => <option value={id} key={id}>{label}</option>)}</select> }
+function LanguageSelect({ value, onChange }: { value: string; onChange: (value: string) => void }) { return <Select value={value} onChange={onChange} options={[["auto", "System default"], ["en", "English"], ["es", "Spanish"], ["fr", "French"], ["de", "German"], ["ja", "Japanese"], ["ko", "Korean"]]} /> }
+function InfoAction({ icon: Icon, title, description, href, muted }: { icon: LucideIcon; title: string; description: string; href?: string; muted?: boolean }) { const content = <><div className={`grid size-9 shrink-0 place-items-center rounded-lg ${muted ? "bg-zinc-800/40 text-zinc-600" : "bg-zinc-800 text-zinc-400"}`}><Icon size={17} /></div><div className="min-w-0 flex-1"><p className={`text-sm font-medium ${muted ? "text-zinc-500" : "text-zinc-200"}`}>{title}</p><p className="mt-1 text-xs leading-5 text-zinc-500">{description}</p></div>{href && <ExternalLink className="text-zinc-600" size={16} />}</>; return href ? <a className="flex items-center gap-4 p-5 transition hover:bg-white/[.025]" href={href} target="_blank" rel="noreferrer">{content}</a> : <div className="flex items-center gap-4 p-5">{content}</div> }
+function Stat({ label, value }: { label: string; value: string }) { return <div><p className="text-xs text-zinc-600">{label}</p><p className="mt-1 truncate text-zinc-300">{value}</p></div> }
+function Pill({ enabled, children }: { enabled: boolean; children: ReactNode }) { return <span className={`rounded-full px-2.5 py-1 ${enabled ? "bg-emerald-950 text-emerald-300" : "bg-zinc-800 text-zinc-500"}`}>{children}</span> }
+
+interface ImportPreview { profile: { name: string; isKids: boolean }; counts: { library: number; progress: number; addons: number }; importableAddons: number; warnings: string[] }
 type JsonSaver = (data: unknown) => Promise<void>
-
-interface SaveFileHandle {
-  createWritable(): Promise<{
-    write(data: Blob): Promise<void>
-    close(): Promise<void>
-  }>
-}
-
-async function prepareJsonSave(filename: string): Promise<JsonSaver | null> {
-  if (isDesktop()) {
-    const save = await prepareNativeTextSave(filename)
-    return save ? async (data) => save(JSON.stringify(data, null, 2)) : null
-  }
-
-  const picker = (
-    window as Window & {
-      showSaveFilePicker?: (options: {
-        suggestedName: string
-        types: Array<{ description: string; accept: Record<string, string[]> }>
-      }) => Promise<SaveFileHandle>
-    }
-  ).showSaveFilePicker
-
-  if (picker) {
-    try {
-      const handle = await picker.call(window, {
-        suggestedName: filename,
-        types: [{ description: "conduit profile export", accept: { "application/json": [".json"] } }],
-      })
-      return async (data) => {
-        const writable = await handle.createWritable()
-        await writable.write(jsonBlob(data))
-        await writable.close()
-      }
-    } catch (error) {
-      if (error instanceof DOMException && error.name === "AbortError") return null
-      throw error
-    }
-  }
-
-  return async (data) => {
-    const url = URL.createObjectURL(jsonBlob(data))
-    const link = document.createElement("a")
-    link.href = url
-    link.download = filename
-    link.click()
-    URL.revokeObjectURL(url)
-  }
-}
-
-function jsonBlob(data: unknown) {
-  return new Blob([JSON.stringify(data, null, 2)], { type: "application/json" })
-}
-
-function safeFilename(value: string) {
-  return value.trim().replace(/[^a-z0-9_-]+/gi, "-").replace(/^-|-$/g, "") || "profile"
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-}
-
-function importedPreferences(
-  current: DevicePreferences,
-  value: Record<string, unknown>,
-): DevicePreferences {
-  return {
-    audioLanguage: typeof value.audioLanguage === "string" ? value.audioLanguage : current.audioLanguage,
-    subtitleLanguage: typeof value.subtitleLanguage === "string" ? value.subtitleLanguage : current.subtitleLanguage,
-    subtitleSize: boundedNumber(value.subtitleSize, current.subtitleSize, 75, 200),
-    subtitlePosition: boundedNumber(value.subtitlePosition, current.subtitlePosition, 10, 100),
-    readAheadSeconds: boundedNumber(value.readAheadSeconds, current.readAheadSeconds, 10, 120),
-    autoplay: typeof value.autoplay === "boolean" ? value.autoplay : current.autoplay,
-    volume: boundedNumber(value.volume, current.volume, 0, 100),
-    hardwareAcceleration: typeof value.hardwareAcceleration === "boolean" ? value.hardwareAcceleration : current.hardwareAcceleration,
-    resumeBehavior: ["ask", "always", "restart"].includes(String(value.resumeBehavior))
-      ? value.resumeBehavior as DevicePreferences["resumeBehavior"]
-      : current.resumeBehavior,
-    theme: ["dark", "system"].includes(String(value.theme))
-      ? value.theme as DevicePreferences["theme"]
-      : current.theme,
-    reducedMotion: typeof value.reducedMotion === "boolean" ? value.reducedMotion : current.reducedMotion,
-  }
-}
-
-function boundedNumber(value: unknown, fallback: number, minimum: number, maximum: number) {
-  return typeof value === "number" && Number.isFinite(value)
-    ? Math.max(minimum, Math.min(maximum, value))
-    : fallback
-}
-
-function SettingsCard({ icon: Icon, title, scope, children }: { icon: typeof Monitor; title: string; scope: string; children: React.ReactNode }) {
-  return (
-    <Card className="p-5">
-      <div className="mb-5 flex items-center gap-3">
-        <div className="grid size-9 place-items-center rounded-lg bg-zinc-800 text-zinc-300"><Icon size={18} /></div>
-        <h2 className="font-display text-lg font-semibold">{title}</h2>
-        <span className="ml-auto rounded-full border border-zinc-700 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">{scope}</span>
-      </div>
-      {children}
-    </Card>
-  )
-}
-
-function SelectSetting({ label, value, onChange, options = [["auto", "Automatic"], ["en", "English"], ["es", "Spanish"], ["fr", "French"], ["ja", "Japanese"]] }: { label: string; value: string; onChange: (value: string) => void; options?: string[][] }) {
-  return <label className="text-sm text-zinc-400">{label}<select className="mt-2 h-11 w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 text-zinc-100 outline-none focus:border-amber-400" value={value} onChange={(event) => onChange(event.target.value)}>{options.map(([option, name]) => <option value={option} key={option}>{name}</option>)}</select></label>
-}
-
-function RangeSetting({ label, value, min, max, step, onChange }: { label: string; value: number; min: number; max: number; step?: number; onChange: (value: number) => void }) {
-  return <label className="text-sm text-zinc-400">{label}<input className="mt-4 w-full accent-amber-400" type="range" min={min} max={max} step={step} value={value} onChange={(event) => onChange(Number(event.target.value))} /></label>
-}
-
-function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (value: boolean) => void }) {
-  return <label className="flex items-center justify-between rounded-xl border border-zinc-800 p-3 text-sm text-zinc-300">{label}<input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} /></label>
-}
+interface SaveFileHandle { createWritable(): Promise<{ write(data: Blob): Promise<void>; close(): Promise<void> }> }
+async function prepareJsonSave(filename: string): Promise<JsonSaver | null> { if (isDesktop()) { const save = await prepareNativeTextSave(filename); return save ? async (data) => save(JSON.stringify(data, null, 2)) : null } const picker = (window as Window & { showSaveFilePicker?: (options: { suggestedName: string; types: Array<{ description: string; accept: Record<string, string[]> }> }) => Promise<SaveFileHandle> }).showSaveFilePicker; if (picker) { try { const handle = await picker.call(window, { suggestedName: filename, types: [{ description: "Conduit profile export", accept: { "application/json": [".json"] } }] }); return async (data) => { const writable = await handle.createWritable(); await writable.write(jsonBlob(data)); await writable.close() } } catch (error) { if (error instanceof DOMException && error.name === "AbortError") return null; throw error } } return async (data) => { const url = URL.createObjectURL(jsonBlob(data)); const link = document.createElement("a"); link.href = url; link.download = filename; link.click(); URL.revokeObjectURL(url) } }
+function jsonBlob(data: unknown) { return new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }) }
+function safeFilename(value: string) { return value.trim().replace(/[^a-z0-9_-]+/gi, "-").replace(/^-|-$/g, "") || "profile" }
+function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value) }
+function importedPreferences(current: DevicePreferences, value: Record<string, unknown>): DevicePreferences { const next = { ...current }; for (const key of ["audioLanguage", "subtitleLanguage"] as const) if (typeof value[key] === "string") next[key] = value[key]; for (const [key, min, max] of [["subtitleSize", 75, 200], ["subtitlePosition", 10, 100], ["readAheadSeconds", 10, 120], ["volume", 0, 100]] as const) if (typeof value[key] === "number" && Number.isFinite(value[key])) next[key] = Math.max(min, Math.min(max, value[key])); for (const key of ["autoplay", "hardwareAcceleration", "reducedMotion", "amoledBlack", "subtitleOutline", "rememberLastProfile", "debugLogging"] as const) if (typeof value[key] === "boolean") next[key] = value[key]; if (["ask", "always", "restart"].includes(String(value.resumeBehavior))) next.resumeBehavior = value.resumeBehavior as DevicePreferences["resumeBehavior"]; if (["dark", "system"].includes(String(value.theme))) next.theme = value.theme as DevicePreferences["theme"]; return next }

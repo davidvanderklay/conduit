@@ -34,6 +34,10 @@ body {
     radial-gradient(circle at 75% -10%, rgba(251, 191, 36, 0.09), transparent 32rem), #09090b;
 }
 
+.amoled-black body {
+  background: #000;
+}
+
 .linux-desktop.desktop-scrolling body {
   background: #09090b;
 }
@@ -206,6 +210,10 @@ select {
 
 video::cue {
   font-size: calc(1em * var(--subtitle-scale, 1));
+}
+
+.subtitle-outline video::cue {
+  text-shadow: -1px -1px 1px #000, 1px -1px 1px #000, -1px 1px 1px #000, 1px 1px 1px #000;
 }
 
 .reduce-motion *,
