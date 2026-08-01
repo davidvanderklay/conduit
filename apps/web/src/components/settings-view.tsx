@@ -116,8 +116,8 @@ export function SettingsView({ profile, profiles, householdId, onSelectProfile, 
         {saved && <span className="hidden items-center gap-2 rounded-full border border-emerald-900/70 bg-emerald-950/50 px-3 py-1.5 text-xs text-emerald-300 sm:flex"><Check size={13} /> Saved on this device</span>}
       </div>
 
-      <div className="grid min-h-[calc(100vh-11rem)] gap-7 lg:grid-cols-[18rem_minmax(0,1fr)] 2xl:grid-cols-[20rem_minmax(0,1fr)]">
-        <aside className="border-b border-zinc-800 pb-5 lg:border-b-0 lg:border-r lg:pb-0 lg:pr-7">
+      <div className="grid min-h-[calc(100vh-11rem)] gap-7 sm:grid-cols-[16rem_minmax(0,1fr)] lg:grid-cols-[18rem_minmax(0,1fr)] 2xl:grid-cols-[20rem_minmax(0,1fr)]">
+        <aside className="border-b border-zinc-800 pb-5 sm:border-b-0 sm:border-r sm:pb-0 sm:pr-5 lg:pr-7">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-600" size={16} />
             <input

@@ -16,7 +16,7 @@ export function VirtualPosterGrid<T>({
 }) {
   const gridRef = useRef<HTMLDivElement>(null)
   const [layout, setLayout] = useState(() => ({
-    columns: columnsForViewport(window.innerWidth),
+    columns: columnsForWidth(window.innerWidth),
     width: 0,
   }))
 
@@ -24,7 +24,10 @@ export function VirtualPosterGrid<T>({
     const update = () => {
       const width = gridRef.current?.clientWidth ?? 0
       setLayout((current) => {
-        const next = { columns: columnsForViewport(window.innerWidth), width }
+        const next = {
+          columns: columnsForWidth(width || window.innerWidth),
+          width,
+        }
         return current.columns === next.columns && current.width === next.width ? current : next
       })
     }
@@ -90,7 +93,7 @@ function appScrollElement(): HTMLElement | null {
   return typeof document === "undefined" ? null : document.getElementById("app-scroll-viewport")
 }
 
-function columnsForViewport(width: number): number {
+export function columnsForWidth(width: number): number {
   if (width >= 1536) return 8
   if (width >= 1280) return 6
   if (width >= 1024) return 5

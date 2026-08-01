@@ -190,6 +190,10 @@ For development outside Nix:
 Linux playback uses libmpv's OpenGL render API. X11 is supported directly.
 Wayland sessions use the native backend by default. `CONDUIT_XWAYLAND=1`
 enables the XWayland fallback for diagnostic compatibility testing.
+Conduit keeps WebKitGTK's accelerated DMA-BUF renderer enabled on Intel and AMD
+and disables it automatically on NVIDIA to avoid known black-screen and
+protocol-failure paths. Set `WEBKIT_DISABLE_DMABUF_RENDERER=1` manually when
+diagnosing a non-NVIDIA driver that cannot use DMA-BUF reliably.
 
 ### Windows playback test matrix
 

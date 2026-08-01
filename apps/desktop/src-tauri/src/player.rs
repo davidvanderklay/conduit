@@ -131,11 +131,15 @@ impl PlayerManager {
             if hardware_acceleration {
                 #[cfg(target_os = "linux")]
                 {
-                    // Decode on NVIDIA, but copy decoded frames back before
-                    // uploading them through libmpv's OpenGL renderer. This avoids
-                    // the fragile CUDA/OpenGL zero-copy interop path while keeping
-                    // high-resolution playback and seeking off the CPU.
-                    initializer.set_option("hwdec", "nvdec-copy,auto-copy-safe")?;
+                    // Prefer NVIDIA's native decoder when available, followed
+                    // by the VA-API path exposed by Intel/AMD. Copying decoded
+                    // frames avoids driver-specific zero-copy interop failures
+                    // with libmpv's embedded OpenGL renderer while still moving
+                    // video decoding off the CPU.
+                    initializer.set_option(
+                        "hwdec",
+                        "nvdec-copy,vaapi-copy,vulkan-copy,drm-copy,auto-copy-safe",
+                    )?;
                     initializer.set_option("gpu-hwdec-interop", "no")?;
                     initializer.set_option("vd-lavc-dr", "no")?;
                 }

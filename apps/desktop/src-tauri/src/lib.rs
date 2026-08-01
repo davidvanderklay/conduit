@@ -236,13 +236,15 @@ fn configure_linux_webkit() {
         eprintln!("Conduit: using requested XWayland video composition");
     }
 
-    if (native_wayland || nvidia_driver)
+    if should_disable_dmabuf_renderer(nvidia_driver)
         && std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none()
     {
         // WebKitGTK's DMA-BUF renderer can negotiate explicit synchronization
         // and then submit a non-DMA-BUF buffer, which is a fatal Wayland
-        // protocol error on affected Mesa/NVIDIA compositor combinations.
-        // Some NVIDIA GBM stacks also reject WebKit's XWayland buffers.
+        // protocol error on affected NVIDIA compositor combinations. Some
+        // NVIDIA GBM stacks also reject WebKit's XWayland buffers. Keep the
+        // accelerated DMA-BUF path enabled on Intel/AMD Mesa: disabling it
+        // there makes image-heavy scrolling substantially more expensive.
         std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
         eprintln!("Conduit: disabled unsupported WebKit DMA-BUF renderer");
     }
@@ -255,9 +257,24 @@ fn configure_linux_webkit() {
     }
 }
 
+#[cfg(target_os = "linux")]
+fn should_disable_dmabuf_renderer(nvidia_driver: bool) -> bool {
+    nvidia_driver
+}
+
 #[cfg(test)]
 mod desktop_auth_tests {
     use super::parse_callback_target;
+
+    #[cfg(target_os = "linux")]
+    use super::should_disable_dmabuf_renderer;
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn keeps_dmabuf_rendering_on_non_nvidia_linux_gpus() {
+        assert!(!should_disable_dmabuf_renderer(false));
+        assert!(should_disable_dmabuf_renderer(true));
+    }
 
     #[test]
     fn accepts_only_the_oauth_loopback_path() {
