@@ -25,6 +25,8 @@ import {
   SlidersHorizontal,
   Upload,
   UserRound,
+  Pencil,
+  Plus,
   X,
   type LucideIcon,
 } from "lucide-react"
@@ -40,6 +42,8 @@ import {
 import { serverDisplayName as formatServerDisplayName } from "../lib/server"
 import { Button } from "./ui/button"
 import { Input } from "./ui/input"
+import type { AppSection } from "./app-sidebar"
+import { PROFILE_COLORS, ProfileAvatar } from "./profile-switcher"
 
 type SettingsPage =
   | "profile"
@@ -79,7 +83,7 @@ function serverDisplayName(): string {
   return formatServerDisplayName(API_URL)
 }
 
-export function SettingsView({ profile }: { profile: Profile }) {
+export function SettingsView({ profile, profiles, householdId, onSelectProfile, onNavigate }: { profile: Profile; profiles: Profile[]; householdId: string; onSelectProfile: (profileId: string) => void; onNavigate: (section: AppSection) => void }) {
   const queryClient = useQueryClient()
   const [page, setPage] = useState<SettingsPage>("profile")
   const [query, setQuery] = useState("")
@@ -105,7 +109,7 @@ export function SettingsView({ profile }: { profile: Profile }) {
   const active = settingsEntries.find((entry) => entry.id === page)!
 
   return (
-    <main className="mx-auto max-w-[1800px] px-4 py-7 sm:px-6 lg:px-8 xl:px-10">
+    <main className="w-full px-4 py-7 sm:px-6 lg:px-8 xl:px-10 2xl:px-12">
       <div className="mb-7 flex items-end justify-between gap-5">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-400">Profile & device</p>
@@ -115,7 +119,7 @@ export function SettingsView({ profile }: { profile: Profile }) {
         {saved && <span className="hidden items-center gap-2 rounded-full border border-emerald-900/70 bg-emerald-950/50 px-3 py-1.5 text-xs text-emerald-300 sm:flex"><Check size={13} /> Saved on this device</span>}
       </div>
 
-      <div className="grid min-h-[680px] overflow-hidden rounded-2xl border border-zinc-800/90 bg-zinc-950/65 shadow-2xl shadow-black/20 lg:grid-cols-[19rem_minmax(0,1fr)]">
+      <div className="grid min-h-[calc(100vh-11rem)] overflow-hidden rounded-2xl border border-zinc-800/90 bg-zinc-950/65 shadow-2xl shadow-black/20 lg:grid-cols-[19rem_minmax(0,1fr)] 2xl:grid-cols-[21rem_minmax(0,1fr)]">
         <aside className="border-b border-zinc-800 bg-zinc-900/45 p-3 lg:border-b-0 lg:border-r lg:p-4">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-600" size={16} />
@@ -151,11 +155,11 @@ export function SettingsView({ profile }: { profile: Profile }) {
               <div><h2 className="font-display text-xl font-semibold sm:text-2xl">{active.title}</h2><p className="mt-1 text-sm text-zinc-500">{active.description}</p></div>
             </div>
           </header>
-          <div className="mx-auto max-w-5xl p-5 sm:p-7 lg:p-10">
-            {page === "profile" && <ProfileSettings profile={profile} />}
+          <div className="w-full p-5 sm:p-7 lg:p-10 2xl:p-12">
+            {page === "profile" && <ProfileSettings profile={profile} profiles={profiles} householdId={householdId} onSelectProfile={onSelectProfile} />}
             {page === "account" && <AccountSettings onSignedOut={() => queryClient.clear()} />}
             {page === "appearance" && <AppearanceSettings preferences={preferences} update={update} />}
-            {page === "content" && <ContentSettings />}
+            {page === "content" && <ContentSettings onAddons={() => onNavigate("addons")} />}
             {page === "playback" && <PlaybackSettings preferences={preferences} update={update} />}
             {page === "integrations" && <IntegrationsSettings />}
             {page === "data" && <DataSettings profile={profile} preferences={preferences} onPreferences={setPreferences} />}
@@ -177,39 +181,87 @@ function SettingsNavItem({ entry, active, onClick }: { entry: SettingsEntry; act
   </button>
 }
 
-function ProfileSettings({ profile }: { profile: Profile }) {
+function ProfileSettings({ profile, profiles, householdId, onSelectProfile }: { profile: Profile; profiles: Profile[]; householdId: string; onSelectProfile: (profileId: string) => void }) {
+  const [editing, setEditing] = useState<Profile | null>(profile)
+  return <div className="space-y-7">
+    <SettingsGroup title="PROFILES" description="Create a new space or choose one to customize.">
+      <div className="grid gap-3 p-5 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+        {profiles.map((candidate) => (
+          <button key={candidate.id} className={`flex items-center gap-3 rounded-xl border p-3 text-left transition ${editing?.id === candidate.id ? "border-amber-400/40 bg-amber-400/10" : "border-zinc-800 bg-zinc-950/40 hover:border-zinc-700"}`} onClick={() => setEditing(candidate)}>
+            <ProfileAvatar profile={candidate} className="size-11" />
+            <span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold">{candidate.name}</span><span className="mt-1 block text-xs text-zinc-500">{candidate.isKids ? "Kids profile" : candidate.usesPrimaryAddons ? "Uses primary add-ons" : "Personal profile"}</span></span>
+            <Pencil size={14} className="text-zinc-600" />
+          </button>
+        ))}
+        <button className="flex items-center gap-3 rounded-xl border border-dashed border-zinc-700 p-3 text-left text-zinc-400 transition hover:border-amber-400/40 hover:bg-amber-400/5 hover:text-white" onClick={() => setEditing(null)}><span className="grid size-11 place-items-center rounded-full bg-zinc-800"><Plus size={18} /></span><span><span className="block text-sm font-semibold">Add profile</span><span className="mt-1 block text-xs text-zinc-600">Create another space</span></span></button>
+      </div>
+    </SettingsGroup>
+    <ProfileEditorForm key={editing?.id ?? "new"} editing={editing} activeProfile={profile} profiles={profiles} householdId={householdId} onSelectProfile={onSelectProfile} />
+  </div>
+}
+
+function ProfileEditorForm({ editing, activeProfile, profiles, householdId, onSelectProfile }: { editing: Profile | null; activeProfile: Profile; profiles: Profile[]; householdId: string; onSelectProfile: (profileId: string) => void }) {
   const queryClient = useQueryClient()
-  const updateProfile = useMutation({
-    mutationFn: (values: { name: string; isKids: boolean }) => api(`/v1/profiles/${profile.id}`, { method: "PATCH", body: JSON.stringify(values) }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["bootstrap"] }),
-  })
-  return <SettingsGroup title="PROFILE DETAILS" description="These changes sync with your household.">
-    <form className="space-y-5 p-5 sm:p-6" onSubmit={(event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const data = new FormData(event.currentTarget); updateProfile.mutate({ name: String(data.get("name")), isKids: data.get("isKids") === "on" }) }}>
-      <label className="block text-sm font-medium text-zinc-300">Display name<Input className="mt-2 max-w-xl" name="name" defaultValue={profile.name} required /></label>
-      <SettingToggle label="Kids profile" description="Use this profile for age-appropriate viewing." defaultChecked={profile.isKids} name="isKids" />
-      <div className="flex items-center gap-3"><Button disabled={updateProfile.isPending}>{updateProfile.isPending ? "Saving…" : "Save profile"}</Button>{updateProfile.isSuccess && <span className="text-xs text-emerald-300">Profile updated</span>}</div>
-      {updateProfile.error && <p className="text-sm text-red-400">{updateProfile.error.message}</p>}
+  const [name, setName] = useState(editing?.name ?? "")
+  const [isKids, setIsKids] = useState(editing?.isKids ?? false)
+  const [usesPrimaryAddons, setUsesPrimaryAddons] = useState(editing?.usesPrimaryAddons ?? false)
+  const [avatarColor, setAvatarColor] = useState(editing?.avatarColor ?? PROFILE_COLORS[0]!)
+  const [avatarUrl, setAvatarUrl] = useState(editing?.avatarUrl ?? "")
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState("")
+  const primary = profiles[0]
+  const canUsePrimary = !editing || editing.id !== primary?.id
+  const preview: Profile = { id: editing?.id ?? "new", name: name.trim() || "New profile", isKids, usesPrimaryAddons, avatarColor, avatarUrl: avatarUrl.trim() || null }
+
+  const save = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const cleanUrl = avatarUrl.trim()
+    if (cleanUrl && !/^https?:\/\//i.test(cleanUrl)) { setError("Avatar URL must begin with http:// or https://"); return }
+    setPending(true); setError("")
+    try {
+      const body = { name: name.trim(), isKids, usesPrimaryAddons: canUsePrimary && usesPrimaryAddons, avatarColor, avatarUrl: cleanUrl || null }
+      const result = editing
+        ? await api<{ profile: Profile }>(`/v1/profiles/${editing.id}`, { method: "PATCH", body: JSON.stringify(body) })
+        : await api<{ profile: Profile }>(`/v1/households/${householdId}/profiles`, { method: "POST", body: JSON.stringify({ ...body, avatarUrl: cleanUrl || undefined }) })
+      await queryClient.invalidateQueries({ queryKey: ["bootstrap"] })
+      if (!editing) onSelectProfile(result.profile.id)
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to save profile") } finally { setPending(false) }
+  }
+
+  return <SettingsGroup title={editing ? "EDIT PROFILE" : "ADD PROFILE"} description="Profile appearance and add-on behavior sync across devices.">
+    <form className="grid gap-6 p-5 lg:grid-cols-[15rem_minmax(0,1fr)] 2xl:grid-cols-[18rem_minmax(0,1fr)]" onSubmit={save}>
+      <div className="flex flex-col items-center justify-center rounded-2xl border border-zinc-800 bg-zinc-950/50 p-6 text-center"><ProfileAvatar profile={preview} className="size-28 text-3xl" /><p className="mt-4 max-w-full truncate font-display text-xl font-semibold">{preview.name}</p><p className="mt-1 text-xs text-zinc-500">{isKids ? "Kids profile" : "Personal profile"}</p></div>
+      <div className="space-y-5">
+        <label className="block text-sm font-medium text-zinc-300">Profile name<Input className="mt-2 max-w-2xl" maxLength={80} value={name} onChange={(event) => setName(event.target.value)} required /></label>
+        <div className="grid gap-3 xl:grid-cols-2"><ProfileOptionCard title="Kids profile" description="Use a child-friendly viewing profile." checked={isKids} onChange={setIsKids} />{canUsePrimary && <ProfileOptionCard title="Use primary add-ons" description={`Share ${primary?.name ?? "the primary profile"}'s live add-on setup.`} checked={usesPrimaryAddons} onChange={setUsesPrimaryAddons} />}</div>
+        <div><p className="text-sm font-medium text-zinc-300">Profile color</p><div className="mt-3 flex flex-wrap gap-3">{PROFILE_COLORS.map((color) => <button key={color} type="button" className={`size-9 rounded-full transition ${avatarColor === color ? "ring-2 ring-white ring-offset-2 ring-offset-zinc-900" : "hover:scale-110"}`} style={{ backgroundColor: color }} aria-label={`Use profile color ${color}`} onClick={() => setAvatarColor(color)} />)}</div></div>
+        <label className="block text-sm font-medium text-zinc-300">Custom avatar URL <span className="font-normal text-zinc-600">(optional)</span><Input className="mt-2 max-w-2xl" type="url" placeholder="https://example.com/avatar.png" value={avatarUrl} onChange={(event) => setAvatarUrl(event.target.value)} /></label>
+        {error && <p className="text-sm text-red-400">{error}</p>}
+        <Button disabled={pending || !name.trim()}>{pending ? "Saving…" : editing ? "Save changes" : "Create profile"}</Button>
+      </div>
     </form>
   </SettingsGroup>
 }
 
+function ProfileOptionCard({ title, description, checked, onChange }: { title: string; description: string; checked: boolean; onChange: (value: boolean) => void }) { return <label className="flex cursor-pointer items-center justify-between gap-4 rounded-xl border border-zinc-800 bg-zinc-950/40 p-4"><span><span className="block text-sm font-medium">{title}</span><span className="mt-1 block text-xs leading-5 text-zinc-500">{description}</span></span><input className="size-4 accent-amber-400" type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} /></label> }
+
 function AppearanceSettings({ preferences, update }: PreferencePageProps) {
-  return <div className="space-y-7">
+  return <div className="grid items-start gap-7 2xl:grid-cols-2">
     <SettingsGroup title="THEME"><SettingRow icon={Palette} title="Theme" description="Choose how Conduit follows your desktop appearance"><Select value={preferences.theme} onChange={(value) => update("theme", value as DevicePreferences["theme"])} options={[["dark", "Conduit dark"], ["system", "System default"]]} /></SettingRow><Divider /><SettingToggle label="AMOLED black" description="Use pure black backgrounds throughout the app." checked={preferences.amoledBlack} onChange={(value) => update("amoledBlack", value)} /></SettingsGroup>
     <SettingsGroup title="DISPLAY"><SettingToggle label="Reduce animations" description="Use simpler transitions and less interface motion." checked={preferences.reducedMotion} onChange={(value) => update("reducedMotion", value)} /><Divider /><SettingRow icon={Eye} title="App language" description="Conduit currently follows your system language"><span className="text-sm text-zinc-500">System default</span></SettingRow></SettingsGroup>
   </div>
 }
 
 function PlaybackSettings({ preferences, update }: PreferencePageProps) {
-  return <div className="space-y-7">
+  return <div className="grid items-start gap-7 2xl:grid-cols-2">
     <SettingsGroup title="PLAYER"><SettingRow icon={PlayCircle} title="Resume behavior" description="What to do when opening something partially watched"><Select value={preferences.resumeBehavior} onChange={(value) => update("resumeBehavior", value as DevicePreferences["resumeBehavior"])} options={[["ask", "Ask every time"], ["always", "Always resume"], ["restart", "Start over"]]} /></SettingRow><Divider /><RangeRow label="Default volume" description="Starting player volume" value={preferences.volume} min={0} max={100} suffix="%" onChange={(value) => update("volume", value)} /></SettingsGroup>
     <SettingsGroup title="AUDIO & SUBTITLES"><SettingRow icon={Film} title="Preferred audio language" description="Automatically select a matching audio track"><LanguageSelect value={preferences.audioLanguage} onChange={(value) => update("audioLanguage", value)} /></SettingRow><Divider /><SettingRow icon={Film} title="Preferred subtitle language" description="Automatically select matching subtitles"><LanguageSelect value={preferences.subtitleLanguage} onChange={(value) => update("subtitleLanguage", value)} /></SettingRow><Divider /><SettingToggle label="Subtitle outline" description="Add a dark edge for readability on bright scenes." checked={preferences.subtitleOutline} onChange={(value) => update("subtitleOutline", value)} /><Divider /><RangeRow label="Subtitle size" description="Scale subtitles relative to their authored size" value={preferences.subtitleSize} min={75} max={200} suffix="%" onChange={(value) => update("subtitleSize", value)} /><Divider /><RangeRow label="Subtitle position" description="Vertical position within the player" value={preferences.subtitlePosition} min={10} max={100} suffix="%" onChange={(value) => update("subtitlePosition", value)} /></SettingsGroup>
     <SettingsGroup title="AUTOPLAY"><SettingToggle label="Autoplay next episode" description="Continue after the next-episode prompt." checked={preferences.autoplay} onChange={(value) => update("autoplay", value)} /></SettingsGroup>
   </div>
 }
 
-function ContentSettings() {
-  return <div className="space-y-7"><SettingsGroup title="SOURCES"><InfoAction icon={Puzzle} title="Add-ons" description="Install, order, and manage Stremio add-ons from the Add-ons section in the main sidebar." /></SettingsGroup><SettingsGroup title="DISCOVERY"><InfoAction icon={Search} title="Catalog customization" description="Catalog ordering and home customization are coming next." muted /></SettingsGroup></div>
+function ContentSettings({ onAddons }: { onAddons: () => void }) {
+  return <div className="grid gap-7 2xl:grid-cols-2"><SettingsGroup title="SOURCES"><button className="flex w-full items-center gap-4 p-5 text-left transition hover:bg-white/[.035]" onClick={onAddons}><div className="grid size-9 shrink-0 place-items-center rounded-lg bg-zinc-800 text-zinc-400"><Puzzle size={17} /></div><div className="min-w-0 flex-1"><p className="text-sm font-medium text-zinc-200">Add-ons</p><p className="mt-1 text-xs leading-5 text-zinc-500">Install, order, and manage Stremio add-ons.</p></div><ChevronRight className="text-zinc-600" size={17} /></button></SettingsGroup><SettingsGroup title="DISCOVERY"><InfoAction icon={Search} title="Catalog customization" description="Catalog ordering and home customization are coming next." muted /></SettingsGroup></div>
 }
 
 function IntegrationsSettings() {

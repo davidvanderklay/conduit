@@ -17,7 +17,7 @@ export function ProfileSwitcher({
   profiles: Profile[]
   activeProfile: Profile
   onSelect: (profileId: string) => void
-  onCreate?: (values: { name: string; isKids: boolean; copyAddons: boolean }) => Promise<void>
+  onCreate?: (values: CreateProfileValues) => Promise<void>
   userName?: string
   onNavigate?: (section: AppSection) => void
   onSignOut?: () => void | Promise<void>
@@ -181,11 +181,14 @@ function CreateProfileDialog({
 }: {
   sourceProfile: Profile
   onClose: () => void
-  onCreate: (values: { name: string; isKids: boolean; copyAddons: boolean }) => Promise<void>
+  onCreate: (values: CreateProfileValues) => Promise<void>
 }) {
   const [name, setName] = useState("")
   const [isKids, setIsKids] = useState(false)
   const [copyAddons, setCopyAddons] = useState(true)
+  const [usesPrimaryAddons, setUsesPrimaryAddons] = useState(false)
+  const [avatarColor, setAvatarColor] = useState(PROFILE_COLORS[0]!)
+  const [avatarUrl, setAvatarUrl] = useState("")
   const [pending, setPending] = useState(false)
   const [error, setError] = useState("")
 
@@ -202,7 +205,14 @@ function CreateProfileDialog({
     setPending(true)
     setError("")
     try {
-      await onCreate({ name: name.trim(), isKids, copyAddons })
+      await onCreate({
+        name: name.trim(),
+        isKids,
+        copyAddons: copyAddons && !usesPrimaryAddons,
+        usesPrimaryAddons,
+        avatarColor,
+        avatarUrl: avatarUrl.trim() || null,
+      })
       onClose()
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not create profile")
@@ -215,6 +225,9 @@ function CreateProfileDialog({
     id: name.trim() || "new-profile",
     name: name.trim() || "New profile",
     isKids,
+    avatarColor,
+    avatarUrl: avatarUrl.trim() || null,
+    usesPrimaryAddons,
   }
 
   return (
@@ -278,7 +291,42 @@ function CreateProfileDialog({
               checked={copyAddons}
               onChange={setCopyAddons}
             />
+            <ProfileOption
+              title="Use primary add-ons"
+              description="Share the primary profile's live add-on setup."
+              checked={usesPrimaryAddons}
+              onChange={(value) => {
+                setUsesPrimaryAddons(value)
+                if (value) setCopyAddons(false)
+              }}
+            />
           </div>
+
+          <div>
+            <p className="mb-3 text-sm font-medium text-zinc-300">Profile color</p>
+            <div className="flex flex-wrap gap-3">
+              {PROFILE_COLORS.map((color) => (
+                <button
+                  key={color}
+                  type="button"
+                  className={`size-9 rounded-full transition ${avatarColor === color ? "ring-2 ring-white ring-offset-2 ring-offset-zinc-950" : "hover:scale-110"}`}
+                  style={{ backgroundColor: color }}
+                  aria-label={`Use profile color ${color}`}
+                  onClick={() => setAvatarColor(color)}
+                />
+              ))}
+            </div>
+          </div>
+          <label className="block text-sm font-medium text-zinc-300">
+            Custom avatar URL <span className="font-normal text-zinc-600">(optional)</span>
+            <Input
+              className="mt-2"
+              type="url"
+              placeholder="https://example.com/avatar.png"
+              value={avatarUrl}
+              onChange={(event) => setAvatarUrl(event.target.value)}
+            />
+          </label>
 
           {error && <p className="text-sm text-red-400">{error}</p>}
           <div className="flex justify-end gap-3 border-t border-zinc-800 pt-5">
@@ -351,17 +399,35 @@ function MenuAction({
   )
 }
 
-function ProfileAvatar({ profile, className }: { profile: Profile; className: string }) {
+export function ProfileAvatar({ profile, className }: { profile: Profile; className: string }) {
   return (
     <span
       className={`${className} grid shrink-0 place-items-center rounded-full border border-white/10 text-sm font-bold text-white shadow-inner`}
-      style={{ background: avatarGradient(profile.id) }}
+      style={{ background: profile.avatarColor ?? avatarGradient(profile.id) }}
       aria-hidden="true"
     >
-      {profile.name.trim().charAt(0).toUpperCase() || "?"}
+      {profile.avatarUrl ? (
+        <img className="size-full rounded-full object-cover" src={profile.avatarUrl} alt="" />
+      ) : (
+        profile.name.trim().charAt(0).toUpperCase() || "?"
+      )}
     </span>
   )
 }
+
+export interface CreateProfileValues {
+  name: string
+  isKids: boolean
+  copyAddons: boolean
+  usesPrimaryAddons: boolean
+  avatarColor: string
+  avatarUrl: string | null
+}
+
+export const PROFILE_COLORS = [
+  "#FFC107", "#FF8F00", "#E53935", "#8E24AA",
+  "#3949AB", "#039BE5", "#00897B", "#43A047",
+]
 
 function avatarGradient(profileId: string): string {
   const gradients = [
