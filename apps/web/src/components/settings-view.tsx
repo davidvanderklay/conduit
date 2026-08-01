@@ -1,8 +1,6 @@
 import { useMemo, useState, type FormEvent, type ReactNode } from "react"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import {
-  Activity,
-  ArrowLeft,
   BadgeInfo,
   Check,
   ChevronRight,
@@ -16,7 +14,6 @@ import {
   KeyRound,
   Link2,
   LogOut,
-  Monitor,
   Palette,
   PlayCircle,
   Puzzle,
@@ -196,11 +193,11 @@ function ProfileSettings({ profile, profiles, householdId, onSelectProfile }: { 
         <button className="flex items-center gap-3 rounded-xl border border-dashed border-zinc-700 p-3 text-left text-zinc-400 transition hover:border-amber-400/40 hover:bg-amber-400/5 hover:text-white" onClick={() => setEditing(null)}><span className="grid size-11 place-items-center rounded-full bg-zinc-800"><Plus size={18} /></span><span><span className="block text-sm font-semibold">Add profile</span><span className="mt-1 block text-xs text-zinc-600">Create another space</span></span></button>
       </div>
     </SettingsGroup>
-    <ProfileEditorForm key={editing?.id ?? "new"} editing={editing} activeProfile={profile} profiles={profiles} householdId={householdId} onSelectProfile={onSelectProfile} />
+    <ProfileEditorForm key={editing?.id ?? "new"} editing={editing} profiles={profiles} householdId={householdId} onSelectProfile={onSelectProfile} />
   </div>
 }
 
-function ProfileEditorForm({ editing, activeProfile, profiles, householdId, onSelectProfile }: { editing: Profile | null; activeProfile: Profile; profiles: Profile[]; householdId: string; onSelectProfile: (profileId: string) => void }) {
+function ProfileEditorForm({ editing, profiles, householdId, onSelectProfile }: { editing: Profile | null; profiles: Profile[]; householdId: string; onSelectProfile: (profileId: string) => void }) {
   const queryClient = useQueryClient()
   const [name, setName] = useState(editing?.name ?? "")
   const [isKids, setIsKids] = useState(editing?.isKids ?? false)
