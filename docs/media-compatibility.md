@@ -21,6 +21,13 @@ libmpv is built into the Linux Flatpak, bundled for Windows and macOS releases,
 or validated as a development dependency. See the release and development
 documentation for the platform-specific source and version.
 
+On Linux, launch Conduit with `CONDUIT_MPV_LOG=1` to print warning-level mpv
+output plus detailed video-decoder and FFmpeg diagnostics. For targeted driver
+testing, `CONDUIT_MPV_HWDEC` overrides the decoder selection for that process;
+for example, `CONDUIT_MPV_HWDEC=vaapi-copy` tests VA-API without automatic
+fallback to other APIs. These variables are intended for troubleshooting and
+do not alter the saved hardware-acceleration preference.
+
 ## Hosted web app
 
 The web player uses the browser media APIs and hls.js. Codec, container, audio,
