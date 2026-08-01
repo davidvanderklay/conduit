@@ -1,6 +1,7 @@
 package media.conduit.mobile
 
 import androidx.compose.foundation.background
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
@@ -24,6 +25,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -270,6 +273,7 @@ internal fun MediaDetailsScreen(
                 ?: choices.firstOrNull { it.stream.url != null }
             if (choice != null) {
                 currentAddonName = choice.addonName
+                playback = PlaybackState()
                 playing = choice.stream
             } else {
                 streams = choices
@@ -292,6 +296,10 @@ internal fun MediaDetailsScreen(
     val orderedVideos = meta?.videos.orEmpty().sortedWith(compareBy<VideoItem> { it.season ?: 0 }.thenBy { it.episode ?: 0 })
     val nextVideo = orderedVideos.indexOfFirst { it.id == selectedVideo?.id }.takeIf { it >= 0 }?.let { orderedVideos.getOrNull(it + 1) }
     LaunchedEffect(playback.ended) { if (playback.ended) runCatching { persistProgress() } }
+    var openingOverlay by remember(playing?.url) { mutableStateOf(playing?.url != null) }
+    LaunchedEffect(playback.loading, playback.error, playing?.url) {
+        if (!playback.loading || playback.error != null) openingOverlay = false
+    }
 
     if (playing?.url != null) {
         Box(Modifier.fillMaxSize().background(Color.Black)) {
@@ -302,8 +310,15 @@ internal fun MediaDetailsScreen(
                 hasEpisodes = orderedVideos.isNotEmpty(), onEpisodes = { episodesOpen = true }, modifier = Modifier.fillMaxSize(),
                 touchGestures = preferences.touchGestures, holdToSpeed = preferences.holdToSpeed,
             ) { playback = it }
+            if (openingOverlay && playback.error == null) {
+                PlayerOpeningOverlay(
+                    artwork = selectedVideo?.thumbnail ?: meta?.background ?: item.background ?: meta?.poster ?: item.poster,
+                    logo = meta?.logo,
+                    title = if (selectedVideo != null) "${meta?.name ?: item.name}  ·  ${selectedVideo?.displayTitle}" else meta?.name ?: item.name,
+                    modifier = Modifier.matchParentSize(),
+                )
+            }
             IconButton(onClick = { scope.launch { runCatching { persistProgress() }; playing = null } }, modifier = Modifier.statusBarsPadding().padding(12.dp).background(Color.Black.copy(.55f), CircleShape).align(Alignment.TopStart)) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = Color.White) }
-            if (playback.loading && playback.error == null) CircularProgressIndicator(Modifier.align(Alignment.Center), color = Color.White)
             playback.error?.let { message -> Box(Modifier.matchParentSize().background(Color.Black.copy(.72f)).clickable(enabled = true, onClick = {}), contentAlignment = Alignment.Center) { Surface(color = Color(0xF21A1A1D), shape = RoundedCornerShape(18.dp), modifier = Modifier.padding(28.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(.45f))) { Column(Modifier.padding(22.dp), horizontalAlignment = Alignment.CenterHorizontally) { Icon(Icons.Rounded.ErrorOutline, null, tint = MaterialTheme.colorScheme.error); Spacer(Modifier.height(8.dp)); Text("Playback failed", color = Color.White, fontWeight = FontWeight.Bold); Text(message, color = Color.White.copy(.7f), style = MaterialTheme.typography.bodySmall); Spacer(Modifier.height(14.dp)); Button(onClick = { playing = null }) { Text("Choose another stream") } } } } }
             if (!episodesOpen && nextVideo != null && playback.durationMs > 0 && playback.durationMs - playback.positionMs in 1..30_000) {
                 Surface(Modifier.align(Alignment.BottomEnd).padding(end = 18.dp, bottom = 112.dp).widthIn(min = 300.dp, max = 365.dp), color = Color(0xE619191B), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, Color.White.copy(.16f)), shadowElevation = 18.dp) {
@@ -319,7 +334,7 @@ internal fun MediaDetailsScreen(
     }
     if (streamPageOpen) {
         StreamSelectionScreen(meta?.name ?: item.name, meta?.background ?: meta?.poster ?: item.background ?: item.poster, selectedVideo, streams.orEmpty(), streamsLoading, streamsError, onBack = { streamPageOpen = false; streams = null }) { source ->
-            if (source.stream.url != null) { currentAddonName = source.addonName; playing = source.stream }
+            if (source.stream.url != null) { currentAddonName = source.addonName; playback = PlaybackState(); playing = source.stream }
         }
         return
     }
@@ -383,6 +398,23 @@ internal fun MediaDetailsScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun PlayerOpeningOverlay(artwork: String?, logo: String?, title: String, modifier: Modifier = Modifier) {
+    val pulse = rememberInfiniteTransition(label = "player-opening")
+    val scale by pulse.animateFloat(1f, 1.045f, infiniteRepeatable(tween(1_500, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "opening-scale")
+    val glow by pulse.animateFloat(.62f, 1f, infiniteRepeatable(tween(900, easing = LinearEasing), RepeatMode.Reverse), label = "opening-glow")
+    Box(modifier.background(Color.Black)) {
+        artwork?.let { AsyncImage(model = it, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().scale(scale)) }
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Black.copy(.48f), Color.Black.copy(.72f), Color.Black.copy(.9f)))))
+        Column(Modifier.align(Alignment.Center).fillMaxWidth(.72f), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(18.dp)) {
+            if (!logo.isNullOrBlank()) AsyncImage(model = logo, contentDescription = title, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxWidth(.58f).heightIn(max = 92.dp).alpha(glow))
+            else Text(title, color = Color.White, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.alpha(glow))
+            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary, trackColor = Color.White.copy(.18f), strokeWidth = 3.dp, modifier = Modifier.size(34.dp))
+            Text("Preparing playback…", color = Color.White.copy(.72f), style = MaterialTheme.typography.labelLarge)
         }
     }
 }
