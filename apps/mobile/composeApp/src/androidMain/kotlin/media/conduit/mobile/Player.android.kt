@@ -133,6 +133,7 @@ actual fun NativePlayer(
         }
         player.addListener(listener)
         if (url != null) {
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
             val item = MediaItem.Builder().setUri(url).apply {
                 val lower = url.lowercase().substringBefore('#')
                 when {
