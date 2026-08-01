@@ -10,6 +10,7 @@ import androidx.compose.runtime.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -40,6 +41,7 @@ import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.ui.PlayerView
+import androidx.media3.ui.AspectRatioFrameLayout
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -57,6 +59,7 @@ actual fun NativePlayer(
     hasEpisodes: Boolean,
     touchGestures: Boolean,
     holdToSpeed: Boolean,
+    preferredAudioLanguage: String,
     onEpisodes: () -> Unit,
     modifier: Modifier,
     onState: (PlaybackState) -> Unit,
@@ -85,9 +88,11 @@ actual fun NativePlayer(
     var tracksRevision by remember { mutableIntStateOf(0) }
     var trackFallback by remember(player) { mutableStateOf<androidx.media3.common.TrackSelectionParameters?>(null) }
     var lastTrackChangeAt by remember(player) { mutableLongStateOf(0L) }
+    var autoAudioSelection by remember(player) { mutableStateOf<String?>(null) }
+    var resizeMode by remember(player) { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
+    val preferredAudioCode = remember(preferredAudioLanguage) { audioLanguageCode(preferredAudioLanguage) }
 
     DisposableEffect(player, url) {
-        val previousOrientation = activity?.requestedOrientation
         var resumed = false
         val listener = object : Player.Listener {
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
@@ -117,6 +122,17 @@ actual fun NativePlayer(
                 if (audio.isNotEmpty() && audio.none { group -> (0 until group.length).any(group::isTrackSupported) }) {
                     player.pause()
                     playbackError = "None of this stream's audio formats can be decoded by this device. Choose another stream for working audio."
+                } else {
+                    val candidates = audio.flatMap { group -> (0 until group.length).filter(group::isTrackSupported).map { index -> group to index } }
+                    val best = candidates.maxByOrNull { (group, index) -> audioTrackScore(group.getTrackFormat(index), preferredAudioCode) }
+                    val selected = candidates.firstOrNull { (group, index) -> group.isTrackSelected(index) }
+                    if (best != null && audioTrackScore(best.first.getTrackFormat(best.second), preferredAudioCode) > (selected?.let { audioTrackScore(it.first.getTrackFormat(it.second), preferredAudioCode) } ?: Int.MIN_VALUE)) {
+                        val key = "${best.first.mediaTrackGroup.id}:${best.second}"
+                        if (autoAudioSelection != key) {
+                            autoAudioSelection = key
+                            player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().clearOverridesOfType(C.TRACK_TYPE_AUDIO).addOverride(TrackSelectionOverride(best.first.mediaTrackGroup, best.second)).build()
+                        }
+                    }
                 }
             }
             override fun onPlaybackStateChanged(state: Int) {
@@ -149,13 +165,14 @@ actual fun NativePlayer(
                 })
             }.build()
             player.setMediaItem(item)
+            preferredAudioCode?.let { code -> player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().setPreferredAudioLanguages(code).build() }
             player.prepare()
             player.playWhenReady = active
         }
         onDispose {
             player.removeListener(listener)
             player.release()
-            if (previousOrientation != null) activity.requestedOrientation = previousOrientation
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
         }
     }
     DisposableEffect(player, lifecycle) {
@@ -192,23 +209,29 @@ actual fun NativePlayer(
         }
     }
 
-    Box(modifier.background(Color.Black).pointerInput(player, touchGestures, holdToSpeed, controlsVisible) {
+    Box(modifier.background(Color.Black).pointerInput(player, resizeMode) { detectTransformGestures { _, _, zoom, _ ->
+        val next = when { zoom > 1.04f -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM; zoom < .96f -> AspectRatioFrameLayout.RESIZE_MODE_FIT; else -> resizeMode }
+        if (next != resizeMode) resizeMode = next
+    } }.pointerInput(player, touchGestures, holdToSpeed, controlsVisible) {
         detectTapGestures(
             onPress = { if (holdToSpeed) coroutineScope { val release = async { tryAwaitRelease() }; delay(450); if (!release.isCompleted) { val previousSpeed = player.playbackParameters.speed; player.setPlaybackSpeed(2f); release.await(); player.setPlaybackSpeed(previousSpeed) } } else tryAwaitRelease() },
-            onTap = { controlsVisible = !controlsVisible },
+            onTap = { controlsVisible = true },
             onDoubleTap = if (touchGestures) {{ offset -> if (offset.x < size.width / 2f) player.seekBack() else player.seekForward(); controlsVisible = true }} else null,
         )
     }) {
         AndroidView(
             factory = { PlayerView(it).apply { this.player = player; useController = false; setShowBuffering(PlayerView.SHOW_BUFFERING_ALWAYS); keepScreenOn = true } },
-            update = { it.player = player },
+            update = { it.player = player; it.resizeMode = resizeMode },
             modifier = Modifier.fillMaxSize(),
         )
         if (controlsVisible) {
-            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .42f)).pointerInput(player, touchGestures, holdToSpeed) {
+            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .42f)).pointerInput(player, resizeMode) { detectTransformGestures { _, _, zoom, _ ->
+                val next = when { zoom > 1.04f -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM; zoom < .96f -> AspectRatioFrameLayout.RESIZE_MODE_FIT; else -> resizeMode }
+                if (next != resizeMode) resizeMode = next
+            } }.pointerInput(player, touchGestures, holdToSpeed) {
                 detectTapGestures(
                     onPress = { if (holdToSpeed) coroutineScope { val release = async { tryAwaitRelease() }; delay(450); if (!release.isCompleted) { val previousSpeed = player.playbackParameters.speed; player.setPlaybackSpeed(2f); release.await(); player.setPlaybackSpeed(previousSpeed) } } else tryAwaitRelease() },
-                    onTap = { controlsVisible = true },
+                    onTap = { controlsVisible = false },
                     onDoubleTap = if (touchGestures) {{ offset -> if (offset.x < size.width / 2f) player.seekBack() else player.seekForward(); controlsVisible = true }} else null,
                 )
             }) {
@@ -246,6 +269,27 @@ actual fun NativePlayer(
             PlayerTrackPanel(player, type, onBeforeSelection = { trackFallback = player.trackSelectionParameters; lastTrackChangeAt = SystemClock.elapsedRealtime() }, onDismiss = { trackPanel = null })
         }
     }
+}
+
+private fun audioLanguageCode(preference: String): String? = when (preference) {
+    "System default" -> java.util.Locale.getDefault().language.takeIf(String::isNotBlank)
+    "English" -> "en"
+    "Spanish" -> "es"
+    "French" -> "fr"
+    "German" -> "de"
+    "Japanese" -> "ja"
+    "Korean" -> "ko"
+    else -> null
+}
+
+private fun audioTrackScore(format: androidx.media3.common.Format, preferredLanguage: String?): Int {
+    val language = format.language?.let { java.util.Locale.forLanguageTag(it.replace('_', '-')).language }
+    val label = format.label.orEmpty().lowercase()
+    val commentary = format.roleFlags and C.ROLE_FLAG_COMMENTARY != 0 || "commentary" in label || "description" in label
+    return (if (preferredLanguage != null && language == preferredLanguage) 1_000 else 0) +
+        (if (!commentary) 200 else -500) +
+        (if (format.selectionFlags and C.SELECTION_FLAG_DEFAULT != 0) 40 else 0) +
+        (format.channelCount.takeIf { it > 0 } ?: 0)
 }
 
 @Composable

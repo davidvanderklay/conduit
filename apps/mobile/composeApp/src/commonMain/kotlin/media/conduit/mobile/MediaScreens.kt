@@ -310,6 +310,7 @@ internal fun MediaDetailsScreen(
                 subtitles = externalSubtitles,
                 hasEpisodes = orderedVideos.isNotEmpty(), onEpisodes = { episodesOpen = true }, modifier = Modifier.fillMaxSize(),
                 touchGestures = preferences.touchGestures, holdToSpeed = preferences.holdToSpeed,
+                preferredAudioLanguage = preferences.preferredAudioLanguage,
             ) { playback = it }
             if (openingOverlay && playback.error == null) {
                 PlayerOpeningOverlay(

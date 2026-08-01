@@ -14,6 +14,7 @@ expect fun NativePlayer(
     hasEpisodes: Boolean = false,
     touchGestures: Boolean = true,
     holdToSpeed: Boolean = true,
+    preferredAudioLanguage: String = "System default",
     onEpisodes: () -> Unit = {},
     modifier: Modifier = Modifier,
     onState: (PlaybackState) -> Unit,
