@@ -220,6 +220,8 @@ pub fn run() {
 
 #[cfg(target_os = "linux")]
 fn configure_linux_webkit() {
+    configure_linux_vaapi_driver_path();
+
     let wayland_session = std::env::var_os("WAYLAND_DISPLAY").is_some();
     let xwayland_requested = std::env::var_os("CONDUIT_XWAYLAND").is_some();
     let native_wayland = wayland_session && !xwayland_requested;
@@ -254,6 +256,31 @@ fn configure_linux_webkit() {
         && std::env::var_os("__NV_DISABLE_EXPLICIT_SYNC").is_none()
     {
         std::env::set_var("__NV_DISABLE_EXPLICIT_SYNC", "1");
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn configure_linux_vaapi_driver_path() {
+    if std::env::var_os("LIBVA_DRIVERS_PATH").is_some() {
+        return;
+    }
+
+    // The GNOME Flatpak runtime installs Intel's media driver in its own
+    // subdirectory rather than libva's default `dri` directory. Point libva
+    // at it before libmpv initializes, while leaving host and AMD layouts
+    // untouched.
+    const INTEL_DRIVER_DIRS: &[&str] = &[
+        "/usr/lib/x86_64-linux-gnu/dri/intel-vaapi-driver",
+        "/usr/lib64/dri/intel-vaapi-driver",
+        "/usr/lib/dri/intel-vaapi-driver",
+    ];
+    if let Some(directory) = INTEL_DRIVER_DIRS.iter().find(|directory| {
+        std::path::Path::new(directory)
+            .join("iHD_drv_video.so")
+            .is_file()
+    }) {
+        std::env::set_var("LIBVA_DRIVERS_PATH", directory);
+        eprintln!("Conduit: using packaged Intel VA-API driver from {directory}");
     }
 }
 
