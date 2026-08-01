@@ -57,7 +57,11 @@ class AppStore(
             AppAction.ForgetEndpoint -> {
                 sessions?.clear()
                 settings.remove(endpointKey)
-                AppState(notice = "Server connection removed")
+                AppState(
+                    endpoint = DefaultServerEndpoint,
+                    setupInput = DefaultServerEndpoint.baseUrl,
+                    notice = "Using the default server",
+                )
             }
             is AppAction.Navigate -> state.copy(destination = action.destination)
             is AppAction.SelectProfile -> {

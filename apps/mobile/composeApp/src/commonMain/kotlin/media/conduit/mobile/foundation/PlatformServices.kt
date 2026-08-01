@@ -18,6 +18,7 @@ data class PlatformInfo(
     val name: String,
     val version: String,
     val device: String,
+    val p2pAvailable: Boolean = false,
 )
 
 data class PlatformServices(

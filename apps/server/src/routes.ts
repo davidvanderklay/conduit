@@ -53,6 +53,7 @@ interface RouteContext {
 
 interface SessionUser {
   id: string
+  email: string
 }
 
 const LEGACY_COMPLETION_MARKER_PREFIX = "conduit:completion:"
@@ -943,6 +944,7 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
             .orderBy(asc(profiles.createdAt))
 
     return {
+      user: { email: user.email },
       households: memberships.map((membership) => ({
         id: membership.householdId,
         name: membership.householdName,
@@ -1971,7 +1973,7 @@ async function requireUser(
     reply.unauthorized()
     return
   }
-  return { id: session.user.id }
+  return { id: session.user.id, email: session.user.email }
 }
 
 async function requireOwner(
