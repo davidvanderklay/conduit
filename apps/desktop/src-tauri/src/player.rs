@@ -139,10 +139,7 @@ impl PlayerManager {
                     // frames avoids driver-specific zero-copy interop failures
                     // with libmpv's embedded OpenGL renderer while still moving
                     // video decoding off the CPU.
-                    initializer.set_option(
-                        "hwdec",
-                        "nvdec-copy,vaapi-copy,vulkan-copy,drm-copy,auto-copy-safe",
-                    )?;
+                    initializer.set_option("hwdec", linux_hwdec_order(nvidia_driver))?;
                     if nvidia_driver {
                         // NVIDIA's zero-copy CUDA/OpenGL interop has caused
                         // black output in the embedded renderer. The selected
@@ -429,9 +426,26 @@ fn force_c_numeric_locale() {
 #[cfg(not(unix))]
 fn force_c_numeric_locale() {}
 
+#[cfg(target_os = "linux")]
+fn linux_hwdec_order(nvidia_driver: bool) -> &'static str {
+    if nvidia_driver {
+        "nvdec-copy,vaapi-copy,vulkan-copy,drm-copy,auto-copy-safe"
+    } else {
+        "vaapi-copy,vulkan-copy,drm-copy,auto-copy-safe"
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn only_probes_nvdec_when_an_nvidia_driver_is_loaded() {
+        assert!(linux_hwdec_order(true).starts_with("nvdec-copy"));
+        assert!(linux_hwdec_order(false).starts_with("vaapi-copy"));
+        assert!(!linux_hwdec_order(false).contains("nvdec"));
+    }
 
     #[test]
     fn converts_command_values() {
