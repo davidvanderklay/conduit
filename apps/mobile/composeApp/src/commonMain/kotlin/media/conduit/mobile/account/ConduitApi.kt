@@ -377,12 +377,12 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
 
     suspend fun createProfile(
         baseUrl: String, token: String, householdId: String, name: String,
-        isKids: Boolean, usesPrimaryAddons: Boolean, avatarColor: String, avatarUrl: String?,
+        isKids: Boolean, usesPrimaryAddons: Boolean, avatarColor: String?, avatarUrl: String?,
     ): ProfileSummary {
         val response = client.post("$baseUrl/v1/households/$householdId/profiles") {
             bearerAuth(token); contentType(ContentType.Application.Json)
             setBody(buildJsonObject {
-                put("name", name.trim()); put("isKids", isKids); put("usesPrimaryAddons", usesPrimaryAddons); put("avatarColor", avatarColor)
+                put("name", name.trim()); put("isKids", isKids); put("usesPrimaryAddons", usesPrimaryAddons); avatarColor?.let { put("avatarColor", it) }
                 avatarUrl?.let { put("avatarUrl", it) }
             })
         }
@@ -392,12 +392,12 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
 
     suspend fun updateProfile(
         baseUrl: String, token: String, profileId: String, name: String,
-        isKids: Boolean, usesPrimaryAddons: Boolean, avatarColor: String, avatarUrl: String?,
+        isKids: Boolean, usesPrimaryAddons: Boolean, avatarColor: String?, avatarUrl: String?,
     ): ProfileSummary {
         val response = client.patch("$baseUrl/v1/profiles/$profileId") {
             bearerAuth(token); contentType(ContentType.Application.Json)
             setBody(buildJsonObject {
-                put("name", name.trim()); put("isKids", isKids); put("usesPrimaryAddons", usesPrimaryAddons); put("avatarColor", avatarColor)
+                put("name", name.trim()); put("isKids", isKids); put("usesPrimaryAddons", usesPrimaryAddons); if (avatarColor == null) put("avatarColor", kotlinx.serialization.json.JsonNull) else put("avatarColor", avatarColor)
                 if (avatarUrl == null) put("avatarUrl", kotlinx.serialization.json.JsonNull) else put("avatarUrl", avatarUrl)
             })
         }

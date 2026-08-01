@@ -119,8 +119,8 @@ export function SettingsView({ profile, profiles, householdId, onSelectProfile, 
         {saved && <span className="hidden items-center gap-2 rounded-full border border-emerald-900/70 bg-emerald-950/50 px-3 py-1.5 text-xs text-emerald-300 sm:flex"><Check size={13} /> Saved on this device</span>}
       </div>
 
-      <div className="grid min-h-[calc(100vh-11rem)] overflow-hidden rounded-2xl border border-zinc-800/90 bg-zinc-950/65 shadow-2xl shadow-black/20 lg:grid-cols-[19rem_minmax(0,1fr)] 2xl:grid-cols-[21rem_minmax(0,1fr)]">
-        <aside className="border-b border-zinc-800 bg-zinc-900/45 p-3 lg:border-b-0 lg:border-r lg:p-4">
+      <div className="grid min-h-[calc(100vh-11rem)] gap-7 lg:grid-cols-[18rem_minmax(0,1fr)] 2xl:grid-cols-[20rem_minmax(0,1fr)]">
+        <aside className="border-b border-zinc-800 pb-5 lg:border-b-0 lg:border-r lg:pb-0 lg:pr-7">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-600" size={16} />
             <input
@@ -133,7 +133,7 @@ export function SettingsView({ profile, profiles, householdId, onSelectProfile, 
             {query && <button className="absolute right-2 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-lg text-zinc-500 hover:bg-zinc-800 hover:text-white" onClick={() => setQuery("")} aria-label="Clear settings search"><X size={14} /></button>}
           </div>
 
-          <nav className="mt-4 max-h-72 overflow-auto pr-1 lg:max-h-none" aria-label="Settings categories">
+          <nav className="mt-4 pr-1" aria-label="Settings categories">
             {groups.map((group) => {
               const entries = filtered.filter((entry) => entry.group === group)
               if (!entries.length) return null
@@ -148,14 +148,14 @@ export function SettingsView({ profile, profiles, householdId, onSelectProfile, 
           </nav>
         </aside>
 
-        <section className="min-w-0 bg-[radial-gradient(circle_at_85%_-10%,rgba(251,191,36,.055),transparent_24rem)]">
-          <header className="border-b border-zinc-800/80 px-5 py-5 sm:px-7 lg:px-10 lg:py-7">
+        <section className="min-w-0">
+          <header className="pb-7">
             <div className="flex items-center gap-4">
               <div className="grid size-11 shrink-0 place-items-center rounded-xl border border-amber-400/15 bg-amber-400/10 text-amber-300"><active.icon size={21} /></div>
               <div><h2 className="font-display text-xl font-semibold sm:text-2xl">{active.title}</h2><p className="mt-1 text-sm text-zinc-500">{active.description}</p></div>
             </div>
           </header>
-          <div className="w-full p-5 sm:p-7 lg:p-10 2xl:p-12">
+          <div className="w-full">
             {page === "profile" && <ProfileSettings profile={profile} profiles={profiles} householdId={householdId} onSelectProfile={onSelectProfile} />}
             {page === "account" && <AccountSettings onSignedOut={() => queryClient.clear()} />}
             {page === "appearance" && <AppearanceSettings preferences={preferences} update={update} />}
@@ -207,22 +207,23 @@ function ProfileEditorForm({ editing, activeProfile, profiles, householdId, onSe
   const [usesPrimaryAddons, setUsesPrimaryAddons] = useState(editing?.usesPrimaryAddons ?? false)
   const [avatarColor, setAvatarColor] = useState(editing?.avatarColor ?? PROFILE_COLORS[0]!)
   const [avatarUrl, setAvatarUrl] = useState(editing?.avatarUrl ?? "")
+  const [avatarMode, setAvatarMode] = useState<"color" | "image">(editing?.avatarUrl ? "image" : "color")
   const [pending, setPending] = useState(false)
   const [error, setError] = useState("")
   const primary = profiles[0]
   const canUsePrimary = !editing || editing.id !== primary?.id
-  const preview: Profile = { id: editing?.id ?? "new", name: name.trim() || "New profile", isKids, usesPrimaryAddons, avatarColor, avatarUrl: avatarUrl.trim() || null }
+  const preview: Profile = { id: editing?.id ?? "new", name: name.trim() || "New profile", isKids, usesPrimaryAddons, avatarColor: avatarMode === "color" ? avatarColor : null, avatarUrl: avatarMode === "image" ? avatarUrl.trim() || null : null }
 
   const save = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    const cleanUrl = avatarUrl.trim()
+    const cleanUrl = avatarMode === "image" ? avatarUrl.trim() : ""
     if (cleanUrl && !/^https?:\/\//i.test(cleanUrl)) { setError("Avatar URL must begin with http:// or https://"); return }
     setPending(true); setError("")
     try {
-      const body = { name: name.trim(), isKids, usesPrimaryAddons: canUsePrimary && usesPrimaryAddons, avatarColor, avatarUrl: cleanUrl || null }
+      const body = { name: name.trim(), isKids, usesPrimaryAddons: canUsePrimary && usesPrimaryAddons, avatarColor: avatarMode === "color" ? avatarColor : null, avatarUrl: cleanUrl || null }
       const result = editing
         ? await api<{ profile: Profile }>(`/v1/profiles/${editing.id}`, { method: "PATCH", body: JSON.stringify(body) })
-        : await api<{ profile: Profile }>(`/v1/households/${householdId}/profiles`, { method: "POST", body: JSON.stringify({ ...body, avatarUrl: cleanUrl || undefined }) })
+        : await api<{ profile: Profile }>(`/v1/households/${householdId}/profiles`, { method: "POST", body: JSON.stringify({ ...body, avatarColor: avatarMode === "color" ? avatarColor : undefined, avatarUrl: cleanUrl || undefined }) })
       await queryClient.invalidateQueries({ queryKey: ["bootstrap"] })
       if (!editing) onSelectProfile(result.profile.id)
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to save profile") } finally { setPending(false) }
@@ -234,8 +235,8 @@ function ProfileEditorForm({ editing, activeProfile, profiles, householdId, onSe
       <div className="space-y-5">
         <label className="block text-sm font-medium text-zinc-300">Profile name<Input className="mt-2 max-w-2xl" maxLength={80} value={name} onChange={(event) => setName(event.target.value)} required /></label>
         <div className="grid gap-3 xl:grid-cols-2"><ProfileOptionCard title="Kids profile" description="Use a child-friendly viewing profile." checked={isKids} onChange={setIsKids} />{canUsePrimary && <ProfileOptionCard title="Use primary add-ons" description={`Share ${primary?.name ?? "the primary profile"}'s live add-on setup.`} checked={usesPrimaryAddons} onChange={setUsesPrimaryAddons} />}</div>
-        <div><p className="text-sm font-medium text-zinc-300">Profile color</p><div className="mt-3 flex flex-wrap gap-3">{PROFILE_COLORS.map((color) => <button key={color} type="button" className={`size-9 rounded-full transition ${avatarColor === color ? "ring-2 ring-white ring-offset-2 ring-offset-zinc-900" : "hover:scale-110"}`} style={{ backgroundColor: color }} aria-label={`Use profile color ${color}`} onClick={() => setAvatarColor(color)} />)}</div></div>
-        <label className="block text-sm font-medium text-zinc-300">Custom avatar URL <span className="font-normal text-zinc-600">(optional)</span><Input className="mt-2 max-w-2xl" type="url" placeholder="https://example.com/avatar.png" value={avatarUrl} onChange={(event) => setAvatarUrl(event.target.value)} /></label>
+        <div><p className="text-sm font-medium text-zinc-300">Avatar</p><div className="mt-2 inline-flex rounded-xl border border-zinc-800 bg-zinc-950 p-1"><button type="button" className={`rounded-lg px-3 py-2 text-sm ${avatarMode === "color" ? "bg-zinc-800 text-white" : "text-zinc-500 hover:text-white"}`} onClick={() => setAvatarMode("color")}>Profile color</button><button type="button" className={`rounded-lg px-3 py-2 text-sm ${avatarMode === "image" ? "bg-zinc-800 text-white" : "text-zinc-500 hover:text-white"}`} onClick={() => setAvatarMode("image")}>Custom image</button></div></div>
+        {avatarMode === "color" ? <div><div className="flex flex-wrap gap-3">{PROFILE_COLORS.map((color) => <button key={color} type="button" className={`size-9 rounded-full transition ${avatarColor === color ? "ring-2 ring-white ring-offset-2 ring-offset-zinc-900" : "hover:scale-110"}`} style={{ backgroundColor: color }} aria-label={`Use profile color ${color}`} onClick={() => setAvatarColor(color)} />)}</div></div> : <label className="block text-sm font-medium text-zinc-300">Custom image URL<Input className="mt-2 max-w-2xl" type="url" placeholder="https://example.com/avatar.png" value={avatarUrl} onChange={(event) => setAvatarUrl(event.target.value)} /></label>}
         {error && <p className="text-sm text-red-400">{error}</p>}
         <Button disabled={pending || !name.trim()}>{pending ? "Saving…" : editing ? "Save changes" : "Create profile"}</Button>
       </div>
@@ -298,7 +299,7 @@ function DataSettings({ profile, preferences, onPreferences }: { profile: Profil
   return <div className="space-y-7"><SettingsGroup title="EXPORT" description="Move this profile between Conduit servers."><div className="p-5"><p className="text-sm leading-6 text-zinc-400">Exports include the profile, library, watch history, add-on order, and device preferences.</p><label className="mt-4 flex max-w-2xl items-start gap-3 text-sm text-zinc-400"><input className="mt-1 accent-amber-400" type="checkbox" checked={includeSecrets} onChange={(event) => setIncludeSecrets(event.target.checked)} /><span>Include add-on URLs<span className="mt-1 block text-xs text-amber-300">URLs can contain credentials. Store this file securely.</span></span></label><Button className="mt-5" variant="secondary" disabled={busy} onClick={async () => { setBusy(true); setError(""); try { const save = await prepareJsonSave(`conduit-${safeFilename(profile.name)}.json`); if (!save) return; const data = await api<Record<string, unknown>>(`/v1/profiles/${profile.id}/export?includeSecrets=${includeSecrets}`); data.preferences = preferences; await save(data) } catch (cause) { setError(cause instanceof Error ? cause.message : "Export failed") } finally { setBusy(false) } }}><Download size={15} /> Export profile</Button></div></SettingsGroup><SettingsGroup title="IMPORT" description="Preview changes before applying them."><div className="p-5"><Input className="max-w-2xl file:mr-3 file:border-0 file:bg-transparent file:text-zinc-300" type="file" accept="application/json,.json" onChange={async (event) => { const file = event.target.files?.[0]; if (!file) return; setBusy(true); setError(""); try { if (file.size > 10 * 1024 * 1024) throw new Error("Import exceeds the 10 MiB limit"); const data = JSON.parse(await file.text()) as Record<string, unknown>; const result = await api<ImportPreview>(`/v1/profiles/${profile.id}/import/preview`, { method: "POST", body: JSON.stringify(data) }); setImportData(data); setPreview(result) } catch (cause) { setError(cause instanceof Error ? cause.message : "Invalid import") } finally { setBusy(false) } }} />{preview && <div className="mt-5 max-w-2xl rounded-xl border border-zinc-800 bg-zinc-950 p-4 text-sm"><p className="font-medium">{preview.profile.name}</p><p className="mt-1 text-zinc-500">{preview.counts.library} library · {preview.counts.progress} history · {preview.importableAddons}/{preview.counts.addons} add-ons importable</p>{preview.warnings.map((warning) => <p className="mt-2 text-amber-300" key={warning}>{warning}</p>)}<div className="mt-4 flex flex-wrap gap-3"><Select value={mode} onChange={(value) => setMode(value as "merge" | "replace")} options={[["merge", "Merge with existing"], ["replace", "Replace existing"]]} /><Button variant={mode === "replace" ? "destructive" : "default"} disabled={busy} onClick={async () => { if (!importData) return; setBusy(true); try { await api(`/v1/profiles/${profile.id}/import`, { method: "POST", body: JSON.stringify({ mode, data: importData }) }); if (isRecord(importData.preferences)) { const next = importedPreferences(preferences, importData.preferences); onPreferences(next); writePreferences(next) } await queryClient.invalidateQueries(); setPreview(null); setImportData(null) } catch (cause) { setError(cause instanceof Error ? cause.message : "Import failed") } finally { setBusy(false) } }}><Upload size={15} /> Import</Button></div></div>}</div></SettingsGroup>{error && <p className="text-sm text-red-400">{error}</p>}</div>
 }
 
-function SettingsGroup({ title, description, children }: { title: string; description?: string; children: ReactNode }) { return <div><div className="mb-2 px-1"><h3 className="text-[11px] font-bold uppercase tracking-[0.17em] text-amber-400/80">{title}</h3>{description && <p className="mt-1 text-xs text-zinc-600">{description}</p>}</div><div className="overflow-hidden rounded-2xl border border-zinc-800/90 bg-zinc-900/50 shadow-sm">{children}</div></div> }
+function SettingsGroup({ title, description, children }: { title: string; description?: string; children: ReactNode }) { return <div><div className="mb-2 px-1"><h3 className="text-[11px] font-bold uppercase tracking-[0.17em] text-amber-400/80">{title}</h3>{description && <p className="mt-1 text-xs text-zinc-600">{description}</p>}</div><div className="overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900">{children}</div></div> }
 function Divider() { return <div className="mx-5 border-t border-zinc-800/80" /> }
 function SettingRow({ icon: Icon, title, description, children }: { icon: LucideIcon; title: string; description: string; children: ReactNode }) { return <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center"><div className="flex min-w-0 flex-1 items-center gap-3"><div className="grid size-9 shrink-0 place-items-center rounded-lg bg-zinc-800/80 text-zinc-400"><Icon size={17} /></div><div><p className="text-sm font-medium text-zinc-200">{title}</p><p className="mt-1 text-xs leading-5 text-zinc-500">{description}</p></div></div><div className="shrink-0 sm:max-w-xs">{children}</div></div> }
 function SettingToggle({ label, description, checked, onChange, defaultChecked, name }: { label: string; description: string; checked?: boolean; onChange?: (value: boolean) => void; defaultChecked?: boolean; name?: string }) {
