@@ -1,6 +1,11 @@
 import org.jetbrains.kotlin.gradle.ExperimentalKotlinGradlePluginApi
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
+val androidReleaseKeystore = providers.environmentVariable("ANDROID_KEYSTORE_FILE").orNull
+val androidReleaseStorePassword = providers.environmentVariable("ANDROID_KEYSTORE_PASSWORD").orNull
+val androidReleaseKeyAlias = providers.environmentVariable("ANDROID_KEY_ALIAS").orNull
+val androidReleaseKeyPassword = providers.environmentVariable("ANDROID_KEY_PASSWORD").orNull
+
 plugins {
     kotlin("multiplatform")
     kotlin("plugin.serialization")
@@ -73,13 +78,31 @@ android {
     namespace = "media.conduit.mobile"
     compileSdk = 36
     sourceSets["main"].res.srcDir("../../desktop/src-tauri/icons/android")
+    val releaseSigning = if (
+        androidReleaseKeystore != null &&
+        androidReleaseStorePassword != null &&
+        androidReleaseKeyAlias != null &&
+        androidReleaseKeyPassword != null
+    ) {
+        signingConfigs.create("release") {
+            storeFile = file(androidReleaseKeystore)
+            storePassword = androidReleaseStorePassword
+            keyAlias = androidReleaseKeyAlias
+            keyPassword = androidReleaseKeyPassword
+        }
+    } else {
+        null
+    }
     defaultConfig {
-        applicationId = "media.conduit.mobile.spike"
+        applicationId = "media.conduit.mobile"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0-spike"
+        versionCode = providers.environmentVariable("CONDUIT_VERSION_CODE").orNull?.toIntOrNull() ?: 1
+        versionName = providers.environmentVariable("CONDUIT_VERSION_NAME").orNull ?: "0.1.0-spike"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+    buildTypes.getByName("release") {
+        releaseSigning?.let { signingConfig = it }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

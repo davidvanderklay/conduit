@@ -14,6 +14,7 @@ on:
         type: choice
         options:
           - all
+          - android
           - flatpak
         default: all
 
@@ -140,6 +141,7 @@ jobs:
             node scripts/set-release-version.mjs "${GITHUB_REF_NAME#v}"
       - name: Configure production server
         run: |
+          # shellcheck disable=SC2016
           node -e '
             const fs = require("node:fs");
             const path = "flatpak/media.conduit.desktop.yml";
@@ -376,10 +378,79 @@ jobs:
           path: target/release/bundle/macos/*.dmg
           if-no-files-found: error
 
+  android:
+    if: github.event_name != 'workflow_dispatch' || inputs.target == 'all' || inputs.target == 'android'
+    name: Android APK
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: gradle
+          cache-dependency-path: apps/mobile/**/*.gradle*
+      - uses: android-actions/setup-android@v3
+      - name: Install pinned Android SDK components
+        run: >-
+          sdkmanager
+          "platforms;android-36"
+          "build-tools;36.0.0"
+          "ndk;28.2.13676358"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,x86_64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .
+      - name: Install pinned Rust Android packager
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-ndk@3.5.4
+      - name: Build Rust JNI libraries
+        run: ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358" apps/mobile/scripts/build-rust-android.sh
+      - name: Restore release keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          test -n "$KEYSTORE_BASE64"
+          test -n "$KEYSTORE_PASSWORD"
+          test -n "$KEY_ALIAS"
+          test -n "$KEY_PASSWORD"
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/conduit-release.jks"
+      - name: Build signed release APK
+        working-directory: apps/mobile
+        env:
+          ANDROID_KEYSTORE_FILE: ${{ runner.temp }}/conduit-release.jks
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          CONDUIT_VERSION_NAME: ${{ github.ref_type == 'tag' && github.ref_name || format('0.0.0-ci.{0}', github.run_number) }}
+          CONDUIT_VERSION_CODE: ${{ github.run_number }}
+        run: |
+          version="${CONDUIT_VERSION_NAME#v}"
+          CONDUIT_VERSION_NAME="$version" ./gradlew --no-daemon :composeApp:testDebugUnitTest :composeApp:assembleRelease
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose \
+            composeApp/build/outputs/apk/release/composeApp-release.apk
+          mkdir -p ../../target/release/bundle/android
+          cp composeApp/build/outputs/apk/release/composeApp-release.apk \
+            "../../target/release/bundle/android/conduit-${version}-android-universal.apk"
+          cd ../../target/release/bundle/android
+          sha256sum "conduit-${version}-android-universal.apk" \
+            > "conduit-${version}-android-universal.apk.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: conduit-android
+          path: target/release/bundle/android/*
+          if-no-files-found: error
+
   publish:
     name: Publish GitHub release
     if: github.ref_type == 'tag'
-    needs: [windows, linux-appimage, linux-flatpak, macos]
+    needs: [windows, linux-appimage, linux-flatpak, macos, android]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
