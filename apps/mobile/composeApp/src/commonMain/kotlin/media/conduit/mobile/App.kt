@@ -1,6 +1,7 @@
 package media.conduit.mobile
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
@@ -22,6 +23,8 @@ import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
@@ -244,14 +247,19 @@ private fun HouseholdSetup(onCreate: (String, String) -> Unit) {
 
 @Composable
 private fun CenteredStatus(message: String) {
-    Surface(Modifier.fillMaxSize()) {
-        Column(
-            Modifier.fillMaxSize().padding(24.dp),
-            verticalArrangement = Arrangement.Center,
-        ) {
-            CircularProgressIndicator()
-            Spacer(Modifier.height(16.dp))
-            Text(message)
+    val pulse = rememberInfiniteTransition(label = "conduit-launch")
+    val scale by pulse.animateFloat(1f, 1.035f, infiniteRepeatable(tween(1_250, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "brand-scale")
+    val alpha by pulse.animateFloat(.88f, 1f, infiniteRepeatable(tween(1_250, easing = LinearEasing), RepeatMode.Reverse), label = "brand-alpha")
+    Box(Modifier.fillMaxSize().background(Brush.radialGradient(colors = listOf(Color(0xFF1B1608), Color(0xFF09090B), Color(0xFF050506)), radius = 720f)), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(22.dp), modifier = Modifier.padding(32.dp)) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.scale(scale).alpha(alpha)) {
+                Surface(color = MaterialTheme.colorScheme.primary, contentColor = Color.Black, shape = RoundedCornerShape(18.dp), shadowElevation = 10.dp, modifier = Modifier.size(66.dp)) {
+                    Box(contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Movie, null, modifier = Modifier.size(36.dp)) }
+                }
+                Text("conduit", color = Color.White, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+            }
+            CircularProgressIndicator(color = Color(0xFFFBBF24), trackColor = Color.White.copy(.14f), strokeWidth = 3.dp, modifier = Modifier.size(30.dp))
+            Text(message, color = Color(0xFFB8B8C2), style = MaterialTheme.typography.bodyMedium, maxLines = 1)
         }
     }
 }
