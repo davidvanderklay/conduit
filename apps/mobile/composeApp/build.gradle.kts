@@ -72,6 +72,7 @@ kotlin {
 android {
     namespace = "media.conduit.mobile"
     compileSdk = 36
+    sourceSets["main"].res.srcDir("../../desktop/src-tauri/icons/android")
     defaultConfig {
         applicationId = "media.conduit.mobile.spike"
         minSdk = 26
