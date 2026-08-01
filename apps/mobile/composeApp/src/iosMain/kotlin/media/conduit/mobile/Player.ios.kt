@@ -39,6 +39,7 @@ actual fun NativePlayer(
     hasEpisodes: Boolean,
     touchGestures: Boolean,
     holdToSpeed: Boolean,
+    preferredAudioLanguage: String,
     onEpisodes: () -> Unit,
     modifier: Modifier,
     onState: (PlaybackState) -> Unit,

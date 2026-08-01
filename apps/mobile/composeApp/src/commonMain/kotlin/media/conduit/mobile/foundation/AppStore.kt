@@ -66,7 +66,7 @@ class AppStore(
             is AppAction.Navigate -> state.copy(destination = action.destination)
             is AppAction.SelectProfile -> {
                 settings.put(activeProfileKey, action.profileId)
-                state.copy(activeProfileId = action.profileId, notice = "Profile selected")
+                state.copy(activeProfileId = action.profileId)
             }
             AppAction.DismissNotice -> state.copy(notice = null)
         }
