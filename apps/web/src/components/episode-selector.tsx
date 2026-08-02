@@ -68,7 +68,7 @@ export function EpisodeSelector({
   return (
     <aside
       ref={railRef}
-      className={`min-h-0 overflow-y-auto rounded-2xl border border-white/10 bg-zinc-950/95 shadow-2xl shadow-black/40 backdrop-blur-xl ${className}`}
+      className={`min-h-0 overflow-y-auto rounded-2xl border border-white/10 bg-zinc-950/95 shadow-2xl shadow-black/40 backdrop-blur-xl [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${className}`}
       aria-label="Episodes"
       onScroll={(event) => onScroll?.(event.currentTarget.scrollTop)}
     >
