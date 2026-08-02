@@ -731,6 +731,7 @@ export function DesktopPlayer({
       )}
       <PlayerEpisodeDrawer
         open={episodeDrawerOpen}
+        handleVisible={chromeVisible}
         context={seriesContext}
         onOpenChange={setEpisodeDrawerOpen}
         onSelect={(video) => {
