@@ -245,4 +245,28 @@ describe("next episode prompt", () => {
     expect(handle?.className).not.toContain("transition")
     expect(handle?.className).not.toContain("hover:w-")
   })
+
+  it("hides the closed drawer handle with the player controls", () => {
+    act(() => {
+      root.render(
+        <PlayerEpisodeDrawer
+          open={false}
+          handleVisible={false}
+          context={{
+            name: "Example",
+            videos: [episode],
+            progress: [],
+            currentVideoId: episode.id,
+          }}
+          onOpenChange={vi.fn()}
+          onSelect={vi.fn()}
+        />,
+      )
+    })
+    const handle = host.querySelector<HTMLButtonElement>(
+      'button[aria-label="Open episode list"]',
+    )
+    expect(handle?.className).toContain("invisible")
+    expect(handle?.className).toContain("pointer-events-none")
+  })
 })

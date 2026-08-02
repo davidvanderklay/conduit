@@ -29,11 +29,13 @@ export function shouldShowNextEpisodePrompt(
 
 export function PlayerEpisodeDrawer({
   open,
+  handleVisible = true,
   context,
   onOpenChange,
   onSelect,
 }: {
   open: boolean
+  handleVisible?: boolean
   context?: PlayerSeriesContext
   onOpenChange: (open: boolean) => void
   onSelect: (video: Video) => void
@@ -68,7 +70,9 @@ export function PlayerEpisodeDrawer({
     return (
       <button
         type="button"
-        className="absolute right-0 top-1/2 z-30 flex h-28 w-11 -translate-y-1/2 items-center justify-center rounded-l-full border border-r-0 border-white/10 bg-zinc-950/95 text-zinc-300 backdrop-blur hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+        className={`absolute right-0 top-1/2 z-30 flex h-28 w-11 -translate-y-1/2 items-center justify-center rounded-l-full border border-r-0 border-white/10 bg-zinc-950/95 text-zinc-300 backdrop-blur hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 ${
+          handleVisible ? "visible" : "pointer-events-none invisible"
+        }`}
         aria-label="Open episode list"
         aria-expanded="false"
         onClick={() => onOpenChange(true)}
