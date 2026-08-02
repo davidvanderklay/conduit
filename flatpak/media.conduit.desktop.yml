@@ -66,6 +66,16 @@ modules:
         url: https://github.com/libass/libass/releases/download/0.17.5/libass-0.17.5.tar.xz
         sha256: 2dca25c0e0c837ddf00b52011b3f82cac1e4ddd3ad018227806b0c2288864acc
 
+  - name: libdisplay-info
+    buildsystem: meson
+    config-opts:
+      - -Dlibdir=lib
+    sources:
+      - type: git
+        url: https://gitlab.freedesktop.org/emersion/libdisplay-info.git
+        tag: 0.4.0
+        commit: c67a3e9bedb05ab61c7443704a1a107e76254595
+
   - name: libmpv
     buildsystem: meson
     config-opts:
