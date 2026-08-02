@@ -73,6 +73,13 @@ modules:
       - -Dlibmpv=true
       - -Dlibdir=lib
       - -Dbuild-date=false
+      # vaapi-copy creates a standalone device through mpv's DRM backend.
+      # Auto-detection can silently omit it while leaving renderer-side VA
+      # probing available, which makes Intel drivers appear healthy but forces
+      # software decoding when playback starts.
+      - -Ddrm=enabled
+      - -Dvaapi=enabled
+      - -Dvaapi-drm=enabled
       - -Dalsa=disabled
       - -Djavascript=disabled
       - -Dlibarchive=disabled
