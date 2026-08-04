@@ -15,7 +15,8 @@ objects through a language bridge.
 The spike exercises a local manifest and streams fixture. Rust validates the
 manifest with `conduit-core`, checks stream capability, constructs the resource
 request, and deterministically selects the first direct URL. Compose passes the
-URL to Media3 or AVPlayer. The player reports low-frequency state to Compose.
+URL to Media3 on Android or MPVKit/libmpv on iOS. The player reports
+low-frequency state to Compose.
 
 ## Decision
 
@@ -29,7 +30,7 @@ The initial protocol is intentionally coarse:
 ```text
 Compose -> resolveFixture/cancel/close -> opaque Rust engine
 Compose <- resolved/cancelled/closed/error <- Rust
-Compose -> stream URL -> Media3 or AVPlayer
+Compose -> stream URL -> Media3 or MPVKit/libmpv
 Compose <- playing/position/duration/error <- native player
 ```
 
@@ -78,8 +79,9 @@ generation and `close` is terminal. This fixture has no asynchronous Rust I/O;
 future effects must attach cancellation to the generation and never publish a
 stale result. Compose disposal sends `close` and frees the handle. Each native
 player stops, removes its media item, and releases native resources on disposal.
-Android pauses outside the started lifecycle. iOS uses AVPlayer's native
-application audio/lifecycle integration; interruption/audio-session policy
+Android pauses outside the started lifecycle. iOS keeps libmpv and its
+CAMetalLayer inside a Swift/UIKit controller, pauses it on background, and
+uses an AVAudioSession for playback audio. Interruption/audio-session policy
 remains later playback scope.
 
 ## Evidence and measurements
@@ -113,8 +115,9 @@ spot-checked on physical hardware.
   only after the spike is accepted.
 - The remote legal fixture still depends on internet access; resolution itself
   is deterministic and offline.
-- AVPlayer and Media3 support different containers/codecs. Later stream ranking
-  needs host capability input, not platform logic hidden in Rust.
+- MPVKit and Media3 expose different codec and hardware-decoder behavior.
+  Later stream ranking needs host capability input, not platform logic hidden
+  in Rust.
 
 If device evidence shows Compose/native-view lifecycle leaks or unacceptable
 startup/binary cost, retain the Rust protocol and evaluate separate SwiftUI and

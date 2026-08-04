@@ -25,3 +25,14 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+## MPVKit
+
+The iOS mobile player links the pinned Nuvio MPVKit fork through Swift Package
+Manager. The package supplies libmpv, FFmpeg, MoltenVK, and the iOS rendering
+support used by `apps/mobile/iosApp/ConduitMobileSpike/MPVPlayerBridge.swift`:
+<https://github.com/NuvioMedia/MPVKit/tree/d5cf091c80368bbbc1bbf2d195fbc55d926df888>.
+
+Review the package's upstream license and bundled-library notices before
+shipping an iOS distribution. The package currently describes its MPVKit and
+bundled libraries as LGPL-licensed.
