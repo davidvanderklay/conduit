@@ -87,6 +87,14 @@ xcodegen generate
 open ConduitMobileSpike.xcodeproj
 ```
 
+The generated project resolves the pinned Nuvio MPVKit fork through Swift
+Package Manager. The first Xcode build downloads the package and its binary
+framework dependencies; this is expected and cannot be completed on Linux.
+The iOS adapter renders libmpv through a `CAMetalLayer`/MoltenVK surface and
+keeps the player object on the Swift/UIKit side of the Compose boundary.
+To test a different maintained fork, change the URL and revision under
+`MPVKit` in `apps/mobile/iosApp/project.yml` before regenerating the project.
+
 Select an iOS 15+ simulator. For a device, choose a development team in Xcode;
 no signing identity is committed. Xcode's pre-build step creates the Compose
 framework for the selected SDK.
@@ -95,9 +103,11 @@ iOS smoke test:
 
 1. Launch and exercise the same resolve/play/progress/close flow.
 2. Background/foreground, lock/unlock, rotate, and simulate an interruption.
-3. Close/reopen playback ten times and use Xcode's memory graph to check that
-   AVPlayer/player layers are released.
-4. Stop the app and confirm Instruments shows no continuing network task.
+3. Exercise play/pause, double-tap seek, pinch resize, speed, audio, subtitle,
+   and episode controls.
+4. Close/reopen playback ten times and use Xcode's memory graph to check that
+   libmpv, the MPVKit controller, and Metal layers are released.
+5. Stop the app and confirm Instruments shows no continuing network task.
 
 Record model, iOS version, architecture, first-frame time, memory delta, and
 simulator/real-device status.
@@ -105,8 +115,10 @@ simulator/real-device status.
 ## Known scope limits
 
 The spike does not fetch a third-party manifest, authenticate, synchronize
-progress, select tracks, enable PiP/casting, or implement P2P. The mobile engine
-boundary now uses protocol v2 with correlated work and cancellation messages,
+progress, enable PiP/casting, or implement P2P. The iOS MPVKit adapter now
+supports the initial stream URL, request headers, external subtitles, basic
+track selection, lifecycle pause/resume, and Compose-owned controls. The mobile
+engine boundary uses protocol v2 with correlated work and cancellation messages,
 bounded inputs, and serialized access to opaque handles. See
 [ADR 0003](adr/0003-mobile-engine-protocol-v2.md) for the ownership contract.
 Host dispatch tasks must finish before destroying an engine. The iOS and
