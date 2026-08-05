@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client"
 import { createRootRoute, createRoute, createRouter, RouterProvider } from "@tanstack/react-router"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { App } from "./app"
+import { isDesktop } from "./lib/desktop"
 import "./styles.css"
 
 const rootRoute = createRootRoute()
@@ -32,7 +33,7 @@ const queryClient = new QueryClient({
   },
 })
 
-if ("__TAURI_INTERNALS__" in window && navigator.userAgent.includes("Linux")) {
+if (isDesktop() && navigator.userAgent.includes("Linux")) {
   document.documentElement.classList.add("linux-desktop")
 }
 

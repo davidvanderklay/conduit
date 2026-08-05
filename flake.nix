@@ -27,6 +27,7 @@
             postgresql_17
             mpv
             dbus
+            electron
             glib
             gtk3
             libglvnd
@@ -38,6 +39,7 @@
 
           shellHook = ''
             export RUST_BACKTRACE=1
+            export CONDUIT_ELECTRON_BIN="$(command -v electron)"
           '';
         };
       });

@@ -73,6 +73,29 @@ pnpm dev:web
 pnpm dev:desktop
 ```
 
+The Electron prototype uses Chromium for the UI and a separate Rust helper for
+libmpv. On Linux it follows the current session's compositor by default:
+Wayland sessions use native Wayland/Ozone, while X11 sessions use X11/Ozone.
+
+```sh
+pnpm dev:electron
+```
+
+The prototype currently supports same-window native libmpv embedding on Linux
+X11/XWayland only. To test the Electron UI with native Wayland rendering on a
+Wayland session, use the default command above. Playback will report the X11
+embedding limitation in this mode. To test the complete Electron playback
+path, explicitly select X11/Ozone:
+
+```sh
+CONDUIT_ELECTRON_OZONE=x11 pnpm dev:electron
+```
+
+For GPU-driver diagnosis only, software rendering can be forced with
+`CONDUIT_ELECTRON_DISABLE_GPU=1`. Compare scrolling, poster-grid navigation,
+fullscreen, sign-in, and native playback against `pnpm dev:desktop` before
+considering Electron as the main desktop shell.
+
 ## Database migrations
 
 Edit `apps/server/src/db/schema.ts`, then generate and review SQL:

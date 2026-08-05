@@ -525,6 +525,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "conduit-electron-native"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "libmpv2",
+ "libmpv2-sys",
+ "pkg-config",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
+ "x11",
+]
+
+[[package]]
 name = "conduit-mobile"
 version = "0.1.0"
 dependencies = [

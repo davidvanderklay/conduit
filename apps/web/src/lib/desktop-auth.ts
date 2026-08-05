@@ -57,6 +57,9 @@ export async function beginDesktopAuthCallback(): Promise<{
   result: Promise<URL>
   cancel: () => void
 }> {
+  const electron = window.__CONDUIT_ELECTRON__
+  if (electron) return beginElectronAuthCallback(electron)
+
   const [{ listen }, { invoke }] = await Promise.all([
     import("@tauri-apps/api/event"),
     import("@tauri-apps/api/core"),
@@ -103,8 +106,57 @@ export async function beginDesktopAuthCallback(): Promise<{
 }
 
 export async function openInSystemBrowser(url: string): Promise<void> {
+  const electron = window.__CONDUIT_ELECTRON__
+  if (electron) {
+    await electron.openExternal(url)
+    return
+  }
   const { openUrl } = await import("@tauri-apps/plugin-opener")
   await openUrl(url)
+}
+
+async function beginElectronAuthCallback(electron: Window["__CONDUIT_ELECTRON__"] & object): Promise<{
+  callbackUrl: string
+  result: Promise<URL>
+  cancel: () => void
+}> {
+  let resolveResult!: (url: URL) => void
+  let rejectResult!: (error: Error) => void
+  const result = new Promise<URL>((resolve, reject) => {
+    resolveResult = resolve
+    rejectResult = reject
+  })
+  void result.catch(() => undefined)
+  let settled = false
+  let timeout = 0
+  const unlisten = electron.onDesktopAuthCallback((callbackUrl) => {
+    settled = true
+    window.clearTimeout(timeout)
+    unlisten()
+    try {
+      resolveResult(new URL(callbackUrl))
+    } catch {
+      rejectResult(new Error("The desktop authentication callback was invalid."))
+    }
+  })
+  timeout = window.setTimeout(() => {
+    settled = true
+    unlisten()
+    rejectResult(new Error("Desktop sign-in expired. Please try again."))
+  }, 5 * 60 * 1000)
+  const cancel = () => {
+    if (settled) return
+    settled = true
+    window.clearTimeout(timeout)
+    unlisten()
+  }
+  try {
+    const listener = await electron.invoke<{ callbackUrl: string }>("desktop_auth_listen")
+    return { callbackUrl: listener.callbackUrl, result, cancel }
+  } catch (cause) {
+    cancel()
+    throw cause
+  }
 }
 
 function isDesktopEnvironment(): boolean {

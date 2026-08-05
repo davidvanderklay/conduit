@@ -2,14 +2,23 @@
   "name": "@conduit/desktop",
   "private": true,
   "license": "MIT",
+  "main": "electron/dist/main.js",
   "scripts": {
     "build": "tauri build",
     "check": "cargo check --manifest-path src-tauri/Cargo.toml",
     "dev": "tauri dev",
+    "electron:build": "pnpm electron:native:build && pnpm --dir ../.. --filter @conduit/web build && pnpm electron:main:build",
+    "electron:dev": "pnpm electron:native:build && pnpm electron:main:build && node electron/run.mjs .",
+    "electron:main:build": "tsc -p electron/tsconfig.json",
+    "electron:native:build": "cargo build --manifest-path electron-native/Cargo.toml",
+    "electron:run": "node electron/run.mjs .",
     "setup:windows": "powershell -ExecutionPolicy Bypass -File scripts/setup-windows.ps1",
     "test": "cargo test --manifest-path src-tauri/Cargo.toml"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "latest"
+    "@tauri-apps/cli": "latest",
+    "@types/node": "latest",
+    "electron": "latest",
+    "typescript": "latest"
   }
 }
