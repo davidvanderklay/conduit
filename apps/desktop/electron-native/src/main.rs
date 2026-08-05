@@ -52,6 +52,15 @@ struct OpenParams {
     window_id: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct OverlayRegion {
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 struct PlayerTrack {
@@ -244,6 +253,11 @@ impl Player {
         Ok(())
     }
 
+    fn set_overlay_regions(&mut self, regions: Vec<OverlayRegion>) -> Result<(), NativeError> {
+        let host_window = self.host_window.as_ref().ok_or(NativeError::NotRunning)?;
+        set_video_host_shape(host_window, &regions)
+    }
+
     fn command(&self, command: Vec<Value>) -> Result<Value, NativeError> {
         let mpv = self.mpv.as_ref().ok_or(NativeError::NotRunning)?;
         let args = command.iter().map(value_to_arg).collect::<Vec<_>>();
@@ -316,6 +330,16 @@ fn handle_request(player: &mut Player, request: Request) -> Result<Value, Native
         "player_refresh_surface" | "player_redraw_surface" => {
             player.refresh_surface()?;
             Ok(Value::Null)
+        }
+        "player_set_overlay_regions" => {
+            let regions = request
+                .params
+                .get("regions")
+                .cloned()
+                .ok_or_else(|| NativeError::Command("missing overlay regions".into()))?;
+            let regions = serde_json::from_value::<Vec<OverlayRegion>>(regions)
+                .map_err(|error| NativeError::Command(error.to_string()))?;
+            player.set_overlay_regions(regions).map(|()| Value::Null)
         }
         _ => Err(NativeError::Command(format!(
             "unknown method {}",
@@ -581,13 +605,12 @@ fn restack_video_host(
     parent: x11::xlib::Window,
 ) {
     use x11::xlib::{
-        Below, CWSibling, CWStackMode, XConfigureWindow, XRaiseWindow, XWindowChanges,
+        Above, CWSibling, CWStackMode, XConfigureWindow, XRaiseWindow, XWindowChanges,
     };
 
     unsafe {
-        // A plain XLowerWindow can put the host below every window on the
-        // desktop. Configure it relative to Electron instead, so Chromium
-        // remains above the video host while transparent areas reveal mpv.
+        // Keep native video above Chromium. The X11 bounding/input shape
+        // applied to the host leaves the control rectangles exposed.
         let mut changes = XWindowChanges {
             x: 0,
             y: 0,
@@ -595,7 +618,7 @@ fn restack_video_host(
             height: 0,
             border_width: 0,
             sibling: parent,
-            stack_mode: Below,
+            stack_mode: Above,
         };
         XConfigureWindow(
             display,
@@ -603,7 +626,7 @@ fn restack_video_host(
             (CWSibling | CWStackMode) as u32,
             &mut changes,
         );
-        XRaiseWindow(display, parent);
+        XRaiseWindow(display, host);
     }
 }
 
@@ -633,6 +656,132 @@ fn window_frame(display: *mut x11::xlib::Display, window: x11::xlib::Window) -> 
         } else {
             window
         }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn set_video_host_shape(
+    host: &VideoHost,
+    overlay_regions: &[OverlayRegion],
+) -> Result<(), NativeError> {
+    use x11::{
+        xfixes::{XFixesCreateRegion, XFixesDestroyRegion, XFixesSetWindowShapeRegion},
+        xlib::{XFlush, XFree, XGetGeometry, XQueryTree, XRectangle},
+    };
+
+    const SHAPE_BOUNDING: libc::c_int = 0;
+    const SHAPE_INPUT: libc::c_int = 2;
+
+    unsafe {
+        let mut root = 0;
+        let mut x = 0;
+        let mut y = 0;
+        let mut width = 0;
+        let mut height = 0;
+        let mut border = 0;
+        let mut depth = 0;
+        if XGetGeometry(
+            host.display,
+            host.window as x11::xlib::Window,
+            &mut root,
+            &mut x,
+            &mut y,
+            &mut width,
+            &mut height,
+            &mut border,
+            &mut depth,
+        ) == 0
+        {
+            return Err(NativeError::InvalidWindowId(host.window.to_string()));
+        }
+
+        let mut full = XRectangle {
+            x: 0,
+            y: 0,
+            width: width.min(u32::from(u16::MAX)) as u16,
+            height: height.min(u32::from(u16::MAX)) as u16,
+        };
+        let video_region = XFixesCreateRegion(host.display, &mut full, 1);
+        if video_region == 0 {
+            return Err(NativeError::Initialization(
+                "XFixes could not create the native video shape".into(),
+            ));
+        }
+
+        let host_width = i64::from(width);
+        let host_height = i64::from(height);
+        for overlay in overlay_regions {
+            let x0 = i64::from(overlay.x).clamp(0, host_width);
+            let y0 = i64::from(overlay.y).clamp(0, host_height);
+            let x1 = (i64::from(overlay.x) + i64::from(overlay.width)).clamp(x0, host_width);
+            let y1 = (i64::from(overlay.y) + i64::from(overlay.height)).clamp(y0, host_height);
+            if x1 <= x0 || y1 <= y0 {
+                continue;
+            }
+
+            let mut overlay_rectangle = XRectangle {
+                x: x0 as i16,
+                y: y0 as i16,
+                width: (x1 - x0) as u16,
+                height: (y1 - y0) as u16,
+            };
+            let overlay_region = XFixesCreateRegion(host.display, &mut overlay_rectangle, 1);
+            if overlay_region == 0 {
+                XFixesDestroyRegion(host.display, video_region);
+                return Err(NativeError::Initialization(
+                    "XFixes could not create an overlay shape".into(),
+                ));
+            }
+            x11::xfixes::XFixesSubtractRegion(
+                host.display,
+                video_region,
+                video_region,
+                overlay_region,
+            );
+            XFixesDestroyRegion(host.display, overlay_region);
+        }
+
+        let empty_input_region = XFixesCreateRegion(host.display, std::ptr::null_mut(), 0);
+        if empty_input_region == 0 {
+            XFixesDestroyRegion(host.display, video_region);
+            return Err(NativeError::Initialization(
+                "XFixes could not create the native input shape".into(),
+            ));
+        }
+
+        let apply_shape = |window: x11::xlib::Window| {
+            XFixesSetWindowShapeRegion(host.display, window, SHAPE_BOUNDING, 0, 0, video_region);
+            XFixesSetWindowShapeRegion(host.display, window, SHAPE_INPUT, 0, 0, empty_input_region);
+        };
+        apply_shape(host.window as x11::xlib::Window);
+
+        // libmpv creates its own child window inside the host. Shape that
+        // child too because some X11 compositors composite child surfaces
+        // independently of the parent's bounding shape.
+        let mut child_root = 0;
+        let mut child_parent = 0;
+        let mut children = std::ptr::null_mut();
+        let mut child_count = 0;
+        if XQueryTree(
+            host.display,
+            host.window as x11::xlib::Window,
+            &mut child_root,
+            &mut child_parent,
+            &mut children,
+            &mut child_count,
+        ) != 0
+        {
+            for index in 0..child_count as isize {
+                apply_shape(*children.offset(index));
+            }
+        }
+        if !children.is_null() {
+            XFree(children.cast());
+        }
+        XFixesDestroyRegion(host.display, video_region);
+        XFixesDestroyRegion(host.display, empty_input_region);
+        XFlush(host.display);
+        Ok(())
     }
 }
 

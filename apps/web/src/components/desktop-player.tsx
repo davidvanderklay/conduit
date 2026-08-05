@@ -23,6 +23,7 @@ import {
   redrawNativeSurface,
   refreshNativeSurface,
   resetNativeOverlaySurface,
+  setNativeOverlayRegions,
   stopNativePlayer,
   toggleNativeFullscreen,
   type NativePlayerSnapshot,
@@ -574,6 +575,58 @@ export function DesktopPlayer({
   const expandedControls = fullscreen || spaciousViewport
   const loadingOverlayVisible = !error && (!snapshot || snapshot.duration <= 0)
 
+  const syncNativeOverlayRegions = useCallback(() => {
+    window.requestAnimationFrame(() => {
+      const player = document.querySelector<HTMLElement>(".native-player")
+      if (!player) return
+      const viewport = player.getBoundingClientRect()
+      const scale = window.devicePixelRatio || 1
+      const regions = [...player.querySelectorAll<HTMLElement>("[data-native-overlay]")]
+        .filter((element) => {
+          const style = getComputedStyle(element)
+          return style.display !== "none" && style.visibility !== "hidden"
+        })
+        .map((element) => {
+          const bounds = element.getBoundingClientRect()
+          return {
+            x: Math.round((bounds.left - viewport.left) * scale),
+            y: Math.round((bounds.top - viewport.top) * scale),
+            width: Math.round(bounds.width * scale),
+            height: Math.round(bounds.height * scale),
+          }
+        })
+        .filter((region) => region.width > 0 && region.height > 0)
+      void setNativeOverlayRegions(regions).catch(() => undefined)
+    })
+  }, [])
+
+  useLayoutEffect(() => {
+    syncNativeOverlayRegions()
+    const player = document.querySelector<HTMLElement>(".native-player")
+    if (!player || typeof ResizeObserver === "undefined") return
+    const observer = new ResizeObserver(syncNativeOverlayRegions)
+    observer.observe(player)
+    window.addEventListener("resize", syncNativeOverlayRegions)
+    return () => {
+      observer.disconnect()
+      window.removeEventListener("resize", syncNativeOverlayRegions)
+    }
+  }, [syncNativeOverlayRegions])
+
+  useLayoutEffect(() => {
+    syncNativeOverlayRegions()
+  }, [
+    activeMenu,
+    chromeVisible,
+    episodeDrawerOpen,
+    error,
+    fullscreen,
+    loadingOverlayVisible,
+    snapshot?.duration,
+    spaciousViewport,
+    syncNativeOverlayRegions,
+  ])
+
   useLayoutEffect(() => {
     const overlayHidden =
       previousLoadingOverlayVisible.current && !loadingOverlayVisible
@@ -638,7 +691,7 @@ export function DesktopPlayer({
           chromeVisible ? "visible" : "invisible"
         }`}
       >
-        <div className="flex min-w-0 items-center gap-3">
+        <div className="flex min-w-0 items-center gap-3" data-native-overlay>
           <button
             className={`pointer-events-auto grid shrink-0 place-items-center rounded-full bg-black/60 text-zinc-200 hover:bg-white/15 ${
               expandedControls ? "size-13 [&_svg]:size-7" : "size-10"
@@ -672,6 +725,7 @@ export function DesktopPlayer({
           type="button"
           aria-label={fullscreen ? "Exit fullscreen" : "Fullscreen"}
           title={fullscreen ? "Exit fullscreen" : "Fullscreen"}
+          data-native-overlay
           onClick={() => {
             void toggleNativeFullscreen().then(setFullscreen)
           }}
@@ -682,7 +736,10 @@ export function DesktopPlayer({
 
       {error ? (
         <div className="absolute inset-0 z-10 grid place-items-center p-5">
-          <Card className="w-full max-w-lg border-red-950 bg-zinc-950/95 p-6">
+          <Card
+            className="w-full max-w-lg border-red-950 bg-zinc-950/95 p-6"
+            data-native-overlay
+          >
             <p className="font-medium text-red-400">Could not start mpv</p>
             <p className="mt-2 text-sm text-zinc-400">{error}</p>
             <p className="mt-3 text-xs text-zinc-600">
@@ -696,7 +753,10 @@ export function DesktopPlayer({
           role="status"
           aria-label="Video loading"
         >
-          <div className="rounded-full bg-black/55 p-3 shadow-lg backdrop-blur-sm">
+          <div
+            className="rounded-full bg-black/55 p-3 shadow-lg backdrop-blur-sm"
+            data-native-overlay
+          >
             <LoaderCircle className="animate-spin text-white" size={36} />
           </div>
         </div>
@@ -758,6 +818,7 @@ export function DesktopPlayer({
             className={`native-controls-surface relative mx-auto ${
               expandedControls ? "max-w-none" : "max-w-7xl"
             }`}
+            data-native-overlay
           >
             {activeMenu === "audio" && (
               <TrackMenu
@@ -1122,6 +1183,7 @@ function TrackMenu({
   return createPortal(
     <div
       data-track-menu
+      data-native-overlay
       className={`fixed z-[100] max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-white/10 bg-zinc-950 p-2 shadow-2xl ${
         allowOff ? "w-[46rem]" : "w-80"
       }`}

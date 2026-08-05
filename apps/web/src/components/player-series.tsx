@@ -73,6 +73,7 @@ export function PlayerEpisodeDrawer({
         className={`absolute right-0 top-1/2 z-30 flex h-28 w-11 -translate-y-1/2 items-center justify-center rounded-l-full border border-r-0 border-white/10 bg-zinc-950/95 text-zinc-300 backdrop-blur hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 ${
           handleVisible ? "visible" : "pointer-events-none invisible"
         }`}
+        data-native-overlay
         aria-label="Open episode list"
         aria-expanded="false"
         onClick={() => onOpenChange(true)}
@@ -85,6 +86,7 @@ export function PlayerEpisodeDrawer({
   return (
     <div
       data-player-episode-drawer
+      data-native-overlay
       className="absolute inset-y-0 right-0 z-30 flex w-[min(92vw,430px)] items-stretch p-2 pl-0"
     >
       <button
@@ -166,6 +168,7 @@ export function NextEpisodePrompt({
 
   return (
     <section
+      data-native-overlay
       className="absolute bottom-24 right-4 z-20 w-[min(calc(100%_-_2rem),380px)] overflow-hidden rounded-2xl border border-white/12 bg-zinc-950/95 shadow-2xl shadow-black/70 backdrop-blur-xl sm:right-6"
       aria-label={`Next on ${seriesName}`}
       aria-live="polite"

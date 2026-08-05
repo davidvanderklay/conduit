@@ -26,6 +26,13 @@ export interface NativePlayerSnapshot {
   hardwareDecoder?: string
 }
 
+export interface NativeOverlayRegion {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
 export interface ElectronDesktopBridge {
   invoke<T>(command: string, args?: unknown): Promise<T>
   onFullscreenChange(listener: (fullscreen: boolean) => void): () => void
@@ -79,6 +86,14 @@ export function refreshNativeSurface(): Promise<void> {
 
 export function redrawNativeSurface(): Promise<void> {
   return invoke("player_redraw_surface")
+}
+
+export function setNativeOverlayRegions(regions: NativeOverlayRegion[]): Promise<void> {
+  // The Electron X11 player uses these regions to leave Chromium controls
+  // visible above the native libmpv window. Tauri already composites its
+  // native surface separately, so it does not need this command.
+  if (!window.__CONDUIT_ELECTRON__) return Promise.resolve()
+  return invoke("player_set_overlay_regions", { regions })
 }
 
 export function resetNativeOverlaySurface(): Promise<void> {
