@@ -160,8 +160,8 @@ impl Player {
 
         let mpv = match Mpv::with_initializer(|initializer| {
             // libmpv owns a child window inside a separate X11 host window.
-            // The host sits behind Electron's transparent top-level window,
-            // allowing Chromium to render the controls above native video.
+            // The host sits above Electron and its shape leaves the controls
+            // exposed in the Chromium window below it.
             initializer.set_option("vo", "gpu-next")?;
             initializer.set_option("gpu-api", "opengl")?;
             initializer.set_option("gpu-context", "x11egl")?;

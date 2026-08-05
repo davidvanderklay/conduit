@@ -9,11 +9,6 @@ if (process.platform === "linux") {
   environment.NIXOS_OZONE_WL = ozonePlatform === "wayland" ? "1" : "0"
 
   const electronSwitches = [`--ozone-platform=${ozonePlatform}`]
-  if (ozonePlatform === "x11") {
-    // Required for the transparent Chromium surface used by the native
-    // libmpv overlay on X11/Xwayland.
-    electronSwitches.push("--enable-transparent-visuals")
-  }
   if (environment.CONDUIT_ELECTRON_IN_PROCESS_GPU === "1") {
     electronSwitches.push("--in-process-gpu")
   } else if (environment.CONDUIT_ELECTRON_DISABLE_GPU === "1") {

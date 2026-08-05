@@ -32,9 +32,6 @@ function electronOzonePlatform(): ElectronOzonePlatform {
 }
 
 if (process.platform === "linux") {
-  if (electronOzonePlatform() === "x11") {
-    app.commandLine.appendSwitch("enable-transparent-visuals")
-  }
   if (process.env.CONDUIT_ELECTRON_IN_PROCESS_GPU === "1") {
     app.commandLine.appendSwitch("in-process-gpu")
   } else if (process.env.CONDUIT_ELECTRON_DISABLE_GPU === "1") {
@@ -250,11 +247,10 @@ async function createMainWindow(): Promise<BrowserWindow> {
     height: 800,
     minWidth: 900,
     minHeight: 600,
-    // The separate native mpv host is stacked beneath this window during
-    // playback. Keep the BrowserWindow backing surface transparent so the
-    // portal-mounted controls are the only Chromium pixels covering video.
-    backgroundColor: "#00000000",
-    transparent: true,
+    // The native mpv host is stacked above this window and shaped around the
+    // controls. Keep the Chromium backing surface opaque so other windows do
+    // not show through the player chrome.
+    backgroundColor: "#000000",
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,

@@ -574,6 +574,7 @@ export function DesktopPlayer({
     !snapshot
   const expandedControls = fullscreen || spaciousViewport
   const loadingOverlayVisible = !error && (!snapshot || snapshot.duration <= 0)
+  const electronNativePlayer = window.__CONDUIT_ELECTRON__ !== undefined
 
   const syncNativeOverlayRegions = useCallback(() => {
     window.requestAnimationFrame(() => {
@@ -581,18 +582,22 @@ export function DesktopPlayer({
       if (!player) return
       const viewport = player.getBoundingClientRect()
       const scale = window.devicePixelRatio || 1
-      const regions = [...player.querySelectorAll<HTMLElement>("[data-native-overlay]")]
+      const regions = [...document.querySelectorAll<HTMLElement>("[data-native-overlay]")]
         .filter((element) => {
           const style = getComputedStyle(element)
           return style.display !== "none" && style.visibility !== "hidden"
         })
         .map((element) => {
           const bounds = element.getBoundingClientRect()
+          // X11 shape boundaries are integer pixels. Give controls a small
+          // physical-pixel margin so anti-aliased corners and focus rings do
+          // not get clipped by the native video window.
+          const padding = Math.ceil(8 * scale)
           return {
-            x: Math.round((bounds.left - viewport.left) * scale),
-            y: Math.round((bounds.top - viewport.top) * scale),
-            width: Math.round(bounds.width * scale),
-            height: Math.round(bounds.height * scale),
+            x: Math.floor((bounds.left - viewport.left) * scale) - padding,
+            y: Math.floor((bounds.top - viewport.top) * scale) - padding,
+            width: Math.ceil(bounds.width * scale) + padding * 2,
+            height: Math.ceil(bounds.height * scale) + padding * 2,
           }
         })
         .filter((region) => region.width > 0 && region.height > 0)
@@ -657,10 +662,8 @@ export function DesktopPlayer({
     redrawControls()
   }, [episodeDrawerOpen, redrawControls, resetOverlay])
 
-  // The Linux player layers a transparent WebKitGTK surface over GtkGLArea.
-  // Explicitly invalidate that surface whenever dynamic control pixels move;
-  // otherwise WebKit's partial damage region can leave the previous thumb or
-  // timestamp glyph visible over the video.
+  // Explicitly invalidate the native overlay whenever dynamic control pixels
+  // move. This is required by the WebKitGTK player and harmless for Electron.
   useLayoutEffect(() => {
     if (snapshot) redrawControls()
   }, [
@@ -674,6 +677,8 @@ export function DesktopPlayer({
   return createPortal(
     <div
       className={`native-player fixed inset-0 z-50 select-none overflow-hidden ${
+        electronNativePlayer ? "electron-native-player" : ""
+      } ${
         chromeVisible ? "cursor-default" : "cursor-none"
       }`}
       onMouseMove={showControls}
@@ -685,13 +690,14 @@ export function DesktopPlayer({
       />
       <div
         data-player-chrome="top"
+        data-native-overlay
         className={`pointer-events-none absolute inset-x-0 top-0 z-10 flex items-center justify-between gap-4 bg-gradient-to-b from-black/85 via-black/45 to-transparent ${
-          expandedControls ? "px-10 pb-24 pt-8" : "px-5 pb-16 pt-5"
+          expandedControls ? "px-10 pb-8 pt-5" : "px-5 pb-6 pt-3"
         } ${
           chromeVisible ? "visible" : "invisible"
         }`}
       >
-        <div className="flex min-w-0 items-center gap-3" data-native-overlay>
+        <div className="flex min-w-0 items-center gap-3">
           <button
             className={`pointer-events-auto grid shrink-0 place-items-center rounded-full bg-black/60 text-zinc-200 hover:bg-white/15 ${
               expandedControls ? "size-13 [&_svg]:size-7" : "size-10"
@@ -725,7 +731,6 @@ export function DesktopPlayer({
           type="button"
           aria-label={fullscreen ? "Exit fullscreen" : "Fullscreen"}
           title={fullscreen ? "Exit fullscreen" : "Fullscreen"}
-          data-native-overlay
           onClick={() => {
             void toggleNativeFullscreen().then(setFullscreen)
           }}
@@ -807,8 +812,9 @@ export function DesktopPlayer({
       {snapshot && !error && (
         <div
           data-player-chrome="bottom"
-          className={`absolute inset-x-0 bottom-0 z-10 ${
-            expandedControls ? "px-10 pb-8 pt-28" : "px-4 pb-4 pt-20 sm:px-6"
+          data-native-overlay
+          className={`absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/90 via-black/55 to-transparent ${
+            expandedControls ? "px-10 pb-6 pt-6" : "px-4 pb-3 pt-8 sm:px-6"
           } ${
             chromeVisible ? "visible" : "pointer-events-none invisible"
           }`}
@@ -818,7 +824,6 @@ export function DesktopPlayer({
             className={`native-controls-surface relative mx-auto ${
               expandedControls ? "max-w-none" : "max-w-7xl"
             }`}
-            data-native-overlay
           >
             {activeMenu === "audio" && (
               <TrackMenu

@@ -84,6 +84,15 @@ body {
   padding-block: 6px;
 }
 
+/* The Electron player uses an opaque Chromium window and does not need the
+   WebKitGTK damage-control backgrounds used by the Tauri player. */
+.native-player.electron-native-player .player-seek,
+.native-player.electron-native-player .native-controls-surface,
+.native-player.electron-native-player .player-time,
+.native-player.electron-native-player .player-volume {
+  background: transparent;
+}
+
 .player-seek::-webkit-slider-runnable-track {
   height: 5px;
   border-radius: 9999px;
