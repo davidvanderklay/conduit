@@ -690,7 +690,6 @@ export function DesktopPlayer({
       />
       <div
         data-player-chrome="top"
-        data-native-overlay
         className={`pointer-events-none absolute inset-x-0 top-0 z-10 flex items-center justify-between gap-4 bg-gradient-to-b from-black/85 via-black/45 to-transparent ${
           expandedControls ? "px-10 pb-8 pt-5" : "px-5 pb-6 pt-3"
         } ${
@@ -707,10 +706,11 @@ export function DesktopPlayer({
               void close()
             }}
             aria-label="Back to details"
+            data-native-overlay
           >
             <Play className="rotate-180 fill-current" size={21} />
           </button>
-          <div className="min-w-0">
+          <div className="min-w-0" data-native-overlay>
             <PlayerHeadingText heading={heading} expanded={expandedControls} />
             {snapshot && (
               <p
@@ -731,6 +731,7 @@ export function DesktopPlayer({
           type="button"
           aria-label={fullscreen ? "Exit fullscreen" : "Fullscreen"}
           title={fullscreen ? "Exit fullscreen" : "Fullscreen"}
+          data-native-overlay
           onClick={() => {
             void toggleNativeFullscreen().then(setFullscreen)
           }}
@@ -812,7 +813,6 @@ export function DesktopPlayer({
       {snapshot && !error && (
         <div
           data-player-chrome="bottom"
-          data-native-overlay
           className={`absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/90 via-black/55 to-transparent ${
             expandedControls ? "px-10 pb-6 pt-6" : "px-4 pb-3 pt-8 sm:px-6"
           } ${
@@ -913,7 +913,7 @@ export function DesktopPlayer({
               />
             )}
 
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3" data-native-overlay>
               <span
                 className={`player-time player-time-elapsed tabular-nums text-zinc-300 ${
                   expandedControls ? "text-sm" : "text-xs"
@@ -974,6 +974,7 @@ export function DesktopPlayer({
               className={`flex items-center ${
                 expandedControls ? "mt-5 gap-3" : "mt-3 gap-1 sm:gap-2"
               }`}
+              data-native-overlay
             >
               <PlayerIcon
                 label={snapshot.paused ? "Play" : "Pause"}
