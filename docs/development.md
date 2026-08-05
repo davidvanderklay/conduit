@@ -91,10 +91,18 @@ path, explicitly select X11/Ozone:
 CONDUIT_ELECTRON_OZONE=x11 pnpm dev:electron
 ```
 
-For GPU-driver diagnosis only, software rendering can be forced with
-`CONDUIT_ELECTRON_DISABLE_GPU=1`. Compare scrolling, poster-grid navigation,
-fullscreen, sign-in, and native playback against `pnpm dev:desktop` before
-considering Electron as the main desktop shell.
+If X11/Ozone reproduces a Chromium GPU-process crash on an Nvidia driver,
+launch the embedded-player mode with Electron's GPU work kept in-process. This
+keeps Chromium accelerated while avoiding the crashing GPU subprocess:
+
+```sh
+CONDUIT_ELECTRON_OZONE=x11 CONDUIT_ELECTRON_IN_PROCESS_GPU=1 pnpm dev:electron
+```
+
+For GPU-driver diagnosis only, software rendering can still be forced with
+`CONDUIT_ELECTRON_OZONE=x11 CONDUIT_ELECTRON_DISABLE_GPU=1`. Compare scrolling,
+poster-grid navigation, fullscreen, sign-in, and native playback against
+`pnpm dev:desktop` before considering Electron as the main desktop shell.
 
 ## Database migrations
 

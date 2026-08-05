@@ -32,8 +32,11 @@ function electronOzonePlatform(): ElectronOzonePlatform {
 }
 
 if (process.platform === "linux") {
-  if (process.env.CONDUIT_ELECTRON_DISABLE_GPU === "1") {
+  if (process.env.CONDUIT_ELECTRON_IN_PROCESS_GPU === "1") {
+    app.commandLine.appendSwitch("in-process-gpu")
+  } else if (process.env.CONDUIT_ELECTRON_DISABLE_GPU === "1") {
     app.disableHardwareAcceleration()
+    app.commandLine.appendSwitch("disable-gpu")
   }
   app.commandLine.appendSwitch("ozone-platform", electronOzonePlatform())
 }
@@ -136,7 +139,9 @@ function nativePlayerPath(): string {
     ? "conduit-electron-native.exe"
     : "conduit-electron-native"
   const build = process.env.NODE_ENV === "production" ? "release" : "debug"
-  return path.resolve(__dirname, `../../electron-native/target/${build}/${binaryName}`)
+  // Cargo resolves the workspace target directory from the repository root,
+  // even when it is given the helper's manifest path.
+  return path.resolve(__dirname, `../../../../target/${build}/${binaryName}`)
 }
 
 function nativeWindowId(window: BrowserWindow): string {
@@ -144,12 +149,17 @@ function nativeWindowId(window: BrowserWindow): string {
     throw new Error("The Electron libmpv prototype currently supports Linux only.")
   }
   if (electronOzonePlatform() !== "x11") {
-    throw new Error("The embedded Electron libmpv prototype currently requires X11/Ozone.")
+    throw new Error(
+      "Embedded libmpv playback requires X11/Ozone. Restart with CONDUIT_ELECTRON_OZONE=x11. If Electron's GPU process crashes on Nvidia, also set CONDUIT_ELECTRON_IN_PROCESS_GPU=1.",
+    )
   }
   const handle = window.getNativeWindowHandle()
   if (handle.length < 4) throw new Error("Electron did not provide an X11 window handle.")
   const windowId = handle.readUInt32LE(0)
   if (windowId === 0) throw new Error("Electron returned an empty X11 window handle.")
+  if (process.env.CONDUIT_ELECTRON_LOG_WINDOW === "1") {
+    console.log(`Conduit Electron: native X11 handle ${handle.toString("hex")} (XID ${windowId})`)
+  }
   return String(windowId)
 }
 
@@ -204,7 +214,12 @@ async function createMainWindow(): Promise<BrowserWindow> {
   if (process.platform === "linux") {
     const ozonePlatform = electronOzonePlatform()
     if (ozonePlatform === "x11") {
-      console.log("Conduit Electron: using X11/Ozone for native libmpv embedding")
+      const gpuMode = process.env.CONDUIT_ELECTRON_IN_PROCESS_GPU === "1"
+        ? " with in-process GPU"
+        : process.env.CONDUIT_ELECTRON_DISABLE_GPU === "1"
+          ? " with Chromium GPU disabled"
+          : ""
+      console.log(`Conduit Electron: using X11/Ozone for native libmpv embedding${gpuMode}`)
     } else {
       console.log(
         "Conduit Electron: using native Wayland/Ozone for the UI; embedded libmpv playback requires X11/Ozone",
@@ -227,6 +242,14 @@ async function createMainWindow(): Promise<BrowserWindow> {
       preload: path.join(__dirname, "preload.js"),
     },
   })
+
+  if (process.platform === "linux" && electronOzonePlatform() === "x11" &&
+    process.env.CONDUIT_ELECTRON_LOG_WINDOW === "1") {
+    const handle = window.getNativeWindowHandle()
+    console.log(
+      `Conduit Electron: window handle ${handle.toString("hex")} (XID ${handle.length >= 4 ? handle.readUInt32LE(0) : "invalid"})`,
+    )
+  }
 
   window.on("enter-full-screen", () => window.webContents.send("conduit:fullscreen-changed", true))
   window.on("leave-full-screen", () => window.webContents.send("conduit:fullscreen-changed", false))
