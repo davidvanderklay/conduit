@@ -32,6 +32,9 @@ function electronOzonePlatform(): ElectronOzonePlatform {
 }
 
 if (process.platform === "linux") {
+  if (electronOzonePlatform() === "x11") {
+    app.commandLine.appendSwitch("enable-transparent-visuals")
+  }
   if (process.env.CONDUIT_ELECTRON_IN_PROCESS_GPU === "1") {
     app.commandLine.appendSwitch("in-process-gpu")
   } else if (process.env.CONDUIT_ELECTRON_DISABLE_GPU === "1") {
@@ -51,6 +54,7 @@ class NativePlayerClient {
   private nextId = 1
   private readonly pending = new Map<number, PendingRequest>()
   private output = ""
+  private intentionallyClosed = false
 
   constructor(windowId: string) {
     const binary = process.env.CONDUIT_ELECTRON_NATIVE_PLAYER ?? nativePlayerPath()
@@ -58,8 +62,11 @@ class NativePlayerClient {
       env: process.env,
       stdio: ["pipe", "pipe", "inherit"],
     })
-    this.child.on("error", (error) => this.rejectAll(error))
+    this.child.on("error", (error) => {
+      if (!this.intentionallyClosed) this.rejectAll(error)
+    })
     this.child.on("exit", (code, signal) => {
+      if (this.intentionallyClosed) return
       this.rejectAll(
         new Error(`Electron native player exited (${signal ?? `code ${code ?? "unknown"}`}).`),
       )
@@ -92,8 +99,14 @@ class NativePlayerClient {
   }
 
   close() {
+    if (this.intentionallyClosed) return
+    this.intentionallyClosed = true
     if (!this.child.killed) this.child.kill()
-    this.rejectAll(new Error("Electron native player closed."))
+    // Closing during a route/video transition is expected. Resolve requests
+    // belonging to the old session so Electron does not report them as IPC
+    // handler failures while React is cancelling their effects.
+    for (const pending of this.pending.values()) pending.resolve(undefined)
+    this.pending.clear()
   }
 
   private readOutput(chunk: string) {
@@ -133,6 +146,10 @@ let mainWindow: BrowserWindow | undefined
 let nativePlayer: NativePlayerClient | undefined
 let authServer: Server | undefined
 let devWebServer: ChildProcess | undefined
+
+function refreshNativeSurface() {
+  void nativePlayer?.request("player_refresh_surface").catch(() => undefined)
+}
 
 function nativePlayerPath(): string {
   const binaryName = process.platform === "win32"
@@ -233,7 +250,10 @@ async function createMainWindow(): Promise<BrowserWindow> {
     height: 800,
     minWidth: 900,
     minHeight: 600,
-    backgroundColor: "#09090b",
+    // The separate native mpv host is stacked beneath this window during
+    // playback. Keep the BrowserWindow backing surface transparent so the
+    // portal-mounted controls are the only Chromium pixels covering video.
+    backgroundColor: "#00000000",
     transparent: true,
     webPreferences: {
       contextIsolation: true,
@@ -303,10 +323,14 @@ async function invoke(command: string, args: Record<string, unknown> = {}): Prom
   if (command === "player_toggle_fullscreen") {
     if (!mainWindow) throw new Error("Main window is unavailable.")
     mainWindow.setFullScreen(!mainWindow.isFullScreen())
+    refreshNativeSurface()
     return mainWindow.isFullScreen()
   }
   if (command === "player_is_fullscreen") return mainWindow?.isFullScreen() ?? false
-  if (command === "player_refresh_surface" || command === "player_redraw_surface") return null
+  if (command === "player_refresh_surface" || command === "player_redraw_surface") {
+    if (!nativePlayer) return null
+    return nativePlayer.request(command)
+  }
   if (command === "player_reset_overlay_surface") return null
 
   if (command === "player_open") {
@@ -359,6 +383,8 @@ app.whenReady().then(async () => {
   await registerApplicationProtocol()
   registerIpcHandlers()
   mainWindow = await createMainWindow()
+  mainWindow.on("move", refreshNativeSurface)
+  mainWindow.on("resize", refreshNativeSurface)
   mainWindow.on("closed", () => {
     mainWindow = undefined
   })

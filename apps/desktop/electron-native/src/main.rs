@@ -97,9 +97,33 @@ enum PlaybackPath {
     DirectPlay,
 }
 
+#[cfg(target_os = "linux")]
+struct VideoHost {
+    display: *mut x11::xlib::Display,
+    window: u64,
+    container: u64,
+}
+
+#[cfg(target_os = "linux")]
+impl Drop for VideoHost {
+    fn drop(&mut self) {
+        unsafe {
+            if self.display.is_null() {
+                return;
+            }
+            x11::xlib::XDestroyWindow(self.display, self.window as x11::xlib::Window);
+            x11::xlib::XFlush(self.display);
+            x11::xlib::XCloseDisplay(self.display);
+        }
+    }
+}
+
 #[derive(Default)]
 struct Player {
     mpv: Option<Mpv>,
+    parent_window: Option<u64>,
+    #[cfg(target_os = "linux")]
+    host_window: Option<VideoHost>,
 }
 
 impl Player {
@@ -114,25 +138,30 @@ impl Player {
         if window_id <= 0 {
             return Err(NativeError::InvalidWindowId(params.window_id));
         }
+        let parent_window = window_id as u64;
 
         self.stop();
         force_c_numeric_locale();
+        let host_window = create_video_host_window(parent_window)?;
 
         let nvidia_driver = std::path::Path::new("/proc/driver/nvidia/version").exists();
         let hwdec_override = std::env::var("CONDUIT_MPV_HWDEC").ok();
         let vaapi_device = linux_vaapi_device();
         let mpv_debug_logging = std::env::var_os("CONDUIT_MPV_LOG").is_some();
 
-        let mpv = Mpv::with_initializer(|initializer| {
-            // The Electron renderer is an X11 window. libmpv owns a child
-            // window inside it, keeping video rendering native while Chromium
-            // remains responsible for the rest of the UI.
+        let mpv = match Mpv::with_initializer(|initializer| {
+            // libmpv owns a child window inside a separate X11 host window.
+            // The host sits behind Electron's transparent top-level window,
+            // allowing Chromium to render the controls above native video.
             initializer.set_option("vo", "gpu-next")?;
             initializer.set_option("gpu-api", "opengl")?;
             initializer.set_option("gpu-context", "x11egl")?;
-            initializer.set_option("wid", window_id)?;
+            initializer.set_option("wid", host_window.window as i64)?;
             initializer.set_option("force-window", "immediate")?;
-            initializer.set_option("terminal", if mpv_debug_logging { "yes" } else { "no" })?;
+            // stdout is the native helper's JSON IPC channel. Keep mpv's
+            // terminal output disabled even in diagnostic mode so log lines
+            // cannot corrupt responses sent back to Electron.
+            initializer.set_option("terminal", "no")?;
             initializer.set_option("input-default-bindings", "no")?;
             initializer.set_option("input-cursor", "no")?;
             initializer.set_option("osd-level", "0")?;
@@ -171,26 +200,48 @@ impl Player {
             initializer.set_option("video-timing-offset", "0")?;
             Ok(())
         })
-        .map_err(|error| NativeError::Initialization(error.to_string()))?;
-
-        mpv.set_property("force-media-title", params.title.as_str())
-            .map_err(|error| NativeError::Command(error.to_string()))?;
-        argv_command(&mpv, &["loadfile", params.url.as_str(), "replace"])?;
-        self.mpv = Some(mpv);
-        // libmpv creates a child X11 window for `wid`. Keep that child below
-        // Chromium's content window so the React controls remain interactive
-        // while the page itself is transparent during native playback.
-        for delay in [0, 25, 100] {
-            if delay != 0 {
-                std::thread::sleep(std::time::Duration::from_millis(delay));
+        .map_err(|error| NativeError::Initialization(error.to_string()))
+        {
+            Ok(mpv) => mpv,
+            Err(error) => {
+                drop(host_window);
+                return Err(error);
             }
-            lower_mpv_children(window_id as u64);
+        };
+
+        if let Err(error) = mpv
+            .set_property("force-media-title", params.title.as_str())
+            .map_err(|error| NativeError::Command(error.to_string()))
+            .and_then(|()| argv_command(&mpv, &["loadfile", params.url.as_str(), "replace"]))
+        {
+            drop(mpv);
+            drop(host_window);
+            return Err(error);
         }
+
+        self.parent_window = Some(parent_window);
+        self.host_window = Some(host_window);
+        self.mpv = Some(mpv);
+        sync_video_host_window(
+            parent_window,
+            self.host_window.as_mut().expect("host window"),
+        )?;
         self.snapshot()
     }
 
     fn stop(&mut self) {
         self.mpv.take();
+        self.host_window.take();
+        self.parent_window = None;
+    }
+
+    fn refresh_surface(&mut self) -> Result<(), NativeError> {
+        if let (Some(parent_window), Some(host_window)) =
+            (self.parent_window, self.host_window.as_mut())
+        {
+            sync_video_host_window(parent_window, host_window)?;
+        }
+        Ok(())
     }
 
     fn command(&self, command: Vec<Value>) -> Result<Value, NativeError> {
@@ -260,6 +311,10 @@ fn handle_request(player: &mut Player, request: Request) -> Result<Value, Native
         }
         "player_stop" => {
             player.stop();
+            Ok(Value::Null)
+        }
+        "player_refresh_surface" | "player_redraw_surface" => {
+            player.refresh_surface()?;
             Ok(Value::Null)
         }
         _ => Err(NativeError::Command(format!(
@@ -398,69 +453,186 @@ fn mpv_node_to_json(node: MpvNode) -> Value {
 }
 
 #[cfg(target_os = "linux")]
-fn lower_mpv_children(parent: u64) {
-    use std::ffi::CStr;
+fn create_video_host_window(parent: u64) -> Result<VideoHost, NativeError> {
     use std::ptr;
     use x11::xlib::{
-        Window, XClassHint, XCloseDisplay, XFetchName, XFlush, XFree, XGetClassHint, XLowerWindow,
-        XOpenDisplay, XQueryTree,
+        CWOverrideRedirect, Window, XChangeWindowAttributes, XCloseDisplay, XCreateSimpleWindow,
+        XFlush, XGetGeometry, XMapWindow, XOpenDisplay, XSetWindowAttributes,
     };
 
     unsafe {
         let display = XOpenDisplay(ptr::null());
         if display.is_null() {
-            return;
+            return Err(NativeError::Initialization(
+                "could not open the X11 display for the video host".into(),
+            ));
         }
+
         let mut root: Window = 0;
-        let mut returned_parent: Window = 0;
-        let mut children: *mut Window = ptr::null_mut();
-        let mut child_count = 0;
-        if XQueryTree(
+        let mut x = 0;
+        let mut y = 0;
+        let mut width = 0;
+        let mut height = 0;
+        let mut border = 0;
+        let mut depth = 0;
+        if XGetGeometry(
             display,
             parent as Window,
             &mut root,
-            &mut returned_parent,
+            &mut x,
+            &mut y,
+            &mut width,
+            &mut height,
+            &mut border,
+            &mut depth,
+        ) == 0
+        {
+            XCloseDisplay(display);
+            return Err(NativeError::InvalidWindowId(parent.to_string()));
+        }
+
+        let container = window_frame(display, parent as Window);
+        let host = XCreateSimpleWindow(
+            display,
+            container,
+            x,
+            y,
+            width.max(1),
+            height.max(1),
+            0,
+            0,
+            0,
+        );
+        if host == 0 {
+            XCloseDisplay(display);
+            return Err(NativeError::Initialization(
+                "could not create the X11 video host window".into(),
+            ));
+        }
+
+        let mut attributes: XSetWindowAttributes = std::mem::zeroed();
+        attributes.override_redirect = 1;
+        XChangeWindowAttributes(display, host, CWOverrideRedirect, &mut attributes);
+        XMapWindow(display, host);
+        restack_video_host(display, host, parent as Window);
+        XFlush(display);
+        if std::env::var_os("CONDUIT_MPV_LOG").is_some() {
+            eprintln!("Conduit Electron: created X11 video host {host:#x} for parent {parent:#x}");
+        }
+        Ok(VideoHost {
+            display,
+            window: host as u64,
+            container: container as u64,
+        })
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn sync_video_host_window(parent: u64, host: &mut VideoHost) -> Result<(), NativeError> {
+    use x11::xlib::{Window, XFlush, XGetGeometry, XMoveResizeWindow, XReparentWindow};
+
+    unsafe {
+        let mut root: Window = 0;
+        let mut x = 0;
+        let mut y = 0;
+        let mut width = 0;
+        let mut height = 0;
+        let mut border = 0;
+        let mut depth = 0;
+        let result = XGetGeometry(
+            host.display,
+            parent as Window,
+            &mut root,
+            &mut x,
+            &mut y,
+            &mut width,
+            &mut height,
+            &mut border,
+            &mut depth,
+        );
+        if result == 0 {
+            return Err(NativeError::InvalidWindowId(parent.to_string()));
+        }
+
+        let container = window_frame(host.display, parent as Window);
+        if host.container != container as u64 {
+            XReparentWindow(host.display, host.window as Window, container, x, y);
+            host.container = container as u64;
+        }
+
+        XMoveResizeWindow(
+            host.display,
+            host.window as Window,
+            x,
+            y,
+            width.max(1),
+            height.max(1),
+        );
+        restack_video_host(host.display, host.window as Window, parent as Window);
+        XFlush(host.display);
+        Ok(())
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn restack_video_host(
+    display: *mut x11::xlib::Display,
+    host: x11::xlib::Window,
+    parent: x11::xlib::Window,
+) {
+    use x11::xlib::{
+        Below, CWSibling, CWStackMode, XConfigureWindow, XRaiseWindow, XWindowChanges,
+    };
+
+    unsafe {
+        // A plain XLowerWindow can put the host below every window on the
+        // desktop. Configure it relative to Electron instead, so Chromium
+        // remains above the video host while transparent areas reveal mpv.
+        let mut changes = XWindowChanges {
+            x: 0,
+            y: 0,
+            width: 0,
+            height: 0,
+            border_width: 0,
+            sibling: parent,
+            stack_mode: Below,
+        };
+        XConfigureWindow(
+            display,
+            host,
+            (CWSibling | CWStackMode) as u32,
+            &mut changes,
+        );
+        XRaiseWindow(display, parent);
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn window_frame(display: *mut x11::xlib::Display, window: x11::xlib::Window) -> x11::xlib::Window {
+    use std::ptr;
+    use x11::xlib::{Window, XFree, XQueryTree};
+
+    unsafe {
+        let mut root: Window = 0;
+        let mut parent: Window = 0;
+        let mut children: *mut Window = ptr::null_mut();
+        let mut child_count = 0;
+        let result = XQueryTree(
+            display,
+            window,
+            &mut root,
+            &mut parent,
             &mut children,
             &mut child_count,
-        ) != 0
-        {
-            for index in 0..child_count as isize {
-                let child = *children.offset(index);
-                let mut class_hint = XClassHint {
-                    res_name: ptr::null_mut(),
-                    res_class: ptr::null_mut(),
-                };
-                let mut is_mpv = false;
-                if XGetClassHint(display, child, &mut class_hint) != 0 {
-                    if !class_hint.res_class.is_null() {
-                        let class = CStr::from_ptr(class_hint.res_class).to_string_lossy();
-                        is_mpv = class.eq_ignore_ascii_case("mpv") || class.starts_with("mpv ");
-                    }
-                    if !class_hint.res_name.is_null() {
-                        XFree(class_hint.res_name.cast());
-                    }
-                    if !class_hint.res_class.is_null() {
-                        XFree(class_hint.res_class.cast());
-                    }
-                }
-                if !is_mpv {
-                    let mut name: *mut i8 = ptr::null_mut();
-                    if XFetchName(display, child, &mut name) != 0 && !name.is_null() {
-                        let value = CStr::from_ptr(name).to_string_lossy();
-                        is_mpv = value.eq_ignore_ascii_case("mpv") || value.starts_with("mpv ");
-                        XFree(name.cast());
-                    }
-                }
-                if is_mpv {
-                    XLowerWindow(display, child);
-                }
-            }
-            if !children.is_null() {
-                XFree(children.cast());
-            }
-            XFlush(display);
+        );
+        if !children.is_null() {
+            XFree(children.cast());
         }
-        XCloseDisplay(display);
+        if result != 0 && parent != 0 {
+            parent
+        } else {
+            window
+        }
     }
 }
 
