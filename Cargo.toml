@@ -1,3 +1,7 @@
 [workspace]
-members = ["packages/core", "packages/mobile-bridge", "apps/desktop/src-tauri"]
+members = [
+  "packages/core",
+  "packages/mobile-bridge",
+  "apps/desktop/electron-native",
+]
 resolver = "2"

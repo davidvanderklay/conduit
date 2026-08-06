@@ -26,13 +26,36 @@ export interface NativePlayerSnapshot {
   hardwareDecoder?: string
 }
 
+export interface ElectronDesktopBridge {
+  invoke<T>(command: string, args?: unknown): Promise<T>
+  onFullscreenChange(listener: (fullscreen: boolean) => void): () => void
+  onPlayerOverlayClose(listener: () => void): () => void
+  onPlayerOverlayNext(listener: () => void): () => void
+  onPlayerOverlayTitle(listener: (title: string) => void): () => void
+  setPlayerOverlayInteractiveRegions(
+    regions: Array<{ left: number; top: number; right: number; bottom: number }>,
+  ): void
+  onPlayerOverlayWake(listener: () => void): () => void
+  onDesktopAuthCallback(listener: (callbackUrl: string) => void): () => void
+  chooseSavePath(suggestedName: string): Promise<string | null>
+  writeTextFile(path: string, contents: string): Promise<void>
+  openExternal(url: string): Promise<void>
+}
+
+declare global {
+  interface Window {
+    __CONDUIT_ELECTRON__?: ElectronDesktopBridge
+  }
+}
+
 export function isDesktop(): boolean {
-  return "__TAURI_INTERNALS__" in window
+  return window.__CONDUIT_ELECTRON__ !== undefined
 }
 
 async function invoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
-  const { invoke: tauriInvoke } = await import("@tauri-apps/api/core")
-  return tauriInvoke<T>(command, args)
+  const electron = window.__CONDUIT_ELECTRON__
+  if (!electron) throw new Error("Desktop bridge is unavailable.")
+  return electron.invoke<T>(command, args)
 }
 
 export function openNativePlayer(
@@ -76,25 +99,19 @@ export function nativeFullscreen(): Promise<boolean> {
   return invoke("player_is_fullscreen")
 }
 
-export async function onNativeFullscreenChange(
+export function onNativeFullscreenChange(
   listener: (fullscreen: boolean) => void,
 ): Promise<() => void> {
-  const { getCurrentWindow } = await import("@tauri-apps/api/window")
-  const window = getCurrentWindow()
-  return window.onResized(async () => listener(await window.isFullscreen()))
+  const electron = window.__CONDUIT_ELECTRON__
+  if (!electron) throw new Error("Desktop bridge is unavailable.")
+  return Promise.resolve(electron.onFullscreenChange(listener))
 }
 
 export async function prepareNativeTextSave(
   suggestedName: string,
 ): Promise<((contents: string) => Promise<void>) | null> {
-  const [{ save }, { writeTextFile }] = await Promise.all([
-    import("@tauri-apps/plugin-dialog"),
-    import("@tauri-apps/plugin-fs"),
-  ])
-  const path = await save({
-    defaultPath: suggestedName,
-    filters: [{ name: "conduit profile export", extensions: ["json"] }],
-  })
-  if (!path) return null
-  return (contents) => writeTextFile(path, contents)
+  const electron = window.__CONDUIT_ELECTRON__
+  if (!electron) throw new Error("Desktop bridge is unavailable.")
+  const path = await electron.chooseSavePath(suggestedName)
+  return path ? (contents) => electron.writeTextFile(path, contents) : null
 }

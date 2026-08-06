@@ -3,7 +3,7 @@
 ## Harbor
 
 The macOS libmpv rendering structure in
-`apps/desktop/src-tauri/src/player_render_macos.rs` is adapted from Harbor:
+`apps/desktop/electron-native/src/render_macos.rs` is adapted from Harbor:
 <https://github.com/harborstremio/harbor>.
 
 Copyright (c) 2026 Harbor

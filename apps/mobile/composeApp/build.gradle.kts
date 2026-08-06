@@ -77,7 +77,7 @@ kotlin {
 android {
     namespace = "media.conduit.mobile"
     compileSdk = 36
-    sourceSets["main"].res.srcDir("../../desktop/src-tauri/icons/android")
+    sourceSets["main"].res.srcDir("../../desktop/icons/android")
     val releaseSigning = if (
         androidReleaseKeystore != null &&
         androidReleaseStorePassword != null &&

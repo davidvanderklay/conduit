@@ -15,6 +15,7 @@
     "dev": "vp run app:dev",
     "dev:server": "pnpm --filter @conduit/server dev",
     "dev:desktop": "pnpm --filter @conduit/desktop dev",
+    "dev:electron": "pnpm --filter @conduit/desktop electron:dev",
     "dev:web": "pnpm --filter @conduit/web dev",
     "test": "vp run ci:test"
   },
@@ -22,6 +23,11 @@
     "@voidzero-dev/vite-plus-core": "latest",
     "@voidzero-dev/vite-plus-test": "latest",
     "vite-plus": "latest"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
   },
   "packageManager": "pnpm@10.14.0"
 }

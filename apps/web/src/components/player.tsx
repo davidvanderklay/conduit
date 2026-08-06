@@ -417,6 +417,7 @@ function WebPlayer({
       ? subtitle.display
       : subtitle.label || languageName(subtitle.lang ?? subtitle.language) || "Subtitle",
     detail: subtitle.embedded ? "Embedded" : subtitle.addonName || "Add-on subtitle",
+    embedded: subtitle.embedded,
     active: selectedSubtitle === subtitle.key,
   }))
 

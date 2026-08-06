@@ -4,7 +4,7 @@ on:
   pull_request:
     paths:
       - "apps/mobile/**"
-      - "apps/desktop/src-tauri/icons/android/**"
+      - "apps/desktop/icon.svg"
       - "packages/mobile-bridge/**"
       - "packages/core/**"
       - "Cargo.toml"
@@ -14,7 +14,7 @@ on:
     branches: [main]
     paths:
       - "apps/mobile/**"
-      - "apps/desktop/src-tauri/icons/android/**"
+      - "apps/desktop/icon.svg"
       - "packages/mobile-bridge/**"
       - "packages/core/**"
       - "Cargo.toml"

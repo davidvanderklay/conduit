@@ -23,8 +23,8 @@ apps/mobile/iosApp/*.xcodeproj/xcuserdata/
 apps/mobile/native/
 
 apps/server/.local/
-apps/desktop/src-tauri/gen/
-apps/desktop/src-tauri/libmpv/
+apps/desktop/electron/dist/
+apps/desktop/dist/
 
 flatpak/appdir/
 .flatpak-builder/

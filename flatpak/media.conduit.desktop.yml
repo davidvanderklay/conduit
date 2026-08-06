@@ -164,11 +164,15 @@ modules:
       - node pnpm/bin/pnpm.cjs install --offline --frozen-lockfile
       - PATH="$PWD/rust-toolchain/bin:$PATH" wasm-pack build packages/core --target web --out-dir pkg --no-opt
       - node pnpm/bin/pnpm.cjs --filter @conduit/web build
-      - cargo build --offline --release -p conduit-desktop --features custom-protocol
-      - install -Dm755 target/release/conduit-desktop /app/bin/conduit
+      - cargo build --offline --release -p conduit-electron-native --features linux-helper
+      - install -Dm755 target/release/conduit-electron-native /app/bin/conduit-electron-native
+      # TODO: Bundle Electron desktop (apps/desktop/electron + apps/web/dist) into Flatpak
+      # The Tauri binary (conduit-desktop) has been replaced by the Electron app.
+      # Flatpak packaging for Electron requires bundling the Electron runtime and web assets.
+      - install -Dm755 target/release/conduit-electron-native /app/bin/conduit
       - install -Dm644 flatpak/media.conduit.desktop.desktop /app/share/applications/media.conduit.desktop.desktop
       - install -Dm644 flatpak/media.conduit.desktop.metainfo.xml /app/share/metainfo/media.conduit.desktop.metainfo.xml
-      - install -Dm644 apps/desktop/src-tauri/icons/icon.png /app/share/icons/hicolor/512x512/apps/media.conduit.desktop.png
+      - install -Dm644 apps/desktop/icons/icon.png /app/share/icons/hicolor/512x512/apps/media.conduit.desktop.png
     sources:
       - cargo-sources.json
       - node-sources.json

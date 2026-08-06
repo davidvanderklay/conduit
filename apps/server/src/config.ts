@@ -9,7 +9,9 @@ export interface Config {
   port: number
 }
 
-export const DESKTOP_ORIGINS = ["tauri://localhost", "http://tauri.localhost"]
+export const DESKTOP_ORIGINS = [
+  "conduit://localhost",
+]
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const databaseUrl = required(env, "DATABASE_URL")

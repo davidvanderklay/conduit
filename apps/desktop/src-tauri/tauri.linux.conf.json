@@ -1,6 +1,0 @@
-{
-  "bundle": {
-    "active": true,
-    "targets": ["appimage"]
-  }
-}
