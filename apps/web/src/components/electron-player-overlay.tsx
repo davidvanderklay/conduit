@@ -59,6 +59,8 @@ export function ElectronPlayerOverlay({ initialTitle }: { initialTitle: string }
     () => readPreferences().subtitlePosition,
   )
   const hideTimer = useRef<number | undefined>(undefined)
+  const audioAnchorRef = useRef<HTMLDivElement>(null)
+  const subtitleAnchorRef = useRef<HTMLDivElement>(null)
 
   const showControls = useCallback(() => {
     setControlsVisible(true)
@@ -222,15 +224,33 @@ export function ElectronPlayerOverlay({ initialTitle }: { initialTitle: string }
     return () => window.removeEventListener("keydown", onKeyDown)
   }, [activeTrackMenu])
 
+  useEffect(() => {
+    if (!activeTrackMenu) return
+    const dismissOutside = (event: PointerEvent) => {
+      const target = event.target
+      if (
+        target instanceof Element &&
+        (target.closest("[data-track-menu]") || target.closest("[data-track-menu-trigger]"))
+      ) {
+        return
+      }
+      const suppressClick = (click: MouseEvent) => {
+        click.preventDefault()
+        click.stopImmediatePropagation()
+      }
+      document.addEventListener("click", suppressClick, { capture: true, once: true })
+      window.setTimeout(() => document.removeEventListener("click", suppressClick, true), 0)
+      setActiveTrackMenu(undefined)
+    }
+    document.addEventListener("pointerdown", dismissOutside, true)
+    return () => document.removeEventListener("pointerdown", dismissOutside, true)
+  }, [activeTrackMenu])
+
   return (
     <div
       className={rootClassName}
       onMouseMove={showControls}
       onClick={(event) => {
-        if (activeTrackMenu) {
-          setActiveTrackMenu(undefined)
-          return
-        }
         if (event.target === event.currentTarget) togglePlayback()
       }}
     >
@@ -311,75 +331,81 @@ export function ElectronPlayerOverlay({ initialTitle }: { initialTitle: string }
               onChange={(event) => command(["set", "volume", Number(event.target.value)])}
             />
             <div className="flex-1" />
-            <TrackSelect
-              ariaLabel="Audio track"
-              icon={<Languages size={21} />}
-              tracks={audioTracks}
-              empty="Audio"
-              active={activeTrackMenu === "audio"}
-              onClick={() => setActiveTrackMenu((current) => current === "audio" ? undefined : "audio")}
-            />
-            <TrackSelect
-              ariaLabel="Subtitle track"
-              icon={<Captions size={21} />}
-              tracks={subtitleTracks}
-              empty="Subtitles"
-              allowOff
-              active={activeTrackMenu === "subtitles"}
-              onClick={() => {
-                setSelectedSubtitleCode(
-                  selectedSubtitleCode ?? activeSubtitleGroup?.code ?? subtitleGroups[0]?.code,
-                )
-                setActiveTrackMenu((current) => current === "subtitles" ? undefined : "subtitles")
-              }}
-            />
+            <div ref={audioAnchorRef} data-track-menu-trigger>
+              <TrackSelect
+                ariaLabel="Audio track"
+                icon={<Languages size={21} />}
+                tracks={audioTracks}
+                empty="Audio"
+                active={activeTrackMenu === "audio"}
+                onClick={() => setActiveTrackMenu((current) => current === "audio" ? undefined : "audio")}
+              />
+            </div>
+            <div ref={subtitleAnchorRef} data-track-menu-trigger>
+              <TrackSelect
+                ariaLabel="Subtitle track"
+                icon={<Captions size={21} />}
+                tracks={subtitleTracks}
+                empty="Subtitles"
+                allowOff
+                active={activeTrackMenu === "subtitles"}
+                onClick={() => {
+                  setSelectedSubtitleCode(
+                    selectedSubtitleCode ?? activeSubtitleGroup?.code ?? subtitleGroups[0]?.code,
+                  )
+                  setActiveTrackMenu((current) => current === "subtitles" ? undefined : "subtitles")
+                }}
+              />
+            </div>
             <OverlayButton
               label={"Video scale: " + selectedScale}
               onClick={changeScale}
             >
               <Scaling size={21} />
             </OverlayButton>
-            {activeTrackMenu === "audio" && (
-              <AudioTrackMenu
-                tracks={audioTracks}
-                onSelect={(id) => {
-                  command(["set", "aid", id])
-                  setActiveTrackMenu(undefined)
-                }}
-                onClose={() => setActiveTrackMenu(undefined)}
-              />
-            )}
-            {activeTrackMenu === "subtitles" && (
-              <SubtitleTrackMenu
-                groups={subtitleGroups}
-                selectedCode={selectedSubtitleCode}
-                selectedGroup={selectedSubtitleGroup}
-                subtitlePosition={subtitlePosition}
-                onSelectLanguage={(code) => {
-                  setSelectedSubtitleCode(code)
-                  const group = subtitleGroups.find((candidate) => candidate.code === code)
-                  const track = group?.tracks.find((candidate) => candidate.selected) ?? group?.tracks[0]
-                  if (track) selectSubtitleTrack(track, command, setSnapshot)
-                }}
-                onSelectTrack={(track) => selectSubtitleTrack(track, command, setSnapshot)}
-                onOff={() => {
-                  command(["set", "sid", "no"])
-                  setSnapshot((current) => current ? {
-                    ...current,
-                    tracks: current.tracks.map((track) =>
-                      track.type === "sub" ? { ...track, selected: false } : track,
-                    ),
-                  } : current)
-                }}
-                onSubtitlePosition={(value) => {
-                  setSubtitlePosition(value)
-                  writePreferences({ ...readPreferences(), subtitlePosition: value })
-                  command(["set", "sub-pos", value])
-                }}
-                onClose={() => setActiveTrackMenu(undefined)}
-              />
-            )}
           </div>
+          {activeTrackMenu === "audio" && (
+            <AudioTrackMenu
+              anchor={audioAnchorRef}
+              tracks={audioTracks}
+              onSelect={(id) => {
+                command(["set", "aid", id])
+                setActiveTrackMenu(undefined)
+              }}
+              onClose={() => setActiveTrackMenu(undefined)}
+            />
+          )}
+          {activeTrackMenu === "subtitles" && (
+            <SubtitleTrackMenu
+              anchor={subtitleAnchorRef}
+              groups={subtitleGroups}
+              selectedCode={selectedSubtitleCode}
+              selectedGroup={selectedSubtitleGroup}
+              subtitlePosition={subtitlePosition}
+              onSelectLanguage={(code) => {
+                setSelectedSubtitleCode(code)
+                const group = subtitleGroups.find((candidate) => candidate.code === code)
+                const track = group?.tracks.find((candidate) => candidate.selected) ?? group?.tracks[0]
+                if (track) selectSubtitleTrack(track, command, setSnapshot)
+              }}
+              onSelectTrack={(track) => selectSubtitleTrack(track, command, setSnapshot)}
+              onOff={() => {
+                command(["set", "sid", "no"])
+                setSnapshot((current) => current ? {
+                  ...current,
+                  tracks: current.tracks.map((track) =>
+                    track.type === "sub" ? { ...track, selected: false } : track,
+                  ),
+                } : current)
+              }}
+              onSubtitlePosition={(value) => {
+                setSubtitlePosition(value)
+                writePreferences({ ...readPreferences(), subtitlePosition: value })
+                command(["set", "sub-pos", value])
+              }}
+              onClose={() => setActiveTrackMenu(undefined)}
+            />
+          )}
         </div>
       </div>
     </div>
@@ -439,18 +465,37 @@ function TrackSelect({
 }
 
 function AudioTrackMenu({
+  anchor,
   tracks,
   onSelect,
   onClose,
 }: {
+  anchor: React.RefObject<HTMLElement | null>
   tracks: NativeTrack[]
   onSelect: (id: number) => void
   onClose: () => void
 }) {
+  const [position, setPosition] = useState({ bottom: 80, right: 24, maxHeight: 400 })
+  useLayoutEffect(() => {
+    const updatePosition = () => {
+      const bounds = anchor.current?.getBoundingClientRect()
+      if (!bounds) return
+      setPosition({
+        bottom: Math.max(16, window.innerHeight - bounds.top + 16),
+        right: Math.max(12, window.innerWidth - bounds.right),
+        maxHeight: Math.max(160, Math.min(window.innerHeight * 0.7, bounds.top - 24)),
+      })
+    }
+    updatePosition()
+    window.addEventListener("resize", updatePosition)
+    return () => window.removeEventListener("resize", updatePosition)
+  }, [anchor])
   return (
     <div
-      className="pointer-events-auto absolute bottom-14 right-0 z-20 w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-white/10 bg-zinc-950/95 p-2 shadow-2xl"
+      className="pointer-events-auto fixed z-20 w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-white/10 bg-zinc-950/95 p-2 shadow-2xl"
       data-overlay-interactive
+      data-track-menu
+      style={position}
       onPointerDown={(event) => event.stopPropagation()}
       onClick={(event) => event.stopPropagation()}
       role="menu"
@@ -471,6 +516,7 @@ function AudioTrackMenu({
 }
 
 function SubtitleTrackMenu({
+  anchor,
   groups,
   selectedCode,
   selectedGroup,
@@ -481,6 +527,7 @@ function SubtitleTrackMenu({
   onSubtitlePosition,
   onClose,
 }: {
+  anchor: React.RefObject<HTMLElement | null>
   groups: SubtitleLanguageGroup<NativeTrack>[]
   selectedCode?: string
   selectedGroup?: SubtitleLanguageGroup<NativeTrack>
@@ -494,11 +541,28 @@ function SubtitleTrackMenu({
   const active = groups.some((group) => group.tracks.some((track) => track.selected))
   const adjustPosition = (amount: number) =>
     onSubtitlePosition(Math.max(10, Math.min(100, subtitlePosition + amount)))
+  const [position, setPosition] = useState({ bottom: 80, right: 24, maxHeight: 400 })
+  useLayoutEffect(() => {
+    const updatePosition = () => {
+      const bounds = anchor.current?.getBoundingClientRect()
+      if (!bounds) return
+      setPosition({
+        bottom: Math.max(16, window.innerHeight - bounds.top + 16),
+        right: Math.max(12, window.innerWidth - bounds.right),
+        maxHeight: Math.max(160, Math.min(window.innerHeight * 0.7, bounds.top - 24)),
+      })
+    }
+    updatePosition()
+    window.addEventListener("resize", updatePosition)
+    return () => window.removeEventListener("resize", updatePosition)
+  }, [anchor])
 
   return (
     <div
-      className="pointer-events-auto absolute bottom-14 right-0 z-20 w-[min(46rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-white/10 bg-zinc-950/95 p-2 shadow-2xl"
+      className="pointer-events-auto fixed z-20 w-[min(46rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-white/10 bg-zinc-950/95 p-2 shadow-2xl"
       data-overlay-interactive
+      data-track-menu
+      style={position}
       onPointerDown={(event) => event.stopPropagation()}
       onClick={(event) => event.stopPropagation()}
       role="menu"
