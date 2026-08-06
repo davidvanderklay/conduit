@@ -1,4 +1,5 @@
 fn main() {
+    #[cfg(not(target_os = "linux"))]
     napi_build::setup();
     #[cfg(target_os = "windows")]
     {

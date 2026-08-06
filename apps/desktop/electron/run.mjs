@@ -12,6 +12,9 @@ if (process.platform === "linux") {
   if (ozonePlatform === "x11") {
     electronSwitches.push("--enable-transparent-visuals")
   }
+  if (environment.CONDUIT_ELECTRON_NO_SANDBOX === "1") {
+    electronSwitches.push("--no-sandbox")
+  }
   if (environment.CONDUIT_ELECTRON_IN_PROCESS_GPU === "1") {
     electronSwitches.push("--in-process-gpu")
   } else if (environment.CONDUIT_ELECTRON_DISABLE_GPU === "1") {

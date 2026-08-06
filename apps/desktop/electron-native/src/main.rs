@@ -1,8 +1,9 @@
 use libmpv2::{mpv_node::MpvNode, Mpv};
+#[cfg(not(target_os = "linux"))]
 use napi_derive::napi;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::ffi::CString;
+use std::{ffi::CString, io::{BufRead, Write}};
 use thiserror::Error;
 
 #[cfg(target_os = "macos")]
@@ -398,8 +399,10 @@ fn handle_request(player: &mut Player, request: Request) -> Result<Value, Native
     }
 }
 
+#[cfg(not(target_os = "linux"))]
 static PLAYER: std::sync::Mutex<Option<Player>> = std::sync::Mutex::new(None);
 
+#[cfg(not(target_os = "linux"))]
 #[napi]
 pub fn invoke(request_json: String) -> napi::Result<String> {
     let request = serde_json::from_str::<Request>(&request_json)
@@ -420,6 +423,47 @@ pub fn invoke(request_json: String) -> napi::Result<String> {
         }
     };
     serde_json::to_string(&response).map_err(|error| napi::Error::from_reason(error.to_string()))
+}
+
+#[cfg(target_os = "linux")]
+fn main() {
+    // Linux uses an out-of-process helper to avoid Chromium's in-process GPU/sandbox conflicts.
+    // The NAPI addon is required on macOS (NSView pointer cannot cross process boundary) but
+    // causes mpv_initialize to abort inside Electron's browser process on Linux+Nvidia.
+    let stdin = std::io::stdin();
+    let mut player = Player::default();
+    for line in stdin.lock().lines() {
+        let line = match line {
+            Ok(line) if !line.trim().is_empty() => line,
+            Ok(_) => continue,
+            Err(error) => {
+                eprintln!("Conduit Electron native player stdin failed: {error}");
+                break;
+            }
+        };
+        let request = match serde_json::from_str::<Request>(&line) {
+            Ok(request) => request,
+            Err(error) => {
+                eprintln!("Conduit Electron native player request failed: {error}");
+                continue;
+            }
+        };
+        let id = request.id;
+        let response = match handle_request(&mut player, request) {
+            Ok(result) => serde_json::to_string(&Success { id, result }),
+            Err(error) => serde_json::to_string(&Failure {
+                id,
+                error: error.to_string(),
+            }),
+        };
+        match response {
+            Ok(response) => {
+                println!("{response}");
+                let _ = std::io::stdout().flush();
+            }
+            Err(error) => eprintln!("Conduit Electron native player response failed: {error}"),
+        }
+    }
 }
 
 fn non_empty_property(mpv: &Mpv, name: &str) -> Option<String> {
