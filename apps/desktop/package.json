@@ -95,7 +95,8 @@
     },
     "dmg": {
       "sign": false
-    }
+    },
+    "executableName": "conduit"
   },
   "description": "Conduit desktop media client",
   "author": "Conduit"
