@@ -205,7 +205,9 @@ function showPlayerOverlay() {
   // always-on-top surface cannot remain above another application.
   playerOverlayMouseEventsIgnored = undefined
   setPlayerOverlayMouseEvents(true)
-  playerOverlayWindow.setAlwaysOnTop(true, "floating")
+  if (process.platform !== "darwin") {
+    playerOverlayWindow.setAlwaysOnTop(true, "floating")
+  }
   playerOverlayWindow.showInactive()
   playerOverlayWindow.moveTop()
   startPlayerOverlayMousePolling()
@@ -214,7 +216,7 @@ function showPlayerOverlay() {
 function hidePlayerOverlay() {
   if (!playerOverlayWindow || playerOverlayWindow.isDestroyed()) return
   stopPlayerOverlayMousePolling()
-  playerOverlayWindow.setAlwaysOnTop(false)
+  if (process.platform !== "darwin") playerOverlayWindow.setAlwaysOnTop(false)
   playerOverlayWindow.hide()
 }
 
@@ -301,6 +303,9 @@ async function ensurePlayerOverlay(title: string) {
     focusable: false,
     skipTaskbar: true,
     type: "normal",
+    // On macOS this must be a Cocoa child window. Unlike X11, there is no
+    // cross-process transient hint to attach an independent overlay later.
+    parent: process.platform === "darwin" ? mainWindow : undefined,
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -322,7 +327,9 @@ async function ensurePlayerOverlay(title: string) {
     setPlayerOverlayMouseEvents(true)
     overlay.setMenuBarVisibility(false)
     overlay.on("hide", () => {
-      if (!overlay.isDestroyed()) overlay.setAlwaysOnTop(false)
+      if (!overlay.isDestroyed() && process.platform !== "darwin") {
+        overlay.setAlwaysOnTop(false)
+      }
     })
     overlay.on("closed", () => {
       if (playerOverlayWindow === overlay) {

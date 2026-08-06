@@ -24,6 +24,17 @@ const child = spawn(command, appArguments, {
   stdio: "inherit",
 })
 
+let terminating = false
+for (const signal of ["SIGINT", "SIGTERM"]) {
+  process.on(signal, () => {
+    if (terminating) return
+    terminating = true
+    child.kill(signal)
+    const forceExit = setTimeout(() => child.kill("SIGKILL"), 3000)
+    forceExit.unref()
+  })
+}
+
 child.on("exit", (code, signal) => {
   if (signal) process.kill(process.pid, signal)
   else process.exit(code ?? 1)
