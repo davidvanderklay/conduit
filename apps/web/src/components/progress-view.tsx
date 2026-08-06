@@ -53,10 +53,10 @@ export function ContinueWatching({
     const update = () => {
       const w = el.clientWidth
       let c = 2
-      if (w >= 2000) c = 12
-      else if (w >= 1700) c = 10
-      else if (w >= 1400) c = 9
-      else if (w >= 1200) c = 8
+      if (w >= 2000) c = 10
+      else if (w >= 1700) c = 9
+      else if (w >= 1400) c = 8
+      else if (w >= 1200) c = 7
       else if (w >= 1000) c = 6
       else if (w >= 768) c = 5
       else if (w >= 640) c = 4

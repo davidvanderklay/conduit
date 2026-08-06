@@ -254,9 +254,18 @@ export function ElectronPlayerOverlay({ initialTitle }: { initialTitle: string }
         if (event.target === event.currentTarget) togglePlayback()
       }}
     >
+      {/* Stremio-style edge scrims for contrast on bright scenes */}
+      <div
+        className={`pointer-events-none absolute inset-x-0 top-0 h-36 bg-gradient-to-b from-black/85 via-black/50 to-transparent transition-opacity duration-300 ${controlsVisible ? "opacity-100" : "opacity-0"}`}
+        aria-hidden="true"
+      />
+      <div
+        className={`pointer-events-none absolute inset-x-0 bottom-0 h-56 bg-gradient-to-t from-black/90 via-black/60 to-transparent transition-opacity duration-300 ${controlsVisible ? "opacity-100" : "opacity-0"}`}
+        aria-hidden="true"
+      />
       <div
         className={
-          "pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-4 " +
+          "pointer-events-none absolute inset-x-0 top-0 z-10 flex items-start justify-between gap-4 " +
           "px-5 pb-12 pt-4 transition-opacity " +
           (controlsVisible ? "opacity-100" : "opacity-0")
         }
@@ -265,8 +274,8 @@ export function ElectronPlayerOverlay({ initialTitle }: { initialTitle: string }
           <OverlayButton label="Back to details" onClick={close}>
             <Play className="rotate-180 fill-current" size={21} />
           </OverlayButton>
-          <div className="min-w-0 drop-shadow-lg">
-            <h2 className="truncate font-display text-lg font-semibold text-white">{title}</h2>
+          <div className="min-w-0 drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)]">
+            <h2 className="truncate font-display text-lg font-semibold text-white [text-shadow:0_1px_8px_rgba(0,0,0,0.9)]">{title}</h2>
             {snapshot && (
               <p className="truncate text-xs text-zinc-300">
                 {nativePlaybackDescription(snapshot)}
@@ -284,7 +293,7 @@ export function ElectronPlayerOverlay({ initialTitle }: { initialTitle: string }
 
       <div
         className={
-          "pointer-events-none absolute inset-x-0 bottom-0 px-5 pb-5 pt-24 transition-opacity " +
+          "pointer-events-none absolute inset-x-0 bottom-0 z-10 px-5 pb-5 pt-24 transition-opacity " +
           (controlsVisible ? "opacity-100" : "opacity-0")
         }
       >
@@ -426,7 +435,7 @@ function OverlayButton({
   return (
     <button
       type="button"
-      className={`pointer-events-auto grid size-10 shrink-0 place-items-center rounded-lg text-zinc-100 drop-shadow-[0_1px_3px_rgb(0_0_0)] hover:bg-white/15 hover:text-white ${
+      className={`pointer-events-auto grid size-10 shrink-0 place-items-center rounded-lg bg-black/40 text-zinc-100 shadow-[0_2px_10px_rgba(0,0,0,0.6)] drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)] backdrop-blur-sm hover:bg-white/15 hover:text-white ${
         active ? "bg-white/15 text-amber-300" : ""
       }`}
       data-overlay-interactive

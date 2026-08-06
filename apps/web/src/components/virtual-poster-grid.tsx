@@ -94,10 +94,10 @@ function appScrollElement(): HTMLElement | null {
 }
 
 export function columnsForWidth(width: number): number {
-  if (width >= 2560) return 12
-  if (width >= 1920) return 10
-  if (width >= 1600) return 9
-  if (width >= 1536) return 8
+  if (width >= 2560) return 10
+  if (width >= 1920) return 9
+  if (width >= 1600) return 8
+  if (width >= 1536) return 7
   if (width >= 1280) return 6
   if (width >= 1024) return 5
   if (width >= 768) return 4
