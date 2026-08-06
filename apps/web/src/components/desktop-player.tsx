@@ -155,6 +155,7 @@ export function DesktopPlayer({
   const pendingAddonSubtitle = useRef(new Set<string>())
   const preferredAudioApplied = useRef(false)
   const preferredSubtitleApplied = useRef(false)
+  const subtitleMetadataReadyPolls = useRef(0)
   const preferredAudioLanguage = configuredTrackLanguage(preferences.audioLanguage, addons)
   const preferredSubtitleLanguage = configuredTrackLanguage(preferences.subtitleLanguage, addons)
   const { progress, save: saveProgress } = usePlaybackProgress(
@@ -184,6 +185,7 @@ export function DesktopPlayer({
     let playerStarted = false
     preferredAudioApplied.current = false
     preferredSubtitleApplied.current = false
+    subtitleMetadataReadyPolls.current = 0
     setAddonSubtitlesResolved(false)
     endedHandled.current = false
     nextTransitionSuppressed.current = false
@@ -301,6 +303,16 @@ export function DesktopPlayer({
       return
     }
     const subtitleTracks = snapshot.tracks.filter((track) => track.type === "sub")
+    // mpv can report its first snapshot before the stream's embedded tracks
+    // are populated. Do not permanently apply an add-on/external fallback
+    // during that partial state; wait for loaded media and subtitle metadata.
+    if (!snapshot.duration) return
+    if (subtitleTracks.length === 0) {
+      // Allow mpv another polling cycle to publish embedded tracks. Streams
+      // with no subtitle tracks can still fall back to an add-on afterward.
+      subtitleMetadataReadyPolls.current += 1
+      if (subtitleMetadataReadyPolls.current < 2) return
+    }
     const embeddedMatch = subtitleTracks.find(
       (track) =>
         !track.external &&
@@ -1138,9 +1150,9 @@ function TrackMenu({
       const bounds = anchor.current?.getBoundingClientRect()
       if (!bounds) return
       setPosition({
-        bottom: Math.max(32, window.innerHeight - bounds.top + 32),
+        bottom: Math.max(56, window.innerHeight - bounds.top + 56),
         right: Math.max(16, window.innerWidth - bounds.right),
-        maxHeight: Math.max(160, Math.min(window.innerHeight * 0.6, bounds.top - 24)),
+        maxHeight: Math.max(160, Math.min(window.innerHeight * 0.6, bounds.top - 48)),
       })
     }
     updatePosition()
