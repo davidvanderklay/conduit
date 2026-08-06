@@ -1102,6 +1102,38 @@ function MediaHome({
   )
 }
 
+function useShelfColumns() {
+  const ref = useRef<HTMLDivElement>(null)
+  const [columns, setColumns] = useState(6)
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const update = () => {
+      const w = el.clientWidth
+      let c = 2
+      if (w >= 2000) c = 12
+      else if (w >= 1700) c = 10
+      else if (w >= 1400) c = 9
+      else if (w >= 1200) c = 8
+      else if (w >= 1000) c = 6
+      else if (w >= 768) c = 5
+      else if (w >= 640) c = 4
+      else if (w >= 480) c = 3
+      else c = 2
+      setColumns(c)
+    }
+    update()
+    const ro = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(update)
+    if (el) ro?.observe(el)
+    window.addEventListener("resize", update)
+    return () => {
+      ro?.disconnect()
+      window.removeEventListener("resize", update)
+    }
+  }, [])
+  return { ref, columns }
+}
+
 function CatalogShelf({
   title,
   items,
@@ -1116,19 +1148,24 @@ function CatalogShelf({
   onSeeMore: () => void
 }) {
   if (items.length === 0) return null
+  const { ref, columns } = useShelfColumns()
+  const visible = items.slice(0, columns)
+  const hasMore = items.length > columns
   return (
-    <section>
+    <section ref={ref}>
       <div className="mb-4 flex items-center justify-between gap-4">
         <h2 className="font-display text-xl font-semibold">{title}</h2>
-        <button
-          className="text-xs font-semibold text-zinc-500 transition hover:text-amber-300"
-          onClick={onSeeMore}
-        >
-          See more
-        </button>
+        {hasMore && (
+          <button
+            className="text-xs font-semibold text-zinc-500 transition hover:text-amber-300"
+            onClick={onSeeMore}
+          >
+            See more
+          </button>
+        )}
       </div>
-      <div className={posterGridClass}>
-        {items.slice(0, 14).map((item) => (
+      <div className="grid gap-x-3 gap-y-6" style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>
+        {visible.map((item) => (
           <div className="group relative" key={`${item.type}:${item.id}`}>
             <button className="w-full text-left" onClick={() => onSelect(item)}>
               <div className={posterCoverClass}>
