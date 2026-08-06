@@ -18,7 +18,7 @@ import {
 } from "./lib/server"
 import { loadCatalog, type CatalogItem } from "./lib/core"
 import { readLastProfileId, rememberLastProfileId } from "./lib/profile-preference"
-import { posterCoverClass, posterGridClass } from "./lib/poster-layout"
+import { posterCoverClass } from "./lib/poster-layout"
 import { ProfileSwitcher } from "./components/profile-switcher"
 import { Button } from "./components/ui/button"
 import { Card } from "./components/ui/card"

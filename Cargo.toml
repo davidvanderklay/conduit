@@ -2,7 +2,6 @@
 members = [
   "packages/core",
   "packages/mobile-bridge",
-  "apps/desktop/src-tauri",
   "apps/desktop/electron-native",
 ]
 resolver = "2"

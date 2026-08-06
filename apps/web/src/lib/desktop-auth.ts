@@ -58,61 +58,14 @@ export async function beginDesktopAuthCallback(): Promise<{
   cancel: () => void
 }> {
   const electron = window.__CONDUIT_ELECTRON__
-  if (electron) return beginElectronAuthCallback(electron)
-
-  const [{ listen }, { invoke }] = await Promise.all([
-    import("@tauri-apps/api/event"),
-    import("@tauri-apps/api/core"),
-  ])
-  let resolveResult!: (url: URL) => void
-  let rejectResult!: (error: Error) => void
-  const result = new Promise<URL>((resolve, reject) => {
-    resolveResult = resolve
-    rejectResult = reject
-  })
-  // The flow can fail before the callback is awaited (for example, while
-  // requesting the provider URL). Mark the promise handled in that case.
-  void result.catch(() => undefined)
-  let settled = false
-  let timeout = 0
-  const unlisten = await listen<string>("desktop-auth-callback", (event) => {
-    settled = true
-    window.clearTimeout(timeout)
-    unlisten()
-    try {
-      resolveResult(new URL(event.payload))
-    } catch {
-      rejectResult(new Error("The desktop authentication callback was invalid."))
-    }
-  })
-  timeout = window.setTimeout(() => {
-    settled = true
-    unlisten()
-    rejectResult(new Error("Desktop sign-in expired. Please try again."))
-  }, 5 * 60 * 1000)
-  const cancel = () => {
-    if (settled) return
-    settled = true
-    window.clearTimeout(timeout)
-    unlisten()
-  }
-  try {
-    const listener = await invoke<{ callbackUrl: string }>("desktop_auth_listen")
-    return { callbackUrl: listener.callbackUrl, result, cancel }
-  } catch (cause) {
-    cancel()
-    throw cause
-  }
+  if (!electron) throw new Error("Desktop bridge is unavailable.")
+  return beginElectronAuthCallback(electron)
 }
 
 export async function openInSystemBrowser(url: string): Promise<void> {
   const electron = window.__CONDUIT_ELECTRON__
-  if (electron) {
-    await electron.openExternal(url)
-    return
-  }
-  const { openUrl } = await import("@tauri-apps/plugin-opener")
-  await openUrl(url)
+  if (!electron) throw new Error("Desktop bridge is unavailable.")
+  await electron.openExternal(url)
 }
 
 async function beginElectronAuthCallback(electron: Window["__CONDUIT_ELECTRON__"] & object): Promise<{

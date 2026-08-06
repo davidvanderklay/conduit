@@ -67,11 +67,11 @@ jobs:
         run: node scripts/set-release-version.mjs "${GITHUB_REF_NAME#v}"
       - run: pnpm --filter @conduit/desktop setup:windows
       - name: Build NSIS installer
-        run: pnpm --filter @conduit/desktop exec tauri build --config src-tauri/tauri.windows.conf.json
+        run: pnpm --filter @conduit/desktop dist:win
       - uses: actions/upload-artifact@v4
         with:
           name: conduit-windows
-          path: target/release/bundle/nsis/*.exe
+          path: apps/desktop/dist/*.exe
           if-no-files-found: error
 
   linux-appimage:
@@ -100,21 +100,19 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             pkg-config \
-            libwebkit2gtk-4.1-dev \
-            libappindicator3-dev \
-            librsvg2-dev \
             libmpv-dev \
-            libegl1-mesa-dev
+            libegl1-mesa-dev \
+            libx11-dev
       - run: pnpm install --frozen-lockfile
       - name: Set version from tag
         if: github.ref_type == 'tag'
         run: node scripts/set-release-version.mjs "${GITHUB_REF_NAME#v}"
       - name: Build AppImage
-        run: pnpm --filter @conduit/desktop exec tauri build --config src-tauri/tauri.linux.conf.json
+        run: pnpm --filter @conduit/desktop dist:linux
       - uses: actions/upload-artifact@v4
         with:
           name: conduit-linux-appimage
-          path: target/release/bundle/appimage/*.AppImage
+          path: apps/desktop/dist/*.AppImage
           if-no-files-found: error
 
   linux-flatpak:
@@ -327,55 +325,11 @@ jobs:
         if: github.ref_type == 'tag'
         run: node scripts/set-release-version.mjs "${GITHUB_REF_NAME#v}"
       - name: Build macOS application
-        run: |
-          pnpm --filter @conduit/desktop exec tauri build \
-            --target "${{ matrix.target }}" \
-            --config src-tauri/tauri.macos.conf.json
-      - name: Bundle libmpv and create DMG
-        env:
-          MACOS_ARCH: ${{ matrix.arch }}
-          RUST_TARGET: ${{ matrix.target }}
-        run: |
-          app="target/${RUST_TARGET}/release/bundle/macos/conduit.app"
-          executable_name="$(
-            /usr/libexec/PlistBuddy \
-              -c "Print :CFBundleExecutable" \
-              "${app}/Contents/Info.plist"
-          )"
-          executable="${app}/Contents/MacOS/${executable_name}"
-          frameworks="${app}/Contents/Frameworks"
-          output_dir="target/release/bundle/macos"
-          version="$(node -p "require('./apps/desktop/src-tauri/tauri.conf.json').version")"
-
-          mkdir -p "$frameworks" "$output_dir"
-          dylibbundler \
-            -od \
-            -b \
-            -x "$executable" \
-            -d "$frameworks" \
-            -p @executable_path/../Frameworks
-
-          if otool -L "$executable" "$frameworks"/*.dylib | grep -E '/(opt/homebrew|usr/local)/'; then
-            echo "Homebrew library reference remains in the application bundle" >&2
-            exit 1
-          fi
-
-          codesign --force --deep --sign - "$app"
-          codesign --verify --deep --strict --verbose=2 "$app"
-
-          staging="$(mktemp -d)"
-          cp -R "$app" "$staging/"
-          ln -s /Applications "$staging/Applications"
-          hdiutil create \
-            -volname "Conduit" \
-            -srcfolder "$staging" \
-            -ov \
-            -format UDZO \
-            "${output_dir}/conduit_${version}_${MACOS_ARCH}.dmg"
+        run: pnpm --filter @conduit/desktop dist:mac
       - uses: actions/upload-artifact@v4
         with:
           name: conduit-macos-${{ matrix.arch }}
-          path: target/release/bundle/macos/*.dmg
+          path: apps/desktop/dist/*.dmg
           if-no-files-found: error
 
   android:

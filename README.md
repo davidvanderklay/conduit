@@ -12,7 +12,7 @@ pre-release installations and keep profile exports and database backups.
 
 - Shared household profiles with independent libraries and watch history
 - Stremio-compatible catalogs, metadata, streams, and subtitles
-- Web and Tauri desktop clients backed by one shared interface
+- Web and Electron desktop clients backed by one shared interface
 - Portable profile import/export
 - Local password accounts without an email-delivery dependency
 - Google OAuth or administrator-configured OpenID Connect

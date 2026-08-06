@@ -723,8 +723,8 @@ fn sync_video_host_window(parent: u64, _host: &mut VideoHost) -> Result<(), Nati
     use windows::Win32::{
         Foundation::{HWND, LPARAM},
         UI::WindowsAndMessaging::{
-            EnumChildWindows, GetClassNameW, SetWindowPos, HWND_BOTTOM, SWP_NOACTIVATE,
-            SWP_NOMOVE, SWP_NOSIZE,
+            EnumChildWindows, GetClassNameW, SetWindowPos, HWND_BOTTOM, SWP_NOACTIVATE, SWP_NOMOVE,
+            SWP_NOSIZE,
         },
     };
 

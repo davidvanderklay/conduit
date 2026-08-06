@@ -1,12 +1,12 @@
 $ErrorActionPreference = "Stop"
 
 $DesktopDir = Split-Path -Parent $PSScriptRoot
-$LibMpvDir = Join-Path $DesktopDir "src-tauri\libmpv"
+$LibMpvDir = Join-Path $DesktopDir "libmpv"
 $DllPath = Join-Path $LibMpvDir "libmpv-2.dll"
 $DefPath = Join-Path $LibMpvDir "mpv.def"
 $ImportLibraryPath = Join-Path $LibMpvDir "mpv.lib"
 
-# Harbor publishes this known-good libmpv build for its Tauri Windows client.
+# Harbor publishes this known-good libmpv build for its Windows client.
 # Override both values together when intentionally updating the runtime.
 $DefaultUrl = "https://github.com/harborstremio/harbor/releases/download/mpvdll/libmpv-2.dll"
 $DefaultSha256 = "E9C87D19055BC5A82771B2B48E9FBAE047BD5180603F5A1AAAE10C90CA690467"

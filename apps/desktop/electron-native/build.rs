@@ -4,10 +4,13 @@ fn main() {
     #[cfg(target_os = "windows")]
     {
         let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").expect("manifest directory");
-        let libmpv = std::path::Path::new(&manifest_dir).join("../src-tauri/libmpv");
+        let libmpv = std::path::Path::new(&manifest_dir).join("../libmpv");
         println!("cargo:rustc-link-search=native={}", libmpv.display());
         println!("cargo:rustc-link-lib=dylib=mpv");
-        println!("cargo:rerun-if-changed={}", libmpv.join("mpv.lib").display());
+        println!(
+            "cargo:rerun-if-changed={}",
+            libmpv.join("mpv.lib").display()
+        );
     }
     #[cfg(target_os = "linux")]
     {

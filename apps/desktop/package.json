@@ -4,21 +4,67 @@
   "license": "MIT",
   "main": "electron/dist/main.js",
   "scripts": {
-    "build": "tauri build",
-    "check": "cargo check --manifest-path src-tauri/Cargo.toml",
-    "dev": "tauri dev",
+    "build": "pnpm electron:native:build && pnpm --dir ../.. --filter @conduit/web build && pnpm electron:main:build",
+    "check": "if ! pkg-config --exists mpv 2>/dev/null; then echo 'Skipping desktop check (pkg-config mpv not found)'; else cargo check -p conduit-electron-native; fi",
+    "dev": "pnpm electron:native:build && pnpm electron:main:build && node electron/run.mjs .",
     "electron:build": "pnpm electron:native:build && pnpm --dir ../.. --filter @conduit/web build && pnpm electron:main:build",
     "electron:dev": "pnpm electron:native:build && pnpm electron:main:build && node electron/run.mjs .",
     "electron:main:build": "tsc -p electron/tsconfig.json",
     "electron:native:build": "node electron-native/build.mjs",
     "electron:run": "node electron/run.mjs .",
     "setup:windows": "powershell -ExecutionPolicy Bypass -File scripts/setup-windows.ps1",
-    "test": "cargo test --manifest-path src-tauri/Cargo.toml"
+    "test": "cargo test -p conduit-electron-native",
+    "dist": "pnpm build && electron-builder",
+    "dist:win": "pnpm build && electron-builder --win",
+    "dist:linux": "pnpm build && electron-builder --linux",
+    "dist:mac": "pnpm build && electron-builder --mac"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "latest",
     "@types/node": "latest",
     "electron": "latest",
+    "electron-builder": "latest",
     "typescript": "latest"
+  },
+  "version": "0.1.0",
+  "build": {
+    "appId": "media.conduit.desktop",
+    "productName": "conduit",
+    "files": [
+      "electron/dist/**",
+      "electron-native/dist/**",
+      "../../web/dist/**",
+      "!**/*.ts",
+      "!**/*.map"
+    ],
+    "extraResources": [
+      {
+        "from": "../../web/dist",
+        "to": "web",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "directories": {
+      "buildResources": "build"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "icon.svg"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "linux": {
+      "target": "AppImage",
+      "icon": "icon.svg",
+      "category": "AudioVideo"
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "icon.svg",
+      "category": "public.app-category.entertainment"
+    }
   }
 }

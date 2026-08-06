@@ -27,17 +27,13 @@
             postgresql_17
             mpv
             electron
-            cargo-tauri
           ]) ++ pkgs.lib.optionals pkgs.stdenv.isDarwin (with pkgs; [
             libiconv
           ]) ++ pkgs.lib.optionals pkgs.stdenv.isLinux (with pkgs; [
             dbus
             glib
-            gtk3
             libglvnd
-            libsoup_3
-            webkitgtk_4_1
-            librsvg
+            libx11
           ]);
 
           shellHook = ''

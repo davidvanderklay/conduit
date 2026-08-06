@@ -49,14 +49,13 @@ declare global {
 }
 
 export function isDesktop(): boolean {
-  return "__TAURI_INTERNALS__" in window || window.__CONDUIT_ELECTRON__ !== undefined
+  return window.__CONDUIT_ELECTRON__ !== undefined
 }
 
 async function invoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
   const electron = window.__CONDUIT_ELECTRON__
-  if (electron) return electron.invoke<T>(command, args)
-  const { invoke: tauriInvoke } = await import("@tauri-apps/api/core")
-  return tauriInvoke<T>(command, args)
+  if (!electron) throw new Error("Desktop bridge is unavailable.")
+  return electron.invoke<T>(command, args)
 }
 
 export function openNativePlayer(
@@ -100,32 +99,19 @@ export function nativeFullscreen(): Promise<boolean> {
   return invoke("player_is_fullscreen")
 }
 
-export async function onNativeFullscreenChange(
+export function onNativeFullscreenChange(
   listener: (fullscreen: boolean) => void,
 ): Promise<() => void> {
   const electron = window.__CONDUIT_ELECTRON__
-  if (electron) return electron.onFullscreenChange(listener)
-  const { getCurrentWindow } = await import("@tauri-apps/api/window")
-  const nativeWindow = getCurrentWindow()
-  return nativeWindow.onResized(async () => listener(await nativeWindow.isFullscreen()))
+  if (!electron) throw new Error("Desktop bridge is unavailable.")
+  return Promise.resolve(electron.onFullscreenChange(listener))
 }
 
 export async function prepareNativeTextSave(
   suggestedName: string,
 ): Promise<((contents: string) => Promise<void>) | null> {
   const electron = window.__CONDUIT_ELECTRON__
-  if (electron) {
-    const path = await electron.chooseSavePath(suggestedName)
-    return path ? (contents) => electron.writeTextFile(path, contents) : null
-  }
-  const [{ save }, { writeTextFile }] = await Promise.all([
-    import("@tauri-apps/plugin-dialog"),
-    import("@tauri-apps/plugin-fs"),
-  ])
-  const path = await save({
-    defaultPath: suggestedName,
-    filters: [{ name: "conduit profile export", extensions: ["json"] }],
-  })
-  if (!path) return null
-  return (contents) => writeTextFile(path, contents)
+  if (!electron) throw new Error("Desktop bridge is unavailable.")
+  const path = await electron.chooseSavePath(suggestedName)
+  return path ? (contents) => electron.writeTextFile(path, contents) : null
 }

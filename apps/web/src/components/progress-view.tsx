@@ -13,7 +13,7 @@ import {
 import { api, type WatchProgress } from "../lib/api"
 import type { CatalogItem } from "../lib/core"
 import { useLibrary, useLibraryToggle } from "../lib/library"
-import { posterCoverClass, posterGridClass } from "../lib/poster-layout"
+import { posterCoverClass } from "../lib/poster-layout"
 import { Card } from "./ui/card"
 import { PaginationControls } from "./pagination-controls"
 import { PosterActionMenu, type PosterAction } from "./poster-action-menu"

@@ -20,7 +20,7 @@ await copyFile(source, destination)
 
 if (process.platform === "win32") {
   await copyFile(
-    path.join(nativeRoot, "../src-tauri/libmpv/libmpv-2.dll"),
+    path.join(nativeRoot, "../libmpv/libmpv-2.dll"),
     path.join(dist, "libmpv-2.dll"),
   )
 }

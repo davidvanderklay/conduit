@@ -10,8 +10,6 @@ export interface Config {
 }
 
 export const DESKTOP_ORIGINS = [
-  "tauri://localhost",
-  "http://tauri.localhost",
   "conduit://localhost",
 ]
 
