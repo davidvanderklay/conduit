@@ -70,6 +70,7 @@ jobs:
       - name: Build Electron NSIS installer
         run: pnpm --filter @conduit/desktop dist:win
       - name: Verify installer
+        shell: bash
         run: ls -lh apps/desktop/dist/*.exe
       - uses: actions/upload-artifact@v4
         with:
