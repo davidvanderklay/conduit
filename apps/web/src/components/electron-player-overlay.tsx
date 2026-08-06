@@ -273,7 +273,7 @@ export function ElectronPlayerOverlay({ initialTitle }: { initialTitle: string }
         aria-hidden="true"
       />
       <div
-        className={`pointer-events-none absolute inset-x-0 bottom-0 h-[28vh] max-h-64 bg-gradient-to-t from-black via-black/70 to-transparent transition-opacity duration-300 ${controlsVisible ? "opacity-100" : "opacity-0"}`}
+        className={`pointer-events-none absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-black via-black/70 to-transparent transition-opacity duration-300 ${controlsVisible ? "opacity-100" : "opacity-0"}`}
         aria-hidden="true"
       />
       <div
@@ -311,8 +311,8 @@ export function ElectronPlayerOverlay({ initialTitle }: { initialTitle: string }
         }
       >
         <div className="w-full">
-          <div className="flex items-center gap-3 text-xs tabular-nums text-zinc-300">
-            <span className="min-w-12 text-right">{formatTime(snapshot?.position ?? 0)}</span>
+          <div className="flex items-center gap-4 text-base tabular-nums text-zinc-200">
+            <span className="min-w-16 text-right">{formatTime(snapshot?.position ?? 0)}</span>
             <input
               className="player-seek pointer-events-auto block h-2 min-w-0 flex-1 cursor-pointer"
               data-overlay-interactive
@@ -325,24 +325,25 @@ export function ElectronPlayerOverlay({ initialTitle }: { initialTitle: string }
               aria-label="Seek"
               onChange={(event) => command(["set", "time-pos", Number(event.target.value)])}
             />
-            <span className="min-w-12">{formatTime(snapshot?.duration ?? 0)}</span>
+            <span className="min-w-16">{formatTime(snapshot?.duration ?? 0)}</span>
           </div>
 
-          <div className="pointer-events-auto relative mt-3 flex items-center gap-2">
-            <OverlayButton label={snapshot?.paused ? "Play" : "Pause"} onClick={togglePlayback}>
-              {snapshot?.paused ? <Play size={22} /> : <Pause size={22} />}
+          <div className="pointer-events-auto relative mt-3 flex items-center gap-3">
+            <OverlayButton large label={snapshot?.paused ? "Play" : "Pause"} onClick={togglePlayback}>
+              {snapshot?.paused ? <Play size={28} /> : <Pause size={28} />}
             </OverlayButton>
-            <OverlayButton label="Next episode" onClick={nextEpisode}>
-              <SkipForward size={21} />
+            <OverlayButton large label="Next episode" onClick={nextEpisode}>
+              <SkipForward size={27} />
             </OverlayButton>
             <OverlayButton
+              large
               label={snapshot?.volume === 0 ? "Unmute" : "Mute"}
               onClick={() => command(["set", "volume", snapshot?.volume === 0 ? 100 : 0])}
             >
-              {snapshot?.volume === 0 ? <VolumeX size={21} /> : <Volume2 size={21} />}
+              {snapshot?.volume === 0 ? <VolumeX size={27} /> : <Volume2 size={27} />}
             </OverlayButton>
             <input
-              className="player-volume hidden h-4 w-24 sm:block"
+              className="player-volume hidden h-5 w-32 sm:block"
               data-overlay-interactive
               style={sliderStyle(snapshot?.volume ?? 100)}
               type="range"
@@ -355,8 +356,9 @@ export function ElectronPlayerOverlay({ initialTitle }: { initialTitle: string }
             <div className="flex-1" />
             <div ref={audioAnchorRef} data-track-menu-trigger>
               <TrackSelect
+                large
                 ariaLabel="Audio track"
-                icon={<Languages size={21} />}
+                icon={<Languages size={27} />}
                 tracks={audioTracks}
                 empty="Audio"
                 active={activeTrackMenu === "audio"}
@@ -365,8 +367,9 @@ export function ElectronPlayerOverlay({ initialTitle }: { initialTitle: string }
             </div>
             <div ref={subtitleAnchorRef} data-track-menu-trigger>
               <TrackSelect
+                large
                 ariaLabel="Subtitle track"
-                icon={<Captions size={21} />}
+                icon={<Captions size={27} />}
                 tracks={subtitleTracks}
                 empty="Subtitles"
                 allowOff
@@ -380,10 +383,11 @@ export function ElectronPlayerOverlay({ initialTitle }: { initialTitle: string }
               />
             </div>
             <OverlayButton
+              large
               label={"Video scale: " + selectedScale}
               onClick={changeScale}
             >
-              <Scaling size={21} />
+              <Scaling size={27} />
             </OverlayButton>
           </div>
           {activeTrackMenu === "audio" && (
@@ -446,16 +450,18 @@ function OverlayButton({
   children,
   onClick,
   active = false,
+  large = false,
 }: {
   label: string
   children: ReactNode
   onClick: () => void
   active?: boolean
+  large?: boolean
 }) {
   return (
     <button
       type="button"
-      className={`pointer-events-auto grid size-10 shrink-0 place-items-center rounded-lg bg-black/40 text-zinc-100 shadow-[0_2px_10px_rgba(0,0,0,0.6)] drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)] backdrop-blur-sm hover:bg-white/15 hover:text-white ${
+      className={`pointer-events-auto grid shrink-0 place-items-center rounded-lg bg-black/40 text-zinc-100 shadow-[0_2px_10px_rgba(0,0,0,0.6)] drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)] backdrop-blur-sm hover:bg-white/15 hover:text-white ${large ? "size-[50px]" : "size-10"} ${
         active ? "bg-white/15 text-amber-300" : ""
       }`}
       data-overlay-interactive
@@ -476,6 +482,7 @@ function TrackSelect({
   allowOff = false,
   active,
   onClick,
+  large = false,
 }: {
   ariaLabel: string
   icon: ReactNode
@@ -484,12 +491,13 @@ function TrackSelect({
   allowOff?: boolean
   active: boolean
   onClick: () => void
+  large?: boolean
 }) {
   if (!tracks.length && !allowOff) {
-    return <OverlayButton label={empty} onClick={onClick} active={active}>{icon}</OverlayButton>
+    return <OverlayButton large={large} label={empty} onClick={onClick} active={active}>{icon}</OverlayButton>
   }
   return (
-    <OverlayButton label={ariaLabel} onClick={onClick} active={active}>{icon}</OverlayButton>
+    <OverlayButton large={large} label={ariaLabel} onClick={onClick} active={active}>{icon}</OverlayButton>
   )
 }
 

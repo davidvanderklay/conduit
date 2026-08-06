@@ -107,6 +107,16 @@ body {
   background: transparent;
 }
 
+.native-player.electron-native-player .player-seek::-webkit-slider-runnable-track {
+  height: 7px;
+}
+
+.native-player.electron-native-player .player-seek::-webkit-slider-thumb {
+  width: 19px;
+  height: 19px;
+  margin-top: -6px;
+}
+
 .player-seek::-webkit-slider-runnable-track {
   height: 5px;
   border-radius: 9999px;
