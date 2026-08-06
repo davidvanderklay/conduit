@@ -481,7 +481,7 @@ function AudioTrackMenu({
       const bounds = anchor.current?.getBoundingClientRect()
       if (!bounds) return
       setPosition({
-        bottom: Math.max(16, window.innerHeight - bounds.top + 16),
+        bottom: Math.max(16, window.innerHeight - bounds.top + 32),
         right: Math.max(12, window.innerWidth - bounds.right),
         maxHeight: Math.max(160, Math.min(window.innerHeight * 0.7, bounds.top - 24)),
       })
@@ -547,7 +547,7 @@ function SubtitleTrackMenu({
       const bounds = anchor.current?.getBoundingClientRect()
       if (!bounds) return
       setPosition({
-        bottom: Math.max(16, window.innerHeight - bounds.top + 16),
+        bottom: Math.max(16, window.innerHeight - bounds.top + 32),
         right: Math.max(12, window.innerWidth - bounds.right),
         maxHeight: Math.max(160, Math.min(window.innerHeight * 0.7, bounds.top - 24)),
       })

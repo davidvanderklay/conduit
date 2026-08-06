@@ -660,7 +660,7 @@ function AuthenticatedApp({
 
   return (
     <div className="flex h-screen flex-col overflow-hidden">
-      <header className="app-chrome z-20 shrink-0 border-b border-zinc-900 bg-zinc-950/85 pl-[22px] pr-4 backdrop-blur-xl sm:pr-6 lg:pr-8 xl:pr-10">
+      <header className="app-chrome z-20 shrink-0 border-b border-zinc-900 bg-zinc-950/85 pl-[22px] pr-4 backdrop-blur-xl sm:pr-6 lg:pr-6 xl:pr-6 2xl:pr-8">
         <div className="flex h-16 items-center gap-3">
           <div className="flex shrink-0 items-center gap-2 font-display text-lg font-semibold">
             <Film className="text-amber-400" size={21} />
@@ -1025,7 +1025,7 @@ function MediaHome({
   ]
 
   return (
-    <main className="mx-auto max-w-[2200px] px-4 py-10 sm:px-6 lg:px-8 xl:px-10">
+    <main className="mx-auto max-w-[2200px] 2xl:max-w-none px-4 py-10 sm:px-6 lg:px-6 xl:px-6 2xl:px-8">
       <section className="mb-12">
         <div>
           <p className="mb-2 text-xs font-semibold uppercase tracking-[0.2em] text-amber-400">

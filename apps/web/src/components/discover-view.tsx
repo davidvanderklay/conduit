@@ -123,7 +123,7 @@ export function DiscoverView({
   }, [results.fetchNextPage, results.hasNextPage, results.isFetchingNextPage])
 
   return (
-    <main className="mx-auto max-w-[2200px] px-4 py-9 sm:px-6 lg:px-8 xl:px-10">
+    <main className="mx-auto max-w-[2200px] 2xl:max-w-none px-4 py-9 sm:px-6 lg:px-6 xl:px-6 2xl:px-8">
       <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-400">
         Browse your sources
       </p>

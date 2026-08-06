@@ -3,6 +3,7 @@ import {
   BrowserWindow,
   dialog,
   ipcMain,
+  Menu,
   net,
   protocol,
   screen,
@@ -502,6 +503,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
     // above it and the player chrome is rendered by a separate transparent
     // overlay window.
     backgroundColor: "#000000",
+    autoHideMenuBar: true,
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -509,6 +511,10 @@ async function createMainWindow(): Promise<BrowserWindow> {
       preload: path.join(__dirname, "preload.js"),
     },
   })
+  // Remove the default File/Edit/View/Window menu bar on Linux/Windows
+  window.removeMenu()
+  Menu.setApplicationMenu(null)
+  window.setMenuBarVisibility(false)
 
   if (process.platform === "linux" && electronOzonePlatform() === "x11" &&
     process.env.CONDUIT_ELECTRON_LOG_WINDOW === "1") {
