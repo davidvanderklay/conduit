@@ -150,10 +150,108 @@ body {
   visibility: hidden;
 }
 
-/* Windows and Linux render controls in a dedicated transparent Electron
-   window above mpv's native child surface. The original player is portaled
-   directly into body (outside #root), so hide that copy as well. macOS keeps
-   the original controls above its in-process NSView instead. */
+.electron-windows #root {
+  display: flex;
+  height: 100vh;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.electron-windows .macos-titlebar {
+  -webkit-app-region: drag;
+  display: grid;
+  height: 40px;
+  flex: 0 0 40px;
+  place-items: center;
+  border-bottom: 1px solid rgb(39 39 42);
+  background: rgb(24 24 27);
+  color: rgb(161 161 170);
+  font-size: 13px;
+  font-weight: 600;
+  position: relative;
+  z-index: 1000;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.windows-titlebar-controls {
+  display: none;
+}
+
+.electron-windows .windows-titlebar-controls {
+  -webkit-app-region: no-drag;
+  display: flex;
+  height: 40px;
+  position: absolute;
+  right: 0;
+  top: 0;
+}
+
+.electron-windows .windows-titlebar-controls button {
+  display: grid;
+  width: 46px;
+  height: 40px;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: rgb(212 212 216);
+}
+
+.electron-windows .windows-titlebar-controls button:hover {
+  background: rgb(63 63 70);
+  color: white;
+}
+
+.electron-windows .windows-titlebar-controls button.close:hover {
+  background: rgb(220 38 38);
+}
+
+.electron-windows #root > :not(.macos-titlebar) {
+  min-height: 0 !important;
+  height: 100% !important;
+  flex: 1 1 auto;
+}
+
+.electron-windows .native-player,
+.electron-windows .media-details {
+  top: 40px;
+}
+
+@media (min-width: 768px) {
+  .electron-windows .app-sidebar {
+    top: calc(40px + 4rem);
+    height: calc(100vh - 40px - 4rem);
+  }
+}
+
+.electron-windows.native-playback #root {
+  visibility: visible;
+}
+
+.electron-windows.native-playback #root > :not(.macos-titlebar) {
+  visibility: hidden;
+}
+
+.electron-windows.electron-native-fullscreen .macos-titlebar {
+  display: none;
+}
+
+.electron-windows.electron-native-fullscreen .native-player,
+.electron-windows.electron-native-fullscreen .media-details {
+  top: 0;
+}
+
+@media (min-width: 768px) {
+  .electron-windows.electron-native-fullscreen .app-sidebar {
+    top: 4rem;
+    height: calc(100vh - 4rem);
+  }
+}
+
+/* Linux renders controls in a dedicated transparent Electron window above
+   mpv's X11 surface. The original player is portaled directly into body
+   (outside #root), so hide that copy there. Windows and macOS keep the
+   original controls in the main window above their native video surfaces. */
 .linux-desktop.native-playback body > .native-player.electron-native-player {
   pointer-events: none;
   visibility: hidden;

@@ -1,5 +1,6 @@
 import React from "react"
 import ReactDOM from "react-dom/client"
+import { Minus, Square, X } from "lucide-react"
 import { createRootRoute, createRoute, createRouter, RouterProvider } from "@tanstack/react-router"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { App } from "./app"
@@ -48,10 +49,34 @@ const overlayTitle = new URLSearchParams(window.location.search).get("electronOv
   ? new URLSearchParams(window.location.search).get("title") ?? ""
   : undefined
 
-function MacTitleBar() {
+function DesktopTitleBar() {
   return (
-    <div className="macos-titlebar" aria-hidden="true">
+    <div className="macos-titlebar">
       <span>conduit</span>
+      <div className="windows-titlebar-controls">
+        <button
+          type="button"
+          aria-label="Minimize"
+          onClick={() => void window.__CONDUIT_ELECTRON__?.invoke("window_minimize")}
+        >
+          <Minus size={16} />
+        </button>
+        <button
+          type="button"
+          aria-label="Maximize or restore"
+          onClick={() => void window.__CONDUIT_ELECTRON__?.invoke("window_toggle_maximize")}
+        >
+          <Square size={13} />
+        </button>
+        <button
+          type="button"
+          className="close"
+          aria-label="Close"
+          onClick={() => void window.__CONDUIT_ELECTRON__?.invoke("window_close")}
+        >
+          <X size={17} />
+        </button>
+      </div>
     </div>
   )
 }
@@ -61,7 +86,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
     ? <ElectronPlayerOverlay initialTitle={overlayTitle} />
     : (
       <>
-        <MacTitleBar />
+        <DesktopTitleBar />
         <React.StrictMode>
           <QueryClientProvider client={queryClient}>
             <RouterProvider router={router} />

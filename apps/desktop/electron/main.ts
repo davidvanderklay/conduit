@@ -217,6 +217,7 @@ let playerOverlayMouseEventsIgnored: boolean | undefined
 let playerOverlayInteractiveRegions: OverlayInteractiveRegion[] = []
 let playerOverlayLastPointer: { x: number; y: number } | undefined
 let playerOverlaySequence = 0
+let mainWindowFullscreen = false
 const playerOverlayFocusSettleMs = 10
 const singleInstanceLock = app.requestSingleInstanceLock()
 
@@ -609,7 +610,11 @@ async function createMainWindow(): Promise<BrowserWindow> {
     backgroundColor: process.platform === "darwin" || process.platform === "win32"
       ? "#00000000"
       : "#000000",
-    titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
+    titleBarStyle: process.platform === "darwin"
+      ? "hiddenInset"
+      : process.platform === "win32"
+        ? "hidden"
+        : "default",
     trafficLightPosition: process.platform === "darwin" ? { x: 16, y: 20 } : undefined,
     autoHideMenuBar: true,
     webPreferences: {
@@ -637,6 +642,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
     void refreshNativeSurface()
   }
   window.on("enter-full-screen", () => {
+    mainWindowFullscreen = true
     window.webContents.send("conduit:fullscreen-changed", true)
     playerOverlayWindow?.webContents.send("conduit:fullscreen-changed", true)
     positionPlayerOverlay()
@@ -649,6 +655,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
     setTimeout(resyncFullscreenOverlay, 1000)
   })
   window.on("leave-full-screen", () => {
+    mainWindowFullscreen = false
     window.webContents.send("conduit:fullscreen-changed", false)
     playerOverlayWindow?.webContents.send("conduit:fullscreen-changed", false)
     positionPlayerOverlay()
@@ -707,6 +714,20 @@ function startAuthServer(): Promise<{ callbackUrl: string }> {
 
 async function invoke(command: string, args: Record<string, unknown> = {}): Promise<unknown> {
   if (command === "desktop_auth_listen") return startAuthServer()
+  if (command === "window_minimize") {
+    mainWindow?.minimize()
+    return null
+  }
+  if (command === "window_toggle_maximize") {
+    if (!mainWindow) return false
+    if (mainWindow.isMaximized()) mainWindow.unmaximize()
+    else mainWindow.maximize()
+    return mainWindow.isMaximized()
+  }
+  if (command === "window_close") {
+    mainWindow?.close()
+    return null
+  }
   if (command === "player_overlay_close") {
     mainWindow?.webContents.send("conduit:player-overlay-close")
     return null
@@ -717,11 +738,22 @@ async function invoke(command: string, args: Record<string, unknown> = {}): Prom
   }
   if (command === "player_toggle_fullscreen") {
     if (!mainWindow) throw new Error("Main window is unavailable.")
-    mainWindow.setFullScreen(!mainWindow.isFullScreen())
+    const fullscreen = !mainWindowFullscreen
+    mainWindowFullscreen = fullscreen
+    await new Promise<void>((resolve) => {
+      const timeout = setTimeout(resolve, 1500)
+      const complete = () => {
+        clearTimeout(timeout)
+        resolve()
+      }
+      if (fullscreen) mainWindow?.once("enter-full-screen", complete)
+      else mainWindow?.once("leave-full-screen", complete)
+      mainWindow?.setFullScreen(fullscreen)
+    })
     refreshNativeSurface()
-    return mainWindow.isFullScreen()
+    return mainWindowFullscreen
   }
-  if (command === "player_is_fullscreen") return mainWindow?.isFullScreen() ?? false
+  if (command === "player_is_fullscreen") return mainWindowFullscreen
   if (command === "player_stop") {
     const client = nativePlayer
     if (!client) return null

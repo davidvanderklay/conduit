@@ -4,9 +4,6 @@ if (process.platform === "darwin") {
   window.addEventListener("DOMContentLoaded", () => {
     document.documentElement.classList.add("electron-macos")
   })
-  ipcRenderer.on("conduit:fullscreen-changed", (_event, fullscreen: boolean) => {
-    document.documentElement.classList.toggle("electron-native-fullscreen", fullscreen)
-  })
 }
 
 if (process.platform === "win32") {
@@ -14,6 +11,10 @@ if (process.platform === "win32") {
     document.documentElement.classList.add("electron-windows")
   })
 }
+
+ipcRenderer.on("conduit:fullscreen-changed", (_event, fullscreen: boolean) => {
+  document.documentElement.classList.toggle("electron-native-fullscreen", fullscreen)
+})
 
 contextBridge.exposeInMainWorld("__CONDUIT_ELECTRON__", {
   invoke(command: string, args?: unknown) {
