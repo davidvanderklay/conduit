@@ -149,6 +149,8 @@ let playerOverlayWindow: BrowserWindow | undefined
 let nativePlayer: NativePlayerClient | undefined
 let authServer: Server | undefined
 let devWebServer: ChildProcess | undefined
+let playerOverlayVisibilityTimer: NodeJS.Timeout | undefined
+const playerOverlayFocusSettleMs = 75
 
 function refreshNativeSurface() {
   void nativePlayer?.request("player_refresh_surface").catch(() => undefined)
@@ -160,10 +162,47 @@ function positionPlayerOverlay() {
   // transient relationship for workspace tracking, but position the surface
   // using those screen coordinates.
   playerOverlayWindow.setBounds(mainWindow.getContentBounds())
+}
+
+function showPlayerOverlay() {
+  if (!mainWindow || !playerOverlayWindow || playerOverlayWindow.isDestroyed()) return
+  if (!mainWindow.isVisible() || mainWindow.isMinimized()) return
+
+  positionPlayerOverlay()
+  // The native mpv host is a separate X11 surface, so the chrome needs to be
+  // above it while Conduit is active. Pair this with hidePlayerOverlay so an
+  // always-on-top surface cannot remain above another application.
+  playerOverlayWindow.setAlwaysOnTop(true, "floating")
+  playerOverlayWindow.showInactive()
   playerOverlayWindow.moveTop()
 }
 
+function hidePlayerOverlay() {
+  if (!playerOverlayWindow || playerOverlayWindow.isDestroyed()) return
+  playerOverlayWindow.setAlwaysOnTop(false)
+  playerOverlayWindow.hide()
+}
+
+function syncPlayerOverlayVisibility() {
+  if (playerOverlayVisibilityTimer) clearTimeout(playerOverlayVisibilityTimer)
+  playerOverlayVisibilityTimer = setTimeout(() => {
+    playerOverlayVisibilityTimer = undefined
+    if (!mainWindow || !playerOverlayWindow || playerOverlayWindow.isDestroyed()) return
+
+    const appIsActive = mainWindow.isFocused() || playerOverlayWindow.isFocused()
+    if (appIsActive && mainWindow.isVisible() && !mainWindow.isMinimized()) {
+      showPlayerOverlay()
+    } else {
+      hidePlayerOverlay()
+    }
+  }, playerOverlayFocusSettleMs)
+}
+
 function closePlayerOverlay() {
+  if (playerOverlayVisibilityTimer) {
+    clearTimeout(playerOverlayVisibilityTimer)
+    playerOverlayVisibilityTimer = undefined
+  }
   if (!playerOverlayWindow || playerOverlayWindow.isDestroyed()) {
     playerOverlayWindow = undefined
     return
@@ -196,6 +235,10 @@ async function ensurePlayerOverlay(title: string) {
     closable: false,
     focusable: true,
     skipTaskbar: true,
+    // On Linux, Electron otherwise creates a second NORMAL application
+    // window. TOOLBAR makes this a utility surface in GNOME's window model
+    // while keeping it interactive and transient for the main window.
+    type: process.platform === "linux" ? "toolbar" : "normal",
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -209,8 +252,13 @@ async function ensurePlayerOverlay(title: string) {
       windowId: nativeWindowId(overlay),
     })
   }
-  overlay.setAlwaysOnTop(true, "floating")
+  overlay.setVisibleOnAllWorkspaces(false)
   overlay.setMenuBarVisibility(false)
+  overlay.on("focus", showPlayerOverlay)
+  overlay.on("blur", syncPlayerOverlayVisibility)
+  overlay.on("hide", () => {
+    overlay.setAlwaysOnTop(false)
+  })
   overlay.on("closed", () => {
     if (playerOverlayWindow === overlay) playerOverlayWindow = undefined
   })
@@ -223,8 +271,7 @@ async function ensurePlayerOverlay(title: string) {
     ? "http://localhost:5173/?" + query.toString()
     : "conduit://localhost/?" + query.toString()
   await overlay.loadURL(url)
-  overlay.showInactive()
-  positionPlayerOverlay()
+  syncPlayerOverlayVisibility()
 }
 
 function nativePlayerPath(): string {
@@ -494,6 +541,12 @@ app.whenReady().then(async () => {
     refreshNativeSurface()
     positionPlayerOverlay()
   })
+  mainWindow.on("focus", showPlayerOverlay)
+  mainWindow.on("blur", syncPlayerOverlayVisibility)
+  mainWindow.on("show", syncPlayerOverlayVisibility)
+  mainWindow.on("hide", hidePlayerOverlay)
+  mainWindow.on("minimize", hidePlayerOverlay)
+  mainWindow.on("restore", syncPlayerOverlayVisibility)
   mainWindow.on("closed", () => {
     closePlayerOverlay()
     mainWindow = undefined
