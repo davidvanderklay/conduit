@@ -161,7 +161,6 @@ modules:
       - rust-std-wasm32-unknown-unknown/install.sh --prefix="$PWD/rust-toolchain" --disable-ldconfig
       - mv rust-toolchain/bin/rustc rust-toolchain/bin/rustc-real
       - install -Dm755 rustc-wrapper rust-toolchain/bin/rustc
-      - PATH="$PWD/rust-toolchain/bin:$PATH" wasm-pack build packages/core --target web --out-dir pkg --no-opt
       - cargo build --offline --release -p conduit-electron-native --features linux-helper
       - install -Dm755 target/release/conduit-electron-native /app/bin/conduit-electron-native
       # TODO: Bundle Electron desktop (apps/desktop/electron + apps/web/dist) into Flatpak
