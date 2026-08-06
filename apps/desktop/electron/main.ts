@@ -179,6 +179,7 @@ function showPlayerOverlay() {
 
 function hidePlayerOverlay() {
   if (!playerOverlayWindow || playerOverlayWindow.isDestroyed()) return
+  playerOverlayWindow.setIgnoreMouseEvents(true, { forward: true })
   playerOverlayWindow.setAlwaysOnTop(false)
   playerOverlayWindow.hide()
 }
@@ -253,6 +254,7 @@ async function ensurePlayerOverlay(title: string) {
     })
   }
   overlay.setVisibleOnAllWorkspaces(false)
+  overlay.setIgnoreMouseEvents(true, { forward: true })
   overlay.setMenuBarVisibility(false)
   overlay.on("focus", showPlayerOverlay)
   overlay.on("blur", syncPlayerOverlayVisibility)
@@ -495,6 +497,11 @@ async function invoke(command: string, args: Record<string, unknown> = {}): Prom
 }
 
 function registerIpcHandlers() {
+  ipcMain.on("conduit:player-overlay-mouse-events", (event, ignore: unknown) => {
+    if (!playerOverlayWindow || playerOverlayWindow.isDestroyed()) return
+    if (event.sender.id !== playerOverlayWindow.webContents.id) return
+    playerOverlayWindow.setIgnoreMouseEvents(Boolean(ignore), { forward: true })
+  })
   ipcMain.handle("conduit:invoke", (_event, command: string, args?: Record<string, unknown>) =>
     invoke(command, args),
   )

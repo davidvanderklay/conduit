@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type MouseEvent,
+  type ReactNode,
+} from "react"
 import {
   Captions,
   Languages,
@@ -32,12 +39,28 @@ export function ElectronPlayerOverlay({ initialTitle }: { initialTitle: string }
   const [scale, setScale] = useState<VideoScale>("fit")
   const [controlsVisible, setControlsVisible] = useState(true)
   const hideTimer = useRef<number | undefined>(undefined)
+  const mouseEventsIgnored = useRef(true)
 
   const showControls = useCallback(() => {
     setControlsVisible(true)
     window.clearTimeout(hideTimer.current)
     hideTimer.current = window.setTimeout(() => setControlsVisible(false), 2800)
   }, [])
+
+  const setMousePassthrough = useCallback((ignore: boolean) => {
+    const electron = window.__CONDUIT_ELECTRON__
+    if (!electron || mouseEventsIgnored.current === ignore) return
+    mouseEventsIgnored.current = ignore
+    electron.setPlayerOverlayMouseEvents(ignore)
+  }, [])
+
+  const handleMouseMove = useCallback((event: MouseEvent<HTMLDivElement>) => {
+    showControls()
+    const target = event.target
+    const interactive = target instanceof Element &&
+      target.closest("[data-overlay-interactive]") !== null
+    setMousePassthrough(!interactive)
+  }, [setMousePassthrough, showControls])
 
   useEffect(() => {
     document.documentElement.classList.add("electron-player-overlay")
@@ -118,7 +141,8 @@ export function ElectronPlayerOverlay({ initialTitle }: { initialTitle: string }
   return (
     <div
       className={rootClassName}
-      onMouseMove={showControls}
+      onMouseMove={handleMouseMove}
+      onMouseLeave={() => setMousePassthrough(true)}
       onClick={(event) => {
         if (event.target === event.currentTarget) togglePlayback()
       }}
@@ -162,6 +186,7 @@ export function ElectronPlayerOverlay({ initialTitle }: { initialTitle: string }
             <span className="min-w-12 text-right">{formatTime(snapshot?.position ?? 0)}</span>
             <input
               className="player-seek pointer-events-auto block h-2 min-w-0 flex-1 cursor-pointer"
+              data-overlay-interactive
               type="range"
               min={0}
               max={snapshot?.duration || 0}
@@ -188,6 +213,7 @@ export function ElectronPlayerOverlay({ initialTitle }: { initialTitle: string }
             </OverlayButton>
             <input
               className="player-volume hidden h-4 w-24 sm:block"
+              data-overlay-interactive
               type="range"
               min={0}
               max={100}
@@ -236,7 +262,8 @@ function OverlayButton({
   return (
     <button
       type="button"
-      className="grid size-10 shrink-0 place-items-center rounded-lg text-zinc-100 drop-shadow-[0_1px_3px_rgb(0_0_0)] hover:bg-white/15 hover:text-white"
+      className="pointer-events-auto grid size-10 shrink-0 place-items-center rounded-lg text-zinc-100 drop-shadow-[0_1px_3px_rgb(0_0_0)] hover:bg-white/15 hover:text-white"
+      data-overlay-interactive
       aria-label={label}
       title={label}
       onClick={onClick}
@@ -265,7 +292,7 @@ function TrackSelect({
     return <OverlayButton label={empty} onClick={() => undefined}>{icon}</OverlayButton>
   }
   return (
-    <label className="relative grid size-10 shrink-0 place-items-center rounded-lg text-zinc-100 drop-shadow-[0_1px_3px_rgb(0_0_0)] hover:bg-white/15 hover:text-white">
+    <label className="pointer-events-auto relative grid size-10 shrink-0 place-items-center rounded-lg text-zinc-100 drop-shadow-[0_1px_3px_rgb(0_0_0)] hover:bg-white/15 hover:text-white" data-overlay-interactive>
       {icon}
       <select
         className="absolute inset-0 cursor-pointer opacity-0"

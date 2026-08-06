@@ -26,6 +26,9 @@ contextBridge.exposeInMainWorld("__CONDUIT_ELECTRON__", {
     ipcRenderer.on("conduit:player-overlay-title", handler)
     return () => ipcRenderer.removeListener("conduit:player-overlay-title", handler)
   },
+  setPlayerOverlayMouseEvents(ignore: boolean) {
+    ipcRenderer.send("conduit:player-overlay-mouse-events", ignore)
+  },
   onDesktopAuthCallback(listener: (callbackUrl: string) => void) {
     const handler = (_event: Electron.IpcRendererEvent, callbackUrl: string) => {
       listener(callbackUrl)
