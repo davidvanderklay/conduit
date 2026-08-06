@@ -11,6 +11,21 @@ contextBridge.exposeInMainWorld("__CONDUIT_ELECTRON__", {
     ipcRenderer.on("conduit:fullscreen-changed", handler)
     return () => ipcRenderer.removeListener("conduit:fullscreen-changed", handler)
   },
+  onPlayerOverlayClose(listener: () => void) {
+    const handler = () => listener()
+    ipcRenderer.on("conduit:player-overlay-close", handler)
+    return () => ipcRenderer.removeListener("conduit:player-overlay-close", handler)
+  },
+  onPlayerOverlayNext(listener: () => void) {
+    const handler = () => listener()
+    ipcRenderer.on("conduit:player-overlay-next", handler)
+    return () => ipcRenderer.removeListener("conduit:player-overlay-next", handler)
+  },
+  onPlayerOverlayTitle(listener: (title: string) => void) {
+    const handler = (_event: Electron.IpcRendererEvent, title: string) => listener(title)
+    ipcRenderer.on("conduit:player-overlay-title", handler)
+    return () => ipcRenderer.removeListener("conduit:player-overlay-title", handler)
+  },
   onDesktopAuthCallback(listener: (callbackUrl: string) => void) {
     const handler = (_event: Electron.IpcRendererEvent, callbackUrl: string) => {
       listener(callbackUrl)

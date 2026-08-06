@@ -32,6 +32,11 @@ function electronOzonePlatform(): ElectronOzonePlatform {
 }
 
 if (process.platform === "linux") {
+  // The player chrome is rendered in a transparent overlay BrowserWindow.
+  // Without this Chromium paints transparent pixels as opaque black on X11.
+  if (electronOzonePlatform() === "x11") {
+    app.commandLine.appendSwitch("enable-transparent-visuals")
+  }
   if (process.env.CONDUIT_ELECTRON_IN_PROCESS_GPU === "1") {
     app.commandLine.appendSwitch("in-process-gpu")
   } else if (process.env.CONDUIT_ELECTRON_DISABLE_GPU === "1") {
@@ -140,12 +145,86 @@ class NativePlayerClient {
 }
 
 let mainWindow: BrowserWindow | undefined
+let playerOverlayWindow: BrowserWindow | undefined
 let nativePlayer: NativePlayerClient | undefined
 let authServer: Server | undefined
 let devWebServer: ChildProcess | undefined
 
 function refreshNativeSurface() {
   void nativePlayer?.request("player_refresh_surface").catch(() => undefined)
+}
+
+function positionPlayerOverlay() {
+  if (!mainWindow || !playerOverlayWindow || playerOverlayWindow.isDestroyed()) return
+  // Electron reports content bounds in screen coordinates. Keep the
+  // transient relationship for workspace tracking, but position the surface
+  // using those screen coordinates.
+  playerOverlayWindow.setBounds(mainWindow.getContentBounds())
+  playerOverlayWindow.moveTop()
+}
+
+function closePlayerOverlay() {
+  if (!playerOverlayWindow || playerOverlayWindow.isDestroyed()) {
+    playerOverlayWindow = undefined
+    return
+  }
+  playerOverlayWindow.close()
+  playerOverlayWindow = undefined
+}
+
+async function ensurePlayerOverlay(title: string) {
+  if (!mainWindow) throw new Error("Main window is unavailable.")
+  if (playerOverlayWindow && !playerOverlayWindow.isDestroyed()) {
+    playerOverlayWindow.webContents.send("conduit:player-overlay-title", title)
+    positionPlayerOverlay()
+    return
+  }
+
+  const { width, height } = mainWindow.getContentBounds()
+  const overlay = new BrowserWindow({
+    ...mainWindow.getContentBounds(),
+    width,
+    height,
+    frame: false,
+    transparent: true,
+    backgroundColor: "#00000000",
+    hasShadow: false,
+    resizable: false,
+    movable: false,
+    minimizable: false,
+    maximizable: false,
+    closable: false,
+    focusable: true,
+    skipTaskbar: true,
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      preload: path.join(__dirname, "preload.js"),
+    },
+  })
+  playerOverlayWindow = overlay
+  if (nativePlayer) {
+    await nativePlayer.request("player_set_overlay_window", {
+      windowId: nativeWindowId(overlay),
+    })
+  }
+  overlay.setAlwaysOnTop(true, "floating")
+  overlay.setMenuBarVisibility(false)
+  overlay.on("closed", () => {
+    if (playerOverlayWindow === overlay) playerOverlayWindow = undefined
+  })
+
+  const query = new URLSearchParams({
+    electronOverlay: "1",
+    title,
+  })
+  const url = rendererIsDevelopment()
+    ? "http://localhost:5173/?" + query.toString()
+    : "conduit://localhost/?" + query.toString()
+  await overlay.loadURL(url)
+  overlay.showInactive()
+  positionPlayerOverlay()
 }
 
 function nativePlayerPath(): string {
@@ -247,9 +326,9 @@ async function createMainWindow(): Promise<BrowserWindow> {
     height: 800,
     minWidth: 900,
     minHeight: 600,
-    // The native mpv host is stacked above this window and shaped around the
-    // controls. Keep the Chromium backing surface opaque so other windows do
-    // not show through the player chrome.
+    // Keep the application surface opaque. The native mpv host is stacked
+    // above it and the player chrome is rendered by a separate transparent
+    // overlay window.
     backgroundColor: "#000000",
     webPreferences: {
       contextIsolation: true,
@@ -267,8 +346,16 @@ async function createMainWindow(): Promise<BrowserWindow> {
     )
   }
 
-  window.on("enter-full-screen", () => window.webContents.send("conduit:fullscreen-changed", true))
-  window.on("leave-full-screen", () => window.webContents.send("conduit:fullscreen-changed", false))
+  window.on("enter-full-screen", () => {
+    window.webContents.send("conduit:fullscreen-changed", true)
+    playerOverlayWindow?.webContents.send("conduit:fullscreen-changed", true)
+    positionPlayerOverlay()
+  })
+  window.on("leave-full-screen", () => {
+    window.webContents.send("conduit:fullscreen-changed", false)
+    playerOverlayWindow?.webContents.send("conduit:fullscreen-changed", false)
+    positionPlayerOverlay()
+  })
 
   if (rendererIsDevelopment()) await window.loadURL("http://localhost:5173")
   else await window.loadURL("conduit://localhost/")
@@ -316,6 +403,14 @@ function startAuthServer(): Promise<{ callbackUrl: string }> {
 
 async function invoke(command: string, args: Record<string, unknown> = {}): Promise<unknown> {
   if (command === "desktop_auth_listen") return startAuthServer()
+  if (command === "player_overlay_close") {
+    mainWindow?.webContents.send("conduit:player-overlay-close")
+    return null
+  }
+  if (command === "player_overlay_next") {
+    mainWindow?.webContents.send("conduit:player-overlay-next")
+    return null
+  }
   if (command === "player_toggle_fullscreen") {
     if (!mainWindow) throw new Error("Main window is unavailable.")
     mainWindow.setFullScreen(!mainWindow.isFullScreen())
@@ -323,6 +418,13 @@ async function invoke(command: string, args: Record<string, unknown> = {}): Prom
     return mainWindow.isFullScreen()
   }
   if (command === "player_is_fullscreen") return mainWindow?.isFullScreen() ?? false
+  if (command === "player_stop") {
+    const result = nativePlayer
+      ? await nativePlayer.request("player_stop", args)
+      : null
+    closePlayerOverlay()
+    return result
+  }
   if (command === "player_refresh_surface" || command === "player_redraw_surface") {
     if (!nativePlayer) return null
     return nativePlayer.request(command)
@@ -332,7 +434,11 @@ async function invoke(command: string, args: Record<string, unknown> = {}): Prom
   if (command === "player_open") {
     if (!mainWindow) throw new Error("Main window is unavailable.")
     nativePlayer?.close()
-    nativePlayer = new NativePlayerClient(nativeWindowId(mainWindow))
+    const client = new NativePlayerClient(nativeWindowId(mainWindow))
+    nativePlayer = client
+    const result = await client.request("player_open", args)
+    await ensurePlayerOverlay(typeof args.title === "string" ? args.title : "")
+    return result
   }
   if (command.startsWith("player_")) {
     if (!nativePlayer) throw new Error("The native player has not been started.")
@@ -368,6 +474,7 @@ function registerIpcHandlers() {
 async function closeResources() {
   authServer?.close()
   authServer = undefined
+  closePlayerOverlay()
   nativePlayer?.close()
   nativePlayer = undefined
   devWebServer?.kill()
@@ -379,9 +486,16 @@ app.whenReady().then(async () => {
   await registerApplicationProtocol()
   registerIpcHandlers()
   mainWindow = await createMainWindow()
-  mainWindow.on("move", refreshNativeSurface)
-  mainWindow.on("resize", refreshNativeSurface)
+  mainWindow.on("move", () => {
+    refreshNativeSurface()
+    positionPlayerOverlay()
+  })
+  mainWindow.on("resize", () => {
+    refreshNativeSurface()
+    positionPlayerOverlay()
+  })
   mainWindow.on("closed", () => {
+    closePlayerOverlay()
     mainWindow = undefined
   })
 })

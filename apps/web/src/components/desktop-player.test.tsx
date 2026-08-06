@@ -63,7 +63,6 @@ const desktop = vi.hoisted(() => ({
   redrawNativeSurface: vi.fn(async () => undefined),
   refreshNativeSurface: vi.fn(async () => undefined),
   resetNativeOverlaySurface: vi.fn(async () => undefined),
-  setNativeOverlayRegions: vi.fn(async () => undefined),
   stopNativePlayer: vi.fn(async () => undefined),
   toggleNativeFullscreen: vi.fn(async () => false),
 }))

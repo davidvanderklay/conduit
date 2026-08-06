@@ -23,7 +23,6 @@ import {
   redrawNativeSurface,
   refreshNativeSurface,
   resetNativeOverlaySurface,
-  setNativeOverlayRegions,
   stopNativePlayer,
   toggleNativeFullscreen,
   type NativePlayerSnapshot,
@@ -243,6 +242,19 @@ export function DesktopPlayer({
       if (!closing.current) void stopNativePlayer()
     }
   }, [addons, mediaTitle, type, url, videoId])
+
+  useEffect(() => {
+    const electron = window.__CONDUIT_ELECTRON__
+    if (!electron) return
+    const unsubscribeClose = electron.onPlayerOverlayClose(onClose)
+    const unsubscribeNext = electron.onPlayerOverlayNext(() => {
+      if (onNextEpisode) void onNextEpisode()
+    })
+    return () => {
+      unsubscribeClose()
+      unsubscribeNext()
+    }
+  }, [onClose, onNextEpisode])
 
   useEffect(() => {
     if (
@@ -572,65 +584,9 @@ export function DesktopPlayer({
     Boolean(activeMenu) ||
     episodeDrawerOpen ||
     !snapshot
+  const electronNativePlayer = window.__CONDUIT_ELECTRON__ !== undefined
   const expandedControls = fullscreen || spaciousViewport
   const loadingOverlayVisible = !error && (!snapshot || snapshot.duration <= 0)
-  const electronNativePlayer = window.__CONDUIT_ELECTRON__ !== undefined
-
-  const syncNativeOverlayRegions = useCallback(() => {
-    window.requestAnimationFrame(() => {
-      const player = document.querySelector<HTMLElement>(".native-player")
-      if (!player) return
-      const viewport = player.getBoundingClientRect()
-      const scale = window.devicePixelRatio || 1
-      const regions = [...document.querySelectorAll<HTMLElement>("[data-native-overlay]")]
-        .filter((element) => {
-          const style = getComputedStyle(element)
-          return style.display !== "none" && style.visibility !== "hidden"
-        })
-        .map((element) => {
-          const bounds = element.getBoundingClientRect()
-          // X11 shape boundaries are integer pixels. Give controls a small
-          // physical-pixel margin so anti-aliased corners and focus rings do
-          // not get clipped by the native video window.
-          const padding = Math.ceil(8 * scale)
-          return {
-            x: Math.floor((bounds.left - viewport.left) * scale) - padding,
-            y: Math.floor((bounds.top - viewport.top) * scale) - padding,
-            width: Math.ceil(bounds.width * scale) + padding * 2,
-            height: Math.ceil(bounds.height * scale) + padding * 2,
-          }
-        })
-        .filter((region) => region.width > 0 && region.height > 0)
-      void setNativeOverlayRegions(regions).catch(() => undefined)
-    })
-  }, [])
-
-  useLayoutEffect(() => {
-    syncNativeOverlayRegions()
-    const player = document.querySelector<HTMLElement>(".native-player")
-    if (!player || typeof ResizeObserver === "undefined") return
-    const observer = new ResizeObserver(syncNativeOverlayRegions)
-    observer.observe(player)
-    window.addEventListener("resize", syncNativeOverlayRegions)
-    return () => {
-      observer.disconnect()
-      window.removeEventListener("resize", syncNativeOverlayRegions)
-    }
-  }, [syncNativeOverlayRegions])
-
-  useLayoutEffect(() => {
-    syncNativeOverlayRegions()
-  }, [
-    activeMenu,
-    chromeVisible,
-    episodeDrawerOpen,
-    error,
-    fullscreen,
-    loadingOverlayVisible,
-    snapshot?.duration,
-    spaciousViewport,
-    syncNativeOverlayRegions,
-  ])
 
   useLayoutEffect(() => {
     const overlayHidden =

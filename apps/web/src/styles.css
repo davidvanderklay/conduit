@@ -74,6 +74,20 @@ body {
   visibility: hidden;
 }
 
+.electron-player-overlay,
+.electron-player-overlay body {
+  background: transparent;
+  height: 100%;
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.electron-player-overlay .player-seek,
+.electron-player-overlay .player-volume {
+  background: transparent;
+}
+
 .player-seek {
   appearance: none;
   -webkit-appearance: none;
