@@ -40,6 +40,7 @@ import {
 } from "../lib/video-scale"
 import {
   groupSubtitles,
+  normalizeSubtitleLanguage,
   subtitleLanguageName,
   type SubtitleLanguageGroup,
 } from "../lib/subtitle-groups"
@@ -59,6 +60,7 @@ export function ElectronPlayerOverlay({ initialTitle }: { initialTitle: string }
     () => readPreferences().subtitlePosition,
   )
   const hideTimer = useRef<number | undefined>(undefined)
+  const preferredSubtitleApplied = useRef(false)
   const audioAnchorRef = useRef<HTMLDivElement>(null)
   const subtitleAnchorRef = useRef<HTMLDivElement>(null)
 
@@ -209,6 +211,17 @@ export function ElectronPlayerOverlay({ initialTitle }: { initialTitle: string }
   const selectedSubtitleGroup = subtitleGroups.find(
     (group) => group.code === selectedSubtitleCode,
   )
+
+  useEffect(() => {
+    if (preferredSubtitleApplied.current || !subtitleTracks.length) return
+    const preferredCode = normalizeSubtitleLanguage(readPreferences().subtitleLanguage)
+    const preferredGroup = subtitleGroups.find((group) => group.code === preferredCode)
+    const embeddedTrack = preferredGroup?.tracks.find((track) => !track.external)
+    if (!embeddedTrack) return
+    preferredSubtitleApplied.current = true
+    if (!embeddedTrack.selected) selectSubtitleTrack(embeddedTrack, command, setSnapshot)
+  }, [command, subtitleGroups, subtitleTracks.length])
+
   const selectedScale = VIDEO_SCALE_OPTIONS.find((option) => option.value === scale)?.label ?? scale
   const rootClassName =
     "native-player electron-native-player electron-player-overlay fixed inset-0 z-50 select-none " +
@@ -394,11 +407,12 @@ export function ElectronPlayerOverlay({ initialTitle }: { initialTitle: string }
               onSelectLanguage={(code) => {
                 setSelectedSubtitleCode(code)
                 const group = subtitleGroups.find((candidate) => candidate.code === code)
-                const track = group?.tracks.find((candidate) => candidate.selected) ?? group?.tracks[0]
+                const track = group && defaultSubtitleTrack(group)
                 if (track) selectSubtitleTrack(track, command, setSnapshot)
               }}
               onSelectTrack={(track) => selectSubtitleTrack(track, command, setSnapshot)}
               onOff={() => {
+                setSelectedSubtitleCode(undefined)
                 command(["set", "sid", "no"])
                 setSnapshot((current) => current ? {
                   ...current,
@@ -419,6 +433,12 @@ export function ElectronPlayerOverlay({ initialTitle }: { initialTitle: string }
       </div>
     </div>
   )
+}
+
+export function defaultSubtitleTrack(
+  group: SubtitleLanguageGroup<NativeTrack>,
+): NativeTrack | undefined {
+  return group.tracks.find((track) => !track.external) ?? group.tracks[0]
 }
 
 function OverlayButton({

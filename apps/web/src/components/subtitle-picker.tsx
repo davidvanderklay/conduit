@@ -7,6 +7,7 @@ export interface SubtitlePickerItem {
   language?: string
   title: string
   detail: string
+  embedded?: boolean
   active: boolean
 }
 
@@ -67,7 +68,10 @@ export function SubtitlePicker({
               ? "bg-amber-400 text-zinc-950"
               : "text-zinc-300 hover:bg-zinc-800"
           }`}
-          onClick={onOff}
+          onClick={() => {
+            setSelectedCode(undefined)
+            onOff()
+          }}
           aria-pressed={off && !selectedCode}
         >
           Off
@@ -83,8 +87,8 @@ export function SubtitlePicker({
             }`}
             onClick={() => {
               setSelectedCode(group.code)
-              const activeTrack = group.tracks.find((track) => track.active)
-              onSelect(activeTrack?.key ?? group.tracks[0]!.key)
+              const embeddedTrack = group.tracks.find((track) => track.embedded)
+              onSelect(embeddedTrack?.key ?? group.tracks[0]!.key)
             }}
             aria-expanded={selectedCode === group.code}
           >

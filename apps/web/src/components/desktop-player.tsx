@@ -297,8 +297,10 @@ export function DesktopPlayer({
       return
     }
     const subtitleTracks = snapshot.tracks.filter((track) => track.type === "sub")
-    const embeddedMatch = subtitleTracks.find((track) =>
-      matchesTrackLanguage(preferredSubtitleLanguage, track.lang, track.title),
+    const embeddedMatch = subtitleTracks.find(
+      (track) =>
+        !track.external &&
+        matchesTrackLanguage(preferredSubtitleLanguage, track.lang, track.title),
     )
     preferredSubtitleApplied.current = true
     if (embeddedMatch) {
@@ -1174,6 +1176,7 @@ function TrackMenu({
               detail: [track.codec?.toUpperCase(), track.external ? "External" : "Embedded"]
                 .filter(Boolean)
                 .join(" · "),
+              embedded: !track.external,
               active: track.selected,
             })),
             ...availableAddonSubtitles.map((subtitle) => ({
