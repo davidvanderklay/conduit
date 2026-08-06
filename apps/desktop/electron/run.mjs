@@ -1,6 +1,8 @@
 import { spawn } from "node:child_process"
+import { createRequire } from "node:module"
 
-const command = process.env.CONDUIT_ELECTRON_BIN ?? "electron"
+const require = createRequire(import.meta.url)
+const command = process.env.CONDUIT_ELECTRON_BIN ?? require("electron")
 const { ELECTRON_RUN_AS_NODE: _electronRunAsNode, ...environment } = process.env
 const appArguments = process.argv.slice(2)
 if (process.platform === "linux") {
@@ -41,4 +43,9 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
 child.on("exit", (code, signal) => {
   if (signal) process.kill(process.pid, signal)
   else process.exit(code ?? 1)
+})
+
+child.on("error", (error) => {
+  console.error(`Failed to start Electron from ${command}:`, error)
+  process.exit(1)
 })

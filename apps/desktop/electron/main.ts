@@ -523,8 +523,12 @@ function rendererIsDevelopment(): boolean {
 async function startDevelopmentWebServer() {
   if (!rendererIsDevelopment() || process.env.CONDUIT_ELECTRON_SKIP_WEB === "1") return
   const workspaceRoot = path.resolve(__dirname, "../../../..")
-  const command = process.platform === "win32" ? "pnpm.cmd" : "pnpm"
-  devWebServer = spawn(command, ["--dir", workspaceRoot, "--filter", "@conduit/web", "dev"], {
+  const windows = process.platform === "win32"
+  const command = windows ? (process.env.ComSpec ?? "cmd.exe") : "pnpm"
+  const args = windows
+    ? ["/d", "/s", "/c", "pnpm --filter @conduit/web dev"]
+    : ["--dir", workspaceRoot, "--filter", "@conduit/web", "dev"]
+  devWebServer = spawn(command, args, {
     cwd: workspaceRoot,
     env: process.env,
     stdio: "inherit",
@@ -804,7 +808,7 @@ async function closeResources() {
   devWebServer = undefined
 }
 
-app.whenReady().then(async () => {
+void app.whenReady().then(async () => {
   await startDevelopmentWebServer()
   await registerApplicationProtocol()
   registerIpcHandlers()
@@ -843,6 +847,9 @@ app.whenReady().then(async () => {
     closePlayerOverlay()
     mainWindow = undefined
   })
+}).catch((error: unknown) => {
+  console.error("Conduit Electron failed to start:", error)
+  app.exit(1)
 })
 
 app.on("before-quit", () => void closeResources())

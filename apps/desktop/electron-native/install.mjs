@@ -12,7 +12,15 @@ const sourceName = process.platform === "win32"
     ? "libconduit_electron_native.dylib"
     : "libconduit_electron_native.so"
 const source = path.join(workspaceRoot, "target", profile, sourceName)
-const destination = path.join(nativeRoot, "dist", "conduit-electron-native.node")
+const dist = path.join(nativeRoot, "dist")
+const destination = path.join(dist, "conduit-electron-native.node")
 
-await mkdir(path.dirname(destination), { recursive: true })
+await mkdir(dist, { recursive: true })
 await copyFile(source, destination)
+
+if (process.platform === "win32") {
+  await copyFile(
+    path.join(nativeRoot, "../src-tauri/libmpv/libmpv-2.dll"),
+    path.join(dist, "libmpv-2.dll"),
+  )
+}
