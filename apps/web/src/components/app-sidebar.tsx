@@ -27,7 +27,7 @@ export function AppSidebar({
   onNavigate: (section: AppSection) => void
 }) {
   return (
-    <aside className="app-chrome fixed bottom-0 left-0 right-0 z-30 border-t border-zinc-800 bg-zinc-950/95 backdrop-blur-xl md:bottom-auto md:right-auto md:top-16 md:h-[calc(100vh-4rem)] md:w-16 md:border-r md:border-t-0">
+    <aside className="app-sidebar app-chrome fixed bottom-0 left-0 right-0 z-30 border-t border-zinc-800 bg-zinc-950/95 backdrop-blur-xl md:bottom-auto md:right-auto md:top-16 md:h-[calc(100vh-4rem)] md:w-16 md:border-r md:border-t-0">
       <nav
         className="mx-auto flex h-16 max-w-lg items-center justify-around px-2 md:h-full md:flex-col md:justify-start md:gap-2 md:py-4"
         aria-label="Main navigation"

@@ -38,6 +38,71 @@ body {
   background: #000;
 }
 
+.macos-titlebar {
+  display: none;
+}
+
+.electron-macos #root {
+  display: flex;
+  height: 100vh;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.electron-macos .macos-titlebar {
+  -webkit-app-region: drag;
+  display: grid;
+  height: 40px;
+  flex: 0 0 40px;
+  place-items: center;
+  border-bottom: 1px solid rgb(39 39 42);
+  background: rgb(24 24 27);
+  color: rgb(161 161 170);
+  font-size: 13px;
+  font-weight: 600;
+  user-select: none;
+  -webkit-user-select: none;
+  position: relative;
+  z-index: 1000;
+}
+
+.electron-macos #root > :not(.macos-titlebar) {
+  min-height: 0 !important;
+  height: 100% !important;
+  flex: 1 1 auto;
+}
+
+.electron-macos .native-player {
+  top: 40px;
+}
+
+.electron-macos .media-details {
+  top: 40px;
+}
+
+@media (min-width: 768px) {
+  .electron-macos .app-sidebar {
+    top: calc(40px + 4rem);
+    height: calc(100vh - 40px - 4rem);
+  }
+}
+
+.electron-macos.native-playback #root {
+  visibility: visible;
+}
+
+.electron-macos.native-playback #root > :not(.macos-titlebar) {
+  visibility: hidden;
+}
+
+.electron-macos.electron-native-fullscreen .macos-titlebar {
+  display: none;
+}
+
+.electron-macos.electron-native-fullscreen .native-player {
+  top: 0;
+}
+
 .poster-cover {
   /* Isolate poster image paints so WebKitGTK does not invalidate neighboring
      cards while a virtualized row moves through the scroll viewport. */

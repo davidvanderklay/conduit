@@ -477,6 +477,8 @@ async function createMainWindow(): Promise<BrowserWindow> {
     // remain opaque via their CSS backgrounds.
     transparent: process.platform === "darwin",
     backgroundColor: process.platform === "darwin" ? "#00000000" : "#000000",
+    titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
+    trafficLightPosition: process.platform === "darwin" ? { x: 16, y: 20 } : undefined,
     autoHideMenuBar: true,
     webPreferences: {
       contextIsolation: true,

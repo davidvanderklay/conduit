@@ -48,14 +48,25 @@ const overlayTitle = new URLSearchParams(window.location.search).get("electronOv
   ? new URLSearchParams(window.location.search).get("title") ?? ""
   : undefined
 
+function MacTitleBar() {
+  return (
+    <div className="macos-titlebar" aria-hidden="true">
+      <span>conduit</span>
+    </div>
+  )
+}
+
 ReactDOM.createRoot(document.getElementById("root")!).render(
   overlayTitle !== undefined
     ? <ElectronPlayerOverlay initialTitle={overlayTitle} />
     : (
-      <React.StrictMode>
-        <QueryClientProvider client={queryClient}>
-          <RouterProvider router={router} />
-        </QueryClientProvider>
-      </React.StrictMode>
+      <>
+        <MacTitleBar />
+        <React.StrictMode>
+          <QueryClientProvider client={queryClient}>
+            <RouterProvider router={router} />
+          </QueryClientProvider>
+        </React.StrictMode>
+      </>
     ),
 )
