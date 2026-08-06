@@ -212,11 +212,25 @@ export function ElectronPlayerOverlay({ initialTitle }: { initialTitle: string }
     "native-player electron-native-player electron-player-overlay fixed inset-0 z-50 select-none " +
     (controlsVisible ? "cursor-default" : "cursor-none")
 
+  // Close track menus on any background click or Escape, matching Tauri behavior
+  useEffect(() => {
+    if (!activeTrackMenu) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setActiveTrackMenu(undefined)
+    }
+    window.addEventListener("keydown", onKeyDown)
+    return () => window.removeEventListener("keydown", onKeyDown)
+  }, [activeTrackMenu])
+
   return (
     <div
       className={rootClassName}
       onMouseMove={showControls}
       onClick={(event) => {
+        if (activeTrackMenu) {
+          setActiveTrackMenu(undefined)
+          return
+        }
         if (event.target === event.currentTarget) togglePlayback()
       }}
     >

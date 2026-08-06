@@ -171,10 +171,17 @@ function refreshNativeSurface() {
 
 function positionPlayerOverlay() {
   if (!mainWindow || !playerOverlayWindow || playerOverlayWindow.isDestroyed()) return
-  // Electron reports content bounds in screen coordinates. Keep the
-  // transient relationship for workspace tracking, but position the surface
-  // using those screen coordinates.
-  playerOverlayWindow.setBounds(mainWindow.getContentBounds())
+  // Use content bounds in screen coordinates. For fullscreen the content
+  // bounds already equals the screen. Delay slightly when transitioning
+  // because getContentBounds can still report the pre-transition size
+  // during enter/leave-full-screen.
+  const bounds = mainWindow.getContentBounds()
+  try {
+    playerOverlayWindow.setBounds(bounds)
+  } catch {}
+  try {
+    playerOverlayWindow.setContentBounds(bounds)
+  } catch {}
 }
 
 function setPlayerOverlayMouseEvents(ignore: boolean) {
@@ -317,17 +324,14 @@ async function ensurePlayerOverlay(title: string) {
     transparent: true,
     backgroundColor: "#00000000",
     hasShadow: false,
-    resizable: false,
+    resizable: true,
     movable: false,
     minimizable: false,
     maximizable: false,
     closable: false,
     focusable: false,
     skipTaskbar: true,
-    // On Linux, Electron otherwise creates a second NORMAL application
-    // window. TOOLBAR makes this a utility surface in GNOME's window model
-    // while keeping it interactive and transient for the main window.
-    type: process.platform === "linux" ? "toolbar" : "normal",
+    type: "normal",
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -501,11 +505,17 @@ async function createMainWindow(): Promise<BrowserWindow> {
     window.webContents.send("conduit:fullscreen-changed", true)
     playerOverlayWindow?.webContents.send("conduit:fullscreen-changed", true)
     positionPlayerOverlay()
+    setTimeout(positionPlayerOverlay, 0)
+    setTimeout(positionPlayerOverlay, 100)
+    setTimeout(() => void refreshNativeSurface(), 100)
   })
   window.on("leave-full-screen", () => {
     window.webContents.send("conduit:fullscreen-changed", false)
     playerOverlayWindow?.webContents.send("conduit:fullscreen-changed", false)
     positionPlayerOverlay()
+    setTimeout(positionPlayerOverlay, 0)
+    setTimeout(positionPlayerOverlay, 100)
+    setTimeout(() => void refreshNativeSurface(), 100)
   })
 
   if (rendererIsDevelopment()) await window.loadURL("http://localhost:5173")
