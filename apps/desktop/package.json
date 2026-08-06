@@ -4,7 +4,7 @@
   "license": "MIT",
   "main": "electron/dist/main.js",
   "scripts": {
-    "build": "pnpm electron:native:build && pnpm --dir ../.. --filter @conduit/web build && pnpm electron:main:build",
+    "build": "pnpm --dir ../.. core:build && pnpm electron:native:build && pnpm --dir ../.. --filter @conduit/web build && pnpm electron:main:build",
     "check": "if ! pkg-config --exists mpv 2>/dev/null; then echo 'Skipping desktop check (pkg-config mpv not found)'; else cargo check -p conduit-electron-native; fi",
     "dev": "pnpm electron:native:build && pnpm electron:main:build && node electron/run.mjs .",
     "electron:build": "pnpm electron:native:build && pnpm --dir ../.. --filter @conduit/web build && pnpm electron:main:build",
