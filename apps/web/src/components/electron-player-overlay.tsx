@@ -267,13 +267,13 @@ export function ElectronPlayerOverlay({ initialTitle }: { initialTitle: string }
         if (event.target === event.currentTarget) togglePlayback()
       }}
     >
-      {/* Stremio-style edge scrims for contrast on bright scenes - tall enough for fullscreen */}
+      {/* Edge scrims keep the chrome legible without darkening the subtitle plane. */}
       <div
         className={`pointer-events-none absolute inset-x-0 top-0 h-48 bg-gradient-to-b from-black/85 via-black/55 to-transparent transition-opacity duration-300 ${controlsVisible ? "opacity-100" : "opacity-0"}`}
         aria-hidden="true"
       />
       <div
-        className={`pointer-events-none absolute inset-x-0 bottom-0 h-[45vh] max-h-96 bg-gradient-to-t from-black via-black/80 to-transparent transition-opacity duration-300 ${controlsVisible ? "opacity-100" : "opacity-0"}`}
+        className={`pointer-events-none absolute inset-x-0 bottom-0 h-[28vh] max-h-64 bg-gradient-to-t from-black via-black/70 to-transparent transition-opacity duration-300 ${controlsVisible ? "opacity-100" : "opacity-0"}`}
         aria-hidden="true"
       />
       <div
