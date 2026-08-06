@@ -73,19 +73,19 @@ pnpm dev:web
 pnpm dev:desktop
 ```
 
-The Electron prototype uses Chromium for the UI and a separate Rust helper for
-libmpv. On Linux it follows the current session's compositor by default:
-Wayland sessions use native Wayland/Ozone, while X11 sessions use X11/Ozone.
+The Electron application uses Chromium for the UI and an in-process Rust
+Node-API addon for libmpv. Keeping the addon in Electron's browser process is
+required on macOS, where Cocoa `NSView` pointers cannot cross a process
+boundary. The same addon contract is used on Windows and Linux.
 
 ```sh
 pnpm dev:electron
 ```
 
-The prototype currently supports same-window native libmpv embedding on Linux
-X11/XWayland only. To test the Electron UI with native Wayland rendering on a
-Wayland session, use the default command above. Playback will report the X11
-embedding limitation in this mode. To test the complete Electron playback
-path, explicitly select X11/Ozone:
+macOS uses an in-process OpenGL render view below Chromium, Windows embeds mpv
+with the Electron window's HWND, and Linux uses its X11 window ID. Native
+Wayland does not expose an X11-compatible window ID, so Linux playback should
+currently be launched through X11/XWayland:
 
 ```sh
 CONDUIT_ELECTRON_OZONE=x11 pnpm dev:electron

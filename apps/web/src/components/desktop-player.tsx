@@ -181,6 +181,7 @@ export function DesktopPlayer({
 
   useEffect(() => {
     let cancelled = false
+    let playerStarted = false
     preferredAudioApplied.current = false
     preferredSubtitleApplied.current = false
     setAddonSubtitlesResolved(false)
@@ -198,6 +199,7 @@ export function DesktopPlayer({
     )
       .then(async (initial) => {
         if (cancelled) return
+        playerStarted = true
         setSnapshot(initial)
         await nativePlayerCommand(["set", "sub-pos", preferences.subtitlePosition])
         await nativePlayerCommand([
@@ -216,6 +218,7 @@ export function DesktopPlayer({
       })
 
     const poll = window.setInterval(() => {
+      if (!playerStarted || cancelled) return
       void nativePlayerSnapshot()
         .then((next) => {
           if (cancelled) return
@@ -235,6 +238,7 @@ export function DesktopPlayer({
 
     return () => {
       cancelled = true
+      playerStarted = false
       window.clearInterval(poll)
       window.clearTimeout(hideTimer.current)
       window.clearTimeout(seekCommitTimer.current)

@@ -4,11 +4,18 @@ version = "0.1.0"
 description = "Conduit Electron native libmpv bridge"
 edition = "2021"
 license = "MIT"
+autobins = false
+
+[lib]
+crate-type = ["cdylib"]
+path = "src/main.rs"
 
 [dependencies]
 libc = "0.2"
-libmpv2 = "4"
+libmpv2 = { version = "4", features = ["render"] }
 libmpv2-sys = "4"
+napi = { version = "3", default-features = false, features = ["napi8"] }
+napi-derive = "3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
@@ -16,5 +23,17 @@ thiserror = "2"
 [target.'cfg(target_os = "linux")'.dependencies]
 x11 = { version = "2", features = ["xlib"] }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", features = [
+  "NSOpenGL",
+  "NSOpenGLView",
+  "NSResponder",
+  "NSView",
+  "NSWindow",
+] }
+objc2-foundation = { version = "0.3", features = ["NSGeometry", "NSValue"] }
+
 [build-dependencies]
+napi-build = "2"
 pkg-config = "0.3"

@@ -10,7 +10,7 @@
     "electron:build": "pnpm electron:native:build && pnpm --dir ../.. --filter @conduit/web build && pnpm electron:main:build",
     "electron:dev": "pnpm electron:native:build && pnpm electron:main:build && node electron/run.mjs .",
     "electron:main:build": "tsc -p electron/tsconfig.json",
-    "electron:native:build": "cargo build --manifest-path electron-native/Cargo.toml",
+    "electron:native:build": "cargo build --manifest-path electron-native/Cargo.toml && node electron-native/install.mjs",
     "electron:run": "node electron/run.mjs .",
     "setup:windows": "powershell -ExecutionPolicy Bypass -File scripts/setup-windows.ps1",
     "test": "cargo test --manifest-path src-tauri/Cargo.toml"

@@ -1,11 +1,12 @@
 use libmpv2::{mpv_node::MpvNode, Mpv};
+use napi_derive::napi;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::{
-    ffi::CString,
-    io::{self, BufRead, Write},
-};
+use std::ffi::CString;
 use thiserror::Error;
+
+#[cfg(target_os = "macos")]
+mod render_macos;
 
 #[derive(Debug, Error)]
 enum NativeError {
@@ -104,7 +105,16 @@ struct VideoHost {
     container: u64,
 }
 
+// The addon is invoked only from Electron's browser-thread event loop. This
+// marker permits storage behind the process-global mutex without moving Xlib
+// access onto worker threads.
+#[cfg(target_os = "linux")]
+unsafe impl Send for VideoHost {}
+
 #[cfg(target_os = "macos")]
+struct VideoHost;
+
+#[cfg(target_os = "windows")]
 struct VideoHost {
     window: u64,
 }
@@ -127,7 +137,7 @@ impl Drop for VideoHost {
 struct Player {
     mpv: Option<Mpv>,
     parent_window: Option<u64>,
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
     host_window: Option<VideoHost>,
 }
 
@@ -157,6 +167,7 @@ impl Player {
         let mpv_debug_logging = std::env::var_os("CONDUIT_MPV_LOG").is_some();
 
         let mpv = match Mpv::with_initializer(|initializer| {
+            #[cfg(any(target_os = "linux", target_os = "windows"))]
             initializer.set_option("vo", "gpu-next")?;
             #[cfg(target_os = "linux")]
             {
@@ -165,15 +176,18 @@ impl Player {
                 initializer.set_option("gpu-api", "opengl")?;
                 initializer.set_option("gpu-context", "x11egl")?;
             }
+            #[cfg(target_os = "windows")]
+            initializer.set_option("gpu-api", "d3d11")?;
             #[cfg(target_os = "macos")]
             {
-                // Electron's native window handle is an NSView pointer on macOS.
-                // mpv can render directly into that foreign Cocoa view.
-                initializer.set_option("gpu-api", "vulkan")?;
-                initializer.set_option("gpu-context", "macvk")?;
+                initializer.set_option("vo", "libmpv")?;
             }
+            #[cfg(any(target_os = "linux", target_os = "windows"))]
             initializer.set_option("wid", host_window.window as i64)?;
+            #[cfg(any(target_os = "linux", target_os = "windows"))]
             initializer.set_option("force-window", "immediate")?;
+            #[cfg(target_os = "macos")]
+            initializer.set_option("force-window", "no")?;
             // stdout is the native helper's JSON IPC channel. Keep mpv's
             // terminal output disabled even in diagnostic mode so log lines
             // cannot corrupt responses sent back to Electron.
@@ -198,8 +212,8 @@ impl Player {
                 let hwdec = hwdec_override
                     .as_deref()
                     .unwrap_or_else(|| linux_hwdec_order(nvidia_driver));
-                #[cfg(target_os = "macos")]
-                let hwdec = hwdec_override.as_deref().unwrap_or("videotoolbox-copy");
+                #[cfg(any(target_os = "macos", target_os = "windows"))]
+                let hwdec = hwdec_override.as_deref().unwrap_or("auto-safe");
                 initializer.set_option("hwdec", hwdec)?;
                 #[cfg(target_os = "linux")]
                 if let Some(device) = vaapi_device.as_deref() {
@@ -240,6 +254,12 @@ impl Player {
             return Err(error);
         }
 
+        #[cfg(target_os = "macos")]
+        if let Err(error) = render_macos::install(mpv.ctx, parent_window as i64) {
+            drop(mpv);
+            return Err(NativeError::Initialization(error));
+        }
+
         self.parent_window = Some(parent_window);
         self.host_window = Some(host_window);
         self.mpv = Some(mpv);
@@ -251,12 +271,16 @@ impl Player {
     }
 
     fn stop(&mut self) {
+        #[cfg(target_os = "macos")]
+        let _ = render_macos::uninstall();
         self.mpv.take();
         self.host_window.take();
         self.parent_window = None;
     }
 
     fn refresh_surface(&mut self) -> Result<(), NativeError> {
+        #[cfg(target_os = "macos")]
+        render_macos::refresh().map_err(NativeError::Initialization)?;
         if let (Some(parent_window), Some(host_window)) =
             (self.parent_window, self.host_window.as_mut())
         {
@@ -374,47 +398,28 @@ fn handle_request(player: &mut Player, request: Request) -> Result<Value, Native
     }
 }
 
-fn main() {
-    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-    {
-        eprintln!("Conduit Electron native player currently supports Linux and macOS only");
-        std::process::exit(2);
-    }
+static PLAYER: std::sync::Mutex<Option<Player>> = std::sync::Mutex::new(None);
 
-    let stdin = io::stdin();
-    let mut player = Player::default();
-    for line in stdin.lock().lines() {
-        let line = match line {
-            Ok(line) if !line.trim().is_empty() => line,
-            Ok(_) => continue,
-            Err(error) => {
-                eprintln!("Conduit Electron native player stdin failed: {error}");
-                break;
-            }
-        };
-        let request = match serde_json::from_str::<Request>(&line) {
-            Ok(request) => request,
-            Err(error) => {
-                eprintln!("Conduit Electron native player request failed: {error}");
-                continue;
-            }
-        };
-        let id = request.id;
-        let response = match handle_request(&mut player, request) {
-            Ok(result) => serde_json::to_string(&Success { id, result }),
-            Err(error) => serde_json::to_string(&Failure {
+#[napi]
+pub fn invoke(request_json: String) -> napi::Result<String> {
+    let request = serde_json::from_str::<Request>(&request_json)
+        .map_err(|error| napi::Error::from_reason(error.to_string()))?;
+    let id = request.id;
+    let mut guard = PLAYER
+        .lock()
+        .map_err(|error| napi::Error::from_reason(error.to_string()))?;
+    let player = guard.get_or_insert_with(Player::default);
+    let response = match handle_request(player, request) {
+        Ok(result) => Success { id, result },
+        Err(error) => {
+            return serde_json::to_string(&Failure {
                 id,
                 error: error.to_string(),
-            }),
-        };
-        match response {
-            Ok(response) => {
-                println!("{response}");
-                let _ = io::stdout().flush();
-            }
-            Err(error) => eprintln!("Conduit Electron native player response failed: {error}"),
+            })
+            .map_err(|error| napi::Error::from_reason(error.to_string()));
         }
-    }
+    };
+    serde_json::to_string(&response).map_err(|error| napi::Error::from_reason(error.to_string()))
 }
 
 fn non_empty_property(mpv: &Mpv, name: &str) -> Option<String> {
@@ -605,6 +610,12 @@ fn create_video_host_window(parent: u64) -> Result<VideoHost, NativeError> {
 
 #[cfg(target_os = "macos")]
 fn create_video_host_window(parent: u64) -> Result<VideoHost, NativeError> {
+    let _ = parent;
+    Ok(VideoHost)
+}
+
+#[cfg(target_os = "windows")]
+fn create_video_host_window(parent: u64) -> Result<VideoHost, NativeError> {
     Ok(VideoHost { window: parent })
 }
 
@@ -656,6 +667,11 @@ fn sync_video_host_window(parent: u64, host: &mut VideoHost) -> Result<(), Nativ
 }
 
 #[cfg(target_os = "macos")]
+fn sync_video_host_window(_parent: u64, _host: &mut VideoHost) -> Result<(), NativeError> {
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
 fn sync_video_host_window(_parent: u64, _host: &mut VideoHost) -> Result<(), NativeError> {
     Ok(())
 }
@@ -728,6 +744,9 @@ fn force_c_numeric_locale() {
         libc::setlocale(libc::LC_NUMERIC, c"C".as_ptr());
     }
 }
+
+#[cfg(windows)]
+fn force_c_numeric_locale() {}
 
 #[cfg(target_os = "linux")]
 fn linux_hwdec_order(nvidia_driver: bool) -> &'static str {

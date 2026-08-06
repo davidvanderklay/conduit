@@ -13,6 +13,7 @@ import { spawn, type ChildProcess } from "node:child_process"
 import { createServer, type Server } from "node:http"
 import { promises as fs } from "node:fs"
 import path from "node:path"
+import { createRequire } from "node:module"
 import { pathToFileURL } from "node:url"
 
 protocol.registerSchemesAsPrivileged([
@@ -48,43 +49,28 @@ if (process.platform === "linux") {
   app.commandLine.appendSwitch("ozone-platform", electronOzonePlatform())
 }
 
-type PendingRequest = {
-  resolve: (value: unknown) => void
-  reject: (reason: Error) => void
+type NativeAddon = {
+  invoke(request: string): string
+}
+
+const nativeRequire = createRequire(__filename)
+let loadedNativeAddon: NativeAddon | undefined
+
+function nativeAddon(): NativeAddon {
+  if (loadedNativeAddon) return loadedNativeAddon
+  loadedNativeAddon = nativeRequire(nativePlayerPath()) as NativeAddon
+  return loadedNativeAddon
 }
 
 class NativePlayerClient {
-  private readonly child: ChildProcess
   private nextId = 1
-  private readonly pending = new Map<number, PendingRequest>()
-  private output = ""
   private intentionallyClosed = false
 
-  constructor(windowId: string) {
-    const binary = process.env.CONDUIT_ELECTRON_NATIVE_PLAYER ?? nativePlayerPath()
-    this.child = spawn(binary, [], {
-      env: process.env,
-      stdio: ["pipe", "pipe", "inherit"],
-    })
-    this.child.on("error", (error) => {
-      if (!this.intentionallyClosed) this.rejectAll(error)
-    })
-    this.child.on("exit", (code, signal) => {
-      if (this.intentionallyClosed) return
-      this.rejectAll(
-        new Error(`Electron native player exited (${signal ?? `code ${code ?? "unknown"}`}).`),
-      )
-    })
-    this.child.stdout?.setEncoding("utf8")
-    this.child.stdout?.on("data", (chunk: string) => this.readOutput(chunk))
-    this.windowId = windowId
-  }
+  constructor(private readonly windowId: string) {}
 
-  private readonly windowId: string
-
-  request<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
-    if (!this.child.stdin?.writable) {
-      return Promise.reject(new Error("Electron native player is not available."))
+  async request<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
+    if (this.intentionallyClosed && method !== "player_stop") {
+      throw new Error("Electron native player is not available.")
     }
     const id = this.nextId++
     const request = JSON.stringify({
@@ -92,57 +78,23 @@ class NativePlayerClient {
       method,
       params: method === "player_open" ? { ...params, windowId: this.windowId } : params,
     })
-    return new Promise<T>((resolve, reject) => {
-      this.pending.set(id, { resolve: resolve as (value: unknown) => void, reject })
-      this.child.stdin!.write(`${request}\n`, (error) => {
-        if (!error) return
-        this.pending.delete(id)
-        reject(error)
-      })
-    })
+    const response = JSON.parse(nativeAddon().invoke(request)) as {
+      id: number
+      result?: T
+      error?: string
+    }
+    if (response.id !== id) throw new Error("Native player returned a mismatched response.")
+    if (response.error) throw new Error(response.error)
+    return response.result as T
   }
 
   close() {
     if (this.intentionallyClosed) return
     this.intentionallyClosed = true
-    if (!this.child.killed) this.child.kill()
-    // Closing during a route/video transition is expected. Resolve requests
-    // belonging to the old session so Electron does not report them as IPC
-    // handler failures while React is cancelling their effects.
-    for (const pending of this.pending.values()) pending.resolve(undefined)
-    this.pending.clear()
-  }
-
-  private readOutput(chunk: string) {
-    this.output += chunk
-    while (true) {
-      const newline = this.output.indexOf("\n")
-      if (newline < 0) return
-      const line = this.output.slice(0, newline)
-      this.output = this.output.slice(newline + 1)
-      if (!line.trim()) continue
-      try {
-        const response = JSON.parse(line) as {
-          id: number
-          result?: unknown
-          error?: string
-        }
-        const pending = this.pending.get(response.id)
-        if (!pending) continue
-        this.pending.delete(response.id)
-        if (response.error) pending.reject(new Error(response.error))
-        else pending.resolve(response.result)
-      } catch (error) {
-        this.rejectAll(
-          error instanceof Error ? error : new Error("Invalid response from native player."),
-        )
-      }
-    }
-  }
-
-  private rejectAll(error: Error) {
-    for (const pending of this.pending.values()) pending.reject(error)
-    this.pending.clear()
+    const id = this.nextId++
+    try {
+      nativeAddon().invoke(JSON.stringify({ id, method: "player_stop", params: {} }))
+    } catch {}
   }
 }
 
@@ -359,7 +311,7 @@ async function ensurePlayerOverlay(title: string) {
   playerOverlayWindow = overlay
   playerOverlayMouseEventsIgnored = undefined
   try {
-    if (nativePlayer) {
+    if (nativePlayer && process.platform === "linux") {
       await nativePlayer.request("player_set_overlay_window", {
         windowId: nativeWindowId(overlay),
       })
@@ -400,25 +352,37 @@ async function ensurePlayerOverlay(title: string) {
 }
 
 function nativePlayerPath(): string {
-  const binaryName = process.platform === "win32"
-    ? "conduit-electron-native.exe"
-    : "conduit-electron-native"
-  const build = process.env.NODE_ENV === "production" ? "release" : "debug"
-  // Cargo resolves the workspace target directory from the repository root,
-  // even when it is given the helper's manifest path.
-  return path.resolve(__dirname, `../../../../target/${build}/${binaryName}`)
+  return process.env.CONDUIT_ELECTRON_NATIVE_PLAYER ??
+    path.resolve(__dirname, "../../electron-native/dist/conduit-electron-native.node")
 }
 
 function nativeWindowId(window: BrowserWindow): string {
+  const handle = window.getNativeWindowHandle()
+  if (process.platform === "darwin") {
+    if (handle.length < 8) throw new Error("Electron did not provide a macOS NSView handle.")
+    const pointer = handle.readBigUInt64LE(0)
+    if (pointer === 0n) throw new Error("Electron returned an empty macOS NSView handle.")
+    if (process.env.CONDUIT_ELECTRON_LOG_WINDOW === "1") {
+      console.log(`Conduit Electron: native macOS NSView ${handle.toString("hex")} (${pointer})`)
+    }
+    return pointer.toString()
+  }
+  if (process.platform === "win32") {
+    if (handle.length < 4) throw new Error("Electron did not provide a Windows HWND.")
+    const pointer = handle.length >= 8
+      ? handle.readBigUInt64LE(0)
+      : BigInt(handle.readUInt32LE(0))
+    if (pointer === 0n) throw new Error("Electron returned an empty Windows HWND.")
+    return pointer.toString()
+  }
   if (process.platform !== "linux") {
-    throw new Error("The Electron libmpv prototype currently supports Linux only.")
+    throw new Error("The Electron libmpv player does not support this platform.")
   }
   if (electronOzonePlatform() !== "x11") {
     throw new Error(
       "Embedded libmpv playback requires X11/Ozone. Restart with CONDUIT_ELECTRON_OZONE=x11. If Electron's GPU process crashes on Nvidia, also set CONDUIT_ELECTRON_IN_PROCESS_GPU=1.",
     )
   }
-  const handle = window.getNativeWindowHandle()
   if (handle.length < 4) throw new Error("Electron did not provide an X11 window handle.")
   const windowId = handle.readUInt32LE(0)
   if (windowId === 0) throw new Error("Electron returned an empty X11 window handle.")
@@ -501,7 +465,11 @@ async function createMainWindow(): Promise<BrowserWindow> {
     // Keep the application surface opaque. The native mpv host is stacked
     // above it and the player chrome is rendered by a separate transparent
     // overlay window.
-    backgroundColor: "#000000",
+    // macOS libmpv is an in-process NSOpenGLView below Chromium. A transparent
+    // WebContents surface lets video show through while ordinary app routes
+    // remain opaque via their CSS backgrounds.
+    transparent: process.platform === "darwin",
+    backgroundColor: process.platform === "darwin" ? "#00000000" : "#000000",
     autoHideMenuBar: true,
     webPreferences: {
       contextIsolation: true,
@@ -615,14 +583,12 @@ async function invoke(command: string, args: Record<string, unknown> = {}): Prom
   if (command === "player_is_fullscreen") return mainWindow?.isFullScreen() ?? false
   if (command === "player_stop") {
     const client = nativePlayer
-    const result = client
-      ? await client.request("player_stop", args)
-      : null
-    if (nativePlayer === client) {
-      nativePlayer = undefined
-      closePlayerOverlay()
-    }
-    return result
+    if (!client) return null
+    // Detach first so snapshot polls racing with teardown cannot enqueue behind
+    // player_stop and then observe the helper's expected stopped state.
+    nativePlayer = undefined
+    closePlayerOverlay()
+    return client.request("player_stop", args)
   }
   if (command === "player_refresh_surface" || command === "player_redraw_surface") {
     if (!nativePlayer) return null
@@ -635,10 +601,17 @@ async function invoke(command: string, args: Record<string, unknown> = {}): Prom
     nativePlayer?.close()
     const client = new NativePlayerClient(nativeWindowId(mainWindow))
     nativePlayer = client
-    const result = await client.request("player_open", args)
-    if (nativePlayer !== client) return result
-    await ensurePlayerOverlay(typeof args.title === "string" ? args.title : "")
-    return result
+    try {
+      const result = await client.request("player_open", args)
+      if (nativePlayer !== client) return result
+      await ensurePlayerOverlay(typeof args.title === "string" ? args.title : "")
+      return result
+    } catch (error) {
+      if (nativePlayer === client) nativePlayer = undefined
+      client.close()
+      closePlayerOverlay()
+      throw error
+    }
   }
   if (command.startsWith("player_")) {
     if (!nativePlayer) throw new Error("The native player has not been started.")
@@ -705,6 +678,22 @@ app.whenReady().then(async () => {
   await registerApplicationProtocol()
   registerIpcHandlers()
   mainWindow = await createMainWindow()
+  const smokeVideo = process.env.CONDUIT_ELECTRON_SMOKE_VIDEO
+  if (smokeVideo) {
+    const smokeUrl = smokeVideo.includes(":") ? smokeVideo : pathToFileURL(smokeVideo).toString()
+    const result = await invoke("player_open", {
+      url: smokeUrl,
+      title: "Electron native player smoke test",
+      readAheadSeconds: 10,
+      hardwareAcceleration: true,
+    })
+    console.log("Conduit Electron: native player smoke test opened", result)
+    setTimeout(() => {
+      void invoke("player_snapshot")
+        .then((snapshot) => console.log("Conduit Electron: native player smoke snapshot", snapshot))
+        .catch((error) => console.error("Conduit Electron: native player smoke snapshot failed", error))
+    }, 1500)
+  }
   mainWindow.on("move", () => {
     refreshNativeSurface()
     positionPlayerOverlay()
