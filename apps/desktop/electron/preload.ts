@@ -26,8 +26,15 @@ contextBridge.exposeInMainWorld("__CONDUIT_ELECTRON__", {
     ipcRenderer.on("conduit:player-overlay-title", handler)
     return () => ipcRenderer.removeListener("conduit:player-overlay-title", handler)
   },
-  setPlayerOverlayMouseEvents(ignore: boolean) {
-    ipcRenderer.send("conduit:player-overlay-mouse-events", ignore)
+  setPlayerOverlayInteractiveRegions(
+    regions: Array<{ left: number; top: number; right: number; bottom: number }>,
+  ) {
+    ipcRenderer.send("conduit:player-overlay-interactive-regions", regions)
+  },
+  onPlayerOverlayWake(listener: () => void) {
+    const handler = () => listener()
+    ipcRenderer.on("conduit:player-overlay-wake", handler)
+    return () => ipcRenderer.removeListener("conduit:player-overlay-wake", handler)
   },
   onDesktopAuthCallback(listener: (callbackUrl: string) => void) {
     const handler = (_event: Electron.IpcRendererEvent, callbackUrl: string) => {

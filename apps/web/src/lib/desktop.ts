@@ -32,7 +32,10 @@ export interface ElectronDesktopBridge {
   onPlayerOverlayClose(listener: () => void): () => void
   onPlayerOverlayNext(listener: () => void): () => void
   onPlayerOverlayTitle(listener: (title: string) => void): () => void
-  setPlayerOverlayMouseEvents(ignore: boolean): void
+  setPlayerOverlayInteractiveRegions(
+    regions: Array<{ left: number; top: number; right: number; bottom: number }>,
+  ): void
+  onPlayerOverlayWake(listener: () => void): () => void
   onDesktopAuthCallback(listener: (callbackUrl: string) => void): () => void
   chooseSavePath(suggestedName: string): Promise<string | null>
   writeTextFile(path: string, contents: string): Promise<void>

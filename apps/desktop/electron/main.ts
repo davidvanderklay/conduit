@@ -5,6 +5,7 @@ import {
   ipcMain,
   net,
   protocol,
+  screen,
   shell,
 } from "electron"
 import { spawn, type ChildProcess } from "node:child_process"
@@ -150,7 +151,19 @@ let nativePlayer: NativePlayerClient | undefined
 let authServer: Server | undefined
 let devWebServer: ChildProcess | undefined
 let playerOverlayVisibilityTimer: NodeJS.Timeout | undefined
-const playerOverlayFocusSettleMs = 75
+let playerOverlayMousePollTimer: NodeJS.Timeout | undefined
+let playerOverlayMouseEventsIgnored: boolean | undefined
+let playerOverlayInteractiveRegions: OverlayInteractiveRegion[] = []
+let playerOverlayLastPointer: { x: number; y: number } | undefined
+let playerOverlaySequence = 0
+const playerOverlayFocusSettleMs = 10
+
+type OverlayInteractiveRegion = {
+  left: number
+  top: number
+  right: number
+  bottom: number
+}
 
 function refreshNativeSurface() {
   void nativePlayer?.request("player_refresh_surface").catch(() => undefined)
@@ -164,6 +177,60 @@ function positionPlayerOverlay() {
   playerOverlayWindow.setBounds(mainWindow.getContentBounds())
 }
 
+function setPlayerOverlayMouseEvents(ignore: boolean) {
+  if (!playerOverlayWindow || playerOverlayWindow.isDestroyed()) return
+  if (playerOverlayMouseEventsIgnored === ignore) return
+  playerOverlayMouseEventsIgnored = ignore
+  playerOverlayWindow.setIgnoreMouseEvents(ignore, { forward: true })
+}
+
+function updatePlayerOverlayMouseEvents() {
+  if (!playerOverlayWindow || playerOverlayWindow.isDestroyed() || !playerOverlayWindow.isVisible()) {
+    return
+  }
+  const bounds = playerOverlayWindow.getContentBounds()
+  if (bounds.width <= 0 || bounds.height <= 0) return
+
+  const pointer = screen.getCursorScreenPoint()
+  const x = (pointer.x - bounds.x) / bounds.width
+  const y = (pointer.y - bounds.y) / bounds.height
+  const overControl = playerOverlayInteractiveRegions.some((region) =>
+    x >= region.left && x <= region.right && y >= region.top && y <= region.bottom,
+  )
+  setPlayerOverlayMouseEvents(!overControl)
+  const insideWindow = x >= 0 && x <= 1 && y >= 0 && y <= 1
+  const moved =
+    !playerOverlayLastPointer ||
+    Math.abs(playerOverlayLastPointer.x - x) > 0.001 ||
+    Math.abs(playerOverlayLastPointer.y - y) > 0.001
+  if (insideWindow && moved) {
+    playerOverlayLastPointer = { x, y }
+    try {
+      playerOverlayWindow.webContents.send("conduit:player-overlay-wake")
+    } catch {}
+  } else if (!insideWindow) {
+    playerOverlayLastPointer = undefined
+  } else if (insideWindow) {
+    playerOverlayLastPointer = { x, y }
+  }
+}
+
+function startPlayerOverlayMousePolling() {
+  if (playerOverlayMousePollTimer) return
+  updatePlayerOverlayMouseEvents()
+  playerOverlayMousePollTimer = setInterval(updatePlayerOverlayMouseEvents, 40)
+}
+
+function stopPlayerOverlayMousePolling() {
+  if (playerOverlayMousePollTimer) {
+    clearInterval(playerOverlayMousePollTimer)
+    playerOverlayMousePollTimer = undefined
+  }
+  playerOverlayInteractiveRegions = []
+  playerOverlayLastPointer = undefined
+  setPlayerOverlayMouseEvents(true)
+}
+
 function showPlayerOverlay() {
   if (!mainWindow || !playerOverlayWindow || playerOverlayWindow.isDestroyed()) return
   if (!mainWindow.isVisible() || mainWindow.isMinimized()) return
@@ -172,26 +239,33 @@ function showPlayerOverlay() {
   // The native mpv host is a separate X11 surface, so the chrome needs to be
   // above it while Conduit is active. Pair this with hidePlayerOverlay so an
   // always-on-top surface cannot remain above another application.
+  playerOverlayMouseEventsIgnored = undefined
+  setPlayerOverlayMouseEvents(true)
   playerOverlayWindow.setAlwaysOnTop(true, "floating")
   playerOverlayWindow.showInactive()
   playerOverlayWindow.moveTop()
+  startPlayerOverlayMousePolling()
 }
 
 function hidePlayerOverlay() {
   if (!playerOverlayWindow || playerOverlayWindow.isDestroyed()) return
-  playerOverlayWindow.setIgnoreMouseEvents(true, { forward: true })
+  stopPlayerOverlayMousePolling()
   playerOverlayWindow.setAlwaysOnTop(false)
   playerOverlayWindow.hide()
 }
 
 function syncPlayerOverlayVisibility() {
   if (playerOverlayVisibilityTimer) clearTimeout(playerOverlayVisibilityTimer)
+  const isActive = Boolean(mainWindow && mainWindow.isFocused() && mainWindow.isVisible() && !mainWindow.isMinimized())
+  if (!isActive) {
+    playerOverlayVisibilityTimer = undefined
+    hidePlayerOverlay()
+    return
+  }
   playerOverlayVisibilityTimer = setTimeout(() => {
     playerOverlayVisibilityTimer = undefined
     if (!mainWindow || !playerOverlayWindow || playerOverlayWindow.isDestroyed()) return
-
-    const appIsActive = mainWindow.isFocused() || playerOverlayWindow.isFocused()
-    if (appIsActive && mainWindow.isVisible() && !mainWindow.isMinimized()) {
+    if (mainWindow.isFocused() && mainWindow.isVisible() && !mainWindow.isMinimized()) {
       showPlayerOverlay()
     } else {
       hidePlayerOverlay()
@@ -200,26 +274,35 @@ function syncPlayerOverlayVisibility() {
 }
 
 function closePlayerOverlay() {
+  playerOverlaySequence += 1
   if (playerOverlayVisibilityTimer) {
     clearTimeout(playerOverlayVisibilityTimer)
     playerOverlayVisibilityTimer = undefined
   }
   if (!playerOverlayWindow || playerOverlayWindow.isDestroyed()) {
+    stopPlayerOverlayMousePolling()
     playerOverlayWindow = undefined
     return
   }
-  playerOverlayWindow.close()
+  const overlay = playerOverlayWindow
   playerOverlayWindow = undefined
+  stopPlayerOverlayMousePolling()
+  if (!overlay.isDestroyed()) overlay.close()
 }
 
 async function ensurePlayerOverlay(title: string) {
   if (!mainWindow) throw new Error("Main window is unavailable.")
   if (playerOverlayWindow && !playerOverlayWindow.isDestroyed()) {
-    playerOverlayWindow.webContents.send("conduit:player-overlay-title", title)
-    positionPlayerOverlay()
-    return
+    try {
+      playerOverlayWindow.webContents.send("conduit:player-overlay-title", title)
+      positionPlayerOverlay()
+      return
+    } catch {
+      closePlayerOverlay()
+    }
   }
 
+  const sequence = ++playerOverlaySequence
   const { width, height } = mainWindow.getContentBounds()
   const overlay = new BrowserWindow({
     ...mainWindow.getContentBounds(),
@@ -234,7 +317,7 @@ async function ensurePlayerOverlay(title: string) {
     minimizable: false,
     maximizable: false,
     closable: false,
-    focusable: true,
+    focusable: false,
     skipTaskbar: true,
     // On Linux, Electron otherwise creates a second NORMAL application
     // window. TOOLBAR makes this a utility surface in GNOME's window model
@@ -248,32 +331,46 @@ async function ensurePlayerOverlay(title: string) {
     },
   })
   playerOverlayWindow = overlay
-  if (nativePlayer) {
-    await nativePlayer.request("player_set_overlay_window", {
-      windowId: nativeWindowId(overlay),
-    })
-  }
-  overlay.setVisibleOnAllWorkspaces(false)
-  overlay.setIgnoreMouseEvents(true, { forward: true })
-  overlay.setMenuBarVisibility(false)
-  overlay.on("focus", showPlayerOverlay)
-  overlay.on("blur", syncPlayerOverlayVisibility)
-  overlay.on("hide", () => {
-    overlay.setAlwaysOnTop(false)
-  })
-  overlay.on("closed", () => {
-    if (playerOverlayWindow === overlay) playerOverlayWindow = undefined
-  })
+  playerOverlayMouseEventsIgnored = undefined
+  try {
+    if (nativePlayer) {
+      await nativePlayer.request("player_set_overlay_window", {
+        windowId: nativeWindowId(overlay),
+      })
+    }
+    if (sequence !== playerOverlaySequence || overlay.isDestroyed()) return
 
-  const query = new URLSearchParams({
-    electronOverlay: "1",
-    title,
-  })
-  const url = rendererIsDevelopment()
-    ? "http://localhost:5173/?" + query.toString()
-    : "conduit://localhost/?" + query.toString()
-  await overlay.loadURL(url)
-  syncPlayerOverlayVisibility()
+    overlay.setVisibleOnAllWorkspaces(false)
+    setPlayerOverlayMouseEvents(true)
+    overlay.setMenuBarVisibility(false)
+    overlay.on("hide", () => {
+      if (!overlay.isDestroyed()) overlay.setAlwaysOnTop(false)
+    })
+    overlay.on("closed", () => {
+      if (playerOverlayWindow === overlay) {
+        playerOverlayWindow = undefined
+        stopPlayerOverlayMousePolling()
+      }
+    })
+
+    const query = new URLSearchParams({
+      electronOverlay: "1",
+      title,
+    })
+    const url = rendererIsDevelopment()
+      ? "http://localhost:5173/?" + query.toString()
+      : "conduit://localhost/?" + query.toString()
+    await overlay.loadURL(url)
+    if (sequence === playerOverlaySequence && !overlay.isDestroyed()) syncPlayerOverlayVisibility()
+  } catch (error) {
+    if (playerOverlayWindow === overlay) {
+      playerOverlayWindow = undefined
+      stopPlayerOverlayMousePolling()
+    }
+    if (!overlay.isDestroyed()) overlay.close()
+    if (overlay.isDestroyed() || sequence !== playerOverlaySequence) return
+    throw error
+  }
 }
 
 function nativePlayerPath(): string {
@@ -468,10 +565,14 @@ async function invoke(command: string, args: Record<string, unknown> = {}): Prom
   }
   if (command === "player_is_fullscreen") return mainWindow?.isFullScreen() ?? false
   if (command === "player_stop") {
-    const result = nativePlayer
-      ? await nativePlayer.request("player_stop", args)
+    const client = nativePlayer
+    const result = client
+      ? await client.request("player_stop", args)
       : null
-    closePlayerOverlay()
+    if (nativePlayer === client) {
+      nativePlayer = undefined
+      closePlayerOverlay()
+    }
     return result
   }
   if (command === "player_refresh_surface" || command === "player_redraw_surface") {
@@ -486,6 +587,7 @@ async function invoke(command: string, args: Record<string, unknown> = {}): Prom
     const client = new NativePlayerClient(nativeWindowId(mainWindow))
     nativePlayer = client
     const result = await client.request("player_open", args)
+    if (nativePlayer !== client) return result
     await ensurePlayerOverlay(typeof args.title === "string" ? args.title : "")
     return result
   }
@@ -497,10 +599,24 @@ async function invoke(command: string, args: Record<string, unknown> = {}): Prom
 }
 
 function registerIpcHandlers() {
-  ipcMain.on("conduit:player-overlay-mouse-events", (event, ignore: unknown) => {
+  ipcMain.on("conduit:player-overlay-interactive-regions", (event, regions: unknown) => {
     if (!playerOverlayWindow || playerOverlayWindow.isDestroyed()) return
     if (event.sender.id !== playerOverlayWindow.webContents.id) return
-    playerOverlayWindow.setIgnoreMouseEvents(Boolean(ignore), { forward: true })
+    if (!Array.isArray(regions)) return
+    playerOverlayInteractiveRegions = regions.flatMap((region) => {
+      if (!region || typeof region !== "object") return []
+      const value = region as Record<string, unknown>
+      const left = Number(value.left)
+      const top = Number(value.top)
+      const right = Number(value.right)
+      const bottom = Number(value.bottom)
+      if (![left, top, right, bottom].every(Number.isFinite)) return []
+      if (left < 0 || top < 0 || right > 1 || bottom > 1 || left > right || top > bottom) {
+        return []
+      }
+      return [{ left, top, right, bottom }]
+    })
+    updatePlayerOverlayMouseEvents()
   })
   ipcMain.handle("conduit:invoke", (_event, command: string, args?: Record<string, unknown>) =>
     invoke(command, args),
