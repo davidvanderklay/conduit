@@ -3,7 +3,9 @@ use libmpv2::{mpv_node::MpvNode, Mpv};
 use napi_derive::napi;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::{ffi::CString, io::{BufRead, Write}};
+use std::ffi::CString;
+#[cfg(target_os = "linux")]
+use std::io::{BufRead, Write};
 use thiserror::Error;
 
 #[cfg(target_os = "macos")]

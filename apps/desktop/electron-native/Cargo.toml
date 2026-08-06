@@ -5,9 +5,13 @@ description = "Conduit Electron native libmpv bridge"
 edition = "2021"
 license = "MIT"
 
+[features]
+linux-helper = []
+
 [[bin]]
 name = "conduit-electron-native"
-path = "src/main.rs"
+path = "src/linux.rs"
+required-features = ["linux-helper"]
 
 [lib]
 crate-type = ["cdylib"]
