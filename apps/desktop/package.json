@@ -96,5 +96,7 @@
     "dmg": {
       "sign": false
     }
-  }
+  },
+  "description": "Conduit desktop media client",
+  "author": "Conduit"
 }
