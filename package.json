@@ -24,5 +24,10 @@
     "@voidzero-dev/vite-plus-test": "latest",
     "vite-plus": "latest"
   },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  },
   "packageManager": "pnpm@10.14.0"
 }

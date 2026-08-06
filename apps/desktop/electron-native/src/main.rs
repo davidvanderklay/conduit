@@ -104,6 +104,11 @@ struct VideoHost {
     container: u64,
 }
 
+#[cfg(target_os = "macos")]
+struct VideoHost {
+    window: u64,
+}
+
 #[cfg(target_os = "linux")]
 impl Drop for VideoHost {
     fn drop(&mut self) {
@@ -122,7 +127,7 @@ impl Drop for VideoHost {
 struct Player {
     mpv: Option<Mpv>,
     parent_window: Option<u64>,
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     host_window: Option<VideoHost>,
 }
 
@@ -144,17 +149,29 @@ impl Player {
         force_c_numeric_locale();
         let host_window = create_video_host_window(parent_window)?;
 
+        #[cfg(target_os = "linux")]
         let nvidia_driver = std::path::Path::new("/proc/driver/nvidia/version").exists();
         let hwdec_override = std::env::var("CONDUIT_MPV_HWDEC").ok();
+        #[cfg(target_os = "linux")]
         let vaapi_device = linux_vaapi_device();
         let mpv_debug_logging = std::env::var_os("CONDUIT_MPV_LOG").is_some();
 
         let mpv = match Mpv::with_initializer(|initializer| {
-            // libmpv owns a child window inside the X11 host. Player chrome is
-            // rendered by Electron's transparent top-level overlay window.
             initializer.set_option("vo", "gpu-next")?;
-            initializer.set_option("gpu-api", "opengl")?;
-            initializer.set_option("gpu-context", "x11egl")?;
+            #[cfg(target_os = "linux")]
+            {
+                // libmpv owns a child window inside the X11 host. Player chrome is
+                // rendered by Electron's transparent top-level overlay window.
+                initializer.set_option("gpu-api", "opengl")?;
+                initializer.set_option("gpu-context", "x11egl")?;
+            }
+            #[cfg(target_os = "macos")]
+            {
+                // Electron's native window handle is an NSView pointer on macOS.
+                // mpv can render directly into that foreign Cocoa view.
+                initializer.set_option("gpu-api", "vulkan")?;
+                initializer.set_option("gpu-context", "macvk")?;
+            }
             initializer.set_option("wid", host_window.window as i64)?;
             initializer.set_option("force-window", "immediate")?;
             // stdout is the native helper's JSON IPC channel. Keep mpv's
@@ -177,10 +194,14 @@ impl Player {
                 }
             }
             if params.hardware_acceleration {
+                #[cfg(target_os = "linux")]
                 let hwdec = hwdec_override
                     .as_deref()
                     .unwrap_or_else(|| linux_hwdec_order(nvidia_driver));
+                #[cfg(target_os = "macos")]
+                let hwdec = hwdec_override.as_deref().unwrap_or("videotoolbox-copy");
                 initializer.set_option("hwdec", hwdec)?;
+                #[cfg(target_os = "linux")]
                 if let Some(device) = vaapi_device.as_deref() {
                     initializer.set_option("vaapi-device", device)?;
                     eprintln!("Conduit Electron: using VA-API DRM device {device}");
@@ -188,6 +209,7 @@ impl Player {
                 if hwdec_override.is_some() {
                     eprintln!("Conduit Electron: overriding mpv hardware decoder with {hwdec}");
                 }
+                #[cfg(target_os = "linux")]
                 if nvidia_driver {
                     initializer.set_option("gpu-hwdec-interop", "no")?;
                     initializer.set_option("vd-lavc-dr", "no")?;
@@ -353,9 +375,9 @@ fn handle_request(player: &mut Player, request: Request) -> Result<Value, Native
 }
 
 fn main() {
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     {
-        eprintln!("Conduit Electron native player currently supports Linux X11 only");
+        eprintln!("Conduit Electron native player currently supports Linux and macOS only");
         std::process::exit(2);
     }
 
@@ -581,6 +603,11 @@ fn create_video_host_window(parent: u64) -> Result<VideoHost, NativeError> {
     }
 }
 
+#[cfg(target_os = "macos")]
+fn create_video_host_window(parent: u64) -> Result<VideoHost, NativeError> {
+    Ok(VideoHost { window: parent })
+}
+
 #[cfg(target_os = "linux")]
 fn sync_video_host_window(parent: u64, host: &mut VideoHost) -> Result<(), NativeError> {
     use x11::xlib::{Window, XFlush, XGetGeometry, XMoveResizeWindow, XReparentWindow};
@@ -628,13 +655,20 @@ fn sync_video_host_window(parent: u64, host: &mut VideoHost) -> Result<(), Nativ
     }
 }
 
+#[cfg(target_os = "macos")]
+fn sync_video_host_window(_parent: u64, _host: &mut VideoHost) -> Result<(), NativeError> {
+    Ok(())
+}
+
 #[cfg(target_os = "linux")]
 fn restack_video_host(
     display: *mut x11::xlib::Display,
     host: x11::xlib::Window,
     parent: x11::xlib::Window,
 ) {
-    use x11::xlib::{Above, CWSibling, CWStackMode, XConfigureWindow, XRaiseWindow, XWindowChanges};
+    use x11::xlib::{
+        Above, CWSibling, CWStackMode, XConfigureWindow, XRaiseWindow, XWindowChanges,
+    };
 
     unsafe {
         // Keep native video above Chromium. The X11 bounding/input shape
