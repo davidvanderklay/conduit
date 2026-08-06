@@ -349,7 +349,7 @@ jobs:
 
   ios:
     needs: production-config
-    if: github.event_name != 'workflow_dispatch' || inputs.target == 'all' || inputs.target == 'ios'
+    if: github.event_name == 'workflow_dispatch' && (inputs.target == 'all' || inputs.target == 'ios')
     name: iOS framework
     runs-on: macos-15
     steps:
@@ -472,7 +472,7 @@ jobs:
   publish:
     name: Publish GitHub release
     if: github.ref_type == 'tag'
-    needs: [windows, linux-appimage, linux-flatpak, macos, ios, android]
+    needs: [windows, linux-appimage, linux-flatpak, macos, android]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
