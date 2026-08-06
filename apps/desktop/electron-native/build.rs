@@ -12,6 +12,14 @@ fn main() {
             libmpv.join("mpv.lib").display()
         );
     }
+    #[cfg(target_os = "macos")]
+    {
+        // libmpv2-sys probes mpv via pkg-config but the final cdylib link
+        // still needs the search path on macOS where brew installs to
+        // /opt/homebrew (arm64) or /usr/local (intel). Ensure we probe here
+        // so -L flags are emitted for the top-level crate as well.
+        pkg_config::probe_library("mpv").expect("libmpv development files are required (brew install mpv)");
+    }
     #[cfg(target_os = "linux")]
     {
         pkg_config::probe_library("mpv").expect("libmpv development files are required");
