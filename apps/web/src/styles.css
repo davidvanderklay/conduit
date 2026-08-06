@@ -103,6 +103,17 @@ body {
   top: 0;
 }
 
+.electron-macos.electron-native-fullscreen .media-details {
+  top: 0;
+}
+
+@media (min-width: 768px) {
+  .electron-macos.electron-native-fullscreen .app-sidebar {
+    top: 4rem;
+    height: calc(100vh - 4rem);
+  }
+}
+
 .poster-cover {
   /* Isolate poster image paints so WebKitGTK does not invalidate neighboring
      cards while a virtualized row moves through the scroll viewport. */
