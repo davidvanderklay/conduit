@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { useVirtualizer } from "@tanstack/react-virtual"
 
-const COLUMN_GAP = 16
-const ROW_GAP = 28
+const COLUMN_GAP = 12
+const ROW_GAP = 24
 const POSTER_COPY_HEIGHT = 48
 
 export function VirtualPosterGrid<T>({
@@ -72,7 +72,7 @@ export function VirtualPosterGrid<T>({
           ref={rowVirtualizer.measureElement}
           data-index={virtualRow.index}
           key={virtualRow.key}
-          className="absolute left-0 top-0 grid w-full gap-x-4"
+          className="absolute left-0 top-0 grid w-full gap-x-3"
           style={{
             gridTemplateColumns: `repeat(${layout.columns}, minmax(0, 1fr))`,
             transform: `translateY(${virtualRow.start - scrollMargin}px)`,
@@ -94,7 +94,10 @@ function appScrollElement(): HTMLElement | null {
 }
 
 export function columnsForWidth(width: number): number {
-  if (width >= 1536) return 8
+  if (width >= 2560) return 10
+  if (width >= 1920) return 9
+  if (width >= 1600) return 8
+  if (width >= 1536) return 7
   if (width >= 1280) return 6
   if (width >= 1024) return 5
   if (width >= 768) return 4

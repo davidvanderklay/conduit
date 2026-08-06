@@ -155,6 +155,7 @@ export function DesktopPlayer({
   const pendingAddonSubtitle = useRef(new Set<string>())
   const preferredAudioApplied = useRef(false)
   const preferredSubtitleApplied = useRef(false)
+  const subtitleMetadataReadyPolls = useRef(0)
   const preferredAudioLanguage = configuredTrackLanguage(preferences.audioLanguage, addons)
   const preferredSubtitleLanguage = configuredTrackLanguage(preferences.subtitleLanguage, addons)
   const { progress, save: saveProgress } = usePlaybackProgress(
@@ -181,8 +182,10 @@ export function DesktopPlayer({
 
   useEffect(() => {
     let cancelled = false
+    let playerStarted = false
     preferredAudioApplied.current = false
     preferredSubtitleApplied.current = false
+    subtitleMetadataReadyPolls.current = 0
     setAddonSubtitlesResolved(false)
     endedHandled.current = false
     nextTransitionSuppressed.current = false
@@ -198,6 +201,7 @@ export function DesktopPlayer({
     )
       .then(async (initial) => {
         if (cancelled) return
+        playerStarted = true
         setSnapshot(initial)
         await nativePlayerCommand(["set", "sub-pos", preferences.subtitlePosition])
         await nativePlayerCommand([
@@ -216,6 +220,7 @@ export function DesktopPlayer({
       })
 
     const poll = window.setInterval(() => {
+      if (!playerStarted || cancelled) return
       void nativePlayerSnapshot()
         .then((next) => {
           if (cancelled) return
@@ -235,6 +240,7 @@ export function DesktopPlayer({
 
     return () => {
       cancelled = true
+      playerStarted = false
       window.clearInterval(poll)
       window.clearTimeout(hideTimer.current)
       window.clearTimeout(seekCommitTimer.current)
@@ -242,6 +248,19 @@ export function DesktopPlayer({
       if (!closing.current) void stopNativePlayer()
     }
   }, [addons, mediaTitle, type, url, videoId])
+
+  useEffect(() => {
+    const electron = window.__CONDUIT_ELECTRON__
+    if (!electron) return
+    const unsubscribeClose = electron.onPlayerOverlayClose(onClose)
+    const unsubscribeNext = electron.onPlayerOverlayNext(() => {
+      if (onNextEpisode) void onNextEpisode()
+    })
+    return () => {
+      unsubscribeClose()
+      unsubscribeNext()
+    }
+  }, [onClose, onNextEpisode])
 
   useEffect(() => {
     if (
@@ -284,8 +303,20 @@ export function DesktopPlayer({
       return
     }
     const subtitleTracks = snapshot.tracks.filter((track) => track.type === "sub")
-    const embeddedMatch = subtitleTracks.find((track) =>
-      matchesTrackLanguage(preferredSubtitleLanguage, track.lang, track.title),
+    // mpv can report its first snapshot before the stream's embedded tracks
+    // are populated. Do not permanently apply an add-on/external fallback
+    // during that partial state; wait for loaded media and subtitle metadata.
+    if (!snapshot.duration) return
+    if (subtitleTracks.length === 0) {
+      // Allow mpv another polling cycle to publish embedded tracks. Streams
+      // with no subtitle tracks can still fall back to an add-on afterward.
+      subtitleMetadataReadyPolls.current += 1
+      if (subtitleMetadataReadyPolls.current < 2) return
+    }
+    const embeddedMatch = subtitleTracks.find(
+      (track) =>
+        !track.external &&
+        matchesTrackLanguage(preferredSubtitleLanguage, track.lang, track.title),
     )
     preferredSubtitleApplied.current = true
     if (embeddedMatch) {
@@ -571,6 +602,7 @@ export function DesktopPlayer({
     Boolean(activeMenu) ||
     episodeDrawerOpen ||
     !snapshot
+  const electronNativePlayer = window.__CONDUIT_ELECTRON__ !== undefined
   const expandedControls = fullscreen || spaciousViewport
   const loadingOverlayVisible = !error && (!snapshot || snapshot.duration <= 0)
 
@@ -604,10 +636,8 @@ export function DesktopPlayer({
     redrawControls()
   }, [episodeDrawerOpen, redrawControls, resetOverlay])
 
-  // The Linux player layers a transparent WebKitGTK surface over GtkGLArea.
-  // Explicitly invalidate that surface whenever dynamic control pixels move;
-  // otherwise WebKit's partial damage region can leave the previous thumb or
-  // timestamp glyph visible over the video.
+  // Explicitly invalidate the native overlay whenever dynamic control pixels
+  // move. This is required by the WebKitGTK player and harmless for Electron.
   useLayoutEffect(() => {
     if (snapshot) redrawControls()
   }, [
@@ -621,6 +651,8 @@ export function DesktopPlayer({
   return createPortal(
     <div
       className={`native-player fixed inset-0 z-50 select-none overflow-hidden ${
+        electronNativePlayer ? "electron-native-player" : ""
+      } ${
         chromeVisible ? "cursor-default" : "cursor-none"
       }`}
       onMouseMove={showControls}
@@ -633,7 +665,7 @@ export function DesktopPlayer({
       <div
         data-player-chrome="top"
         className={`pointer-events-none absolute inset-x-0 top-0 z-10 flex items-center justify-between gap-4 bg-gradient-to-b from-black/85 via-black/45 to-transparent ${
-          expandedControls ? "px-10 pb-24 pt-8" : "px-5 pb-16 pt-5"
+          expandedControls ? "px-10 pb-8 pt-5" : "px-5 pb-6 pt-3"
         } ${
           chromeVisible ? "visible" : "invisible"
         }`}
@@ -648,10 +680,11 @@ export function DesktopPlayer({
               void close()
             }}
             aria-label="Back to details"
+            data-native-overlay
           >
             <Play className="rotate-180 fill-current" size={21} />
           </button>
-          <div className="min-w-0">
+          <div className="min-w-0" data-native-overlay>
             <PlayerHeadingText heading={heading} expanded={expandedControls} />
             {snapshot && (
               <p
@@ -672,6 +705,7 @@ export function DesktopPlayer({
           type="button"
           aria-label={fullscreen ? "Exit fullscreen" : "Fullscreen"}
           title={fullscreen ? "Exit fullscreen" : "Fullscreen"}
+          data-native-overlay
           onClick={() => {
             void toggleNativeFullscreen().then(setFullscreen)
           }}
@@ -682,7 +716,10 @@ export function DesktopPlayer({
 
       {error ? (
         <div className="absolute inset-0 z-10 grid place-items-center p-5">
-          <Card className="w-full max-w-lg border-red-950 bg-zinc-950/95 p-6">
+          <Card
+            className="w-full max-w-lg border-red-950 bg-zinc-950/95 p-6"
+            data-native-overlay
+          >
             <p className="font-medium text-red-400">Could not start mpv</p>
             <p className="mt-2 text-sm text-zinc-400">{error}</p>
             <p className="mt-3 text-xs text-zinc-600">
@@ -696,7 +733,10 @@ export function DesktopPlayer({
           role="status"
           aria-label="Video loading"
         >
-          <div className="rounded-full bg-black/55 p-3 shadow-lg backdrop-blur-sm">
+          <div
+            className="rounded-full bg-black/55 p-3 shadow-lg backdrop-blur-sm"
+            data-native-overlay
+          >
             <LoaderCircle className="animate-spin text-white" size={36} />
           </div>
         </div>
@@ -747,8 +787,8 @@ export function DesktopPlayer({
       {snapshot && !error && (
         <div
           data-player-chrome="bottom"
-          className={`absolute inset-x-0 bottom-0 z-10 ${
-            expandedControls ? "px-10 pb-8 pt-28" : "px-4 pb-4 pt-20 sm:px-6"
+          className={`absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/90 via-black/55 to-transparent ${
+            expandedControls ? "px-10 pb-6 pt-6" : "px-4 pb-3 pt-8 sm:px-6"
           } ${
             chromeVisible ? "visible" : "pointer-events-none invisible"
           }`}
@@ -847,7 +887,7 @@ export function DesktopPlayer({
               />
             )}
 
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3" data-native-overlay>
               <span
                 className={`player-time player-time-elapsed tabular-nums text-zinc-300 ${
                   expandedControls ? "text-sm" : "text-xs"
@@ -908,6 +948,7 @@ export function DesktopPlayer({
               className={`flex items-center ${
                 expandedControls ? "mt-5 gap-3" : "mt-3 gap-1 sm:gap-2"
               }`}
+              data-native-overlay
             >
               <PlayerIcon
                 label={snapshot.paused ? "Play" : "Pause"}
@@ -1109,9 +1150,9 @@ function TrackMenu({
       const bounds = anchor.current?.getBoundingClientRect()
       if (!bounds) return
       setPosition({
-        bottom: Math.max(32, window.innerHeight - bounds.top + 32),
+        bottom: Math.max(56, window.innerHeight - bounds.top + 56),
         right: Math.max(16, window.innerWidth - bounds.right),
-        maxHeight: Math.max(160, Math.min(window.innerHeight * 0.6, bounds.top - 24)),
+        maxHeight: Math.max(160, Math.min(window.innerHeight * 0.6, bounds.top - 48)),
       })
     }
     updatePosition()
@@ -1122,6 +1163,7 @@ function TrackMenu({
   return createPortal(
     <div
       data-track-menu
+      data-native-overlay
       className={`fixed z-[100] max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-white/10 bg-zinc-950 p-2 shadow-2xl ${
         allowOff ? "w-[46rem]" : "w-80"
       }`}
@@ -1150,6 +1192,7 @@ function TrackMenu({
               detail: [track.codec?.toUpperCase(), track.external ? "External" : "Embedded"]
                 .filter(Boolean)
                 .join(" · "),
+              embedded: !track.external,
               active: track.selected,
             })),
             ...availableAddonSubtitles.map((subtitle) => ({

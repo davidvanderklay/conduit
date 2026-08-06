@@ -38,6 +38,82 @@ body {
   background: #000;
 }
 
+.macos-titlebar {
+  display: none;
+}
+
+.electron-macos #root {
+  display: flex;
+  height: 100vh;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.electron-macos .macos-titlebar {
+  -webkit-app-region: drag;
+  display: grid;
+  height: 40px;
+  flex: 0 0 40px;
+  place-items: center;
+  border-bottom: 1px solid rgb(39 39 42);
+  background: rgb(24 24 27);
+  color: rgb(161 161 170);
+  font-size: 13px;
+  font-weight: 600;
+  user-select: none;
+  -webkit-user-select: none;
+  position: relative;
+  z-index: 1000;
+}
+
+.electron-macos #root > :not(.macos-titlebar) {
+  min-height: 0 !important;
+  height: 100% !important;
+  flex: 1 1 auto;
+}
+
+.electron-macos .native-player {
+  top: 40px;
+}
+
+.electron-macos .media-details {
+  top: 40px;
+}
+
+@media (min-width: 768px) {
+  .electron-macos .app-sidebar {
+    top: calc(40px + 4rem);
+    height: calc(100vh - 40px - 4rem);
+  }
+}
+
+.electron-macos.native-playback #root {
+  visibility: visible;
+}
+
+.electron-macos.native-playback #root > :not(.macos-titlebar) {
+  visibility: hidden;
+}
+
+.electron-macos.electron-native-fullscreen .macos-titlebar {
+  display: none;
+}
+
+.electron-macos.electron-native-fullscreen .native-player {
+  top: 0;
+}
+
+.electron-macos.electron-native-fullscreen .media-details {
+  top: 0;
+}
+
+@media (min-width: 768px) {
+  .electron-macos.electron-native-fullscreen .app-sidebar {
+    top: 4rem;
+    height: calc(100vh - 4rem);
+  }
+}
+
 .poster-cover {
   /* Isolate poster image paints so WebKitGTK does not invalidate neighboring
      cards while a virtualized row moves through the scroll viewport. */
@@ -74,6 +150,127 @@ body {
   visibility: hidden;
 }
 
+.electron-windows #root {
+  display: flex;
+  height: 100vh;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.electron-windows .macos-titlebar {
+  -webkit-app-region: drag;
+  display: grid;
+  height: 40px;
+  flex: 0 0 40px;
+  place-items: center;
+  border-bottom: 1px solid rgb(39 39 42);
+  background: rgb(24 24 27);
+  color: rgb(161 161 170);
+  font-size: 13px;
+  font-weight: 600;
+  position: relative;
+  z-index: 1000;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.windows-titlebar-controls {
+  display: none;
+}
+
+.electron-windows .windows-titlebar-controls {
+  -webkit-app-region: no-drag;
+  display: flex;
+  height: 40px;
+  position: absolute;
+  right: 0;
+  top: 0;
+}
+
+.electron-windows .windows-titlebar-controls button {
+  display: grid;
+  width: 46px;
+  height: 40px;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: rgb(212 212 216);
+}
+
+.electron-windows .windows-titlebar-controls button:hover {
+  background: rgb(63 63 70);
+  color: white;
+}
+
+.electron-windows .windows-titlebar-controls button.close:hover {
+  background: rgb(220 38 38);
+}
+
+.electron-windows #root > :not(.macos-titlebar) {
+  min-height: 0 !important;
+  height: 100% !important;
+  flex: 1 1 auto;
+}
+
+.electron-windows .native-player,
+.electron-windows .media-details {
+  top: 40px;
+}
+
+@media (min-width: 768px) {
+  .electron-windows .app-sidebar {
+    top: calc(40px + 4rem);
+    height: calc(100vh - 40px - 4rem);
+  }
+}
+
+.electron-windows.native-playback #root {
+  visibility: visible;
+}
+
+.electron-windows.native-playback #root > :not(.macos-titlebar) {
+  visibility: hidden;
+}
+
+.electron-windows.electron-native-fullscreen .macos-titlebar {
+  display: none;
+}
+
+.electron-windows.electron-native-fullscreen .native-player,
+.electron-windows.electron-native-fullscreen .media-details {
+  top: 0;
+}
+
+@media (min-width: 768px) {
+  .electron-windows.electron-native-fullscreen .app-sidebar {
+    top: 4rem;
+    height: calc(100vh - 4rem);
+  }
+}
+
+/* Linux renders controls in a dedicated transparent Electron window above
+   mpv's X11 surface. The original player is portaled directly into body
+   (outside #root), so hide that copy there. Windows and macOS keep the
+   original controls in the main window above their native video surfaces. */
+.linux-desktop.native-playback body > .native-player.electron-native-player {
+  pointer-events: none;
+  visibility: hidden;
+}
+
+.electron-player-overlay,
+.electron-player-overlay body {
+  background: transparent;
+  height: 100%;
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.electron-player-overlay .player-seek,
+.electron-player-overlay .player-volume {
+  background: transparent;
+}
+
 .player-seek {
   appearance: none;
   -webkit-appearance: none;
@@ -82,6 +279,25 @@ body {
      moving thumbs erase old pixels without making the whole controls row a bar. */
   background: rgb(0 0 0);
   padding-block: 6px;
+}
+
+/* The Electron player uses an opaque Chromium window and does not need the
+   WebKitGTK damage-control backgrounds used by the Tauri player. */
+.native-player.electron-native-player .player-seek,
+.native-player.electron-native-player .native-controls-surface,
+.native-player.electron-native-player .player-time,
+.native-player.electron-native-player .player-volume {
+  background: transparent;
+}
+
+.native-player.electron-native-player .player-seek::-webkit-slider-runnable-track {
+  height: 7px;
+}
+
+.native-player.electron-native-player .player-seek::-webkit-slider-thumb {
+  width: 19px;
+  height: 19px;
+  margin-top: -6px;
 }
 
 .player-seek::-webkit-slider-runnable-track {

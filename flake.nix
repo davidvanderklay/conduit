@@ -12,7 +12,7 @@
         pkgs = import nixpkgs { inherit system; };
       in {
         devShells.default = pkgs.mkShell {
-          packages = with pkgs; [
+          packages = (with pkgs; [
             nodejs_22
             pnpm
             jdk17
@@ -26,18 +26,19 @@
             openssl
             postgresql_17
             mpv
+            electron
+          ]) ++ pkgs.lib.optionals pkgs.stdenv.isDarwin (with pkgs; [
+            libiconv
+          ]) ++ pkgs.lib.optionals pkgs.stdenv.isLinux (with pkgs; [
             dbus
             glib
-            gtk3
             libglvnd
-            libsoup_3
-            webkitgtk_4_1
-            librsvg
-            cargo-tauri
-          ];
+            libx11
+          ]);
 
           shellHook = ''
             export RUST_BACKTRACE=1
+            export CONDUIT_ELECTRON_BIN="$(command -v electron)"
           '';
         };
       });

@@ -102,7 +102,7 @@ export function CalendarView({
   const isCurrentMonth = monthKey(month) === monthKey(currentMonth)
 
   return (
-    <main className="mx-auto max-w-[2200px] px-4 py-7 sm:px-6 lg:px-8 xl:flex xl:h-[calc(100vh-4rem-1px)] xl:flex-col xl:overflow-hidden xl:px-10">
+    <main className="mx-auto max-w-[2200px] 2xl:max-w-none px-4 py-7 sm:px-6 lg:px-6 xl:flex xl:h-[calc(100vh-4rem-1px)] xl:flex-col xl:overflow-hidden xl:px-10">
       <div className="mb-4 grid shrink-0 items-end gap-5 xl:grid-cols-[auto_minmax(0,1fr)_20rem]">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-400">

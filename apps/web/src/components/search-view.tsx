@@ -27,7 +27,7 @@ export function SearchView({
   const sections = useMemo(() => groupByPrimarySource(search.data?.results ?? []), [search.data])
 
   return (
-    <main className="mx-auto max-w-[2200px] px-4 py-10 sm:px-6 lg:px-8 xl:px-10">
+    <main className="mx-auto max-w-[2200px] 2xl:max-w-none px-4 py-10 sm:px-6 lg:px-6 xl:px-6 2xl:px-8">
       <div className="mb-8 flex items-end justify-between gap-4">
         <div>
           <p className="mb-2 text-xs font-semibold uppercase tracking-[0.2em] text-amber-400">

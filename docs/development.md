@@ -4,7 +4,7 @@
 
 - `apps/web`: React web interface shared with desktop
 - `apps/server`: Fastify API, Better Auth, Drizzle, and PostgreSQL
-- `apps/desktop`: Tauri shell and native libmpv playback
+- `apps/desktop`: Electron shell and native libmpv playback
 - `packages/core`: Rust client engine compiled to WebAssembly
 - `docs`: user, operator, format, and roadmap documentation
 
@@ -17,7 +17,7 @@ direnv allow
 ```
 
 Without Nix, install Node.js, pnpm, Rust, wasm-pack, PostgreSQL, and the native
-dependencies required by Tauri and libmpv.
+dependencies required by Electron and libmpv.
 
 ## Environment
 
@@ -72,6 +72,28 @@ pnpm dev:server
 pnpm dev:web
 pnpm dev:desktop
 ```
+
+The Electron desktop shell uses Chromium for the UI and a native libmpv bridge. On macOS the bridge is an in-process Rust Node-API addon (Cocoa `NSView` pointers cannot cross a process boundary). On Windows it also runs in-process, on Linux it runs as an isolated helper process behind X11. Use `pnpm dev:desktop` for the Electron app (`pnpm dev:electron` is an alias).
+
+macOS uses an in-process OpenGL render view below Chromium, Windows embeds mpv
+with the Electron window's HWND, and Linux uses its X11 window ID. Native
+Wayland does not expose an X11-compatible window ID, so Linux playback should
+currently be launched through X11/XWayland:
+
+```sh
+CONDUIT_ELECTRON_OZONE=x11 pnpm dev:electron
+```
+
+If X11/Ozone reproduces a Chromium GPU-process crash on an Nvidia driver,
+launch the embedded-player mode with Electron's GPU work kept in-process. This
+keeps Chromium accelerated while avoiding the crashing GPU subprocess:
+
+```sh
+CONDUIT_ELECTRON_OZONE=x11 CONDUIT_ELECTRON_IN_PROCESS_GPU=1 pnpm dev:electron
+```
+
+For GPU-driver diagnosis only, software rendering can still be forced with
+`CONDUIT_ELECTRON_OZONE=x11 CONDUIT_ELECTRON_DISABLE_GPU=1`.
 
 ## Database migrations
 
@@ -129,7 +151,7 @@ provider subject identifiers.
 
 ## Desktop client
 
-The Tauri 2 client reuses the web interface and delegates playback to embedded
+The Electron client reuses the web interface and delegates playback to embedded
 libmpv. Selecting a stream renders libmpv beneath Conduit's controls and supports
 seek, pause, embedded tracks, and add-on subtitles.
 
@@ -156,7 +178,7 @@ platform; the Conduit server never proxies video to force caching.
 
 OAuth on desktop is intentionally different from OAuth in the browser build.
 `desktop_auth_listen` binds a short-lived random loopback port, and the frontend
-opens the Better Auth authorization URL with Tauri's opener plugin. After the
+opens the Better Auth authorization URL through the Electron shell. After the
 server callback, `/v1/auth/desktop/exchange` validates the one-time code and
 PKCE verifier. The returned desktop session is scoped to the selected server
 and sent as a bearer token; changing servers never sends it to the new origin.
@@ -166,11 +188,11 @@ Changes to `desktop_auth_request` require applying migration `0008` or later.
 For development outside Nix:
 
 - macOS: install libmpv, for example with `brew install mpv`
-- Linux: install libmpv development headers, GTK 3, WebKitGTK 4.1, EGL, DBus,
+- Linux: install libmpv development headers, EGL, DBus,
   and pkg-config development packages
 - Windows: install Git, Node.js LTS, pnpm (through Corepack), Rust's stable
   MSVC toolchain, Visual Studio 2022 Build Tools with **Desktop development
-  with C++**, and the WebView2 Runtime. Then use a regular PowerShell:
+  with C++**, Then use a regular PowerShell:
 
   ```powershell
   corepack enable
@@ -211,10 +233,9 @@ display scale, stream/container, and result.
 - Lock/unlock and sleep/resume while paused and while playing
 - Close during playback, reopen playback, and exit the application
 
-The Windows renderer gives mpv the Tauri window's native HWND. mpv creates a
-D3D11 child window and WebView2 renders Conduit's transparent controls above
-it. This follows Harbor's proven Tauri/libmpv layout while leaving the existing
-frontend command and event contract unchanged.
+The Windows renderer gives mpv the Electron window's native HWND. mpv creates a
+D3D11 child window and Electron renders Conduit's transparent controls above
+it.
 
 ## Local recovery CLI
 

@@ -57,27 +57,37 @@ export async function beginDesktopAuthCallback(): Promise<{
   result: Promise<URL>
   cancel: () => void
 }> {
-  const [{ listen }, { invoke }] = await Promise.all([
-    import("@tauri-apps/api/event"),
-    import("@tauri-apps/api/core"),
-  ])
+  const electron = window.__CONDUIT_ELECTRON__
+  if (!electron) throw new Error("Desktop bridge is unavailable.")
+  return beginElectronAuthCallback(electron)
+}
+
+export async function openInSystemBrowser(url: string): Promise<void> {
+  const electron = window.__CONDUIT_ELECTRON__
+  if (!electron) throw new Error("Desktop bridge is unavailable.")
+  await electron.openExternal(url)
+}
+
+async function beginElectronAuthCallback(electron: Window["__CONDUIT_ELECTRON__"] & object): Promise<{
+  callbackUrl: string
+  result: Promise<URL>
+  cancel: () => void
+}> {
   let resolveResult!: (url: URL) => void
   let rejectResult!: (error: Error) => void
   const result = new Promise<URL>((resolve, reject) => {
     resolveResult = resolve
     rejectResult = reject
   })
-  // The flow can fail before the callback is awaited (for example, while
-  // requesting the provider URL). Mark the promise handled in that case.
   void result.catch(() => undefined)
   let settled = false
   let timeout = 0
-  const unlisten = await listen<string>("desktop-auth-callback", (event) => {
+  const unlisten = electron.onDesktopAuthCallback((callbackUrl) => {
     settled = true
     window.clearTimeout(timeout)
     unlisten()
     try {
-      resolveResult(new URL(event.payload))
+      resolveResult(new URL(callbackUrl))
     } catch {
       rejectResult(new Error("The desktop authentication callback was invalid."))
     }
@@ -94,17 +104,12 @@ export async function beginDesktopAuthCallback(): Promise<{
     unlisten()
   }
   try {
-    const listener = await invoke<{ callbackUrl: string }>("desktop_auth_listen")
+    const listener = await electron.invoke<{ callbackUrl: string }>("desktop_auth_listen")
     return { callbackUrl: listener.callbackUrl, result, cancel }
   } catch (cause) {
     cancel()
     throw cause
   }
-}
-
-export async function openInSystemBrowser(url: string): Promise<void> {
-  const { openUrl } = await import("@tauri-apps/plugin-opener")
-  await openUrl(url)
 }
 
 function isDesktopEnvironment(): boolean {

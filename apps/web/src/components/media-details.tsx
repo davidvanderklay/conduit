@@ -198,7 +198,7 @@ export function MediaDetails({
   return (
     <>
       <div
-        className="fixed inset-0 z-30 overflow-hidden bg-zinc-950"
+        className="media-details fixed inset-0 z-30 overflow-hidden bg-zinc-950"
         role="dialog"
         aria-modal="true"
         aria-label={`${meta.name} details`}
