@@ -197,8 +197,13 @@ function updatePlayerOverlayMouseEvents() {
   const overControl = playerOverlayInteractiveRegions.some((region) =>
     x >= region.left && x <= region.right && y >= region.top && y <= region.bottom,
   )
-  setPlayerOverlayMouseEvents(!overControl)
   const insideWindow = x >= 0 && x <= 1 && y >= 0 && y <= 1
+  // Keep the entire overlay interactive while the cursor is inside the
+  // window so empty video clicks still reach the React handler (toggle
+  // playback) and all controls remain hit-testable. Only forward outside.
+  // Keep region tracking for future use, but do not gate on overControl.
+  setPlayerOverlayMouseEvents(!insideWindow)
+  void overControl
   const moved =
     !playerOverlayLastPointer ||
     Math.abs(playerOverlayLastPointer.x - x) > 0.001 ||
