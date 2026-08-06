@@ -172,10 +172,6 @@ function refreshNativeSurface() {
 
 function positionPlayerOverlay() {
   if (!mainWindow || !playerOverlayWindow || playerOverlayWindow.isDestroyed()) return
-  // Use content bounds in screen coordinates. For fullscreen the content
-  // bounds already equals the screen. Delay slightly when transitioning
-  // because getContentBounds can still report the pre-transition size
-  // during enter/leave-full-screen.
   const bounds = mainWindow.getContentBounds()
   try {
     playerOverlayWindow.setBounds(bounds)
@@ -524,21 +520,33 @@ async function createMainWindow(): Promise<BrowserWindow> {
     )
   }
 
+  const resyncFullscreenOverlay = () => {
+    positionPlayerOverlay()
+    void refreshNativeSurface()
+  }
   window.on("enter-full-screen", () => {
     window.webContents.send("conduit:fullscreen-changed", true)
     playerOverlayWindow?.webContents.send("conduit:fullscreen-changed", true)
     positionPlayerOverlay()
-    setTimeout(positionPlayerOverlay, 0)
-    setTimeout(positionPlayerOverlay, 100)
-    setTimeout(() => void refreshNativeSurface(), 100)
+    setTimeout(resyncFullscreenOverlay, 0)
+    setTimeout(resyncFullscreenOverlay, 50)
+    setTimeout(resyncFullscreenOverlay, 150)
+    setTimeout(resyncFullscreenOverlay, 300)
+    setTimeout(resyncFullscreenOverlay, 500)
+    setTimeout(resyncFullscreenOverlay, 800)
+    setTimeout(resyncFullscreenOverlay, 1000)
   })
   window.on("leave-full-screen", () => {
     window.webContents.send("conduit:fullscreen-changed", false)
     playerOverlayWindow?.webContents.send("conduit:fullscreen-changed", false)
     positionPlayerOverlay()
-    setTimeout(positionPlayerOverlay, 0)
-    setTimeout(positionPlayerOverlay, 100)
-    setTimeout(() => void refreshNativeSurface(), 100)
+    setTimeout(resyncFullscreenOverlay, 0)
+    setTimeout(resyncFullscreenOverlay, 50)
+    setTimeout(resyncFullscreenOverlay, 150)
+    setTimeout(resyncFullscreenOverlay, 300)
+    setTimeout(resyncFullscreenOverlay, 500)
+    setTimeout(resyncFullscreenOverlay, 800)
+    setTimeout(resyncFullscreenOverlay, 1000)
   })
 
   if (rendererIsDevelopment()) await window.loadURL("http://localhost:5173")
