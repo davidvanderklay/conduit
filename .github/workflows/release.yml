@@ -349,7 +349,7 @@ jobs:
 
   ios:
     needs: production-config
-    if: github.event_name == 'workflow_dispatch' && (inputs.target == 'all' || inputs.target == 'ios')
+    if: github.event_name == 'workflow_dispatch' && inputs.target == 'ios'
     name: iOS framework
     runs-on: macos-15
     steps:
