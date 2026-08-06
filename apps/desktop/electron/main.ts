@@ -266,23 +266,40 @@ function hidePlayerOverlay() {
   playerOverlayWindow.hide()
 }
 
+let wasVisibleForOverlay = false
 function syncPlayerOverlayVisibility() {
   if (playerOverlayVisibilityTimer) clearTimeout(playerOverlayVisibilityTimer)
-  const isActive = Boolean(mainWindow && mainWindow.isFocused() && mainWindow.isVisible() && !mainWindow.isMinimized())
-  if (!isActive) {
+  const isVisible = Boolean(mainWindow && mainWindow.isVisible() && !mainWindow.isMinimized())
+  const isFocused = Boolean(mainWindow && mainWindow.isFocused())
+  if (!isVisible) {
+    wasVisibleForOverlay = false
     playerOverlayVisibilityTimer = undefined
     hidePlayerOverlay()
     return
   }
+  // Visible but not focused: distinguish workspace switch (was hidden) vs app focus loss (was visible)
+  if (wasVisibleForOverlay && !isFocused) {
+    // Stayed visible on same workspace but lost focus to another app -> hide so we don't cover it
+    playerOverlayVisibilityTimer = undefined
+    hidePlayerOverlay()
+    return
+  }
+  const wasHidden = !wasVisibleForOverlay
+  wasVisibleForOverlay = true
+  // When coming back from another workspace the window animates (~250ms).
+  // Delay showing until the animation lands so both appear together.
+  const delay = wasHidden ? 260 : playerOverlayFocusSettleMs
   playerOverlayVisibilityTimer = setTimeout(() => {
     playerOverlayVisibilityTimer = undefined
     if (!mainWindow || !playerOverlayWindow || playerOverlayWindow.isDestroyed()) return
-    if (mainWindow.isFocused() && mainWindow.isVisible() && !mainWindow.isMinimized()) {
+    const stillVisible = mainWindow.isVisible() && !mainWindow.isMinimized()
+    if (stillVisible) {
       showPlayerOverlay()
     } else {
+      wasVisibleForOverlay = false
       hidePlayerOverlay()
     }
-  }, playerOverlayFocusSettleMs)
+  }, delay)
 }
 
 function closePlayerOverlay() {
