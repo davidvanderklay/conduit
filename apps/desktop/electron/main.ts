@@ -173,11 +173,14 @@ function refreshNativeSurface() {
 function positionPlayerOverlay() {
   if (!mainWindow || !playerOverlayWindow || playerOverlayWindow.isDestroyed()) return
   const bounds = mainWindow.getContentBounds()
+  // Transparent Chromium windows can leave the final device-pixel row and
+  // column unpainted on Linux fullscreen surfaces. Extend the overlay by one
+  // DIP so the player chrome reaches the physical right and bottom edges.
+  const overlayBounds = process.platform === "linux" && mainWindow.isFullScreen()
+    ? { ...bounds, width: bounds.width + 1, height: bounds.height + 1 }
+    : bounds
   try {
-    playerOverlayWindow.setBounds(bounds)
-  } catch {}
-  try {
-    playerOverlayWindow.setContentBounds(bounds)
+    playerOverlayWindow.setBounds(overlayBounds)
   } catch {}
 }
 
