@@ -9,6 +9,12 @@ if (process.platform === "darwin") {
   })
 }
 
+if (process.platform === "win32") {
+  window.addEventListener("DOMContentLoaded", () => {
+    document.documentElement.classList.add("electron-windows")
+  })
+}
+
 contextBridge.exposeInMainWorld("__CONDUIT_ELECTRON__", {
   invoke(command: string, args?: unknown) {
     return ipcRenderer.invoke("conduit:invoke", command, args)

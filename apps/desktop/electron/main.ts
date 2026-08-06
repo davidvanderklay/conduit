@@ -218,6 +218,18 @@ let playerOverlayInteractiveRegions: OverlayInteractiveRegion[] = []
 let playerOverlayLastPointer: { x: number; y: number } | undefined
 let playerOverlaySequence = 0
 const playerOverlayFocusSettleMs = 10
+const singleInstanceLock = app.requestSingleInstanceLock()
+
+if (!singleInstanceLock) {
+  app.exit(0)
+}
+
+app.on("second-instance", () => {
+  if (!mainWindow) return
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.show()
+  mainWindow.focus()
+})
 
 type OverlayInteractiveRegion = {
   left: number
@@ -590,14 +602,13 @@ async function createMainWindow(): Promise<BrowserWindow> {
     height: 800,
     minWidth: 900,
     minHeight: 600,
-    // Keep the application surface opaque. The native mpv host is stacked
-    // above it and the player chrome is rendered by a separate transparent
-    // overlay window.
-    // macOS libmpv is an in-process NSOpenGLView below Chromium. A transparent
-    // WebContents surface lets video show through while ordinary app routes
-    // remain opaque via their CSS backgrounds.
-    transparent: process.platform === "darwin",
-    backgroundColor: process.platform === "darwin" ? "#00000000" : "#000000",
+    // macOS renders an in-process NSView and Windows stacks mpv's child HWND
+    // below Chromium. Both need transparent player pixels in this window.
+    // Linux uses an opaque main window plus a separate X11 controls overlay.
+    transparent: process.platform === "darwin" || process.platform === "win32",
+    backgroundColor: process.platform === "darwin" || process.platform === "win32"
+      ? "#00000000"
+      : "#000000",
     titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
     trafficLightPosition: process.platform === "darwin" ? { x: 16, y: 20 } : undefined,
     autoHideMenuBar: true,
@@ -734,10 +745,10 @@ async function invoke(command: string, args: Record<string, unknown> = {}): Prom
     try {
       const result = await client.request("player_open", args)
       if (nativePlayer !== client) return result
-      // macOS renders libmpv in an NSOpenGLView below the main Chromium view,
-      // so the existing player portal is already the correct controls layer.
-      // Linux/Windows native child surfaces still need a separate overlay.
-      if (process.platform !== "darwin") {
+      // Linux's separate X11 surface needs a transparent controls window.
+      // macOS and Windows keep their native video below the main Chromium
+      // surface, so the existing player portal is the controls layer.
+      if (process.platform === "linux") {
         await ensurePlayerOverlay(typeof args.title === "string" ? args.title : "")
       }
       return result

@@ -718,7 +718,52 @@ fn sync_video_host_window(_parent: u64, _host: &mut VideoHost) -> Result<(), Nat
 }
 
 #[cfg(target_os = "windows")]
-fn sync_video_host_window(_parent: u64, _host: &mut VideoHost) -> Result<(), NativeError> {
+fn sync_video_host_window(parent: u64, _host: &mut VideoHost) -> Result<(), NativeError> {
+    use windows::core::BOOL;
+    use windows::Win32::{
+        Foundation::{HWND, LPARAM},
+        UI::WindowsAndMessaging::{
+            EnumChildWindows, GetClassNameW, SetWindowPos, HWND_BOTTOM, SWP_NOACTIVATE,
+            SWP_NOMOVE, SWP_NOSIZE,
+        },
+    };
+
+    struct Children {
+        mpv: Vec<HWND>,
+    }
+
+    unsafe extern "system" fn collect(hwnd: HWND, state: LPARAM) -> BOOL {
+        let mut class_name = [0_u16; 256];
+        let length = unsafe { GetClassNameW(hwnd, &mut class_name) };
+        let class_name = String::from_utf16_lossy(&class_name[..length as usize]);
+        if class_name == "mpv" || class_name.starts_with("mpv ") {
+            let state = unsafe { &mut *(state.0 as *mut Children) };
+            state.mpv.push(hwnd);
+        }
+        BOOL(1)
+    }
+
+    let parent = HWND(parent as *mut core::ffi::c_void);
+    let mut children = Children { mpv: Vec::new() };
+    unsafe {
+        let _ = EnumChildWindows(
+            Some(parent),
+            Some(collect),
+            LPARAM((&mut children as *mut Children) as isize),
+        );
+        for hwnd in children.mpv {
+            SetWindowPos(
+                hwnd,
+                Some(HWND_BOTTOM),
+                0,
+                0,
+                0,
+                0,
+                SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE,
+            )
+            .map_err(|error| NativeError::Initialization(error.to_string()))?;
+        }
+    }
     Ok(())
 }
 

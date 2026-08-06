@@ -150,6 +150,15 @@ body {
   visibility: hidden;
 }
 
+/* Windows and Linux render controls in a dedicated transparent Electron
+   window above mpv's native child surface. The original player is portaled
+   directly into body (outside #root), so hide that copy as well. macOS keeps
+   the original controls above its in-process NSView instead. */
+.linux-desktop.native-playback body > .native-player.electron-native-player {
+  pointer-events: none;
+  visibility: hidden;
+}
+
 .electron-player-overlay,
 .electron-player-overlay body {
   background: transparent;
