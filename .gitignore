@@ -24,6 +24,7 @@ apps/mobile/native/
 
 apps/server/.local/
 apps/desktop/electron/dist/
+apps/desktop/dist/
 
 flatpak/appdir/
 .flatpak-builder/

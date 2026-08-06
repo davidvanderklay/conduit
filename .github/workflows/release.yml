@@ -16,6 +16,7 @@ on:
           - all
           - android
           - flatpak
+          - ios
         default: all
 
 permissions:
@@ -66,8 +67,10 @@ jobs:
         shell: bash
         run: node scripts/set-release-version.mjs "${GITHUB_REF_NAME#v}"
       - run: pnpm --filter @conduit/desktop setup:windows
-      - name: Build NSIS installer
+      - name: Build Electron NSIS installer
         run: pnpm --filter @conduit/desktop dist:win
+      - name: Verify installer
+        run: ls -lh apps/desktop/dist/*.exe
       - uses: actions/upload-artifact@v4
         with:
           name: conduit-windows
@@ -102,13 +105,16 @@ jobs:
             pkg-config \
             libmpv-dev \
             libegl1-mesa-dev \
-            libx11-dev
+            libx11-dev \
+            xvfb
       - run: pnpm install --frozen-lockfile
       - name: Set version from tag
         if: github.ref_type == 'tag'
         run: node scripts/set-release-version.mjs "${GITHUB_REF_NAME#v}"
-      - name: Build AppImage
-        run: pnpm --filter @conduit/desktop dist:linux
+      - name: Build Electron AppImage
+        run: xvfb-run --auto-servernum pnpm --filter @conduit/desktop dist:linux
+      - name: Verify AppImage
+        run: ls -lh apps/desktop/dist/*.AppImage
       - uses: actions/upload-artifact@v4
         with:
           name: conduit-linux-appimage
@@ -319,18 +325,80 @@ jobs:
         with:
           tool: wasm-pack
       - name: Install macOS packaging dependencies
-        run: brew install dylibbundler mpv pkg-config
+        run: brew install mpv pkg-config
       - run: pnpm install --frozen-lockfile
       - name: Set version from tag
         if: github.ref_type == 'tag'
         run: node scripts/set-release-version.mjs "${GITHUB_REF_NAME#v}"
-      - name: Build macOS application
-        run: pnpm --filter @conduit/desktop dist:mac
+      - name: Build Electron DMG
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: |
+          if [ "${{ matrix.arch }}" = "arm64" ]; then
+            pnpm --filter @conduit/desktop dist:mac:arm64
+          else
+            pnpm --filter @conduit/desktop dist:mac:x64
+          fi
+      - name: Verify DMG
+        run: ls -lh apps/desktop/dist/*.dmg
       - uses: actions/upload-artifact@v4
         with:
           name: conduit-macos-${{ matrix.arch }}
           path: apps/desktop/dist/*.dmg
           if-no-files-found: error
+
+  ios:
+    needs: production-config
+    if: github.event_name != 'workflow_dispatch' || inputs.target == 'all' || inputs.target == 'ios'
+    name: iOS framework
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: gradle
+          cache-dependency-path: apps/mobile/**/*.gradle*
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.14.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ios
+      - run: pnpm install --frozen-lockfile
+      - name: Set version from tag
+        if: github.ref_type == 'tag'
+        run: node scripts/set-release-version.mjs "${GITHUB_REF_NAME#v}"
+      - name: Build iOS Rust libraries
+        run: apps/mobile/scripts/build-rust-ios.sh
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate Xcode project
+        working-directory: apps/mobile/iosApp
+        run: xcodegen generate
+      - name: Build iOS framework
+        working-directory: apps/mobile
+        run: ./gradlew --no-daemon :composeApp:embedAndSignAppleFrameworkForXcode
+      - name: Build iOS app (unsigned)
+        working-directory: apps/mobile/iosApp
+        run: |
+          xcodebuild -project ConduitMobileSpike.xcodeproj -scheme ConduitMobileSpike -configuration Release -sdk iphoneos CODE_SIGNING_ALLOWED=NO -destination generic/platform=iOS build 2>&1 | tail -n 30
+          mkdir -p ../../target/release/bundle/ios
+          tar -czf ../../target/release/bundle/ios/conduit-ios-framework.tgz -C ../composeApp/build/xcode-frameworks .
+          ls -lh ../../target/release/bundle/ios/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: conduit-ios
+          path: target/release/bundle/ios/*
+          if-no-files-found: warn
 
   android:
     if: github.event_name != 'workflow_dispatch' || inputs.target == 'all' || inputs.target == 'android'
@@ -404,7 +472,7 @@ jobs:
   publish:
     name: Publish GitHub release
     if: github.ref_type == 'tag'
-    needs: [windows, linux-appimage, linux-flatpak, macos, android]
+    needs: [windows, linux-appimage, linux-flatpak, macos, ios, android]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
