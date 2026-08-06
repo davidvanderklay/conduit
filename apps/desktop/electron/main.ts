@@ -611,7 +611,12 @@ async function invoke(command: string, args: Record<string, unknown> = {}): Prom
     try {
       const result = await client.request("player_open", args)
       if (nativePlayer !== client) return result
-      await ensurePlayerOverlay(typeof args.title === "string" ? args.title : "")
+      // macOS renders libmpv in an NSOpenGLView below the main Chromium view,
+      // so the existing player portal is already the correct controls layer.
+      // Linux/Windows native child surfaces still need a separate overlay.
+      if (process.platform !== "darwin") {
+        await ensurePlayerOverlay(typeof args.title === "string" ? args.title : "")
+      }
       return result
     } catch (error) {
       if (nativePlayer === client) nativePlayer = undefined
