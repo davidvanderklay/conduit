@@ -10,7 +10,7 @@ command: conduit
 finish-args:
   - --share=ipc
   - --share=network
-  - --socket=fallback-x11
+  - --socket=x11
   - --socket=wayland
   - --socket=pulseaudio
   - --device=dri
@@ -30,7 +30,6 @@ modules:
     buildsystem: meson
     config-opts:
       - -Ddemos=false
-      - -Dlibdir=lib
     sources:
       - type: git
         url: https://github.com/haasn/libplacebo.git
@@ -78,8 +77,6 @@ modules:
 
   - name: libdisplay-info
     buildsystem: meson
-    config-opts:
-      - -Dlibdir=lib
     sources:
       - type: git
         url: https://gitlab.freedesktop.org/emersion/libdisplay-info.git
@@ -91,7 +88,6 @@ modules:
     config-opts:
       - -Dcplayer=false
       - -Dlibmpv=true
-      - -Dlibdir=lib
       - -Dbuild-date=false
       # vaapi-copy creates a standalone device through mpv's DRM backend.
       # Auto-detection can silently omit it while leaving renderer-side VA
@@ -149,6 +145,7 @@ modules:
     build-options:
       env:
         CARGO_HOME: /run/build/conduit/cargo
+        XDG_CACHE_HOME: /run/build/conduit/flatpak-node/cache
     cleanup:
       - /bin/wasm-bindgen
       - /bin/wasm-bindgen-test-runner
@@ -161,13 +158,20 @@ modules:
       - rust-std-wasm32-unknown-unknown/install.sh --prefix="$PWD/rust-toolchain" --disable-ldconfig
       - mv rust-toolchain/bin/rustc rust-toolchain/bin/rustc-real
       - install -Dm755 rustc-wrapper rust-toolchain/bin/rustc
+      - node pnpm/bin/pnpm.cjs install --offline --frozen-lockfile
       - mkdir -p /run/build/conduit/cargo && printf '[source.crates-io]\nreplace-with = "vendored-sources"\n[source.vendored-sources]\ndirectory = "/run/build/conduit/cargo/vendor"\n' > /run/build/conduit/cargo/config.toml
+      - PATH="$PWD/rust-toolchain/bin:$PATH" wasm-pack build packages/core --target web --out-dir pkg --no-opt
+      - node pnpm/bin/pnpm.cjs --filter @conduit/web build
+      - node pnpm/bin/pnpm.cjs --filter @conduit/desktop electron:main:build
       - cargo build --offline --release -p conduit-electron-native --features linux-helper
       - install -Dm755 target/release/conduit-electron-native /app/bin/conduit-electron-native
-      # TODO: Bundle Electron desktop (apps/desktop/electron + apps/web/dist) into Flatpak
-      # The Tauri binary (conduit-desktop) has been replaced by the Electron app.
-      # Flatpak packaging for Electron requires bundling the Electron runtime and web assets.
-      - install -Dm755 target/release/conduit-electron-native /app/bin/conduit
+      - mkdir -p /app/lib/conduit/resources/app/electron /app/lib/conduit/resources/web
+      - unzip -q flatpak-node/cache/electron/electron-v*-linux-*.zip -d /app/lib/conduit
+      - mv /app/lib/conduit/electron /app/lib/conduit/conduit
+      - cp -a apps/desktop/electron/dist /app/lib/conduit/resources/app/electron/
+      - cp -a apps/web/dist/. /app/lib/conduit/resources/web/
+      - install -Dm644 apps/desktop/package.json /app/lib/conduit/resources/app/package.json
+      - install -Dm755 conduit-flatpak-wrapper /app/bin/conduit
       - install -Dm644 flatpak/media.conduit.desktop.desktop /app/share/applications/media.conduit.desktop.desktop
       - install -Dm644 flatpak/media.conduit.desktop.metainfo.xml /app/share/metainfo/media.conduit.desktop.metainfo.xml
       - install -Dm644 apps/desktop/icons/icon.png /app/share/icons/hicolor/512x512/apps/media.conduit.desktop.png
@@ -188,6 +192,21 @@ modules:
           #!/bin/sh
           toolchain="$(dirname "$0")/.."
           exec "$toolchain/bin/rustc-real" --sysroot "$toolchain" "$@"
+      - type: script
+        dest-filename: conduit-flatpak-wrapper
+        commands:
+          - unset ELECTRON_RUN_AS_NODE
+          - export NODE_ENV=production
+          - export CONDUIT_ELECTRON_OZONE="${CONDUIT_ELECTRON_OZONE:-x11}"
+          - |
+            if [ -z "${CONDUIT_ELECTRON_IN_PROCESS_GPU:-}" ] &&
+               { [ -d /sys/module/nvidia ] || [ -e /dev/nvidiactl ]; }; then
+              export CONDUIT_ELECTRON_IN_PROCESS_GPU=1
+            fi
+          - export CONDUIT_ELECTRON_NATIVE_PLAYER=/app/bin/conduit-electron-native
+          # Flatpak is the outer application sandbox; Electron's setuid sandbox
+          # cannot initialize inside it without a Zypak-enabled base app.
+          - exec /app/lib/conduit/conduit --ozone-platform="$CONDUIT_ELECTRON_OZONE" --no-sandbox "$@"
       - type: dir
         path: ..
         skip:
