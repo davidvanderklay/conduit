@@ -83,6 +83,12 @@ modules:
         tag: 0.4.0
         commit: c67a3e9bedb05ab61c7443704a1a107e76254595
 
+  - name: libXpresent
+    sources:
+      - type: archive
+        url: https://www.x.org/releases/individual/lib/libXpresent-1.0.1.tar.xz
+        sha256: b964df9e5a066daa5e08d2dc82692c57ca27d00b8cc257e8e960c9f1cf26231b
+
   - name: libmpv
     buildsystem: meson
     config-opts:
@@ -94,6 +100,8 @@ modules:
       # probing available, which makes Intel drivers appear healthy but forces
       # software decoding when playback starts.
       - -Ddrm=enabled
+      - -Dx11=enabled
+      - -Degl-x11=enabled
       - -Dvaapi=enabled
       - -Dvaapi-drm=enabled
       - -Dalsa=disabled
