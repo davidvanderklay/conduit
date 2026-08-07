@@ -213,6 +213,7 @@ modules:
               export CONDUIT_ELECTRON_IN_PROCESS_GPU=1
             fi
           - export CONDUIT_ELECTRON_NATIVE_PLAYER=/app/bin/conduit-electron-native
+          - export LD_LIBRARY_PATH="/app/lib64:/app/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
           # Flatpak is the outer application sandbox; Electron's setuid sandbox
           # cannot initialize inside it without a Zypak-enabled base app.
           - exec /app/lib/conduit/conduit --ozone-platform="$CONDUIT_ELECTRON_OZONE" --no-sandbox "$@"
