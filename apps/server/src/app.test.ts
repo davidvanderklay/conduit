@@ -10,6 +10,7 @@ const config: Config = {
   addonEncryptionKey: Buffer.alloc(32),
   webOrigin: "http://localhost:5173",
   port: 3000,
+  bootstrapMode: "first-user",
 }
 
 describe("CORS", () => {
@@ -48,5 +49,37 @@ describe("CORS", () => {
     })
 
     expect(response.headers["cache-control"]).toBe("private, no-store")
+  })
+
+  it("protects setup-token and manual first-owner registration", async () => {
+    const database = {
+      select: () => ({
+        from: () => ({ limit: async () => [] }),
+      }),
+    } as unknown as Database
+    const setupApp = await buildApp(
+      { ...config, bootstrapMode: "setup-token", bootstrapToken: "private-token" },
+      database,
+    )
+    apps.push(setupApp)
+    const setupResponse = await setupApp.inject({
+      method: "POST",
+      url: "/api/auth/sign-up/email",
+      headers: { "content-type": "application/json" },
+      payload: { email: "owner@example.com", password: "correct horse battery", name: "Conduit account" },
+    })
+    expect(setupResponse.statusCode).toBe(403)
+    expect(setupResponse.json()).toEqual({ message: "A valid Conduit setup token is required to create the first owner" })
+
+    const manualApp = await buildApp({ ...config, bootstrapMode: "manual" }, database)
+    apps.push(manualApp)
+    const manualResponse = await manualApp.inject({
+      method: "POST",
+      url: "/api/auth/sign-up/email",
+      headers: { "content-type": "application/json" },
+      payload: { email: "owner@example.com", password: "correct horse battery", name: "Conduit account" },
+    })
+    expect(manualResponse.statusCode).toBe(403)
+    expect(manualResponse.json()).toEqual({ message: "Create the first owner from the Conduit server CLI" })
   })
 })

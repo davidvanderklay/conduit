@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto"
 
+export type BootstrapMode = "setup-token" | "first-user" | "manual"
+
 export interface Config {
   databaseUrl: string
   authSecret: string
@@ -7,6 +9,8 @@ export interface Config {
   addonEncryptionKey: Buffer
   webOrigin: string
   port: number
+  bootstrapMode: BootstrapMode
+  bootstrapToken?: string
 }
 
 export const DESKTOP_ORIGINS = [
@@ -21,6 +25,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const port = Number.parseInt(env.PORT ?? "3000", 10)
   const encryptionValue = required(env, "ADDON_ENCRYPTION_KEY")
   const addonEncryptionKey = parseEncryptionKey(encryptionValue)
+  const bootstrapMode = parseBootstrapMode(env.CONDUIT_BOOTSTRAP_MODE)
+  const bootstrapToken = env.CONDUIT_BOOTSTRAP_TOKEN?.trim()
+
+  if (bootstrapMode === "setup-token" && !bootstrapToken) {
+    throw new Error("CONDUIT_BOOTSTRAP_TOKEN is required when CONDUIT_BOOTSTRAP_MODE is setup-token")
+  }
 
   if (!Number.isSafeInteger(port) || port < 1 || port > 65535) {
     throw new Error("PORT must be a valid TCP port")
@@ -33,6 +43,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     addonEncryptionKey,
     webOrigin,
     port,
+    bootstrapMode,
+    bootstrapToken,
   }
 }
 
@@ -54,4 +66,16 @@ function parseEncryptionKey(value: string): Buffer {
   }
 
   return createHash("sha256").update(value).digest()
+}
+
+function parseBootstrapMode(value: string | undefined): BootstrapMode {
+  const mode = value ?? "first-user"
+  switch (mode) {
+    case "setup-token":
+    case "first-user":
+    case "manual":
+      return mode
+    default:
+      throw new Error("CONDUIT_BOOTSTRAP_MODE must be setup-token, first-user, or manual")
+  }
 }
