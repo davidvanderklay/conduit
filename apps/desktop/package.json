@@ -39,7 +39,6 @@
     },
     "files": [
       "electron/dist/**/*",
-      "electron-native/dist/**/*",
       "icons/**/*",
       "!**/*.ts",
       "!**/*.map",
@@ -49,6 +48,13 @@
       {
         "from": "../web/dist",
         "to": "web",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "electron-native/dist",
+        "to": "native",
         "filter": [
           "**/*"
         ]

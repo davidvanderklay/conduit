@@ -489,8 +489,12 @@ function nativePlayerPath(): string {
     // even when it is given the helper's manifest path.
     return path.resolve(__dirname, `../../../../target/${build}/conduit-electron-native`)
   }
-  return process.env.CONDUIT_ELECTRON_NATIVE_PLAYER ??
-    path.resolve(__dirname, "../../electron-native/dist/conduit-electron-native.node")
+  if (process.env.CONDUIT_ELECTRON_NATIVE_PLAYER) {
+    return process.env.CONDUIT_ELECTRON_NATIVE_PLAYER
+  }
+  return app.isPackaged
+    ? path.join(process.resourcesPath, "native", "conduit-electron-native.node")
+    : path.resolve(__dirname, "../../electron-native/dist/conduit-electron-native.node")
 }
 
 function nativeWindowId(window: BrowserWindow): string {
