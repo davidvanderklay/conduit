@@ -5,7 +5,7 @@ services:
     environment:
       POSTGRES_DB: conduit
       POSTGRES_USER: conduit
-      POSTGRES_PASSWORD: conduit
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
     volumes:
       - conduit-postgres:/var/lib/postgresql/data
     healthcheck:
@@ -15,16 +15,16 @@ services:
       retries: 10
 
   server:
-    build:
-      context: .
-      target: server
+    image: ghcr.io/davidvanderklay/conduit-server:${CONDUIT_VERSION:-latest}
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgresql://conduit:conduit@postgres:5432/conduit
+      DATABASE_URL: postgresql://conduit:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/conduit
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
-      BETTER_AUTH_URL: ${CONDUIT_URL:-http://localhost:8080}
+      BETTER_AUTH_URL: ${CONDUIT_URL:-http://localhost:8321}
       ADDON_ENCRYPTION_KEY: ${ADDON_ENCRYPTION_KEY:?set ADDON_ENCRYPTION_KEY in .env}
-      WEB_ORIGIN: ${CONDUIT_URL:-http://localhost:8080}
+      WEB_ORIGIN: ${CONDUIT_URL:-http://localhost:8321}
+      CONDUIT_BOOTSTRAP_MODE: ${CONDUIT_BOOTSTRAP_MODE:-setup-token}
+      CONDUIT_BOOTSTRAP_TOKEN: ${CONDUIT_BOOTSTRAP_TOKEN-}
       PORT: 3000
     depends_on:
       postgres:
@@ -36,12 +36,10 @@ services:
       retries: 10
 
   web:
-    build:
-      context: .
-      target: web
+    image: ghcr.io/davidvanderklay/conduit-web:${CONDUIT_VERSION:-latest}
     restart: unless-stopped
     ports:
-      - "${CONDUIT_PORT:-8080}:8080"
+      - "${CONDUIT_BIND_ADDRESS:-127.0.0.1}:${CONDUIT_PORT:-8321}:8080"
     depends_on:
       server:
         condition: service_healthy

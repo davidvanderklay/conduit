@@ -24,6 +24,7 @@ const config: Config = {
   addonEncryptionKey: Buffer.alloc(32),
   webOrigin: "http://localhost:5173",
   port: 3000,
+  bootstrapMode: "first-user",
 }
 const profileId = "00000000-0000-4000-8000-000000000001"
 const otherProfileId = "00000000-0000-4000-8000-000000000002"

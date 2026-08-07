@@ -6,6 +6,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify"
 import { fromNodeHeaders } from "better-auth/node"
 import type { Auth } from "./auth.js"
 import type { Config } from "./config.js"
+import { canCreateFirstAccount } from "./bootstrap.js"
 import { decryptSecret, encryptSecret, stableSecretHash } from "./crypto.js"
 import type { Database } from "./db/index.js"
 import type { RuntimeAuthSettings } from "./instance-auth.js"
@@ -76,7 +77,11 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
     const existing = await db.select({ id: users.id }).from(users).limit(1)
     return {
       needsOwner: existing.length === 0,
-      localRegistration: existing.length === 0 || authSettings.registrationMode === "open",
+      localRegistration:
+        existing.length === 0
+          ? canCreateFirstAccount(config, existing.length)
+          : authSettings.registrationMode === "open",
+      bootstrapMode: config.bootstrapMode,
       oidc: authSettings.oidc
         ? {
             enabled: true,

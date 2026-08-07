@@ -1,0 +1,135 @@
+name: Container release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+*"
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: container-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build, smoke-test, and publish images
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Validate the image-based Compose file
+        env:
+          CONDUIT_VERSION: ci
+          POSTGRES_PASSWORD: ci-postgres-password
+          BETTER_AUTH_SECRET: ci-auth-secret-that-is-long-enough
+          ADDON_ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+        run: |
+          test -z "$(rg -n '^\s+build:' compose.yaml || true)"
+          docker compose -f compose.yaml config >/dev/null
+
+      - name: Generate server image metadata
+        id: server-meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/davidvanderklay/conduit-server
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=sha,prefix=sha-
+          flavor: |
+            latest=auto
+
+      - name: Generate web image metadata
+        id: web-meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/davidvanderklay/conduit-web
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=sha,prefix=sha-
+          flavor: |
+            latest=auto
+
+      - name: Build the server image for smoke testing
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: server
+          load: true
+          tags: ghcr.io/davidvanderklay/conduit-server:ci
+          cache-from: type=gha,scope=conduit-server
+          cache-to: type=gha,mode=max,scope=conduit-server
+
+      - name: Build the web image for smoke testing
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: web
+          load: true
+          tags: ghcr.io/davidvanderklay/conduit-web:ci
+          cache-from: type=gha,scope=conduit-web
+          cache-to: type=gha,mode=max,scope=conduit-web
+
+      - name: Smoke-test from a clean deployment directory
+        run: |
+          deployment_dir="$(mktemp -d)"
+          cp compose.yaml "$deployment_dir/compose.yaml"
+          export CONDUIT_VERSION=ci
+          export CONDUIT_URL=http://localhost:8321
+          export CONDUIT_BIND_ADDRESS=127.0.0.1
+          export CONDUIT_PORT=8321
+          export CONDUIT_BOOTSTRAP_MODE=first-user
+          export POSTGRES_PASSWORD=ci-postgres-password
+          export BETTER_AUTH_SECRET=ci-auth-secret-that-is-long-enough
+          export ADDON_ENCRYPTION_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+          trap 'docker compose -p conduit-container-ci -f "$deployment_dir/compose.yaml" down -v --remove-orphans' EXIT
+          docker compose -p conduit-container-ci -f "$deployment_dir/compose.yaml" up -d
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:8321/health >/dev/null; then
+              break
+            fi
+            if [ "$attempt" = 30 ]; then
+              docker compose -p conduit-container-ci -f "$deployment_dir/compose.yaml" logs
+              exit 1
+            fi
+            sleep 2
+          done
+          curl --fail --silent http://127.0.0.1:8321/health | grep -F '"status":"ok"'
+          curl --fail --silent http://127.0.0.1:8321/ | grep -qi '<!doctype html'
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish the server image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: server
+          push: true
+          tags: ${{ steps.server-meta.outputs.tags }}
+          labels: ${{ steps.server-meta.outputs.labels }}
+          cache-from: type=gha,scope=conduit-server
+          cache-to: type=gha,mode=max,scope=conduit-server
+
+      - name: Publish the web image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: web
+          push: true
+          tags: ${{ steps.web-meta.outputs.tags }}
+          labels: ${{ steps.web-meta.outputs.labels }}
+          cache-from: type=gha,scope=conduit-web
+          cache-to: type=gha,mode=max,scope=conduit-web
