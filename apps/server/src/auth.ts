@@ -6,7 +6,13 @@ import type { Database } from "./db/index.js"
 import type { RuntimeAuthSettings } from "./instance-auth.js"
 import * as schema from "./db/schema.js"
 
-export function createAuth(db: Database, config: Config, settings: RuntimeAuthSettings) {
+export function createAuth(
+  db: Database,
+  config: Config,
+  settings: RuntimeAuthSettings,
+  options: { hasExistingUsers: boolean } = { hasExistingUsers: true },
+) {
+  const allowImplicitFirstAccount = options.hasExistingUsers || config.bootstrapMode === "first-user"
   const plugins = [
     bearer(),
     ...(settings.oidc?.provider === "oidc"
@@ -20,7 +26,7 @@ export function createAuth(db: Database, config: Config, settings: RuntimeAuthSe
               clientSecret: settings.oidc.clientSecret,
               scopes: settings.oidc.scopes,
               pkce: true,
-              disableImplicitSignUp: !settings.oidc.autoRegister,
+              disableImplicitSignUp: !settings.oidc.autoRegister || !allowImplicitFirstAccount,
             },
           ],
         }),
@@ -35,7 +41,7 @@ export function createAuth(db: Database, config: Config, settings: RuntimeAuthSe
             clientSecret: settings.oidc.clientSecret,
             scope: settings.oidc.scopes,
             disableDefaultScope: true,
-            disableImplicitSignUp: !settings.oidc.autoRegister,
+            disableImplicitSignUp: !settings.oidc.autoRegister || !allowImplicitFirstAccount,
             prompt: "select_account" as const,
           },
         }

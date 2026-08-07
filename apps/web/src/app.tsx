@@ -99,6 +99,7 @@ function AuthScreen() {
       api<{
         needsOwner: boolean
         localRegistration: boolean
+        bootstrapMode: "setup-token" | "first-user" | "manual"
         oidc: { enabled: boolean; provider?: "google" | "oidc"; displayName?: string }
       }>("/v1/auth/config"),
   })
@@ -110,12 +111,20 @@ function AuthScreen() {
     const data = new FormData(event.currentTarget)
     const email = String(data.get("email"))
     const password = String(data.get("password"))
+    const bootstrapToken = String(data.get("bootstrapToken") ?? "")
     if (mode === "register") {
       window.sessionStorage.setItem("conduit:recovery-setup", "pending")
     }
     const result =
       mode === "register"
-        ? await authClient.signUp.email({ email, password, name: "Conduit account" })
+        ? await authClient.signUp.email({
+            email,
+            password,
+            name: "Conduit account",
+            fetchOptions: bootstrapToken
+              ? { headers: { "x-conduit-bootstrap-token": bootstrapToken } }
+              : undefined,
+          })
         : await authClient.signIn.email({ email, password })
     setPending(false)
     if (result.error) {
@@ -344,6 +353,18 @@ function AuthScreen() {
                       </div>
                     )}
                   </AuthField>
+                  {mode === "register" && authConfig.data?.bootstrapMode === "setup-token" && authConfig.data.needsOwner && (
+                    <AuthField id="auth-bootstrap-token" label="Setup token">
+                      <Input
+                        id="auth-bootstrap-token"
+                        name="bootstrapToken"
+                        type="password"
+                        autoComplete="one-time-code"
+                        placeholder="Enter the token from the server operator"
+                        required
+                      />
+                    </AuthField>
+                  )}
                   {mode === "register" && (
                     <p className="rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-2.5 text-xs leading-5 text-zinc-500">
                       No personal name required. Profiles remain separate from your account.
@@ -357,6 +378,11 @@ function AuthScreen() {
               </>
             )}
           </div>
+          {authConfig.data?.needsOwner && authConfig.data.bootstrapMode === "manual" && (
+            <p className="border-t border-zinc-800/80 bg-zinc-950/40 px-6 py-4 text-center text-sm text-zinc-500">
+              The server operator must create the first owner with <code className="text-zinc-300">conduit admin create-owner</code>.
+            </p>
+          )}
           {recoveryCodes.length === 0 && !recovering && authConfig.data?.localRegistration && (
             <div className="border-t border-zinc-800/80 bg-zinc-950/40 px-6 py-4 text-center text-sm text-zinc-500">
               {mode === "register" ? "Already have an account?" : "New to this instance?"}{" "}

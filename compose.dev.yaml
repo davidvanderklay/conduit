@@ -1,3 +1,5 @@
+# Local development overlay for compose.source.yaml.
+# docker compose -f compose.source.yaml -f compose.dev.yaml up -d --build
 services:
   postgres:
     ports:

@@ -1,0 +1,54 @@
+# Contributor stack. Use with compose.dev.yaml for a host PostgreSQL port:
+# docker compose -f compose.source.yaml -f compose.dev.yaml up -d --build
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: conduit
+      POSTGRES_USER: conduit
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-conduit}
+    volumes:
+      - conduit-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U conduit -d conduit"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  server:
+    build:
+      context: .
+      target: server
+    restart: unless-stopped
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://conduit:${POSTGRES_PASSWORD:-conduit}@postgres:5432/conduit
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-conduit-development-secret}
+      BETTER_AUTH_URL: ${CONDUIT_URL:-http://localhost:8080}
+      ADDON_ENCRYPTION_KEY: ${ADDON_ENCRYPTION_KEY:-0000000000000000000000000000000000000000000000000000000000000000}
+      WEB_ORIGIN: ${CONDUIT_URL:-http://localhost:8080}
+      CONDUIT_BOOTSTRAP_MODE: ${CONDUIT_BOOTSTRAP_MODE:-first-user}
+      PORT: 3000
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:3000/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  web:
+    build:
+      context: .
+      target: web
+    restart: unless-stopped
+    ports:
+      - "${CONDUIT_BIND_ADDRESS:-127.0.0.1}:${CONDUIT_PORT:-8080}:8080"
+    depends_on:
+      server:
+        condition: service_healthy
+
+volumes:
+  conduit-postgres:

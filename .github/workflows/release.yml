@@ -490,7 +490,10 @@ jobs:
         with:
           generate_release_notes: true
           prerelease: ${{ contains(github.ref_name, '-') }}
-          files: artifacts/*
+          files: |
+            artifacts/*
+            compose.yaml
+            .env.docker.example
 
   publish-flatpak-repository:
     name: Publish Flatpak repository
