@@ -1,88 +1,149 @@
 # Deployment and operations
 
-The recommended self-hosted deployment is the provided Docker Compose stack. It
-runs PostgreSQL, the Node.js API, and an Nginx web frontend. Nginx serves the SPA
-and proxies API requests, so users only connect to one public origin.
+The recommended self-hosted deployment is the published-image Docker Compose
+stack. It runs PostgreSQL, the Conduit API, and an Nginx web frontend from one
+origin. PostgreSQL is the only application data volume.
 
-## Docker Compose
+## Docker Compose quick start
 
-Copy the deployment environment template and replace both generated secrets:
+Download a tagged Compose file and its environment template into any empty
+directory. The files have no source checkout or repository-relative paths:
 
 ```sh
+mkdir conduit && cd conduit
+release=v0.1.2-alpha.12
+curl --fail --location --remote-name "https://github.com/davidvanderklay/conduit/releases/download/${release}/compose.yaml"
+curl --fail --location --remote-name "https://github.com/davidvanderklay/conduit/releases/download/${release}/.env.docker.example"
 cp .env.docker.example .env
-openssl rand -base64 32
-openssl rand -hex 32
-docker compose up -d --build
+# Set CONDUIT_VERSION to the downloaded release without the leading v.
 ```
 
-The defaults serve Conduit at `http://localhost:8080`. A public deployment
-normally changes only:
+Edit `.env` before starting. Generate stable values once and keep them backed
+up:
+
+```sh
+openssl rand -base64 32 # BETTER_AUTH_SECRET
+openssl rand -base64 32 # CONDUIT_BOOTSTRAP_TOKEN
+openssl rand -hex 32    # ADDON_ENCRYPTION_KEY
+openssl rand -hex 32    # POSTGRES_PASSWORD
+```
+
+Then start the stack:
+
+```sh
+docker compose up -d
+docker compose ps
+curl --fail http://127.0.0.1:8321/health
+```
+
+The web container publishes `8321` on `127.0.0.1` by default. Open
+`http://localhost:8321` and enter the private `CONDUIT_BOOTSTRAP_TOKEN` to
+create the first owner. Migrations run automatically before the API accepts
+traffic. The database volume is named `conduit-postgres`.
+
+## Compose settings
+
+The deployment template exposes the settings most operators need:
+
+| Setting | Purpose |
+| --- | --- |
+| `CONDUIT_VERSION` | Matching API and web image tag. Pin a release for repeatable upgrades. |
+| `CONDUIT_URL` | Public browser and authentication origin. |
+| `CONDUIT_BIND_ADDRESS` | Host interface for the published web port. Defaults to `127.0.0.1`. |
+| `CONDUIT_PORT` | Host web port. Defaults to `8321`. |
+| `CONDUIT_BOOTSTRAP_MODE` | `setup-token` for Docker, `manual` for CLI setup, or `first-user` for compatibility. |
+| `CONDUIT_BOOTSTRAP_TOKEN` | Required only for `setup-token`; never exposed by `/v1/auth/config`. |
+| `POSTGRES_PASSWORD` | Database password. Keep it stable for `conduit-postgres`. |
+| `BETTER_AUTH_SECRET` | Session and recovery signing secret. Keep it stable. |
+| `ADDON_ENCRYPTION_KEY` | Exactly 64 hexadecimal characters. Keep it stable for encrypted add-ons and OAuth secrets. |
+
+`DATABASE_URL`, `BETTER_AUTH_URL`, and `WEB_ORIGIN` are derived inside the
+Compose file. Do not regenerate stable secrets on restart. Losing either
+application secret can invalidate sessions or make encrypted configuration
+unreadable.
+
+## First-owner bootstrap modes
+
+Docker defaults to `setup-token`. The first account can only be created when the
+request includes the token from `.env`; after an owner exists, the token is no
+longer accepted. Local registration remains closed unless the owner enables it
+in `/admin`.
+
+For a host-only bootstrap with no remotely reachable first-account flow, set:
 
 ```env
-CONDUIT_URL=https://conduit.example
-CONDUIT_PORT=8080
-BETTER_AUTH_SECRET=<output of openssl rand -base64 32>
-ADDON_ENCRYPTION_KEY=<output of openssl rand -hex 32>
+CONDUIT_BOOTSTRAP_MODE=manual
 ```
 
-`CONDUIT_URL` configures both the browser origin and Better Auth's external URL.
-The browser uses the origin it loaded from as its default API, so no separate
-frontend API setting is required. Only the web container publishes a host port;
-the API and PostgreSQL remain on the Compose network. Database migrations run
-automatically before the API starts.
+Start the stack, then create the owner from the server container:
 
-Terminate HTTPS at a reverse proxy and forward it to `CONDUIT_PORT`. Preserve
-the original host and scheme. OAuth callbacks use
-`$CONDUIT_URL/api/auth/callback/...`.
+```sh
+docker compose up -d
+docker compose exec server node dist/cli.js admin create-owner
+```
 
-Upgrade with:
+The command prompts for an email and hidden password, only works on an empty
+database in manual mode, and refuses a repeat invocation after an owner exists.
+
+`first-user` preserves the existing development behavior where the first local
+account becomes owner without a token. It is the default when the server runs
+outside the deployment Compose file.
+
+The release workflow publishes these public images to GitHub Container Registry:
+
+- `ghcr.io/davidvanderklay/conduit-server`
+- `ghcr.io/davidvanderklay/conduit-web`
+
+The first package publication requires the repository owner to make both package
+visibility settings public in GitHub. After that one-time action, a new host can
+pull the images without a registry login.
+
+## Upgrade and rollback
+
+Back up PostgreSQL, `.env`, and the stable application secrets before upgrading.
+Change only the image version, then pull and restart:
 
 ```sh
 docker compose pull
-docker compose up -d --build
+docker compose up -d
 docker compose ps
+curl --fail http://127.0.0.1:8321/health
 ```
 
-Back up the `conduit-postgres` volume and `.env` before upgrading.
+Keep `CONDUIT_VERSION` pinned and use a known-good previous tag for an
+application rollback. Do not roll binaries back across an irreversible database
+migration without restoring a matching database backup.
 
-## Source build
+## Source build for contributors
+
+The root `compose.yaml` is intentionally image-based. Contributors retain the
+source-build workflow with the named overlays:
 
 ```sh
-pnpm install --frozen-lockfile
-pnpm core:build
-pnpm db:migrate
-pnpm build
+cp .env.example .env
+docker compose -f compose.source.yaml -f compose.dev.yaml up -d postgres
+corepack pnpm install --frozen-lockfile
+corepack pnpm core:build
+corepack pnpm db:migrate
+corepack pnpm dev
 ```
 
-Build outputs:
-
-- API: `apps/server/dist`
-- Web: `apps/web/dist`
-- Desktop artifacts: produced by the Tauri build process
-
-Start the API:
-
-```sh
-pnpm --filter @conduit/server start
-```
+`compose.source.yaml` is a complete source-build companion stack that selects
+the `server` and `web` targets from the existing multi-stage Dockerfile;
+`compose.dev.yaml` exposes PostgreSQL on the host for local commands. Source
+build outputs are `apps/server/dist` and `apps/web/dist`.
 
 ## Required persistent data
 
 Back up:
 
-- PostgreSQL
+- PostgreSQL, including the `conduit-postgres` volume
 - `.env` or the deployment's secret store
 - `ADDON_ENCRYPTION_KEY`
 - `BETTER_AUTH_SECRET`
 
-Losing either encryption/auth secret can make encrypted configuration or
-sessions unusable. Keep backups outside the application host.
-
-Run migrations before starting a newly deployed server version:
-
-```sh
-pnpm db:migrate
-```
+Profile exports are useful for user portability, but they do not replace an
+instance database backup.
 
 ## Separate frontend and API deployments
 

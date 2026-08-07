@@ -53,7 +53,7 @@ Never commit `.env`.
 ## Start development
 
 ```sh
-docker compose -f compose.yaml -f compose.dev.yaml up -d postgres
+docker compose -f compose.source.yaml -f compose.dev.yaml up -d postgres
 pnpm install
 pnpm core:build
 pnpm db:migrate

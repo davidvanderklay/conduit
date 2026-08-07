@@ -25,7 +25,7 @@ Prerequisites are provided by the Nix flake:
 ```sh
 direnv allow
 cp .env.example .env
-docker compose -f compose.yaml -f compose.dev.yaml up -d postgres
+docker compose -f compose.source.yaml -f compose.dev.yaml up -d postgres
 pnpm install
 pnpm core:build
 pnpm db:migrate
@@ -55,19 +55,25 @@ on each GitHub release as a fallback.
 
 ## Self-hosting with Docker
 
-The provided Compose stack serves the browser client and API from one public
-origin:
+Download the deployment files into any empty directory. No source checkout or
+local image build is required:
 
 ```sh
+mkdir conduit && cd conduit
+release=v0.1.2-alpha.12
+curl -fsSLO "https://github.com/davidvanderklay/conduit/releases/download/${release}/compose.yaml"
+curl -fsSLO "https://github.com/davidvanderklay/conduit/releases/download/${release}/.env.docker.example"
 cp .env.docker.example .env
-# Replace both placeholder secrets in .env, then:
-docker compose up -d --build
+# Edit .env, replace every replace-with-* value, and pin CONDUIT_VERSION to the
+# downloaded release without the leading v (for example 0.1.2-alpha.12).
+docker compose up -d
 ```
 
-Open `http://localhost:8080`. For a public deployment, set `CONDUIT_URL` to the
-final HTTPS URL and place the stack behind a TLS-terminating reverse proxy. See
-[Deployment and operations](docs/deployment.md) for configuration and upgrade
-details.
+Open `http://localhost:8321`. The default first-owner flow requires the private
+`CONDUIT_BOOTSTRAP_TOKEN` from `.env`. The default port binds to localhost; set
+`CONDUIT_BIND_ADDRESS=0.0.0.0` only when deliberate LAN or router exposure is
+wanted. See [Deployment and operations](docs/deployment.md) for reverse proxies,
+backups, bootstrap modes, and upgrades.
 
 ## Documentation
 
