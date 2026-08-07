@@ -520,13 +520,19 @@ function nativeWindowId(window: BrowserWindow): string {
       "Embedded libmpv playback requires X11/Ozone. Restart with CONDUIT_ELECTRON_OZONE=x11. If Electron's GPU process crashes on Nvidia, also set CONDUIT_ELECTRON_IN_PROCESS_GPU=1.",
     )
   }
-  if (handle.length < 4) throw new Error("Electron did not provide an X11 window handle.")
-  const windowId = handle.readUInt32LE(0)
-  if (windowId === 0) throw new Error("Electron returned an empty X11 window handle.")
-  if (process.env.CONDUIT_ELECTRON_LOG_WINDOW === "1") {
-    console.log(`Conduit Electron: native X11 handle ${handle.toString("hex")} (XID ${windowId})`)
+  // Ozone can return a placeholder from getNativeWindowHandle() even on X11.
+  // Electron's media source ID contains the actual X11 Window identifier.
+  const mediaSourceId = window.getMediaSourceId()
+  const windowId = /^window:(\d+):/.exec(mediaSourceId)?.[1]
+  if (!windowId || windowId === "0") {
+    throw new Error(`Electron returned an invalid X11 media source ID: ${mediaSourceId}`)
   }
-  return String(windowId)
+  if (process.env.CONDUIT_ELECTRON_LOG_WINDOW === "1") {
+    console.log(
+      `Conduit Electron: native X11 handle ${handle.toString("hex")}, media source ${mediaSourceId} (XID ${windowId})`,
+    )
+  }
+  return windowId
 }
 
 function rendererIsDevelopment(): boolean {
@@ -633,7 +639,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
     process.env.CONDUIT_ELECTRON_LOG_WINDOW === "1") {
     const handle = window.getNativeWindowHandle()
     console.log(
-      `Conduit Electron: window handle ${handle.toString("hex")} (XID ${handle.length >= 4 ? handle.readUInt32LE(0) : "invalid"})`,
+      `Conduit Electron: window handle ${handle.toString("hex")}, media source ${window.getMediaSourceId()}`,
     )
   }
 

@@ -261,12 +261,17 @@ jobs:
             media.conduit.desktop
           linkage="$(
             flatpak run --command=sh media.conduit.desktop \
-              -c 'ldd /app/bin/conduit'
+              -c 'ldd /app/lib/conduit/conduit'
           )"
           if grep -F 'not found' <<< "$linkage"; then
             echo "Flatpak executable has unresolved shared libraries" >&2
             exit 1
           fi
+          flatpak run --command=sh media.conduit.desktop -c '
+            test -x /app/bin/conduit-electron-native
+            test -f /app/lib/conduit/resources/app/electron/dist/main.js
+            test -f /app/lib/conduit/resources/web/index.html
+          '
           flatpak info --user media.conduit.desktop \
             | grep -F "Version: ${GITHUB_REF_NAME#v}"
       - name: Preserve repository history

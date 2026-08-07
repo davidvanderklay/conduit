@@ -18,7 +18,8 @@ fn main() {
         // still needs the search path on macOS where brew installs to
         // /opt/homebrew (arm64) or /usr/local (intel). Ensure we probe here
         // so -L flags are emitted for the top-level crate as well.
-        pkg_config::probe_library("mpv").expect("libmpv development files are required (brew install mpv)");
+        pkg_config::probe_library("mpv")
+            .expect("libmpv development files are required (brew install mpv)");
     }
     #[cfg(target_os = "linux")]
     {
