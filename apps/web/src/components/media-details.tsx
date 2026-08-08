@@ -39,12 +39,17 @@ import { Button } from "./ui/button"
 import { Player } from "./player"
 import { LibraryToggle } from "./library-toggle"
 import { EpisodeSelector } from "./episode-selector"
-import { WatchPartyDialog, mediaForParty } from "./watch-party-dialog"
+import {
+  createWatchPartySession,
+  WatchPartyDialog,
+  mediaForParty,
+} from "./watch-party-dialog"
 import {
   type WatchPartyMedia,
   type WatchPartySession,
   type WatchPartySummary,
 } from "../lib/watch-party"
+import type { WatchPartySessionResponse } from "../lib/watch-party-api"
 
 interface ResolvedStream extends Stream {
   key: string
@@ -63,6 +68,7 @@ export function MediaDetails({
   initialWatchPartyParty,
   initialWatchPartySession,
   onWatchPartySessionChange,
+  onExternalWatchPartyJoined,
   onBrowse,
   onClose,
 }: {
@@ -73,6 +79,7 @@ export function MediaDetails({
   initialWatchPartyParty?: WatchPartySummary
   initialWatchPartySession?: WatchPartySession
   onWatchPartySessionChange?: (session: WatchPartySession | undefined) => void
+  onExternalWatchPartyJoined?: (response: WatchPartySessionResponse) => void
   onBrowse?: (target: MetadataBrowseTarget) => void
   onClose: () => void
 }) {
@@ -206,9 +213,32 @@ export function MediaDetails({
 
   useEffect(() => {
     const electron = window.__CONDUIT_ELECTRON__
-    if (!electron?.onPlayerOverlayWatchParty) return
-    return electron.onPlayerOverlayWatchParty(() => setWatchPartyOpen(true))
-  }, [])
+    if (!electron) return
+    const unsubscribeOpen = electron.onPlayerOverlayWatchParty(() => setWatchPartyOpen(true))
+    const unsubscribeJoined = electron.onPlayerOverlayWatchPartyJoined((response) => {
+      const next = createWatchPartySession(profileId, response)
+      const isCurrentMedia = response.party.media.mediaId === item.id &&
+        (item.type !== "series" || response.party.media.videoId === activeVideoId)
+      if (isCurrentMedia) {
+        setWatchPartySession(next)
+        onWatchPartySessionChange?.(next)
+      } else {
+        onExternalWatchPartyJoined?.(response)
+        onClose()
+      }
+    })
+    const unsubscribeLeft = electron.onPlayerOverlayWatchPartyLeft((partyId) => {
+      if (watchPartySession?.partyId !== partyId) return
+      watchPartySession.close()
+      setWatchPartySession(undefined)
+      onWatchPartySessionChange?.(undefined)
+    })
+    return () => {
+      unsubscribeOpen()
+      unsubscribeJoined()
+      unsubscribeLeft()
+    }
+  }, [activeVideoId, item.id, item.type, onClose, onExternalWatchPartyJoined, onWatchPartySessionChange, profileId, watchPartySession])
 
   useEffect(() => () => watchPartySession?.close(), [watchPartySession])
 

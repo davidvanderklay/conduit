@@ -210,6 +210,19 @@ export function DesktopPlayer({
       mediaTitle,
       preferences.readAheadSeconds,
       preferences.hardwareAcceleration,
+      {
+        profileId,
+        media: {
+          type: type === "series" ? "series" : "movie",
+          mediaId: progressMetadata.mediaId,
+          videoId,
+          title: progressMetadata.name,
+          poster: progressMetadata.poster,
+          videoTitle: progressMetadata.videoTitle,
+          season: progressMetadata.season,
+          episode: progressMetadata.episode,
+        },
+      },
     )
       .then(async (initial) => {
         if (cancelled) return

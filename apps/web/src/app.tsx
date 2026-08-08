@@ -44,8 +44,13 @@ import {
 import { DiscoverView, type DiscoverSelection } from "./components/discover-view"
 import { VirtualVerticalList } from "./components/virtual-vertical-list"
 import { FullscreenToggle } from "./components/fullscreen-toggle"
-import { WatchPartyButton, WatchPartyDialog } from "./components/watch-party-dialog"
+import {
+  createWatchPartySession,
+  WatchPartyButton,
+  WatchPartyDialog,
+} from "./components/watch-party-dialog"
 import { WatchPartySession, type WatchPartySummary } from "./lib/watch-party"
+import type { WatchPartySessionResponse } from "./lib/watch-party-api"
 
 export function App() {
   const session = authClient.useSession()
@@ -710,6 +715,9 @@ function AuthenticatedApp({
     })
     if (!session) setWatchPartyDialogKey((key) => key + 1)
   }
+  const handleExternalWatchPartyJoined = (response: WatchPartySessionResponse) => {
+    launchWatchParty(response.party, createWatchPartySession(activeProfile.id, response))
+  }
 
   return (
     <div className="flex h-screen flex-col overflow-hidden">
@@ -809,6 +817,7 @@ function AuthenticatedApp({
           watchPartyLaunch={watchPartyLaunch}
           onWatchPartyClose={closeWatchParty}
           onWatchPartySessionChange={updateWatchPartySession}
+          onExternalWatchPartyJoined={handleExternalWatchPartyJoined}
           onMetadataBrowse={(target) => {
             if (target.kind === "genre") {
               setSearchInput("")
@@ -906,6 +915,7 @@ function ProfileApp({
   watchPartyLaunch,
   onWatchPartyClose,
   onWatchPartySessionChange,
+  onExternalWatchPartyJoined,
   onMetadataBrowse,
 }: {
   profile: Profile
@@ -921,6 +931,7 @@ function ProfileApp({
   watchPartyLaunch?: WatchPartyLaunch
   onWatchPartyClose: () => void
   onWatchPartySessionChange: (session: WatchPartySession | undefined) => void
+  onExternalWatchPartyJoined: (response: WatchPartySessionResponse) => void
   onMetadataBrowse: (target: MetadataBrowseTarget) => void
 }) {
   const [selectedItem, setSelectedItem] = useState<CatalogItem>()
@@ -1031,6 +1042,7 @@ function ProfileApp({
           initialWatchPartyParty={watchPartyLaunch?.party}
           initialWatchPartySession={watchPartyLaunch?.session}
           onWatchPartySessionChange={onWatchPartySessionChange}
+          onExternalWatchPartyJoined={onExternalWatchPartyJoined}
           onBrowse={onMetadataBrowse}
           onClose={() => {
             setSelectedItem(undefined)
