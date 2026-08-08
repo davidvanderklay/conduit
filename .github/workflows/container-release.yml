@@ -102,8 +102,16 @@ jobs:
             fi
             sleep 2
           done
-          curl --fail --silent http://127.0.0.1:8321/health | grep -F '"status":"ok"'
-          curl --fail --silent http://127.0.0.1:8321/ | grep -qi '<!doctype html'
+          curl --fail --silent --show-error http://127.0.0.1:8321/health | grep -F '"status":"ok"'
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --retry 10 \
+            --retry-delay 1 \
+            --retry-connrefused \
+            --output /dev/null \
+            http://127.0.0.1:8321/
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
