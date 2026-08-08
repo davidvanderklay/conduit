@@ -36,6 +36,8 @@ import {
   type NativeTrack,
 } from "../lib/desktop"
 import { WatchPartyDialog } from "./watch-party-dialog"
+import type { WatchPartySessionResponse } from "../lib/watch-party-api"
+import type { WatchPartySession, WatchPartySummary } from "../lib/watch-party"
 import {
   VIDEO_SCALE_OPTIONS,
   mpvVideoScaleCommands,
@@ -172,15 +174,16 @@ export function ElectronPlayerOverlay({
   }, [showControls])
 
   const handoffParty = useCallback((
-    _party: unknown,
-    session: { close: () => void },
-    response: unknown,
+    party: WatchPartySummary,
+    session: WatchPartySession,
+    response: WatchPartySessionResponse,
   ) => {
-    session.close()
     void window.__CONDUIT_ELECTRON__?.invoke("player_overlay_watch_party_joined", response)
+    if (party.hostProfileId === watchPartyContext?.profileId) return
+    session.close()
     setWatchPartyOpen(false)
     setWatchPartyDialogKey((key) => key + 1)
-  }, [])
+  }, [watchPartyContext?.profileId])
 
   const handoffPartyLeave = useCallback((partyId: string) => {
     void window.__CONDUIT_ELECTRON__?.invoke("player_overlay_watch_party_left", { partyId })

@@ -20,6 +20,7 @@ export interface WatchPartySummary {
   id: string
   mode: "private" | "shared"
   status: "active" | "ended"
+  isHost: boolean
   hostProfileId: string
   media: WatchPartyMedia
   memberCount: number
