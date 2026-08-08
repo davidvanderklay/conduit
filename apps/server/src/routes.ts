@@ -161,7 +161,7 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
         body: Type.Object({
           profileId: Type.String({ format: "uuid" }),
           mode: Type.Union([Type.Literal("private"), Type.Literal("shared")]),
-          media: watchPartyMediaSchema,
+          media: Type.Optional(watchPartyMediaSchema),
         }),
       },
     },
@@ -171,7 +171,7 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
       const body = request.body as {
         profileId: string
         mode: "private" | "shared"
-        media: WatchPartyMedia
+        media?: WatchPartyMedia
       }
       if (!(await canAccessProfile(db, user.id, body.profileId))) return reply.forbidden()
       await expireWatchParties(db, watchPartyHub)
@@ -212,7 +212,7 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
         if (cause instanceof WatchPartyError) return reply.code(cause.statusCode).send({ message: cause.message })
         throw cause
       }
-      watchPartyHub.seedMedia(party.id, party.media)
+      if (party.media) watchPartyHub.seedMedia(party.id, party.media)
       const invite = body.mode === "shared"
         ? await createWatchPartyInvite(db, config.webOrigin, party.id, user.id)
         : undefined
@@ -268,7 +268,7 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
           target: [watchPartyMembers.partyId, watchPartyMembers.profileId],
           set: { leftAt: null, lastSeenAt: new Date(), role },
         })
-      watchPartyHub.seedMedia(party.id, party.media)
+      if (party.media) watchPartyHub.seedMedia(party.id, party.media)
       return {
         party: await partySummary(db, party, profileId),
         ...(await partyTicket(watchPartyHub, db, party.id, user.id, profileId, role)),
@@ -335,7 +335,7 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
         throw cause
       }
       if (!accepted) return reply.badRequest("This invitation is expired, revoked, already used, or unavailable")
-      watchPartyHub.seedMedia(accepted.id, accepted.media)
+      if (accepted.media) watchPartyHub.seedMedia(accepted.id, accepted.media)
       return {
         party: await partySummary(db, accepted, profileId),
         ...(await partyTicket(watchPartyHub, db, accepted.id, user.id, profileId)),
@@ -389,7 +389,7 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
       const [party] = await db.select().from(watchParties).where(and(eq(watchParties.id, partyId), eq(watchParties.status, "active"))).limit(1)
       if (!member || !party) return reply.forbidden("You are not an active member of this party")
       await db.update(watchPartyMembers).set({ lastSeenAt: new Date() }).where(and(eq(watchPartyMembers.partyId, partyId), eq(watchPartyMembers.userId, user.id), eq(watchPartyMembers.profileId, profileId)))
-      watchPartyHub.seedMedia(party.id, party.media)
+      if (party.media) watchPartyHub.seedMedia(party.id, party.media)
       return partyTicket(watchPartyHub, db, party.id, user.id, profileId, member.role)
     },
   )
@@ -2439,7 +2439,7 @@ async function partySummary(db: Database, party: typeof watchParties.$inferSelec
     status: party.status,
     isHost: party.hostProfileId === viewerProfileId,
     hostProfileId: party.hostProfileId,
-    media: party.media,
+    media: party.media ?? undefined,
     memberCount: members.length,
     members: members.map((member) => ({
       profileId: member.profileId,

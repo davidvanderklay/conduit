@@ -35,6 +35,7 @@ import {
 } from "../lib/metadata"
 import { readPreferences } from "../lib/preferences"
 import { selectNextEpisodeStream } from "../lib/stream-selection"
+import { updateWatchPartyMedia } from "../lib/watch-party-api"
 import { Button } from "./ui/button"
 import { Player } from "./player"
 import { LibraryToggle } from "./library-toggle"
@@ -56,6 +57,11 @@ interface ResolvedStream extends Stream {
   addonName: string
 }
 
+interface PartyStreamHandoffState {
+  media: WatchPartyMedia
+  stream?: ResolvedStream
+}
+
 export type MetadataBrowseTarget =
   | { kind: "genre"; value: string; mediaType: string }
   | { kind: "search"; value: string }
@@ -69,6 +75,8 @@ export function MediaDetails({
   initialWatchPartySession,
   onWatchPartySessionChange,
   onExternalWatchPartyJoined,
+  onWatchPartyJoined,
+  onWatchPartyMediaChange,
   onBrowse,
   onClose,
 }: {
@@ -80,6 +88,8 @@ export function MediaDetails({
   initialWatchPartySession?: WatchPartySession
   onWatchPartySessionChange?: (session: WatchPartySession | undefined) => void
   onExternalWatchPartyJoined?: (response: WatchPartySessionResponse) => void
+  onWatchPartyJoined?: (party: WatchPartySummary, session: WatchPartySession) => void
+  onWatchPartyMediaChange?: (media: WatchPartyMedia, session: WatchPartySession) => void
   onBrowse?: (target: MetadataBrowseTarget) => void
   onClose: () => void
 }) {
@@ -91,9 +101,12 @@ export function MediaDetails({
   const [streamResolutionError, setStreamResolutionError] = useState<string>()
   const [watchPartyOpen, setWatchPartyOpen] = useState(false)
   const [watchPartySession, setWatchPartySession] = useState<WatchPartySession | undefined>(initialWatchPartySession)
+  const [partyStreamHandoff, setPartyStreamHandoff] = useState<PartyStreamHandoffState | null>()
   const queryClient = useQueryClient()
   const episodeTransition = useRef(0)
-  const partyAutoPlayKey = useRef<string | undefined>(undefined)
+  const partyStreamHandoffKey = useRef<string | undefined>(undefined)
+  const dismissedPartyStreamHandoffKey = useRef<string | undefined>(undefined)
+  const publishedPartyMediaKey = useRef<string | undefined>(undefined)
   const initialSeriesVideoResolved = useRef(false)
   const episodeRailScrollTop = useRef<number | undefined>(undefined)
   const seriesReturnVideoId = useRef<string | undefined>(
@@ -194,21 +207,32 @@ export function MediaDetails({
   }, [onClose, playing])
 
   useEffect(() => {
-    if (watchPartySession?.role === "host") watchPartySession.publishMedia(watchPartyMedia)
-  }, [watchPartyMedia, watchPartySession])
+    if (watchPartySession?.role !== "host") return
+    const mediaKey = partyMediaKey(watchPartyMedia)
+    if (publishedPartyMediaKey.current === mediaKey) return
+    publishedPartyMediaKey.current = mediaKey
+    watchPartySession.publishMedia(watchPartyMedia)
+    void updateWatchPartyMedia(
+      watchPartySession.partyId,
+      initialWatchPartyParty?.hostProfileId ?? profileId,
+      watchPartyMedia,
+    ).catch(() => undefined)
+    onWatchPartyMediaChange?.(watchPartyMedia, watchPartySession)
+  }, [initialWatchPartyParty?.hostProfileId, onWatchPartyMediaChange, profileId, watchPartyMedia, watchPartySession])
 
   useEffect(() => {
-    if (!initialWatchPartySession || !initialWatchPartyParty || !activeVideoId || !streams.isSuccess) return
-    const key = `${initialWatchPartyParty.id}:${activeVideoId}`
-    if (partyAutoPlayKey.current === key) return
-    partyAutoPlayKey.current = key
-    const firstPlayableStream = streams.data.find((stream) => Boolean(stream.url))
-    if (!firstPlayableStream) {
-      setStreamResolutionError("No direct stream was found automatically. Choose a source below to join playback.")
-      return
+    const partyMedia = initialWatchPartyParty?.media
+    if (initialWatchPartySession?.role !== "guest" || !partyMedia) return
+    const key = `${initialWatchPartyParty.id}:${partyMedia.videoId}`
+    if (partyStreamHandoffKey.current !== key) {
+      partyStreamHandoffKey.current = key
+      dismissedPartyStreamHandoffKey.current = undefined
+      setPartyStreamHandoff({ media: partyMedia })
     }
-    setStreamResolutionError(undefined)
-    setPlaying(firstPlayableStream)
+    if (!activeVideoId || dismissedPartyStreamHandoffKey.current === key || !streams.isSuccess) return
+    const firstPlayableStream = streams.data.find((stream) => Boolean(stream.url))
+    setStreamResolutionError(firstPlayableStream ? undefined : "No playable stream was found automatically. Choose a source below.")
+    setPartyStreamHandoff({ media: partyMedia, stream: firstPlayableStream })
   }, [activeVideoId, initialWatchPartyParty, initialWatchPartySession, streams.data, streams.isSuccess])
 
   useEffect(() => {
@@ -217,11 +241,12 @@ export function MediaDetails({
     const unsubscribeOpen = electron.onPlayerOverlayWatchParty(() => setWatchPartyOpen(true))
     const unsubscribeJoined = electron.onPlayerOverlayWatchPartyJoined((response) => {
       const next = createWatchPartySession(profileId, response)
-      const isCurrentMedia = response.party.media.mediaId === item.id &&
-        (item.type !== "series" || response.party.media.videoId === activeVideoId)
+      const isCurrentMedia = response.party.media?.mediaId === item.id &&
+        (item.type !== "series" || response.party.media?.videoId === activeVideoId)
       if (isCurrentMedia) {
         setWatchPartySession(next)
         onWatchPartySessionChange?.(next)
+        onWatchPartyJoined?.(response.party, next)
       } else {
         onExternalWatchPartyJoined?.(response)
         onClose()
@@ -238,9 +263,11 @@ export function MediaDetails({
       unsubscribeJoined()
       unsubscribeLeft()
     }
-  }, [activeVideoId, item.id, item.type, onClose, onExternalWatchPartyJoined, onWatchPartySessionChange, profileId, watchPartySession])
+  }, [activeVideoId, item.id, item.type, onClose, onExternalWatchPartyJoined, onWatchPartyJoined, onWatchPartySessionChange, profileId, watchPartySession])
 
-  useEffect(() => () => watchPartySession?.close(), [watchPartySession])
+  useEffect(() => () => {
+    if (!onWatchPartyJoined) watchPartySession?.close()
+  }, [onWatchPartyJoined, watchPartySession])
 
   const browse = (target: MetadataBrowseTarget) => {
     onClose()
@@ -292,11 +319,10 @@ export function MediaDetails({
     onWatchPartySessionChange?.(next)
   }, [onWatchPartySessionChange])
 
-  const partyFindingStream = Boolean(
-    initialWatchPartySession &&
-    !playing &&
-    (metadata.isLoading || progress.isLoading || streams.isLoading || (item.type === "series" && !activeVideoId)),
-  )
+  const handleRemoteMedia = useCallback((media: WatchPartyMedia) => {
+    if (watchPartySession?.role !== "guest") return
+    onWatchPartyMediaChange?.(media, watchPartySession)
+  }, [onWatchPartyMediaChange, watchPartySession])
 
   return (
     <>
@@ -400,13 +426,23 @@ export function MediaDetails({
             />
           )}
         </main>
-        {partyFindingStream && (
-          <div className="pointer-events-none fixed inset-x-0 bottom-5 z-20 flex justify-center px-5" aria-live="polite">
-            <p className="flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-950/90 px-3 py-2 text-xs text-zinc-300 shadow-xl shadow-black/30 backdrop-blur">
-              <LoaderCircle className="animate-spin text-amber-300" size={14} />
-              Finding a playable stream for the party…
-            </p>
-          </div>
+        {partyStreamHandoff && (
+          <PartyStreamHandoff
+            media={partyStreamHandoff.media}
+            stream={partyStreamHandoff.stream}
+            loading={!streams.isSuccess}
+            onContinue={() => {
+              if (!partyStreamHandoff.stream) return
+              dismissedPartyStreamHandoffKey.current = partyMediaKey(partyStreamHandoff.media)
+              setStreamResolutionError(undefined)
+              setPartyStreamHandoff(undefined)
+              setPlaying(partyStreamHandoff.stream)
+            }}
+            onSelectStream={() => {
+              dismissedPartyStreamHandoffKey.current = partyMediaKey(partyStreamHandoff.media)
+              setPartyStreamHandoff(null)
+            }}
+          />
         )}
       </div>
 
@@ -449,9 +485,7 @@ export function MediaDetails({
           }}
           partySession={watchPartySession}
           onWatchParty={() => setWatchPartyOpen(true)}
-          onRemoteMedia={(media) => {
-            void followRemoteMedia(media, videos, playEpisode)
-          }}
+          onRemoteMedia={handleRemoteMedia}
         />
       )}
       <WatchPartyDialog
@@ -461,20 +495,15 @@ export function MediaDetails({
         media={watchPartyMedia}
         initialParty={initialWatchPartyParty}
         initialSession={initialWatchPartySession}
+        onPartyJoined={(party, session) => {
+          onWatchPartyJoined?.(party, session)
+          setWatchPartyOpen(false)
+        }}
+        onPartyMediaChange={onWatchPartyMediaChange}
         onSessionChange={updateWatchPartySession}
       />
     </>
   )
-}
-
-async function followRemoteMedia(
-  media: WatchPartyMedia,
-  videos: Video[],
-  playEpisode: (video: Video) => Promise<void>,
-): Promise<void> {
-  if (media.type !== "series") return
-  const video = videos.find((candidate) => candidate.id === media.videoId)
-  if (video) await playEpisode(video)
 }
 
 function MediaSummary({
@@ -639,6 +668,50 @@ function EpisodeSummary({
   )
 }
 
+function PartyStreamHandoff({
+  media,
+  stream,
+  loading,
+  onContinue,
+  onSelectStream,
+}: {
+  media: WatchPartyMedia
+  stream?: ResolvedStream
+  loading: boolean
+  onContinue: () => void
+  onSelectStream: () => void
+}) {
+  return (
+    <div className="absolute inset-0 z-25 grid place-items-center bg-black/60 p-5 backdrop-blur-[2px]" role="dialog" aria-modal="true" aria-label="Choose a party stream">
+      <div className="w-full max-w-md rounded-2xl border border-zinc-700 bg-zinc-950/95 p-6 shadow-2xl shadow-black/60">
+        {loading ? (
+          <div className="grid justify-items-center gap-3 py-6 text-center">
+            <LoaderCircle className="animate-spin text-amber-300" size={34} />
+            <div>
+              <h2 className="font-display text-xl font-semibold">Finding the best stream</h2>
+              <p className="mt-2 text-sm leading-6 text-zinc-400">Looking for a playable source for {partyMediaLabel(media)}.</p>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-5">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[.16em] text-amber-300">Party media ready</p>
+              <h2 className="mt-2 font-display text-xl font-semibold">{partyMediaLabel(media)}</h2>
+              <p className="mt-2 text-sm leading-6 text-zinc-400">
+                {stream ? "We found a playable stream. Continue with it or choose a different source." : "No playable source was found automatically. Choose a source manually."}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {stream && <Button className="h-10" onClick={onContinue}>Continue</Button>}
+              <Button variant="secondary" className="h-10" onClick={onSelectStream}>Select stream</Button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function StreamRail({
   streams,
   loading,
@@ -724,6 +797,14 @@ function StreamRail({
       </div>
     </aside>
   )
+}
+
+function partyMediaKey(media: WatchPartyMedia): string {
+  return [media.type, media.mediaId, media.videoId, media.season ?? "", media.episode ?? ""].join(":")
+}
+
+function partyMediaLabel(media: WatchPartyMedia): string {
+  return media.videoTitle ? `${media.title} · ${media.videoTitle}` : media.title
 }
 
 function EpisodeWatchAction({

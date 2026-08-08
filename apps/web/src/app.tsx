@@ -49,7 +49,7 @@ import {
   WatchPartyButton,
   WatchPartyDialog,
 } from "./components/watch-party-dialog"
-import { WatchPartySession, type WatchPartySummary } from "./lib/watch-party"
+import { WatchPartySession, type WatchPartyMedia, type WatchPartySummary } from "./lib/watch-party"
 import type { WatchPartySessionResponse } from "./lib/watch-party-api"
 
 export function App() {
@@ -699,13 +699,8 @@ function AuthenticatedApp({
     setQuery("")
   }
   const launchWatchParty = (party: WatchPartySummary, session: WatchPartySession) => {
-    setWatchPartyLaunch({ party, session })
+    setWatchPartyLaunch({ party, session, media: party.media })
     setWatchPartyOpen(false)
-    setWatchPartyDialogKey((key) => key + 1)
-  }
-  const closeWatchParty = () => {
-    watchPartyLaunch?.session.close()
-    setWatchPartyLaunch(undefined)
     setWatchPartyDialogKey((key) => key + 1)
   }
   const updateWatchPartySession = (session: WatchPartySession | undefined) => {
@@ -717,6 +712,27 @@ function AuthenticatedApp({
   }
   const handleExternalWatchPartyJoined = (response: WatchPartySessionResponse) => {
     launchWatchParty(response.party, createWatchPartySession(activeProfile.id, response))
+  }
+  const updateWatchPartyMedia = (media: WatchPartyMedia, session: WatchPartySession) => {
+    setWatchPartyLaunch((current) => {
+      if (!current || current.session.partyId !== session.partyId) return current
+      return {
+        ...current,
+        media,
+        party: { ...current.party, media },
+      }
+    })
+  }
+  const clearWatchPartyMedia = () => {
+    setWatchPartyLaunch((current) => current ? { ...current, media: undefined } : current)
+  }
+  const handleWatchPartyLeft = (partyId: string) => {
+    setWatchPartyLaunch((current) => {
+      if (!current || current.party.id !== partyId) return current
+      current.session.close()
+      return undefined
+    })
+    setWatchPartyDialogKey((key) => key + 1)
   }
 
   return (
@@ -752,7 +768,7 @@ function AuthenticatedApp({
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <FullscreenToggle />
-            <WatchPartyButton onClick={() => setWatchPartyOpen(true)} />
+            <WatchPartyButton active={Boolean(watchPartyLaunch)} onClick={() => setWatchPartyOpen(true)} />
             <ProfileSwitcher
               profiles={profiles}
               activeProfile={activeProfile}
@@ -815,9 +831,11 @@ function AuthenticatedApp({
           discoverSelection={discoverSelection}
           onDiscoverSelection={setDiscoverSelection}
           watchPartyLaunch={watchPartyLaunch}
-          onWatchPartyClose={closeWatchParty}
           onWatchPartySessionChange={updateWatchPartySession}
           onExternalWatchPartyJoined={handleExternalWatchPartyJoined}
+          onWatchPartyJoined={launchWatchParty}
+          onWatchPartyMediaChange={updateWatchPartyMedia}
+          onWatchPartyMediaClose={clearWatchPartyMedia}
           onMetadataBrowse={(target) => {
             if (target.kind === "genre") {
               setSearchInput("")
@@ -837,7 +855,11 @@ function AuthenticatedApp({
         onOpenChange={setWatchPartyOpen}
         profile={activeProfile}
         initialInviteToken={watchPartyInviteToken}
+        initialParty={watchPartyLaunch?.party}
+        initialSession={watchPartyLaunch?.session}
         onPartyJoined={launchWatchParty}
+        onPartyLeft={handleWatchPartyLeft}
+        onPartyMediaChange={updateWatchPartyMedia}
       />
     </div>
   )
@@ -846,6 +868,7 @@ function AuthenticatedApp({
 interface WatchPartyLaunch {
   party: WatchPartySummary
   session: WatchPartySession
+  media?: WatchPartyMedia
 }
 
 function readWatchPartyInviteToken(): string | undefined {
@@ -913,9 +936,11 @@ function ProfileApp({
   discoverSelection,
   onDiscoverSelection,
   watchPartyLaunch,
-  onWatchPartyClose,
   onWatchPartySessionChange,
   onExternalWatchPartyJoined,
+  onWatchPartyJoined,
+  onWatchPartyMediaChange,
+  onWatchPartyMediaClose,
   onMetadataBrowse,
 }: {
   profile: Profile
@@ -929,20 +954,18 @@ function ProfileApp({
   discoverSelection: DiscoverSelection
   onDiscoverSelection: (selection: DiscoverSelection) => void
   watchPartyLaunch?: WatchPartyLaunch
-  onWatchPartyClose: () => void
   onWatchPartySessionChange: (session: WatchPartySession | undefined) => void
   onExternalWatchPartyJoined: (response: WatchPartySessionResponse) => void
+  onWatchPartyJoined: (party: WatchPartySummary, session: WatchPartySession) => void
+  onWatchPartyMediaChange: (media: WatchPartyMedia, session: WatchPartySession) => void
+  onWatchPartyMediaClose: () => void
   onMetadataBrowse: (target: MetadataBrowseTarget) => void
 }) {
   const [selectedItem, setSelectedItem] = useState<CatalogItem>()
   const [selectedVideoId, setSelectedVideoId] = useState<string>()
-  const watchPartyItem: CatalogItem | undefined = watchPartyLaunch
-    ? {
-        id: watchPartyLaunch.party.media.mediaId,
-        type: watchPartyLaunch.party.media.type,
-        name: watchPartyLaunch.party.media.title,
-        poster: watchPartyLaunch.party.media.poster,
-      }
+  const watchPartyItem: CatalogItem | undefined = section !== "home" && watchPartyLaunch
+    && watchPartyLaunch.media
+    ? catalogItemFromPartyMedia(watchPartyLaunch.media)
     : undefined
   const addons = useQuery({
     queryKey: ["addons", profile.id],
@@ -959,6 +982,11 @@ function ProfileApp({
         <MediaHome
           profile={profile}
           addons={addons.data?.addons ?? []}
+          watchPartyLaunch={watchPartyLaunch}
+          onWatchPartySessionChange={onWatchPartySessionChange}
+          onWatchPartyJoined={onWatchPartyJoined}
+          onWatchPartyMediaChange={onWatchPartyMediaChange}
+          onWatchPartyMediaClose={onWatchPartyMediaClose}
           onHistory={() => onNavigate("history")}
           onDiscover={(selection) => {
             onDiscoverSelection(selection)
@@ -1035,23 +1063,35 @@ function ProfileApp({
       )}
       {(watchPartyItem ?? selectedItem) && addons.data && (
         <MediaDetails
+          key={`${watchPartyLaunch?.media?.mediaId ?? selectedItem?.id ?? "unknown"}:${watchPartyLaunch?.media?.videoId ?? selectedVideoId ?? watchPartyLaunch?.media?.mediaId ?? selectedItem?.id ?? ""}`}
           item={watchPartyItem ?? selectedItem!}
           addons={addons.data.addons}
           profileId={profile.id}
-          initialVideoId={watchPartyLaunch?.party.media.videoId ?? selectedVideoId}
+          initialVideoId={watchPartyLaunch?.media?.videoId ?? selectedVideoId}
           initialWatchPartyParty={watchPartyLaunch?.party}
           initialWatchPartySession={watchPartyLaunch?.session}
           onWatchPartySessionChange={onWatchPartySessionChange}
           onExternalWatchPartyJoined={onExternalWatchPartyJoined}
+          onWatchPartyJoined={onWatchPartyJoined}
+          onWatchPartyMediaChange={onWatchPartyMediaChange}
           onBrowse={onMetadataBrowse}
           onClose={() => {
             setSelectedItem(undefined)
-            if (watchPartyLaunch) onWatchPartyClose()
+            if (watchPartyLaunch) onWatchPartyMediaClose()
           }}
         />
       )}
     </PosterWatchStatusProvider>
   )
+}
+
+function catalogItemFromPartyMedia(media: WatchPartyMedia): CatalogItem {
+  return {
+    id: media.mediaId,
+    type: media.type,
+    name: media.title,
+    poster: media.poster,
+  }
 }
 
 interface HomeCatalog {
@@ -1071,12 +1111,22 @@ type HomeFeedItem =
 function MediaHome({
   profile,
   addons,
+  watchPartyLaunch,
+  onWatchPartySessionChange,
+  onWatchPartyJoined,
+  onWatchPartyMediaChange,
+  onWatchPartyMediaClose,
   onHistory,
   onDiscover,
   onMetadataBrowse,
 }: {
   profile: Profile
   addons: InstalledAddon[]
+  watchPartyLaunch?: WatchPartyLaunch
+  onWatchPartySessionChange: (session: WatchPartySession | undefined) => void
+  onWatchPartyJoined: (party: WatchPartySummary, session: WatchPartySession) => void
+  onWatchPartyMediaChange: (media: WatchPartyMedia, session: WatchPartySession) => void
+  onWatchPartyMediaClose: () => void
   onHistory: () => void
   onDiscover: (selection: DiscoverSelection) => void
   onMetadataBrowse: (target: MetadataBrowseTarget) => void
@@ -1197,14 +1247,23 @@ function MediaHome({
         }}
       />
 
-      {selectedItem && (
+      {(watchPartyLaunch?.media || selectedItem) && (
         <MediaDetails
-          item={selectedItem}
+          key={`${watchPartyLaunch?.media?.mediaId ?? selectedItem?.id ?? "unknown"}:${watchPartyLaunch?.media?.videoId ?? selectedVideoId ?? watchPartyLaunch?.media?.mediaId ?? selectedItem?.id ?? ""}`}
+          item={watchPartyLaunch?.media ? catalogItemFromPartyMedia(watchPartyLaunch.media) : selectedItem!}
           addons={addons}
           profileId={profile.id}
-          initialVideoId={selectedVideoId}
+          initialVideoId={watchPartyLaunch?.media?.videoId ?? selectedVideoId}
+          initialWatchPartyParty={watchPartyLaunch?.party}
+          initialWatchPartySession={watchPartyLaunch?.session}
+          onWatchPartySessionChange={onWatchPartySessionChange}
+          onWatchPartyJoined={onWatchPartyJoined}
+          onWatchPartyMediaChange={onWatchPartyMediaChange}
           onBrowse={onMetadataBrowse}
-          onClose={() => setSelectedItem(undefined)}
+          onClose={() => {
+            setSelectedItem(undefined)
+            if (watchPartyLaunch) onWatchPartyMediaClose()
+          }}
         />
       )}
     </main>

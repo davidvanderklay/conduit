@@ -292,7 +292,7 @@ export const watchParties = pgTable(
       .references(() => profiles.id, { onDelete: "cascade" }),
     mode: text("mode").$type<WatchPartyMode>().notNull(),
     status: text("status").$type<WatchPartyStatus>().notNull().default("active"),
-    media: jsonb("media").$type<WatchPartyMedia>().notNull(),
+    media: jsonb("media").$type<WatchPartyMedia>(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     endedAt: timestamp("ended_at", { withTimezone: true }),

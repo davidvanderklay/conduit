@@ -22,7 +22,7 @@ export interface WatchPartySummary {
   status: "active" | "ended"
   isHost: boolean
   hostProfileId: string
-  media: WatchPartyMedia
+  media?: WatchPartyMedia
   memberCount: number
   members: WatchPartyMember[]
   createdAt: string
