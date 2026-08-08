@@ -50,6 +50,7 @@ import {
   WatchPartyDialog,
 } from "./components/watch-party-dialog"
 import { WatchPartySession, type WatchPartyMedia, type WatchPartySummary } from "./lib/watch-party"
+import { joinWatchParty } from "./lib/watch-party-api"
 import type { WatchPartySessionResponse } from "./lib/watch-party-api"
 
 export function App() {
@@ -675,6 +676,31 @@ function AuthenticatedApp({
     if (watchPartyInviteToken) setWatchPartyOpen(true)
   }, [watchPartyInviteToken])
 
+  const restorableProfileId = activeProfileId && profiles.some((profile) => profile.id === activeProfileId)
+    ? activeProfileId
+    : profiles[0]?.id
+
+  useEffect(() => {
+    if (!restorableProfileId || watchPartyLaunch) return
+    const partyId = readStoredWatchPartyId(restorableProfileId)
+    if (!partyId) return
+    let cancelled = false
+    void joinWatchParty(partyId, restorableProfileId)
+      .then((response) => {
+        if (cancelled) return
+        const session = createWatchPartySession(restorableProfileId, response)
+        session.connect()
+        setWatchPartyLaunch({ party: response.party, session, media: response.party.media })
+        setWatchPartyDialogKey((key) => key + 1)
+      })
+      .catch(() => {
+        if (!cancelled) clearStoredWatchPartyId(restorableProfileId, partyId)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [restorableProfileId, watchPartyLaunch])
+
   if (bootstrap.isLoading) {
     return <CenteredMessage>Synchronizing your household…</CenteredMessage>
   }
@@ -699,11 +725,15 @@ function AuthenticatedApp({
     setQuery("")
   }
   const launchWatchParty = (party: WatchPartySummary, session: WatchPartySession) => {
+    storeWatchPartyId(activeProfile.id, party.id)
     setWatchPartyLaunch({ party, session, media: party.media })
     setWatchPartyOpen(false)
     setWatchPartyDialogKey((key) => key + 1)
   }
   const updateWatchPartySession = (session: WatchPartySession | undefined) => {
+    if (!session && watchPartyLaunch) {
+      clearStoredWatchPartyId(activeProfile.id, watchPartyLaunch.party.id)
+    }
     setWatchPartyLaunch((current) => {
       if (!current) return current
       return session ? { ...current, session } : undefined
@@ -727,6 +757,7 @@ function AuthenticatedApp({
     setWatchPartyLaunch((current) => current ? { ...current, media: undefined } : current)
   }
   const handleWatchPartyLeft = (partyId: string) => {
+    clearStoredWatchPartyId(activeProfile.id, partyId)
     setWatchPartyLaunch((current) => {
       if (!current || current.party.id !== partyId) return current
       current.session.close()
@@ -870,6 +901,39 @@ interface WatchPartyLaunch {
   party: WatchPartySummary
   session: WatchPartySession
   media?: WatchPartyMedia
+}
+
+const WATCH_PARTY_STORAGE_PREFIX = "conduit:watch-party:"
+
+function watchPartyStorageKey(profileId: string): string {
+  return `${WATCH_PARTY_STORAGE_PREFIX}${profileId}`
+}
+
+function readStoredWatchPartyId(profileId: string): string | undefined {
+  try {
+    return window.localStorage.getItem(watchPartyStorageKey(profileId)) ?? undefined
+  } catch {
+    return undefined
+  }
+}
+
+function storeWatchPartyId(profileId: string, partyId: string): void {
+  try {
+    window.localStorage.setItem(watchPartyStorageKey(profileId), partyId)
+  } catch {
+    // Storage can be unavailable in restricted browser contexts.
+  }
+}
+
+function clearStoredWatchPartyId(profileId: string, partyId?: string): void {
+  try {
+    const key = watchPartyStorageKey(profileId)
+    if (!partyId || window.localStorage.getItem(key) === partyId) {
+      window.localStorage.removeItem(key)
+    }
+  } catch {
+    // Storage can be unavailable in restricted browser contexts.
+  }
 }
 
 function readWatchPartyInviteToken(): string | undefined {
