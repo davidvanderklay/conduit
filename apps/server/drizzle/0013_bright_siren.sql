@@ -1,0 +1,1 @@
+ALTER TABLE "watch_party" ALTER COLUMN "media" DROP NOT NULL;

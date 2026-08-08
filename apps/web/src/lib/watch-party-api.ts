@@ -18,11 +18,11 @@ export function listWatchParties(profileId: string) {
 export function createWatchParty(
   profileId: string,
   mode: "private" | "shared",
-  media: WatchPartyMedia,
+  media?: WatchPartyMedia,
 ) {
   return api<WatchPartySessionResponse>("/v1/watch-parties", {
     method: "POST",
-    body: JSON.stringify({ profileId, mode, media }),
+    body: JSON.stringify({ profileId, mode, ...(media ? { media } : {}) }),
   })
 }
 

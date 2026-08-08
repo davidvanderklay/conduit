@@ -57,6 +57,7 @@ export function WatchPartyDialog({
   initialSession,
   onPartyJoined,
   onPartyLeft,
+  onPartyMediaChange,
   onSessionChange,
 }: {
   open: boolean
@@ -72,6 +73,7 @@ export function WatchPartyDialog({
     response: WatchPartySessionResponse,
   ) => void
   onPartyLeft?: (partyId: string) => void
+  onPartyMediaChange?: (media: WatchPartyMedia, session: WatchPartySession) => void
   onSessionChange?: (session: WatchPartySession | undefined) => void
 }) {
   const [parties, setParties] = useState<WatchPartySummary[]>([])
@@ -86,11 +88,12 @@ export function WatchPartyDialog({
   const [connection, setConnection] = useState<"connecting" | "connected" | "offline">("connecting")
 
   useEffect(() => {
-    if (initialParty && initialSession && initialSession !== session) {
-      setParty(initialParty)
-      setSession(initialSession)
-    }
-  }, [initialParty, initialSession, session])
+    if (initialParty && (
+      party?.id !== initialParty.id ||
+      partyMediaKey(party.media) !== partyMediaKey(initialParty.media)
+    )) setParty(initialParty)
+    if (initialSession && initialSession !== session) setSession(initialSession)
+  }, [initialParty, initialSession, party, session])
 
   useEffect(() => {
     if (!open) return
@@ -151,11 +154,19 @@ export function WatchPartyDialog({
         const participants = uniquePartyMembers(event.participants)
         setParty((current) => current ? { ...current, memberCount: participants.length, members: participants } : current)
       }
+      if (event.type === "media") {
+        setParty((current) => current ? { ...current, media: event.media } : current)
+        onPartyMediaChange?.(event.media, session)
+      }
+      if (event.type === "joined" && event.media) {
+        setParty((current) => current ? { ...current, media: event.media } : current)
+        onPartyMediaChange?.(event.media, session)
+      }
     })
-  }, [onSessionChange, session])
+  }, [onPartyMediaChange, onSessionChange, session])
 
   const activeParty = party?.status === "active" ? party : undefined
-  const canCreate = Boolean(media)
+  const canCreate = true
   const sortedParties = useMemo(
     () => parties.filter((candidate) => candidate.status === "active"),
     [parties],
@@ -183,7 +194,6 @@ export function WatchPartyDialog({
   }
 
   async function create() {
-    if (!media) return
     setLoading(true)
     setError(undefined)
     try {
@@ -280,7 +290,7 @@ export function WatchPartyDialog({
           <div className="grid size-9 shrink-0 place-items-center rounded-xl bg-amber-400/10 text-amber-300"><UsersRound size={18} /></div>
           <div className="min-w-0 flex-1">
             <h2 className="font-display text-lg font-semibold">Watch together</h2>
-            <p className="mt-1 truncate text-xs text-zinc-500">{activeParty ? activeParty.media.title : media?.title ?? "Start or join a party"}</p>
+            <p className="mt-1 truncate text-xs text-zinc-500">{activeParty ? partyMediaTitle(activeParty.media) : media?.title ?? "Start or join a party"}</p>
           </div>
           <button type="button" aria-label="Close" title="Close" className="grid size-9 place-items-center rounded-lg text-zinc-500 hover:bg-zinc-900 hover:text-white" onClick={() => onOpenChange(false)}><X size={18} /></button>
         </div>
@@ -307,7 +317,7 @@ export function WatchPartyDialog({
                     {joinableParties.map((candidate) => (
                       <button key={candidate.id} type="button" disabled={loading} onClick={() => void join(candidate)} className="flex w-full items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-900/60 p-3 text-left hover:border-zinc-700 disabled:opacity-50">
                         <div className="grid size-8 shrink-0 place-items-center rounded-full bg-zinc-800 text-zinc-300"><UsersRound size={15} /></div>
-                        <span className="min-w-0 flex-1"><span className="block truncate text-sm text-zinc-200">{candidate.media.title}</span><span className="mt-0.5 block text-xs text-zinc-500">{candidate.memberCount} participant{candidate.memberCount === 1 ? "" : "s"} · {candidate.mode === "private" ? "Household only" : "Household + invited guests"}</span></span>
+                        <span className="min-w-0 flex-1"><span className="block truncate text-sm text-zinc-200">{partyMediaTitle(candidate.media)}</span><span className="mt-0.5 block text-xs text-zinc-500">{candidate.memberCount} participant{candidate.memberCount === 1 ? "" : "s"} · {candidate.mode === "private" ? "Household only" : "Household + invited guests"}</span></span>
                         <span className="text-xs font-medium text-amber-300">Join</span>
                       </button>
                     ))}
@@ -321,6 +331,7 @@ export function WatchPartyDialog({
                 </section>
               ) : <section className="border-t border-zinc-800 pt-5">
                 <h3 className="text-sm font-semibold">Start a party</h3>
+                {!media && <p className="mt-2 text-sm leading-6 text-zinc-500">Start the room now and choose a movie or episode later. Everyone can follow when the host opens it.</p>}
                 {canCreate ? (
                   <>
                     <div className="mt-3 grid grid-cols-2 gap-2">
@@ -330,9 +341,7 @@ export function WatchPartyDialog({
                     {mode === "shared" && <p className="mt-3 text-xs leading-5 text-zinc-500">People in your household can join this party from Active parties. Use the invite link for people outside your account.</p>}
                     <Button className="mt-3 h-10 w-full" disabled={loading} onClick={() => void create()}>{loading ? <LoaderCircle className="animate-spin" size={16} /> : <UsersRound size={16} />}{loading ? "Starting…" : mode === "private" ? "Start private party" : "Start shared party"}</Button>
                   </>
-                ) : (
-                  <p className="mt-2 text-sm leading-6 text-zinc-500">Open a movie or episode first to start a new party.</p>
-                )}
+                ) : null}
               </section>}
 
               <section className="border-t border-zinc-800 pt-5">
@@ -371,7 +380,8 @@ function ActiveParty({
 }) {
   return (
     <>
-      <div className="flex items-center justify-between"><div><p className="text-xs uppercase tracking-[.14em] text-zinc-600">Party active</p><h3 className="mt-1 font-display text-xl font-semibold">{party.media.title}</h3></div><span className={`text-xs ${connection === "connected" ? "text-green-300" : "text-zinc-500"}`}>{connection === "connected" ? "● Connected" : connection === "connecting" ? "Connecting…" : "Reconnecting…"}</span></div>
+      <div className="flex items-center justify-between"><div><p className="text-xs uppercase tracking-[.14em] text-zinc-600">Party active</p><h3 className="mt-1 font-display text-xl font-semibold">{partyMediaTitle(party.media)}</h3></div><span className={`text-xs ${connection === "connected" ? "text-green-300" : "text-zinc-500"}`}>{connection === "connected" ? "● Connected" : connection === "connecting" ? "Connecting…" : "Reconnecting…"}</span></div>
+      {!party.media && <p className="rounded-lg border border-zinc-800 bg-zinc-900/50 px-3 py-2 text-sm text-zinc-400">Waiting for the host to choose a movie or episode.</p>}
       <div className="space-y-1 border-y border-zinc-800 py-2">{party.members.map((member) => <div key={member.profileId} className="flex items-center justify-between py-2 text-sm"><span className="flex items-center gap-2 text-zinc-300"><span className="grid size-6 place-items-center rounded-full bg-zinc-800 text-[10px]">{member.role === "host" ? "H" : "G"}</span>{member.role === "host" ? "Host" : "Guest"}</span><span className="text-xs text-green-300">{member.role === "host" ? "Controls playback" : "Following host"}</span></div>)}</div>
       {isHost && party.mode === "shared" && <div className="space-y-2"><p className="text-sm text-zinc-400">Household members can join from Active parties. Use an invite for people outside your account.</p>{inviteUrl ? <div className="flex gap-2"><div className="min-w-0 flex-1 truncate rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 font-mono text-xs text-zinc-300">{inviteUrl}</div><Button variant="secondary" size="icon" aria-label="Copy invite" title="Copy invite" onClick={onCopy}>{copied ? <Check size={16} /> : <Copy size={16} />}</Button></div> : <Button variant="secondary" className="h-9" disabled={loading} onClick={onInvite}><Link2 size={15} />Create invite</Button>}</div>}
       <Button variant="ghost" className="h-9 w-full justify-center text-zinc-500 hover:text-red-300" disabled={loading} onClick={onLeave}>{isHost ? <Square size={15} /> : <LogOut size={15} />}{isHost ? "End party" : "Leave party"}</Button>
@@ -421,4 +431,12 @@ function uniquePartyMembers(members: WatchPartySummary["members"]): WatchPartySu
     seen.add(member.profileId)
     return true
   })
+}
+
+function partyMediaTitle(media?: WatchPartyMedia): string {
+  return media?.videoTitle ? `${media.title} · ${media.videoTitle}` : media?.title ?? "Waiting for content"
+}
+
+function partyMediaKey(media?: WatchPartyMedia): string {
+  return media ? [media.type, media.mediaId, media.videoId, media.season ?? "", media.episode ?? ""].join(":") : ""
 }
