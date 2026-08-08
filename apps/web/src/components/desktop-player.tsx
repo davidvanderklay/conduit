@@ -152,6 +152,7 @@ export function DesktopPlayer({
   const previousLoadingOverlayVisible = useRef(false)
   const previousPaused = useRef(false)
   const resumed = useRef(false)
+  const mediaDurationObserved = useRef(false)
   const endedHandled = useRef(false)
   const nextTransitionSuppressed = useRef(false)
   const nextTransitionRequested = useRef(false)
@@ -202,6 +203,7 @@ export function DesktopPlayer({
     endedHandled.current = false
     nextTransitionSuppressed.current = false
     nextTransitionRequested.current = false
+    mediaDurationObserved.current = false
     lastNativeSnapshot.current = undefined
     lastPlayback.current = { position: 0, duration: 0 }
     document.documentElement.classList.add("native-playback")
@@ -227,6 +229,7 @@ export function DesktopPlayer({
       .then(async (initial) => {
         if (cancelled) return
         playerStarted = true
+        if (initial.duration > 0) mediaDurationObserved.current = true
         setSnapshot(initial)
         await nativePlayerCommand(["set", "sub-pos", preferences.subtitlePosition])
         await nativePlayerCommand([
@@ -249,6 +252,7 @@ export function DesktopPlayer({
       void nativePlayerSnapshot()
         .then((next) => {
           if (cancelled) return
+          if (next.duration > 0) mediaDurationObserved.current = true
           const previous = lastNativeSnapshot.current
           const resolved = nativePlaybackEnded(previous, next)
             ? { ...next, ended: true }
@@ -457,7 +461,7 @@ export function DesktopPlayer({
   }, [saveProgress, snapshot])
 
   useEffect(() => {
-    if (!snapshot?.ended || endedHandled.current) return
+    if (!snapshot?.ended || endedHandled.current || !mediaDurationObserved.current) return
     endedHandled.current = true
     const duration = snapshot.duration || lastPlayback.current.duration
     if (!nextTransitionRequested.current) {
