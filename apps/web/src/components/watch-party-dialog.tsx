@@ -111,7 +111,7 @@ export function WatchPartyDialog({
           setLoading(true)
           void joinWatchParty(hostedParty.id, hostedParty.hostProfileId)
             .then((response) => {
-              if (!cancelled) void start(response, false, hostedParty.hostProfileId)
+              if (!cancelled) void start(response, true, hostedParty.hostProfileId)
             })
             .catch((cause: unknown) => {
               if (!cancelled) setError(errorMessage(cause))

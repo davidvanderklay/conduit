@@ -254,8 +254,12 @@ export function MediaDetails({
     const unsubscribeOpen = electron.onPlayerOverlayWatchParty(() => setWatchPartyOpen(true))
     const unsubscribeJoined = electron.onPlayerOverlayWatchPartyJoined((response) => {
       const next = createWatchPartySession(profileId, response)
-      const isCurrentMedia = response.party.media?.mediaId === item.id &&
+      const isCurrentMedia = (
+        response.party.isHost && !response.party.media
+      ) || (
+        response.party.media?.mediaId === item.id &&
         (item.type !== "series" || response.party.media?.videoId === activeVideoId)
+      )
       if (isCurrentMedia) {
         setWatchPartySession(next)
         onWatchPartySessionChange?.(next)

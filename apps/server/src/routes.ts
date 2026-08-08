@@ -65,6 +65,7 @@ interface SessionUser {
 const LEGACY_COMPLETION_MARKER_PREFIX = "conduit:completion:"
 const MAX_WATCH_PARTY_MEMBERS = 8
 const WATCH_PARTY_TTL_MS = 24 * 60 * 60 * 1000
+const WATCH_PARTY_EMPTY_GRACE_MS = 30_000
 
 const watchPartyMediaSchema = Type.Object({
   type: Type.Union([Type.Literal("movie"), Type.Literal("series")]),
@@ -270,7 +271,6 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
             eq(watchPartyMembers.partyId, partyId),
             eq(watchPartyMembers.userId, user.id),
             eq(watchPartyMembers.profileId, profileId),
-            isNull(watchPartyMembers.leftAt),
           ),
         )
         .limit(1)
@@ -2528,17 +2528,32 @@ async function expireWatchParties(db: Database, hub: WatchPartyHub): Promise<voi
   if (!active.length) return
 
   const members = await db
-    .select({ partyId: watchPartyMembers.partyId })
+    .select({
+      partyId: watchPartyMembers.partyId,
+      leftAt: watchPartyMembers.leftAt,
+      lastSeenAt: watchPartyMembers.lastSeenAt,
+    })
     .from(watchPartyMembers)
-    .where(and(inArray(watchPartyMembers.partyId, active.map((party) => party.id)), isNull(watchPartyMembers.leftAt)))
-  const partiesWithMembers = new Set(members.map((member) => member.partyId))
+    .where(inArray(watchPartyMembers.partyId, active.map((party) => party.id)))
+  const partiesWithMembers = new Set(
+    members.filter((member) => member.leftAt === null).map((member) => member.partyId),
+  )
+  const latestMemberActivity = new Map<string, Date>()
+  for (const member of members) {
+    const activity = member.leftAt ?? member.lastSeenAt
+    const previous = latestMemberActivity.get(member.partyId)
+    if (!previous || activity > previous) latestMemberActivity.set(member.partyId, activity)
+  }
   const seenHostProfiles = new Set<string>()
   const emptyIds: string[] = []
   const endedIds: string[] = []
   const now = new Date()
   for (const party of active) {
     if (!partiesWithMembers.has(party.id)) {
-      emptyIds.push(party.id)
+      const lastActivity = latestMemberActivity.get(party.id)
+      if (!lastActivity || now.getTime() - lastActivity.getTime() >= WATCH_PARTY_EMPTY_GRACE_MS) {
+        emptyIds.push(party.id)
+      }
       continue
     }
     if (party.expiresAt < now || seenHostProfiles.has(party.hostProfileId)) {
