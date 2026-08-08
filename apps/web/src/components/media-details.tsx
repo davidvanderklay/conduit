@@ -173,6 +173,12 @@ export function MediaDetails({
     if (watchPartySession?.role === "host") watchPartySession.publishMedia(watchPartyMedia)
   }, [watchPartyMedia, watchPartySession])
 
+  useEffect(() => {
+    const electron = window.__CONDUIT_ELECTRON__
+    if (!electron?.onPlayerOverlayWatchParty) return
+    return electron.onPlayerOverlayWatchParty(() => setWatchPartyOpen(true))
+  }, [])
+
   useEffect(() => () => watchPartySession?.close(), [watchPartySession])
 
   const browse = (target: MetadataBrowseTarget) => {

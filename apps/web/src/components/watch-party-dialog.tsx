@@ -93,6 +93,15 @@ export function WatchPartyDialog({
   }, [initialInviteToken, open, profile.id])
 
   useEffect(() => {
+    if (!open) return
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onOpenChange(false)
+    }
+    window.addEventListener("keydown", closeOnEscape)
+    return () => window.removeEventListener("keydown", closeOnEscape)
+  }, [onOpenChange, open])
+
+  useEffect(() => {
     onSessionChange?.(session)
     if (!session) return
     setConnection("connecting")
@@ -202,6 +211,7 @@ export function WatchPartyDialog({
       if (session?.role === "host") await endWatchParty(activeParty.id)
       else await leaveWatchParty(activeParty.id, profile.id)
       session?.close()
+      setParties((current) => current.filter((candidate) => candidate.id !== activeParty.id))
       setSession(undefined)
       setParty(undefined)
       setInviteUrl(undefined)
@@ -213,8 +223,19 @@ export function WatchPartyDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/70 p-3 backdrop-blur-sm sm:items-start sm:justify-end sm:p-6">
-      <Card className="max-h-[min(760px,calc(100dvh-1.5rem))] w-full max-w-md overflow-y-auto border-zinc-800 bg-zinc-950 shadow-2xl shadow-black/50 sm:mt-12">
+    <div
+      className="fixed inset-0 z-[70] flex items-end justify-center bg-black/70 p-3 backdrop-blur-sm sm:items-start sm:justify-end sm:p-6"
+      role="presentation"
+      onPointerDown={(event) => {
+        if (event.target === event.currentTarget) onOpenChange(false)
+      }}
+    >
+      <Card
+        className="max-h-[min(760px,calc(100dvh-1.5rem))] w-full max-w-md overflow-y-auto border-zinc-800 bg-zinc-950 shadow-2xl shadow-black/50 sm:mt-12"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Watch together"
+      >
         <div className="flex items-start gap-3 border-b border-zinc-800 px-5 py-4">
           <div className="grid size-9 shrink-0 place-items-center rounded-xl bg-amber-400/10 text-amber-300"><UsersRound size={18} /></div>
           <div className="min-w-0 flex-1">
@@ -246,7 +267,7 @@ export function WatchPartyDialog({
                     {sortedParties.map((candidate) => (
                       <button key={candidate.id} type="button" disabled={loading} onClick={() => void join(candidate)} className="flex w-full items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-900/60 p-3 text-left hover:border-zinc-700 disabled:opacity-50">
                         <div className="grid size-8 shrink-0 place-items-center rounded-full bg-zinc-800 text-zinc-300"><UsersRound size={15} /></div>
-                        <span className="min-w-0 flex-1"><span className="block truncate text-sm text-zinc-200">{candidate.media.title}</span><span className="mt-0.5 block text-xs text-zinc-500">{candidate.memberCount} participant{candidate.memberCount === 1 ? "" : "s"} · {candidate.mode === "private" ? "Same account" : "Invited"}</span></span>
+                        <span className="min-w-0 flex-1"><span className="block truncate text-sm text-zinc-200">{candidate.media.title}</span><span className="mt-0.5 block text-xs text-zinc-500">{candidate.memberCount} participant{candidate.memberCount === 1 ? "" : "s"} · {candidate.mode === "private" ? "Household only" : "Household + invited guests"}</span></span>
                         <span className="text-xs font-medium text-amber-300">Join</span>
                       </button>
                     ))}
@@ -259,10 +280,11 @@ export function WatchPartyDialog({
                 {canCreate ? (
                   <>
                     <div className="mt-3 grid grid-cols-2 gap-2">
-                      <ModeButton active={mode === "private"} title="Private" detail="Your account" onClick={() => setMode("private")} />
-                      <ModeButton active={mode === "shared"} title="Invite someone" detail="Another account" onClick={() => setMode("shared")} />
+                      <ModeButton active={mode === "private"} title="Private" detail="Household only" onClick={() => setMode("private")} />
+                      <ModeButton active={mode === "shared"} title="Invite someone" detail="Household + outside guests" onClick={() => setMode("shared")} />
                     </div>
-                    <Button className="mt-3 h-10 w-full" disabled={loading} onClick={() => void create()}>{loading ? <LoaderCircle className="animate-spin" size={16} /> : <UsersRound size={16} />}{loading ? "Starting…" : mode === "private" ? "Start private party" : "Create invite"}</Button>
+                    {mode === "shared" && <p className="mt-3 text-xs leading-5 text-zinc-500">People in your household can join this party from Active parties. Use the invite link for people outside your account.</p>}
+                    <Button className="mt-3 h-10 w-full" disabled={loading} onClick={() => void create()}>{loading ? <LoaderCircle className="animate-spin" size={16} /> : <UsersRound size={16} />}{loading ? "Starting…" : mode === "private" ? "Start private party" : "Start shared party"}</Button>
                   </>
                 ) : (
                   <p className="mt-2 text-sm leading-6 text-zinc-500">Open a movie or episode first to start a new party.</p>
@@ -307,7 +329,7 @@ function ActiveParty({
     <>
       <div className="flex items-center justify-between"><div><p className="text-xs uppercase tracking-[.14em] text-zinc-600">Party active</p><h3 className="mt-1 font-display text-xl font-semibold">{party.media.title}</h3></div><span className={`text-xs ${connection === "connected" ? "text-green-300" : "text-zinc-500"}`}>{connection === "connected" ? "● Connected" : connection === "connecting" ? "Connecting…" : "Reconnecting…"}</span></div>
       <div className="space-y-1 border-y border-zinc-800 py-2">{party.members.map((member) => <div key={member.profileId} className="flex items-center justify-between py-2 text-sm"><span className="flex items-center gap-2 text-zinc-300"><span className="grid size-6 place-items-center rounded-full bg-zinc-800 text-[10px]">{member.role === "host" ? "H" : "G"}</span>{member.role === "host" ? "Host" : "Guest"}</span><span className="text-xs text-green-300">{member.role === "host" ? "Controls playback" : "Following host"}</span></div>)}</div>
-      {isHost && party.mode === "shared" && <div className="space-y-2"><p className="text-sm text-zinc-400">Invite another account to this party.</p>{inviteUrl ? <div className="flex gap-2"><div className="min-w-0 flex-1 truncate rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 font-mono text-xs text-zinc-300">{inviteUrl}</div><Button variant="secondary" size="icon" aria-label="Copy invite" title="Copy invite" onClick={onCopy}>{copied ? <Check size={16} /> : <Copy size={16} />}</Button></div> : <Button variant="secondary" className="h-9" disabled={loading} onClick={onInvite}><Link2 size={15} />Create invite</Button>}</div>}
+      {isHost && party.mode === "shared" && <div className="space-y-2"><p className="text-sm text-zinc-400">Household members can join from Active parties. Use an invite for people outside your account.</p>{inviteUrl ? <div className="flex gap-2"><div className="min-w-0 flex-1 truncate rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 font-mono text-xs text-zinc-300">{inviteUrl}</div><Button variant="secondary" size="icon" aria-label="Copy invite" title="Copy invite" onClick={onCopy}>{copied ? <Check size={16} /> : <Copy size={16} />}</Button></div> : <Button variant="secondary" className="h-9" disabled={loading} onClick={onInvite}><Link2 size={15} />Create invite</Button>}</div>}
       <Button variant="ghost" className="h-9 w-full justify-center text-zinc-500 hover:text-red-300" disabled={loading} onClick={onLeave}>{isHost ? <Square size={15} /> : <LogOut size={15} />}{isHost ? "End party" : "Leave party"}</Button>
     </>
   )
@@ -322,7 +344,14 @@ export function mediaForParty(metadata: ProgressMetadata, videoId: string) {
 }
 
 function errorMessage(cause: unknown): string {
-  return cause instanceof Error ? cause.message.replace(/^\{"message":"?/, "").replace(/"?\}$/, "") : "Watch party request failed"
+  if (!(cause instanceof Error)) return "Watch party request failed"
+  try {
+    const payload = JSON.parse(cause.message) as { message?: unknown }
+    if (typeof payload.message === "string") return payload.message
+  } catch {
+    // Fall through to the original message for non-JSON errors.
+  }
+  return cause.message
 }
 
 function inviteTokenValue(value: string): string {

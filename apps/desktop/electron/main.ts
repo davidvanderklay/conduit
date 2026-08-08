@@ -746,6 +746,10 @@ async function invoke(command: string, args: Record<string, unknown> = {}): Prom
     mainWindow?.webContents.send("conduit:player-overlay-next")
     return null
   }
+  if (command === "player_overlay_watch_party") {
+    mainWindow?.webContents.send("conduit:player-overlay-watch-party")
+    return null
+  }
   if (command === "player_toggle_fullscreen") {
     if (!mainWindow) throw new Error("Main window is unavailable.")
     const fullscreen = !mainWindowFullscreen

@@ -157,7 +157,7 @@ internal fun WatchPartySheet(
                             Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Icon(Icons.Rounded.People, null, tint = MaterialTheme.colorScheme.primary)
                                 Spacer(Modifier.width(10.dp))
-                                Column(Modifier.weight(1f)) { Text(party.media.title, fontWeight = FontWeight.SemiBold); Text("${party.memberCount} participant${if (party.memberCount == 1) "" else "s"} · ${if (party.mode == "private") "Same account" else "Invited"}", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
+                                Column(Modifier.weight(1f)) { Text(party.media.title, fontWeight = FontWeight.SemiBold); Text("${party.memberCount} participant${if (party.memberCount == 1) "" else "s"} · ${if (party.mode == "private") "Household only" else "Household + invited guests"}", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
                                 Text("Join", color = MaterialTheme.colorScheme.primary)
                             }
                         }
@@ -168,10 +168,11 @@ internal fun WatchPartySheet(
                             FilterChip(selected = mode == "private", onClick = { mode = "private" }, label = { Text("Private") })
                             FilterChip(selected = mode == "shared", onClick = { mode = "shared" }, label = { Text("Invite someone") })
                         }
+                        if (mode == "shared") Text("Household members can join from Active parties. Use an invite for people outside your account.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                         Button(onClick = ::startParty, enabled = !loading, modifier = Modifier.fillMaxWidth()) {
                             if (loading) CircularProgressIndicator(Modifier.width(18.dp).height(18.dp), strokeWidth = 2.dp)
                             else Icon(Icons.Rounded.People, null)
-                            Spacer(Modifier.width(8.dp)); Text(if (mode == "private") "Start private party" else "Create invite")
+                            Spacer(Modifier.width(8.dp)); Text(if (mode == "private") "Start private party" else "Start shared party")
                         }
                     }
                     Text("Join with an invite", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -205,6 +206,7 @@ private fun ActivePartyContent(
             }
         }
         if (party.hostProfileId == profile.id && party.mode == "shared") {
+            Text("Household members can join from Active parties. Use an invite for people outside your account.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
             if (inviteUrl != null) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(inviteUrl, maxLines = 1, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))

@@ -222,8 +222,22 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
       const { profileId } = request.body as { profileId: string }
       if (!(await canAccessProfile(db, user.id, profileId))) return reply.forbidden()
       const [party] = await db.select().from(watchParties).where(eq(watchParties.id, partyId)).limit(1)
-      if (!party || party.status !== "active" || party.mode !== "private") return reply.notFound("Private party not found")
-      if (party.hostUserId !== user.id) return reply.forbidden("This private party belongs to another account")
+      if (!party || party.status !== "active") return reply.notFound("Watch party not found")
+      const [existingMember] = await db
+        .select({ profileId: watchPartyMembers.profileId })
+        .from(watchPartyMembers)
+        .where(
+          and(
+            eq(watchPartyMembers.partyId, partyId),
+            eq(watchPartyMembers.userId, user.id),
+            eq(watchPartyMembers.profileId, profileId),
+            isNull(watchPartyMembers.leftAt),
+          ),
+        )
+        .limit(1)
+      if (party.hostUserId !== user.id && !existingMember) {
+        return reply.forbidden("Accept an invitation before joining this party")
+      }
       const members = await activePartyMembers(db, partyId)
       if (members.length >= MAX_WATCH_PARTY_MEMBERS && !members.some((member) => member.profileId === profileId)) {
         return reply.conflict("This party is full")
