@@ -220,6 +220,7 @@ internal fun MediaDetailsScreen(
     var episodesOpen by remember(item.id) { mutableStateOf(false) }
     var currentAddonName by remember(item.id) { mutableStateOf<String?>(null) }
     var externalSubtitles by remember(item.id) { mutableStateOf<List<SubtitleItem>>(emptyList()) }
+    var watchPartyOpen by remember(item.id) { mutableStateOf(false) }
     var selectedSeason by remember(item.id) { mutableStateOf<Int?>(null) }
     val detailsSeasonListState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -296,6 +297,16 @@ internal fun MediaDetailsScreen(
     }
     val orderedVideos = meta?.videos.orEmpty().sortedWith(compareBy<VideoItem> { it.season ?: 0 }.thenBy { it.episode ?: 0 })
     val nextVideo = orderedVideos.indexOfFirst { it.id == selectedVideo?.id }.takeIf { it >= 0 }?.let { orderedVideos.getOrNull(it + 1) }
+    val watchPartyMedia = WatchPartyMedia(
+        type = item.type,
+        mediaId = item.id,
+        videoId = playingVideoId,
+        title = meta?.name ?: item.name,
+        poster = meta?.poster ?: item.poster,
+        videoTitle = selectedVideo?.displayTitle,
+        season = selectedVideo?.season,
+        episode = selectedVideo?.episode,
+    )
     LaunchedEffect(playback.ended) { if (playback.ended) runCatching { persistProgress() } }
     var openingOverlay by remember(playing?.url) { mutableStateOf(playing?.url != null) }
     var playerControlsVisible by remember(playing?.url) { mutableStateOf(true) }
@@ -323,6 +334,7 @@ internal fun MediaDetailsScreen(
                 )
             }
             if (playerControlsVisible) IconButton(onClick = { scope.launch { runCatching { persistProgress() }; playing = null } }, modifier = Modifier.statusBarsPadding().padding(12.dp).background(Color.Black.copy(.55f), CircleShape).align(Alignment.TopStart)) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = Color.White) }
+            if (playerControlsVisible) IconButton(onClick = { watchPartyOpen = true }, modifier = Modifier.statusBarsPadding().padding(12.dp).background(Color.Black.copy(.55f), CircleShape).align(Alignment.TopEnd)) { Icon(Icons.Rounded.People, "Watch together", tint = Color.White) }
             playback.error?.let { message -> Box(Modifier.matchParentSize().background(Color.Black.copy(.72f)).clickable(enabled = true, onClick = {}), contentAlignment = Alignment.Center) { Surface(color = Color(0xF21A1A1D), shape = RoundedCornerShape(18.dp), modifier = Modifier.padding(28.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(.45f))) { Column(Modifier.padding(22.dp), horizontalAlignment = Alignment.CenterHorizontally) { Icon(Icons.Rounded.ErrorOutline, null, tint = MaterialTheme.colorScheme.error); Spacer(Modifier.height(8.dp)); Text("Playback failed", color = Color.White, fontWeight = FontWeight.Bold); Text(message, color = Color.White.copy(.7f), style = MaterialTheme.typography.bodySmall); Spacer(Modifier.height(14.dp)); Button(onClick = { playing = null }) { Text("Choose another stream") } } } } }
             if (!episodesOpen && nextVideo != null && playback.durationMs > 0 && playback.durationMs - playback.positionMs in 1..30_000) {
                 Surface(Modifier.align(Alignment.BottomEnd).padding(end = 18.dp, bottom = 112.dp).widthIn(min = 300.dp, max = 365.dp), color = Color(0xE619191B), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, Color.White.copy(.16f)), shadowElevation = 18.dp) {
@@ -333,6 +345,17 @@ internal fun MediaDetailsScreen(
                 episodesOpen = false
                 scope.launch { runCatching { persistProgress() }; selectedVideo = video; playing = null; requestStreams(video) }
             }
+        }
+        if (profile != null) {
+            WatchPartySheet(
+                open = watchPartyOpen,
+                onDismiss = { watchPartyOpen = false },
+                api = api,
+                baseUrl = baseUrl,
+                token = token,
+                profile = profile,
+                media = watchPartyMedia,
+            )
         }
         return
     }

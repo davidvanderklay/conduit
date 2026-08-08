@@ -143,6 +143,52 @@ data class ProfileSnapshot(
 )
 
 @Serializable
+data class WatchPartyMedia(
+    val type: String,
+    val mediaId: String,
+    val videoId: String,
+    val title: String,
+    val poster: String? = null,
+    val videoTitle: String? = null,
+    val season: Int? = null,
+    val episode: Int? = null,
+)
+
+@Serializable
+data class WatchPartyMember(val profileId: String, val role: String)
+
+@Serializable
+data class WatchPartySummary(
+    val id: String,
+    val mode: String,
+    val status: String,
+    val hostProfileId: String,
+    val media: WatchPartyMedia,
+    val memberCount: Int,
+    val members: List<WatchPartyMember> = emptyList(),
+    val createdAt: String,
+    val expiresAt: String,
+)
+
+@Serializable
+data class WatchPartyInvite(val url: String, val expiresAt: String)
+
+@Serializable
+data class WatchPartySessionResponse(
+    val party: WatchPartySummary,
+    val ticket: String,
+    val expiresAt: String,
+    val socketPath: String,
+    val invite: WatchPartyInvite? = null,
+)
+
+@Serializable
+data class WatchPartyListResponse(val parties: List<WatchPartySummary> = emptyList())
+
+@Serializable
+private data class WatchPartyInviteResponse(val invite: WatchPartyInvite)
+
+@Serializable
 data class CatalogItem(
     val id: String,
     val type: String,
@@ -494,6 +540,61 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
         if (!response.status.isSuccess()) throw ServerRequestException("Unable to save playback progress", response.status.value)
     }
 
+    suspend fun listWatchParties(baseUrl: String, token: String, profileId: String): List<WatchPartySummary> {
+        val response = client.get("$baseUrl/v1/watch-parties?profileId=${profileId.encodeURLPathPart()}") { bearerAuth(token) }
+        if (!response.status.isSuccess()) throw partyError(response, "Unable to load watch parties")
+        return response.body<WatchPartyListResponse>().parties
+    }
+
+    suspend fun createWatchParty(baseUrl: String, token: String, profileId: String, mode: String, media: WatchPartyMedia): WatchPartySessionResponse {
+        val response = client.post("$baseUrl/v1/watch-parties") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody(buildJsonObject {
+                put("profileId", profileId); put("mode", mode)
+                put("media", buildJsonObject {
+                    put("type", media.type); put("mediaId", media.mediaId); put("videoId", media.videoId); put("title", media.title)
+                    media.poster?.let { put("poster", it) }; media.videoTitle?.let { put("videoTitle", it) }; media.season?.let { put("season", it) }; media.episode?.let { put("episode", it) }
+                })
+            })
+        }
+        if (!response.status.isSuccess()) throw partyError(response, "Unable to create watch party")
+        return response.body()
+    }
+
+    suspend fun joinWatchParty(baseUrl: String, token: String, partyId: String, profileId: String): WatchPartySessionResponse {
+        val response = client.post("$baseUrl/v1/watch-parties/$partyId/join") {
+            bearerAuth(token); contentType(ContentType.Application.Json); setBody(buildJsonObject { put("profileId", profileId) })
+        }
+        if (!response.status.isSuccess()) throw partyError(response, "Unable to join watch party")
+        return response.body()
+    }
+
+    suspend fun acceptWatchPartyInvite(baseUrl: String, token: String, invite: String, profileId: String): WatchPartySessionResponse {
+        val response = client.post("$baseUrl/v1/watch-parties/invites/${invite.trim().substringAfterLast('/').substringBefore('?').encodeURLPathPart()}/accept") {
+            bearerAuth(token); contentType(ContentType.Application.Json); setBody(buildJsonObject { put("profileId", profileId) })
+        }
+        if (!response.status.isSuccess()) throw partyError(response, "Unable to accept invitation")
+        return response.body()
+    }
+
+    suspend fun createWatchPartyInvite(baseUrl: String, token: String, partyId: String): WatchPartyInvite {
+        val response = client.post("$baseUrl/v1/watch-parties/$partyId/invites") { bearerAuth(token) }
+        if (!response.status.isSuccess()) throw partyError(response, "Unable to create invitation")
+        return response.body<WatchPartyInviteResponse>().invite
+    }
+
+    suspend fun leaveWatchParty(baseUrl: String, token: String, partyId: String, profileId: String) {
+        val response = client.post("$baseUrl/v1/watch-parties/$partyId/leave") {
+            bearerAuth(token); contentType(ContentType.Application.Json); setBody(buildJsonObject { put("profileId", profileId) })
+        }
+        if (!response.status.isSuccess()) throw partyError(response, "Unable to leave watch party")
+    }
+
+    suspend fun endWatchParty(baseUrl: String, token: String, partyId: String) {
+        val response = client.post("$baseUrl/v1/watch-parties/$partyId/end") { bearerAuth(token) }
+        if (!response.status.isSuccess()) throw partyError(response, "Unable to end watch party")
+    }
+
     suspend fun loadHomeCatalogs(addons: List<InstalledAddonSummary>): HomeCatalogResult = coroutineScope {
         val requests = addons
             .filter { it.enabled }
@@ -720,6 +821,10 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
     }
 
     fun close() = client.close()
+}
+
+private suspend fun partyError(response: io.ktor.client.statement.HttpResponse, fallback: String): ServerRequestException {
+    return ServerRequestException(response.bodyAsText().ifBlank { fallback }, response.status.value)
 }
 
 expect fun createPlatformHttpClient(): HttpClient

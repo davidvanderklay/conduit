@@ -44,6 +44,7 @@ import {
 import { DiscoverView, type DiscoverSelection } from "./components/discover-view"
 import { VirtualVerticalList } from "./components/virtual-vertical-list"
 import { FullscreenToggle } from "./components/fullscreen-toggle"
+import { WatchPartyButton, WatchPartyDialog } from "./components/watch-party-dialog"
 
 export function App() {
   const session = authClient.useSession()
@@ -605,6 +606,8 @@ function AuthenticatedApp({
   const [searchInput, setSearchInput] = useState("")
   const [query, setQuery] = useState("")
   const [discoverSelection, setDiscoverSelection] = useState<DiscoverSelection>({})
+  const [watchPartyOpen, setWatchPartyOpen] = useState(false)
+  const [watchPartyInviteToken] = useState(() => readWatchPartyInviteToken())
   const scrollViewportRef = useRef<HTMLDivElement>(null)
 
   const profiles = useMemo(
@@ -659,6 +662,10 @@ function AuthenticatedApp({
       document.documentElement.classList.remove("desktop-scrolling")
     }
   }, [bootstrap.data])
+
+  useEffect(() => {
+    if (watchPartyInviteToken) setWatchPartyOpen(true)
+  }, [watchPartyInviteToken])
 
   if (bootstrap.isLoading) {
     return <CenteredMessage>Synchronizing your household…</CenteredMessage>
@@ -717,6 +724,7 @@ function AuthenticatedApp({
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <FullscreenToggle />
+            <WatchPartyButton onClick={() => setWatchPartyOpen(true)} />
             <ProfileSwitcher
               profiles={profiles}
               activeProfile={activeProfile}
@@ -791,8 +799,21 @@ function AuthenticatedApp({
           }}
         />
       </div>
+      <WatchPartyDialog
+        open={watchPartyOpen}
+        onOpenChange={setWatchPartyOpen}
+        profile={activeProfile}
+        initialInviteToken={watchPartyInviteToken}
+      />
     </div>
   )
+}
+
+function readWatchPartyInviteToken(): string | undefined {
+  const prefix = "/party/"
+  if (!window.location.pathname.startsWith(prefix)) return undefined
+  const token = window.location.pathname.slice(prefix.length).split("/")[0]
+  return token || undefined
 }
 
 export function bootstrapQueryKey(userId: string) {
