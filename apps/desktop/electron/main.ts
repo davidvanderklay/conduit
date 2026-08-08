@@ -747,6 +747,10 @@ async function invoke(command: string, args: Record<string, unknown> = {}): Prom
     return null
   }
   if (command === "player_overlay_watch_party") {
+    // The party dialog belongs to the main renderer. Close the native player
+    // first so its separate video surface cannot cover that dialog on Linux.
+    hidePlayerOverlay()
+    mainWindow?.webContents.send("conduit:player-overlay-close")
     mainWindow?.webContents.send("conduit:player-overlay-watch-party")
     return null
   }
