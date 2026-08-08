@@ -9,6 +9,7 @@ import {
   Pause,
   Play,
   SkipForward,
+  UsersRound,
   Volume2,
   VolumeX,
   X,
@@ -45,6 +46,7 @@ import {
 } from "./player-series"
 import { VideoScaleControl } from "./video-scale-control"
 import { SubtitlePicker } from "./subtitle-picker"
+import { partyPositionAt, type WatchPartyMedia, type WatchPartySession } from "../lib/watch-party"
 
 type TrackMenuName = "audio" | "subtitles"
 
@@ -103,6 +105,9 @@ export function DesktopPlayer({
   onNextEpisode,
   onEnded,
   onClose,
+  partySession,
+  onWatchParty,
+  onRemoteMedia,
 }: {
   url: string
   type: string
@@ -117,6 +122,9 @@ export function DesktopPlayer({
   onNextEpisode?: () => void | Promise<void>
   onEnded?: (allowAutoplay?: boolean) => void | Promise<void>
   onClose: () => void
+  partySession?: WatchPartySession
+  onWatchParty?: () => void
+  onRemoteMedia?: (media: WatchPartyMedia) => void
 }) {
   const preferences = readPreferences()
   const [snapshot, setSnapshot] = useState<NativePlayerSnapshot>()
@@ -148,10 +156,12 @@ export function DesktopPlayer({
   const nextTransitionSuppressed = useRef(false)
   const nextTransitionRequested = useRef(false)
   const lastPlayback = useRef({ position: 0, duration: 0 })
+  const latestSnapshot = useRef<NativePlayerSnapshot | undefined>(undefined)
   const lastNativeSnapshot = useRef<NativePlayerSnapshot | undefined>(undefined)
   const seekActive = useRef(false)
   const seekDraft = useRef<number | undefined>(undefined)
   const seekCommitTimer = useRef<number | undefined>(undefined)
+  const applyingPartyUpdate = useRef(false)
   const pendingAddonSubtitle = useRef(new Set<string>())
   const preferredAudioApplied = useRef(false)
   const preferredSubtitleApplied = useRef(false)
@@ -163,6 +173,8 @@ export function DesktopPlayer({
     videoId,
     progressMetadata,
   )
+
+  latestSnapshot.current = snapshot
 
   const showControls = useCallback(() => {
     setControlsVisible(true)
@@ -371,6 +383,54 @@ export function DesktopPlayer({
   }, [progress.data, progress.isSuccess, snapshot])
 
   useEffect(() => {
+    if (!partySession) return
+    const applyState = (state: Parameters<typeof partyPositionAt>[0]) => {
+      if (partySession.role !== "guest") return
+      const position = partyPositionAt(state)
+      applyingPartyUpdate.current = true
+      void nativePlayerCommand(["seek", position, "absolute+exact"])
+      void nativePlayerCommand(["set", "pause", !state.playing])
+      void nativePlayerCommand(["set", "speed", state.rate])
+      setSnapshot((current) => current ? { ...current, position, paused: !state.playing } : current)
+      window.setTimeout(() => {
+        applyingPartyUpdate.current = false
+      }, 0)
+    }
+    const unsubscribe = partySession.subscribe((event) => {
+      if (event.type === "joined" && event.state) applyState(event.state)
+      if (event.type === "state") applyState(event.state)
+      if (event.type === "command" && partySession.role === "guest") {
+        applyingPartyUpdate.current = true
+        if (event.command === "seek" && event.value !== undefined) void nativePlayerCommand(["seek", event.value, "absolute+exact"])
+        if (event.command === "rate" && event.value !== undefined) void nativePlayerCommand(["set", "speed", event.value])
+        if (event.command === "play") void nativePlayerCommand(["set", "pause", false])
+        if (event.command === "pause") void nativePlayerCommand(["set", "pause", true])
+        window.setTimeout(() => {
+          applyingPartyUpdate.current = false
+        }, 0)
+      }
+      if (event.type === "media") onRemoteMedia?.(event.media)
+    })
+    partySession.connect()
+    return unsubscribe
+  }, [onRemoteMedia, partySession])
+
+  useEffect(() => {
+    if (!partySession || partySession.role !== "host") return
+    const timer = window.setInterval(() => {
+      const current = latestSnapshot.current
+      if (!current || current.duration <= 0) return
+      partySession.publishState({
+        position: current.position,
+        duration: current.duration,
+        playing: !current.paused,
+        rate: 1,
+      })
+    }, 1000)
+    return () => window.clearInterval(timer)
+  }, [partySession])
+
+  useEffect(() => {
     if (!snapshot || !resumed.current) return
     if (snapshot.duration > 0) {
       lastPlayback.current = {
@@ -448,11 +508,12 @@ export function DesktopPlayer({
   }
 
   const togglePlayback = useCallback(() => {
-    if (!snapshot) return
+    if (!snapshot || partySession?.role === "guest") return
     void nativePlayerCommand(["cycle", "pause"])
+    if (partySession?.role === "host") partySession.publishCommand(snapshot.paused ? "play" : "pause")
     setSnapshot((current) => (current ? { ...current, paused: !current.paused } : current))
     showControls()
-  }, [showControls, snapshot])
+  }, [partySession, showControls, snapshot])
 
   const closeTrackMenu = useCallback(() => {
     setActiveMenu(undefined)
@@ -482,11 +543,13 @@ export function DesktopPlayer({
     const position = seekDraft.current
     seekDraft.current = undefined
     seekActive.current = false
-    if (position === undefined) return
+    if (position === undefined || partySession?.role === "guest") return
     void nativePlayerCommand(["seek", position, "absolute+exact"])
-  }, [])
+    if (partySession?.role === "host") partySession.publishCommand("seek", position)
+  }, [partySession])
 
   const previewSeek = useCallback((position: number) => {
+    if (partySession?.role === "guest") return
     seekActive.current = true
     seekDraft.current = position
     setSnapshot((current) => (current ? { ...current, position } : current))
@@ -698,20 +761,34 @@ export function DesktopPlayer({
             )}
           </div>
         </div>
-        <button
-          className={`pointer-events-auto grid shrink-0 place-items-center rounded-full bg-black/60 text-zinc-200 hover:bg-white/15 ${
-            expandedControls ? "size-13 [&_svg]:size-7" : "size-10"
-          }`}
-          type="button"
-          aria-label={fullscreen ? "Exit fullscreen" : "Fullscreen"}
-          title={fullscreen ? "Exit fullscreen" : "Fullscreen"}
-          data-native-overlay
-          onClick={() => {
-            void toggleNativeFullscreen().then(setFullscreen)
-          }}
-        >
-          {fullscreen ? <Minimize size={20} /> : <Maximize size={20} />}
-        </button>
+        <div className="flex items-center gap-2">
+          {onWatchParty && (
+            <button
+              className={`pointer-events-auto grid shrink-0 place-items-center rounded-full bg-black/60 text-zinc-200 hover:bg-white/15 ${expandedControls ? "size-13 [&_svg]:size-7" : "size-10"} ${partySession ? "text-amber-300" : ""}`}
+              type="button"
+              aria-label="Watch together"
+              title="Watch together"
+              data-native-overlay
+              onClick={onWatchParty}
+            >
+              <UsersRound size={20} />
+            </button>
+          )}
+          <button
+            className={`pointer-events-auto grid shrink-0 place-items-center rounded-full bg-black/60 text-zinc-200 hover:bg-white/15 ${
+              expandedControls ? "size-13 [&_svg]:size-7" : "size-10"
+            }`}
+            type="button"
+            aria-label={fullscreen ? "Exit fullscreen" : "Fullscreen"}
+            title={fullscreen ? "Exit fullscreen" : "Fullscreen"}
+            data-native-overlay
+            onClick={() => {
+              void toggleNativeFullscreen().then(setFullscreen)
+            }}
+          >
+            {fullscreen ? <Minimize size={20} /> : <Maximize size={20} />}
+          </button>
+        </div>
       </div>
 
       {error ? (

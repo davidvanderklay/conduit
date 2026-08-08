@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   ArrowLeft,
@@ -39,6 +39,8 @@ import { Button } from "./ui/button"
 import { Player } from "./player"
 import { LibraryToggle } from "./library-toggle"
 import { EpisodeSelector } from "./episode-selector"
+import { WatchPartyDialog, mediaForParty } from "./watch-party-dialog"
+import { type WatchPartyMedia, type WatchPartySession } from "../lib/watch-party"
 
 interface ResolvedStream extends Stream {
   key: string
@@ -70,6 +72,8 @@ export function MediaDetails({
   const [selectedSeason, setSelectedSeason] = useState<number>()
   const [playing, setPlaying] = useState<ResolvedStream>()
   const [streamResolutionError, setStreamResolutionError] = useState<string>()
+  const [watchPartyOpen, setWatchPartyOpen] = useState(false)
+  const [watchPartySession, setWatchPartySession] = useState<WatchPartySession>()
   const queryClient = useQueryClient()
   const episodeTransition = useRef(0)
   const initialSeriesVideoResolved = useRef(false)
@@ -89,6 +93,21 @@ export function MediaDetails({
     : undefined
   const episodeMode = item.type === "series" && Boolean(selectedVideo)
   const activeVideoId = episodeMode ? selectedVideoId : item.id
+  const watchPartyMedia = useMemo(
+    () => mediaForParty(
+      {
+        mediaType: item.type,
+        mediaId: item.id,
+        name: meta.name,
+        poster: meta.poster,
+        videoTitle: selectedVideo?.title,
+        season: selectedVideo?.season,
+        episode: selectedVideo?.episode,
+      },
+      activeVideoId ?? item.id,
+    ),
+    [activeVideoId, item.id, item.type, meta.name, meta.poster, selectedVideo?.episode, selectedVideo?.season, selectedVideo?.title],
+  )
   const addonIds = addons.map((addon) => addon.id)
   const progress = useQuery({
     queryKey: ["series-progress", profileId, item.type, item.id],
@@ -149,6 +168,12 @@ export function MediaDetails({
       window.removeEventListener("keydown", closeOnEscape)
     }
   }, [onClose, playing])
+
+  useEffect(() => {
+    if (watchPartySession?.role === "host") watchPartySession.publishMedia(watchPartyMedia)
+  }, [watchPartyMedia, watchPartySession])
+
+  useEffect(() => () => watchPartySession?.close(), [watchPartySession])
 
   const browse = (target: MetadataBrowseTarget) => {
     onClose()
@@ -336,10 +361,32 @@ export function MediaDetails({
             episodeTransition.current += 1
             setPlaying(undefined)
           }}
+          partySession={watchPartySession}
+          onWatchParty={() => setWatchPartyOpen(true)}
+          onRemoteMedia={(media) => {
+            void followRemoteMedia(media, videos, playEpisode)
+          }}
         />
       )}
+      <WatchPartyDialog
+        open={watchPartyOpen}
+        onOpenChange={setWatchPartyOpen}
+        profile={{ id: profileId, name: "", isKids: false }}
+        media={watchPartyMedia}
+        onSessionChange={setWatchPartySession}
+      />
     </>
   )
+}
+
+async function followRemoteMedia(
+  media: WatchPartyMedia,
+  videos: Video[],
+  playEpisode: (video: Video) => Promise<void>,
+): Promise<void> {
+  if (media.type !== "series") return
+  const video = videos.find((candidate) => candidate.id === media.videoId)
+  if (video) await playEpisode(video)
 }
 
 function MediaSummary({

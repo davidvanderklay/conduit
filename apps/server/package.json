@@ -25,11 +25,13 @@
     "dotenv": "latest",
     "drizzle-orm": "latest",
     "fastify": "latest",
-    "pg": "latest"
+    "pg": "latest",
+    "ws": "^8.21.1"
   },
   "devDependencies": {
     "@types/node": "latest",
     "@types/pg": "latest",
+    "@types/ws": "^8.18.1",
     "drizzle-kit": "latest",
     "tsx": "latest",
     "typescript": "latest",

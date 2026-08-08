@@ -180,6 +180,12 @@ If serving web and API on one host through path routing, ensure every
 `/api/auth/*` callback reaches the Conduit server and ordinary SPA routes fall
 back to `index.html`.
 
+Watch parties use an authenticated WebSocket at
+`/v1/watch-parties/socket`. Reverse proxies must preserve HTTP/1.1 and forward
+the `Upgrade` and `Connection` headers for that path. The bundled Nginx config
+already does this. The first party hub is single-process; run a shared broker
+before placing multiple API replicas behind a load balancer.
+
 Restrict `/admin` and `/v1/admin/*` at the reverse proxy or VPN for additional
 network isolation. This supplements, rather than replaces, Conduit's server-side
 owner authorization.

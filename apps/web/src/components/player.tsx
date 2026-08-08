@@ -8,6 +8,7 @@ import {
   Play,
   Settings2,
   SkipForward,
+  UsersRound,
   Volume2,
   VolumeX,
 } from "lucide-react"
@@ -30,6 +31,7 @@ import {
 } from "./player-series"
 import { VideoScaleControl } from "./video-scale-control"
 import { SubtitlePicker } from "./subtitle-picker"
+import { partyPositionAt, type WatchPartySession, type WatchPartyMedia } from "../lib/watch-party"
 
 interface PlayerSubtitle extends Subtitle {
   key: string
@@ -59,6 +61,9 @@ export function Player({
   onNextEpisode,
   onEnded,
   onClose,
+  partySession,
+  onWatchParty,
+  onRemoteMedia,
 }: {
   url: string
   type: string
@@ -73,6 +78,9 @@ export function Player({
   onNextEpisode?: () => void | Promise<void>
   onEnded?: (allowAutoplay?: boolean) => void | Promise<void>
   onClose: () => void
+  partySession?: WatchPartySession
+  onWatchParty?: () => void
+  onRemoteMedia?: (media: WatchPartyMedia) => void
 }) {
   if (isDesktop()) {
     return (
@@ -90,6 +98,9 @@ export function Player({
         onNextEpisode={onNextEpisode}
         onEnded={onEnded}
         onClose={onClose}
+        partySession={partySession}
+        onWatchParty={onWatchParty}
+        onRemoteMedia={onRemoteMedia}
       />
     )
   }
@@ -108,6 +119,9 @@ export function Player({
       onNextEpisode={onNextEpisode}
       onEnded={onEnded}
       onClose={onClose}
+      partySession={partySession}
+      onWatchParty={onWatchParty}
+      onRemoteMedia={onRemoteMedia}
     />
   )
 }
@@ -126,6 +140,9 @@ function WebPlayer({
   onNextEpisode,
   onEnded,
   onClose,
+  partySession,
+  onWatchParty,
+  onRemoteMedia,
 }: {
   url: string
   type: string
@@ -140,6 +157,9 @@ function WebPlayer({
   onNextEpisode?: () => void | Promise<void>
   onEnded?: (allowAutoplay?: boolean) => void | Promise<void>
   onClose: () => void
+  partySession?: WatchPartySession
+  onWatchParty?: () => void
+  onRemoteMedia?: (media: WatchPartyMedia) => void
 }) {
   const preferences = readPreferences()
   const heading = playerHeading(progressMetadata)
@@ -167,12 +187,63 @@ function WebPlayer({
   const [episodeDrawerOpen, setEpisodeDrawerOpen] = useState(false)
   const nextTransitionSuppressed = useRef(false)
   const nextTransitionRequested = useRef(false)
+  const applyingPartyUpdate = useRef(false)
   const { progress, save: saveProgress } = usePlaybackProgress(
     profileId,
     videoId,
     progressMetadata,
   )
   const resumed = useRef(false)
+
+  useEffect(() => {
+    if (!partySession) return
+    const video = videoRef.current
+    const applyRemoteState = (state: Parameters<typeof partyPositionAt>[0]) => {
+      if (!video || partySession.role !== "guest") return
+      applyingPartyUpdate.current = true
+      const nextPosition = partyPositionAt(state)
+      if (Math.abs(video.currentTime - nextPosition) > 0.75) video.currentTime = nextPosition
+      video.playbackRate = state.rate
+      if (state.playing && video.paused) void video.play().catch(() => undefined)
+      if (!state.playing && !video.paused) video.pause()
+      window.setTimeout(() => {
+        applyingPartyUpdate.current = false
+      }, 0)
+    }
+    const unsubscribe = partySession.subscribe((event) => {
+      if (event.type === "joined" && event.state) applyRemoteState(event.state)
+      if (event.type === "state") applyRemoteState(event.state)
+      if (event.type === "command" && partySession.role === "guest" && video) {
+        applyingPartyUpdate.current = true
+        if (event.command === "seek" && event.value !== undefined) video.currentTime = event.value
+        if (event.command === "rate" && event.value !== undefined) video.playbackRate = event.value
+        if (event.command === "play") void video.play().catch(() => undefined)
+        if (event.command === "pause") video.pause()
+        window.setTimeout(() => {
+          applyingPartyUpdate.current = false
+        }, 0)
+      }
+      if (event.type === "media") onRemoteMedia?.(event.media)
+    })
+    partySession.connect()
+    return unsubscribe
+  }, [onRemoteMedia, partySession])
+
+  useEffect(() => {
+    if (!partySession || partySession.role !== "host") return
+    const publish = () => {
+      const video = videoRef.current
+      if (!video || !Number.isFinite(video.duration)) return
+      partySession.publishState({
+        position: video.currentTime,
+        duration: video.duration,
+        playing: !video.paused,
+        rate: video.playbackRate,
+      })
+    }
+    const timer = window.setInterval(publish, 1000)
+    return () => window.clearInterval(timer)
+  }, [partySession])
 
   useEffect(() => {
     const video = videoRef.current
@@ -398,7 +469,7 @@ function WebPlayer({
 
   const togglePlayback = () => {
     const video = videoRef.current
-    if (!video) return
+    if (!video || partySession?.role === "guest") return
     if (video.paused) void video.play()
     else video.pause()
   }
@@ -440,6 +511,7 @@ function WebPlayer({
           </button>
           <PlayerHeadingText heading={heading} />
           <div className="ml-auto">
+            {onWatchParty && <PartyPlayerButton onClick={onWatchParty} active={partySession != null} />}
             <button
               className="grid size-10 place-items-center rounded-full bg-black/60 text-zinc-200 hover:bg-white/15"
               type="button"
@@ -463,9 +535,13 @@ function WebPlayer({
             autoPlay
             playsInline
             onClick={togglePlayback}
-            onPlay={() => setPlaying(true)}
+            onPlay={() => {
+              setPlaying(true)
+              if (partySession?.role === "host" && !applyingPartyUpdate.current) partySession.publishCommand("play")
+            }}
             onPause={(event) => {
               setPlaying(false)
+              if (partySession?.role === "host" && !applyingPartyUpdate.current) partySession.publishCommand("pause")
               if (resumed.current) {
                 void saveProgress(
                   event.currentTarget.currentTime,
@@ -585,7 +661,10 @@ function WebPlayer({
               value={Math.min(currentTime, duration || 0)}
               aria-label="Seek"
               onChange={(event) => {
-                if (videoRef.current) videoRef.current.currentTime = Number(event.target.value)
+                if (partySession?.role === "guest") return
+                const position = Number(event.target.value)
+                if (videoRef.current) videoRef.current.currentTime = position
+                if (partySession?.role === "host") partySession.publishCommand("seek", position)
               }}
             />
             <div className="flex items-center gap-3">
@@ -715,6 +794,20 @@ function Control({
       title={label}
     >
       {children}
+    </button>
+  )
+}
+
+function PartyPlayerButton({ onClick, active }: { onClick: () => void; active: boolean }) {
+  return (
+    <button
+      type="button"
+      aria-label="Watch together"
+      title="Watch together"
+      className={`grid size-10 place-items-center rounded-full transition-colors hover:bg-white/15 ${active ? "text-amber-300" : "text-zinc-200"}`}
+      onClick={onClick}
+    >
+      <UsersRound size={21} />
     </button>
   )
 }

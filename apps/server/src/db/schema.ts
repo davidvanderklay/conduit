@@ -264,3 +264,88 @@ export const libraryItems = pgTable(
     index("library_item_profile_created_idx").on(table.profileId, table.createdAt),
   ],
 )
+
+export type WatchPartyMode = "private" | "shared"
+export type WatchPartyStatus = "active" | "ended"
+export type WatchPartyMemberRole = "host" | "guest"
+
+export interface WatchPartyMedia {
+  type: "movie" | "series"
+  mediaId: string
+  videoId: string
+  title: string
+  poster?: string
+  videoTitle?: string
+  season?: number
+  episode?: number
+}
+
+export const watchParties = pgTable(
+  "watch_party",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    hostUserId: text("host_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    hostProfileId: uuid("host_profile_id")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "cascade" }),
+    mode: text("mode").$type<WatchPartyMode>().notNull(),
+    status: text("status").$type<WatchPartyStatus>().notNull().default("active"),
+    media: jsonb("media").$type<WatchPartyMedia>().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    index("watch_party_host_idx").on(table.hostUserId),
+    index("watch_party_status_expiry_idx").on(table.status, table.expiresAt),
+  ],
+)
+
+export const watchPartyMembers = pgTable(
+  "watch_party_member",
+  {
+    partyId: uuid("party_id")
+      .notNull()
+      .references(() => watchParties.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    profileId: uuid("profile_id")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "cascade" }),
+    role: text("role").$type<WatchPartyMemberRole>().notNull(),
+    joinedAt: timestamp("joined_at", { withTimezone: true }).notNull().defaultNow(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+    leftAt: timestamp("left_at", { withTimezone: true }),
+  },
+  (table) => [
+    primaryKey({ columns: [table.partyId, table.profileId] }),
+    index("watch_party_member_user_idx").on(table.userId),
+    index("watch_party_member_party_idx").on(table.partyId, table.leftAt),
+  ],
+)
+
+export const watchPartyInvites = pgTable(
+  "watch_party_invite",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    partyId: uuid("party_id")
+      .notNull()
+      .references(() => watchParties.id, { onDelete: "cascade" }),
+    createdByUserId: text("created_by_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    tokenHash: text("token_hash").notNull().unique(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("watch_party_invite_party_idx").on(table.partyId),
+    index("watch_party_invite_expiry_idx").on(table.expiresAt),
+  ],
+)

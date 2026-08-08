@@ -20,6 +20,7 @@ import androidx.compose.material.icons.rounded.Movie
 import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.People
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
@@ -522,6 +523,7 @@ private fun AppShell(
     }
     var selectedMedia by remember { mutableStateOf<CatalogItem?>(null) }
     var profileFlowActive by remember { mutableStateOf(false) }
+    var watchPartyOpen by remember { mutableStateOf(false) }
     var selectedVideoId by remember { mutableStateOf<String?>(null) }
     val homeListState = rememberLazyListState()
     val searchListState = rememberLazyListState()
@@ -625,6 +627,24 @@ private fun AppShell(
                     }
                 }
             }
+        }
+        if (activeProfile != null && selectedMedia == null && !profileFlowActive) {
+            IconButton(
+                onClick = { watchPartyOpen = true },
+                modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(6.dp),
+            ) {
+                Icon(Icons.Rounded.People, "Watch together", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        if (activeProfile != null) {
+            WatchPartySheet(
+                open = watchPartyOpen,
+                onDismiss = { watchPartyOpen = false },
+                api = api,
+                baseUrl = state.endpoint!!.baseUrl,
+                token = account.session.token,
+                profile = activeProfile,
+            )
         }
     }
 }
