@@ -80,7 +80,7 @@ export function Player({
   onClose: () => void
   partySession?: WatchPartySession
   onWatchParty?: () => void
-  onRemoteMedia?: (media: WatchPartyMedia) => void
+  onRemoteMedia?: (media?: WatchPartyMedia) => void
 }) {
   if (isDesktop()) {
     return (
@@ -159,7 +159,7 @@ function WebPlayer({
   onClose: () => void
   partySession?: WatchPartySession
   onWatchParty?: () => void
-  onRemoteMedia?: (media: WatchPartyMedia) => void
+  onRemoteMedia?: (media?: WatchPartyMedia) => void
 }) {
   const preferences = readPreferences()
   const heading = playerHeading(progressMetadata)
@@ -223,7 +223,7 @@ function WebPlayer({
           applyingPartyUpdate.current = false
         }, 0)
       }
-      if (event.type === "media") onRemoteMedia?.(event.media)
+      if (event.type === "media") onRemoteMedia?.(event.media ?? undefined)
     })
     partySession.connect()
     return unsubscribe

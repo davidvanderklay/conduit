@@ -713,7 +713,7 @@ function AuthenticatedApp({
   const handleExternalWatchPartyJoined = (response: WatchPartySessionResponse) => {
     launchWatchParty(response.party, createWatchPartySession(activeProfile.id, response))
   }
-  const updateWatchPartyMedia = (media: WatchPartyMedia, session: WatchPartySession) => {
+  const updateWatchPartyMedia = (media: WatchPartyMedia | undefined, session: WatchPartySession) => {
     setWatchPartyLaunch((current) => {
       if (!current || current.session.partyId !== session.partyId) return current
       return {
@@ -854,6 +854,7 @@ function AuthenticatedApp({
         open={watchPartyOpen}
         onOpenChange={setWatchPartyOpen}
         profile={activeProfile}
+        media={watchPartyLaunch?.media}
         initialInviteToken={watchPartyInviteToken}
         initialParty={watchPartyLaunch?.party}
         initialSession={watchPartyLaunch?.session}
@@ -957,7 +958,7 @@ function ProfileApp({
   onWatchPartySessionChange: (session: WatchPartySession | undefined) => void
   onExternalWatchPartyJoined: (response: WatchPartySessionResponse) => void
   onWatchPartyJoined: (party: WatchPartySummary, session: WatchPartySession) => void
-  onWatchPartyMediaChange: (media: WatchPartyMedia, session: WatchPartySession) => void
+  onWatchPartyMediaChange: (media: WatchPartyMedia | undefined, session: WatchPartySession) => void
   onWatchPartyMediaClose: () => void
   onMetadataBrowse: (target: MetadataBrowseTarget) => void
 }) {
@@ -1125,7 +1126,7 @@ function MediaHome({
   watchPartyLaunch?: WatchPartyLaunch
   onWatchPartySessionChange: (session: WatchPartySession | undefined) => void
   onWatchPartyJoined: (party: WatchPartySummary, session: WatchPartySession) => void
-  onWatchPartyMediaChange: (media: WatchPartyMedia, session: WatchPartySession) => void
+  onWatchPartyMediaChange: (media: WatchPartyMedia | undefined, session: WatchPartySession) => void
   onWatchPartyMediaClose: () => void
   onHistory: () => void
   onDiscover: (selection: DiscoverSelection) => void

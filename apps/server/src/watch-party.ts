@@ -47,7 +47,7 @@ interface PartyRuntime {
 
 type ClientMessage =
   | { v: 1; type: "hello" }
-  | { v: 1; type: "media"; media: WatchPartyMedia }
+  | { v: 1; type: "media"; media: WatchPartyMedia | null }
   | {
       v: 1
       type: "state"
@@ -74,6 +74,8 @@ export class WatchPartyHub {
   private server?: Server
   private socketServer?: WebSocketServer
   private heartbeat?: ReturnType<typeof setInterval>
+
+  constructor(private readonly onParticipantDisconnected?: (actor: WatchPartyActor) => void) {}
 
   createTicket(actor: WatchPartyActor): { ticket: string; expiresAt: string } {
     this.pruneTickets()
@@ -127,9 +129,9 @@ export class WatchPartyHub {
     runtime.media = media
   }
 
-  publishMedia(partyId: string, media: WatchPartyMedia): void {
+  publishMedia(partyId: string, media: WatchPartyMedia | null): void {
     const runtime = this.runtime(partyId)
-    runtime.media = media
+    runtime.media = media ?? undefined
     runtime.playback = undefined
     this.broadcast(partyId, { v: 1, type: "media", media })
   }
@@ -174,12 +176,33 @@ export class WatchPartyHub {
     socket.on("close", () => {
       runtime.sockets.delete(participant)
       this.sockets.delete(socket)
+      const sameParticipantConnected = [...runtime.sockets].some(
+        (candidate) => candidate.actor.userId === actor.userId && candidate.actor.profileId === actor.profileId,
+      )
+      if (!sameParticipantConnected) {
+        if (actor.role === "host") {
+          runtime.media = undefined
+          runtime.playback = undefined
+          this.broadcast(actor.partyId, { v: WATCH_PARTY_PROTOCOL_VERSION, type: "media", media: null })
+        }
+        this.onParticipantDisconnected?.(actor)
+      }
+      this.broadcast(actor.partyId, {
+        v: WATCH_PARTY_PROTOCOL_VERSION,
+        type: "presence",
+        participants: this.participants(runtime),
+      })
       if (runtime.sockets.size === 0 && !runtime.media && !runtime.playback) {
         this.parties.delete(actor.partyId)
       }
     })
     socket.on("error", () => socket.close())
     this.sendJoined(participant)
+    this.broadcast(actor.partyId, {
+      v: WATCH_PARTY_PROTOCOL_VERSION,
+      type: "presence",
+      participants: this.participants(runtime),
+    }, socket)
   }
 
   private sendJoined(participant: PartySocket): void {
@@ -216,8 +239,8 @@ export class WatchPartyHub {
         })
         return
       case "media":
-        if (participant.actor.role !== "host" || !validMedia(message.media)) return
-        runtime.media = message.media
+        if (participant.actor.role !== "host" || (message.media !== null && !validMedia(message.media))) return
+        runtime.media = message.media ?? undefined
         runtime.playback = undefined
         this.broadcast(participant.actor.partyId, { v: 1, type: "media", media: message.media })
         return
@@ -285,7 +308,7 @@ function parseMessage(raw: string): ClientMessage | undefined {
     return { v: 1, type: "ready", ready: message.ready }
   }
   if (message.type === "leave") return { v: 1, type: "leave" }
-  if (message.type === "media" && validMedia(message.media)) {
+  if (message.type === "media" && (message.media === null || validMedia(message.media))) {
     return { v: 1, type: "media", media: message.media }
   }
   if (message.type === "state" && validState(message)) {

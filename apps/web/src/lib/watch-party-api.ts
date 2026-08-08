@@ -68,9 +68,9 @@ export function endWatchParty(partyId: string, profileId: string) {
   })
 }
 
-export function updateWatchPartyMedia(partyId: string, profileId: string, media: WatchPartyMedia) {
+export function updateWatchPartyMedia(partyId: string, profileId: string, media?: WatchPartyMedia) {
   return api<{ party: WatchPartySummary }>(`/v1/watch-parties/${partyId}/media`, {
     method: "PATCH",
-    body: JSON.stringify({ profileId, media }),
+    body: JSON.stringify({ profileId, media: media ?? null }),
   })
 }
