@@ -59,7 +59,7 @@ export type WatchPartyEvent =
     }
   | { type: "state"; state: WatchPartyState }
   | { type: "command"; command: "play" | "pause" | "seek" | "rate"; value?: number; sequence: number }
-  | { type: "media"; media: WatchPartyMedia }
+  | { type: "media"; media: WatchPartyMedia | null }
   | { type: "presence"; participants: WatchPartyMember[] }
   | { type: "ended"; reason: string }
   | { type: "error"; message: string }
@@ -144,9 +144,9 @@ export class WatchPartySession {
     this.send({ v: 1, type: "ready", ready })
   }
 
-  publishMedia(media: WatchPartyMedia): void {
+  publishMedia(media?: WatchPartyMedia): void {
     if (this.role !== "host") return
-    this.send({ v: 1, type: "media", media })
+    this.send({ v: 1, type: "media", media: media ?? null })
   }
 
   publishState(state: Omit<WatchPartyState, "sequence" | "serverTime">): void {
@@ -205,7 +205,9 @@ function parseServerMessage(value: unknown): WatchPartyEvent | undefined {
   if (message.type === "connected" || message.type === "disconnected") return { type: message.type }
   if (message.type === "error" && typeof message.message === "string") return { type: "error", message: message.message }
   if (message.type === "ended" && typeof message.reason === "string") return { type: "ended", reason: message.reason }
-  if (message.type === "media" && isMedia(message.media)) return { type: "media", media: message.media }
+  if (message.type === "media" && (message.media === null || isMedia(message.media))) {
+    return { type: "media", media: message.media }
+  }
   if (message.type === "presence" && Array.isArray(message.participants)) return { type: "presence", participants: message.participants.filter(isMember) }
   if (message.type === "joined") {
     if ((message.role !== "host" && message.role !== "guest") || !Array.isArray(message.participants)) return undefined

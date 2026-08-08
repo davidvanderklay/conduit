@@ -11,6 +11,7 @@ import {
   leaveWatchParty,
   listWatchParties,
   refreshWatchPartyTicket,
+  updateWatchPartyMedia,
   type WatchPartySessionResponse,
 } from "../lib/watch-party-api"
 import {
@@ -73,7 +74,7 @@ export function WatchPartyDialog({
     response: WatchPartySessionResponse,
   ) => void
   onPartyLeft?: (partyId: string) => void
-  onPartyMediaChange?: (media: WatchPartyMedia, session: WatchPartySession) => void
+  onPartyMediaChange?: (media: WatchPartyMedia | undefined, session: WatchPartySession) => void
   onSessionChange?: (session: WatchPartySession | undefined) => void
 }) {
   const [parties, setParties] = useState<WatchPartySummary[]>([])
@@ -155,10 +156,10 @@ export function WatchPartyDialog({
         setParty((current) => current ? { ...current, memberCount: participants.length, members: participants } : current)
       }
       if (event.type === "media") {
-        setParty((current) => current ? { ...current, media: event.media } : current)
-        onPartyMediaChange?.(event.media, session)
+        setParty((current) => current ? { ...current, media: event.media ?? undefined } : current)
+        onPartyMediaChange?.(event.media ?? undefined, session)
       }
-      if (event.type === "joined" && event.media) {
+      if (event.type === "joined") {
         setParty((current) => current ? { ...current, media: event.media } : current)
         onPartyMediaChange?.(event.media, session)
       }
@@ -185,12 +186,21 @@ export function WatchPartyDialog({
   ) {
     session?.close()
     const next = createWatchPartySession(sessionProfileId, response)
+    let nextParty = response.party
+    if (next.role === "host" && !media && nextParty.media) {
+      try {
+        const cleared = await updateWatchPartyMedia(nextParty.id, nextParty.hostProfileId)
+        nextParty = cleared.party
+      } catch {
+        // The socket and the existing party state remain usable if cleanup races a refresh.
+      }
+    }
     setSession(next)
-    setParty(response.party)
+    setParty(nextParty)
     setInviteUrl(response.invite?.url)
     next.connect()
-    setParties((current) => [response.party, ...current.filter((candidate) => candidate.id !== response.party.id)])
-    if (notify) onPartyJoined?.(response.party, next, response)
+    setParties((current) => [nextParty, ...current.filter((candidate) => candidate.id !== nextParty.id)])
+    if (notify) onPartyJoined?.(nextParty, next, response)
   }
 
   async function create() {

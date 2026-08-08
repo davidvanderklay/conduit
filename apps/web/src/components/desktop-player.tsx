@@ -124,7 +124,7 @@ export function DesktopPlayer({
   onClose: () => void
   partySession?: WatchPartySession
   onWatchParty?: () => void
-  onRemoteMedia?: (media: WatchPartyMedia) => void
+  onRemoteMedia?: (media?: WatchPartyMedia) => void
 }) {
   const preferences = readPreferences()
   const [snapshot, setSnapshot] = useState<NativePlayerSnapshot>()
@@ -422,7 +422,7 @@ export function DesktopPlayer({
           applyingPartyUpdate.current = false
         }, 0)
       }
-      if (event.type === "media") onRemoteMedia?.(event.media)
+      if (event.type === "media") onRemoteMedia?.(event.media ?? undefined)
     })
     partySession.connect()
     return unsubscribe

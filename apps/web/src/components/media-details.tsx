@@ -89,7 +89,7 @@ export function MediaDetails({
   onWatchPartySessionChange?: (session: WatchPartySession | undefined) => void
   onExternalWatchPartyJoined?: (response: WatchPartySessionResponse) => void
   onWatchPartyJoined?: (party: WatchPartySummary, session: WatchPartySession) => void
-  onWatchPartyMediaChange?: (media: WatchPartyMedia, session: WatchPartySession) => void
+  onWatchPartyMediaChange?: (media: WatchPartyMedia | undefined, session: WatchPartySession) => void
   onBrowse?: (target: MetadataBrowseTarget) => void
   onClose: () => void
 }) {
@@ -102,6 +102,7 @@ export function MediaDetails({
   const [watchPartyOpen, setWatchPartyOpen] = useState(false)
   const [watchPartySession, setWatchPartySession] = useState<WatchPartySession | undefined>(initialWatchPartySession)
   const [partyStreamHandoff, setPartyStreamHandoff] = useState<PartyStreamHandoffState | null>()
+  const [partyConnectionVersion, setPartyConnectionVersion] = useState(0)
   const queryClient = useQueryClient()
   const episodeTransition = useRef(0)
   const partyStreamHandoffKey = useRef<string | undefined>(undefined)
@@ -206,19 +207,31 @@ export function MediaDetails({
     }
   }, [onClose, playing])
 
+  const activePartyMedia = playing?.url ? watchPartyMedia : undefined
+
   useEffect(() => {
     if (watchPartySession?.role !== "host") return
-    const mediaKey = partyMediaKey(watchPartyMedia)
-    if (publishedPartyMediaKey.current === mediaKey) return
-    publishedPartyMediaKey.current = mediaKey
-    watchPartySession.publishMedia(watchPartyMedia)
+    return watchPartySession.subscribe((event) => {
+      if (event.type !== "connected") return
+      publishedPartyMediaKey.current = undefined
+      setPartyConnectionVersion((version) => version + 1)
+    })
+  }, [watchPartySession])
+
+  useEffect(() => {
+    if (watchPartySession?.role !== "host") return
+    const mediaKey = activePartyMedia ? partyMediaKey(activePartyMedia) : "none"
+    const publicationKey = `${watchPartySession.partyId}:${mediaKey}`
+    if (publishedPartyMediaKey.current === publicationKey) return
+    publishedPartyMediaKey.current = publicationKey
+    watchPartySession.publishMedia(activePartyMedia)
     void updateWatchPartyMedia(
       watchPartySession.partyId,
       initialWatchPartyParty?.hostProfileId ?? profileId,
-      watchPartyMedia,
+      activePartyMedia,
     ).catch(() => undefined)
-    onWatchPartyMediaChange?.(watchPartyMedia, watchPartySession)
-  }, [initialWatchPartyParty?.hostProfileId, onWatchPartyMediaChange, profileId, watchPartyMedia, watchPartySession])
+    onWatchPartyMediaChange?.(activePartyMedia, watchPartySession)
+  }, [activePartyMedia, initialWatchPartyParty?.hostProfileId, onWatchPartyMediaChange, partyConnectionVersion, profileId, watchPartySession])
 
   useEffect(() => {
     const partyMedia = initialWatchPartyParty?.media
@@ -319,7 +332,7 @@ export function MediaDetails({
     onWatchPartySessionChange?.(next)
   }, [onWatchPartySessionChange])
 
-  const handleRemoteMedia = useCallback((media: WatchPartyMedia) => {
+  const handleRemoteMedia = useCallback((media?: WatchPartyMedia) => {
     if (watchPartySession?.role !== "guest") return
     onWatchPartyMediaChange?.(media, watchPartySession)
   }, [onWatchPartyMediaChange, watchPartySession])
@@ -492,7 +505,7 @@ export function MediaDetails({
         open={watchPartyOpen}
         onOpenChange={setWatchPartyOpen}
         profile={{ id: profileId, name: "", isKids: false }}
-        media={watchPartyMedia}
+        media={activePartyMedia}
         initialParty={initialWatchPartyParty}
         initialSession={initialWatchPartySession}
         onPartyJoined={(party, session) => {

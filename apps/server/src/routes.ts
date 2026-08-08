@@ -79,7 +79,28 @@ const watchPartyMediaSchema = Type.Object({
 
 export async function registerRoutes(app: FastifyInstance, context: RouteContext) {
   const { auth, authSettings, config, db } = context
-  const watchPartyHub = new WatchPartyHub()
+  const watchPartyHub = new WatchPartyHub((actor) => {
+    void (async () => {
+      const disconnectedAt = new Date()
+      await db
+        .update(watchPartyMembers)
+        .set({ leftAt: disconnectedAt })
+        .where(
+          and(
+            eq(watchPartyMembers.partyId, actor.partyId),
+            eq(watchPartyMembers.userId, actor.userId),
+            eq(watchPartyMembers.profileId, actor.profileId),
+            isNull(watchPartyMembers.leftAt),
+          ),
+        )
+      if (actor.role === "host") {
+        await db
+          .update(watchParties)
+          .set({ media: null, updatedAt: disconnectedAt })
+          .where(and(eq(watchParties.id, actor.partyId), eq(watchParties.status, "active")))
+      }
+    })().catch(() => undefined)
+  })
   watchPartyHub.attach(app.server)
   app.addHook("onClose", async () => watchPartyHub.close())
   const recoveryAttempts = new Map<string, { count: number; resetAt: number }>()
@@ -384,11 +405,11 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
       const [member] = await db
         .select({ role: watchPartyMembers.role })
         .from(watchPartyMembers)
-        .where(and(eq(watchPartyMembers.partyId, partyId), eq(watchPartyMembers.userId, user.id), eq(watchPartyMembers.profileId, profileId), isNull(watchPartyMembers.leftAt)))
+        .where(and(eq(watchPartyMembers.partyId, partyId), eq(watchPartyMembers.userId, user.id), eq(watchPartyMembers.profileId, profileId)))
         .limit(1)
       const [party] = await db.select().from(watchParties).where(and(eq(watchParties.id, partyId), eq(watchParties.status, "active"))).limit(1)
       if (!member || !party) return reply.forbidden("You are not an active member of this party")
-      await db.update(watchPartyMembers).set({ lastSeenAt: new Date() }).where(and(eq(watchPartyMembers.partyId, partyId), eq(watchPartyMembers.userId, user.id), eq(watchPartyMembers.profileId, profileId)))
+      await db.update(watchPartyMembers).set({ leftAt: null, lastSeenAt: new Date() }).where(and(eq(watchPartyMembers.partyId, partyId), eq(watchPartyMembers.userId, user.id), eq(watchPartyMembers.profileId, profileId)))
       if (party.media) watchPartyHub.seedMedia(party.id, party.media)
       return partyTicket(watchPartyHub, db, party.id, user.id, profileId, member.role)
     },
@@ -399,20 +420,20 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
     {
       schema: {
         params: Type.Object({ partyId: Type.String({ format: "uuid" }) }),
-        body: Type.Object({ profileId: Type.String({ format: "uuid" }), media: watchPartyMediaSchema }),
+        body: Type.Object({ profileId: Type.String({ format: "uuid" }), media: Type.Union([watchPartyMediaSchema, Type.Null()]) }),
       },
     },
     async (request, reply) => {
       const user = await requireUser(request, reply, auth)
       if (!user) return
       const { partyId } = request.params as { partyId: string }
-      const { profileId, media } = request.body as { profileId: string; media: WatchPartyMedia }
+      const { profileId, media } = request.body as { profileId: string; media: WatchPartyMedia | null }
       const [party] = await db.select().from(watchParties).where(eq(watchParties.id, partyId)).limit(1)
       if (!party || party.status !== "active") return reply.notFound("Party not found")
       if (!(await canAccessProfile(db, user.id, profileId))) return reply.forbidden()
       if (party.hostProfileId !== profileId) return reply.forbidden()
       const [updated] = await db.update(watchParties).set({ media, updatedAt: new Date() }).where(and(eq(watchParties.id, partyId), eq(watchParties.status, "active"))).returning()
-      watchPartyHub.publishMedia(partyId, updated?.media ?? media)
+      watchPartyHub.publishMedia(partyId, media)
       return { party: await partySummary(db, updated ?? { ...party, media }, profileId) }
     },
   )
