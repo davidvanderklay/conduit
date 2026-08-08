@@ -31,6 +31,7 @@ export interface ElectronDesktopBridge {
   onFullscreenChange(listener: (fullscreen: boolean) => void): () => void
   onPlayerOverlayClose(listener: () => void): () => void
   onPlayerOverlayNext(listener: () => void): () => void
+  onPlayerOverlayWatchParty(listener: () => void): () => void
   onPlayerOverlayTitle(listener: (title: string) => void): () => void
   setPlayerOverlayInteractiveRegions(
     regions: Array<{ left: number; top: number; right: number; bottom: number }>,

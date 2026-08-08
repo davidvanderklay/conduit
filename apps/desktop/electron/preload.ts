@@ -37,6 +37,11 @@ contextBridge.exposeInMainWorld("__CONDUIT_ELECTRON__", {
     ipcRenderer.on("conduit:player-overlay-next", handler)
     return () => ipcRenderer.removeListener("conduit:player-overlay-next", handler)
   },
+  onPlayerOverlayWatchParty(listener: () => void) {
+    const handler = () => listener()
+    ipcRenderer.on("conduit:player-overlay-watch-party", handler)
+    return () => ipcRenderer.removeListener("conduit:player-overlay-watch-party", handler)
+  },
   onPlayerOverlayTitle(listener: (title: string) => void) {
     const handler = (_event: Electron.IpcRendererEvent, title: string) => listener(title)
     ipcRenderer.on("conduit:player-overlay-title", handler)

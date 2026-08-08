@@ -21,6 +21,7 @@ import {
   Plus,
   Scaling,
   SkipForward,
+  UsersRound,
   Volume2,
   VolumeX,
   X,
@@ -296,12 +297,20 @@ export function ElectronPlayerOverlay({ initialTitle }: { initialTitle: string }
             )}
           </div>
         </div>
-        <OverlayButton
-          label={fullscreen ? "Exit fullscreen" : "Fullscreen"}
-          onClick={toggleFullscreen}
-        >
-          {fullscreen ? <Minimize size={20} /> : <Maximize size={20} />}
-        </OverlayButton>
+        <div className="flex items-center gap-2">
+          <OverlayButton
+            label="Watch together"
+            onClick={() => void window.__CONDUIT_ELECTRON__?.invoke("player_overlay_watch_party")}
+          >
+            <UsersRound size={20} />
+          </OverlayButton>
+          <OverlayButton
+            label={fullscreen ? "Exit fullscreen" : "Fullscreen"}
+            onClick={toggleFullscreen}
+          >
+            {fullscreen ? <Minimize size={20} /> : <Maximize size={20} />}
+          </OverlayButton>
+        </div>
       </div>
 
       <div
