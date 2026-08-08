@@ -481,6 +481,7 @@ jobs:
     needs: [windows, linux-appimage, linux-flatpak, macos, android]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           pattern: conduit-*
