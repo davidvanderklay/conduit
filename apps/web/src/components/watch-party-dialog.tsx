@@ -16,7 +16,6 @@ import {
 import {
   mediaFromProgressMetadata,
   WatchPartySession,
-  type WatchPartyEvent,
   type WatchPartyMedia,
   type WatchPartySummary,
 } from "../lib/watch-party"
@@ -101,7 +100,22 @@ export function WatchPartyDialog({
     let cancelled = false
     void listWatchParties(profile.id)
       .then((result) => {
-        if (!cancelled) setParties(result.parties)
+        if (cancelled) return
+        setParties(result.parties)
+        const hostedParty = result.parties.find((candidate) => candidate.status === "active" && candidate.isHost)
+        if (hostedParty && !party && !session) {
+          setLoading(true)
+          void joinWatchParty(hostedParty.id, hostedParty.hostProfileId)
+            .then((response) => {
+              if (!cancelled) void start(response, false, hostedParty.hostProfileId)
+            })
+            .catch((cause: unknown) => {
+              if (!cancelled) setError(errorMessage(cause))
+            })
+            .finally(() => {
+              if (!cancelled) setLoading(false)
+            })
+        }
       })
       .catch((cause: unknown) => {
         if (!cancelled) setError(errorMessage(cause))
@@ -109,7 +123,7 @@ export function WatchPartyDialog({
     return () => {
       cancelled = true
     }
-  }, [initialInviteToken, open, profile.id])
+  }, [initialInviteToken, open, party, profile.id, session])
 
   useEffect(() => {
     if (!open) return
@@ -134,7 +148,8 @@ export function WatchPartyDialog({
         setConnection("offline")
       }
       if (event.type === "presence") {
-        setParty((current) => current ? { ...current, memberCount: event.participants.length, members: event.participants } : current)
+        const participants = uniquePartyMembers(event.participants)
+        setParty((current) => current ? { ...current, memberCount: participants.length, members: participants } : current)
       }
     })
   }, [onSessionChange, session])
@@ -145,18 +160,26 @@ export function WatchPartyDialog({
     () => parties.filter((candidate) => candidate.status === "active"),
     [parties],
   )
+  const joinableParties = useMemo(
+    () => sortedParties.filter((candidate) => !candidate.isHost),
+    [sortedParties],
+  )
 
   if (!open) return null
 
-  async function start(response: WatchPartySessionResponse) {
+  async function start(
+    response: WatchPartySessionResponse,
+    notify = true,
+    sessionProfileId = profile.id,
+  ) {
     session?.close()
-    const next = createWatchPartySession(profile.id, response)
+    const next = createWatchPartySession(sessionProfileId, response)
     setSession(next)
     setParty(response.party)
     setInviteUrl(response.invite?.url)
     next.connect()
     setParties((current) => [response.party, ...current.filter((candidate) => candidate.id !== response.party.id)])
-    onPartyJoined?.(response.party, next, response)
+    if (notify) onPartyJoined?.(response.party, next, response)
   }
 
   async function create() {
@@ -176,7 +199,8 @@ export function WatchPartyDialog({
     setLoading(true)
     setError(undefined)
     try {
-      await start(await joinWatchParty(candidate.id, profile.id))
+      const joinProfileId = candidate.isHost ? candidate.hostProfileId : profile.id
+      await start(await joinWatchParty(candidate.id, joinProfileId), true, joinProfileId)
     } catch (cause) {
       setError(errorMessage(cause))
     } finally {
@@ -209,7 +233,7 @@ export function WatchPartyDialog({
     setLoading(true)
     setError(undefined)
     try {
-      const result = await createWatchPartyInvite(activeParty.id)
+      const result = await createWatchPartyInvite(activeParty.id, activeParty.hostProfileId)
       setInviteUrl(result.invite.url)
     } catch (cause) {
       setError(errorMessage(cause))
@@ -222,7 +246,8 @@ export function WatchPartyDialog({
     if (!activeParty) return
     setLoading(true)
     try {
-      if (session?.role === "host") await endWatchParty(activeParty.id)
+      const isHost = session?.role === "host" || activeParty.isHost
+      if (isHost) await endWatchParty(activeParty.id, activeParty.hostProfileId)
       else await leaveWatchParty(activeParty.id, profile.id)
       onPartyLeft?.(activeParty.id)
       session?.close()
@@ -268,18 +293,18 @@ export function WatchPartyDialog({
               copied={copied}
               loading={loading}
               connection={connection}
-              isHost={session?.role === "host"}
+              isHost={session?.role === "host" || activeParty.isHost}
               onCopy={() => void copyInvite()}
               onInvite={() => void invite()}
               onLeave={() => void leave()}
             />
           ) : (
             <>
-              {sortedParties.length > 0 && (
+              {joinableParties.length > 0 && (
                 <section>
-                  <div className="mb-2 flex items-center justify-between"><h3 className="text-sm font-semibold">Active parties</h3><span className="text-xs text-zinc-600">{sortedParties.length}</span></div>
+                  <div className="mb-2 flex items-center justify-between"><h3 className="text-sm font-semibold">Active parties</h3><span className="text-xs text-zinc-600">{joinableParties.length}</span></div>
                   <div className="space-y-2">
-                    {sortedParties.map((candidate) => (
+                    {joinableParties.map((candidate) => (
                       <button key={candidate.id} type="button" disabled={loading} onClick={() => void join(candidate)} className="flex w-full items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-900/60 p-3 text-left hover:border-zinc-700 disabled:opacity-50">
                         <div className="grid size-8 shrink-0 place-items-center rounded-full bg-zinc-800 text-zinc-300"><UsersRound size={15} /></div>
                         <span className="min-w-0 flex-1"><span className="block truncate text-sm text-zinc-200">{candidate.media.title}</span><span className="mt-0.5 block text-xs text-zinc-500">{candidate.memberCount} participant{candidate.memberCount === 1 ? "" : "s"} · {candidate.mode === "private" ? "Household only" : "Household + invited guests"}</span></span>
@@ -290,7 +315,11 @@ export function WatchPartyDialog({
                 </section>
               )}
 
-              <section className="border-t border-zinc-800 pt-5">
+              {sortedParties.some((candidate) => candidate.isHost) ? (
+                <section className="border-t border-zinc-800 pt-5">
+                  <p className="text-sm text-zinc-400">Opening your active party…</p>
+                </section>
+              ) : <section className="border-t border-zinc-800 pt-5">
                 <h3 className="text-sm font-semibold">Start a party</h3>
                 {canCreate ? (
                   <>
@@ -304,7 +333,7 @@ export function WatchPartyDialog({
                 ) : (
                   <p className="mt-2 text-sm leading-6 text-zinc-500">Open a movie or episode first to start a new party.</p>
                 )}
-              </section>
+              </section>}
 
               <section className="border-t border-zinc-800 pt-5">
                 <h3 className="text-sm font-semibold">Join with an invite</h3>
@@ -383,4 +412,13 @@ function errorMessage(cause: unknown): string {
 
 function inviteTokenValue(value: string): string {
   return value.trim().split("/").pop()?.split("?")[0] ?? value.trim()
+}
+
+function uniquePartyMembers(members: WatchPartySummary["members"]): WatchPartySummary["members"] {
+  const seen = new Set<string>()
+  return members.filter((member) => {
+    if (seen.has(member.profileId)) return false
+    seen.add(member.profileId)
+    return true
+  })
 }

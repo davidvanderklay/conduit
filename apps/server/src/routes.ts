@@ -1,7 +1,7 @@
 import { Type } from "@sinclair/typebox"
 import { createHash, createHmac, randomBytes } from "node:crypto"
 import { hashPassword } from "better-auth/crypto"
-import { and, asc, desc, eq, gt, inArray, isNull, lt, ne, notLike, or, sql } from "drizzle-orm"
+import { and, asc, desc, eq, gt, inArray, isNull, lt, ne, notLike, sql } from "drizzle-orm"
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify"
 import { fromNodeHeaders } from "better-auth/node"
 import type { Auth } from "./auth.js"
@@ -149,7 +149,7 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
         if (party) parties.set(party.id, party)
       }
       return {
-        parties: await Promise.all([...parties.values()].map((party) => partySummary(db, party))),
+        parties: await Promise.all([...parties.values()].map((party) => partySummary(db, party, profileId))),
       }
     },
   )
@@ -176,31 +176,48 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
       if (!(await canAccessProfile(db, user.id, body.profileId))) return reply.forbidden()
       await expireWatchParties(db, watchPartyHub)
       const expiresAt = new Date(Date.now() + WATCH_PARTY_TTL_MS)
-      const party = await db.transaction(async (tx) => {
-        const [created] = await tx
-          .insert(watchParties)
-          .values({
-            hostUserId: user.id,
-            hostProfileId: body.profileId,
-            mode: body.mode,
-            media: body.media,
-            expiresAt,
+      let party: typeof watchParties.$inferSelect
+      try {
+        party = await db.transaction(async (tx) => {
+          await tx
+            .select({ id: profiles.id })
+            .from(profiles)
+            .where(eq(profiles.id, body.profileId))
+            .for("update")
+          const [existing] = await tx
+            .select({ id: watchParties.id })
+            .from(watchParties)
+            .where(and(eq(watchParties.hostProfileId, body.profileId), eq(watchParties.status, "active")))
+            .limit(1)
+          if (existing) throw new WatchPartyError("This profile already hosts an active watch party", 409)
+          const [created] = await tx
+            .insert(watchParties)
+            .values({
+              hostUserId: user.id,
+              hostProfileId: body.profileId,
+              mode: body.mode,
+              media: body.media,
+              expiresAt,
+            })
+            .returning()
+          await tx.insert(watchPartyMembers).values({
+            partyId: created!.id,
+            userId: user.id,
+            profileId: body.profileId,
+            role: "host",
           })
-          .returning()
-        await tx.insert(watchPartyMembers).values({
-          partyId: created!.id,
-          userId: user.id,
-          profileId: body.profileId,
-          role: "host",
+          return created!
         })
-        return created!
-      })
+      } catch (cause: unknown) {
+        if (cause instanceof WatchPartyError) return reply.code(cause.statusCode).send({ message: cause.message })
+        throw cause
+      }
       watchPartyHub.seedMedia(party.id, party.media)
       const invite = body.mode === "shared"
         ? await createWatchPartyInvite(db, config.webOrigin, party.id, user.id)
         : undefined
       return reply.code(201).send({
-        party: await partySummary(db, party),
+        party: await partySummary(db, party, body.profileId),
         invite,
         ...(await partyTicket(watchPartyHub, db, party.id, user.id, body.profileId, "host")),
       })
@@ -221,6 +238,7 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
       const { partyId } = request.params as { partyId: string }
       const { profileId } = request.body as { profileId: string }
       if (!(await canAccessProfile(db, user.id, profileId))) return reply.forbidden()
+      await expireWatchParties(db, watchPartyHub)
       const [party] = await db.select().from(watchParties).where(eq(watchParties.id, partyId)).limit(1)
       if (!party || party.status !== "active") return reply.notFound("Watch party not found")
       const [existingMember] = await db
@@ -242,17 +260,18 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
       if (members.length >= MAX_WATCH_PARTY_MEMBERS && !members.some((member) => member.profileId === profileId)) {
         return reply.conflict("This party is full")
       }
+      const role = party.hostUserId === user.id && party.hostProfileId === profileId ? "host" : "guest"
       await db
         .insert(watchPartyMembers)
-        .values({ partyId, userId: user.id, profileId, role: "guest" })
+        .values({ partyId, userId: user.id, profileId, role })
         .onConflictDoUpdate({
           target: [watchPartyMembers.partyId, watchPartyMembers.profileId],
-          set: { leftAt: null, lastSeenAt: new Date() },
+          set: { leftAt: null, lastSeenAt: new Date(), role },
         })
       watchPartyHub.seedMedia(party.id, party.media)
       return {
-        party: await partySummary(db, party),
-        ...(await partyTicket(watchPartyHub, db, party.id, user.id, profileId)),
+        party: await partySummary(db, party, profileId),
+        ...(await partyTicket(watchPartyHub, db, party.id, user.id, profileId, role)),
       }
     },
   )
@@ -271,6 +290,7 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
       if (!consumeRecoveryAttempt(watchPartyInviteAttempts, request.ip)) {
         return reply.tooManyRequests("Too many invitation attempts. Try again later.")
       }
+      await expireWatchParties(db, watchPartyHub)
       const { token } = request.params as { token: string }
       const { profileId } = request.body as { profileId: string }
       if (!(await canAccessProfile(db, user.id, profileId))) return reply.forbidden()
@@ -317,7 +337,7 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
       if (!accepted) return reply.badRequest("This invitation is expired, revoked, already used, or unavailable")
       watchPartyHub.seedMedia(accepted.id, accepted.media)
       return {
-        party: await partySummary(db, accepted),
+        party: await partySummary(db, accepted, profileId),
         ...(await partyTicket(watchPartyHub, db, accepted.id, user.id, profileId)),
       }
     },
@@ -326,15 +346,21 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
   app.post(
     "/v1/watch-parties/:partyId/invites",
     {
-      schema: { params: Type.Object({ partyId: Type.String({ format: "uuid" }) }) },
+      schema: {
+        params: Type.Object({ partyId: Type.String({ format: "uuid" }) }),
+        body: Type.Object({ profileId: Type.String({ format: "uuid" }) }),
+      },
     },
     async (request, reply) => {
       const user = await requireUser(request, reply, auth)
       if (!user) return
       const { partyId } = request.params as { partyId: string }
+      const { profileId } = request.body as { profileId: string }
+      await expireWatchParties(db, watchPartyHub)
+      if (!(await canAccessProfile(db, user.id, profileId))) return reply.forbidden()
       const [party] = await db.select().from(watchParties).where(eq(watchParties.id, partyId)).limit(1)
       if (!party || party.status !== "active") return reply.notFound("Party not found")
-      if (party.hostUserId !== user.id) return reply.forbidden()
+      if (party.hostProfileId !== profileId) return reply.forbidden()
       if (party.mode !== "shared") return reply.conflict("Private parties cannot invite another account")
       return { invite: await createWatchPartyInvite(db, config.webOrigin, partyId, user.id) }
     },
@@ -353,6 +379,7 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
       if (!user) return
       const { partyId } = request.params as { partyId: string }
       const { profileId } = request.body as { profileId: string }
+      await expireWatchParties(db, watchPartyHub)
       if (!(await canAccessProfile(db, user.id, profileId))) return reply.forbidden()
       const [member] = await db
         .select({ role: watchPartyMembers.role })
@@ -372,20 +399,21 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
     {
       schema: {
         params: Type.Object({ partyId: Type.String({ format: "uuid" }) }),
-        body: Type.Object({ media: watchPartyMediaSchema }),
+        body: Type.Object({ profileId: Type.String({ format: "uuid" }), media: watchPartyMediaSchema }),
       },
     },
     async (request, reply) => {
       const user = await requireUser(request, reply, auth)
       if (!user) return
       const { partyId } = request.params as { partyId: string }
-      const { media } = request.body as { media: WatchPartyMedia }
+      const { profileId, media } = request.body as { profileId: string; media: WatchPartyMedia }
       const [party] = await db.select().from(watchParties).where(eq(watchParties.id, partyId)).limit(1)
       if (!party || party.status !== "active") return reply.notFound("Party not found")
-      if (party.hostUserId !== user.id) return reply.forbidden()
+      if (!(await canAccessProfile(db, user.id, profileId))) return reply.forbidden()
+      if (party.hostProfileId !== profileId) return reply.forbidden()
       const [updated] = await db.update(watchParties).set({ media, updatedAt: new Date() }).where(and(eq(watchParties.id, partyId), eq(watchParties.status, "active"))).returning()
       watchPartyHub.publishMedia(partyId, updated?.media ?? media)
-      return { party: await partySummary(db, updated ?? { ...party, media }) }
+      return { party: await partySummary(db, updated ?? { ...party, media }, profileId) }
     },
   )
 
@@ -397,24 +425,33 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
       if (!user) return
       const { partyId } = request.params as { partyId: string }
       const { profileId } = request.body as { profileId: string }
+      await expireWatchParties(db, watchPartyHub)
       const [member] = await db.select().from(watchPartyMembers).where(and(eq(watchPartyMembers.partyId, partyId), eq(watchPartyMembers.userId, user.id), eq(watchPartyMembers.profileId, profileId), isNull(watchPartyMembers.leftAt))).limit(1)
       if (!member) return reply.notFound("Party membership not found")
       if (member.role === "host") return reply.conflict("The host must end the party")
       await db.update(watchPartyMembers).set({ leftAt: new Date() }).where(and(eq(watchPartyMembers.partyId, partyId), eq(watchPartyMembers.userId, user.id), eq(watchPartyMembers.profileId, profileId)))
+      await expireWatchParties(db, watchPartyHub)
       return reply.code(204).send()
     },
   )
 
   app.post(
     "/v1/watch-parties/:partyId/end",
-    { schema: { params: Type.Object({ partyId: Type.String({ format: "uuid" }) }) } },
+    {
+      schema: {
+        params: Type.Object({ partyId: Type.String({ format: "uuid" }) }),
+        body: Type.Object({ profileId: Type.String({ format: "uuid" }) }),
+      },
+    },
     async (request, reply) => {
       const user = await requireUser(request, reply, auth)
       if (!user) return
       const { partyId } = request.params as { partyId: string }
+      const { profileId } = request.body as { profileId: string }
+      if (!(await canAccessProfile(db, user.id, profileId))) return reply.forbidden()
       const [party] = await db.select().from(watchParties).where(eq(watchParties.id, partyId)).limit(1)
       if (!party) return reply.notFound("Party not found")
-      if (party.hostUserId !== user.id) return reply.forbidden()
+      if (party.hostProfileId !== profileId) return reply.forbidden()
       const endedAt = new Date()
       await db.transaction(async (tx) => {
         await tx.update(watchParties).set({ status: "ended", endedAt, updatedAt: endedAt }).where(and(eq(watchParties.id, partyId), eq(watchParties.status, "active")))
@@ -2394,12 +2431,13 @@ async function activePartyMembers(db: Database, partyId: string) {
     .where(and(eq(watchPartyMembers.partyId, partyId), isNull(watchPartyMembers.leftAt)))
 }
 
-async function partySummary(db: Database, party: typeof watchParties.$inferSelect) {
+async function partySummary(db: Database, party: typeof watchParties.$inferSelect, viewerProfileId: string) {
   const members = await activePartyMembers(db, party.id)
   return {
     id: party.id,
     mode: party.mode,
     status: party.status,
+    isHost: party.hostProfileId === viewerProfileId,
     hostProfileId: party.hostProfileId,
     media: party.media,
     memberCount: members.length,
@@ -2456,17 +2494,53 @@ function hashWatchPartyToken(token: string): string {
 }
 
 async function expireWatchParties(db: Database, hub: WatchPartyHub): Promise<void> {
-  const expired = await db
-    .select({ id: watchParties.id })
+  const active = await db
+    .select({
+      id: watchParties.id,
+      hostProfileId: watchParties.hostProfileId,
+      expiresAt: watchParties.expiresAt,
+      createdAt: watchParties.createdAt,
+    })
     .from(watchParties)
-    .where(and(eq(watchParties.status, "active"), lt(watchParties.expiresAt, new Date())))
-  if (!expired.length) return
-  const endedAt = new Date()
-  await db
-    .update(watchParties)
-    .set({ status: "ended", endedAt, updatedAt: endedAt })
-    .where(inArray(watchParties.id, expired.map((party) => party.id)))
-  expired.forEach((party) => hub.removeParty(party.id, "Party expired"))
+    .where(eq(watchParties.status, "active"))
+    .orderBy(desc(watchParties.createdAt))
+  if (!active.length) return
+
+  const members = await db
+    .select({ partyId: watchPartyMembers.partyId })
+    .from(watchPartyMembers)
+    .where(and(inArray(watchPartyMembers.partyId, active.map((party) => party.id)), isNull(watchPartyMembers.leftAt)))
+  const partiesWithMembers = new Set(members.map((member) => member.partyId))
+  const seenHostProfiles = new Set<string>()
+  const emptyIds: string[] = []
+  const endedIds: string[] = []
+  const now = new Date()
+  for (const party of active) {
+    if (!partiesWithMembers.has(party.id)) {
+      emptyIds.push(party.id)
+      continue
+    }
+    if (party.expiresAt < now || seenHostProfiles.has(party.hostProfileId)) {
+      endedIds.push(party.id)
+      continue
+    }
+    seenHostProfiles.add(party.hostProfileId)
+  }
+
+  if (emptyIds.length) {
+    await db.delete(watchParties).where(inArray(watchParties.id, emptyIds))
+  }
+  if (endedIds.length) {
+    const endedAt = new Date()
+    await db
+      .update(watchParties)
+      .set({ status: "ended", endedAt, updatedAt: endedAt })
+      .where(inArray(watchParties.id, endedIds))
+  }
+  if (!emptyIds.length && !endedIds.length) return
+  for (const partyId of [...emptyIds, ...endedIds]) {
+    hub.removeParty(partyId, emptyIds.includes(partyId) ? "Party closed" : "Party expired")
+  }
 }
 
 async function resolveAddonProfileId(db: Database, profileId: string): Promise<string> {

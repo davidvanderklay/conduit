@@ -40,8 +40,11 @@ export function acceptWatchPartyInvite(token: string, profileId: string) {
   })
 }
 
-export function createWatchPartyInvite(partyId: string) {
-  return api<{ invite: WatchPartyInvite }>(`/v1/watch-parties/${partyId}/invites`, { method: "POST" })
+export function createWatchPartyInvite(partyId: string, profileId: string) {
+  return api<{ invite: WatchPartyInvite }>(`/v1/watch-parties/${partyId}/invites`, {
+    method: "POST",
+    body: JSON.stringify({ profileId }),
+  })
 }
 
 export function refreshWatchPartyTicket(partyId: string, profileId: string) {
@@ -58,13 +61,16 @@ export function leaveWatchParty(partyId: string, profileId: string) {
   })
 }
 
-export function endWatchParty(partyId: string) {
-  return api<void>(`/v1/watch-parties/${partyId}/end`, { method: "POST" })
+export function endWatchParty(partyId: string, profileId: string) {
+  return api<void>(`/v1/watch-parties/${partyId}/end`, {
+    method: "POST",
+    body: JSON.stringify({ profileId }),
+  })
 }
 
-export function updateWatchPartyMedia(partyId: string, media: WatchPartyMedia) {
+export function updateWatchPartyMedia(partyId: string, profileId: string, media: WatchPartyMedia) {
   return api<{ party: WatchPartySummary }>(`/v1/watch-parties/${partyId}/media`, {
     method: "PATCH",
-    body: JSON.stringify({ media }),
+    body: JSON.stringify({ profileId, media }),
   })
 }
