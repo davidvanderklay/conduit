@@ -173,6 +173,33 @@ describe("DesktopPlayer track menus", () => {
     expect(desktop.resetNativeOverlaySurface).toHaveBeenCalledOnce()
   })
 
+  it("does not treat an uninitialized native EOF as playback completion", async () => {
+    const onEnded = vi.fn()
+    desktop.openNativePlayer.mockResolvedValueOnce({
+      ...snapshot,
+      duration: 0,
+      ended: true,
+    })
+
+    await act(async () => {
+      root.render(
+        <DesktopPlayer
+          url="https://example.com/uninitialized.mp4"
+          type="movie"
+          videoId="tt789"
+          profileId="00000000-0000-4000-8000-000000000001"
+          progressMetadata={{ mediaType: "movie", mediaId: "tt789", name: "Uninitialized video" }}
+          addons={[]}
+          onEnded={onEnded}
+          onClose={() => undefined}
+        />,
+      )
+      await Promise.resolve()
+    })
+
+    expect(onEnded).not.toHaveBeenCalled()
+  })
+
   it("does not mount the center loading overlay for cache pauses", async () => {
     desktop.nativePlayerSnapshot.mockResolvedValueOnce({
       ...snapshot,
