@@ -54,6 +54,9 @@ export function WatchPartyDialog({
   profile,
   media,
   initialInviteToken,
+  initialParty,
+  initialSession,
+  onPartyJoined,
   onSessionChange,
 }: {
   open: boolean
@@ -61,18 +64,28 @@ export function WatchPartyDialog({
   profile: Profile
   media?: WatchPartyMedia
   initialInviteToken?: string
+  initialParty?: WatchPartySummary
+  initialSession?: WatchPartySession
+  onPartyJoined?: (party: WatchPartySummary, session: WatchPartySession) => void
   onSessionChange?: (session: WatchPartySession | undefined) => void
 }) {
   const [parties, setParties] = useState<WatchPartySummary[]>([])
-  const [party, setParty] = useState<WatchPartySummary>()
+  const [party, setParty] = useState<WatchPartySummary | undefined>(initialParty)
   const [inviteUrl, setInviteUrl] = useState<string>()
-  const [session, setSession] = useState<WatchPartySession>()
+  const [session, setSession] = useState<WatchPartySession | undefined>(initialSession)
   const [mode, setMode] = useState<"private" | "shared">("private")
   const [inviteToken, setInviteToken] = useState(initialInviteToken ?? "")
   const [copied, setCopied] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string>()
   const [connection, setConnection] = useState<"connecting" | "connected" | "offline">("connecting")
+
+  useEffect(() => {
+    if (initialParty && initialSession && initialSession !== session) {
+      setParty(initialParty)
+      setSession(initialSession)
+    }
+  }, [initialParty, initialSession, session])
 
   useEffect(() => {
     if (!open) return
@@ -109,7 +122,9 @@ export function WatchPartyDialog({
       if (event.type === "connected") setConnection("connected")
       if (event.type === "disconnected") setConnection("offline")
       if (event.type === "ended") {
-        setParty((current) => current ? { ...current, status: "ended" } : current)
+        setParties((current) => current.filter((candidate) => candidate.id !== session.partyId))
+        setParty((current) => current?.id === session.partyId ? undefined : current)
+        setSession((current) => current === session ? undefined : current)
         setConnection("offline")
       }
       if (event.type === "presence") {
@@ -143,6 +158,7 @@ export function WatchPartyDialog({
     setInviteUrl(response.invite?.url)
     next.connect()
     setParties((current) => [response.party, ...current.filter((candidate) => candidate.id !== response.party.id)])
+    onPartyJoined?.(response.party, next)
   }
 
   async function create() {
