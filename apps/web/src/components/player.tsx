@@ -510,7 +510,7 @@ function WebPlayer({
             <Play className="rotate-180 fill-current" size={22} />
           </button>
           <PlayerHeadingText heading={heading} />
-          <div className="ml-auto">
+          <div className="ml-auto flex items-center gap-1">
             {onWatchParty && <PartyPlayerButton onClick={onWatchParty} active={partySession != null} />}
             <button
               className="grid size-10 place-items-center rounded-full bg-black/60 text-zinc-200 hover:bg-white/15"

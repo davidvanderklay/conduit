@@ -45,6 +45,7 @@ import { DiscoverView, type DiscoverSelection } from "./components/discover-view
 import { VirtualVerticalList } from "./components/virtual-vertical-list"
 import { FullscreenToggle } from "./components/fullscreen-toggle"
 import { WatchPartyButton, WatchPartyDialog } from "./components/watch-party-dialog"
+import { WatchPartySession, type WatchPartySummary } from "./lib/watch-party"
 
 export function App() {
   const session = authClient.useSession()
@@ -608,6 +609,8 @@ function AuthenticatedApp({
   const [discoverSelection, setDiscoverSelection] = useState<DiscoverSelection>({})
   const [watchPartyOpen, setWatchPartyOpen] = useState(false)
   const [watchPartyInviteToken] = useState(() => readWatchPartyInviteToken())
+  const [watchPartyLaunch, setWatchPartyLaunch] = useState<WatchPartyLaunch>()
+  const [watchPartyDialogKey, setWatchPartyDialogKey] = useState(0)
   const scrollViewportRef = useRef<HTMLDivElement>(null)
 
   const profiles = useMemo(
@@ -689,6 +692,23 @@ function AuthenticatedApp({
     setSection(nextSection)
     setSearchInput("")
     setQuery("")
+  }
+  const launchWatchParty = (party: WatchPartySummary, session: WatchPartySession) => {
+    setWatchPartyLaunch({ party, session })
+    setWatchPartyOpen(false)
+    setWatchPartyDialogKey((key) => key + 1)
+  }
+  const closeWatchParty = () => {
+    watchPartyLaunch?.session.close()
+    setWatchPartyLaunch(undefined)
+    setWatchPartyDialogKey((key) => key + 1)
+  }
+  const updateWatchPartySession = (session: WatchPartySession | undefined) => {
+    setWatchPartyLaunch((current) => {
+      if (!current) return current
+      return session ? { ...current, session } : undefined
+    })
+    if (!session) setWatchPartyDialogKey((key) => key + 1)
   }
 
   return (
@@ -786,6 +806,9 @@ function AuthenticatedApp({
           query={query}
           discoverSelection={discoverSelection}
           onDiscoverSelection={setDiscoverSelection}
+          watchPartyLaunch={watchPartyLaunch}
+          onWatchPartyClose={closeWatchParty}
+          onWatchPartySessionChange={updateWatchPartySession}
           onMetadataBrowse={(target) => {
             if (target.kind === "genre") {
               setSearchInput("")
@@ -800,13 +823,20 @@ function AuthenticatedApp({
         />
       </div>
       <WatchPartyDialog
+        key={watchPartyDialogKey}
         open={watchPartyOpen}
         onOpenChange={setWatchPartyOpen}
         profile={activeProfile}
         initialInviteToken={watchPartyInviteToken}
+        onPartyJoined={launchWatchParty}
       />
     </div>
   )
+}
+
+interface WatchPartyLaunch {
+  party: WatchPartySummary
+  session: WatchPartySession
 }
 
 function readWatchPartyInviteToken(): string | undefined {
@@ -873,6 +903,9 @@ function ProfileApp({
   query,
   discoverSelection,
   onDiscoverSelection,
+  watchPartyLaunch,
+  onWatchPartyClose,
+  onWatchPartySessionChange,
   onMetadataBrowse,
 }: {
   profile: Profile
@@ -885,10 +918,21 @@ function ProfileApp({
   query: string
   discoverSelection: DiscoverSelection
   onDiscoverSelection: (selection: DiscoverSelection) => void
+  watchPartyLaunch?: WatchPartyLaunch
+  onWatchPartyClose: () => void
+  onWatchPartySessionChange: (session: WatchPartySession | undefined) => void
   onMetadataBrowse: (target: MetadataBrowseTarget) => void
 }) {
   const [selectedItem, setSelectedItem] = useState<CatalogItem>()
   const [selectedVideoId, setSelectedVideoId] = useState<string>()
+  const watchPartyItem: CatalogItem | undefined = watchPartyLaunch
+    ? {
+        id: watchPartyLaunch.party.media.mediaId,
+        type: watchPartyLaunch.party.media.type,
+        name: watchPartyLaunch.party.media.title,
+        poster: watchPartyLaunch.party.media.poster,
+      }
+    : undefined
   const addons = useQuery({
     queryKey: ["addons", profile.id],
     queryFn: () => api<{ addons: InstalledAddon[] }>(`/v1/profiles/${profile.id}/addons`),
@@ -978,14 +1022,20 @@ function ProfileApp({
           }}
         />
       )}
-      {selectedItem && addons.data && (
+      {(watchPartyItem ?? selectedItem) && addons.data && (
         <MediaDetails
-          item={selectedItem}
+          item={watchPartyItem ?? selectedItem!}
           addons={addons.data.addons}
           profileId={profile.id}
-          initialVideoId={selectedVideoId}
+          initialVideoId={watchPartyLaunch?.party.media.videoId ?? selectedVideoId}
+          initialWatchPartyParty={watchPartyLaunch?.party}
+          initialWatchPartySession={watchPartyLaunch?.session}
+          onWatchPartySessionChange={onWatchPartySessionChange}
           onBrowse={onMetadataBrowse}
-          onClose={() => setSelectedItem(undefined)}
+          onClose={() => {
+            setSelectedItem(undefined)
+            if (watchPartyLaunch) onWatchPartyClose()
+          }}
         />
       )}
     </PosterWatchStatusProvider>

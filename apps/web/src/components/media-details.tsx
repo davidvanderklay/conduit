@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   ArrowLeft,
@@ -40,7 +40,11 @@ import { Player } from "./player"
 import { LibraryToggle } from "./library-toggle"
 import { EpisodeSelector } from "./episode-selector"
 import { WatchPartyDialog, mediaForParty } from "./watch-party-dialog"
-import { type WatchPartyMedia, type WatchPartySession } from "../lib/watch-party"
+import {
+  type WatchPartyMedia,
+  type WatchPartySession,
+  type WatchPartySummary,
+} from "../lib/watch-party"
 
 interface ResolvedStream extends Stream {
   key: string
@@ -56,6 +60,9 @@ export function MediaDetails({
   addons,
   profileId,
   initialVideoId,
+  initialWatchPartyParty,
+  initialWatchPartySession,
+  onWatchPartySessionChange,
   onBrowse,
   onClose,
 }: {
@@ -63,6 +70,9 @@ export function MediaDetails({
   addons: InstalledAddon[]
   profileId: string
   initialVideoId?: string
+  initialWatchPartyParty?: WatchPartySummary
+  initialWatchPartySession?: WatchPartySession
+  onWatchPartySessionChange?: (session: WatchPartySession | undefined) => void
   onBrowse?: (target: MetadataBrowseTarget) => void
   onClose: () => void
 }) {
@@ -73,9 +83,10 @@ export function MediaDetails({
   const [playing, setPlaying] = useState<ResolvedStream>()
   const [streamResolutionError, setStreamResolutionError] = useState<string>()
   const [watchPartyOpen, setWatchPartyOpen] = useState(false)
-  const [watchPartySession, setWatchPartySession] = useState<WatchPartySession>()
+  const [watchPartySession, setWatchPartySession] = useState<WatchPartySession | undefined>(initialWatchPartySession)
   const queryClient = useQueryClient()
   const episodeTransition = useRef(0)
+  const partyAutoPlayKey = useRef<string | undefined>(undefined)
   const initialSeriesVideoResolved = useRef(false)
   const episodeRailScrollTop = useRef<number | undefined>(undefined)
   const seriesReturnVideoId = useRef<string | undefined>(
@@ -147,6 +158,12 @@ export function MediaDetails({
   }, [initialVideoId, item.type, metadata.isSuccess, progress.data, progress.isSuccess, videos])
 
   useEffect(() => {
+    if (initialWatchPartySession && initialWatchPartySession !== watchPartySession) {
+      setWatchPartySession(initialWatchPartySession)
+    }
+  }, [initialWatchPartySession, watchPartySession])
+
+  useEffect(() => {
     if (selectedVideo && selectedSeason == null) {
       setSelectedSeason(selectedVideo.season ?? 1)
       return
@@ -172,6 +189,20 @@ export function MediaDetails({
   useEffect(() => {
     if (watchPartySession?.role === "host") watchPartySession.publishMedia(watchPartyMedia)
   }, [watchPartyMedia, watchPartySession])
+
+  useEffect(() => {
+    if (!initialWatchPartySession || !initialWatchPartyParty || !activeVideoId || !streams.isSuccess) return
+    const key = `${initialWatchPartyParty.id}:${activeVideoId}`
+    if (partyAutoPlayKey.current === key) return
+    partyAutoPlayKey.current = key
+    const firstPlayableStream = streams.data.find((stream) => Boolean(stream.url))
+    if (!firstPlayableStream) {
+      setStreamResolutionError("No direct stream was found automatically. Choose a source below to join playback.")
+      return
+    }
+    setStreamResolutionError(undefined)
+    setPlaying(firstPlayableStream)
+  }, [activeVideoId, initialWatchPartyParty, initialWatchPartySession, streams.data, streams.isSuccess])
 
   useEffect(() => {
     const electron = window.__CONDUIT_ELECTRON__
@@ -225,6 +256,17 @@ export function MediaDetails({
     setSelectedSeason(video.season ?? 1)
     seriesReturnVideoId.current = video.id
   }
+
+  const updateWatchPartySession = useCallback((next: WatchPartySession | undefined) => {
+    setWatchPartySession(next)
+    onWatchPartySessionChange?.(next)
+  }, [onWatchPartySessionChange])
+
+  const partyFindingStream = Boolean(
+    initialWatchPartySession &&
+    !playing &&
+    (metadata.isLoading || progress.isLoading || streams.isLoading || (item.type === "series" && !activeVideoId)),
+  )
 
   return (
     <>
@@ -328,6 +370,14 @@ export function MediaDetails({
             />
           )}
         </main>
+        {partyFindingStream && (
+          <div className="pointer-events-none fixed inset-x-0 bottom-5 z-20 flex justify-center px-5" aria-live="polite">
+            <p className="flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-950/90 px-3 py-2 text-xs text-zinc-300 shadow-xl shadow-black/30 backdrop-blur">
+              <LoaderCircle className="animate-spin text-amber-300" size={14} />
+              Finding a playable stream for the party…
+            </p>
+          </div>
+        )}
       </div>
 
       {playing?.url && (
@@ -379,7 +429,9 @@ export function MediaDetails({
         onOpenChange={setWatchPartyOpen}
         profile={{ id: profileId, name: "", isKids: false }}
         media={watchPartyMedia}
-        onSessionChange={setWatchPartySession}
+        initialParty={initialWatchPartyParty}
+        initialSession={initialWatchPartySession}
+        onSessionChange={updateWatchPartySession}
       />
     </>
   )
