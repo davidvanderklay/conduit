@@ -1,3 +1,11 @@
+import type { WatchPartyMedia } from "./watch-party"
+import type { WatchPartySessionResponse } from "./watch-party-api"
+
+export interface ElectronPlayerOverlayContext {
+  profileId: string
+  media: WatchPartyMedia
+}
+
 export interface NativeTrack {
   id: number
   type: "audio" | "video" | "sub"
@@ -32,6 +40,9 @@ export interface ElectronDesktopBridge {
   onPlayerOverlayClose(listener: () => void): () => void
   onPlayerOverlayNext(listener: () => void): () => void
   onPlayerOverlayWatchParty(listener: () => void): () => void
+  onPlayerOverlayContext(listener: (context: unknown) => void): () => void
+  onPlayerOverlayWatchPartyJoined(listener: (response: WatchPartySessionResponse) => void): () => void
+  onPlayerOverlayWatchPartyLeft(listener: (partyId: string) => void): () => void
   onPlayerOverlayTitle(listener: (title: string) => void): () => void
   setPlayerOverlayInteractiveRegions(
     regions: Array<{ left: number; top: number; right: number; bottom: number }>,
@@ -64,8 +75,15 @@ export function openNativePlayer(
   title: string,
   readAheadSeconds: number,
   hardwareAcceleration: boolean,
+  watchPartyContext?: ElectronPlayerOverlayContext,
 ): Promise<NativePlayerSnapshot> {
-  return invoke("player_open", { url, title, readAheadSeconds, hardwareAcceleration })
+  return invoke("player_open", {
+    url,
+    title,
+    readAheadSeconds,
+    hardwareAcceleration,
+    ...(watchPartyContext ? { watchPartyContext } : {}),
+  })
 }
 
 export function nativePlayerSnapshot(): Promise<NativePlayerSnapshot> {

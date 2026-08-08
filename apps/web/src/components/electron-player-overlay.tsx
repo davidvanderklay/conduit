@@ -26,13 +26,16 @@ import {
   VolumeX,
   X,
 } from "lucide-react"
+import type { Profile } from "../lib/api"
 import {
+  type ElectronPlayerOverlayContext,
   nativePlayerCommand,
   nativePlayerSnapshot,
   toggleNativeFullscreen,
   type NativePlayerSnapshot,
   type NativeTrack,
 } from "../lib/desktop"
+import { WatchPartyDialog } from "./watch-party-dialog"
 import {
   VIDEO_SCALE_OPTIONS,
   mpvVideoScaleCommands,
@@ -49,8 +52,19 @@ import { readPreferences, writePreferences } from "../lib/preferences"
 
 type TrackMenuName = "audio" | "subtitles"
 
-export function ElectronPlayerOverlay({ initialTitle }: { initialTitle: string }) {
+export function ElectronPlayerOverlay({
+  initialTitle,
+  initialWatchPartyContext,
+}: {
+  initialTitle: string
+  initialWatchPartyContext?: ElectronPlayerOverlayContext
+}) {
   const [title, setTitle] = useState(initialTitle)
+  const [watchPartyContext, setWatchPartyContext] = useState(() =>
+    initialWatchPartyContext ?? readPlayerOverlayContext(),
+  )
+  const [watchPartyOpen, setWatchPartyOpen] = useState(false)
+  const [watchPartyDialogKey, setWatchPartyDialogKey] = useState(0)
   const [snapshot, setSnapshot] = useState<NativePlayerSnapshot>()
   const [fullscreen, setFullscreen] = useState(false)
   const [scale, setScale] = useState<VideoScale>("fit")
@@ -140,15 +154,37 @@ export function ElectronPlayerOverlay({ initialTitle }: { initialTitle: string }
     if (!electron) return
     const unsubscribeFullscreen = electron.onFullscreenChange(setFullscreen)
     const unsubscribeTitle = electron.onPlayerOverlayTitle(setTitle)
+    const unsubscribeContext = electron.onPlayerOverlayContext((context) => {
+      const next = parsePlayerOverlayContext(context)
+      if (next) setWatchPartyContext(next)
+    })
+    const unsubscribeWatchParty = electron.onPlayerOverlayWatchParty(() => setWatchPartyOpen(true))
     const unsubscribeWake = electron.onPlayerOverlayWake
       ? electron.onPlayerOverlayWake(showControls)
       : undefined
     return () => {
       unsubscribeFullscreen()
       unsubscribeTitle()
+      unsubscribeContext()
+      unsubscribeWatchParty()
       unsubscribeWake?.()
     }
   }, [showControls])
+
+  const handoffParty = useCallback((
+    _party: unknown,
+    session: { close: () => void },
+    response: unknown,
+  ) => {
+    session.close()
+    void window.__CONDUIT_ELECTRON__?.invoke("player_overlay_watch_party_joined", response)
+    setWatchPartyOpen(false)
+    setWatchPartyDialogKey((key) => key + 1)
+  }, [])
+
+  const handoffPartyLeave = useCallback((partyId: string) => {
+    void window.__CONDUIT_ELECTRON__?.invoke("player_overlay_watch_party_left", { partyId })
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -261,13 +297,14 @@ export function ElectronPlayerOverlay({ initialTitle }: { initialTitle: string }
   }, [activeTrackMenu])
 
   return (
-    <div
-      className={rootClassName}
-      onMouseMove={showControls}
-      onClick={(event) => {
-        if (event.target === event.currentTarget) togglePlayback()
-      }}
-    >
+    <>
+      <div
+        className={rootClassName}
+        onMouseMove={showControls}
+        onClick={(event) => {
+          if (event.target === event.currentTarget) togglePlayback()
+        }}
+      >
       {/* Edge scrims keep the chrome legible without darkening the subtitle plane. */}
       <div
         className={`pointer-events-none absolute inset-x-0 top-0 h-48 bg-gradient-to-b from-black/85 via-black/55 to-transparent transition-opacity duration-300 ${controlsVisible ? "opacity-100" : "opacity-0"}`}
@@ -300,7 +337,7 @@ export function ElectronPlayerOverlay({ initialTitle }: { initialTitle: string }
         <div className="flex items-center gap-2">
           <OverlayButton
             label="Watch together"
-            onClick={() => void window.__CONDUIT_ELECTRON__?.invoke("player_overlay_watch_party")}
+            onClick={() => setWatchPartyOpen(true)}
           >
             <UsersRound size={20} />
           </OverlayButton>
@@ -445,7 +482,59 @@ export function ElectronPlayerOverlay({ initialTitle }: { initialTitle: string }
         </div>
       </div>
     </div>
+      {watchPartyContext && (
+        <WatchPartyDialog
+          key={watchPartyDialogKey}
+          open={watchPartyOpen}
+          onOpenChange={setWatchPartyOpen}
+          profile={overlayProfile(watchPartyContext)}
+          media={watchPartyContext.media}
+          onPartyJoined={handoffParty}
+          onPartyLeft={handoffPartyLeave}
+        />
+      )}
+    </>
   )
+}
+
+function parsePlayerOverlayContext(value: unknown): ElectronPlayerOverlayContext | undefined {
+  if (!value || typeof value !== "object") return undefined
+  const context = value as Record<string, unknown>
+  if (typeof context.profileId !== "string" || !context.media || typeof context.media !== "object") return undefined
+  const media = context.media as Record<string, unknown>
+  if (
+    (media.type !== "movie" && media.type !== "series") ||
+    typeof media.mediaId !== "string" ||
+    typeof media.videoId !== "string" ||
+    typeof media.title !== "string"
+  ) return undefined
+  return {
+    profileId: context.profileId,
+    media: {
+      type: media.type,
+      mediaId: media.mediaId,
+      videoId: media.videoId,
+      title: media.title,
+      poster: typeof media.poster === "string" ? media.poster : undefined,
+      videoTitle: typeof media.videoTitle === "string" ? media.videoTitle : undefined,
+      season: typeof media.season === "number" ? media.season : undefined,
+      episode: typeof media.episode === "number" ? media.episode : undefined,
+    },
+  }
+}
+
+function readPlayerOverlayContext(): ElectronPlayerOverlayContext | undefined {
+  const encoded = new URLSearchParams(window.location.search).get("watchPartyContext")
+  if (!encoded) return undefined
+  try {
+    return parsePlayerOverlayContext(JSON.parse(encoded))
+  } catch {
+    return undefined
+  }
+}
+
+function overlayProfile(context: ElectronPlayerOverlayContext): Profile {
+  return { id: context.profileId, name: "", isKids: false }
 }
 
 export function defaultSubtitleTrack(

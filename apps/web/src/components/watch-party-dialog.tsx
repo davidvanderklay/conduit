@@ -57,6 +57,7 @@ export function WatchPartyDialog({
   initialParty,
   initialSession,
   onPartyJoined,
+  onPartyLeft,
   onSessionChange,
 }: {
   open: boolean
@@ -66,7 +67,12 @@ export function WatchPartyDialog({
   initialInviteToken?: string
   initialParty?: WatchPartySummary
   initialSession?: WatchPartySession
-  onPartyJoined?: (party: WatchPartySummary, session: WatchPartySession) => void
+  onPartyJoined?: (
+    party: WatchPartySummary,
+    session: WatchPartySession,
+    response: WatchPartySessionResponse,
+  ) => void
+  onPartyLeft?: (partyId: string) => void
   onSessionChange?: (session: WatchPartySession | undefined) => void
 }) {
   const [parties, setParties] = useState<WatchPartySummary[]>([])
@@ -144,21 +150,13 @@ export function WatchPartyDialog({
 
   async function start(response: WatchPartySessionResponse) {
     session?.close()
-    const next = new WatchPartySession({
-      partyId: response.party.id,
-      ticket: response.ticket,
-      expiresAt: response.expiresAt,
-      socketPath: response.socketPath,
-      role: response.party.hostProfileId === profile.id ? "host" : "guest",
-      refreshTicket: () => refreshWatchPartyTicket(response.party.id, profile.id),
-      apiUrl: API_URL,
-    })
+    const next = createWatchPartySession(profile.id, response)
     setSession(next)
     setParty(response.party)
     setInviteUrl(response.invite?.url)
     next.connect()
     setParties((current) => [response.party, ...current.filter((candidate) => candidate.id !== response.party.id)])
-    onPartyJoined?.(response.party, next)
+    onPartyJoined?.(response.party, next, response)
   }
 
   async function create() {
@@ -226,6 +224,7 @@ export function WatchPartyDialog({
     try {
       if (session?.role === "host") await endWatchParty(activeParty.id)
       else await leaveWatchParty(activeParty.id, profile.id)
+      onPartyLeft?.(activeParty.id)
       session?.close()
       setParties((current) => current.filter((candidate) => candidate.id !== activeParty.id))
       setSession(undefined)
@@ -357,6 +356,18 @@ function ModeButton({ active, title, detail, onClick }: { active: boolean; title
 
 export function mediaForParty(metadata: ProgressMetadata, videoId: string) {
   return mediaFromProgressMetadata(metadata, videoId)
+}
+
+export function createWatchPartySession(profileId: string, response: WatchPartySessionResponse) {
+  return new WatchPartySession({
+    partyId: response.party.id,
+    ticket: response.ticket,
+    expiresAt: response.expiresAt,
+    socketPath: response.socketPath,
+    role: response.party.hostProfileId === profileId ? "host" : "guest",
+    refreshTicket: () => refreshWatchPartyTicket(response.party.id, profileId),
+    apiUrl: API_URL,
+  })
 }
 
 function errorMessage(cause: unknown): string {

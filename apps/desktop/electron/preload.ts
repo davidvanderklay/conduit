@@ -42,6 +42,21 @@ contextBridge.exposeInMainWorld("__CONDUIT_ELECTRON__", {
     ipcRenderer.on("conduit:player-overlay-watch-party", handler)
     return () => ipcRenderer.removeListener("conduit:player-overlay-watch-party", handler)
   },
+  onPlayerOverlayContext(listener: (context: unknown) => void) {
+    const handler = (_event: Electron.IpcRendererEvent, context: unknown) => listener(context)
+    ipcRenderer.on("conduit:player-overlay-context", handler)
+    return () => ipcRenderer.removeListener("conduit:player-overlay-context", handler)
+  },
+  onPlayerOverlayWatchPartyJoined(listener: (response: unknown) => void) {
+    const handler = (_event: Electron.IpcRendererEvent, response: unknown) => listener(response)
+    ipcRenderer.on("conduit:player-overlay-watch-party-joined", handler)
+    return () => ipcRenderer.removeListener("conduit:player-overlay-watch-party-joined", handler)
+  },
+  onPlayerOverlayWatchPartyLeft(listener: (partyId: string) => void) {
+    const handler = (_event: Electron.IpcRendererEvent, partyId: string) => listener(partyId)
+    ipcRenderer.on("conduit:player-overlay-watch-party-left", handler)
+    return () => ipcRenderer.removeListener("conduit:player-overlay-watch-party-left", handler)
+  },
   onPlayerOverlayTitle(listener: (title: string) => void) {
     const handler = (_event: Electron.IpcRendererEvent, title: string) => listener(title)
     ipcRenderer.on("conduit:player-overlay-title", handler)

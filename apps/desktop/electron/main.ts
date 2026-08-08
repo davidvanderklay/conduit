@@ -25,6 +25,48 @@ protocol.registerSchemesAsPrivileged([
 
 type ElectronOzonePlatform = "x11" | "wayland"
 
+type PlayerOverlayContext = {
+  profileId: string
+  media: {
+    type: "movie" | "series"
+    mediaId: string
+    videoId: string
+    title: string
+    poster?: string
+    videoTitle?: string
+    season?: number
+    episode?: number
+  }
+}
+
+function normalizePlayerOverlayContext(value: unknown): PlayerOverlayContext | undefined {
+  if (!value || typeof value !== "object") return undefined
+  const context = value as Record<string, unknown>
+  if (typeof context.profileId !== "string" || !context.media || typeof context.media !== "object") {
+    return undefined
+  }
+  const media = context.media as Record<string, unknown>
+  if (
+    (media.type !== "movie" && media.type !== "series") ||
+    typeof media.mediaId !== "string" ||
+    typeof media.videoId !== "string" ||
+    typeof media.title !== "string"
+  ) return undefined
+  return {
+    profileId: context.profileId,
+    media: {
+      type: media.type,
+      mediaId: media.mediaId,
+      videoId: media.videoId,
+      title: media.title,
+      poster: typeof media.poster === "string" ? media.poster : undefined,
+      videoTitle: typeof media.videoTitle === "string" ? media.videoTitle : undefined,
+      season: typeof media.season === "number" ? media.season : undefined,
+      episode: typeof media.episode === "number" ? media.episode : undefined,
+    },
+  }
+}
+
 function electronOzonePlatform(): ElectronOzonePlatform {
   const configured = process.env.CONDUIT_ELECTRON_OZONE
   if (configured === "x11" || configured === "wayland") return configured
@@ -394,11 +436,12 @@ function closePlayerOverlay() {
   if (!overlay.isDestroyed()) overlay.close()
 }
 
-async function ensurePlayerOverlay(title: string) {
+async function ensurePlayerOverlay(title: string, context?: PlayerOverlayContext) {
   if (!mainWindow) throw new Error("Main window is unavailable.")
   if (playerOverlayWindow && !playerOverlayWindow.isDestroyed()) {
     try {
       playerOverlayWindow.webContents.send("conduit:player-overlay-title", title)
+      if (context) playerOverlayWindow.webContents.send("conduit:player-overlay-context", context)
       positionPlayerOverlay()
       return
     } catch {
@@ -463,6 +506,7 @@ async function ensurePlayerOverlay(title: string) {
       electronOverlay: "1",
       title,
     })
+    if (context) query.set("watchPartyContext", JSON.stringify(context))
     const url = rendererIsDevelopment()
       ? "http://localhost:5173/?" + query.toString()
       : "conduit://localhost/?" + query.toString()
@@ -747,11 +791,18 @@ async function invoke(command: string, args: Record<string, unknown> = {}): Prom
     return null
   }
   if (command === "player_overlay_watch_party") {
-    // The party dialog belongs to the main renderer. Close the native player
-    // first so its separate video surface cannot cover that dialog on Linux.
-    hidePlayerOverlay()
-    mainWindow?.webContents.send("conduit:player-overlay-close")
-    mainWindow?.webContents.send("conduit:player-overlay-watch-party")
+    playerOverlayWindow?.webContents.send("conduit:player-overlay-watch-party")
+    return null
+  }
+  if (command === "player_overlay_watch_party_joined") {
+    mainWindow?.webContents.send("conduit:player-overlay-watch-party-joined", args)
+    return null
+  }
+  if (command === "player_overlay_watch_party_left") {
+    mainWindow?.webContents.send(
+      "conduit:player-overlay-watch-party-left",
+      typeof args.partyId === "string" ? args.partyId : "",
+    )
     return null
   }
   if (command === "player_toggle_fullscreen") {
@@ -789,17 +840,19 @@ async function invoke(command: string, args: Record<string, unknown> = {}): Prom
 
   if (command === "player_open") {
     if (!mainWindow) throw new Error("Main window is unavailable.")
+    const { watchPartyContext: rawWatchPartyContext, ...playerArgs } = args
+    const watchPartyContext = normalizePlayerOverlayContext(rawWatchPartyContext)
     nativePlayer?.close()
     const client = createNativePlayerClient(nativeWindowId(mainWindow))
     nativePlayer = client
     try {
-      const result = await client.request("player_open", args)
+      const result = await client.request("player_open", playerArgs)
       if (nativePlayer !== client) return result
       // Linux's separate X11 surface needs a transparent controls window.
       // macOS and Windows keep their native video below the main Chromium
       // surface, so the existing player portal is the controls layer.
       if (process.platform === "linux") {
-        await ensurePlayerOverlay(typeof args.title === "string" ? args.title : "")
+        await ensurePlayerOverlay(typeof args.title === "string" ? args.title : "", watchPartyContext)
       }
       return result
     } catch (error) {
