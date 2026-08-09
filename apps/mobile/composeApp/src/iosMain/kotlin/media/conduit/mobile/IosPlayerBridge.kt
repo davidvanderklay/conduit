@@ -26,6 +26,7 @@ interface IosPlayerBridge {
     fun setMuted(muted: Boolean)
     fun setPreferredAudioLanguage(language: String)
     fun setResizeMode(mode: Int) // 0 = fit, 1 = fill, 2 = zoom
+    fun syncVideoSurfaceLayout(width: Double, height: Double)
 
     fun getAudioTrackCount(): Int
     fun getAudioTrackId(at: Int): Int

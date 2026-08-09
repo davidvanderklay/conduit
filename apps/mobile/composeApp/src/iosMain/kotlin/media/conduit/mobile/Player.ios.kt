@@ -24,6 +24,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.interop.UIKitViewController
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.coroutines.async
@@ -61,6 +63,7 @@ actual fun NativePlayer(
     val currentCallback by rememberUpdatedState(onState)
     val latestControlsCallback by rememberUpdatedState(onControlsVisibilityChanged)
     val bridge = remember { IosPlayerBridgeFactory.create() }
+    val density = LocalDensity.current
 
     if (bridge == null) {
         LaunchedEffect(Unit) {
@@ -125,7 +128,7 @@ actual fun NativePlayer(
     }
 
     LaunchedEffect(controlsVisible) {
-        latestControlsCallback.value(controlsVisible)
+        latestControlsCallback(controlsVisible)
     }
 
     LaunchedEffect(bridge) {
@@ -210,7 +213,17 @@ actual fun NativePlayer(
     ) {
         UIKitViewController(
             factory = { bridge.createPlayerViewController() },
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .onSizeChanged { size ->
+                    if (size.width > 1 && size.height > 1) {
+                        bridge.syncVideoSurfaceLayout(
+                            width = with(density) { size.width.toDp().value.toDouble() },
+                            height = with(density) { size.height.toDp().value.toDouble() },
+                        )
+                    }
+                },
+            interactive = false,
         )
 
         if (controlsVisible) {
@@ -436,7 +449,7 @@ private fun IosPlayerTrackRow(label: String, selected: Boolean, onClick: () -> U
 }
 
 private fun Float.trimSpeed(): String =
-    if (this % 1f == 0f) toInt().toString() else "%.2f".format(this)
+    if (this % 1f == 0f) toInt().toString() else toString().trimEnd('0').trimEnd('.')
 
 private fun formatPlayerTime(milliseconds: Long): String {
     val totalSeconds = (milliseconds / 1_000).coerceAtLeast(0)
@@ -444,8 +457,8 @@ private fun formatPlayerTime(milliseconds: Long): String {
     val minutes = (totalSeconds % 3_600) / 60
     val seconds = totalSeconds % 60
     return if (hours > 0) {
-        "%d:%02d:%02d".format(hours, minutes, seconds)
+        "$hours:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}"
     } else {
-        "%d:%02d".format(minutes, seconds)
+        "$minutes:${seconds.toString().padStart(2, '0')}"
     }
 }

@@ -65,6 +65,11 @@ final class ConduitMPVPlayerBridge: NSObject, IosPlayerBridge {
         ensurePlayerViewController().setPreferredAudioLanguage(language)
     }
     func setResizeMode(mode: Int32) { playerViewController?.setResize(Int(mode)) }
+    func syncVideoSurfaceLayout(width: Double, height: Double) {
+        ensurePlayerViewController().syncVideoSurfaceLayout(
+            CGSize(width: width, height: height)
+        )
+    }
 
     func getAudioTrackCount() -> Int32 {
         Int32(playerViewController?.audioTracks.count ?? 0)
@@ -207,6 +212,8 @@ final class ConduitMPVPlayerViewController: UIViewController {
     private var shouldPlay = false
     private var resumeAfterForeground = false
     private var lastDrawableSize: CGSize = .zero
+    private var externallyManagedViewSize: CGSize?
+    private var pendingSurfaceLayoutWorkItems: [DispatchWorkItem] = []
     private var recentErrors: [String] = []
     private var playbackError: String?
 
@@ -269,8 +276,23 @@ final class ConduitMPVPlayerViewController: UIViewController {
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         becomeFirstResponder()
-        layoutMetalLayer()
+        syncVideoSurfaceLayout()
         attemptStartPendingLoad()
+    }
+
+    override func viewSafeAreaInsetsDidChange() {
+        super.viewSafeAreaInsetsDidChange()
+        syncVideoSurfaceLayout()
+    }
+
+    func syncVideoSurfaceLayout(_ size: CGSize) {
+        runOnMain { [weak self] in
+            guard let self else { return }
+            if size.width > 1, size.height > 1 {
+                self.externallyManagedViewSize = size
+            }
+            self.syncVideoSurfaceLayout()
+        }
     }
 
     fileprivate func loadFile(
@@ -418,6 +440,8 @@ final class ConduitMPVPlayerViewController: UIViewController {
         NotificationCenter.default.removeObserver(self)
         pendingRetry?.cancel()
         pendingRetry = nil
+        pendingSurfaceLayoutWorkItems.forEach { $0.cancel() }
+        pendingSurfaceLayoutWorkItems.removeAll()
         pendingLoad = nil
         shouldPlay = false
         deactivateAudioSession()
@@ -457,13 +481,24 @@ final class ConduitMPVPlayerViewController: UIViewController {
             return
         }
 
+#if DEBUG
+        checkError(mpv_request_log_messages(mpv, "info"))
+#else
         checkError(mpv_request_log_messages(mpv, "warn"))
+#endif
         var layerPointer = Int64(Int(bitPattern: Unmanaged.passUnretained(metalLayer).toOpaque()))
         checkError(mpv_set_option(mpv, "wid", MPV_FORMAT_INT64, &layerPointer))
         checkError(mpv_set_option_string(mpv, "vo", "gpu-next"))
         checkError(mpv_set_option_string(mpv, "gpu-api", "vulkan"))
         checkError(mpv_set_option_string(mpv, "gpu-context", "moltenvk"))
+#if targetEnvironment(simulator)
+        // VideoToolbox in the simulator can report success without producing
+        // displayable frames. Software decoding still exercises the real
+        // MPV/MoltenVK presentation path used by the app.
+        checkError(mpv_set_option_string(mpv, "hwdec", "no"))
+#else
         checkError(mpv_set_option_string(mpv, "hwdec", "videotoolbox"))
+#endif
         checkError(mpv_set_option_string(mpv, "ao", Self.audioOutput))
         checkError(mpv_set_option_string(mpv, "audio-channels", "auto"))
         checkError(mpv_set_option_string(mpv, "audio-fallback-to-null", "yes"))
@@ -564,23 +599,41 @@ final class ConduitMPVPlayerViewController: UIViewController {
     }
 
     private func layoutMetalLayer() {
-        guard view.bounds.width > 1, view.bounds.height > 1 else { return }
+        let bounds = CGRect(origin: .zero, size: externallyManagedViewSize ?? view.bounds.size)
+        guard bounds.width > 1, bounds.height > 1 else { return }
         let scale = view.window?.screen.nativeScale ?? UIScreen.main.nativeScale
         let size = CGSize(
-            width: (view.bounds.width * scale).rounded(),
-            height: (view.bounds.height * scale).rounded()
+            width: (bounds.width * scale).rounded(),
+            height: (bounds.height * scale).rounded()
         )
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         metalLayer.contentsScale = scale
         metalLayer.position = .zero
-        metalLayer.bounds = CGRect(origin: .zero, size: view.bounds.size)
+        metalLayer.bounds = bounds
         if size != lastDrawableSize {
             metalLayer.drawableSize = size
             lastDrawableSize = size
         }
         CATransaction.commit()
+    }
+
+    private func syncVideoSurfaceLayout() {
+        guard isViewLoaded else { return }
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
+        layoutMetalLayer()
+
+        pendingSurfaceLayoutWorkItems.forEach { $0.cancel() }
+        pendingSurfaceLayoutWorkItems.removeAll(keepingCapacity: true)
+        [0.05, 0.15, 0.35].forEach { delay in
+            let workItem = DispatchWorkItem { [weak self] in
+                self?.layoutMetalLayer()
+            }
+            pendingSurfaceLayoutWorkItems.append(workItem)
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
+        }
     }
 
     private func readEvents() {
@@ -638,6 +691,11 @@ final class ConduitMPVPlayerViewController: UIViewController {
                     else { continue }
                     let text = String(cString: message).trimmingCharacters(in: .whitespacesAndNewlines)
                     let levelString = String(cString: level)
+#if DEBUG
+                    let rawLog = UnsafeMutablePointer<mpv_event_log_message>(OpaquePointer(data)).pointee
+                    let prefix = rawLog.prefix.map(String.init(cString:)) ?? "mpv"
+                    print("[Conduit MPV][\(prefix)][\(levelString)] \(text)")
+#endif
                     if levelString == "error" || levelString == "fatal" {
                         self.recordError(text)
                     }

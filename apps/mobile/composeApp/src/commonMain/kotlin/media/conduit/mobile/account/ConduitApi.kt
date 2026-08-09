@@ -27,6 +27,7 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.jsonArray
 import io.ktor.http.encodeURLPathPart
 import kotlinx.coroutines.async
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
@@ -267,7 +268,18 @@ class ServerRequestException(message: String, val statusCode: Int? = null) : Exc
 
 class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
     private val metadataCache = linkedMapOf<String, MetaItem>()
-    suspend fun validate(baseUrl: String): ValidatedServer {
+    suspend fun validate(baseUrl: String): ValidatedServer = try {
+        validateServer(baseUrl)
+    } catch (cause: ServerRequestException) {
+        throw cause
+    } catch (cause: Throwable) {
+        if (cause is CancellationException) throw cause
+        throw ServerRequestException(
+            "Could not connect to this Conduit server. Check that it is running and that the address is correct.",
+        )
+    }
+
+    private suspend fun validateServer(baseUrl: String): ValidatedServer {
         val healthResponse = client.get("$baseUrl/health") {
             timeout {
                 requestTimeoutMillis = 75_000
