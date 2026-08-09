@@ -23,9 +23,11 @@ kotlin {
         target.binaries.framework {
             baseName = "ComposeApp"
             isStatic = true
+            val mobileBridge = rootProject.projectDir.resolve(
+                "native/ios/${target.name}/libconduit_mobile.a",
+            )
             linkerOpts(
-                "-L${rootProject.projectDir}/native/ios/${target.name}",
-                "-lconduit_mobile",
+                "-Wl,-force_load,${mobileBridge.absolutePath}",
             )
         }
         target.compilations.getByName("main").cinterops.create("conduitMobile") {

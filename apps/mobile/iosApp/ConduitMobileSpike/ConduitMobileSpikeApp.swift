@@ -5,12 +5,17 @@ import SwiftUI
 struct ConduitMobileSpikeApp: App {
     init() {
         ConduitPlayerRegistration.register()
+        ConduitPlatformRegistration.register()
     }
 
     var body: some Scene {
         WindowGroup {
-            ComposeView()
-                .ignoresSafeArea(.keyboard)
+            ZStack {
+                Color.black.ignoresSafeArea()
+                ComposeView().ignoresSafeArea()
+            }
+            .preferredColorScheme(.dark)
+            .onOpenURL { IosOAuthCallbacks.shared.capture(url: $0.absoluteString) }
         }
     }
 }
