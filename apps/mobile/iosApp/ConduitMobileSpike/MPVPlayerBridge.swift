@@ -285,13 +285,24 @@ final class ConduitMPVPlayerViewController: UIViewController {
         syncVideoSurfaceLayout()
     }
 
+    override func viewWillTransition(
+        to size: CGSize,
+        with coordinator: UIViewControllerTransitionCoordinator
+    ) {
+        super.viewWillTransition(to: size, with: coordinator)
+
+        syncVideoSurfaceLayoutNow(scheduleDeferredPasses: false)
+        coordinator.animate(alongsideTransition: { [weak self] _ in
+            self?.syncVideoSurfaceLayoutNow(scheduleDeferredPasses: false)
+        }, completion: { [weak self] _ in
+            self?.syncVideoSurfaceLayout()
+            self?.attemptStartPendingLoad()
+        })
+    }
+
     func syncVideoSurfaceLayout(_ size: CGSize) {
         runOnMain { [weak self] in
-            guard let self else { return }
-            if size.width > 1, size.height > 1 {
-                self.externallyManagedViewSize = size
-            }
-            self.syncVideoSurfaceLayout()
+            self?.syncVideoSurfaceLayoutNow(size: size, scheduleDeferredPasses: true)
         }
     }
 
@@ -507,6 +518,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
         checkError(mpv_set_option_string(mpv, "vulkan-async-compute", "no"))
         checkError(mpv_set_option_string(mpv, "vulkan-async-transfer", "no"))
         checkError(mpv_set_option_string(mpv, "vulkan-disable-interop", "yes"))
+        checkError(mpv_set_option_string(mpv, "video-rotate", "no"))
         checkError(mpv_set_option_string(mpv, "input-default-bindings", "no"))
         checkError(mpv_set_option_string(mpv, "input-vo-keyboard", "no"))
         checkError(mpv_set_option_string(mpv, "osc", "no"))
@@ -613,6 +625,12 @@ final class ConduitMPVPlayerViewController: UIViewController {
         metalLayer.position = .zero
         metalLayer.bounds = bounds
         if size != lastDrawableSize {
+#if DEBUG
+            print(
+                "[Conduit MPV][surface] points=\(Int(bounds.width))x\(Int(bounds.height)) " +
+                "drawable=\(Int(size.width))x\(Int(size.height))"
+            )
+#endif
             metalLayer.drawableSize = size
             lastDrawableSize = size
         }
@@ -620,19 +638,46 @@ final class ConduitMPVPlayerViewController: UIViewController {
     }
 
     private func syncVideoSurfaceLayout() {
+        runOnMain { [weak self] in
+            self?.syncVideoSurfaceLayoutNow(scheduleDeferredPasses: true)
+        }
+    }
+
+    private func syncVideoSurfaceLayoutNow(
+        size: CGSize? = nil,
+        scheduleDeferredPasses: Bool
+    ) {
         guard isViewLoaded else { return }
+        if let size, size.width > 1, size.height > 1 {
+            externallyManagedViewSize = size
+            applyExternallyManagedViewSize(size)
+        }
         view.setNeedsLayout()
         view.layoutIfNeeded()
         layoutMetalLayer()
 
+        guard scheduleDeferredPasses else { return }
         pendingSurfaceLayoutWorkItems.forEach { $0.cancel() }
         pendingSurfaceLayoutWorkItems.removeAll(keepingCapacity: true)
-        [0.05, 0.15, 0.35].forEach { delay in
+        [0.0, 0.05, 0.15, 0.35].forEach { delay in
             let workItem = DispatchWorkItem { [weak self] in
-                self?.layoutMetalLayer()
+                self?.syncVideoSurfaceLayoutNow(scheduleDeferredPasses: false)
             }
             pendingSurfaceLayoutWorkItems.append(workItem)
             DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
+        }
+    }
+
+    private func applyExternallyManagedViewSize(_ size: CGSize) {
+        let targetBounds = CGRect(origin: .zero, size: size)
+        if view.bounds != targetBounds {
+            view.bounds = targetBounds
+        }
+
+        var targetFrame = view.frame
+        if targetFrame.size != size {
+            targetFrame.size = size
+            view.frame = targetFrame
         }
     }
 
