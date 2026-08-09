@@ -31,6 +31,12 @@ fileprivate struct ConduitTrack {
 /// CAMetalLayer used by MPVKit's MoltenVK video output.
 final class ConduitMPVPlayerBridge: NSObject, IosPlayerBridge {
     private var playerViewController: ConduitMPVPlayerViewController?
+    private var holdsLandscapeLock = true
+
+    override init() {
+        super.init()
+        ConduitOrientationCoordinator.shared.lockPlayerToLandscape()
+    }
 
     func createPlayerViewController() -> UIViewController {
         if let playerViewController {
@@ -136,6 +142,10 @@ final class ConduitMPVPlayerBridge: NSObject, IosPlayerBridge {
     func destroy() {
         playerViewController?.destroyPlayer()
         playerViewController = nil
+        if holdsLandscapeLock {
+            holdsLandscapeLock = false
+            ConduitOrientationCoordinator.shared.restorePortrait()
+        }
     }
 
     private func ensurePlayerViewController() -> ConduitMPVPlayerViewController {
@@ -509,6 +519,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
         checkError(mpv_set_option_string(mpv, "hwdec", "no"))
 #else
         checkError(mpv_set_option_string(mpv, "hwdec", "videotoolbox"))
+        checkError(mpv_set_option_string(mpv, "hwdec-software-fallback", "yes"))
 #endif
         checkError(mpv_set_option_string(mpv, "ao", Self.audioOutput))
         checkError(mpv_set_option_string(mpv, "audio-channels", "auto"))
@@ -742,7 +753,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
                     print("[Conduit MPV][\(prefix)][\(levelString)] \(text)")
 #endif
                     if levelString == "error" || levelString == "fatal" {
-                        self.recordError(text)
+                        self.recordDiagnostic(text)
                     }
                 case MPV_EVENT_SHUTDOWN:
                     return
@@ -918,6 +929,17 @@ final class ConduitMPVPlayerViewController: UIViewController {
         recentErrors.append(text)
         if recentErrors.count > 3 { recentErrors.removeFirst(recentErrors.count - 3) }
         playbackError = recentErrors.joined(separator: "\n")
+        errorLock.unlock()
+    }
+
+    /// Decoder errors can describe a dropped frame that MPV recovers from.
+    /// Keep them for a real end-of-file failure without stopping playback early.
+    private func recordDiagnostic(_ message: String) {
+        let text = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        errorLock.lock()
+        recentErrors.append(text)
+        if recentErrors.count > 3 { recentErrors.removeFirst(recentErrors.count - 3) }
         errorLock.unlock()
     }
 }
