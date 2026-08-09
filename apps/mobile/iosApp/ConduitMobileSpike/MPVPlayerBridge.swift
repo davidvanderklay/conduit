@@ -215,7 +215,6 @@ final class ConduitMPVPlayerViewController: UIViewController {
     private var mpv: OpaquePointer?
     private var pendingLoad: ConduitPendingLoad?
     private var pendingRetry: DispatchWorkItem?
-    private var pendingInitialPositionMs: Int64 = 0
     private var activeHeaders: [String: String] = [:]
     private var preferredAudioLanguage = "System default"
     private var hasLoadedFile = false
@@ -226,6 +225,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
     private var pendingSurfaceLayoutWorkItems: [DispatchWorkItem] = []
     private var recentErrors: [String] = []
     private var playbackError: String?
+    private var waitingForInitialVideoFrame = false
 
     fileprivate var audioTracks: [ConduitTrack] = []
     fileprivate var subtitleTracks: [ConduitTrack] = []
@@ -344,7 +344,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
         runOnMain { [weak self] in
             guard let self else { return }
             self.shouldPlay = true
-            guard self.mpv != nil else { return }
+            guard self.mpv != nil, !self.waitingForInitialVideoFrame else { return }
             self.setFlag("pause", false)
             self.isPlayerPlaying = true
             self.refreshPlaybackState()
@@ -434,6 +434,11 @@ final class ConduitMPVPlayerViewController: UIViewController {
 
     func refreshPlaybackState() {
         guard let mpv else { return }
+        if waitingForInitialVideoFrame, hasLoadedFile,
+           getString("video-frame-info/picture-type") != nil {
+            waitingForInitialVideoFrame = false
+            if shouldPlay { setFlag("pause", false) }
+        }
         let duration = getDouble("duration")
         let position = getDouble("time-pos")
         let speed = getDouble("speed")
@@ -444,8 +449,8 @@ final class ConduitMPVPlayerViewController: UIViewController {
         let buffering = getFlag("paused-for-cache")
 
         _ = mpv
-        isPlayerLoading = !hasLoadedFile || ((idle && !paused && !eofReached) || seeking || buffering)
-        isPlayerPlaying = hasLoadedFile && !paused && !idle && !eofReached
+        isPlayerLoading = waitingForInitialVideoFrame || !hasLoadedFile || ((idle && !paused && !eofReached) || seeking || buffering)
+        isPlayerPlaying = hasLoadedFile && !waitingForInitialVideoFrame && !paused && !idle && !eofReached
         isPlayerEnded = eofReached
         durationMs = Int64(max(duration, 0) * 1000)
         positionMs = Int64(max(position, 0) * 1000)
@@ -588,11 +593,23 @@ final class ConduitMPVPlayerViewController: UIViewController {
         clearError()
         activeHeaders = sanitizeHeaders(request.headers)
         applyRequestHeaders(activeHeaders)
-        pendingInitialPositionMs = request.initialPositionMs
         hasLoadedFile = false
         isPlayerLoading = true
         isPlayerEnded = false
-        command("loadfile", args: [request.url, "replace"])
+        waitingForInitialVideoFrame = true
+
+        // Start paused at the resume timestamp. MPV can decode and present the
+        // first video frame before audio begins, avoiding a visible late seek.
+        var fileOptions = ["pause=yes"]
+        if request.initialPositionMs > 0 {
+            fileOptions.append(
+                String(format: "start=%.3f", Double(request.initialPositionMs) / 1000.0)
+            )
+        }
+        command(
+            "loadfile",
+            args: [request.url, "replace", "-1", fileOptions.joined(separator: ",")]
+        )
 
         for (index, subtitle) in request.subtitles.enumerated() {
             let delay = 0.25 + Double(index) * 0.05
@@ -714,15 +731,9 @@ final class ConduitMPVPlayerViewController: UIViewController {
                         self.clearError()
                         self.refreshPlaybackState()
                         self.refreshTracks()
-                        if self.pendingInitialPositionMs > 0 {
-                            let position = self.pendingInitialPositionMs
-                            self.pendingInitialPositionMs = 0
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-                                self?.seekToMs(position)
-                            }
-                        }
-                        if self.shouldPlay {
-                            self.setFlag("pause", false)
+                        if self.getString("video-codec") == nil {
+                            self.waitingForInitialVideoFrame = false
+                            if self.shouldPlay { self.setFlag("pause", false) }
                         }
                     }
                 case MPV_EVENT_PLAYBACK_RESTART:
