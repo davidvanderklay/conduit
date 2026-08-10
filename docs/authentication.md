@@ -89,13 +89,14 @@ register only the server's Google or OIDC callback URL.
 
 ### Mobile OAuth
 
-Android uses the system browser and a separate `/v1/auth/mobile/*` handoff. The
-app generates a PKCE verifier, stores the pending request in encrypted device
-storage, and registers the exact `conduit://oauth/callback` deep link. The
-server accepts no alternate scheme, host, path, credentials, query, or fragment
-when creating a request. After provider authentication it redirects a one-time
-code—not a session token—to the app, where request correlation and PKCE exchange
-produce the seven-day mobile bearer session.
+Android and iOS use the system browser and a separate `/v1/auth/mobile/*`
+handoff. The app generates a PKCE verifier, stores the pending request in
+encrypted device storage, and registers the exact `conduit://oauth/callback`
+deep link. Android uses Android Keystore-backed storage and iOS uses the
+Keychain. The server accepts no alternate scheme, host, path, credentials,
+query, or fragment when creating a request. After provider authentication it
+redirects a one-time code, not a session token, to the app, where request
+correlation and PKCE exchange produce the seven-day mobile bearer session.
 
 Desktop and mobile requests currently share the short-lived authentication
 request table, but every authorize, completion, error, and exchange endpoint

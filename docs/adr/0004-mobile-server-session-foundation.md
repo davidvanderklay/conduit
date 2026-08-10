@@ -3,6 +3,11 @@
 - Status: accepted as an Android-first issue #43 checkpoint
 - Date: 2026-07-31
 
+This ADR records the Android-first checkpoint. The later product implementation
+also completed the iOS Keychain and deep-link adapters described in the current
+[mobile guide](../mobile-development.md); the checkpoint wording below is kept
+to preserve the original decision history.
+
 ## Context
 
 The application foundation previously accepted a syntactically valid URL
@@ -42,9 +47,10 @@ fresh one-time recovery codes before household setup.
 
 The existing desktop OAuth endpoint remains loopback-only. Mobile deep links
 must receive a separate server contract and callback validator rather than
-weakening desktop's security assumptions. iOS networking source is present,
-but its session vault intentionally remains memory-only and authentication must
-not be enabled there until a Keychain adapter is implemented and tested.
+weakening desktop's security assumptions. At this checkpoint, iOS networking
+and authentication were still pending; the current implementation has since
+added the Keychain-backed session vault and the matching deep-link callback
+adapter.
 
 ## Consequences
 
@@ -57,5 +63,6 @@ state that survives activity recreation. Desktop and mobile endpoints validate
 their callback type at every stage even though their temporary rows share a
 table.
 
-iOS Keychain and deep-link verification remain unverified and therefore stay
-outside this Android-first acceptance checkpoint.
+The Android-first checkpoint did not accept iOS Keychain or deep-link evidence.
+Those adapters now exist in the product client, but real-device validation
+remains part of mobile release hardening.

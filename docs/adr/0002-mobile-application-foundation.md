@@ -4,6 +4,11 @@
 - Date: 2026-07-31
 - Scope: issue #49
 
+This ADR records the initial application-foundation checkpoint. Subsequent
+mobile work added authentication, synchronization, catalogs, profile flows,
+and the current Android/iOS release path without changing the reducer and
+platform-adapter boundaries chosen here.
+
 ## Context
 
 The architecture spike proved shared Compose presentation, an opaque Rust
