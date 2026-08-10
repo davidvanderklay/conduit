@@ -577,7 +577,6 @@ jobs:
         run: |
           set -euo pipefail
           release_id="$(gh api \
-            --repo "$GITHUB_REPOSITORY" \
             --paginate \
             "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
             --jq ".[] | select(.tag_name == \"$RELEASE_TAG\") | .id" | head -n 1)"
@@ -617,7 +616,6 @@ jobs:
         run: |
           set -euo pipefail
           release_id="$(gh api \
-            --repo "$GITHUB_REPOSITORY" \
             --paginate \
             "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
             --jq ".[] | select(.tag_name == \"$RELEASE_TAG\") | .id" | head -n 1)"
