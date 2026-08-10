@@ -10,14 +10,12 @@ test "$#" -gt 0
 : "${GITHUB_REPOSITORY:?GITHUB_REPOSITORY is required}"
 
 release_id="$(gh api \
-  --repo "$GITHUB_REPOSITORY" \
   --paginate \
   "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
   --jq ".[] | select(.tag_name == \"$release_tag\") | .id" | head -n 1)"
 test -n "$release_id"
 
 upload_url="$(gh api \
-  --repo "$GITHUB_REPOSITORY" \
   "repos/$GITHUB_REPOSITORY/releases/$release_id" \
   --jq '.upload_url')"
 upload_url="${upload_url%\{*}"
@@ -33,12 +31,11 @@ for asset in "$@"; do
   esac
 
   existing_id="$(gh api \
-    --repo "$GITHUB_REPOSITORY" \
     --paginate \
     "repos/$GITHUB_REPOSITORY/releases/$release_id/assets?per_page=100" \
     --jq ".[] | select(.name == \"$name\") | .id" | head -n 1 || true)"
   if [ -n "$existing_id" ]; then
-    gh api --repo "$GITHUB_REPOSITORY" \
+    gh api \
       --method DELETE \
       "repos/$GITHUB_REPOSITORY/releases/assets/$existing_id" >/dev/null
   fi
