@@ -3,7 +3,7 @@ import { useInfiniteQuery } from "@tanstack/react-query"
 import { ChevronDown, Film, LoaderCircle } from "lucide-react"
 import type { InstalledAddon } from "../lib/api"
 import { loadCatalog, type CatalogItem } from "../lib/core"
-import { posterCoverClass } from "../lib/poster-layout"
+import { posterCoverClass, posterTitleClass } from "../lib/poster-layout"
 import { Card } from "./ui/card"
 import { PosterWatchStatus } from "./poster-watch-status"
 import { VirtualPosterGrid } from "./virtual-poster-grid"
@@ -217,7 +217,7 @@ export function DiscoverView({
                         </div>
                       )}
                     </div>
-                    <p className="mt-2 line-clamp-2 text-sm font-medium">{item.name}</p>
+                    <p className={posterTitleClass}>{item.name}</p>
                   </button>
                   <div className="pointer-events-none absolute right-2 top-2">
                     <PosterWatchStatus item={item} addons={addons} />

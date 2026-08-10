@@ -13,8 +13,17 @@ final class ConduitKeychainStore: NSObject, IosSecureStoreBridge {
         query[kSecMatchLimit as String] = kSecMatchLimitOne
 
         var item: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess,
-              let data = item as? Data else { return nil }
+        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        guard status == errSecSuccess else {
+            if status != errSecItemNotFound {
+                print("[Conduit Keychain] read failed with status \(status)")
+            }
+            return nil
+        }
+        guard let data = item as? Data else {
+            print("[Conduit Keychain] read returned an unexpected value")
+            return nil
+        }
         return String(data: data, encoding: .utf8)
     }
 

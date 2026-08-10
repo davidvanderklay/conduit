@@ -3,3 +3,9 @@ export const posterGridClass =
 
 export const posterCoverClass =
   "poster-cover aspect-[2/3] overflow-hidden rounded-xl bg-zinc-900 ring-1 ring-zinc-800 transition group-hover:-translate-y-1 group-hover:ring-amber-400/60"
+
+export const posterTitleClass =
+  "mt-2 h-10 overflow-hidden text-sm font-medium leading-5 line-clamp-2"
+
+export const posterTitleSlotClass =
+  "h-10 overflow-hidden text-sm font-medium leading-5 line-clamp-2"

@@ -1,12 +1,7 @@
 package media.conduit.mobile
 
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
@@ -28,7 +23,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.interop.UIKitViewController
@@ -38,7 +32,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil3.compose.SubcomposeAsyncImage
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -106,7 +99,6 @@ actual fun NativePlayer(
     var positionMs by remember(bridge) { mutableLongStateOf(0L) }
     var durationMs by remember(bridge) { mutableLongStateOf(0L) }
     var playing by remember(bridge) { mutableStateOf(false) }
-    var buffering by remember(bridge) { mutableStateOf(false) }
     var playbackSpeed by remember(bridge) { mutableFloatStateOf(1f) }
     var resizeMode by remember(bridge) { mutableIntStateOf(0) }
     var trackPanel by remember(bridge) { mutableStateOf<Int?>(null) }
@@ -156,6 +148,7 @@ actual fun NativePlayer(
         while (isActive) {
             val next = PlaybackState(
                 loading = bridge.getIsLoading(),
+                buffering = bridge.getIsBuffering(),
                 playing = bridge.getIsPlaying(),
                 positionMs = bridge.getPositionMs().coerceAtLeast(0),
                 durationMs = bridge.getDurationMs().coerceAtLeast(0),
@@ -166,7 +159,6 @@ actual fun NativePlayer(
             if (!dragging) positionMs = next.positionMs
             durationMs = next.durationMs
             playing = next.playing
-            buffering = bridge.getIsBuffering()
             playbackSpeed = bridge.getPlaybackSpeed()
             delay(500)
         }
@@ -248,50 +240,6 @@ actual fun NativePlayer(
             interactive = false,
         )
 
-        if (buffering) {
-            val pulse = rememberInfiniteTransition(label = "player-buffering")
-            val pulseAlpha by pulse.animateFloat(
-                initialValue = .48f,
-                targetValue = .9f,
-                animationSpec = infiniteRepeatable(
-                    animation = tween(1_600, easing = FastOutSlowInEasing),
-                    repeatMode = RepeatMode.Reverse,
-                ),
-                label = "buffering-alpha",
-            )
-            val pulseScale by pulse.animateFloat(
-                initialValue = 1f,
-                targetValue = 1.035f,
-                animationSpec = infiniteRepeatable(
-                    animation = tween(1_600, easing = FastOutSlowInEasing),
-                    repeatMode = RepeatMode.Reverse,
-                ),
-                label = "buffering-scale",
-            )
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                if (!contentLogo.isNullOrBlank()) {
-                    SubcomposeAsyncImage(
-                        model = contentLogo,
-                        contentDescription = contentTitle ?: "Buffering",
-                        contentScale = ContentScale.Fit,
-                        loading = { IosBufferingFallbackMark() },
-                        error = { IosBufferingFallbackMark() },
-                        modifier = Modifier
-                            .fillMaxWidth(.4f)
-                            .heightIn(max = 86.dp)
-                            .alpha(pulseAlpha)
-                            .scale(pulseScale),
-                    )
-                } else {
-                    IosBufferingFallbackMark(
-                        Modifier
-                            .alpha(pulseAlpha)
-                            .scale(pulseScale),
-                    )
-                }
-            }
-        }
-
         if (controlsVisible) {
             Box(
                 Modifier
@@ -304,7 +252,6 @@ actual fun NativePlayer(
                             if (playing) {
                                 bridge.pause()
                                 playing = false
-                                buffering = false
                             } else {
                                 bridge.play()
                                 playing = true
@@ -407,18 +354,6 @@ actual fun NativePlayer(
             }
         }
     }
-}
-
-@Composable
-private fun IosBufferingFallbackMark(modifier: Modifier = Modifier) {
-    Text(
-        text = "CONDUIT",
-        color = MaterialTheme.colorScheme.primary,
-        fontSize = 24.sp,
-        fontWeight = FontWeight.Black,
-        letterSpacing = 3.sp,
-        modifier = modifier,
-    )
 }
 
 private fun IosPlayerBridge.readAudioTracks(): List<IosTrack> =
@@ -607,7 +542,7 @@ private fun BoxScope.IosSubtitlePanel(
                     Text("Subtitle Settings", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.weight(1f))
                     Text(
-                        "Subtitle appearance is controlled by Conduit Settings. Your language, size, position, and outline preferences apply across playback.",
+                        "Subtitle appearance is controlled by conduit Settings. Your language, size, position, and outline preferences apply across playback.",
                         color = Color.White.copy(alpha = .72f),
                         style = MaterialTheme.typography.bodyLarge,
                     )

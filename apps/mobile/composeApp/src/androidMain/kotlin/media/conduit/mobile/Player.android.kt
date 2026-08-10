@@ -76,7 +76,7 @@ actual fun NativePlayer(
     val player = remember(url, requestHeaders, subtitles) {
         val http = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
-            .setUserAgent("Conduit Mobile")
+            .setUserAgent("conduit Mobile")
             .setDefaultRequestProperties(requestHeaders)
         val renderers = DefaultRenderersFactory(context).setEnableDecoderFallback(true)
         ExoPlayer.Builder(context, renderers).setMediaSourceFactory(DefaultMediaSourceFactory(http)).build()
@@ -87,6 +87,7 @@ actual fun NativePlayer(
     var positionMs by remember(player) { mutableLongStateOf(0L) }
     var durationMs by remember(player) { mutableLongStateOf(0L) }
     var playing by remember(player) { mutableStateOf(false) }
+    var initialLoadComplete by remember(player) { mutableStateOf(false) }
     var dragging by remember(player) { mutableStateOf(false) }
     var draggedPosition by remember(player) { mutableFloatStateOf(0f) }
     var trackPanel by remember { mutableStateOf<Int?>(null) }
@@ -143,12 +144,14 @@ actual fun NativePlayer(
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_READY && !resumed) {
                     resumed = true
+                    initialLoadComplete = true
                     val duration = player.duration.coerceAtLeast(0)
                     if (startPositionMs > 0 && startPositionMs < duration - 5_000) player.seekTo(startPositionMs)
                     activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
                 }
             }
             override fun onRenderedFirstFrame() {
+                initialLoadComplete = true
                 activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
             }
         }
@@ -192,7 +195,8 @@ actual fun NativePlayer(
             while (true) {
                 currentCallback(
                     PlaybackState(
-                        loading = player.playbackState == Player.STATE_BUFFERING || player.playbackState == Player.STATE_IDLE,
+                        loading = !initialLoadComplete,
+                        buffering = initialLoadComplete && player.playbackState == Player.STATE_BUFFERING,
                         playing = player.isPlaying,
                         positionMs = player.currentPosition.coerceAtLeast(0),
                         durationMs = player.duration.coerceAtLeast(0),
@@ -225,7 +229,7 @@ actual fun NativePlayer(
         )
     }) {
         AndroidView(
-            factory = { PlayerView(it).apply { this.player = player; useController = false; setShowBuffering(PlayerView.SHOW_BUFFERING_ALWAYS); keepScreenOn = true } },
+            factory = { PlayerView(it).apply { this.player = player; useController = false; setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER); keepScreenOn = true } },
             update = { it.player = player; it.resizeMode = resizeMode },
             modifier = Modifier.fillMaxSize(),
         )
