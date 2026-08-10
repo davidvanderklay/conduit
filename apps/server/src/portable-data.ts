@@ -1,3 +1,5 @@
+import { parseTrustedHttpUrl } from "./url-security.js"
+
 export const PORTABLE_DATA_FORMAT = "conduit-profile"
 export const PORTABLE_DATA_VERSION = 1
 export const MAX_IMPORT_BYTES = 10 * 1024 * 1024
@@ -124,8 +126,7 @@ export function validatePortableData(value: unknown): PortableProfileData {
     assertString(raw.manifestId, `${path}.manifestId`, 1, 500)
     if (raw.manifestUrl !== undefined) {
       assertString(raw.manifestUrl, `${path}.manifestUrl`, 1, 4096)
-      const url = new URL(raw.manifestUrl)
-      if (!["http:", "https:"].includes(url.protocol)) throw new Error(`${path}.manifestUrl must use HTTP or HTTPS`)
+      parseTrustedHttpUrl(raw.manifestUrl, `${path}.manifestUrl`)
     }
     if (!isRecord(raw.manifest)) throw new Error(`${path}.manifest must be an object`)
     if (jsonSize(raw.manifest) > 256 * 1024) throw new Error(`${path}.manifest exceeds 256 KiB`)

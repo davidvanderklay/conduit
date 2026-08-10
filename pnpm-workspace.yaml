@@ -2,5 +2,12 @@ packages:
   - apps/*
   - packages/*
 
+onlyBuiltDependencies:
+  - esbuild
+
 overrides:
   vite: npm:@voidzero-dev/vite-plus-core@latest
+  "fast-uri@>=3.0.0 <3.1.5": 3.1.5
+  "fast-uri@>=4.0.0 <4.1.2": 4.1.2
+  "nanoid@<3.3.17": 3.3.17
+  "esbuild@<0.25.0": 0.25.12

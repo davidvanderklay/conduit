@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto"
+import { createCipheriv, createDecipheriv, createHmac, randomBytes } from "node:crypto"
 
 const ALGORITHM = "aes-256-gcm"
 
@@ -24,6 +24,6 @@ export function decryptSecret(value: string, key: Buffer): string {
   ]).toString("utf8")
 }
 
-export function stableSecretHash(value: string): string {
-  return createHash("sha256").update(value).digest("hex")
+export function stableSecretHash(value: string, key: Buffer): string {
+  return createHmac("sha256", key).update(value).digest("hex")
 }

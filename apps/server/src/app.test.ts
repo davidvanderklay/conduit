@@ -11,6 +11,7 @@ const config: Config = {
   webOrigin: "http://localhost:5173",
   port: 3000,
   bootstrapMode: "first-user",
+  trustProxy: false,
 }
 
 describe("CORS", () => {

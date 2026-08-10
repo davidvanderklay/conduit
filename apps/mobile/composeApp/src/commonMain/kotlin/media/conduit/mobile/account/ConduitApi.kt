@@ -888,11 +888,15 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
         return response.body()
     }
 
-    suspend fun setPasswordMode(baseUrl: String, token: String, enabled: Boolean, password: String? = null): Boolean {
+    suspend fun setPasswordMode(baseUrl: String, token: String, enabled: Boolean, password: String? = null, currentPassword: String? = null): Boolean {
         val response = client.put("$baseUrl/v1/auth/password-mode") {
             bearerAuth(token)
             contentType(ContentType.Application.Json)
-            setBody(buildJsonObject { put("enabled", enabled); password?.let { put("password", it) } })
+            setBody(buildJsonObject {
+                put("enabled", enabled)
+                password?.let { put("password", it) }
+                currentPassword?.let { put("currentPassword", it) }
+            })
         }
         if (!response.status.isSuccess()) throw ServerRequestException(response.bodyAsText().takeIf(String::isNotBlank) ?: "Unable to update password", response.status.value)
         return response.body<PasswordModeResponse>().passwordEnabled
