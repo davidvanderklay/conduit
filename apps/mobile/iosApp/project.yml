@@ -8,6 +8,8 @@ packages:
 settings:
   base:
     IPHONEOS_DEPLOYMENT_TARGET: "15.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
     SWIFT_VERSION: "5.10"
 targets:
   ConduitMobileSpike:
@@ -18,7 +20,7 @@ targets:
       - package: MPVKit
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: media.conduit.mobile.spike
+        PRODUCT_BUNDLE_IDENTIFIER: media.conduit.mobile
         INFOPLIST_FILE: ConduitMobileSpike/Info.plist
         FRAMEWORK_SEARCH_PATHS: "$(SRCROOT)/../composeApp/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)"
         "OTHER_LDFLAGS[sdk=iphoneos*]": "-framework ComposeApp $(SRCROOT)/../native/ios/iosArm64/libconduit_mobile.a"
