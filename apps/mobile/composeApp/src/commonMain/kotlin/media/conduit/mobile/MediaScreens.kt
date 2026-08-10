@@ -226,6 +226,7 @@ internal fun SearchDiscoverScreen(
     onMutation: suspend (ProfileMutation) -> Result<Unit>,
     onSelect: (CatalogItem) -> Unit,
     listState: androidx.compose.foundation.lazy.LazyListState = rememberLazyListState(),
+    gridState: androidx.compose.foundation.lazy.grid.LazyGridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState(),
     modifier: Modifier = Modifier,
 ) {
     val catalogs = remember(addons) { discoverCatalogs(addons) }
@@ -253,7 +254,6 @@ internal fun SearchDiscoverScreen(
     var hasMore by remember { mutableStateOf(true) }
     var actionTarget by remember { mutableStateOf<MediaActionTarget?>(null) }
     val metadataCache = rememberWatchMetadataCache(api, addons)
-    val gridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
 
     LaunchedEffect(normalizedSelection) {
         if (selection != normalizedSelection) onSelectionChange(normalizedSelection)
