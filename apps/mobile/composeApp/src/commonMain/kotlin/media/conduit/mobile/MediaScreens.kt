@@ -26,6 +26,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.scale
@@ -461,6 +462,7 @@ private class HeroOverscrollConnection(
     private val atTop: () -> Boolean,
     private val maxPullPx: Float,
     private val pull: MutableFloatState,
+    private val pullResistance: Float = .42f,
 ) : NestedScrollConnection {
     override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
         if (available.y >= 0f || pull.floatValue <= 0f) return Offset.Zero
@@ -475,10 +477,10 @@ private class HeroOverscrollConnection(
         source: NestedScrollSource,
     ): Offset {
         if (source != NestedScrollSource.UserInput || available.y <= 0f || !atTop()) return Offset.Zero
-        val consumedY = min(available.y, maxPullPx - pull.floatValue)
-        if (consumedY <= 0f) return Offset.Zero
-        pull.floatValue += consumedY
-        return Offset(0f, consumedY)
+        val pullDelta = min(available.y * pullResistance, maxPullPx - pull.floatValue)
+        if (pullDelta <= 0f) return Offset(0f, available.y)
+        pull.floatValue += pullDelta
+        return Offset(0f, available.y)
     }
 
     override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
@@ -716,6 +718,9 @@ internal fun MediaDetailsScreen(
     val heroScale = 1f + (heroPull.floatValue / maxHeroPullPx) * .22f
     val heroHeight = if (item.type == "movie") 390.dp else 350.dp
     val titleLogo = details?.logo?.takeIf(String::isNotBlank)
+    val imdbId = listOfNotNull(details?.id, item.id).firstOrNull { id ->
+        id.length > 2 && id.startsWith("tt") && id.drop(2).all(Char::isDigit)
+    }
     LazyColumn(
         state = detailsListState,
         modifier = Modifier.fillMaxSize().nestedScroll(heroPullConnection),
@@ -724,7 +729,7 @@ internal fun MediaDetailsScreen(
     ) {
         item {
             Box(Modifier.fillMaxWidth().height(heroHeight + 64.dp + heroPullDp)) {
-                Box(Modifier.fillMaxWidth().height(heroHeight + heroPullDp)) {
+                Box(Modifier.fillMaxWidth().height(heroHeight + heroPullDp).clipToBounds()) {
                     AsyncImage(
                         model = details?.background ?: item.background ?: details?.poster ?: item.poster,
                         contentDescription = item.name,
@@ -761,16 +766,39 @@ internal fun MediaDetailsScreen(
                         },
                     )
                 }
-                Text(
-                    listOfNotNull(
-                        details?.runtime,
-                        details?.releaseInfo ?: details?.released?.take(4),
-                        details?.contentRating,
-                        details?.imdbRating?.let { "★ $it" },
-                    ).joinToString("  ·  "),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                Row(
                     modifier = Modifier.align(Alignment.BottomStart).padding(start = 20.dp, end = 20.dp, bottom = 16.dp),
-                )
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Text(
+                        listOfNotNull(
+                            details?.runtime,
+                            details?.releaseInfo ?: details?.released?.take(4),
+                            details?.contentRating,
+                        ).joinToString("  ·  "),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (imdbId != null && details?.imdbRating != null) {
+                        Surface(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .clickable { uriHandler.openUri("https://www.imdb.com/title/$imdbId/") },
+                            color = Color(0xFFF5C518),
+                            contentColor = Color.Black,
+                            shape = RoundedCornerShape(6.dp),
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                            ) {
+                                Text("IMDb", fontWeight = FontWeight.Black, style = MaterialTheme.typography.labelSmall)
+                                Text(details.imdbRating, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                    }
+                }
             }
         }
         item {
