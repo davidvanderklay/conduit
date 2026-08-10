@@ -439,8 +439,9 @@ final class ConduitMPVPlayerViewController: UIViewController {
 
     func refreshPlaybackState() {
         guard let mpv else { return }
-        if waitingForInitialVideoFrame, hasLoadedFile,
-           getString("video-frame-info/picture-type") != nil {
+        let hasInitialVideoOutput = getString("video-frame-info/picture-type") != nil
+            || getString("video-out-params/pixelformat") != nil
+        if waitingForInitialVideoFrame, hasLoadedFile, hasInitialVideoOutput {
             waitingForInitialVideoFrame = false
 #if DEBUG
             let elapsed = ProcessInfo.processInfo.systemUptime - loadStartedAtUptime
