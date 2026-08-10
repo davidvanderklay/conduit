@@ -49,7 +49,7 @@ trap 'rm -rf "$derived_data"' EXIT
 
 app="$derived_data/Build/Products/Release-iphoneos/conduit.app"
 info_plist="$app/Info.plist"
-executable="$app/ConduitMobileSpike"
+executable="$app/conduit"
 
 test -d "$app"
 test -f "$info_plist"
