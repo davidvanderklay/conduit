@@ -529,16 +529,30 @@ private fun AppShell(
     var selectedVideoId by remember { mutableStateOf<String?>(null) }
     val homeListState = rememberLazyListState()
     val searchListState = rememberLazyListState()
+    val discoverGridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
     val libraryGridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
     val historyGridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
     val settingsListState = rememberLazyListState()
     var browseQuery by remember(activeProfile?.id) { mutableStateOf("") }
     var discoverSelection by remember(activeProfile?.id) { mutableStateOf(DiscoverSelection()) }
     var adaptiveCompact by remember { mutableStateOf(false) }
-    LaunchedEffect(state.destination, homeListState, searchListState, libraryGridState, settingsListState) {
+    LaunchedEffect(
+        state.destination,
+        browseQuery,
+        homeListState,
+        searchListState,
+        discoverGridState,
+        libraryGridState,
+        historyGridState,
+        settingsListState,
+    ) {
         fun position(): Long = when (state.destination) {
             AppDestination.Home -> (homeListState.firstVisibleItemIndex.toLong() shl 32) or homeListState.firstVisibleItemScrollOffset.toLong()
-            AppDestination.Search -> (searchListState.firstVisibleItemIndex.toLong() shl 32) or searchListState.firstVisibleItemScrollOffset.toLong()
+            AppDestination.Search -> if (browseQuery.isBlank()) {
+                (discoverGridState.firstVisibleItemIndex.toLong() shl 32) or discoverGridState.firstVisibleItemScrollOffset.toLong()
+            } else {
+                (searchListState.firstVisibleItemIndex.toLong() shl 32) or searchListState.firstVisibleItemScrollOffset.toLong()
+            }
             AppDestination.Library -> (libraryGridState.firstVisibleItemIndex.toLong() shl 32) or libraryGridState.firstVisibleItemScrollOffset.toLong()
             AppDestination.Profile -> (settingsListState.firstVisibleItemIndex.toLong() shl 32) or settingsListState.firstVisibleItemScrollOffset.toLong()
             AppDestination.History -> (historyGridState.firstVisibleItemIndex.toLong() shl 32) or historyGridState.firstVisibleItemScrollOffset.toLong()
@@ -636,7 +650,7 @@ private fun AppShell(
                         { activeProfile?.let { profile -> appScope.launch { profileSync = syncRepository.synchronize(state.endpoint!!.baseUrl, account.session.token, profile.id) } } },
                         ::mutateProfile,
                         browseQuery, { browseQuery = it }, discoverSelection, { discoverSelection = it }, openBrowse,
-                        preferences, onPreferencesChanged, homeListState, searchListState, libraryGridState, historyGridState, settingsListState,
+                        preferences, onPreferencesChanged, homeListState, searchListState, discoverGridState, libraryGridState, historyGridState, settingsListState,
                         Modifier.weight(1f),
                     )
                 }
@@ -648,7 +662,7 @@ private fun AppShell(
                     { activeProfile?.let { profile -> appScope.launch { profileSync = syncRepository.synchronize(state.endpoint!!.baseUrl, account.session.token, profile.id) } } },
                     ::mutateProfile,
                     browseQuery, { browseQuery = it }, discoverSelection, { discoverSelection = it }, openBrowse,
-                    preferences, onPreferencesChanged, homeListState, searchListState, libraryGridState, historyGridState, settingsListState,
+                    preferences, onPreferencesChanged, homeListState, searchListState, discoverGridState, libraryGridState, historyGridState, settingsListState,
                     Modifier.padding(padding),
                 )
             }
@@ -710,6 +724,7 @@ private fun DestinationContent(
     onPreferencesChanged: (DevicePreferences) -> Unit,
     homeListState: androidx.compose.foundation.lazy.LazyListState,
     searchListState: androidx.compose.foundation.lazy.LazyListState,
+    discoverGridState: androidx.compose.foundation.lazy.grid.LazyGridState,
     libraryGridState: androidx.compose.foundation.lazy.grid.LazyGridState,
     historyGridState: androidx.compose.foundation.lazy.grid.LazyGridState,
     settingsListState: androidx.compose.foundation.lazy.LazyListState,
@@ -736,7 +751,8 @@ private fun DestinationContent(
                     snapshot = profileSync.snapshot, query = browseQuery, onQueryChange = onBrowseQueryChange,
                     selection = discoverSelection, onSelectionChange = onDiscoverSelectionChange,
                     onMutation = onProfileMutation,
-                    onSelect = { onSelectMedia(it, null) }, listState = searchListState, modifier = tabModifier,
+                    onSelect = { onSelectMedia(it, null) }, listState = searchListState,
+                    gridState = discoverGridState, modifier = tabModifier,
                 )
                 AppDestination.Library -> MobileLibraryScreen(
                     snapshot = profileSync.snapshot, api = api, onMutation = onProfileMutation,
