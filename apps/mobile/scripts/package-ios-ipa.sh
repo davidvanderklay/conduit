@@ -47,7 +47,7 @@ trap 'rm -rf "$derived_data"' EXIT
     build
 )
 
-app="$derived_data/Build/Products/Release-iphoneos/ConduitMobileSpike.app"
+app="$derived_data/Build/Products/Release-iphoneos/conduit.app"
 info_plist="$app/Info.plist"
 executable="$app/ConduitMobileSpike"
 
