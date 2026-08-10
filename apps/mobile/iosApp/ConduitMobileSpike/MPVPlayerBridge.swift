@@ -210,6 +210,8 @@ final class ConduitMPVPlayerViewController: UIViewController {
     private static let audioOutput = "audiounit"
 
     private let eventQueue = DispatchQueue(label: "media.conduit.mpv-events", qos: .userInitiated)
+    private let subtitleQueue = DispatchQueue(label: "media.conduit.mpv-subtitles", qos: .utility)
+    private let subtitleLock = NSLock()
     private let errorLock = NSLock()
     private var metalLayer = ConduitMetalLayer()
     private var mpv: OpaquePointer?
@@ -226,6 +228,9 @@ final class ConduitMPVPlayerViewController: UIViewController {
     private var recentErrors: [String] = []
     private var playbackError: String?
     private var waitingForInitialVideoFrame = false
+    private var pendingExternalSubtitles: [ConduitSubtitle] = []
+    private var subtitleLoadGeneration = 0
+    private var loadStartedAtUptime: TimeInterval = 0
 
     fileprivate var audioTracks: [ConduitTrack] = []
     fileprivate var subtitleTracks: [ConduitTrack] = []
@@ -437,6 +442,11 @@ final class ConduitMPVPlayerViewController: UIViewController {
         if waitingForInitialVideoFrame, hasLoadedFile,
            getString("video-frame-info/picture-type") != nil {
             waitingForInitialVideoFrame = false
+#if DEBUG
+            let elapsed = ProcessInfo.processInfo.systemUptime - loadStartedAtUptime
+            print(String(format: "[Conduit MPV][startup] first video frame in %.2fs", elapsed))
+#endif
+            loadPendingExternalSubtitles()
             if shouldPlay { setFlag("pause", false) }
         }
         let duration = getDouble("duration")
@@ -474,6 +484,8 @@ final class ConduitMPVPlayerViewController: UIViewController {
 
         guard let context = mpv else { return }
         mpv = nil
+        invalidateExternalSubtitleLoads()
+        subtitleQueue.sync {}
         // All wakeup callbacks enqueue work here. Wait for those blocks to
         // leave the queue before terminating libmpv's context.
         eventQueue.sync {}
@@ -609,6 +621,12 @@ final class ConduitMPVPlayerViewController: UIViewController {
         isPlayerLoading = true
         isPlayerEnded = false
         waitingForInitialVideoFrame = true
+        pendingExternalSubtitles = request.subtitles
+        invalidateExternalSubtitleLoads(clearPending: false)
+        loadStartedAtUptime = ProcessInfo.processInfo.systemUptime
+#if DEBUG
+        print("[Conduit MPV][startup] opening stream")
+#endif
 
         // Start paused at the resume timestamp. MPV can decode and present the
         // first video frame before audio begins, avoiding a visible late seek.
@@ -623,12 +641,6 @@ final class ConduitMPVPlayerViewController: UIViewController {
             args: [request.url, "replace", "-1", fileOptions.joined(separator: ",")]
         )
 
-        for (index, subtitle) in request.subtitles.enumerated() {
-            let delay = 0.25 + Double(index) * 0.05
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-                self?.addSubtitle(subtitle)
-            }
-        }
     }
 
     private func schedulePendingRetry() {
@@ -648,6 +660,35 @@ final class ConduitMPVPlayerViewController: UIViewController {
             args: [subtitle.url, "auto", subtitle.name ?? subtitle.language, subtitle.language],
             checkForErrors: false
         )
+    }
+
+    /// External subtitle URLs can take seconds each to open. Loading them only
+    /// after video startup keeps them off the first-frame path and off the UI thread.
+    private func loadPendingExternalSubtitles() {
+        let subtitles = pendingExternalSubtitles
+        pendingExternalSubtitles.removeAll(keepingCapacity: true)
+        guard !subtitles.isEmpty else { return }
+
+        subtitleLock.lock()
+        let generation = subtitleLoadGeneration
+        subtitleLock.unlock()
+        subtitleQueue.async { [weak self] in
+            guard let self else { return }
+            for subtitle in subtitles {
+                self.subtitleLock.lock()
+                let isCurrentLoad = self.subtitleLoadGeneration == generation
+                self.subtitleLock.unlock()
+                guard isCurrentLoad else { return }
+                self.addSubtitle(subtitle)
+            }
+        }
+    }
+
+    private func invalidateExternalSubtitleLoads(clearPending: Bool = true) {
+        subtitleLock.lock()
+        subtitleLoadGeneration += 1
+        subtitleLock.unlock()
+        if clearPending { pendingExternalSubtitles.removeAll(keepingCapacity: true) }
     }
 
     private func layoutMetalLayer() {
@@ -731,9 +772,10 @@ final class ConduitMPVPlayerViewController: UIViewController {
 
                 switch eventId {
                 case MPV_EVENT_PROPERTY_CHANGE:
+                    let tracksChanged = event.pointee.reply_userdata == 6
                     DispatchQueue.main.async { [weak self] in
                         self?.refreshPlaybackState()
-                        self?.refreshTracks()
+                        if tracksChanged { self?.refreshTracks() }
                     }
                 case MPV_EVENT_FILE_LOADED:
                     DispatchQueue.main.async { [weak self] in
@@ -741,6 +783,10 @@ final class ConduitMPVPlayerViewController: UIViewController {
                         self.hasLoadedFile = true
                         self.isPlayerLoading = false
                         self.clearError()
+#if DEBUG
+                        let elapsed = ProcessInfo.processInfo.systemUptime - self.loadStartedAtUptime
+                        print(String(format: "[Conduit MPV][startup] file loaded in %.2fs", elapsed))
+#endif
                         self.refreshPlaybackState()
                         self.refreshTracks()
                         if self.getString("video-codec") == nil {
@@ -751,7 +797,6 @@ final class ConduitMPVPlayerViewController: UIViewController {
                 case MPV_EVENT_PLAYBACK_RESTART:
                     DispatchQueue.main.async { [weak self] in
                         self?.refreshPlaybackState()
-                        self?.refreshTracks()
                     }
                 case MPV_EVENT_END_FILE:
                     guard let data = event.pointee.data else { continue }
