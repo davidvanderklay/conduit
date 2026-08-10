@@ -2,15 +2,16 @@
 
 use std::{
     ffi::{c_char, c_void, CString},
-    ptr::NonNull,
     sync::{
         atomic::{AtomicBool, Ordering},
         Mutex, OnceLock,
     },
 };
 
-use libmpv2::render::{OpenGLInitParams, RenderContext, RenderParam, RenderParamApiType};
-use libmpv2_sys::mpv_handle;
+use libmpv2::{
+    render::{OpenGLInitParams, RenderContext, RenderParam, RenderParamApiType},
+    Mpv,
+};
 use objc2::{msg_send, rc::Retained, AnyThread, ClassType, MainThreadOnly, Message};
 use objc2_app_kit::{NSOpenGLPixelFormat, NSOpenGLView, NSView};
 use objc2_foundation::MainThreadMarker;
@@ -36,7 +37,10 @@ const RTLD_DEFAULT: *mut c_void = -2isize as *mut c_void;
 struct EmbeddedSurface {
     view: Retained<NSOpenGLView>,
     parent: Retained<NSView>,
-    render: Mutex<RenderContext>,
+    // The Player owns the Mpv for at least as long as this surface. See the
+    // lifetime extension in install, which preserves that invariant across
+    // the global surface registry.
+    render: Mutex<RenderContext<'static>>,
 }
 
 unsafe impl Send for EmbeddedSurface {}
@@ -48,7 +52,7 @@ fn surface() -> &'static Mutex<Option<EmbeddedSurface>> {
     SURFACE.get_or_init(|| Mutex::new(None))
 }
 
-pub fn install(context: NonNull<mpv_handle>, view_pointer: i64) -> Result<(), String> {
+pub fn install(mpv: &Mpv, view_pointer: i64) -> Result<(), String> {
     let main_thread = MainThreadMarker::new().ok_or_else(|| {
         "Electron player installation must run on the macOS main thread".to_owned()
     })?;
@@ -112,9 +116,14 @@ pub fn install(context: NonNull<mpv_handle>, view_pointer: i64) -> Result<(), St
                 ctx: (),
             }),
         ];
-        let mut render = RenderContext::new(&mut *context.as_ptr(), parameters)
+        let mut render = mpv
+            .create_render_context(parameters)
             .map_err(|error| format!("libmpv render context: {error:?}"))?;
         render.set_update_callback(schedule_redraw);
+        // RenderContext borrows Mpv in the v6 API. The surface is global, but
+        // Player::stop always removes it before dropping its Mpv, preserving
+        // the borrow's actual lifetime.
+        let render = std::mem::transmute::<RenderContext<'_>, RenderContext<'static>>(render);
 
         *surface().lock().map_err(|error| error.to_string())? = Some(EmbeddedSurface {
             view,

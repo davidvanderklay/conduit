@@ -1,8 +1,8 @@
-use libmpv2::{mpv_node::MpvNode, Mpv};
+use libmpv2::Mpv;
 #[cfg(not(target_os = "linux"))]
 use napi_derive::napi;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::Value;
 use std::ffi::CString;
 #[cfg(target_os = "linux")]
 use std::io::{BufRead, Write};
@@ -258,7 +258,7 @@ impl Player {
         }
 
         #[cfg(target_os = "macos")]
-        if let Err(error) = render_macos::install(mpv.ctx, parent_window as i64) {
+        if let Err(error) = render_macos::install(&mpv, parent_window as i64) {
             drop(mpv);
             return Err(NativeError::Initialization(error));
         }
@@ -313,10 +313,9 @@ impl Player {
         self.pump_events();
         let mpv = self.mpv.as_ref().ok_or(NativeError::NotRunning)?;
         let tracks = mpv
-            .get_property::<MpvNode>("track-list")
+            .get_property::<String>("track-list")
             .ok()
-            .map(mpv_node_to_json)
-            .and_then(|value| serde_json::from_value(value).ok())
+            .map(|value| parse_track_list(&value))
             .unwrap_or_default();
         Ok(PlayerSnapshot {
             running: true,
@@ -347,7 +346,7 @@ impl Player {
         let Some(mpv) = self.mpv.as_mut() else {
             return;
         };
-        while let Some(event) = mpv.event_context_mut().wait_event(0.0) {
+        while let Some(event) = mpv.wait_event(0.0) {
             if let Err(error) = event {
                 eprintln!("Conduit Electron native player mpv event failed: {error}");
             }
@@ -537,20 +536,8 @@ fn is_network_media_url(url: &str) -> bool {
     matches!(url.split(':').next(), Some("http" | "https"))
 }
 
-fn mpv_node_to_json(node: MpvNode) -> Value {
-    match node {
-        MpvNode::None => Value::Null,
-        MpvNode::String(value) => Value::String(value),
-        MpvNode::Flag(value) => Value::Bool(value),
-        MpvNode::Int64(value) => json!(value),
-        MpvNode::Double(value) => json!(value),
-        MpvNode::ArrayIter(values) => Value::Array(values.map(mpv_node_to_json).collect()),
-        MpvNode::MapIter(values) => Value::Object(
-            values
-                .map(|(key, value)| (key, mpv_node_to_json(value)))
-                .collect(),
-        ),
-    }
+fn parse_track_list(value: &str) -> Vec<PlayerTrack> {
+    serde_json::from_str(value).unwrap_or_default()
 }
 
 #[cfg(target_os = "linux")]
@@ -872,6 +859,7 @@ fn linux_vaapi_device() -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn accepts_only_supported_media_urls() {
@@ -896,5 +884,17 @@ mod tests {
     fn converts_command_values_for_mpv() {
         assert_eq!(value_to_arg(&json!(true)), "yes");
         assert_eq!(value_to_arg(&json!(12.5)), "12.5");
+    }
+
+    #[test]
+    fn parses_mpv_track_list_json() {
+        let tracks =
+            parse_track_list(r#"[{"id":1,"type":"video","title":"Main","selected":true}]"#);
+
+        assert_eq!(tracks.len(), 1);
+        assert_eq!(tracks[0].id, 1);
+        assert_eq!(tracks[0].kind, "video");
+        assert_eq!(tracks[0].title.as_deref(), Some("Main"));
+        assert!(tracks[0].selected);
     }
 }
