@@ -27,6 +27,7 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.jsonArray
 import io.ktor.http.encodeURLPathPart
 import kotlinx.coroutines.async
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
@@ -106,11 +107,16 @@ data class LibraryItemSummary(
     val type: String,
     val name: String,
     val poster: String? = null,
+    val background: String? = null,
+    val description: String? = null,
+    val releaseInfo: String? = null,
+    val runtime: String? = null,
     val updatedAt: String,
 )
 
 @Serializable
 data class LibraryResponse(val items: List<LibraryItemSummary>)
+@Serializable private data class LibraryItemResponse(val item: LibraryItemSummary)
 
 @Serializable
 data class ProgressSummary(
@@ -139,6 +145,7 @@ data class ProfileSnapshot(
     val addons: List<InstalledAddonSummary>,
     val library: List<LibraryItemSummary>,
     val progress: List<ProgressSummary>,
+    val history: List<ProgressSummary> = emptyList(),
     val continueWatching: List<ProgressSummary> = emptyList(),
 )
 
@@ -161,10 +168,17 @@ data class VideoItem(
     val season: Int? = null,
     val episode: Int? = null,
     val released: String? = null,
+    val available: Boolean? = null,
     val thumbnail: String? = null,
     val overview: String? = null,
     val description: String? = null,
 )
+
+@Serializable
+data class TrailerItem(val source: String? = null, val type: String? = null)
+
+@Serializable
+data class TrailerStreamItem(val title: String? = null, val youtubeId: String? = null)
 
 @Serializable
 data class MetaItem(
@@ -182,6 +196,12 @@ data class MetaItem(
     val contentRating: String? = null,
     val director: List<String> = emptyList(),
     val cast: List<String> = emptyList(),
+    val writer: List<String> = emptyList(),
+    val country: String? = null,
+    val awards: String? = null,
+    val released: String? = null,
+    val trailers: List<TrailerItem> = emptyList(),
+    val trailerStreams: List<TrailerStreamItem> = emptyList(),
     val videos: List<VideoItem> = emptyList(),
 )
 
@@ -222,12 +242,55 @@ data class HomeCatalog(
     val key: String,
     val title: String,
     val items: List<CatalogItem>,
+    val addonId: String,
+    val type: String,
+    val catalogId: String,
 )
 
 data class HomeCatalogResult(
     val catalogs: List<HomeCatalog>,
     val failedRequests: Int,
 )
+
+data class DiscoverCatalog(
+    val addonId: String,
+    val manifestUrl: String,
+    val addonName: String,
+    val type: String,
+    val id: String,
+    val name: String,
+    val supportsGenre: Boolean,
+    val genres: List<String>,
+    val genreRequired: Boolean,
+)
+
+fun discoverCatalogs(addons: List<InstalledAddonSummary>): List<DiscoverCatalog> = addons
+    .filter(InstalledAddonSummary::enabled)
+    .flatMap { addon ->
+        val addonName = addon.manifest["name"]?.jsonPrimitive?.contentOrNull ?: addon.manifestId
+        addon.manifest["catalogs"]?.jsonArray.orEmpty().mapNotNull { it as? JsonObject }.mapNotNull { catalog ->
+            val extras = catalog["extra"]?.jsonArray.orEmpty().mapNotNull { it as? JsonObject }
+            if (extras.any { extra ->
+                    extra["isRequired"]?.jsonPrimitive?.booleanOrNull == true &&
+                        extra["name"]?.jsonPrimitive?.contentOrNull != "genre"
+                }
+            ) return@mapNotNull null
+            val id = catalog["id"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+            val type = catalog["type"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+            val genre = extras.firstOrNull { it["name"]?.jsonPrimitive?.contentOrNull == "genre" }
+            DiscoverCatalog(
+                addonId = addon.id,
+                manifestUrl = addon.manifestUrl,
+                addonName = addonName,
+                type = type,
+                id = id,
+                name = catalog["name"]?.jsonPrimitive?.contentOrNull ?: id.replaceFirstChar(Char::uppercase),
+                supportsGenre = genre != null,
+                genres = genre?.get("options")?.jsonArray.orEmpty().mapNotNull { it.jsonPrimitive.contentOrNull },
+                genreRequired = genre?.get("isRequired")?.jsonPrimitive?.booleanOrNull == true,
+            )
+        }
+    }
 
 private data class SearchCatalogRequest(val addon: InstalledAddonSummary, val type: String, val id: String, val name: String)
 
@@ -267,7 +330,18 @@ class ServerRequestException(message: String, val statusCode: Int? = null) : Exc
 
 class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
     private val metadataCache = linkedMapOf<String, MetaItem>()
-    suspend fun validate(baseUrl: String): ValidatedServer {
+    suspend fun validate(baseUrl: String): ValidatedServer = try {
+        validateServer(baseUrl)
+    } catch (cause: ServerRequestException) {
+        throw cause
+    } catch (cause: Throwable) {
+        if (cause is CancellationException) throw cause
+        throw ServerRequestException(
+            "Could not connect to this Conduit server. Check that it is running and that the address is correct.",
+        )
+    }
+
+    private suspend fun validateServer(baseUrl: String): ValidatedServer {
         val healthResponse = client.get("$baseUrl/health") {
             timeout {
                 requestTimeoutMillis = 75_000
@@ -452,9 +526,10 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
             suspend fun get(path: String) = client.get("$baseUrl$path") { bearerAuth(token) }
             val addons = async { get("/v1/profiles/$profileId/addons") }
             val library = async { get("/v1/profiles/$profileId/library") }
-            val progress = async { get("/v1/profiles/$profileId/progress?view=history&limit=250") }
+            val progress = async { get("/v1/profiles/$profileId/progress?view=status&limit=1000") }
+            val history = async { get("/v1/profiles/$profileId/progress?view=history&limit=1000") }
             val continueWatching = async { get("/v1/profiles/$profileId/progress?view=continue&limit=14") }
-            val responses = listOf(addons.await(), library.await(), progress.await(), continueWatching.await())
+            val responses = listOf(addons.await(), library.await(), progress.await(), history.await(), continueWatching.await())
             responses.firstOrNull { !it.status.isSuccess() }?.let { response ->
                 throw ServerRequestException(
                     if (response.status.value == 401) "Your session has expired" else
@@ -467,9 +542,112 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
                 addons = responses[0].body<AddonsResponse>().addons,
                 library = responses[1].body<LibraryResponse>().items,
                 progress = responses[2].body<ProgressResponse>().items,
-                continueWatching = responses[3].body<ProgressResponse>().items,
+                history = responses[3].body<ProgressResponse>().items,
+                continueWatching = responses[4].body<ProgressResponse>().items,
             )
         }
+
+    suspend fun saveLibraryItem(
+        baseUrl: String,
+        token: String,
+        profileId: String,
+        item: CatalogItem,
+        runtime: String? = null,
+    ): LibraryItemSummary {
+        val response = client.put(
+            "$baseUrl/v1/profiles/$profileId/library/${item.type.encodeURLPathPart()}/${item.id.encodeURLPathPart()}",
+        ) {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody(buildJsonObject {
+                put("name", item.name)
+                item.poster?.let { put("poster", it) }
+                item.background?.let { put("background", it) }
+                item.description?.let { put("description", it) }
+                item.releaseInfo?.let { put("releaseInfo", it) }
+                runtime?.let { put("runtime", it) }
+            })
+        }
+        if (!response.status.isSuccess()) throw ServerRequestException("Unable to save library item", response.status.value)
+        return response.body<LibraryItemResponse>().item
+    }
+
+    suspend fun removeLibraryItem(
+        baseUrl: String,
+        token: String,
+        profileId: String,
+        mediaType: String,
+        mediaId: String,
+    ) {
+        val response = client.delete(
+            "$baseUrl/v1/profiles/$profileId/library/${mediaType.encodeURLPathPart()}/${mediaId.encodeURLPathPart()}",
+        ) { bearerAuth(token) }
+        if (!response.status.isSuccess()) throw ServerRequestException("Unable to remove library item", response.status.value)
+    }
+
+    suspend fun setProgressWatched(
+        baseUrl: String,
+        token: String,
+        profileId: String,
+        progress: ProgressSummary?,
+        item: CatalogItem,
+        video: VideoItem?,
+        watched: Boolean,
+    ): ProgressSummary {
+        val videoId = progress?.videoId ?: video?.id ?: item.id
+        val url = "$baseUrl/v1/profiles/$profileId/progress/${videoId.encodeURLPathPart()}"
+        val response = if (progress != null) {
+            client.patch(url) {
+                bearerAuth(token)
+                contentType(ContentType.Application.Json)
+                setBody(buildJsonObject { put("watched", watched) })
+            }
+        } else {
+            client.put(url) {
+                bearerAuth(token)
+                contentType(ContentType.Application.Json)
+                setBody(buildJsonObject {
+                    put("mediaType", item.type)
+                    put("mediaId", item.id)
+                    put("name", item.name)
+                    item.poster?.let { put("poster", it) }
+                    video?.title?.let { put("videoTitle", it) }
+                    video?.season?.let { put("season", it) }
+                    video?.episode?.let { put("episode", it) }
+                    put("positionMs", 0)
+                    put("durationMs", 0)
+                    put("watched", watched)
+                })
+            }
+        }
+        if (!response.status.isSuccess()) throw ServerRequestException("Unable to update watch state", response.status.value)
+        return response.body<ProgressItemResponse>().item
+            ?: throw ServerRequestException("The server did not return watch state")
+    }
+
+    suspend fun setProgressDismissed(
+        baseUrl: String,
+        token: String,
+        profileId: String,
+        videoId: String,
+        dismissed: Boolean,
+    ): ProgressSummary {
+        val response = client.patch("$baseUrl/v1/profiles/$profileId/progress/${videoId.encodeURLPathPart()}") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody(buildJsonObject { put("dismissed", dismissed) })
+        }
+        if (!response.status.isSuccess()) throw ServerRequestException("Unable to update Continue Watching", response.status.value)
+        return response.body<ProgressItemResponse>().item
+            ?: throw ServerRequestException("The server did not return playback progress")
+    }
+
+    suspend fun deleteProgress(baseUrl: String, token: String, profileId: String, videoId: String) {
+        val response = client.delete("$baseUrl/v1/profiles/$profileId/progress/${videoId.encodeURLPathPart()}") {
+            bearerAuth(token)
+        }
+        if (!response.status.isSuccess()) throw ServerRequestException("Unable to remove watch history", response.status.value)
+    }
 
     suspend fun loadProgress(baseUrl: String, token: String, profileId: String, videoId: String): ProgressSummary? {
         val response = client.get("$baseUrl/v1/profiles/$profileId/progress/${videoId.encodeURLPathPart()}") { bearerAuth(token) }
@@ -529,6 +707,9 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
                             key = "${addon.id}:$type:$id",
                             title = title,
                             items = response.body<CatalogResponse>().metas,
+                            addonId = addon.id,
+                            type = type,
+                            catalogId = id,
                         )
                     }
                 }
@@ -631,11 +812,30 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
                         key = "search:${addon.id}:$type:$id",
                         title = "$catalogName · $typeLabel · $addonName",
                         items = response.body<CatalogResponse>().metas.distinctBy { "${it.type}:${it.id}" },
+                        addonId = addon.id,
+                        type = type,
+                        catalogId = id,
                     )
                 }.getOrNull()
             }
         }
         requests.mapNotNull { it.await() }.filter { it.items.isNotEmpty() }
+    }
+
+    suspend fun loadCatalog(
+        catalog: DiscoverCatalog,
+        genre: String? = null,
+        skip: Int = 0,
+    ): List<CatalogItem> {
+        val extras = buildList {
+            genre?.let { add("genre" to it) }
+            if (skip > 0) add("skip" to skip.toString())
+        }
+        val response = client.get(resourceUrl(catalog.manifestUrl, "catalog", catalog.type, catalog.id, extras))
+        if (!response.status.isSuccess()) {
+            throw ServerRequestException("${catalog.name} returned HTTP ${response.status.value}", response.status.value)
+        }
+        return response.body<CatalogResponse>().metas
     }
 
     private fun resourceUrl(
@@ -652,6 +852,23 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
         return if (extraName != null && extraValue != null) {
             "$path/${extraName.encodeURLPathPart()}=${extraValue.encodeURLPathPart()}.json"
         } else "$path.json"
+    }
+
+    private fun resourceUrl(
+        manifestUrl: String,
+        resource: String,
+        type: String,
+        id: String,
+        extras: List<Pair<String, String>>,
+    ): String {
+        if (extras.isEmpty()) return resourceUrl(manifestUrl, resource, type, id)
+        val cleanManifest = manifestUrl.substringBefore('?').substringBefore('#')
+        val base = cleanManifest.substringBeforeLast('/', cleanManifest).trimEnd('/')
+        val path = "$base/${resource.encodeURLPathPart()}/${type.encodeURLPathPart()}/${id.encodeURLPathPart()}"
+        val encodedExtras = extras.joinToString("&") { (name, value) ->
+            "${name.encodeURLPathPart()}=${value.encodeURLPathPart()}"
+        }
+        return "$path/$encodedExtras.json"
     }
 
     suspend fun generateRecoveryCodes(baseUrl: String, token: String): List<String> {

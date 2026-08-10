@@ -1,0 +1,59 @@
+name: iOS CI
+
+on:
+  pull_request:
+    paths:
+      - "apps/mobile/**"
+      - "packages/mobile-bridge/**"
+      - "packages/core/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/mobile-ios.yml"
+  push:
+    branches: [main]
+    paths:
+      - "apps/mobile/**"
+      - "packages/mobile-bridge/**"
+      - "packages/core/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/mobile-ios.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test and build unsigned IPA
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: gradle
+          cache-dependency-path: apps/mobile/**/*.gradle*
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Build iOS Rust libraries
+        run: apps/mobile/scripts/build-rust-ios.sh
+      - name: Run iOS unit tests
+        working-directory: apps/mobile
+        run: ./gradlew --no-daemon :composeApp:iosSimulatorArm64Test
+      - name: Build release IPA
+        run: >-
+          apps/mobile/scripts/package-ios-ipa.sh
+          "0.0.0-ci.${GITHUB_RUN_NUMBER}"
+          "$GITHUB_RUN_NUMBER"
+          "$RUNNER_TEMP/conduit-ios"

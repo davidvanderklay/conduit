@@ -2,7 +2,7 @@
 
 Pushing a semantic version tag creates a GitHub release with a Windows NSIS
 installer, Linux AppImage, Linux Flatpak, macOS DMGs for Apple Silicon and
-Intel, and a signed universal Android APK:
+Intel, a signed universal Android APK, and an unsigned iOS IPA:
 
 ```sh
 git tag v0.2.0
@@ -13,6 +13,37 @@ The workflow takes the application version from the tag, builds on native
 Windows, Ubuntu, Apple Silicon macOS, and Intel macOS runners, and generates
 release notes from the commits since the previous release. Run the workflow
 manually to test packaging without publishing a GitHub release.
+
+## iOS
+
+Tagged builds publish `conduit-<version>-ios-unsigned.ipa` and its SHA-256
+checksum. The IPA contains an arm64 device build with the semantic version from
+the tag and the Actions run number as its numeric build number. It is unsigned
+by design, so the workflow does not require an Apple Developer certificate or
+repository secrets.
+
+The IPA cannot be installed directly by iOS. Import it into LiveContainer or
+another sideloading environment that can load or sign unsigned applications.
+The bundle identifier is `media.conduit.mobile`, and the app requires iOS 15 or
+newer. The pinned MPVKit build currently emits deployment-version warnings for
+some codec objects built against iOS 17.5, so runtime compatibility on iOS 15
+through 17.4 remains unverified even though the application links successfully.
+
+To exercise the same packaging path without creating a release, run the
+workflow manually with the `ios` target. Its IPA is available from the workflow
+run's `conduit-ios` artifact. On a Mac with the prerequisites from
+`mobile-development.md`, reproduce the package locally with:
+
+```sh
+apps/mobile/scripts/build-rust-ios.sh
+apps/mobile/scripts/package-ios-ipa.sh 0.2.0 1
+```
+
+Verify a downloaded package before importing it:
+
+```sh
+shasum -a 256 -c conduit-0.2.0-ios-unsigned.ipa.sha256
+```
 
 ## Android
 

@@ -17,6 +17,7 @@ import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.AccountCircle
 import androidx.compose.material.icons.rounded.VideoLibrary
 import androidx.compose.material.icons.rounded.Movie
+import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.ContentCopy
@@ -41,6 +42,8 @@ import media.conduit.mobile.account.ConduitApi
 import media.conduit.mobile.account.SessionVault
 import media.conduit.mobile.account.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 @Composable
 fun App() {
@@ -500,6 +503,7 @@ private fun AppShell(
     val profiles = account.bootstrap.households.flatMap { it.profiles }
     val activeProfile = profiles.firstOrNull { it.id == state.activeProfileId } ?: profiles.firstOrNull()
     val syncRepository = remember(api, secureStore) { ProfileSyncRepository(api, secureStore) }
+    val mutationMutex = remember { Mutex() }
     val appScope = rememberCoroutineScope()
     var profileSync by remember(activeProfile?.id) {
         mutableStateOf(
@@ -525,15 +529,33 @@ private fun AppShell(
     var selectedVideoId by remember { mutableStateOf<String?>(null) }
     val homeListState = rememberLazyListState()
     val searchListState = rememberLazyListState()
+    val discoverGridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
     val libraryGridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
+    val historyGridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
     val settingsListState = rememberLazyListState()
+    var browseQuery by remember(activeProfile?.id) { mutableStateOf("") }
+    var discoverSelection by remember(activeProfile?.id) { mutableStateOf(DiscoverSelection()) }
     var adaptiveCompact by remember { mutableStateOf(false) }
-    LaunchedEffect(state.destination, homeListState, searchListState, libraryGridState, settingsListState) {
+    LaunchedEffect(
+        state.destination,
+        browseQuery,
+        homeListState,
+        searchListState,
+        discoverGridState,
+        libraryGridState,
+        historyGridState,
+        settingsListState,
+    ) {
         fun position(): Long = when (state.destination) {
             AppDestination.Home -> (homeListState.firstVisibleItemIndex.toLong() shl 32) or homeListState.firstVisibleItemScrollOffset.toLong()
-            AppDestination.Search -> (searchListState.firstVisibleItemIndex.toLong() shl 32) or searchListState.firstVisibleItemScrollOffset.toLong()
+            AppDestination.Search -> if (browseQuery.isBlank()) {
+                (discoverGridState.firstVisibleItemIndex.toLong() shl 32) or discoverGridState.firstVisibleItemScrollOffset.toLong()
+            } else {
+                (searchListState.firstVisibleItemIndex.toLong() shl 32) or searchListState.firstVisibleItemScrollOffset.toLong()
+            }
             AppDestination.Library -> (libraryGridState.firstVisibleItemIndex.toLong() shl 32) or libraryGridState.firstVisibleItemScrollOffset.toLong()
             AppDestination.Profile -> (settingsListState.firstVisibleItemIndex.toLong() shl 32) or settingsListState.firstVisibleItemScrollOffset.toLong()
+            AppDestination.History -> (historyGridState.firstVisibleItemIndex.toLong() shl 32) or historyGridState.firstVisibleItemScrollOffset.toLong()
         }
         var previous = position()
         adaptiveCompact = previous != 0L
@@ -556,6 +578,48 @@ private fun AppShell(
         // discard transient state such as the selected playback stream.
         val expanded = maxWidth >= 720.dp && maxHeight >= 600.dp
         val snackbarHostState = remember { SnackbarHostState() }
+        suspend fun mutateProfile(mutation: ProfileMutation): Result<Unit> {
+            val profile = activeProfile ?: return Result.failure(IllegalStateException("No active profile"))
+            val result = mutationMutex.withLock {
+                val before = profileSync.snapshot
+                    ?: return@withLock Result.failure(IllegalStateException("Profile is not synchronized"))
+                val optimistic = before.applyOptimistically(mutation)
+                profileSync = profileSync.copy(snapshot = optimistic, offline = false, error = null)
+                syncRepository.save(optimistic)
+                runCatching {
+                    api.executeMutation(state.endpoint!!.baseUrl, account.session.token, profile.id, mutation)
+                    profileSync = syncRepository.synchronize(state.endpoint.baseUrl, account.session.token, profile.id)
+                }.onFailure {
+                    profileSync = profileSync.copy(snapshot = before, error = it.message)
+                    syncRepository.save(before)
+                }
+            }
+            result.exceptionOrNull()?.let { snackbarHostState.showSnackbar(it.message ?: "Unable to update this title") }
+            if (result.isSuccess && mutation is ProfileMutation.SetLibrary && !mutation.saved) {
+                if (snackbarHostState.showSnackbar("Removed from library", "Undo") == SnackbarResult.ActionPerformed) {
+                    mutateProfile(mutation.copy(saved = true))
+                }
+            }
+            return result
+        }
+        val openMedia: (CatalogItem, String?) -> Unit = { item, videoId ->
+            selectMedia(item, videoId)
+            if (!state.richActionsHintShown) {
+                dispatch(AppAction.RichActionsHintShown)
+                appScope.launch { snackbarHostState.showSnackbar("Touch and hold a title for more options") }
+            }
+        }
+        val openBrowse: (MobileBrowseTarget) -> Unit = { target ->
+            when (target) {
+                is MobileBrowseTarget.Discover -> {
+                    browseQuery = ""
+                    discoverSelection = target.selection
+                }
+                is MobileBrowseTarget.Search -> browseQuery = target.query
+            }
+            selectedMedia = null
+            dispatch(AppAction.Navigate(AppDestination.Search))
+        }
         LaunchedEffect(state.notice) {
             state.notice?.let {
                 snackbarHostState.showSnackbar(it)
@@ -570,7 +634,7 @@ private fun AppShell(
                 Row(Modifier.fillMaxSize().padding(padding)) {
                     NavigationRail {
                         Spacer(Modifier.height(16.dp))
-                        AppDestination.entries.forEach { destination ->
+                        AppDestination.entries.filter(AppDestination::showInNavigation).forEach { destination ->
                             NavigationRailItem(
                                 selected = state.destination == destination,
                                 onClick = { dispatch(AppAction.Navigate(destination)) },
@@ -581,20 +645,24 @@ private fun AppShell(
                     }
                     DestinationContent(
                         state, platform, account, activeProfile, profileSync, api, selectedMedia,
-                        selectedVideoId, selectMedia, { selectedMedia = null }, dispatch, onSignOut, onProfilesChanged,
+                        selectedVideoId, openMedia, { selectedMedia = null }, dispatch, onSignOut, onProfilesChanged,
                         { profileFlowActive = it },
                         { activeProfile?.let { profile -> appScope.launch { profileSync = syncRepository.synchronize(state.endpoint!!.baseUrl, account.session.token, profile.id) } } },
-                        preferences, onPreferencesChanged, homeListState, searchListState, libraryGridState, settingsListState,
+                        ::mutateProfile,
+                        browseQuery, { browseQuery = it }, discoverSelection, { discoverSelection = it }, openBrowse,
+                        preferences, onPreferencesChanged, homeListState, searchListState, discoverGridState, libraryGridState, historyGridState, settingsListState,
                         Modifier.weight(1f),
                     )
                 }
             } else {
                 DestinationContent(
                     state, platform, account, activeProfile, profileSync, api, selectedMedia,
-                    selectedVideoId, selectMedia, { selectedMedia = null }, dispatch, onSignOut, onProfilesChanged,
+                    selectedVideoId, openMedia, { selectedMedia = null }, dispatch, onSignOut, onProfilesChanged,
                     { profileFlowActive = it },
                     { activeProfile?.let { profile -> appScope.launch { profileSync = syncRepository.synchronize(state.endpoint!!.baseUrl, account.session.token, profile.id) } } },
-                    preferences, onPreferencesChanged, homeListState, searchListState, libraryGridState, settingsListState,
+                    ::mutateProfile,
+                    browseQuery, { browseQuery = it }, discoverSelection, { discoverSelection = it }, openBrowse,
+                    preferences, onPreferencesChanged, homeListState, searchListState, discoverGridState, libraryGridState, historyGridState, settingsListState,
                     Modifier.padding(padding),
                 )
             }
@@ -613,7 +681,7 @@ private fun AppShell(
                     .then(if (classic) Modifier.fillMaxWidth() else if (compact) Modifier.padding(horizontal = 64.dp, vertical = 10.dp).fillMaxWidth() else Modifier.padding(horizontal = 14.dp, vertical = 10.dp).fillMaxWidth()),
             ) {
                 Row(Modifier.fillMaxWidth().then(if (classic) Modifier.navigationBarsPadding() else Modifier).padding(horizontal = 8.dp, vertical = if (compact) 2.dp else 4.dp)) {
-                    AppDestination.entries.forEach { destination ->
+                    AppDestination.entries.filter(AppDestination::showInNavigation).forEach { destination ->
                         MobileNavigationItem(
                             destination = destination,
                             selected = state.destination == destination,
@@ -646,11 +714,19 @@ private fun DestinationContent(
     onProfilesChanged: (String?) -> Unit,
     onProfileFlowChanged: (Boolean) -> Unit,
     onProfileDataChanged: () -> Unit,
+    onProfileMutation: suspend (ProfileMutation) -> Result<Unit>,
+    browseQuery: String,
+    onBrowseQueryChange: (String) -> Unit,
+    discoverSelection: DiscoverSelection,
+    onDiscoverSelectionChange: (DiscoverSelection) -> Unit,
+    onBrowse: (MobileBrowseTarget) -> Unit,
     preferences: DevicePreferences,
     onPreferencesChanged: (DevicePreferences) -> Unit,
     homeListState: androidx.compose.foundation.lazy.LazyListState,
     searchListState: androidx.compose.foundation.lazy.LazyListState,
+    discoverGridState: androidx.compose.foundation.lazy.grid.LazyGridState,
     libraryGridState: androidx.compose.foundation.lazy.grid.LazyGridState,
+    historyGridState: androidx.compose.foundation.lazy.grid.LazyGridState,
     settingsListState: androidx.compose.foundation.lazy.LazyListState,
     modifier: Modifier = Modifier,
 ) {
@@ -663,18 +739,36 @@ private fun DestinationContent(
             val active = selectedMedia == null && state.destination == destination
             val tabModifier = if (active) Modifier.fillMaxSize() else Modifier.size(0.dp)
             when (destination) {
-                AppDestination.Home -> HomeScreen(activeProfile, profileSync, api, onSelectMedia, homeListState, homeCache, tabModifier)
+                AppDestination.Home -> HomeScreen(
+                    activeProfile, profileSync, api, onSelectMedia, onProfileMutation,
+                    onOpenHistory = { dispatch(AppAction.Navigate(AppDestination.History)) },
+                    onOpenLibrary = { dispatch(AppAction.Navigate(AppDestination.Library)) },
+                    onOpenDiscover = { onBrowse(MobileBrowseTarget.Discover(it)) },
+                    listState = homeListState, cache = homeCache, modifier = tabModifier,
+                )
                 AppDestination.Search -> SearchDiscoverScreen(
                     addons = profileSync.snapshot?.addons.orEmpty(), api = api,
-                    onSelect = { onSelectMedia(it, null) }, listState = searchListState, modifier = tabModifier,
+                    snapshot = profileSync.snapshot, query = browseQuery, onQueryChange = onBrowseQueryChange,
+                    selection = discoverSelection, onSelectionChange = onDiscoverSelectionChange,
+                    onMutation = onProfileMutation,
+                    onSelect = { onSelectMedia(it, null) }, listState = searchListState,
+                    gridState = discoverGridState, modifier = tabModifier,
                 )
                 AppDestination.Library -> MobileLibraryScreen(
-                    snapshot = profileSync.snapshot, onSelect = { onSelectMedia(it, null) }, gridState = libraryGridState, modifier = tabModifier,
+                    snapshot = profileSync.snapshot, api = api, onMutation = onProfileMutation,
+                    onSelect = { onSelectMedia(it, null) }, onSelectVideo = onSelectMedia,
+                    gridState = libraryGridState, modifier = tabModifier,
                 )
                 AppDestination.Profile -> ProfileSettingsScreen(
                     state, platform, account, activeProfile, profileSync, api, dispatch, onSignOut,
                     onProfilesChanged, { if (active) onProfileFlowChanged(it) }, onProfileDataChanged,
+                    onProfileMutation, onSelectMedia,
                     preferences, onPreferencesChanged, settingsListState = settingsListState, modifier = tabModifier,
+                )
+                AppDestination.History -> MobileHistoryScreen(
+                    snapshot = profileSync.snapshot, api = api, onMutation = onProfileMutation,
+                    onSelect = { onSelectMedia(it, null) }, onSelectVideo = onSelectMedia,
+                    gridState = historyGridState, modifier = tabModifier,
                 )
             }
         }
@@ -690,6 +784,8 @@ private fun DestinationContent(
                 token = account.session.token,
                 preferences = preferences,
                 onProgressChanged = onProfileDataChanged,
+                onMutation = onProfileMutation,
+                onBrowse = onBrowse,
                 onBack = onCloseMedia,
             )
         }
@@ -703,6 +799,7 @@ private val AppDestination.icon: ImageVector
         AppDestination.Search -> Icons.Rounded.Search
         AppDestination.Library -> Icons.Rounded.VideoLibrary
         AppDestination.Profile -> Icons.Rounded.AccountCircle
+        AppDestination.History -> Icons.Rounded.History
     }
 
 @Composable

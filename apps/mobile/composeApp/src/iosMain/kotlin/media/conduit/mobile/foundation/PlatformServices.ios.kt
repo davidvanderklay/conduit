@@ -11,13 +11,32 @@ private class AppleSettingsStore(private val defaults: NSUserDefaults) : Setting
     override fun remove(key: String) { defaults.removeObjectForKey(key) }
 }
 
+private class AppleKeychainStore(private val bridge: IosSecureStoreBridge) : SecureStore {
+    override fun get(key: String): String? = bridge.get(key)
+
+    override fun put(key: String, value: String) {
+        checkKeychainStatus("write", bridge.put(key, value))
+    }
+
+    override fun remove(key: String) {
+        checkKeychainStatus("remove", bridge.remove(key))
+    }
+
+    private fun checkKeychainStatus(operation: String, status: Int) {
+        check(status == 0) { "iOS Keychain $operation failed with status $status" }
+    }
+}
+
 @Composable
 actual fun rememberPlatformServices(): PlatformServices = remember {
     val device = UIDevice.currentDevice
     PlatformServices(
         settings = AppleSettingsStore(NSUserDefaults.standardUserDefaults),
-        // Replace with a Keychain-backed adapter before iOS authentication is enabled.
-        secure = MemorySecureStore(),
+        secure = AppleKeychainStore(
+            checkNotNull(IosPlatformBridgeFactory.secureStore()) {
+                "The iOS Keychain bridge was not registered by the application host"
+            },
+        ),
         info = PlatformInfo(
             name = device.systemName,
             version = device.systemVersion,

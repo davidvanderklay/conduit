@@ -20,6 +20,8 @@ apps/mobile/local.properties
 apps/mobile/iosApp/Pods/
 apps/mobile/iosApp/build/
 apps/mobile/iosApp/*.xcodeproj/xcuserdata/
+**/xcuserdata/
+*.xcuserstate
 apps/mobile/native/
 
 apps/server/.local/
