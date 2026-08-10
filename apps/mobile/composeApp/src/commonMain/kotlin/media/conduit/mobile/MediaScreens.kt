@@ -27,6 +27,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -473,7 +474,7 @@ private class HeroOverscrollConnection(
         available: Offset,
         source: NestedScrollSource,
     ): Offset {
-        if (available.y <= 0f || !atTop()) return Offset.Zero
+        if (source != NestedScrollSource.UserInput || available.y <= 0f || !atTop()) return Offset.Zero
         val consumedY = min(available.y, maxPullPx - pull.floatValue)
         if (consumedY <= 0f) return Offset.Zero
         pull.floatValue += consumedY
@@ -481,7 +482,14 @@ private class HeroOverscrollConnection(
     }
 
     override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
-        pull.floatValue = 0f
+        val start = pull.floatValue
+        if (start > 0f) {
+            animate(
+                initialValue = start,
+                targetValue = 0f,
+                animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+            ) { value, _ -> pull.floatValue = value }
+        }
         return Velocity.Zero
     }
 }
@@ -699,16 +707,24 @@ internal fun MediaDetailsScreen(
     val resumeVideo = details?.videos?.firstOrNull { it.id == seriesProgress?.videoId }
     LaunchedEffect(details?.id, resumeVideo?.season) { if (selectedSeason == null) selectedSeason = resumeVideo?.season ?: details?.videos?.firstOrNull()?.season }
     val heroPullDp = with(LocalDensity.current) { heroPull.floatValue.toDp() }
+    val heroScale = 1f + (heroPull.floatValue / maxHeroPullPx) * .22f
     LazyColumn(
         state = detailsListState,
         modifier = Modifier.fillMaxSize().nestedScroll(heroPullConnection),
+        overscrollEffect = null,
         contentPadding = PaddingValues(bottom = 32.dp),
     ) {
         item {
             Box(Modifier.fillMaxWidth().height((if (item.type == "movie") 390.dp else 350.dp) + heroPullDp)) {
                 AsyncImage(
                     model = details?.background ?: item.background ?: details?.poster ?: item.poster,
-                    contentDescription = item.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize(),
+                    contentDescription = item.name,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize().graphicsLayer {
+                        scaleX = heroScale
+                        scaleY = heroScale
+                        translationY = -heroPull.floatValue * .12f
+                    },
                 )
                 Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Black.copy(.15f), MaterialTheme.colorScheme.background))))
                 IconButton(onClick = onBack, modifier = Modifier.statusBarsPadding().padding(12.dp).background(Color.Black.copy(.5f), CircleShape)) {
@@ -928,17 +944,28 @@ private fun StreamSelectionScreen(
         )
     }
     val heroPullDp = with(LocalDensity.current) { heroPull.floatValue.toDp() }
+    val heroScale = 1f + (heroPull.floatValue / maxHeroPullPx) * .22f
     val collapsed by remember { derivedStateOf { listState.firstVisibleItemIndex > 0 } }
     LazyColumn(
         state = listState,
         modifier = Modifier.fillMaxSize().nestedScroll(heroPullConnection),
+        overscrollEffect = null,
         contentPadding = PaddingValues(bottom = 20.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         artwork?.let { image ->
             item(key = "artwork") {
                 Box(Modifier.fillMaxWidth().height(170.dp + heroPullDp)) {
-                    AsyncImage(image, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                    AsyncImage(
+                        image,
+                        null,
+                        Modifier.fillMaxSize().graphicsLayer {
+                            scaleX = heroScale
+                            scaleY = heroScale
+                            translationY = -heroPull.floatValue * .12f
+                        },
+                        contentScale = ContentScale.Crop,
+                    )
                     Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Black.copy(.08f), MaterialTheme.colorScheme.background))))
                 }
             }
