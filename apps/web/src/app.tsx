@@ -1382,6 +1382,9 @@ interface AdminAuthSettings {
 
 function AdminRecoveryScreen() {
   const token = new URLSearchParams(window.location.search).get("token") ?? ""
+  useEffect(() => {
+    if (token) window.history.replaceState({}, document.title, "/recover/admin")
+  }, [token])
   const recovery = useQuery({
     queryKey: ["admin-recovery", token],
     queryFn: () =>

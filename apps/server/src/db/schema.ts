@@ -150,6 +150,16 @@ export const verifications = pgTable(
   (table) => [index("verification_identifier_idx").on(table.identifier)],
 )
 
+export const rateLimitEntries = pgTable(
+  "rate_limit_entry",
+  {
+    key: text("key").primaryKey(),
+    count: integer("count").notNull().default(0),
+    resetAt: timestamp("reset_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [index("rate_limit_entry_reset_idx").on(table.resetAt)],
+)
+
 export const households = pgTable("household", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),

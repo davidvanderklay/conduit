@@ -32,5 +32,6 @@ FROM node:22-alpine AS server
 ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=build /prod/server ./
+USER node
 EXPOSE 3000
 CMD ["sh", "-c", "node dist/migrate.js && exec node dist/index.js"]

@@ -8,6 +8,7 @@ import {
   protocol,
   screen,
   shell,
+  session,
 } from "electron"
 import { spawn, type ChildProcess } from "node:child_process"
 import { createServer, type Server } from "node:http"
@@ -218,6 +219,7 @@ let playerOverlayInteractiveRegions: OverlayInteractiveRegion[] = []
 let playerOverlayLastPointer: { x: number; y: number } | undefined
 let playerOverlaySequence = 0
 let mainWindowFullscreen = false
+const approvedSavePaths = new Set<string>()
 const playerOverlayFocusSettleMs = 10
 const singleInstanceLock = app.requestSingleInstanceLock()
 
@@ -435,6 +437,7 @@ async function ensurePlayerOverlay(title: string) {
     },
   })
   playerOverlayWindow = overlay
+  installWindowGuards(overlay)
   playerOverlayMouseEventsIgnored = undefined
   try {
     if (nativePlayer && process.platform === "linux") {
@@ -543,6 +546,48 @@ function rendererIsDevelopment(): boolean {
   return !app.isPackaged
 }
 
+function isTrustedRendererUrl(value: string): boolean {
+  try {
+    const url = new URL(value)
+    return rendererIsDevelopment()
+      ? url.origin === "http://localhost:5173"
+      : url.protocol === "conduit:" && url.hostname === "localhost"
+  } catch {
+    return false
+  }
+}
+
+function isTrustedIpcSender(
+  event: { sender: Electron.WebContents; senderFrame: Electron.WebFrameMain | null },
+  allowOverlay = false,
+): boolean {
+  if (!isTrustedRendererUrl(event.senderFrame?.url ?? "")) return false
+  if (event.sender.id === mainWindow?.webContents.id) return true
+  return allowOverlay && event.sender.id === playerOverlayWindow?.webContents.id
+}
+
+function isSafeExternalUrl(value: string): boolean {
+  try {
+    const url = new URL(value)
+    return ["http:", "https:"].includes(url.protocol) && !url.username && !url.password
+  } catch {
+    return false
+  }
+}
+
+function installWindowGuards(window: BrowserWindow): void {
+  window.webContents.on("will-navigate", (event, url) => {
+    if (!isTrustedRendererUrl(url)) event.preventDefault()
+  })
+  window.webContents.on("will-redirect", (event, url) => {
+    if (!isTrustedRendererUrl(url)) event.preventDefault()
+  })
+  window.webContents.setWindowOpenHandler(({ url }) => {
+    if (isSafeExternalUrl(url)) void shell.openExternal(url)
+    return { action: "deny" }
+  })
+}
+
 async function startDevelopmentWebServer() {
   if (!rendererIsDevelopment() || process.env.CONDUIT_ELECTRON_SKIP_WEB === "1") return
   const workspaceRoot = path.resolve(__dirname, "../../../..")
@@ -638,6 +683,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
   window.removeMenu()
   Menu.setApplicationMenu(null)
   window.setMenuBarVisibility(false)
+  installWindowGuards(window)
 
   if (process.platform === "linux" && electronOzonePlatform() === "x11" &&
     process.env.CONDUIT_ELECTRON_LOG_WINDOW === "1") {
@@ -811,7 +857,7 @@ async function invoke(command: string, args: Record<string, unknown> = {}): Prom
 function registerIpcHandlers() {
   ipcMain.on("conduit:player-overlay-interactive-regions", (event, regions: unknown) => {
     if (!playerOverlayWindow || playerOverlayWindow.isDestroyed()) return
-    if (event.sender.id !== playerOverlayWindow.webContents.id) return
+    if (!isTrustedIpcSender(event, true) || event.sender.id !== playerOverlayWindow.webContents.id) return
     if (!Array.isArray(regions)) return
     playerOverlayInteractiveRegions = regions.flatMap((region) => {
       if (!region || typeof region !== "object") return []
@@ -828,26 +874,33 @@ function registerIpcHandlers() {
     })
     updatePlayerOverlayMouseEvents()
   })
-  ipcMain.handle("conduit:invoke", (_event, command: string, args?: Record<string, unknown>) =>
-    invoke(command, args),
-  )
-  ipcMain.handle("conduit:choose-save-path", async (_event, suggestedName: string) => {
+  ipcMain.handle("conduit:invoke", (event, command: string, args?: Record<string, unknown>) => {
+    if (!isTrustedIpcSender(event, true)) throw new Error("Untrusted renderer")
+    return invoke(command, args)
+  })
+  ipcMain.handle("conduit:choose-save-path", async (event, suggestedName: string) => {
+    if (!isTrustedIpcSender(event)) throw new Error("Untrusted renderer")
     if (!mainWindow) throw new Error("Main window is unavailable.")
     const result = await dialog.showSaveDialog(mainWindow, {
-      defaultPath: suggestedName,
+      defaultPath: path.basename(suggestedName),
       filters: [{ name: "conduit profile export", extensions: ["json"] }],
     })
-    return result.canceled ? null : result.filePath
+    if (result.canceled || !result.filePath) return null
+    approvedSavePaths.add(result.filePath)
+    return result.filePath
   })
-  ipcMain.handle("conduit:write-text-file", async (_event, filePath: string, contents: string) => {
+  ipcMain.handle("conduit:write-text-file", async (event, filePath: string, contents: string) => {
+    if (!isTrustedIpcSender(event) || !approvedSavePaths.has(filePath)) {
+      throw new Error("A user-approved save path is required.")
+    }
+    approvedSavePaths.delete(filePath)
     await fs.writeFile(filePath, contents, "utf8")
   })
-  ipcMain.handle("conduit:open-external", async (_event, url: string) => {
-    const parsed = new URL(url)
-    if (!["http:", "https:"].includes(parsed.protocol)) {
+  ipcMain.handle("conduit:open-external", async (event, url: string) => {
+    if (!isTrustedIpcSender(event) || !isSafeExternalUrl(url)) {
       throw new Error("Only HTTP and HTTPS URLs can be opened externally.")
     }
-    await shell.openExternal(parsed.toString())
+    await shell.openExternal(new URL(url).toString())
   })
 }
 
@@ -862,6 +915,10 @@ async function closeResources() {
 }
 
 void app.whenReady().then(async () => {
+  session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
+    callback(false)
+  })
+  session.defaultSession.setPermissionCheckHandler(() => false)
   await startDevelopmentWebServer()
   await registerApplicationProtocol()
   registerIpcHandlers()
