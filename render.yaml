@@ -22,3 +22,5 @@ services:
         sync: false
       - key: WEB_ORIGIN
         value: https://conduit-media-3cj.pages.dev
+      - key: TRUST_PROXY
+        value: "true"

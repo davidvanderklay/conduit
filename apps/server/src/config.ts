@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto"
+import { parseTrustedHttpUrl } from "./url-security.js"
 
 export type BootstrapMode = "setup-token" | "first-user" | "manual"
 
@@ -11,6 +12,7 @@ export interface Config {
   port: number
   bootstrapMode: BootstrapMode
   bootstrapToken?: string
+  trustProxy: boolean
 }
 
 export const DESKTOP_ORIGINS = [
@@ -20,13 +22,15 @@ export const DESKTOP_ORIGINS = [
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const databaseUrl = required(env, "DATABASE_URL")
   const authSecret = required(env, "BETTER_AUTH_SECRET")
-  const authUrl = required(env, "BETTER_AUTH_URL")
-  const webOrigin = env.WEB_ORIGIN ?? "http://localhost:5173"
+  const production = env.NODE_ENV === "production"
+  const authUrl = runtimeHttpUrl(required(env, "BETTER_AUTH_URL"), "BETTER_AUTH_URL", production)
+  const webOrigin = runtimeHttpUrl(env.WEB_ORIGIN ?? "http://localhost:5173", "WEB_ORIGIN", production)
   const port = Number.parseInt(env.PORT ?? "3000", 10)
   const encryptionValue = required(env, "ADDON_ENCRYPTION_KEY")
   const addonEncryptionKey = parseEncryptionKey(encryptionValue)
   const bootstrapMode = parseBootstrapMode(env.CONDUIT_BOOTSTRAP_MODE)
   const bootstrapToken = env.CONDUIT_BOOTSTRAP_TOKEN?.trim()
+  const trustProxy = parseBoolean(env.TRUST_PROXY ?? "false", "TRUST_PROXY")
 
   if (bootstrapMode === "setup-token" && !bootstrapToken) {
     throw new Error("CONDUIT_BOOTSTRAP_TOKEN is required when CONDUIT_BOOTSTRAP_MODE is setup-token")
@@ -45,6 +49,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     port,
     bootstrapMode,
     bootstrapToken,
+    trustProxy,
   }
 }
 
@@ -77,5 +82,26 @@ function parseBootstrapMode(value: string | undefined): BootstrapMode {
       return mode
     default:
       throw new Error("CONDUIT_BOOTSTRAP_MODE must be setup-token, first-user, or manual")
+  }
+}
+
+function parseBoolean(value: string, key: string): boolean {
+  if (value === "true") return true
+  if (value === "false") return false
+  throw new Error(`${key} must be true or false`)
+}
+
+function runtimeHttpUrl(value: string, label: string, production: boolean): string {
+  try {
+    const url = new URL(value)
+    if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error()
+    if (production) parseTrustedHttpUrl(value, label)
+    return value
+  } catch {
+    throw new Error(
+      production
+        ? `${label} must use HTTPS in production (HTTP is allowed only for loopback development)`
+        : `${label} must be a valid HTTP or HTTPS URL`,
+    )
   }
 }

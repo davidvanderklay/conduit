@@ -25,6 +25,7 @@ services:
       WEB_ORIGIN: ${CONDUIT_URL:-http://localhost:8321}
       CONDUIT_BOOTSTRAP_MODE: ${CONDUIT_BOOTSTRAP_MODE:-setup-token}
       CONDUIT_BOOTSTRAP_TOKEN: ${CONDUIT_BOOTSTRAP_TOKEN-}
+      TRUST_PROXY: ${TRUST_PROXY:-true}
       PORT: 3000
     depends_on:
       postgres:

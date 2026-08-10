@@ -13,7 +13,8 @@ describe("configured add-on URL encryption", () => {
   })
 
   it("produces a stable lookup hash", () => {
-    expect(stableSecretHash("same")).toBe(stableSecretHash("same"))
-    expect(stableSecretHash("same")).not.toBe(stableSecretHash("different"))
+    expect(stableSecretHash("same", key)).toBe(stableSecretHash("same", key))
+    expect(stableSecretHash("same", key)).not.toBe(stableSecretHash("different", key))
+    expect(stableSecretHash("same", key)).not.toBe(stableSecretHash("same", Buffer.alloc(32, 8)))
   })
 })

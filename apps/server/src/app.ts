@@ -11,7 +11,7 @@ import { loadRuntimeAuthSettings } from "./instance-auth.js"
 import { registerRoutes } from "./routes.js"
 
 export async function buildApp(config: Config, db: Database) {
-  const app = Fastify({ logger: true })
+  const app = Fastify({ logger: true, trustProxy: config.trustProxy })
   const authSettings = await loadRuntimeAuthSettings(db, config)
   const existingUsers = db.select ? await db.select({ id: users.id }).from(users).limit(1) : [{ id: "unknown" }]
   const auth = createAuth(db, config, authSettings, { hasExistingUsers: existingUsers.length > 0 })
@@ -24,6 +24,17 @@ export async function buildApp(config: Config, db: Database) {
     maxAge: 600,
   })
   await app.register(sensible)
+
+  app.addHook("onSend", async (_request, reply, payload) => {
+    reply.header("x-content-type-options", "nosniff")
+    reply.header("x-frame-options", "DENY")
+    reply.header("referrer-policy", "no-referrer")
+    reply.header("permissions-policy", "camera=(), microphone=(), geolocation=()")
+    if (config.authUrl.startsWith("https://")) {
+      reply.header("strict-transport-security", "max-age=31536000; includeSubDomains")
+    }
+    return payload
+  })
 
   app.all("/api/auth/*", async (request, reply) => {
     if (request.method === "POST" && request.url.startsWith("/api/auth/sign-up/") && db.select) {

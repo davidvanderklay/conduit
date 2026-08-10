@@ -39,4 +39,20 @@ describe("configuration", () => {
       "CONDUIT_BOOTSTRAP_MODE must be setup-token, first-user, or manual",
     )
   })
+
+  it("rejects public HTTP origins in production", () => {
+    expect(() =>
+      loadConfig({
+        ...valid,
+        NODE_ENV: "production",
+        BETTER_AUTH_URL: "http://example.com",
+      }),
+    ).toThrow("BETTER_AUTH_URL must use HTTPS in production")
+  })
+
+  it("allows loopback HTTP for local production containers", () => {
+    expect(
+      loadConfig({ ...valid, NODE_ENV: "production", WEB_ORIGIN: "http://localhost:8321" }).webOrigin,
+    ).toBe("http://localhost:8321")
+  })
 })
