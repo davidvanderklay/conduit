@@ -42,6 +42,7 @@ interface IosPlayerBridge {
     fun selectSubtitleTrack(trackId: Int)
 
     fun getIsLoading(): Boolean
+    fun getIsBuffering(): Boolean
     fun getIsPlaying(): Boolean
     fun getIsEnded(): Boolean
     fun getDurationMs(): Long
