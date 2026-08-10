@@ -2,13 +2,13 @@
 
 FROM node:26-alpine AS build
 WORKDIR /app
-RUN corepack enable
+RUN npm install --global pnpm@10.14.0
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml vite.config.ts ./
 COPY apps/server/package.json apps/server/package.json
 COPY apps/web/package.json apps/web/package.json
 COPY apps/desktop/package.json apps/desktop/package.json
 COPY packages/core/Cargo.toml packages/core/Cargo.toml
-RUN corepack pnpm install --frozen-lockfile
+RUN pnpm install --frozen-lockfile
 COPY apps/server apps/server
 COPY apps/web apps/web
 COPY packages/core packages/core
@@ -16,10 +16,10 @@ RUN apk add --no-cache curl build-base pkgconf openssl-dev
 RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal --target wasm32-unknown-unknown
 ENV PATH="/root/.cargo/bin:${PATH}"
 RUN cargo install wasm-pack --locked
-RUN corepack pnpm core:build \
-    && corepack pnpm --filter @conduit/server build \
-    && corepack pnpm --filter @conduit/web build \
-    && corepack pnpm --filter @conduit/server deploy --prod --legacy /prod/server
+RUN pnpm core:build \
+    && pnpm --filter @conduit/server build \
+    && pnpm --filter @conduit/web build \
+    && pnpm --filter @conduit/server deploy --prod --legacy /prod/server
 
 FROM nginx:1.31-alpine AS web
 COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
