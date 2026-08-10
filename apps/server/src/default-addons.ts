@@ -55,7 +55,7 @@ export const DEFAULT_ADDONS = [
       resources: ["subtitles"],
       types: ["movie", "series"],
       idPrefixes: ["tt"],
-      logo: "http://www.strem.io/images/addons/opensubtitles-logo.png",
+      logo: "https://www.strem.io/images/addons/opensubtitles-logo.png",
     },
   },
 ] as const
@@ -65,7 +65,7 @@ export function defaultAddonInstallations(profileId: string, encryptionKey: Buff
     profileId,
     manifestId: addon.manifest.id,
     manifestUrlEncrypted: encryptSecret(addon.manifestUrl, encryptionKey),
-    manifestUrlHash: stableSecretHash(addon.manifestUrl),
+    manifestUrlHash: stableSecretHash(addon.manifestUrl, encryptionKey),
     manifest: addon.manifest,
     position,
     enabled: true,

@@ -1,6 +1,6 @@
 import { Type } from "@sinclair/typebox"
 import { randomBytes, createHmac } from "node:crypto"
-import { hashPassword } from "better-auth/crypto"
+import { hashPassword, verifyPassword } from "better-auth/crypto"
 import { and, asc, desc, eq, gt, inArray, isNull, lt, ne, notLike, sql } from "drizzle-orm"
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify"
 import { fromNodeHeaders } from "better-auth/node"
@@ -21,6 +21,7 @@ import {
   households,
   libraryItems,
   profiles,
+  rateLimitEntries,
   instanceSettings,
   recoveryCodes,
   sessions,
@@ -44,6 +45,7 @@ import {
   validatePortableData,
   type PortableProfileData,
 } from "./portable-data.js"
+import { parseTrustedHttpUrl } from "./url-security.js"
 
 interface RouteContext {
   auth: Auth
@@ -55,14 +57,16 @@ interface RouteContext {
 interface SessionUser {
   id: string
   email: string
+  sessionId?: string
+  sessionCreatedAt: Date
 }
 
 const LEGACY_COMPLETION_MARKER_PREFIX = "conduit:completion:"
 
 export async function registerRoutes(app: FastifyInstance, context: RouteContext) {
   const { auth, authSettings, config, db } = context
-  const recoveryAttempts = new Map<string, { count: number; resetAt: number }>()
-  const desktopAuthAttempts = new Map<string, { count: number; resetAt: number }>()
+
+  await rehashAddonInstallationUrls(db, config.addonEncryptionKey)
 
   app.addHook("onSend", async (request, reply, payload) => {
     if (request.url.startsWith("/v1/")) {
@@ -103,8 +107,8 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
       },
     },
     async (request, reply) => {
-      if (!consumeRecoveryAttempt(desktopAuthAttempts, request.ip)) {
-        return reply.tooManyRequests("Too many desktop sign-in attempts. Try again later.")
+      if (!(await consumeRateLimit(db, `desktop:${request.ip}`, 10, 15 * 60_000))) {
+        return reply.header("retry-after", "900").tooManyRequests("Too many desktop sign-in attempts. Try again later.")
       }
       const body = request.body as { callbackUrl: string; codeChallenge: string }
       let callbackUrl: string
@@ -142,8 +146,8 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
       },
     },
     async (request, reply) => {
-      if (!consumeRecoveryAttempt(desktopAuthAttempts, request.ip)) {
-        return reply.tooManyRequests("Too many mobile sign-in attempts. Try again later.")
+      if (!(await consumeRateLimit(db, `desktop:${request.ip}`, 10, 15 * 60_000))) {
+        return reply.header("retry-after", "900").tooManyRequests("Too many mobile sign-in attempts. Try again later.")
       }
       const body = request.body as { callbackUrl: string; codeChallenge: string }
       let callbackUrl: string
@@ -600,18 +604,38 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
         body: Type.Object({
           enabled: Type.Boolean(),
           password: Type.Optional(Type.String({ minLength: 8, maxLength: 128 })),
+          currentPassword: Type.Optional(Type.String({ minLength: 1, maxLength: 128 })),
         }),
       },
     },
     async (request, reply) => {
       const user = await requireUser(request, reply, auth)
       if (!user) return
-      const body = request.body as { enabled: boolean; password?: string }
+      if (!(await consumeRateLimit(db, `password-mode:${user.id}:${request.ip}`, 5, 60_000))) {
+        return reply.header("retry-after", "60").tooManyRequests("Too many credential changes. Try again later.")
+      }
+      const body = request.body as {
+        enabled: boolean
+        password?: string
+        currentPassword?: string
+      }
       const [credential] = await db
-        .select({ id: accounts.id })
+        .select({ id: accounts.id, password: accounts.password })
         .from(accounts)
         .where(and(eq(accounts.userId, user.id), eq(accounts.providerId, "credential")))
         .limit(1)
+
+      if (credential?.password) {
+        if (body.currentPassword) {
+          if (!(await verifyPassword({ hash: credential.password, password: body.currentPassword }))) {
+            return reply.unauthorized("The current password is incorrect")
+          }
+        } else if (!isRecentSession(user)) {
+          return reply.forbidden("Sign in again or provide the current password before changing credentials")
+        }
+      } else if (!isRecentSession(user)) {
+        return reply.forbidden("Sign in again before changing credentials")
+      }
 
       if (!body.enabled) {
         const [oauthAccount] = await db
@@ -623,29 +647,35 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
           return reply.badRequest("Link an OAuth provider before disabling your password")
         }
         if (!credential) return { passwordEnabled: false }
-        await db
-          .update(accounts)
-          .set({ password: null, updatedAt: new Date() })
-          .where(eq(accounts.id, credential.id))
+        await db.transaction(async (tx) => {
+          await tx
+            .update(accounts)
+            .set({ password: null, updatedAt: new Date() })
+            .where(eq(accounts.id, credential.id))
+          await revokeOtherSessions(tx, user)
+        })
         return { passwordEnabled: false }
       }
 
       if (!body.password) return reply.badRequest("A new password is required")
       const password = await hashPassword(body.password)
-      if (credential) {
-        await db
-          .update(accounts)
-          .set({ password, updatedAt: new Date() })
-          .where(eq(accounts.id, credential.id))
-      } else {
-        await db.insert(accounts).values({
-          id: randomBytes(24).toString("base64url"),
-          accountId: user.id,
-          providerId: "credential",
-          userId: user.id,
-          password,
-        })
-      }
+      await db.transaction(async (tx) => {
+        if (credential) {
+          await tx
+            .update(accounts)
+            .set({ password, updatedAt: new Date() })
+            .where(eq(accounts.id, credential.id))
+        } else {
+          await tx.insert(accounts).values({
+            id: randomBytes(24).toString("base64url"),
+            accountId: user.id,
+            providerId: "credential",
+            userId: user.id,
+            password,
+          })
+        }
+        await revokeOtherSessions(tx, user)
+      })
       return { passwordEnabled: true }
     },
   )
@@ -787,10 +817,9 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
       }
       if (body.oidcEnabled && body.oauthProvider === "oidc") {
         try {
-          const issuer = new URL(body.oidcIssuer)
-          if (!["http:", "https:"].includes(issuer.protocol)) throw new Error()
+          parseTrustedHttpUrl(body.oidcIssuer, "OIDC issuer")
         } catch {
-          return reply.badRequest("OIDC issuer must be a valid HTTP(S) URL")
+          return reply.badRequest("OIDC issuer must use HTTPS (HTTP is allowed only for loopback development)")
         }
       }
       if (body.oidcEnabled && !body.oidcClientId.trim()) {
@@ -856,6 +885,9 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
   app.post("/v1/auth/recovery-codes", async (request, reply) => {
     const user = await requireUser(request, reply, auth)
     if (!user) return
+    if (!isRecentSession(user)) {
+      return reply.forbidden("Sign in again before generating recovery codes")
+    }
     const codes = Array.from({ length: 10 }, () => formatRecoveryCode(randomBytes(8)))
     await db.transaction(async (tx) => {
       await tx.delete(recoveryCodes).where(eq(recoveryCodes.userId, user.id))
@@ -881,8 +913,8 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
       },
     },
     async (request, reply) => {
-      if (!consumeRecoveryAttempt(recoveryAttempts, request.ip)) {
-        return reply.tooManyRequests("Too many recovery attempts. Try again later.")
+      if (!(await consumeRateLimit(db, `recovery:${request.ip}`, 10, 15 * 60_000))) {
+        return reply.header("retry-after", "900").tooManyRequests("Too many recovery attempts. Try again later.")
       }
       const body = request.body as { email: string; code: string; password: string }
       const [user] = await db
@@ -1320,7 +1352,7 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
             profileId,
             manifestId: addon.manifestId,
             manifestUrlEncrypted: encryptSecret(url, config.addonEncryptionKey),
-            manifestUrlHash: stableSecretHash(url),
+            manifestUrlHash: stableSecretHash(url, config.addonEncryptionKey),
             manifest: addon.manifest,
             position: addon.position,
             enabled: addon.enabled,
@@ -1419,7 +1451,7 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
           profileId,
           manifestId,
           manifestUrlEncrypted: encryptSecret(url, config.addonEncryptionKey),
-          manifestUrlHash: stableSecretHash(url),
+          manifestUrlHash: stableSecretHash(url, config.addonEncryptionKey),
           manifest: body.manifest,
           position: Number(position?.value ?? 0),
         })
@@ -1978,7 +2010,28 @@ async function requireUser(
     reply.unauthorized()
     return
   }
-  return { id: session.user.id, email: session.user.email }
+  return {
+    id: session.user.id,
+    email: session.user.email,
+    sessionId: session.session?.id,
+    sessionCreatedAt: session.session?.createdAt
+      ? new Date(session.session.createdAt)
+      : new Date(0),
+  }
+}
+
+function isRecentSession(user: SessionUser): boolean {
+  return Date.now() - user.sessionCreatedAt.getTime() <= 10 * 60_000
+}
+
+async function revokeOtherSessions(
+  tx: Pick<Database, "delete">,
+  user: SessionUser,
+): Promise<void> {
+  const conditions = user.sessionId
+    ? and(eq(sessions.userId, user.id), ne(sessions.id, user.sessionId))
+    : eq(sessions.userId, user.id)
+  await tx.delete(sessions).where(conditions)
 }
 
 async function requireOwner(
@@ -2011,19 +2064,33 @@ function hashRecoveryCode(code: string, secret: string): string {
   return createHmac("sha256", secret).update(normalized).digest("hex")
 }
 
-function consumeRecoveryAttempt(
-  attempts: Map<string, { count: number; resetAt: number }>,
-  address: string,
-): boolean {
-  const now = Date.now()
-  const current = attempts.get(address)
-  if (!current || current.resetAt <= now) {
-    attempts.set(address, { count: 1, resetAt: now + 15 * 60_000 })
-    return true
-  }
-  if (current.count >= 10) return false
-  current.count += 1
-  return true
+async function consumeRateLimit(
+  db: Database,
+  key: string,
+  max: number,
+  windowMs: number,
+): Promise<boolean> {
+  // Isolated route tests use a database stub. Production always has the
+  // transaction method and persists these counters across restarts/instances.
+  if (!db.transaction) return true
+  const now = new Date()
+  const resetAt = new Date(now.getTime() + windowMs)
+  return db.transaction(async (tx) => {
+    await tx.delete(rateLimitEntries).where(lt(rateLimitEntries.resetAt, now))
+    const [entry] = await tx
+      .insert(rateLimitEntries)
+      .values({ key, count: 1, resetAt })
+      .onConflictDoUpdate({
+        target: rateLimitEntries.key,
+        set: {
+          count: sql`case when ${rateLimitEntries.resetAt} <= ${now} then 1 else least(${rateLimitEntries.count} + 1, ${max + 1}) end`,
+          resetAt: sql`case when ${rateLimitEntries.resetAt} <= ${now} then ${resetAt} else ${rateLimitEntries.resetAt} end`,
+        },
+      })
+      .returning({ count: rateLimitEntries.count })
+    if (!entry) return true
+    return entry.count <= max
+  })
 }
 
 function redirectDesktopAuthError(
@@ -2065,10 +2132,34 @@ async function resolveAddonProfileId(db: Database, profileId: string): Promise<s
 }
 
 function normalizeManifestUrl(value: string): string {
-  const url = new URL(value)
-  if (!["http:", "https:"].includes(url.protocol)) {
-    throw new Error("manifest URL must use HTTP or HTTPS")
-  }
+  const url = parseTrustedHttpUrl(value, "manifest URL")
   url.hash = ""
   return url.toString()
+}
+
+async function rehashAddonInstallationUrls(db: Database, encryptionKey: Buffer): Promise<void> {
+  // Older installations used an unkeyed SHA-256 fingerprint. Recompute those
+  // fingerprints at startup so the database no longer exposes a dictionary-
+  // testable value while preserving existing add-on installations.
+  if (!db.query?.addonInstallations) return
+  const rows = await db
+    .select({
+      id: addonInstallations.id,
+      manifestUrlEncrypted: addonInstallations.manifestUrlEncrypted,
+      manifestUrlHash: addonInstallations.manifestUrlHash,
+    })
+    .from(addonInstallations)
+  await Promise.all(
+    rows.map(async (row) => {
+      const desiredHash = stableSecretHash(
+        decryptSecret(row.manifestUrlEncrypted, encryptionKey),
+        encryptionKey,
+      )
+      if (desiredHash === row.manifestUrlHash) return
+      await db
+        .update(addonInstallations)
+        .set({ manifestUrlHash: desiredHash, updatedAt: new Date() })
+        .where(eq(addonInstallations.id, row.id))
+    }),
+  )
 }

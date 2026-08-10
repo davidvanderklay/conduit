@@ -49,6 +49,23 @@ export function createAuth(
   return betterAuth({
     baseURL: config.authUrl,
     secret: config.authSecret,
+    advanced: {
+      ipAddress: {
+        // The bundled reverse proxy overwrites this header. Do not trust a
+        // user-supplied X-Forwarded-For chain for authentication throttling.
+        ipAddressHeaders: ["x-real-ip"],
+      },
+    },
+    rateLimit: {
+      enabled: true,
+      window: 60,
+      max: 100,
+      customRules: {
+        "/sign-in/email": { window: 10, max: 5 },
+        "/sign-up/email": { window: 60, max: 5 },
+        "/change-password": { window: 60, max: 5 },
+      },
+    },
     trustedOrigins: [config.webOrigin, ...DESKTOP_ORIGINS],
     database: drizzleAdapter(db, {
       provider: "pg",
