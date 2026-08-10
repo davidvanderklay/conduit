@@ -21,6 +21,7 @@ fileprivate struct ConduitTrack {
     let id: Int
     let title: String
     let language: String
+    let external: Bool
     let selected: Bool
 }
 
@@ -70,6 +71,9 @@ final class ConduitMPVPlayerBridge: NSObject, IosPlayerBridge {
     func setPreferredAudioLanguage(language: String) {
         ensurePlayerViewController().setPreferredAudioLanguage(language)
     }
+    func setPreferredSubtitleLanguage(language: String) {
+        ensurePlayerViewController().setPreferredSubtitleLanguage(language)
+    }
     func setResizeMode(mode: Int32) { playerViewController?.setResize(Int(mode)) }
     func syncVideoSurfaceLayout(width: Double, height: Double) {
         ensurePlayerViewController().syncVideoSurfaceLayout(
@@ -113,6 +117,10 @@ final class ConduitMPVPlayerBridge: NSObject, IosPlayerBridge {
 
     func getSubtitleTrackLang(at: Int32) -> String {
         track(at: at, in: playerViewController?.subtitleTracks)?.language ?? ""
+    }
+
+    func isSubtitleTrackExternal(at: Int32) -> Bool {
+        track(at: at, in: playerViewController?.subtitleTracks)?.external ?? false
     }
 
     func isSubtitleTrackSelected(at: Int32) -> Bool {
@@ -220,6 +228,8 @@ final class ConduitMPVPlayerViewController: UIViewController {
     private var pendingRetry: DispatchWorkItem?
     private var activeHeaders: [String: String] = [:]
     private var preferredAudioLanguage = "System default"
+    private var preferredSubtitleLanguage = "English"
+    private var preferredSubtitleApplied = false
     private var hasLoadedFile = false
     private var shouldPlay = false
     private var resumeAfterForeground = false
@@ -406,6 +416,15 @@ final class ConduitMPVPlayerViewController: UIViewController {
         }
     }
 
+    func setPreferredSubtitleLanguage(_ language: String) {
+        runOnMain { [weak self] in
+            guard let self else { return }
+            self.preferredSubtitleLanguage = language
+            self.preferredSubtitleApplied = false
+            self.applyPreferredSubtitleSelection()
+        }
+    }
+
     func setResize(_ mode: Int) {
         runOnMain { [weak self] in
             guard let self, self.mpv != nil else { return }
@@ -430,6 +449,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
     func selectSubtitle(_ trackId: Int) {
         runOnMain { [weak self] in
             guard let self, self.mpv != nil else { return }
+            self.preferredSubtitleApplied = true
             if trackId < 0 {
                 self.setStringProperty("sid", "no")
             } else {
@@ -639,6 +659,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
         isPlayerLoading = true
         isPlayerEnded = false
         waitingForInitialVideoFrame = true
+        preferredSubtitleApplied = false
         pendingExternalSubtitles = request.subtitles
         invalidateExternalSubtitleLoads(clearPending: false)
         loadStartedAtUptime = ProcessInfo.processInfo.systemUptime
@@ -868,6 +889,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
                 id: id,
                 title: title.isEmpty ? fallback : title,
                 language: language,
+                external: getFlag("track-list/\(index)/external"),
                 selected: getFlag("track-list/\(index)/selected")
             )
             if type == "audio" {
@@ -881,6 +903,45 @@ final class ConduitMPVPlayerViewController: UIViewController {
 
         audioTracks = audio
         subtitleTracks = subtitles
+        applyPreferredSubtitleSelection()
+    }
+
+    /// Match the desktop player's precedence: wait for embedded metadata,
+    /// prefer an embedded track in the configured language, and use an
+    /// external/add-on track only when the file has no matching embedded one.
+    private func applyPreferredSubtitleSelection() {
+        guard mpv != nil, hasLoadedFile, !preferredSubtitleApplied else { return }
+        let preferred = Self.languageCode(for: preferredSubtitleLanguage)
+        guard !preferred.isEmpty else { return }
+
+        let matching = subtitleTracks.filter {
+            Self.languageCode(for: $0.language) == preferred
+                || Self.languageCode(for: $0.title) == preferred
+        }
+        guard let track = matching.first(where: { !$0.external })
+            ?? matching.first(where: { $0.external })
+        else { return }
+
+        preferredSubtitleApplied = true
+        if !track.selected {
+            var id = Int64(track.id)
+            checkError(mpv_set_property(mpv, "sid", MPV_FORMAT_INT64, &id))
+        }
+    }
+
+    private static func languageCode(for value: String) -> String {
+        let normalized = value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "_", with: "-")
+        let base = normalized.split(separator: "-").first.map(String.init) ?? normalized
+        return [
+            "english": "en", "eng": "en", "spanish": "es", "español": "es", "spa": "es",
+            "french": "fr", "fra": "fr", "fre": "fr", "german": "de", "deu": "de", "ger": "de",
+            "italian": "it", "ita": "it", "portuguese": "pt", "por": "pt", "japanese": "ja", "jpn": "ja",
+            "korean": "ko", "kor": "ko", "chinese": "zh", "zho": "zh", "chi": "zh", "arabic": "ar", "ara": "ar",
+            "indonesian": "id", "ind": "id", "russian": "ru", "rus": "ru", "hindi": "hi", "hin": "hi",
+        ][base] ?? (base.count == 2 ? base : "")
     }
 
     private func command(_ name: String, args: [String?] = [], checkForErrors: Bool = true) {

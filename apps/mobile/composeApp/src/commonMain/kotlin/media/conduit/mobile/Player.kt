@@ -17,6 +17,7 @@ expect fun NativePlayer(
     touchGestures: Boolean = true,
     holdToSpeed: Boolean = true,
     preferredAudioLanguage: String = "System default",
+    preferredSubtitleLanguage: String = "English",
     onEpisodes: () -> Unit = {},
     onControlsVisibilityChanged: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier,

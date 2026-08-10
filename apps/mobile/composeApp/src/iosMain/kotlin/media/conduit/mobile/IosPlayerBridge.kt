@@ -25,6 +25,7 @@ interface IosPlayerBridge {
     fun setPlaybackSpeed(speed: Float)
     fun setMuted(muted: Boolean)
     fun setPreferredAudioLanguage(language: String)
+    fun setPreferredSubtitleLanguage(language: String)
     fun setResizeMode(mode: Int) // 0 = fit, 1 = fill, 2 = zoom
     fun syncVideoSurfaceLayout(width: Double, height: Double)
 
@@ -37,6 +38,7 @@ interface IosPlayerBridge {
     fun getSubtitleTrackId(at: Int): Int
     fun getSubtitleTrackLabel(at: Int): String
     fun getSubtitleTrackLang(at: Int): String
+    fun isSubtitleTrackExternal(at: Int): Boolean
     fun isSubtitleTrackSelected(at: Int): Boolean
     fun selectAudioTrack(trackId: Int)
     fun selectSubtitleTrack(trackId: Int)
