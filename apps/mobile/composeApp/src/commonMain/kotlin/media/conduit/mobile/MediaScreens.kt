@@ -309,6 +309,8 @@ internal fun MediaDetailsScreen(
                 url = playing!!.url!!, active = true, startPositionMs = resumePosition,
                 requestHeaders = playing!!.behaviorHints?.proxyHeaders?.request.orEmpty().mapNotNull { (key, value) -> value.jsonPrimitive.contentOrNull?.let { key to it } }.toMap(),
                 subtitles = externalSubtitles,
+                contentLogo = meta?.logo,
+                contentTitle = if (selectedVideo != null) "${meta?.name ?: item.name} · ${selectedVideo?.displayTitle}" else meta?.name ?: item.name,
                 hasEpisodes = orderedVideos.isNotEmpty(), onEpisodes = { episodesOpen = true }, modifier = Modifier.fillMaxSize(),
                 touchGestures = preferences.touchGestures, holdToSpeed = preferences.holdToSpeed,
                 preferredAudioLanguage = preferences.preferredAudioLanguage,
