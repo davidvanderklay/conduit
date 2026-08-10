@@ -670,7 +670,7 @@ internal fun MediaDetailsScreen(
             }
             if (openingOverlay && playback.error == null) {
                 PlayerOpeningOverlay(
-                    artwork = selectedVideo?.thumbnail ?: meta?.background ?: item.background ?: meta?.poster ?: item.poster,
+                    artwork = meta?.background ?: item.background ?: meta?.poster ?: item.poster,
                     logo = meta?.logo,
                     title = if (selectedVideo != null) "${meta?.name ?: item.name}  ·  ${selectedVideo?.displayTitle}" else meta?.name ?: item.name,
                     modifier = Modifier.matchParentSize(),
@@ -714,6 +714,8 @@ internal fun MediaDetailsScreen(
     LaunchedEffect(details?.id, resumeVideo?.season) { if (selectedSeason == null) selectedSeason = resumeVideo?.season ?: details?.videos?.firstOrNull()?.season }
     val heroPullDp = with(LocalDensity.current) { heroPull.floatValue.toDp() }
     val heroScale = 1f + (heroPull.floatValue / maxHeroPullPx) * .22f
+    val heroHeight = if (item.type == "movie") 390.dp else 350.dp
+    val titleLogo = details?.logo?.takeIf(String::isNotBlank)
     LazyColumn(
         state = detailsListState,
         modifier = Modifier.fillMaxSize().nestedScroll(heroPullConnection),
@@ -721,40 +723,54 @@ internal fun MediaDetailsScreen(
         contentPadding = PaddingValues(bottom = 32.dp),
     ) {
         item {
-            Box(Modifier.fillMaxWidth().height((if (item.type == "movie") 390.dp else 350.dp) + heroPullDp)) {
-                AsyncImage(
-                    model = details?.background ?: item.background ?: details?.poster ?: item.poster,
-                    contentDescription = item.name,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize().graphicsLayer {
-                        scaleX = heroScale
-                        scaleY = heroScale
-                        translationY = -heroPull.floatValue * .12f
-                    },
-                )
-                Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Black.copy(.15f), MaterialTheme.colorScheme.background))))
-                IconButton(onClick = onBack, modifier = Modifier.statusBarsPadding().padding(12.dp).background(Color.Black.copy(.5f), CircleShape)) {
-                    Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = Color.White)
+            Box(Modifier.fillMaxWidth().height(heroHeight + 64.dp + heroPullDp)) {
+                Box(Modifier.fillMaxWidth().height(heroHeight + heroPullDp)) {
+                    AsyncImage(
+                        model = details?.background ?: item.background ?: details?.poster ?: item.poster,
+                        contentDescription = item.name,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize().graphicsLayer {
+                            scaleX = heroScale
+                            scaleY = heroScale
+                            translationY = -heroPull.floatValue * .12f
+                        },
+                    )
+                    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Black.copy(.15f), MaterialTheme.colorScheme.background))))
+                    IconButton(onClick = onBack, modifier = Modifier.statusBarsPadding().padding(12.dp).background(Color.Black.copy(.5f), CircleShape)) {
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = Color.White)
+                    }
                 }
-                Column(Modifier.align(Alignment.BottomStart).padding(horizontal = 20.dp, vertical = 16.dp)) {
+                if (titleLogo != null) {
+                    AsyncImage(
+                        model = titleLogo,
+                        contentDescription = details.name,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .offset(y = (-40).dp)
+                            .fillMaxWidth(.58f)
+                            .heightIn(max = 110.dp),
+                    )
+                } else {
                     Text(
                         details?.name ?: item.name,
                         style = MaterialTheme.typography.headlineLarge,
                         fontWeight = FontWeight.Bold,
-                        modifier = Modifier.clickable {
+                        modifier = Modifier.align(Alignment.BottomStart).padding(start = 20.dp, end = 20.dp, bottom = 36.dp).clickable {
                             onBrowse(MobileBrowseTarget.Search(details?.name ?: item.name))
                         },
                     )
-                    Text(
-                        listOfNotNull(
-                            details?.runtime,
-                            details?.releaseInfo ?: details?.released?.take(4),
-                            details?.contentRating,
-                            details?.imdbRating?.let { "★ $it" },
-                        ).joinToString("  ·  "),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
                 }
+                Text(
+                    listOfNotNull(
+                        details?.runtime,
+                        details?.releaseInfo ?: details?.released?.take(4),
+                        details?.contentRating,
+                        details?.imdbRating?.let { "★ $it" },
+                    ).joinToString("  ·  "),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.align(Alignment.BottomStart).padding(start = 20.dp, end = 20.dp, bottom = 16.dp),
+                )
             }
         }
         item {
@@ -899,8 +915,8 @@ private fun PlayerOpeningOverlay(artwork: String?, logo: String?, title: String,
                 contentScale = ContentScale.Fit,
                 modifier = Modifier
                     .align(Alignment.Center)
-                    .fillMaxWidth(.56f)
-                    .heightIn(max = 150.dp)
+                    .fillMaxWidth(.28f)
+                    .heightIn(max = 100.dp)
                     .graphicsLayer {
                         scaleX = indicatorScale
                         scaleY = indicatorScale
