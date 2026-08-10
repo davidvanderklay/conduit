@@ -776,6 +776,7 @@ internal fun MediaDetailsScreen(
                             details?.runtime,
                             details?.releaseInfo ?: details?.released?.take(4),
                             details?.contentRating,
+                            details?.imdbRating,
                         ).joinToString("  ·  "),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -791,10 +792,8 @@ internal fun MediaDetailsScreen(
                             Row(
                                 modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(5.dp),
                             ) {
                                 Text("IMDb", fontWeight = FontWeight.Black, style = MaterialTheme.typography.labelSmall)
-                                Text(details.imdbRating, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelSmall)
                             }
                         }
                     }
