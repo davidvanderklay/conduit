@@ -359,7 +359,7 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          dmgs=(apps/desktop/dist/*.dmg)
+          dmgs=(apps/desktop/dist/*-macos-${{ matrix.arch }}.dmg)
           test "${#dmgs[@]}" -eq 1
           dmg="${dmgs[0]}"
           hdiutil imageinfo "$dmg"
@@ -370,8 +370,8 @@ jobs:
         with:
           name: conduit-macos-${{ matrix.arch }}
           path: |
-            apps/desktop/dist/*.dmg
-            apps/desktop/dist/*.dmg.sha256
+            apps/desktop/dist/*-macos-${{ matrix.arch }}.dmg
+            apps/desktop/dist/*-macos-${{ matrix.arch }}.dmg.sha256
           if-no-files-found: error
 
   ios:
