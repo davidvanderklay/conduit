@@ -19,6 +19,7 @@ data class AppState(
     val setupError: String? = null,
     val pendingEndpoint: ServerEndpoint? = null,
     val notice: String? = null,
+    val richActionsHintShown: Boolean = false,
 )
 
 sealed interface AppAction {
@@ -30,6 +31,7 @@ sealed interface AppAction {
     data class Navigate(val destination: AppDestination) : AppAction
     data class SelectProfile(val profileId: String) : AppAction
     data object DismissNotice : AppAction
+    data object RichActionsHintShown : AppAction
 }
 
 class AppStore(
@@ -61,6 +63,7 @@ class AppStore(
                     endpoint = DefaultServerEndpoint,
                     setupInput = DefaultServerEndpoint.baseUrl,
                     notice = "Using the default server",
+                    richActionsHintShown = state.richActionsHintShown,
                 )
             }
             is AppAction.Navigate -> state.copy(destination = action.destination)
@@ -69,6 +72,10 @@ class AppStore(
                 state.copy(activeProfileId = action.profileId)
             }
             AppAction.DismissNotice -> state.copy(notice = null)
+            AppAction.RichActionsHintShown -> {
+                settings.put("mobile.rich-actions-hint.v1", "true")
+                state.copy(richActionsHintShown = true)
+            }
         }
         return state
     }
@@ -103,6 +110,7 @@ class AppStore(
             endpoint = endpoint,
             activeProfileId = settings.get(activeProfileKey),
             setupInput = endpoint?.baseUrl.orEmpty(),
+            richActionsHintShown = settings.get("mobile.rich-actions-hint.v1") == "true",
         )
     }
 }

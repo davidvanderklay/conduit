@@ -107,11 +107,16 @@ data class LibraryItemSummary(
     val type: String,
     val name: String,
     val poster: String? = null,
+    val background: String? = null,
+    val description: String? = null,
+    val releaseInfo: String? = null,
+    val runtime: String? = null,
     val updatedAt: String,
 )
 
 @Serializable
 data class LibraryResponse(val items: List<LibraryItemSummary>)
+@Serializable private data class LibraryItemResponse(val item: LibraryItemSummary)
 
 @Serializable
 data class ProgressSummary(
@@ -140,6 +145,7 @@ data class ProfileSnapshot(
     val addons: List<InstalledAddonSummary>,
     val library: List<LibraryItemSummary>,
     val progress: List<ProgressSummary>,
+    val history: List<ProgressSummary> = emptyList(),
     val continueWatching: List<ProgressSummary> = emptyList(),
 )
 
@@ -162,6 +168,7 @@ data class VideoItem(
     val season: Int? = null,
     val episode: Int? = null,
     val released: String? = null,
+    val available: Boolean? = null,
     val thumbnail: String? = null,
     val overview: String? = null,
     val description: String? = null,
@@ -464,9 +471,10 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
             suspend fun get(path: String) = client.get("$baseUrl$path") { bearerAuth(token) }
             val addons = async { get("/v1/profiles/$profileId/addons") }
             val library = async { get("/v1/profiles/$profileId/library") }
-            val progress = async { get("/v1/profiles/$profileId/progress?view=history&limit=250") }
+            val progress = async { get("/v1/profiles/$profileId/progress?view=status&limit=1000") }
+            val history = async { get("/v1/profiles/$profileId/progress?view=history&limit=250") }
             val continueWatching = async { get("/v1/profiles/$profileId/progress?view=continue&limit=14") }
-            val responses = listOf(addons.await(), library.await(), progress.await(), continueWatching.await())
+            val responses = listOf(addons.await(), library.await(), progress.await(), history.await(), continueWatching.await())
             responses.firstOrNull { !it.status.isSuccess() }?.let { response ->
                 throw ServerRequestException(
                     if (response.status.value == 401) "Your session has expired" else
@@ -479,9 +487,112 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
                 addons = responses[0].body<AddonsResponse>().addons,
                 library = responses[1].body<LibraryResponse>().items,
                 progress = responses[2].body<ProgressResponse>().items,
-                continueWatching = responses[3].body<ProgressResponse>().items,
+                history = responses[3].body<ProgressResponse>().items,
+                continueWatching = responses[4].body<ProgressResponse>().items,
             )
         }
+
+    suspend fun saveLibraryItem(
+        baseUrl: String,
+        token: String,
+        profileId: String,
+        item: CatalogItem,
+        runtime: String? = null,
+    ): LibraryItemSummary {
+        val response = client.put(
+            "$baseUrl/v1/profiles/$profileId/library/${item.type.encodeURLPathPart()}/${item.id.encodeURLPathPart()}",
+        ) {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody(buildJsonObject {
+                put("name", item.name)
+                item.poster?.let { put("poster", it) }
+                item.background?.let { put("background", it) }
+                item.description?.let { put("description", it) }
+                item.releaseInfo?.let { put("releaseInfo", it) }
+                runtime?.let { put("runtime", it) }
+            })
+        }
+        if (!response.status.isSuccess()) throw ServerRequestException("Unable to save library item", response.status.value)
+        return response.body<LibraryItemResponse>().item
+    }
+
+    suspend fun removeLibraryItem(
+        baseUrl: String,
+        token: String,
+        profileId: String,
+        mediaType: String,
+        mediaId: String,
+    ) {
+        val response = client.delete(
+            "$baseUrl/v1/profiles/$profileId/library/${mediaType.encodeURLPathPart()}/${mediaId.encodeURLPathPart()}",
+        ) { bearerAuth(token) }
+        if (!response.status.isSuccess()) throw ServerRequestException("Unable to remove library item", response.status.value)
+    }
+
+    suspend fun setProgressWatched(
+        baseUrl: String,
+        token: String,
+        profileId: String,
+        progress: ProgressSummary?,
+        item: CatalogItem,
+        video: VideoItem?,
+        watched: Boolean,
+    ): ProgressSummary {
+        val videoId = progress?.videoId ?: video?.id ?: item.id
+        val url = "$baseUrl/v1/profiles/$profileId/progress/${videoId.encodeURLPathPart()}"
+        val response = if (progress != null) {
+            client.patch(url) {
+                bearerAuth(token)
+                contentType(ContentType.Application.Json)
+                setBody(buildJsonObject { put("watched", watched) })
+            }
+        } else {
+            client.put(url) {
+                bearerAuth(token)
+                contentType(ContentType.Application.Json)
+                setBody(buildJsonObject {
+                    put("mediaType", item.type)
+                    put("mediaId", item.id)
+                    put("name", item.name)
+                    item.poster?.let { put("poster", it) }
+                    video?.title?.let { put("videoTitle", it) }
+                    video?.season?.let { put("season", it) }
+                    video?.episode?.let { put("episode", it) }
+                    put("positionMs", 0)
+                    put("durationMs", 0)
+                    put("watched", watched)
+                })
+            }
+        }
+        if (!response.status.isSuccess()) throw ServerRequestException("Unable to update watch state", response.status.value)
+        return response.body<ProgressItemResponse>().item
+            ?: throw ServerRequestException("The server did not return watch state")
+    }
+
+    suspend fun setProgressDismissed(
+        baseUrl: String,
+        token: String,
+        profileId: String,
+        videoId: String,
+        dismissed: Boolean,
+    ): ProgressSummary {
+        val response = client.patch("$baseUrl/v1/profiles/$profileId/progress/${videoId.encodeURLPathPart()}") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody(buildJsonObject { put("dismissed", dismissed) })
+        }
+        if (!response.status.isSuccess()) throw ServerRequestException("Unable to update Continue Watching", response.status.value)
+        return response.body<ProgressItemResponse>().item
+            ?: throw ServerRequestException("The server did not return playback progress")
+    }
+
+    suspend fun deleteProgress(baseUrl: String, token: String, profileId: String, videoId: String) {
+        val response = client.delete("$baseUrl/v1/profiles/$profileId/progress/${videoId.encodeURLPathPart()}") {
+            bearerAuth(token)
+        }
+        if (!response.status.isSuccess()) throw ServerRequestException("Unable to remove watch history", response.status.value)
+    }
 
     suspend fun loadProgress(baseUrl: String, token: String, profileId: String, videoId: String): ProgressSummary? {
         val response = client.get("$baseUrl/v1/profiles/$profileId/progress/${videoId.encodeURLPathPart()}") { bearerAuth(token) }

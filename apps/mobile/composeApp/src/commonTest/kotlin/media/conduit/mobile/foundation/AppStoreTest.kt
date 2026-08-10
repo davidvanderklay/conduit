@@ -96,4 +96,15 @@ class AppStoreTest {
         store.dispatch(AppAction.SelectProfile("profile-7"))
         assertEquals("profile-7", AppStore(settings).state.activeProfileId)
     }
+
+    @Test
+    fun richActionsHintIsOnlyShownOnce() {
+        val settings = MemorySettingsStore()
+        val store = AppStore(settings)
+
+        assertEquals(false, store.state.richActionsHintShown)
+        assertEquals(true, store.dispatch(AppAction.RichActionsHintShown).richActionsHintShown)
+        assertEquals(true, AppStore(settings).state.richActionsHintShown)
+        assertEquals(true, store.dispatch(AppAction.ForgetEndpoint).richActionsHintShown)
+    }
 }
