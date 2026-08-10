@@ -32,6 +32,9 @@ internal fun HomeScreen(
     api: ConduitApi,
     onSelect: (CatalogItem, String?) -> Unit,
     onMutation: suspend (ProfileMutation) -> Result<Unit>,
+    onOpenHistory: () -> Unit,
+    onOpenLibrary: () -> Unit,
+    onOpenDiscover: (DiscoverSelection) -> Unit,
     listState: LazyListState = rememberLazyListState(),
     cache: HomeScreenCache = remember { HomeScreenCache() },
     modifier: Modifier = Modifier,
@@ -87,7 +90,7 @@ internal fun HomeScreen(
             item { StatusPill("Offline · showing saved activity", MaterialTheme.colorScheme.tertiary) }
         }
         if (continueWatching.isNotEmpty()) {
-            item { ShelfTitle("Continue Watching") }
+            item { ShelfTitle("Continue Watching", onOpenHistory) }
             item {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     items(continueWatching, key = { it.videoId }) { item ->
@@ -103,7 +106,7 @@ internal fun HomeScreen(
             }
         }
         if (library.isNotEmpty()) {
-            item { ShelfTitle("From Your Library") }
+            item { ShelfTitle("From Your Library", onOpenLibrary) }
             item {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     items(library, key = { it.id }) { item ->
@@ -135,7 +138,17 @@ internal fun HomeScreen(
             item { StatusPill("${catalogs.failedRequests} catalog requests failed", MaterialTheme.colorScheme.error) }
         }
         result?.catalogs.orEmpty().filter { it.items.isNotEmpty() }.forEach { catalog ->
-            item(key = "${catalog.key}:title") { ShelfTitle(catalog.title) }
+            item(key = "${catalog.key}:title") {
+                ShelfTitle(catalog.title) {
+                    onOpenDiscover(
+                        DiscoverSelection(
+                            addonId = catalog.addonId,
+                            type = catalog.type,
+                            catalogId = catalog.catalogId,
+                        ),
+                    )
+                }
+            }
             item(key = catalog.key) {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     items(catalog.items, key = { "${catalog.key}:${it.type}:${it.id}" }) { item ->
@@ -176,10 +189,12 @@ internal fun HomeScreen(
 }
 
 @Composable
-private fun ShelfTitle(title: String) {
+private fun ShelfTitle(title: String, onSeeAll: () -> Unit) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-        Text("See all", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
+        TextButton(onClick = onSeeAll, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)) {
+            Text("See all", style = MaterialTheme.typography.labelLarge)
+        }
     }
 }
 

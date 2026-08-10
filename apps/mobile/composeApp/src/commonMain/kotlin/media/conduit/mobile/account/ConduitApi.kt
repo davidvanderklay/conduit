@@ -175,6 +175,12 @@ data class VideoItem(
 )
 
 @Serializable
+data class TrailerItem(val source: String? = null, val type: String? = null)
+
+@Serializable
+data class TrailerStreamItem(val title: String? = null, val youtubeId: String? = null)
+
+@Serializable
 data class MetaItem(
     val id: String,
     val type: String,
@@ -190,6 +196,12 @@ data class MetaItem(
     val contentRating: String? = null,
     val director: List<String> = emptyList(),
     val cast: List<String> = emptyList(),
+    val writer: List<String> = emptyList(),
+    val country: String? = null,
+    val awards: String? = null,
+    val released: String? = null,
+    val trailers: List<TrailerItem> = emptyList(),
+    val trailerStreams: List<TrailerStreamItem> = emptyList(),
     val videos: List<VideoItem> = emptyList(),
 )
 
@@ -230,12 +242,55 @@ data class HomeCatalog(
     val key: String,
     val title: String,
     val items: List<CatalogItem>,
+    val addonId: String,
+    val type: String,
+    val catalogId: String,
 )
 
 data class HomeCatalogResult(
     val catalogs: List<HomeCatalog>,
     val failedRequests: Int,
 )
+
+data class DiscoverCatalog(
+    val addonId: String,
+    val manifestUrl: String,
+    val addonName: String,
+    val type: String,
+    val id: String,
+    val name: String,
+    val supportsGenre: Boolean,
+    val genres: List<String>,
+    val genreRequired: Boolean,
+)
+
+fun discoverCatalogs(addons: List<InstalledAddonSummary>): List<DiscoverCatalog> = addons
+    .filter(InstalledAddonSummary::enabled)
+    .flatMap { addon ->
+        val addonName = addon.manifest["name"]?.jsonPrimitive?.contentOrNull ?: addon.manifestId
+        addon.manifest["catalogs"]?.jsonArray.orEmpty().mapNotNull { it as? JsonObject }.mapNotNull { catalog ->
+            val extras = catalog["extra"]?.jsonArray.orEmpty().mapNotNull { it as? JsonObject }
+            if (extras.any { extra ->
+                    extra["isRequired"]?.jsonPrimitive?.booleanOrNull == true &&
+                        extra["name"]?.jsonPrimitive?.contentOrNull != "genre"
+                }
+            ) return@mapNotNull null
+            val id = catalog["id"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+            val type = catalog["type"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+            val genre = extras.firstOrNull { it["name"]?.jsonPrimitive?.contentOrNull == "genre" }
+            DiscoverCatalog(
+                addonId = addon.id,
+                manifestUrl = addon.manifestUrl,
+                addonName = addonName,
+                type = type,
+                id = id,
+                name = catalog["name"]?.jsonPrimitive?.contentOrNull ?: id.replaceFirstChar(Char::uppercase),
+                supportsGenre = genre != null,
+                genres = genre?.get("options")?.jsonArray.orEmpty().mapNotNull { it.jsonPrimitive.contentOrNull },
+                genreRequired = genre?.get("isRequired")?.jsonPrimitive?.booleanOrNull == true,
+            )
+        }
+    }
 
 private data class SearchCatalogRequest(val addon: InstalledAddonSummary, val type: String, val id: String, val name: String)
 
@@ -472,7 +527,7 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
             val addons = async { get("/v1/profiles/$profileId/addons") }
             val library = async { get("/v1/profiles/$profileId/library") }
             val progress = async { get("/v1/profiles/$profileId/progress?view=status&limit=1000") }
-            val history = async { get("/v1/profiles/$profileId/progress?view=history&limit=250") }
+            val history = async { get("/v1/profiles/$profileId/progress?view=history&limit=1000") }
             val continueWatching = async { get("/v1/profiles/$profileId/progress?view=continue&limit=14") }
             val responses = listOf(addons.await(), library.await(), progress.await(), history.await(), continueWatching.await())
             responses.firstOrNull { !it.status.isSuccess() }?.let { response ->
@@ -652,6 +707,9 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
                             key = "${addon.id}:$type:$id",
                             title = title,
                             items = response.body<CatalogResponse>().metas,
+                            addonId = addon.id,
+                            type = type,
+                            catalogId = id,
                         )
                     }
                 }
@@ -754,11 +812,30 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
                         key = "search:${addon.id}:$type:$id",
                         title = "$catalogName · $typeLabel · $addonName",
                         items = response.body<CatalogResponse>().metas.distinctBy { "${it.type}:${it.id}" },
+                        addonId = addon.id,
+                        type = type,
+                        catalogId = id,
                     )
                 }.getOrNull()
             }
         }
         requests.mapNotNull { it.await() }.filter { it.items.isNotEmpty() }
+    }
+
+    suspend fun loadCatalog(
+        catalog: DiscoverCatalog,
+        genre: String? = null,
+        skip: Int = 0,
+    ): List<CatalogItem> {
+        val extras = buildList {
+            genre?.let { add("genre" to it) }
+            if (skip > 0) add("skip" to skip.toString())
+        }
+        val response = client.get(resourceUrl(catalog.manifestUrl, "catalog", catalog.type, catalog.id, extras))
+        if (!response.status.isSuccess()) {
+            throw ServerRequestException("${catalog.name} returned HTTP ${response.status.value}", response.status.value)
+        }
+        return response.body<CatalogResponse>().metas
     }
 
     private fun resourceUrl(
@@ -775,6 +852,23 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
         return if (extraName != null && extraValue != null) {
             "$path/${extraName.encodeURLPathPart()}=${extraValue.encodeURLPathPart()}.json"
         } else "$path.json"
+    }
+
+    private fun resourceUrl(
+        manifestUrl: String,
+        resource: String,
+        type: String,
+        id: String,
+        extras: List<Pair<String, String>>,
+    ): String {
+        if (extras.isEmpty()) return resourceUrl(manifestUrl, resource, type, id)
+        val cleanManifest = manifestUrl.substringBefore('?').substringBefore('#')
+        val base = cleanManifest.substringBeforeLast('/', cleanManifest).trimEnd('/')
+        val path = "$base/${resource.encodeURLPathPart()}/${type.encodeURLPathPart()}/${id.encodeURLPathPart()}"
+        val encodedExtras = extras.joinToString("&") { (name, value) ->
+            "${name.encodeURLPathPart()}=${value.encodeURLPathPart()}"
+        }
+        return "$path/$encodedExtras.json"
     }
 
     suspend fun generateRecoveryCodes(baseUrl: String, token: String): List<String> {

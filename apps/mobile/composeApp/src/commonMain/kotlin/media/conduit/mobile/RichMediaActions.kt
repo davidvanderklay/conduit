@@ -100,6 +100,7 @@ internal fun RichPosterCard(
     onClick: () -> Unit,
     onActions: () -> Unit,
     modifier: Modifier = Modifier,
+    showLabels: Boolean = true,
 ) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
@@ -137,8 +138,10 @@ internal fun RichPosterCard(
             PosterWatchStatus(item, snapshot, metadataCache, Modifier.align(Alignment.TopStart).padding(6.dp))
             ProgressRail(progress, Modifier.align(Alignment.BottomCenter))
         }
-        Text(item.name, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-        Text(caption.replaceFirstChar(Char::uppercase), maxLines = 1, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
+        if (showLabels) {
+            Text(item.name, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+            Text(caption.replaceFirstChar(Char::uppercase), maxLines = 1, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
+        }
     }
 }
 

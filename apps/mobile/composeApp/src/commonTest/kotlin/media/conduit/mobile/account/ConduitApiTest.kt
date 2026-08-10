@@ -196,7 +196,45 @@ class ConduitApiTest {
 
         assertEquals(listOf("/configured/catalog/movie/popular.json", "/configured/catalog/series/popular.json"), requested)
         assertEquals("A Movie", result.catalogs.single().items.single().name)
+        assertEquals("a1", result.catalogs.single().addonId)
+        assertEquals("movie", result.catalogs.single().type)
+        assertEquals("popular", result.catalogs.single().catalogId)
         assertEquals(1, result.failedRequests)
+    }
+
+    @Test
+    fun discoverCatalogsExposeFiltersAndCatalogRequestsEncodeExtras() = runTest {
+        var requestedPath = ""
+        val engine = MockEngine { request ->
+            requestedPath = request.url.encodedPath
+            respond(
+                """{"metas":[{"id":"tt1","type":"movie","name":"A Movie"}]}""",
+                HttpStatusCode.OK,
+                headersOf(HttpHeaders.ContentType, "application/json"),
+            )
+        }
+        val api = ConduitApi(HttpClient(engine) { install(ContentNegotiation) { json() } })
+        val addon = InstalledAddonSummary(
+            id = "a1",
+            manifestId = "fixture",
+            manifestUrl = "https://addon.example/config/manifest.json",
+            manifest = Json.parseToJsonElement(
+                """{"name":"Fixture","catalogs":[
+                    {"id":"popular","type":"movie","name":"Popular","extra":[{"name":"genre","options":["Drama","Science Fiction"]}]},
+                    {"id":"personal","type":"movie","extra":[{"name":"token","isRequired":true}]}
+                ]}""",
+            ).jsonObject,
+            position = 0,
+            enabled = true,
+        )
+
+        val catalog = discoverCatalogs(listOf(addon)).single()
+        val items = api.loadCatalog(catalog, genre = "Science Fiction", skip = 20)
+
+        assertTrue(catalog.supportsGenre)
+        assertEquals(listOf("Drama", "Science Fiction"), catalog.genres)
+        assertEquals("A Movie", items.single().name)
+        assertEquals("/config/catalog/movie/popular/genre=Science%20Fiction&skip=20.json", requestedPath)
     }
 
     @Test
@@ -244,7 +282,7 @@ class ConduitApiTest {
             requested += request.url.encodedPath
             val body = when {
                 request.url.encodedPath.contains("/meta/") ->
-                    """{"meta":{"id":"tt1","type":"movie","name":"A Movie","description":"Details"}}"""
+                    """{"meta":{"id":"tt1","type":"movie","name":"A Movie","description":"Details","writer":["A Writer"],"country":"US","trailerStreams":[{"youtubeId":"trailer-id"}]}}"""
                 request.url.encodedPath.contains("/stream/") ->
                     """{"streams":[{"url":"https://video.example/movie.mp4","name":"Direct"}]}"""
                 else -> error("Unexpected path ${request.url.encodedPath}")
@@ -259,7 +297,11 @@ class ConduitApiTest {
             position = 0, enabled = true,
         )
 
-        assertEquals("Details", api.loadMeta(listOf(addon), "movie", "tt1").description)
+        val metadata = api.loadMeta(listOf(addon), "movie", "tt1")
+        assertEquals("Details", metadata.description)
+        assertEquals(listOf("A Writer"), metadata.writer)
+        assertEquals("US", metadata.country)
+        assertEquals("trailer-id", metadata.trailerStreams.single().youtubeId)
         assertEquals("Direct", api.loadStreams(listOf(addon), "movie", "tt1").single().stream.name)
         assertEquals(listOf("/config/meta/movie/tt1.json", "/config/stream/movie/tt1.json"), requested)
     }
