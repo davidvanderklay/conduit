@@ -28,7 +28,7 @@ concurrency:
 
 jobs:
   test:
-    name: Test and build unsigned IPA
+    name: Test iOS simulator build
     runs-on: macos-15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -44,16 +44,8 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: .
-      - name: Install XcodeGen
-        run: brew install xcodegen
       - name: Build iOS Rust libraries
         run: apps/mobile/scripts/build-rust-ios.sh
       - name: Run iOS unit tests
         working-directory: apps/mobile
         run: ./gradlew --no-daemon :composeApp:iosSimulatorArm64Test
-      - name: Build release IPA
-        run: >-
-          apps/mobile/scripts/package-ios-ipa.sh
-          "0.0.0-ci.${GITHUB_RUN_NUMBER}"
-          "$GITHUB_RUN_NUMBER"
-          "$RUNNER_TEMP/conduit-ios"
