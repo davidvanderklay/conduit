@@ -647,8 +647,8 @@ internal fun MediaDetailsScreen(
     LaunchedEffect(playback.ended) { if (playback.ended) runCatching { persistProgress() } }
     var openingOverlay by remember(playing?.url) { mutableStateOf(playing?.url != null) }
     var playerControlsVisible by remember(playing?.url) { mutableStateOf(true) }
-    LaunchedEffect(playback.loading, playback.error, playing?.url) {
-        if (!playback.loading || playback.error != null) openingOverlay = false
+    LaunchedEffect(playing?.url) {
+        playback = PlaybackState()
     }
 
     if (playing?.url != null) {
@@ -664,7 +664,10 @@ internal fun MediaDetailsScreen(
                 preferredAudioLanguage = preferences.preferredAudioLanguage,
                 preferredSubtitleLanguage = preferences.preferredSubtitleLanguage,
                 onControlsVisibilityChanged = { playerControlsVisible = it },
-            ) { playback = it }
+            ) {
+                playback = it
+                if (!it.loading || it.error != null) openingOverlay = false
+            }
             if (openingOverlay && playback.error == null) {
                 PlayerOpeningOverlay(
                     artwork = selectedVideo?.thumbnail ?: meta?.background ?: item.background ?: meta?.poster ?: item.poster,
@@ -867,14 +870,60 @@ internal fun MediaDetailsScreen(
 
 @Composable
 private fun PlayerOpeningOverlay(artwork: String?, logo: String?, title: String, modifier: Modifier = Modifier) {
+    val pulse = rememberInfiniteTransition(label = "player-opening")
+    val indicatorScale by pulse.animateFloat(
+        initialValue = .96f,
+        targetValue = 1.04f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1_250, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "opening-scale",
+    )
+    val indicatorAlpha by pulse.animateFloat(
+        initialValue = .72f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1_250, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "opening-alpha",
+    )
     Box(modifier.background(Color.Black)) {
         artwork?.let { AsyncImage(model = it, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
-        CircularProgressIndicator(
-            modifier = Modifier.align(Alignment.Center).size(38.dp),
-            color = Color.White,
-            trackColor = Color.White.copy(.24f),
-            strokeWidth = 3.dp,
-        )
+        val indicator = logo?.takeIf(String::isNotBlank) ?: artwork
+        if (indicator != null) {
+            AsyncImage(
+                model = indicator,
+                contentDescription = title,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .fillMaxWidth(.56f)
+                    .heightIn(max = 150.dp)
+                    .graphicsLayer {
+                        scaleX = indicatorScale
+                        scaleY = indicatorScale
+                        alpha = indicatorAlpha
+                    },
+            )
+        } else {
+            Text(
+                title,
+                color = Color.White,
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .graphicsLayer {
+                        scaleX = indicatorScale
+                        scaleY = indicatorScale
+                        alpha = indicatorAlpha
+                    },
+            )
+        }
     }
 }
 
