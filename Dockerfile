@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM node:22-alpine AS build
+FROM node:26-alpine AS build
 WORKDIR /app
 RUN corepack enable
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml vite.config.ts ./
@@ -28,7 +28,7 @@ EXPOSE 8080
 
 # Keep the API as the final stage so platforms that do not support selecting a
 # Docker build target deploy the server. Compose selects both stages explicitly.
-FROM node:22-alpine AS server
+FROM node:26-alpine AS server
 ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=build /prod/server ./
