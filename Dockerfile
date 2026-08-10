@@ -21,7 +21,7 @@ RUN corepack pnpm core:build \
     && corepack pnpm --filter @conduit/web build \
     && corepack pnpm --filter @conduit/server deploy --prod --legacy /prod/server
 
-FROM nginx:1.29-alpine AS web
+FROM nginx:1.31-alpine AS web
 COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/apps/web/dist /usr/share/nginx/html
 EXPOSE 8080
