@@ -1,7 +1,6 @@
 package media.conduit.mobile
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -14,13 +13,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import coil3.compose.AsyncImage
 import kotlinx.coroutines.launch
 import media.conduit.mobile.account.*
 
@@ -36,6 +31,10 @@ internal fun HomeScreen(
     sync: ProfileSyncState,
     api: ConduitApi,
     onSelect: (CatalogItem, String?) -> Unit,
+    onMutation: suspend (ProfileMutation) -> Result<Unit>,
+    onOpenHistory: () -> Unit,
+    onOpenLibrary: () -> Unit,
+    onOpenDiscover: (DiscoverSelection) -> Unit,
     listState: LazyListState = rememberLazyListState(),
     cache: HomeScreenCache = remember { HomeScreenCache() },
     modifier: Modifier = Modifier,
@@ -44,6 +43,8 @@ internal fun HomeScreen(
     var result by cache.result
     var loading by cache.loading
     var catalogError by cache.catalogError
+    var actionTarget by remember { mutableStateOf<MediaActionTarget?>(null) }
+    val metadataCache = rememberWatchMetadataCache(api, sync.snapshot?.addons.orEmpty())
 
     fun load() {
         val addons = sync.snapshot?.addons ?: return
@@ -89,28 +90,33 @@ internal fun HomeScreen(
             item { StatusPill("Offline · showing saved activity", MaterialTheme.colorScheme.tertiary) }
         }
         if (continueWatching.isNotEmpty()) {
-            item { ShelfTitle("Continue Watching") }
+            item { ShelfTitle("Continue Watching", onOpenHistory) }
             item {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     items(continueWatching, key = { it.videoId }) { item ->
-                        ContinueCard(item) {
-                            onSelect(
-                                CatalogItem(item.mediaId, item.mediaType, item.name, poster = item.poster),
-                                if (item.mediaType == "series") item.mediaId else item.videoId,
-                            )
-                        }
+                        val catalogItem = CatalogItem(item.mediaId, item.mediaType, item.name, poster = item.poster)
+                        RichProgressCard(
+                            progress = item,
+                            onClick = { onSelect(catalogItem, if (item.mediaType == "series") item.mediaId else item.videoId) },
+                            onActions = { actionTarget = MediaActionTarget(catalogItem, MediaActionContext.Continue, item) },
+                            modifier = Modifier.width(210.dp),
+                        )
                     }
                 }
             }
         }
         if (library.isNotEmpty()) {
-            item { ShelfTitle("From Your Library") }
+            item { ShelfTitle("From Your Library", onOpenLibrary) }
             item {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     items(library, key = { it.id }) { item ->
-                        PosterCard(item.name, item.poster, item.type) {
-                            onSelect(CatalogItem(item.id, item.type, item.name, poster = item.poster), null)
-                        }
+                        val catalogItem = item.toCatalogItem()
+                        RichPosterCard(
+                            catalogItem, item.type, sync.snapshot, metadataCache,
+                            onClick = { onSelect(catalogItem, null) },
+                            onActions = { actionTarget = MediaActionTarget(catalogItem, MediaActionContext.Library, latestProgress(sync.snapshot, catalogItem)) },
+                            modifier = Modifier.width(112.dp),
+                        )
                     }
                 }
             }
@@ -132,11 +138,26 @@ internal fun HomeScreen(
             item { StatusPill("${catalogs.failedRequests} catalog requests failed", MaterialTheme.colorScheme.error) }
         }
         result?.catalogs.orEmpty().filter { it.items.isNotEmpty() }.forEach { catalog ->
-            item(key = "${catalog.key}:title") { ShelfTitle(catalog.title) }
+            item(key = "${catalog.key}:title") {
+                ShelfTitle(catalog.title) {
+                    onOpenDiscover(
+                        DiscoverSelection(
+                            addonId = catalog.addonId,
+                            type = catalog.type,
+                            catalogId = catalog.catalogId,
+                        ),
+                    )
+                }
+            }
             item(key = catalog.key) {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     items(catalog.items, key = { "${catalog.key}:${it.type}:${it.id}" }) { item ->
-                        PosterCard(item.name, item.poster, item.releaseInfo ?: item.type) { onSelect(item, null) }
+                        RichPosterCard(
+                            item, item.releaseInfo ?: item.type, sync.snapshot, metadataCache,
+                            onClick = { onSelect(item, null) },
+                            onActions = { actionTarget = MediaActionTarget(item, MediaActionContext.Browse, latestProgress(sync.snapshot, item)) },
+                            modifier = Modifier.width(112.dp),
+                        )
                     }
                 }
             }
@@ -157,68 +178,35 @@ internal fun HomeScreen(
             }
         }
     }
+    MediaActionSheet(
+        target = actionTarget,
+        snapshot = sync.snapshot,
+        onDismiss = { actionTarget = null },
+        onPlay = { target -> onSelect(target.item, target.progress?.videoId) },
+        onDetails = { onSelect(it, null) },
+        onMutation = onMutation,
+    )
 }
 
 @Composable
-private fun ShelfTitle(title: String) {
+private fun ShelfTitle(title: String, onSeeAll: () -> Unit) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-        Text("See all", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
-    }
-}
-
-@Composable
-private fun PosterCard(name: String, poster: String?, caption: String?, onClick: () -> Unit) {
-    Column(Modifier.width(112.dp).clickable(onClick = onClick), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Box(
-            Modifier.fillMaxWidth().aspectRatio(2f / 3f).clip(RoundedCornerShape(12.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant),
-        ) {
-            AsyncImage(
-                model = poster,
-                contentDescription = name,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
-            )
-            Box(
-                Modifier.fillMaxWidth().height(48.dp).align(Alignment.BottomCenter)
-                    .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = .72f)))),
-            )
-        }
-        Text(name, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-        caption?.let {
-            Text(it.replaceFirstChar(Char::uppercase), maxLines = 1, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
+        TextButton(onClick = onSeeAll, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)) {
+            Text("See all", style = MaterialTheme.typography.labelLarge)
         }
     }
 }
 
-@Composable
-private fun ContinueCard(item: ProgressSummary, onClick: () -> Unit) {
-    val progress = (item.positionMs.toFloat() / item.durationMs.toFloat()).coerceIn(0f, 1f)
-    Column(Modifier.width(210.dp).clickable(onClick = onClick), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceVariant)) {
-            Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(Color(0xFF342B55), Color(0xFF17151E)))))
-            AsyncImage(
-                model = item.poster,
-                contentDescription = item.name,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
-            )
-            if (item.poster == null) {
-                Text(item.name.take(1), modifier = Modifier.align(Alignment.Center), style = MaterialTheme.typography.displayMedium, color = Color.White.copy(alpha = .24f))
-            }
-            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = .45f)))))
-            LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth().height(4.dp).align(Alignment.BottomCenter))
-        }
-        Text(item.name, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
-        Text(
-            item.videoTitle ?: listOfNotNull(item.season?.let { "S$it" }, item.episode?.let { "E$it" })
-                .joinToString(" · ").ifBlank { "${item.positionMs / 60_000} min watched" },
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            style = MaterialTheme.typography.labelSmall,
-        )
-    }
-}
+private fun LibraryItemSummary.toCatalogItem() = CatalogItem(
+    id = id,
+    type = type,
+    name = name,
+    poster = poster,
+    background = background,
+    description = description,
+    releaseInfo = releaseInfo,
+)
 
 @Composable
 private fun StatusPill(text: String, color: Color) {

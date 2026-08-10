@@ -1,21 +1,30 @@
 name: ConduitMobileSpike
 options:
   bundleIdPrefix: media.conduit
+packages:
+  MPVKit:
+    url: https://github.com/NuvioMedia/MPVKit.git
+    revision: d5cf091c80368bbbc1bbf2d195fbc55d926df888
 settings:
   base:
     IPHONEOS_DEPLOYMENT_TARGET: "15.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
     SWIFT_VERSION: "5.10"
 targets:
   ConduitMobileSpike:
     type: application
     platform: iOS
     sources: [ConduitMobileSpike]
+    dependencies:
+      - package: MPVKit
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: media.conduit.mobile.spike
+        PRODUCT_BUNDLE_IDENTIFIER: media.conduit.mobile
         INFOPLIST_FILE: ConduitMobileSpike/Info.plist
         FRAMEWORK_SEARCH_PATHS: "$(SRCROOT)/../composeApp/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)"
-        OTHER_LDFLAGS: "-framework ComposeApp"
+        "OTHER_LDFLAGS[sdk=iphoneos*]": "-framework ComposeApp $(SRCROOT)/../native/ios/iosArm64/libconduit_mobile.a"
+        "OTHER_LDFLAGS[sdk=iphonesimulator*]": "-framework ComposeApp $(SRCROOT)/../native/ios/iosSimulatorArm64/libconduit_mobile.a"
     preBuildScripts:
       - name: Build Compose framework
         script: |

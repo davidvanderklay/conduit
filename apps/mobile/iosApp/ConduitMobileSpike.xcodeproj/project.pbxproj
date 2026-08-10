@@ -1,0 +1,378 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 63;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		40AF8847BF8611896E76C9E7 /* MetalLayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99D2F22946D55A7EF71C2DD5 /* MetalLayer.swift */; };
+		7A51A1EF48814922E2C08A23 /* MPVPlayerBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1696757C18566865DC5CE890 /* MPVPlayerBridge.swift */; };
+		7CDCF257DBFF434F69BC4080 /* PlatformBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F8980C2E64758A37052A0ED /* PlatformBridge.swift */; };
+		B33594ED17E331E3DC1494DE /* ConduitMobileSpikeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CB31B15E7546FEECDEF1B53 /* ConduitMobileSpikeApp.swift */; };
+		B9B43AA3AC1A274208E498A9 /* MPVKit in Frameworks */ = {isa = PBXBuildFile; productRef = 6722BC9818D0FD97D537EA0C /* MPVKit */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		1696757C18566865DC5CE890 /* MPVPlayerBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVPlayerBridge.swift; sourceTree = "<group>"; };
+		1CB31B15E7546FEECDEF1B53 /* ConduitMobileSpikeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConduitMobileSpikeApp.swift; sourceTree = "<group>"; };
+		1F8980C2E64758A37052A0ED /* PlatformBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlatformBridge.swift; sourceTree = "<group>"; };
+		8C36451C3657ACC0B4612422 /* ConduitMobileSpike.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ConduitMobileSpike.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		8C4D3715EC258774BDAE0C6F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		99D2F22946D55A7EF71C2DD5 /* MetalLayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetalLayer.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		1FF4B0A7E803635B28771D8C /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B9B43AA3AC1A274208E498A9 /* MPVKit in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		0CE6CCC24D6415A440B3754A = {
+			isa = PBXGroup;
+			children = (
+				9B9CE5783FD7EEDA2937092F /* ConduitMobileSpike */,
+				13A52ADA6DA781D1722AE43C /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		13A52ADA6DA781D1722AE43C /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				8C36451C3657ACC0B4612422 /* ConduitMobileSpike.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		9B9CE5783FD7EEDA2937092F /* ConduitMobileSpike */ = {
+			isa = PBXGroup;
+			children = (
+				1CB31B15E7546FEECDEF1B53 /* ConduitMobileSpikeApp.swift */,
+				8C4D3715EC258774BDAE0C6F /* Info.plist */,
+				99D2F22946D55A7EF71C2DD5 /* MetalLayer.swift */,
+				1696757C18566865DC5CE890 /* MPVPlayerBridge.swift */,
+				1F8980C2E64758A37052A0ED /* PlatformBridge.swift */,
+			);
+			path = ConduitMobileSpike;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		16E0C0C45F548BE31E9E18EA /* ConduitMobileSpike */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = ED148F5725A51B4F5563921C /* Build configuration list for PBXNativeTarget "ConduitMobileSpike" */;
+			buildPhases = (
+				88B6EDC485BA8EE8081EF044 /* Build Compose framework */,
+				51DC600A8740E217C2F687B4 /* Sources */,
+				1FF4B0A7E803635B28771D8C /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = ConduitMobileSpike;
+			packageProductDependencies = (
+				6722BC9818D0FD97D537EA0C /* MPVKit */,
+			);
+			productName = ConduitMobileSpike;
+			productReference = 8C36451C3657ACC0B4612422 /* ConduitMobileSpike.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		422C3B3DC6C4530178D13275 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+			};
+			buildConfigurationList = F9D4FD312848BD7C790199E9 /* Build configuration list for PBXProject "ConduitMobileSpike" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 0CE6CCC24D6415A440B3754A;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				8FEDB1F5B185E7217AF5E824 /* XCRemoteSwiftPackageReference "MPVKit" */,
+			);
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				16E0C0C45F548BE31E9E18EA /* ConduitMobileSpike */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		88B6EDC485BA8EE8081EF044 /* Build Compose framework */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Build Compose framework";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "cd \"$SRCROOT/..\"\n./gradlew :composeApp:embedAndSignAppleFrameworkForXcode\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		51DC600A8740E217C2F687B4 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B33594ED17E331E3DC1494DE /* ConduitMobileSpikeApp.swift in Sources */,
+				7A51A1EF48814922E2C08A23 /* MPVPlayerBridge.swift in Sources */,
+				40AF8847BF8611896E76C9E7 /* MetalLayer.swift in Sources */,
+				7CDCF257DBFF434F69BC4080 /* PlatformBridge.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		34AEF5628014EB7B741A7894 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CURRENT_PROJECT_VERSION = 1;
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				MARKETING_VERSION = 0.1.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.10;
+			};
+			name = Release;
+		};
+		78B1D2E013D893839BE4FC31 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CURRENT_PROJECT_VERSION = 1;
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				MARKETING_VERSION = 0.1.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.10;
+			};
+			name = Debug;
+		};
+		AA7C460E0BBB8CC3CCAC9760 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = PYG6R5S4Q7;
+				FRAMEWORK_SEARCH_PATHS = "$(SRCROOT)/../composeApp/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)";
+				INFOPLIST_FILE = ConduitMobileSpike/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				"OTHER_LDFLAGS[sdk=iphoneos*]" = (
+					"-framework",
+					ComposeApp,
+					"$(SRCROOT)/../native/ios/iosArm64/libconduit_mobile.a",
+				);
+				"OTHER_LDFLAGS[sdk=iphonesimulator*]" = (
+					"-framework",
+					ComposeApp,
+					"$(SRCROOT)/../native/ios/iosSimulatorArm64/libconduit_mobile.a",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = media.conduit.mobile;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		C672390A1B8F0958301F3D67 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = PYG6R5S4Q7;
+				FRAMEWORK_SEARCH_PATHS = "$(SRCROOT)/../composeApp/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)";
+				INFOPLIST_FILE = ConduitMobileSpike/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				"OTHER_LDFLAGS[sdk=iphoneos*]" = (
+					"-framework",
+					ComposeApp,
+					"$(SRCROOT)/../native/ios/iosArm64/libconduit_mobile.a",
+				);
+				"OTHER_LDFLAGS[sdk=iphonesimulator*]" = (
+					"-framework",
+					ComposeApp,
+					"$(SRCROOT)/../native/ios/iosSimulatorArm64/libconduit_mobile.a",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = media.conduit.mobile;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		ED148F5725A51B4F5563921C /* Build configuration list for PBXNativeTarget "ConduitMobileSpike" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C672390A1B8F0958301F3D67 /* Debug */,
+				AA7C460E0BBB8CC3CCAC9760 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		F9D4FD312848BD7C790199E9 /* Build configuration list for PBXProject "ConduitMobileSpike" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				78B1D2E013D893839BE4FC31 /* Debug */,
+				34AEF5628014EB7B741A7894 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		8FEDB1F5B185E7217AF5E824 /* XCRemoteSwiftPackageReference "MPVKit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/NuvioMedia/MPVKit.git";
+			requirement = {
+				kind = revision;
+				revision = d5cf091c80368bbbc1bbf2d195fbc55d926df888;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		6722BC9818D0FD97D537EA0C /* MPVKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 8FEDB1F5B185E7217AF5E824 /* XCRemoteSwiftPackageReference "MPVKit" */;
+			productName = MPVKit;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 422C3B3DC6C4530178D13275 /* Project object */;
+}

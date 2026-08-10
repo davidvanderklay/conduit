@@ -5,6 +5,7 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
@@ -58,12 +59,17 @@ private val VideoItem.displayTitle: String
 @Composable
 internal fun MobileLibraryScreen(
     snapshot: ProfileSnapshot?,
+    api: ConduitApi,
+    onMutation: suspend (ProfileMutation) -> Result<Unit>,
     onSelect: (CatalogItem) -> Unit,
+    onSelectVideo: (CatalogItem, String?) -> Unit,
     gridState: androidx.compose.foundation.lazy.grid.LazyGridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState(),
     modifier: Modifier = Modifier,
 ) {
     var filter by remember { mutableStateOf("all") }
     var sortNewest by remember { mutableStateOf(true) }
+    var actionTarget by remember { mutableStateOf<MediaActionTarget?>(null) }
+    val metadataCache = rememberWatchMetadataCache(api, snapshot?.addons.orEmpty())
     val items = snapshot?.library.orEmpty()
         .filter { filter == "all" || it.type == filter }
         .let { if (sortNewest) it.sortedByDescending(LibraryItemSummary::updatedAt) else it.sortedBy(LibraryItemSummary::name) }
@@ -97,102 +103,377 @@ internal fun MobileLibraryScreen(
                 verticalArrangement = Arrangement.spacedBy(20.dp),
             ) {
                 items(items, key = { "${it.type}:${it.id}" }) { item ->
-                    MediaPoster(item.name, item.poster, item.type) {
-                        onSelect(CatalogItem(item.id, item.type, item.name, poster = item.poster))
-                    }
+                    val catalogItem = item.asCatalogItem()
+                    RichPosterCard(
+                        item = catalogItem,
+                        caption = item.type,
+                        snapshot = snapshot,
+                        metadataCache = metadataCache,
+                        onClick = { onSelect(catalogItem) },
+                        onActions = { actionTarget = MediaActionTarget(catalogItem, MediaActionContext.Library, latestProgress(snapshot, catalogItem)) },
+                    )
                 }
             }
         }
     }
+    MediaActionSheet(
+        target = actionTarget,
+        snapshot = snapshot,
+        onDismiss = { actionTarget = null },
+        onPlay = { onSelectVideo(it.item, it.progress?.videoId) },
+        onDetails = onSelect,
+        onMutation = onMutation,
+    )
+}
+
+@Composable
+internal fun MobileHistoryScreen(
+    snapshot: ProfileSnapshot?,
+    api: ConduitApi,
+    onMutation: suspend (ProfileMutation) -> Result<Unit>,
+    onSelect: (CatalogItem) -> Unit,
+    onSelectVideo: (CatalogItem, String?) -> Unit,
+    gridState: androidx.compose.foundation.lazy.grid.LazyGridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState(),
+    modifier: Modifier = Modifier,
+) {
+    var filter by remember { mutableStateOf("all") }
+    var sortNewest by remember { mutableStateOf(true) }
+    var actionTarget by remember { mutableStateOf<MediaActionTarget?>(null) }
+    val metadataCache = rememberWatchMetadataCache(api, snapshot?.addons.orEmpty())
+    val items = snapshot?.history.orEmpty()
+        .groupBy { "${it.mediaType}:${it.mediaId}" }
+        .values
+        .mapNotNull { entries -> entries.maxByOrNull(ProgressSummary::updatedAt) }
+        .filter { filter == "all" || it.mediaType == filter }
+        .let { entries ->
+            if (sortNewest) entries.sortedByDescending(ProgressSummary::updatedAt)
+            else entries.sortedBy(ProgressSummary::name)
+        }
+
+    Column(modifier.statusBarsPadding()) {
+        Column(Modifier.padding(horizontal = 10.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("Watch history", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+            Text("Everything you have viewed", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("all" to "All", "movie" to "Movies", "series" to "Series").forEach { (value, label) ->
+                    FilterChip(selected = filter == value, onClick = { filter = value }, label = { Text(label) })
+                }
+                Spacer(Modifier.weight(1f))
+                IconButton(onClick = { sortNewest = !sortNewest }) {
+                    Icon(if (sortNewest) Icons.Rounded.Schedule else Icons.Rounded.SortByAlpha, "Change sort")
+                }
+            }
+        }
+        if (snapshot == null) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+        } else if (items.isEmpty()) {
+            Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
+                Text("No watch history yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        } else {
+            LazyVerticalGrid(
+                state = gridState,
+                columns = GridCells.Fixed(3),
+                contentPadding = PaddingValues(start = 10.dp, end = 10.dp, bottom = 112.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(20.dp),
+            ) {
+                items(items, key = { "${it.mediaType}:${it.mediaId}" }) { progress ->
+                    val catalogItem = CatalogItem(progress.mediaId, progress.mediaType, progress.name, poster = progress.poster)
+                    RichPosterCard(
+                        item = catalogItem,
+                        caption = progress.videoTitle ?: progress.mediaType,
+                        snapshot = snapshot,
+                        metadataCache = metadataCache,
+                        onClick = { onSelectVideo(catalogItem, progress.videoId) },
+                        onActions = { actionTarget = MediaActionTarget(catalogItem, MediaActionContext.History, progress) },
+                    )
+                }
+            }
+        }
+    }
+    MediaActionSheet(
+        target = actionTarget,
+        snapshot = snapshot,
+        onDismiss = { actionTarget = null },
+        onPlay = { onSelectVideo(it.item, it.progress?.videoId) },
+        onDetails = onSelect,
+        onMutation = onMutation,
+    )
+}
+
+internal data class DiscoverSelection(
+    val addonId: String? = null,
+    val type: String? = null,
+    val catalogId: String? = null,
+    val genre: String? = null,
+)
+
+internal sealed interface MobileBrowseTarget {
+    data class Discover(val selection: DiscoverSelection) : MobileBrowseTarget
+    data class Search(val query: String) : MobileBrowseTarget
 }
 
 @Composable
 internal fun SearchDiscoverScreen(
     addons: List<InstalledAddonSummary>,
     api: ConduitApi,
+    snapshot: ProfileSnapshot?,
+    query: String,
+    onQueryChange: (String) -> Unit,
+    selection: DiscoverSelection,
+    onSelectionChange: (DiscoverSelection) -> Unit,
+    onMutation: suspend (ProfileMutation) -> Result<Unit>,
     onSelect: (CatalogItem) -> Unit,
     listState: androidx.compose.foundation.lazy.LazyListState = rememberLazyListState(),
+    gridState: androidx.compose.foundation.lazy.grid.LazyGridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState(),
     modifier: Modifier = Modifier,
 ) {
-    var query by remember { mutableStateOf("") }
+    val catalogs = remember(addons) { discoverCatalogs(addons) }
+    val types = remember(catalogs) { catalogs.map(DiscoverCatalog::type).distinct() }
+    val type = selection.type?.takeIf(types::contains) ?: types.firstOrNull().orEmpty()
+    val typeCatalogs = remember(catalogs, type) { catalogs.filter { it.type == type } }
+    val explicitlySelected = typeCatalogs.firstOrNull {
+        it.addonId == selection.addonId && it.id == selection.catalogId
+    }
+    val genreSelected = selection.genre?.let { requestedGenre ->
+        typeCatalogs.firstOrNull { it.supportsGenre && (it.genres.isEmpty() || requestedGenre in it.genres) }
+    }
+    val selected = explicitlySelected ?: genreSelected ?: typeCatalogs.firstOrNull()
+    val genre = selection.genre?.takeIf {
+        selected?.supportsGenre == true && (selected.genres.isEmpty() || it in selected.genres)
+    }
+        ?: selected?.genres?.firstOrNull()?.takeIf { selected.genreRequired }
+    val normalizedSelection = DiscoverSelection(selected?.addonId, type, selected?.id, genre)
     var results by remember(addons) { mutableStateOf<List<HomeCatalog>>(emptyList()) }
-    var discover by remember(addons) { mutableStateOf<List<HomeCatalog>>(emptyList()) }
-    var loading by remember { mutableStateOf(false) }
-    LaunchedEffect(addons) {
-        discover = runCatching { api.loadHomeCatalogs(addons).catalogs }.getOrDefault(emptyList())
+    var searchLoading by remember { mutableStateOf(false) }
+    var discoverItems by remember { mutableStateOf<List<CatalogItem>>(emptyList()) }
+    var discoverLoading by remember { mutableStateOf(false) }
+    var loadingMore by remember { mutableStateOf(false) }
+    var discoverError by remember { mutableStateOf<String?>(null) }
+    var hasMore by remember { mutableStateOf(true) }
+    var actionTarget by remember { mutableStateOf<MediaActionTarget?>(null) }
+    val metadataCache = rememberWatchMetadataCache(api, addons)
+
+    LaunchedEffect(normalizedSelection) {
+        if (selection != normalizedSelection) onSelectionChange(normalizedSelection)
     }
     LaunchedEffect(query, addons) {
-        if (query.isBlank()) { results = emptyList(); return@LaunchedEffect }
+        if (query.isBlank()) { results = emptyList(); searchLoading = false; return@LaunchedEffect }
         delay(350)
-        loading = true
+        searchLoading = true
         results = runCatching { api.searchCatalogs(addons, query.trim()) }.getOrDefault(emptyList())
-        loading = false
+        searchLoading = false
     }
-    val visible = if (query.isBlank()) discover else results
-    LazyColumn(
-        state = listState,
-        modifier = modifier.statusBarsPadding(),
-        contentPadding = PaddingValues(bottom = 112.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp),
-    ) {
-        item {
-            Text(
-                "Search", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(start = 10.dp, end = 10.dp, top = 8.dp),
-            )
-        }
-        stickyHeader {
-            Column(
-                Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background.copy(alpha = .97f))
-                    .padding(horizontal = 10.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+    LaunchedEffect(selected, genre) {
+        discoverItems = emptyList()
+        discoverError = null
+        hasMore = true
+        loadingMore = false
+        if (selected == null) return@LaunchedEffect
+        discoverLoading = true
+        runCatching { api.loadCatalog(selected, genre) }
+            .onSuccess { page -> discoverItems = page.distinctBy { "${it.type}:${it.id}" }; hasMore = page.isNotEmpty() }
+            .onFailure { discoverError = it.message ?: "Unable to load this catalog"; hasMore = false }
+        discoverLoading = false
+        gridState.scrollToItem(0)
+    }
+
+    Column(modifier.fillMaxSize().statusBarsPadding()) {
+        OutlinedTextField(
+            value = query,
+            onValueChange = onQueryChange,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp),
+            placeholder = { Text("Search") },
+            leadingIcon = { Icon(Icons.Rounded.Search, null) },
+            trailingIcon = if (query.isNotBlank()) {{ IconButton(onClick = { onQueryChange("") }) { Icon(Icons.Rounded.Close, "Clear") } }} else null,
+            singleLine = true,
+            shape = RoundedCornerShape(22.dp),
+        )
+        if (query.isBlank()) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(7.dp),
             ) {
-                OutlinedTextField(
-                    value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("Movies, series, and episodes") },
-                    leadingIcon = { Icon(Icons.Rounded.Search, null) },
-                    trailingIcon = if (query.isNotBlank()) {{ IconButton(onClick = { query = "" }) { Icon(Icons.Rounded.Close, "Clear") } }} else null,
-                    singleLine = true, shape = RoundedCornerShape(18.dp),
+                CompactFilterMenu(
+                    value = typeLabel(type),
+                    options = types.map { it to typeLabel(it) },
+                    onSelect = { onSelectionChange(DiscoverSelection(type = it)) },
+                    modifier = Modifier.weight(.85f),
                 )
-                Text(if (query.isBlank()) "Discover" else "Results", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                CompactFilterMenu(
+                    value = selected?.name ?: "Content",
+                    options = typeCatalogs.map { catalog ->
+                        "${catalog.addonId}:${catalog.id}" to if (typeCatalogs.count { it.name == catalog.name } > 1) {
+                            "${catalog.name} · ${catalog.addonName}"
+                        } else catalog.name
+                    },
+                    onSelect = { key ->
+                        val next = typeCatalogs.firstOrNull { "${it.addonId}:${it.id}" == key } ?: return@CompactFilterMenu
+                        onSelectionChange(DiscoverSelection(next.addonId, type, next.id))
+                    },
+                    modifier = Modifier.weight(1.15f),
+                )
+                CompactFilterMenu(
+                    value = genre ?: "All genres",
+                    options = buildList {
+                        if (selected?.genreRequired != true) add("" to "All genres")
+                        selected?.genres.orEmpty().forEach { add(it to it) }
+                    },
+                    enabled = selected?.genres?.isNotEmpty() == true,
+                    onSelect = { onSelectionChange(normalizedSelection.copy(genre = it.ifBlank { null })) },
+                    modifier = Modifier.weight(1.05f),
+                )
             }
-        }
-        if (loading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
-        if (!loading && visible.isEmpty()) {
-            item {
-                Box(Modifier.fillMaxWidth().height(240.dp), contentAlignment = Alignment.Center) {
-                    Text(if (query.isBlank()) "No discover catalogs available." else "No results for “$query”.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            when {
+                discoverLoading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+                selected == null -> EmptyBrowseState("No discover catalogs available.")
+                discoverError != null -> EmptyBrowseState(discoverError!!)
+                discoverItems.isEmpty() -> EmptyBrowseState("This catalog returned no titles.")
+                else -> LazyVerticalGrid(
+                    state = gridState,
+                    columns = GridCells.Fixed(2),
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(start = 10.dp, end = 10.dp, top = 10.dp, bottom = 112.dp),
+                    horizontalArrangement = Arrangement.spacedBy(9.dp),
+                    verticalArrangement = Arrangement.spacedBy(9.dp),
+                ) {
+                    items(discoverItems, key = { "${it.type}:${it.id}" }) { item ->
+                        RichPosterCard(
+                            item = item,
+                            caption = item.releaseInfo ?: typeLabel(item.type),
+                            snapshot = snapshot,
+                            metadataCache = metadataCache,
+                            onClick = { onSelect(item) },
+                            onActions = { actionTarget = MediaActionTarget(item, MediaActionContext.Browse, latestProgress(snapshot, item)) },
+                            showLabels = false,
+                        )
+                    }
+                    if (hasMore) {
+                        item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
+                            LaunchedEffect(discoverItems.size, selected, genre) {
+                                if (loadingMore) return@LaunchedEffect
+                                val catalog = selected
+                                loadingMore = true
+                                runCatching { api.loadCatalog(catalog, genre, discoverItems.size) }
+                                    .onSuccess { page ->
+                                        val known = discoverItems.mapTo(mutableSetOf()) { "${it.type}:${it.id}" }
+                                        val next = page.filter { known.add("${it.type}:${it.id}") }
+                                        discoverItems = discoverItems + next
+                                        hasMore = page.isNotEmpty() && next.isNotEmpty()
+                                    }
+                                    .onFailure { hasMore = false }
+                                loadingMore = false
+                            }
+                            Box(Modifier.fillMaxWidth().height(64.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(Modifier.size(22.dp)) }
+                        }
+                    }
                 }
             }
         } else {
-            visible.forEach { catalog ->
-                item(key = "search-heading-${catalog.key}-$query") {
-                    Text(catalog.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 10.dp))
-                }
-                item(key = "search-rail-${catalog.key}-$query") {
-                    LazyRow(contentPadding = PaddingValues(horizontal = 10.dp), horizontalArrangement = Arrangement.spacedBy(11.dp)) {
-                        items(catalog.items, key = { "${catalog.key}:${it.type}:${it.id}" }) { item ->
-                            Box(Modifier.width(132.dp)) { MediaPoster(item.name, item.poster, item.releaseInfo ?: item.type) { onSelect(item) } }
+            LazyColumn(
+                state = listState,
+                contentPadding = PaddingValues(top = 8.dp, bottom = 112.dp),
+                verticalArrangement = Arrangement.spacedBy(18.dp),
+            ) {
+                if (searchLoading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
+                if (!searchLoading && results.isEmpty()) item { EmptyBrowseState("No results for “$query”.") }
+                results.forEach { catalog ->
+                    item(key = "search-heading-${catalog.key}-$query") {
+                        Text(catalog.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 10.dp))
+                    }
+                    item(key = "search-rail-${catalog.key}-$query") {
+                        LazyRow(contentPadding = PaddingValues(horizontal = 10.dp), horizontalArrangement = Arrangement.spacedBy(11.dp)) {
+                            items(catalog.items, key = { "${catalog.key}:${it.type}:${it.id}" }) { item ->
+                                RichPosterCard(
+                                    item = item, caption = item.releaseInfo ?: item.type,
+                                    snapshot = snapshot, metadataCache = metadataCache,
+                                    onClick = { onSelect(item) },
+                                    onActions = { actionTarget = MediaActionTarget(item, MediaActionContext.Browse, latestProgress(snapshot, item)) },
+                                    modifier = Modifier.width(132.dp),
+                                )
+                            }
                         }
                     }
                 }
             }
         }
     }
+    MediaActionSheet(
+        target = actionTarget, snapshot = snapshot, onDismiss = { actionTarget = null },
+        onPlay = { onSelect(it.item) }, onDetails = onSelect, onMutation = onMutation,
+    )
 }
 
 @Composable
-private fun MediaPoster(name: String, poster: String?, caption: String, onClick: () -> Unit) {
-    Column(Modifier.clickable(onClick = onClick), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-        AsyncImage(
-            model = poster, contentDescription = name, contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceVariant),
-        )
-        Text(name, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-        Text(caption.replaceFirstChar(Char::uppercase), maxLines = 1, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
+private fun RowScope.CompactFilterMenu(
+    value: String,
+    options: List<Pair<String, String>>,
+    onSelect: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box(modifier) {
+        Surface(
+            modifier = Modifier.fillMaxWidth().clickable(enabled && options.isNotEmpty()) { expanded = true },
+            shape = RoundedCornerShape(18.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .78f),
+        ) {
+            Row(Modifier.padding(horizontal = 12.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(value, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
+                Icon(Icons.Rounded.KeyboardArrowDown, null, Modifier.size(18.dp))
+            }
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            options.forEach { (key, label) ->
+                DropdownMenuItem(
+                    text = { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    onClick = { expanded = false; onSelect(key) },
+                )
+            }
+        }
     }
 }
 
+@Composable
+private fun EmptyBrowseState(message: String) {
+    Box(Modifier.fillMaxWidth().height(240.dp), contentAlignment = Alignment.Center) {
+        Text(message, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+private fun typeLabel(type: String): String = when (type.lowercase()) {
+    "movie" -> "Movie"
+    "series" -> "Series"
+    else -> type.replaceFirstChar(Char::uppercase)
+}
+
+@Composable
+private fun MetadataCreditLinks(
+    label: String,
+    values: List<String>,
+    onBrowse: (MobileBrowseTarget) -> Unit,
+) {
+    if (values.isEmpty()) return
+    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        Text(
+            label.uppercase(),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.labelSmall,
+        )
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            items(values) { value ->
+                SuggestionChip(
+                    onClick = { onBrowse(MobileBrowseTarget.Search(value)) },
+                    label = { Text(value, maxLines = 1) },
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun MediaDetailsScreen(
     item: CatalogItem,
@@ -205,6 +486,8 @@ internal fun MediaDetailsScreen(
     token: String,
     preferences: DevicePreferences,
     onProgressChanged: () -> Unit,
+    onMutation: suspend (ProfileMutation) -> Result<Unit>,
+    onBrowse: (MobileBrowseTarget) -> Unit,
     onBack: () -> Unit,
 ) {
     var meta by remember(item.id, item.type) { mutableStateOf<MetaItem?>(null) }
@@ -223,6 +506,9 @@ internal fun MediaDetailsScreen(
     var selectedSeason by remember(item.id) { mutableStateOf<Int?>(null) }
     val detailsSeasonListState = rememberLazyListState()
     val scope = rememberCoroutineScope()
+    val uriHandler = LocalUriHandler.current
+    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
+    var actionTarget by remember(item.id) { mutableStateOf<MediaActionTarget?>(null) }
     LaunchedEffect(item.id, item.type, addons) {
         runCatching { api.loadMeta(addons, item.type, item.id) }
             .onSuccess {
@@ -309,9 +595,12 @@ internal fun MediaDetailsScreen(
                 url = playing!!.url!!, active = true, startPositionMs = resumePosition,
                 requestHeaders = playing!!.behaviorHints?.proxyHeaders?.request.orEmpty().mapNotNull { (key, value) -> value.jsonPrimitive.contentOrNull?.let { key to it } }.toMap(),
                 subtitles = externalSubtitles,
+                contentLogo = meta?.logo,
+                contentTitle = if (selectedVideo != null) "${meta?.name ?: item.name} · ${selectedVideo?.displayTitle}" else meta?.name ?: item.name,
                 hasEpisodes = orderedVideos.isNotEmpty(), onEpisodes = { episodesOpen = true }, modifier = Modifier.fillMaxSize(),
                 touchGestures = preferences.touchGestures, holdToSpeed = preferences.holdToSpeed,
                 preferredAudioLanguage = preferences.preferredAudioLanguage,
+                preferredSubtitleLanguage = preferences.preferredSubtitleLanguage,
                 onControlsVisibilityChanged = { playerControlsVisible = it },
             ) { playback = it }
             if (openingOverlay && playback.error == null) {
@@ -344,6 +633,7 @@ internal fun MediaDetailsScreen(
     }
 
     val details = meta
+    val actionItem = details?.asCatalogItem() ?: item
     val seriesProgress = snapshot?.progress.orEmpty().filter { it.mediaId == item.id && !it.watched }.maxByOrNull { it.updatedAt }
     val resumeVideo = details?.videos?.firstOrNull { it.id == seriesProgress?.videoId }
     LaunchedEffect(details?.id, resumeVideo?.season) { if (selectedSeason == null) selectedSeason = resumeVideo?.season ?: details?.videos?.firstOrNull()?.season }
@@ -359,9 +649,21 @@ internal fun MediaDetailsScreen(
                     Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = Color.White)
                 }
                 Column(Modifier.align(Alignment.BottomStart).padding(horizontal = 20.dp, vertical = 16.dp)) {
-                    Text(details?.name ?: item.name, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
                     Text(
-                        listOfNotNull(details?.releaseInfo, details?.runtime, details?.imdbRating?.let { "★ $it" }).joinToString("  ·  "),
+                        details?.name ?: item.name,
+                        style = MaterialTheme.typography.headlineLarge,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.clickable {
+                            onBrowse(MobileBrowseTarget.Search(details?.name ?: item.name))
+                        },
+                    )
+                    Text(
+                        listOfNotNull(
+                            details?.runtime,
+                            details?.releaseInfo ?: details?.released?.take(4),
+                            details?.contentRating,
+                            details?.imdbRating?.let { "★ $it" },
+                        ).joinToString("  ·  "),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
@@ -374,14 +676,56 @@ internal fun MediaDetailsScreen(
                 Button(onClick = { val target = resumeVideo ?: selectedVideo; selectedVideo = target; requestStreams(target) }, modifier = Modifier.fillMaxWidth().height(54.dp)) {
                     Icon(Icons.Rounded.PlayArrow, null); Spacer(Modifier.width(8.dp)); Text(if (resumeVideo != null) "Resume S${resumeVideo.season ?: 0}E${resumeVideo.episode ?: 0}" else "Play")
                 }
+                val saved = snapshot?.library.orEmpty().any { it.type == actionItem.type && it.id == actionItem.id }
+                val movieProgress = snapshot?.progress.orEmpty().firstOrNull { it.videoId == actionItem.id }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedButton(
+                        onClick = { scope.launch { onMutation(ProfileMutation.SetLibrary(actionItem, !saved, details?.runtime)) } },
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Icon(if (saved) Icons.Rounded.BookmarkRemove else Icons.Rounded.BookmarkAdd, null)
+                        Spacer(Modifier.width(7.dp))
+                        Text(if (saved) "Remove" else "My library")
+                    }
+                    if (actionItem.type == "movie") {
+                        OutlinedButton(
+                            onClick = { scope.launch { onMutation(ProfileMutation.SetWatched(actionItem, movieProgress, watched = movieProgress?.watched != true)) } },
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Icon(if (movieProgress?.watched == true) Icons.Rounded.Replay else Icons.Rounded.Check, null)
+                            Spacer(Modifier.width(7.dp))
+                            Text(if (movieProgress?.watched == true) "Unwatch" else "Watched")
+                        }
+                    }
+                }
+                val trailerId = details?.trailerStreams?.firstNotNullOfOrNull(TrailerStreamItem::youtubeId)
+                    ?: details?.trailers?.firstNotNullOfOrNull(TrailerItem::source)
+                trailerId?.takeIf { id -> id.all { it.isLetterOrDigit() || it == '-' || it == '_' } }?.let { id ->
+                    OutlinedButton(
+                        onClick = { uriHandler.openUri("https://www.youtube.com/watch?v=$id") },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Icon(Icons.Rounded.PlayCircleOutline, null)
+                        Spacer(Modifier.width(7.dp))
+                        Text("Trailer")
+                    }
+                }
                 details?.genres?.takeIf { it.isNotEmpty() }?.let { genres ->
-                    Text(genres.joinToString("  ·  "), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                        items(genres) { genre ->
+                            AssistChip(
+                                onClick = { onBrowse(MobileBrowseTarget.Discover(DiscoverSelection(type = details.type, genre = genre))) },
+                                label = { Text(genre) },
+                            )
+                        }
+                    }
                 }
                 details?.description?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyLarge) }
-                if (item.type == "movie") details?.cast?.takeIf { it.isNotEmpty() }?.let { cast ->
-                    Text("Cast", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) { items(cast.take(10)) { person -> Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(76.dp)) { Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.size(68.dp)) { Box(contentAlignment = Alignment.Center) { Text(person.split(' ').mapNotNull { it.firstOrNull() }.take(2).joinToString(""), fontWeight = FontWeight.Bold) } }; Text(person, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelSmall) } } }
-                }
+                MetadataCreditLinks("Directors", details?.director.orEmpty(), onBrowse)
+                MetadataCreditLinks("Cast", details?.cast.orEmpty(), onBrowse)
+                MetadataCreditLinks("Writers", details?.writer.orEmpty(), onBrowse)
+                details?.country?.let { MetadataCreditLinks("Country", listOf(it), onBrowse) }
+                details?.awards?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis) }
             }
         }
         details?.videos?.takeIf { it.isNotEmpty() }?.let { videos ->
@@ -395,7 +739,19 @@ internal fun MediaDetailsScreen(
                     LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         items(videos.filter { it.season == selectedSeason }, key = VideoItem::id) { video ->
                             val progress = snapshot?.progress?.firstOrNull { it.videoId == video.id }
-                            Surface(onClick = { selectedVideo = video; requestStreams(video) }, modifier = Modifier.width(260.dp), shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceVariant.copy(.65f)) {
+                            Surface(
+                                modifier = Modifier.width(260.dp).combinedClickable(
+                                    onClickLabel = "Play ${video.displayTitle}",
+                                    onLongClickLabel = "More actions for ${video.displayTitle}",
+                                    onClick = { selectedVideo = video; requestStreams(video) },
+                                    onLongClick = {
+                                        haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                        actionTarget = MediaActionTarget(actionItem, MediaActionContext.Episode, progress, video)
+                                    },
+                                ),
+                                shape = RoundedCornerShape(16.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(.65f),
+                            ) {
                                 Column { Box { AsyncImage(video.thumbnail ?: details.background, null, Modifier.fillMaxWidth().height(142.dp), contentScale = ContentScale.Crop); Surface(Modifier.padding(8.dp), color = Color.Black.copy(.65f), shape = RoundedCornerShape(8.dp)) { Text("S${video.season ?: 0}E${video.episode ?: 0}", color = Color.White, modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp), style = MaterialTheme.typography.labelSmall) } }; Column(Modifier.padding(12.dp)) { Text(video.displayTitle, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis); (video.overview ?: video.description)?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall) }; if (progress != null && progress.durationMs > 0) LinearProgressIndicator({ progress.positionMs.toFloat() / progress.durationMs }, Modifier.fillMaxWidth().padding(top = 8.dp), color = MaterialTheme.colorScheme.primary) } }
                             }
                         }
@@ -404,6 +760,17 @@ internal fun MediaDetailsScreen(
             }
         }
     }
+    MediaActionSheet(
+        target = actionTarget,
+        snapshot = snapshot,
+        onDismiss = { actionTarget = null },
+        onPlay = { target ->
+            selectedVideo = target.video
+            requestStreams(target.video)
+        },
+        onDetails = {},
+        onMutation = onMutation,
+    )
 }
 
 @Composable
@@ -504,6 +871,8 @@ internal fun ProfileSettingsScreen(
     onProfilesChanged: (String?) -> Unit,
     onProfileFlowChanged: (Boolean) -> Unit,
     onProfileDataChanged: () -> Unit,
+    onProfileMutation: suspend (ProfileMutation) -> Result<Unit>,
+    onSelectMedia: (CatalogItem, String?) -> Unit,
     preferences: DevicePreferences,
     onPreferencesChanged: (DevicePreferences) -> Unit,
     settingsListState: androidx.compose.foundation.lazy.LazyListState = rememberLazyListState(),
@@ -518,6 +887,7 @@ internal fun ProfileSettingsScreen(
         ProfileRoute.Create -> return ProfileEditorScreen(null, activeProfile, api, state, account, { route = ProfileRoute.Switcher }, onProfilesChanged, modifier)
         is ProfileRoute.Edit -> return ProfileEditorScreen(current.profile, activeProfile, api, state, account, { route = ProfileRoute.Overview }, onProfilesChanged, modifier)
         ProfileRoute.Addons -> return AddonManagerScreen(activeProfile, profileSync.snapshot?.addons.orEmpty(), api, state, account, { route = ProfileRoute.Settings }, onProfileDataChanged, modifier)
+        ProfileRoute.History -> return WatchHistoryScreen(profileSync.snapshot, { route = ProfileRoute.Settings }, onSelectMedia, onProfileMutation, modifier)
         ProfileRoute.Account -> return AccountSettingsScreen(state, account, api, onSignOut, { route = ProfileRoute.Settings }, modifier)
         ProfileRoute.Appearance -> return AppearanceSettingsScreen(preferences, onPreferencesChanged, { route = ProfileRoute.Settings }, modifier)
         ProfileRoute.Content -> return ContentSettingsScreen({ route = ProfileRoute.Settings }, { route = ProfileRoute.Addons }, modifier)
@@ -536,6 +906,7 @@ internal fun ProfileSettingsScreen(
             SettingEntry("Account", "Sign-in, security, and recovery", Icons.Rounded.Person),
         )),
         SettingSection("General", listOf(
+            SettingEntry("Watch history", "Recent movies and episodes", Icons.Rounded.History),
             SettingEntry("Appearance & layout", "Theme, language, and navigation", Icons.Rounded.Tune),
             SettingEntry("Content & discovery", "Add-ons, catalogs, and search", Icons.Rounded.Explore),
             SettingEntry("Playback", "Player, subtitles, and behavior", Icons.Rounded.PlayCircle),
@@ -597,6 +968,7 @@ internal fun ProfileSettingsScreen(
                     modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable { when (entry.title) {
                         "Profile" -> route = ProfileRoute.Overview
                         "Account" -> route = ProfileRoute.Account
+                        "Watch history" -> route = ProfileRoute.History
                         "Appearance & layout" -> route = ProfileRoute.Appearance
                         "Content & discovery" -> route = ProfileRoute.Content
                         "Playback" -> route = ProfileRoute.Playback
@@ -760,6 +1132,7 @@ private sealed interface ProfileRoute {
     data object Switcher : ProfileRoute
     data object Create : ProfileRoute
     data object Addons : ProfileRoute
+    data object History : ProfileRoute
     data object Account : ProfileRoute
     data object Appearance : ProfileRoute
     data object Content : ProfileRoute
@@ -771,6 +1144,51 @@ private sealed interface ProfileRoute {
     data object Licenses : ProfileRoute
     data object Diagnostics : ProfileRoute
     data class Edit(val profile: ProfileSummary) : ProfileRoute
+}
+
+@Composable
+private fun WatchHistoryScreen(
+    snapshot: ProfileSnapshot?,
+    onBack: () -> Unit,
+    onSelect: (CatalogItem, String?) -> Unit,
+    onMutation: suspend (ProfileMutation) -> Result<Unit>,
+    modifier: Modifier,
+) {
+    var actionTarget by remember { mutableStateOf<MediaActionTarget?>(null) }
+    val history = snapshot?.history.orEmpty()
+    Column(modifier.fillMaxSize()) {
+        ProfileHeader("Watch history", onBack)
+        when {
+            snapshot == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+            history.isEmpty() -> Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
+                Text("Nothing watched yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            else -> LazyVerticalGrid(
+                columns = GridCells.Adaptive(170.dp),
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(20.dp),
+            ) {
+                items(history, key = ProgressSummary::videoId) { progress ->
+                    val item = CatalogItem(progress.mediaId, progress.mediaType, progress.name, poster = progress.poster)
+                    RichProgressCard(
+                        progress = progress,
+                        onClick = { onSelect(item, progress.videoId) },
+                        onActions = { actionTarget = MediaActionTarget(item, MediaActionContext.History, progress) },
+                    )
+                }
+            }
+        }
+    }
+    MediaActionSheet(
+        target = actionTarget,
+        snapshot = snapshot,
+        onDismiss = { actionTarget = null },
+        onPlay = { onSelect(it.item, it.progress?.videoId) },
+        onDetails = { onSelect(it, null) },
+        onMutation = onMutation,
+    )
 }
 
 @Composable

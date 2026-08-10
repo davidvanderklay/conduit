@@ -19,6 +19,10 @@ class ProfileSyncRepository(
 
     fun cached(profileId: String): ProfileSnapshot? = secureStore.get(cacheKey(profileId))
         ?.let { runCatching { json.decodeFromString<ProfileSnapshot>(it) }.getOrNull() }
+        ?.let { snapshot ->
+            // Snapshots written before history had its own field stored history rows in progress.
+            if (snapshot.history.isEmpty() && snapshot.progress.isNotEmpty()) snapshot.copy(history = snapshot.progress) else snapshot
+        }
 
     suspend fun synchronize(baseUrl: String, token: String, profileId: String): ProfileSyncState {
         val cached = cached(profileId)
@@ -33,6 +37,10 @@ class ProfileSyncRepository(
                 error = cause.message ?: "Unable to synchronize this profile",
             )
         }
+    }
+
+    fun save(snapshot: ProfileSnapshot) {
+        secureStore.put(cacheKey(snapshot.profileId), json.encodeToString(snapshot))
     }
 
     fun clear(profileId: String) = secureStore.remove(cacheKey(profileId))
