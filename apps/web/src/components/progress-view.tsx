@@ -13,7 +13,7 @@ import {
 import { api, type WatchProgress } from "../lib/api"
 import type { CatalogItem } from "../lib/core"
 import { useLibrary, useLibraryToggle } from "../lib/library"
-import { posterCoverClass } from "../lib/poster-layout"
+import { posterCoverClass, posterTitleSlotClass } from "../lib/poster-layout"
 import { Card } from "./ui/card"
 import { PaginationControls } from "./pagination-controls"
 import { PosterActionMenu, type PosterAction } from "./poster-action-menu"
@@ -214,7 +214,7 @@ function ProgressCard({
       </div>
       <div className="mt-2 flex items-start gap-1">
         <button className="min-w-0 flex-1 text-left" onClick={open}>
-          <p className="line-clamp-1 text-sm font-medium">{item.name}</p>
+          <p className={posterTitleSlotClass}>{item.name}</p>
           <p className="line-clamp-1 text-xs text-zinc-500">{episodeLabel(item)}</p>
         </button>
         <ProgressMenu item={item} profileId={profileId} onOpen={open} history={history} />

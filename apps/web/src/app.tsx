@@ -18,7 +18,8 @@ import {
 } from "./lib/server"
 import { loadCatalog, type CatalogItem } from "./lib/core"
 import { readLastProfileId, rememberLastProfileId } from "./lib/profile-preference"
-import { posterCoverClass } from "./lib/poster-layout"
+import { posterCoverClass, posterTitleClass } from "./lib/poster-layout"
+import { formatCatalogTitle } from "./lib/catalog-title"
 import { ProfileSwitcher } from "./components/profile-switcher"
 import { Button } from "./components/ui/button"
 import { Card } from "./components/ui/card"
@@ -120,7 +121,7 @@ function AuthScreen() {
         ? await authClient.signUp.email({
             email,
             password,
-            name: "Conduit account",
+            name: "conduit account",
             fetchOptions: bootstrapToken
               ? { headers: { "x-conduit-bootstrap-token": bootstrapToken } }
               : undefined,
@@ -230,7 +231,7 @@ function AuthScreen() {
                   ? "Recover your account"
                   : mode === "register"
                     ? authConfig.data?.needsOwner
-                      ? "Set up Conduit"
+                      ? "Set up conduit"
                       : "Create your account"
                     : "Welcome back"}
               </h1>
@@ -238,7 +239,7 @@ function AuthScreen() {
                 {recovering
                   ? "Enter one of the recovery codes you saved."
                   : mode === "register"
-                    ? "Create a private account for this Conduit instance."
+                    ? "Create a private account for this conduit instance."
                     : "Sign in to continue to your household."}
               </p>
             </div>
@@ -485,7 +486,7 @@ function ServerSelector({ onClose }: { onClose: () => void }) {
                 Choose your server
               </h2>
               <p className="mt-2 text-sm leading-6 text-zinc-500">
-                Use Conduit&apos;s default service or connect directly to a self-hosted instance.
+                Use conduit&apos;s default service or connect directly to a self-hosted instance.
                 Your choice stays on this device.
               </p>
             </div>
@@ -1017,7 +1018,10 @@ function MediaHome({
                 addonId: addon.id,
                 type: catalog.type,
                 catalogId: catalog.id,
-                title: catalog.name ?? `${addon.manifest.name} · ${catalog.id}`,
+                title: formatCatalogTitle(
+                  catalog.name ?? `${addon.manifest.name} · ${catalog.id}`,
+                  catalog.type,
+                ),
                 items: await loadCatalog(addon.manifestUrl, catalog.type, catalog.id),
               })),
           ),
@@ -1097,6 +1101,7 @@ function MediaHome({
             <CatalogShelf
               addons={addons}
               title={catalog.title}
+              type={catalog.type}
               items={catalog.items}
               onSelect={(item) => {
                 setSelectedVideoId(undefined)
@@ -1162,12 +1167,14 @@ function useShelfColumns() {
 
 function CatalogShelf({
   title,
+  type,
   items,
   addons,
   onSelect,
   onSeeMore,
 }: {
   title: string
+  type: string
   items: CatalogItem[]
   addons: InstalledAddon[]
   onSelect: (item: CatalogItem) => void
@@ -1180,7 +1187,7 @@ function CatalogShelf({
   return (
     <section ref={ref}>
       <div className="mb-4 flex items-center justify-between gap-4">
-        <h2 className="font-display text-xl font-semibold">{title}</h2>
+        <h2 className="font-display text-xl font-semibold">{formatCatalogTitle(title, type)}</h2>
         {hasMore && (
           <button
             className="text-xs font-semibold text-zinc-500 transition hover:text-amber-300"
@@ -1211,7 +1218,7 @@ function CatalogShelf({
                   </div>
                 )}
               </div>
-              <p className="mt-2 line-clamp-2 text-sm font-medium">{item.name}</p>
+              <p className={posterTitleClass}>{item.name}</p>
             </button>
             <div className="pointer-events-none absolute right-2 top-2">
               <PosterWatchStatus item={item} addons={addons} />
@@ -1290,7 +1297,7 @@ function RecoveryCodes({ codes, onContinue }: { codes: string[]; onContinue: () 
     <div>
       <h2 className="font-display text-xl font-semibold">Save your recovery codes</h2>
       <p className="mt-2 text-sm text-zinc-400">
-        Each code can reset your password once. Conduit cannot email you a reset link.
+        Each code can reset your password once. conduit cannot email you a reset link.
       </p>
       <pre className="mt-4 grid grid-cols-2 gap-2 whitespace-pre-wrap rounded-xl bg-zinc-950 p-4 text-xs text-amber-300">
         {text}
@@ -1337,7 +1344,7 @@ function RecoverySetup() {
       <Card className="w-full max-w-md p-7">
         <h1 className="font-display text-2xl font-semibold">Protect your account</h1>
         <p className="mt-2 text-sm text-zinc-400">
-          Conduit does not depend on paid email reset services. Generate ten one-time recovery
+          conduit does not depend on paid email reset services. Generate ten one-time recovery
           codes before continuing.
         </p>
         {error && <p className="mt-4 text-sm text-red-400">{error}</p>}
@@ -1475,7 +1482,7 @@ function AdminScreen() {
         body: JSON.stringify(values),
       }),
     onSuccess: async () => {
-      setMessage("Saved. Restart the Conduit server to apply authentication changes.")
+      setMessage("Saved. Restart the conduit server to apply authentication changes.")
       await settings.refetch()
     },
   })
@@ -1484,14 +1491,14 @@ function AdminScreen() {
   if (settings.isError) {
     return (
       <CenteredMessage>
-        This page is only available to the instance owner. <a className="text-amber-300" href="/">Return to Conduit</a>
+        This page is only available to the instance owner. <a className="text-amber-300" href="/">Return to conduit</a>
       </CenteredMessage>
     )
   }
   const value = settings.data!
   return (
     <main className="mx-auto min-h-screen w-full max-w-3xl px-5 py-10">
-      <a className="text-sm text-zinc-500 hover:text-white" href="/">← Back to Conduit</a>
+      <a className="text-sm text-zinc-500 hover:text-white" href="/">← Back to conduit</a>
       <div className="mt-6 flex items-center gap-3">
         <Shield className="text-amber-400" />
         <div>
@@ -1583,7 +1590,7 @@ function AdminScreen() {
             </code>
           </div>
           <p className="text-xs leading-5 text-zinc-500">
-            Saving does not activate a provider immediately. Restart the Conduit server, then
+            Saving does not activate a provider immediately. Restart the conduit server, then
             sign out or use a private browser window to see the login button.
           </p>
           {message && <p className="text-sm text-amber-300">{message}</p>}

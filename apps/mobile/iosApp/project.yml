@@ -21,6 +21,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: media.conduit.mobile
+        PRODUCT_NAME: conduit
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         INFOPLIST_FILE: ConduitMobileSpike/Info.plist
         FRAMEWORK_SEARCH_PATHS: "$(SRCROOT)/../composeApp/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)"
         "OTHER_LDFLAGS[sdk=iphoneos*]": "-framework ComposeApp $(SRCROOT)/../native/ios/iosArm64/libconduit_mobile.a"

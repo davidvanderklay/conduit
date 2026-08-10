@@ -4,7 +4,7 @@ import { AlertCircle, Check, ChevronDown, Film, Info, LoaderCircle, Play, Trash2
 import { api, type InstalledAddon, type LibraryItem, type WatchProgress } from "../lib/api"
 import { addonsForResource } from "../lib/addons"
 import { loadMeta, type CatalogItem } from "../lib/core"
-import { posterCoverClass } from "../lib/poster-layout"
+import { posterCoverClass, posterTitleSlotClass } from "../lib/poster-layout"
 import { useLibrary, useLibraryToggle } from "../lib/library"
 import { PosterWatchStatus } from "./poster-watch-status"
 import { PosterActionMenu } from "./poster-action-menu"
@@ -218,7 +218,7 @@ export function LibraryView({
                     className="min-w-0 flex-1 text-left"
                     onClick={() => onSelect(catalogItem)}
                   >
-                    <p className="line-clamp-2 text-sm font-medium">{catalogItem.name}</p>
+                    <p className={posterTitleSlotClass}>{catalogItem.name}</p>
                     {!metadataAvailable && (
                       <p className="mt-1 text-xs text-amber-400">
                         Using saved details · source unavailable

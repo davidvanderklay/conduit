@@ -174,6 +174,14 @@ function WebPlayer({
   )
   const resumed = useRef(false)
 
+  const close = () => {
+    const video = videoRef.current
+    if (video && resumed.current) {
+      void saveProgress(video.currentTime, video.duration, true).catch(() => undefined)
+    }
+    onClose()
+  }
+
   useEffect(() => {
     const video = videoRef.current
     if (resumed.current || !video || !duration || !progress.isSuccess) return
@@ -433,7 +441,7 @@ function WebPlayer({
         <div className="mb-3 flex min-h-11 items-center gap-3 px-4 sm:px-0">
           <button
             className="grid size-10 shrink-0 place-items-center rounded-lg text-zinc-300 hover:bg-zinc-800 hover:text-white"
-            onClick={onClose}
+            onClick={close}
             aria-label="Back to details"
           >
             <Play className="rotate-180 fill-current" size={22} />
@@ -531,8 +539,9 @@ function WebPlayer({
               role="status"
               aria-label="Video loading"
             >
-              <div className="rounded-full bg-black/55 p-3 shadow-lg backdrop-blur-sm">
-                <LoaderCircle className="animate-spin text-white" size={36} />
+              <div className="flex items-center gap-3 rounded-xl border border-white/15 bg-black/80 px-4 py-3 shadow-xl shadow-black/40">
+                <LoaderCircle className="animate-spin text-amber-300" size={28} />
+                <PlayerHeadingText heading={heading} />
               </div>
             </div>
           )}

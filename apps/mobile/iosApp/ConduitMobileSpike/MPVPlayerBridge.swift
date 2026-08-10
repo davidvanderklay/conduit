@@ -149,8 +149,9 @@ final class ConduitMPVPlayerBridge: NSObject, IosPlayerBridge {
     func getErrorMessage() -> String { playerViewController?.currentErrorMessage ?? "" }
 
     func destroy() {
-        playerViewController?.destroyPlayer()
+        let controller = playerViewController
         playerViewController = nil
+        controller?.destroyPlayer()
         if holdsLandscapeLock {
             holdsLandscapeLock = false
             ConduitOrientationCoordinator.shared.restorePortrait()
@@ -217,6 +218,9 @@ enum ConduitPlayerRegistration {
 
 final class ConduitMPVPlayerViewController: UIViewController {
     private static let audioOutput = "audiounit"
+    // Audio route changes can block. Serialize them across player instances
+    // without making the Compose/UIKit thread wait for the system audio route.
+    private static let audioSessionQueue = DispatchQueue(label: "media.conduit.audio-session", qos: .userInitiated)
 
     private let eventQueue = DispatchQueue(label: "media.conduit.mpv-events", qos: .userInitiated)
     private let subtitleQueue = DispatchQueue(label: "media.conduit.mpv-subtitles", qos: .utility)
@@ -242,6 +246,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
     private var pendingExternalSubtitles: [ConduitSubtitle] = []
     private var subtitleLoadGeneration = 0
     private var loadStartedAtUptime: TimeInterval = 0
+    private var destroyStarted = false
 
     fileprivate var audioTracks: [ConduitTrack] = []
     fileprivate var subtitleTracks: [ConduitTrack] = []
@@ -488,7 +493,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
             && !paused
             && !eofReached
             && (buffering || idle || seeking)
-        isPlayerLoading = waitingForInitialVideoFrame || !hasLoadedFile || isPlayerBuffering
+        isPlayerLoading = waitingForInitialVideoFrame || !hasLoadedFile
 
         // `core-idle` and `paused-for-cache` describe MPV's temporary ability
         // to advance, not the user's play/pause intent. Keeping the UI in the
@@ -511,6 +516,9 @@ final class ConduitMPVPlayerViewController: UIViewController {
             return
         }
 
+        guard !destroyStarted else { return }
+        destroyStarted = true
+
         NotificationCenter.default.removeObserver(self)
         pendingRetry?.cancel()
         pendingRetry = nil
@@ -523,11 +531,15 @@ final class ConduitMPVPlayerViewController: UIViewController {
         guard let context = mpv else { return }
         mpv = nil
         invalidateExternalSubtitleLoads()
-        subtitleQueue.sync {}
-        // All wakeup callbacks enqueue work here. Wait for those blocks to
-        // leave the queue before terminating libmpv's context.
-        eventQueue.sync {}
-        mpv_terminate_destroy(context)
+
+        // All wakeup callbacks enqueue work on these queues. Drain them before
+        // terminating libmpv, but keep both the wait and MoltenVK teardown off
+        // the main thread so leaving the player can update the UI immediately.
+        DispatchQueue.global(qos: .userInitiated).async { [self] in
+            subtitleQueue.sync {}
+            eventQueue.sync {}
+            mpv_terminate_destroy(context)
+        }
     }
 
     deinit {
@@ -820,7 +832,6 @@ final class ConduitMPVPlayerViewController: UIViewController {
                     DispatchQueue.main.async { [weak self] in
                         guard let self else { return }
                         self.hasLoadedFile = true
-                        self.isPlayerLoading = false
                         self.clearError()
 #if DEBUG
                         let elapsed = ProcessInfo.processInfo.systemUptime - self.loadStartedAtUptime
@@ -1045,20 +1056,25 @@ final class ConduitMPVPlayerViewController: UIViewController {
     }
 
     private func activateAudioSession() {
-        do {
-            let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playback, mode: .moviePlayback)
-            try session.setActive(true)
-        } catch {
-            print("[Conduit MPV] Failed to activate audio session: \(error)")
+        let session = AVAudioSession.sharedInstance()
+        Self.audioSessionQueue.async {
+            do {
+                try session.setCategory(.playback, mode: .moviePlayback)
+                try session.setActive(true)
+            } catch {
+                print("[Conduit MPV] Failed to activate audio session: \(error)")
+            }
         }
     }
 
     private func deactivateAudioSession() {
-        do {
-            try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-        } catch {
-            print("[Conduit MPV] Failed to deactivate audio session: \(error)")
+        let session = AVAudioSession.sharedInstance()
+        Self.audioSessionQueue.async {
+            do {
+                try session.setActive(false, options: .notifyOthersOnDeactivation)
+            } catch {
+                print("[Conduit MPV] Failed to deactivate audio session: \(error)")
+            }
         }
     }
 

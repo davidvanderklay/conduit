@@ -337,7 +337,7 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
     } catch (cause: Throwable) {
         if (cause is CancellationException) throw cause
         throw ServerRequestException(
-            "Could not connect to this Conduit server. Check that it is running and that the address is correct.",
+            "Could not connect to this conduit server. Check that it is running and that the address is correct.",
         )
     }
 
@@ -398,7 +398,7 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
             buildJsonObject {
                 put("email", email.trim())
                 put("password", password)
-                put("name", "Conduit account")
+                put("name", "conduit account")
             },
         )
     }
@@ -688,7 +688,10 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
                         val id = catalog["id"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
                         val type = catalog["type"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
                         val addonName = addon.manifest["name"]?.jsonPrimitive?.contentOrNull ?: addon.manifestId
-                        val title = catalog["name"]?.jsonPrimitive?.contentOrNull ?: "$addonName · $id"
+                        val title = formatCatalogTitle(
+                            catalog["name"]?.jsonPrimitive?.contentOrNull ?: "$addonName · $id",
+                            type,
+                        )
                         Triple(addon, Pair(type, id), title)
                     }
             }

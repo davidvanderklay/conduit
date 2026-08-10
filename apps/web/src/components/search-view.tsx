@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query"
 import { AlertCircle, Film, LoaderCircle, Search } from "lucide-react"
 import type { InstalledAddon } from "../lib/api"
 import type { CatalogItem } from "../lib/core"
-import { posterCoverClass, posterGridClass } from "../lib/poster-layout"
+import { posterCoverClass, posterGridClass, posterTitleClass } from "../lib/poster-layout"
 import { searchAddons, searchableCatalogs, type SearchResult } from "../lib/search"
 import { Card } from "./ui/card"
 import { PosterWatchStatus } from "./poster-watch-status"
@@ -108,7 +108,7 @@ export function SearchView({
                           </div>
                         )}
                       </div>
-                      <p className="mt-2 line-clamp-2 text-sm font-medium">{item.name}</p>
+                      <p className={posterTitleClass}>{item.name}</p>
                     </button>
                     <div className="pointer-events-none absolute right-2 top-2">
                       <PosterWatchStatus item={item} addons={addons} />
