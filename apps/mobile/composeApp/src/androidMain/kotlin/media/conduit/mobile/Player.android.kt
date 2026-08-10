@@ -56,6 +56,8 @@ actual fun NativePlayer(
     startPositionMs: Long,
     requestHeaders: Map<String, String>,
     subtitles: List<SubtitleItem>,
+    contentLogo: String?,
+    contentTitle: String?,
     hasEpisodes: Boolean,
     touchGestures: Boolean,
     holdToSpeed: Boolean,

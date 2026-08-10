@@ -1,5 +1,11 @@
 package media.conduit.mobile
 
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -21,12 +27,18 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.interop.UIKitViewController
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import coil3.compose.SubcomposeAsyncImage
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -51,6 +63,8 @@ actual fun NativePlayer(
     startPositionMs: Long,
     requestHeaders: Map<String, String>,
     subtitles: List<SubtitleItem>,
+    contentLogo: String?,
+    contentTitle: String?,
     hasEpisodes: Boolean,
     touchGestures: Boolean,
     holdToSpeed: Boolean,
@@ -228,6 +242,50 @@ actual fun NativePlayer(
             interactive = false,
         )
 
+        if (buffering) {
+            val pulse = rememberInfiniteTransition(label = "player-buffering")
+            val pulseAlpha by pulse.animateFloat(
+                initialValue = .48f,
+                targetValue = .9f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(1_600, easing = FastOutSlowInEasing),
+                    repeatMode = RepeatMode.Reverse,
+                ),
+                label = "buffering-alpha",
+            )
+            val pulseScale by pulse.animateFloat(
+                initialValue = 1f,
+                targetValue = 1.035f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(1_600, easing = FastOutSlowInEasing),
+                    repeatMode = RepeatMode.Reverse,
+                ),
+                label = "buffering-scale",
+            )
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                if (!contentLogo.isNullOrBlank()) {
+                    SubcomposeAsyncImage(
+                        model = contentLogo,
+                        contentDescription = contentTitle ?: "Buffering",
+                        contentScale = ContentScale.Fit,
+                        loading = { IosBufferingFallbackMark() },
+                        error = { IosBufferingFallbackMark() },
+                        modifier = Modifier
+                            .fillMaxWidth(.4f)
+                            .heightIn(max = 86.dp)
+                            .alpha(pulseAlpha)
+                            .scale(pulseScale),
+                    )
+                } else {
+                    IosBufferingFallbackMark(
+                        Modifier
+                            .alpha(pulseAlpha)
+                            .scale(pulseScale),
+                    )
+                }
+            }
+        }
+
         if (controlsVisible) {
             Box(
                 Modifier
@@ -320,25 +378,6 @@ actual fun NativePlayer(
             }
         }
 
-        if (buffering) {
-            Row(
-                Modifier
-                    .align(Alignment.Center)
-                    .offset(y = (-62).dp)
-                    .background(Color.Black.copy(alpha = .72f), RoundedCornerShape(18.dp))
-                    .padding(horizontal = 14.dp, vertical = 9.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(9.dp),
-            ) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(20.dp),
-                    color = MaterialTheme.colorScheme.primary,
-                    strokeWidth = 2.5.dp,
-                )
-                Text("Buffering", color = Color.White, style = MaterialTheme.typography.labelLarge)
-            }
-        }
-
         trackPanel?.let { panel ->
             IosPlayerTrackPanel(
                 title = if (panel == 0) "Audio tracks" else "Subtitle tracks",
@@ -353,6 +392,18 @@ actual fun NativePlayer(
             )
         }
     }
+}
+
+@Composable
+private fun IosBufferingFallbackMark(modifier: Modifier = Modifier) {
+    Text(
+        text = "CONDUIT",
+        color = MaterialTheme.colorScheme.primary,
+        fontSize = 24.sp,
+        fontWeight = FontWeight.Black,
+        letterSpacing = 3.sp,
+        modifier = modifier,
+    )
 }
 
 private fun IosPlayerBridge.readAudioTracks(): List<IosTrack> =

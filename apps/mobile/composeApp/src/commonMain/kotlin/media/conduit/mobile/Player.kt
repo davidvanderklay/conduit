@@ -11,6 +11,8 @@ expect fun NativePlayer(
     startPositionMs: Long = 0,
     requestHeaders: Map<String, String> = emptyMap(),
     subtitles: List<SubtitleItem> = emptyList(),
+    contentLogo: String? = null,
+    contentTitle: String? = null,
     hasEpisodes: Boolean = false,
     touchGestures: Boolean = true,
     holdToSpeed: Boolean = true,
