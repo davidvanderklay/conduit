@@ -90,6 +90,7 @@ actual fun NativePlayer(
     var positionMs by remember(bridge) { mutableLongStateOf(0L) }
     var durationMs by remember(bridge) { mutableLongStateOf(0L) }
     var playing by remember(bridge) { mutableStateOf(false) }
+    var buffering by remember(bridge) { mutableStateOf(false) }
     var playbackSpeed by remember(bridge) { mutableFloatStateOf(1f) }
     var resizeMode by remember(bridge) { mutableIntStateOf(0) }
     var trackPanel by remember(bridge) { mutableStateOf<Int?>(null) }
@@ -145,6 +146,7 @@ actual fun NativePlayer(
             if (!dragging) positionMs = next.positionMs
             durationMs = next.durationMs
             playing = next.playing
+            buffering = bridge.getIsBuffering()
             playbackSpeed = bridge.getPlaybackSpeed()
             delay(500)
         }
@@ -235,7 +237,14 @@ actual fun NativePlayer(
                 Row(Modifier.align(Alignment.Center), verticalAlignment = Alignment.CenterVertically) {
                     FilledIconButton(
                         onClick = {
-                            if (playing) bridge.pause() else bridge.play()
+                            if (playing) {
+                                bridge.pause()
+                                playing = false
+                                buffering = false
+                            } else {
+                                bridge.play()
+                                playing = true
+                            }
                             controlsVisible = true
                         },
                         modifier = Modifier.size(64.dp),
@@ -308,6 +317,25 @@ actual fun NativePlayer(
                         }
                     }
                 }
+            }
+        }
+
+        if (buffering) {
+            Row(
+                Modifier
+                    .align(Alignment.Center)
+                    .offset(y = (-62).dp)
+                    .background(Color.Black.copy(alpha = .72f), RoundedCornerShape(18.dp))
+                    .padding(horizontal = 14.dp, vertical = 9.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(9.dp),
+            ) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp),
+                    color = MaterialTheme.colorScheme.primary,
+                    strokeWidth = 2.5.dp,
+                )
+                Text("Buffering", color = Color.White, style = MaterialTheme.typography.labelLarge)
             }
         }
 

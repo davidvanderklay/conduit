@@ -132,6 +132,7 @@ final class ConduitMPVPlayerBridge: NSObject, IosPlayerBridge {
         return playerViewController?.isPlayerLoading ?? true
     }
 
+    func getIsBuffering() -> Bool { playerViewController?.isPlayerBuffering ?? false }
     func getIsPlaying() -> Bool { playerViewController?.isPlayerPlaying ?? false }
     func getIsEnded() -> Bool { playerViewController?.isPlayerEnded ?? false }
     func getDurationMs() -> Int64 { playerViewController?.durationMs ?? 0 }
@@ -235,6 +236,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
     fileprivate var audioTracks: [ConduitTrack] = []
     fileprivate var subtitleTracks: [ConduitTrack] = []
     var isPlayerLoading = true
+    var isPlayerBuffering = false
     var isPlayerPlaying = false
     var isPlayerEnded = false
     var durationMs: Int64 = 0
@@ -460,8 +462,23 @@ final class ConduitMPVPlayerViewController: UIViewController {
         let buffering = getFlag("paused-for-cache")
 
         _ = mpv
-        isPlayerLoading = waitingForInitialVideoFrame || !hasLoadedFile || ((idle && !paused && !eofReached) || seeking || buffering)
-        isPlayerPlaying = hasLoadedFile && !waitingForInitialVideoFrame && !paused && !idle && !eofReached
+        isPlayerBuffering = hasLoadedFile
+            && !waitingForInitialVideoFrame
+            && shouldPlay
+            && !paused
+            && !eofReached
+            && (buffering || idle || seeking)
+        isPlayerLoading = waitingForInitialVideoFrame || !hasLoadedFile || isPlayerBuffering
+
+        // `core-idle` and `paused-for-cache` describe MPV's temporary ability
+        // to advance, not the user's play/pause intent. Keeping the UI in the
+        // playing state lets MPV resume itself after the cache refills and
+        // prevents a Play tap from fighting that automatic resume.
+        isPlayerPlaying = hasLoadedFile
+            && !waitingForInitialVideoFrame
+            && shouldPlay
+            && !paused
+            && !eofReached
         isPlayerEnded = eofReached
         durationMs = Int64(max(duration, 0) * 1000)
         positionMs = Int64(max(position, 0) * 1000)
