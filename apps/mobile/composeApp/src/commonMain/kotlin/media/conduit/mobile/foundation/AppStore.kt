@@ -4,11 +4,12 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import media.conduit.mobile.account.SessionVault
 
-enum class AppDestination(val label: String) {
+enum class AppDestination(val label: String, val showInNavigation: Boolean = true) {
     Home("Home"),
     Search("Search"),
     Library("Library"),
     Profile("Profile"),
+    History("History", showInNavigation = false),
 }
 
 data class AppState(
