@@ -30,7 +30,7 @@ concurrency:
 
 jobs:
   test:
-    name: Test and build debug APK
+    name: Android debug validation
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -59,6 +59,6 @@ jobs:
           tool: cargo-ndk@3.5.4
       - name: Build Rust JNI libraries
         run: ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358" apps/mobile/scripts/build-rust-android.sh
-      - name: Run unit tests and build debug APK
+      - name: Run unit tests and assemble debug APK
         working-directory: apps/mobile
         run: ./gradlew --no-daemon :composeApp:testDebugUnitTest :composeApp:assembleDebug
