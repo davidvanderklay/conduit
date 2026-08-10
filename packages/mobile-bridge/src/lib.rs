@@ -328,46 +328,49 @@ mod android {
     use super::*;
     use jni::objects::{JClass, JString};
     use jni::sys::{jlong, jstring};
-    use jni::JNIEnv;
+    use jni::EnvUnowned;
 
     #[no_mangle]
-    pub extern "system" fn Java_media_conduit_mobile_RustBridge_create(
-        _env: JNIEnv,
-        _class: JClass,
+    pub extern "system" fn Java_media_conduit_mobile_RustBridge_create<'local>(
+        _env: EnvUnowned<'local>,
+        _class: JClass<'local>,
     ) -> jlong {
         conduit_engine_new() as jlong
     }
 
     #[no_mangle]
-    pub extern "system" fn Java_media_conduit_mobile_RustBridge_dispatch(
-        mut env: JNIEnv,
-        _class: JClass,
+    pub extern "system" fn Java_media_conduit_mobile_RustBridge_dispatch<'local>(
+        mut unowned_env: EnvUnowned<'local>,
+        _class: JClass<'local>,
         handle: jlong,
-        action: JString,
+        action: JString<'local>,
     ) -> jstring {
-        let action: String = match env.get_string(&action) {
-            Ok(value) => value.into(),
-            Err(value) => {
-                return env
-                    .new_string(
-                        serde_json::to_string(&error(None, "invalid_utf8", value, true)).unwrap(),
-                    )
-                    .expect("error string")
-                    .into_raw()
-            }
-        };
-        let action = CString::new(action).expect("Java string cannot contain NUL");
-        let raw = response(handle as *mut ConduitEngineHandle, action.as_ptr());
-        let value = unsafe { CStr::from_ptr(raw) }.to_string_lossy();
-        let output = env.new_string(value).expect("JSON response");
-        unsafe { conduit_string_free(raw) };
-        output.into_raw()
+        unowned_env
+            .with_env(|env| -> jni::errors::Result<jstring> {
+                let action: String = match env.get_string(&action) {
+                    Ok(value) => value.into(),
+                    Err(value) => {
+                        let value =
+                            serde_json::to_string(&error(None, "invalid_utf8", value, true))
+                                .expect("error response");
+                        return Ok(env.new_string(value)?.into_raw());
+                    }
+                };
+                let action = CString::new(action).expect("Java string cannot contain NUL");
+                let raw = response(handle as *mut ConduitEngineHandle, action.as_ptr());
+                let value = unsafe { CStr::from_ptr(raw) }
+                    .to_string_lossy()
+                    .into_owned();
+                unsafe { conduit_string_free(raw) };
+                Ok(env.new_string(value)?.into_raw())
+            })
+            .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
     }
 
     #[no_mangle]
-    pub extern "system" fn Java_media_conduit_mobile_RustBridge_destroy(
-        _env: JNIEnv,
-        _class: JClass,
+    pub extern "system" fn Java_media_conduit_mobile_RustBridge_destroy<'local>(
+        _env: EnvUnowned<'local>,
+        _class: JClass<'local>,
         handle: jlong,
     ) {
         unsafe { conduit_engine_free(handle as *mut ConduitEngineHandle) };
