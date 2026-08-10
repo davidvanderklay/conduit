@@ -493,7 +493,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
             && !paused
             && !eofReached
             && (buffering || idle || seeking)
-        isPlayerLoading = waitingForInitialVideoFrame || !hasLoadedFile || isPlayerBuffering
+        isPlayerLoading = waitingForInitialVideoFrame || !hasLoadedFile
 
         // `core-idle` and `paused-for-cache` describe MPV's temporary ability
         // to advance, not the user's play/pause intent. Keeping the UI in the
@@ -832,7 +832,6 @@ final class ConduitMPVPlayerViewController: UIViewController {
                     DispatchQueue.main.async { [weak self] in
                         guard let self else { return }
                         self.hasLoadedFile = true
-                        self.isPlayerLoading = false
                         self.clearError()
 #if DEBUG
                         let elapsed = ProcessInfo.processInfo.systemUptime - self.loadStartedAtUptime

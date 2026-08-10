@@ -673,6 +673,9 @@ internal fun MediaDetailsScreen(
                     modifier = Modifier.matchParentSize(),
                 )
             }
+            if (playback.buffering && !openingOverlay && playback.error == null) {
+                PlayerBufferingOverlay(Modifier.matchParentSize())
+            }
             if (playerControlsVisible) IconButton(
                 onClick = {
                     val playbackSnapshot = playback
@@ -864,30 +867,26 @@ internal fun MediaDetailsScreen(
 
 @Composable
 private fun PlayerOpeningOverlay(artwork: String?, logo: String?, title: String, modifier: Modifier = Modifier) {
-    val pulse = rememberInfiniteTransition(label = "player-opening")
-    val scale by pulse.animateFloat(1f, 1.045f, infiniteRepeatable(tween(1_500, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "opening-scale")
-    val glow by pulse.animateFloat(.62f, 1f, infiniteRepeatable(tween(900, easing = LinearEasing), RepeatMode.Reverse), label = "opening-glow")
     Box(modifier.background(Color.Black)) {
-        artwork?.let { AsyncImage(model = it, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().scale(scale)) }
-        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Black.copy(.48f), Color.Black.copy(.72f), Color.Black.copy(.9f)))))
-        Surface(
-            modifier = Modifier.align(Alignment.Center).fillMaxWidth(.72f),
-            color = Color.Black.copy(alpha = .82f),
-            shape = RoundedCornerShape(18.dp),
-            border = BorderStroke(1.dp, Color.White.copy(alpha = .2f)),
-            shadowElevation = 14.dp,
-        ) {
-            Column(
-                Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 20.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(18.dp),
-            ) {
-                if (!logo.isNullOrBlank()) AsyncImage(model = logo, contentDescription = title, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxWidth(.72f).heightIn(max = 92.dp).alpha(glow))
-                else Text(title, color = Color.White, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.alpha(glow))
-                CircularProgressIndicator(color = MaterialTheme.colorScheme.primary, trackColor = Color.White.copy(.18f), strokeWidth = 3.dp, modifier = Modifier.size(34.dp))
-                Text("Preparing playback…", color = Color.White.copy(.72f), style = MaterialTheme.typography.labelLarge)
-            }
-        }
+        artwork?.let { AsyncImage(model = it, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
+        CircularProgressIndicator(
+            modifier = Modifier.align(Alignment.Center).size(38.dp),
+            color = Color.White,
+            trackColor = Color.White.copy(.24f),
+            strokeWidth = 3.dp,
+        )
+    }
+}
+
+@Composable
+private fun PlayerBufferingOverlay(modifier: Modifier = Modifier) {
+    Box(modifier, contentAlignment = Alignment.Center) {
+        CircularProgressIndicator(
+            modifier = Modifier.size(32.dp),
+            color = Color.White,
+            trackColor = Color.White.copy(.24f),
+            strokeWidth = 3.dp,
+        )
     }
 }
 

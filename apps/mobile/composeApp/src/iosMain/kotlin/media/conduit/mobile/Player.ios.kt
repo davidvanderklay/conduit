@@ -1,11 +1,5 @@
 package media.conduit.mobile
 
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
@@ -38,7 +32,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil3.compose.SubcomposeAsyncImage
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -106,7 +99,6 @@ actual fun NativePlayer(
     var positionMs by remember(bridge) { mutableLongStateOf(0L) }
     var durationMs by remember(bridge) { mutableLongStateOf(0L) }
     var playing by remember(bridge) { mutableStateOf(false) }
-    var buffering by remember(bridge) { mutableStateOf(false) }
     var playbackSpeed by remember(bridge) { mutableFloatStateOf(1f) }
     var resizeMode by remember(bridge) { mutableIntStateOf(0) }
     var trackPanel by remember(bridge) { mutableStateOf<Int?>(null) }
@@ -156,6 +148,7 @@ actual fun NativePlayer(
         while (isActive) {
             val next = PlaybackState(
                 loading = bridge.getIsLoading(),
+                buffering = bridge.getIsBuffering(),
                 playing = bridge.getIsPlaying(),
                 positionMs = bridge.getPositionMs().coerceAtLeast(0),
                 durationMs = bridge.getDurationMs().coerceAtLeast(0),
@@ -166,7 +159,6 @@ actual fun NativePlayer(
             if (!dragging) positionMs = next.positionMs
             durationMs = next.durationMs
             playing = next.playing
-            buffering = bridge.getIsBuffering()
             playbackSpeed = bridge.getPlaybackSpeed()
             delay(500)
         }
@@ -248,63 +240,6 @@ actual fun NativePlayer(
             interactive = false,
         )
 
-        if (buffering) {
-            val pulse = rememberInfiniteTransition(label = "player-buffering")
-            val pulseAlpha by pulse.animateFloat(
-                initialValue = .48f,
-                targetValue = .9f,
-                animationSpec = infiniteRepeatable(
-                    animation = tween(1_600, easing = FastOutSlowInEasing),
-                    repeatMode = RepeatMode.Reverse,
-                ),
-                label = "buffering-alpha",
-            )
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Surface(
-                    color = Color.Black.copy(alpha = .82f),
-                    contentColor = Color.White,
-                    shape = RoundedCornerShape(18.dp),
-                    border = BorderStroke(1.dp, Color.White.copy(alpha = .2f)),
-                    shadowElevation = 14.dp,
-                ) {
-                    Column(
-                        Modifier.padding(horizontal = 22.dp, vertical = 18.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(14.dp),
-                    ) {
-                        if (!contentLogo.isNullOrBlank()) {
-                            SubcomposeAsyncImage(
-                                model = contentLogo,
-                                contentDescription = contentTitle ?: "Buffering",
-                                contentScale = ContentScale.Fit,
-                                loading = { IosBufferingFallbackMark() },
-                                error = { IosBufferingFallbackMark() },
-                                modifier = Modifier
-                                    .fillMaxWidth(.58f)
-                                    .heightIn(max = 86.dp)
-                                    .alpha(pulseAlpha),
-                            )
-                        } else {
-                            IosBufferingFallbackMark(Modifier.alpha(pulseAlpha))
-                        }
-                        CircularProgressIndicator(
-                            color = MaterialTheme.colorScheme.primary,
-                            trackColor = Color.White.copy(alpha = .18f),
-                            strokeWidth = 3.dp,
-                            modifier = Modifier.size(30.dp),
-                        )
-                        Text(
-                            contentTitle ?: "Buffering",
-                            color = Color.White.copy(alpha = .72f),
-                            style = MaterialTheme.typography.labelLarge,
-                            maxLines = 1,
-                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                        )
-                    }
-                }
-            }
-        }
-
         if (controlsVisible) {
             Box(
                 Modifier
@@ -317,7 +252,6 @@ actual fun NativePlayer(
                             if (playing) {
                                 bridge.pause()
                                 playing = false
-                                buffering = false
                             } else {
                                 bridge.play()
                                 playing = true
@@ -420,18 +354,6 @@ actual fun NativePlayer(
             }
         }
     }
-}
-
-@Composable
-private fun IosBufferingFallbackMark(modifier: Modifier = Modifier) {
-    Text(
-        text = "conduit",
-        color = MaterialTheme.colorScheme.primary,
-        fontSize = 24.sp,
-        fontWeight = FontWeight.Black,
-        letterSpacing = 3.sp,
-        modifier = modifier,
-    )
 }
 
 private fun IosPlayerBridge.readAudioTracks(): List<IosTrack> =
