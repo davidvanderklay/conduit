@@ -576,11 +576,23 @@ final class ConduitMPVPlayerViewController: UIViewController {
 
     private func attemptStartPendingLoad() {
         guard let request = pendingLoad, mpv != nil else { return }
-        guard viewIfLoaded?.window != nil, view.bounds.width > 1, view.bounds.height > 1 else {
+        guard let window = viewIfLoaded?.window else {
             schedulePendingRetry()
             return
         }
 
+        let surfaceSize = externallyManagedViewSize ?? view.bounds.size
+        guard surfaceSize.width > surfaceSize.height,
+              window.windowScene?.interfaceOrientation.isLandscape == true
+        else {
+            schedulePendingRetry()
+            return
+        }
+
+        // Commit the final landscape drawable before MPV creates its video
+        // output. Resizing a live portrait render pass to landscape can make
+        // Metal observe mismatched render-target and attachment dimensions.
+        layoutMetalLayer()
         pendingLoad = nil
         pendingRetry?.cancel()
         pendingRetry = nil
