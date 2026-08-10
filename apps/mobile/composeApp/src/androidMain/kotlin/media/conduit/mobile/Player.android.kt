@@ -62,6 +62,7 @@ actual fun NativePlayer(
     touchGestures: Boolean,
     holdToSpeed: Boolean,
     preferredAudioLanguage: String,
+    preferredSubtitleLanguage: String,
     onEpisodes: () -> Unit,
     onControlsVisibilityChanged: (Boolean) -> Unit,
     modifier: Modifier,

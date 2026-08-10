@@ -52,6 +52,7 @@ private data class IosTrack(
     val id: Int,
     val label: String,
     val language: String,
+    val external: Boolean = false,
     val selected: Boolean,
 )
 
@@ -69,6 +70,7 @@ actual fun NativePlayer(
     touchGestures: Boolean,
     holdToSpeed: Boolean,
     preferredAudioLanguage: String,
+    preferredSubtitleLanguage: String,
     onEpisodes: () -> Unit,
     onControlsVisibilityChanged: (Boolean) -> Unit,
     modifier: Modifier,
@@ -140,6 +142,10 @@ actual fun NativePlayer(
 
     LaunchedEffect(bridge, preferredAudioLanguage) {
         bridge.setPreferredAudioLanguage(preferredAudioLanguage)
+    }
+
+    LaunchedEffect(bridge, preferredSubtitleLanguage) {
+        bridge.setPreferredSubtitleLanguage(preferredSubtitleLanguage)
     }
 
     LaunchedEffect(controlsVisible) {
@@ -379,17 +385,26 @@ actual fun NativePlayer(
         }
 
         trackPanel?.let { panel ->
-            IosPlayerTrackPanel(
-                title = if (panel == 0) "Audio tracks" else "Subtitle tracks",
-                tracks = if (panel == 0) audioTracks else subtitleTracks,
-                selectedId = (if (panel == 0) audioTracks else subtitleTracks).firstOrNull { it.selected }?.id,
-                allowOff = panel == 1,
-                onSelect = { trackId ->
-                    if (panel == 0) bridge.selectAudioTrack(trackId) else bridge.selectSubtitleTrack(trackId)
-                    trackPanel = null
-                },
-                onDismiss = { trackPanel = null },
-            )
+            if (panel == 1) {
+                IosSubtitlePanel(
+                    tracks = subtitleTracks,
+                    preferredLanguage = preferredSubtitleLanguage,
+                    onSelect = bridge::selectSubtitleTrack,
+                    onDismiss = { trackPanel = null },
+                )
+            } else {
+                IosPlayerTrackPanel(
+                    title = "Audio tracks",
+                    tracks = audioTracks,
+                    selectedId = audioTracks.firstOrNull { it.selected }?.id,
+                    allowOff = false,
+                    onSelect = { trackId ->
+                        bridge.selectAudioTrack(trackId)
+                        trackPanel = null
+                    },
+                    onDismiss = { trackPanel = null },
+                )
+            }
         }
     }
 }
@@ -422,6 +437,7 @@ private fun IosPlayerBridge.readSubtitleTracks(): List<IosTrack> =
             id = getSubtitleTrackId(index),
             label = getSubtitleTrackLabel(index).ifBlank { "Subtitle ${index + 1}" },
             language = getSubtitleTrackLang(index),
+            external = isSubtitleTrackExternal(index),
             selected = isSubtitleTrackSelected(index),
         )
     }
@@ -507,6 +523,153 @@ private fun BoxScope.IosPlayerTrackPanel(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun BoxScope.IosSubtitlePanel(
+    tracks: List<IosTrack>,
+    preferredLanguage: String,
+    onSelect: (Int) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val orderedTracks = remember(tracks) {
+        tracks.sortedWith(compareBy<IosTrack> { it.external }.thenBy { it.variantName.lowercase() })
+    }
+    val preferredKey = remember(preferredLanguage) { iosSubtitleLanguageKey(preferredLanguage, preferredLanguage) }
+    val languageGroups = remember(orderedTracks, preferredKey) {
+        orderedTracks
+            .groupBy { it.languageKey }
+            .toList()
+            .sortedWith(
+                compareBy<Pair<String, List<IosTrack>>> { if (it.first == preferredKey) 0 else 1 }
+                    .thenBy { if (it.first == "und") 1 else 0 }
+                    .thenBy { it.second.first().languageName },
+            )
+    }
+    val reportedSelectedId = tracks.firstOrNull { it.selected }?.id
+    var selectedTrackId by remember { mutableStateOf(reportedSelectedId) }
+    var language by remember {
+        mutableStateOf(
+            tracks.firstOrNull { it.id == reportedSelectedId }?.languageKey
+                ?: languageGroups.firstOrNull()?.first,
+        )
+    }
+    LaunchedEffect(reportedSelectedId) {
+        selectedTrackId = reportedSelectedId
+        tracks.firstOrNull { it.id == reportedSelectedId }?.let { language = it.languageKey }
+    }
+
+    fun choose(track: IosTrack) {
+        language = track.languageKey
+        selectedTrackId = track.id
+        onSelect(track.id)
+    }
+
+    Surface(Modifier.fillMaxSize(), color = Color(0xFA0D0C12)) {
+        Box {
+            Row(
+                Modifier.fillMaxSize().padding(horizontal = 30.dp, vertical = 28.dp),
+                horizontalArrangement = Arrangement.spacedBy(30.dp),
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("Subtitle Languages", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(18.dp))
+                    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        item {
+                            IosPlayerTrackRow("Disabled", selectedTrackId == null) {
+                                selectedTrackId = null
+                                onSelect(-1)
+                            }
+                        }
+                        languageGroups.forEach { (code, variants) ->
+                            item(code) {
+                                IosPlayerTrackRow(
+                                    variants.first().languageName,
+                                    selectedTrackId != null && language == code,
+                                ) { choose(variants.first()) }
+                            }
+                        }
+                    }
+                }
+                Column(Modifier.weight(1f)) {
+                    Text("Subtitle Variants", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(18.dp))
+                    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        orderedTracks.filter { it.languageKey == language }.forEach { track ->
+                            item(track.id) {
+                                IosPlayerTrackRow(track.variantName, selectedTrackId == track.id) { choose(track) }
+                            }
+                        }
+                    }
+                }
+                Column(Modifier.weight(1f)) {
+                    Text("Subtitle Settings", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.weight(1f))
+                    Text(
+                        "Subtitle appearance is controlled by Conduit Settings. Your language, size, position, and outline preferences apply across playback.",
+                        color = Color.White.copy(alpha = .72f),
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                    Spacer(Modifier.weight(1f))
+                }
+            }
+            IconButton(onClick = onDismiss, Modifier.align(Alignment.TopEnd).padding(12.dp)) {
+                Icon(Icons.Rounded.Close, "Close", tint = Color.White, modifier = Modifier.size(34.dp))
+            }
+        }
+    }
+}
+
+private val IosTrack.languageKey: String
+    get() = iosSubtitleLanguageKey(language, label)
+
+private val IosTrack.languageName: String
+    get() = when (languageKey) {
+        "en" -> "English"
+        "es" -> "Spanish"
+        "fr" -> "French"
+        "de" -> "German"
+        "it" -> "Italian"
+        "pt" -> "Portuguese"
+        "nl" -> "Dutch"
+        "ja" -> "Japanese"
+        "ko" -> "Korean"
+        "zh" -> "Chinese"
+        "ru" -> "Russian"
+        "ar" -> "Arabic"
+        "hi" -> "Hindi"
+        "id" -> "Indonesian"
+        "vi" -> "Vietnamese"
+        else -> label.ifBlank { "Unknown language" }
+    }
+
+private val IosTrack.variantName: String
+    get() {
+        if (external) return "${label.ifBlank { "Add-on subtitle" }} · External"
+        val normalized = label.substringBefore('(').substringBefore('[').trim().lowercase()
+        return if (label.isBlank() || iosSubtitleLanguageKey(normalized, normalized) == languageKey) {
+            "Embedded"
+        } else {
+            "$label · Embedded"
+        }
+    }
+
+private fun iosSubtitleLanguageKey(language: String, label: String): String {
+    val aliases = mapOf(
+        "eng" to "en", "english" to "en", "spa" to "es", "spanish" to "es", "español" to "es",
+        "fra" to "fr", "fre" to "fr", "french" to "fr", "deu" to "de", "ger" to "de", "german" to "de",
+        "ita" to "it", "italian" to "it", "por" to "pt", "portuguese" to "pt", "nld" to "nl", "dut" to "nl", "dutch" to "nl",
+        "jpn" to "ja", "japanese" to "ja", "kor" to "ko", "korean" to "ko", "zho" to "zh", "chi" to "zh", "chinese" to "zh",
+        "rus" to "ru", "russian" to "ru", "ara" to "ar", "arabic" to "ar", "hin" to "hi", "hindi" to "hi",
+        "ind" to "id", "indonesian" to "id", "vie" to "vi", "vietnamese" to "vi",
+    )
+    fun normalize(value: String): String {
+        val normalized = value.trim().lowercase().replace('_', '-').substringBefore('-')
+        return aliases[normalized] ?: normalized.takeIf { it.length == 2 }.orEmpty()
+    }
+    return normalize(language).ifBlank {
+        normalize(label.substringBefore('(').substringBefore('[').trim()).ifBlank { "und" }
     }
 }
 
