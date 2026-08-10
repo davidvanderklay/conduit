@@ -1,26 +1,75 @@
-# Mobile architecture spike
+# Mobile development and release
 
-This guide covers issue #41's vertical slice only. It is not the product mobile
-UI. The fixture resolves locally through Rust and plays the Creative Commons
-licensed **Big Buck Bunny** MP4 from the Internet Archive directly in the
-platform player.
+Conduit has a shared Compose Multiplatform client for Android and iOS. The
+mobile app is no longer an architecture-only spike: it has the product account,
+profile, catalog, library, history, and playback flows and is in release
+preparation. The current distribution path is a signed universal Android APK
+and an unsigned iOS IPA. Neither build is published to Google Play or the App
+Store yet.
 
-Issue #49 extends the same project with the shared application foundation:
-first-run server selection, responsive primary navigation, reducer-style local
-state, platform preference/device adapters, and CI. Authentication and live
-connection probing intentionally remain later roadmap work.
+## Current product scope
+
+The mobile client currently supports:
+
+- first-run server selection with health and authentication-capability checks;
+- the default hosted endpoint or a user-provided self-hosted endpoint;
+- local sign-in, registration, recovery-code password recovery, and sign-out;
+- Google or configured OpenID Connect sign-in through the system browser with
+  PKCE and the `conduit://oauth/callback` deep link;
+- first-account recovery-code display and household creation;
+- household profiles, profile switching, profile creation/editing, kids
+  profiles, avatars, and shared primary add-ons;
+- synchronized profile state for installed add-ons, library items, watch
+  status, history, and continue watching;
+- home catalogs, catalog discovery, genre filtering, catalog search, media
+  details, seasons, episodes, trailers when supplied by an add-on, stream
+  selection, and add-on subtitle discovery;
+- native playback with resume position, progress synchronization, seeking,
+  playback speed, audio and subtitle selection, subtitle presentation options,
+  touch gestures, episode navigation, and lifecycle-safe pause/resume;
+- add-on installation, enable/disable, reorder, refresh, and removal;
+- device preferences for appearance, navigation, playback, subtitles, and
+  diagnostics; and
+- an encrypted cached profile snapshot for limited offline access to the
+  synchronized library, history, and profile state.
+
+Offline snapshots do not contain media files and do not provide offline
+playback. Catalog, metadata, stream, and subtitle requests still go directly
+from the device to the installed add-on or media source. The Conduit server
+synchronizes account and profile data but does not proxy video.
+
+The following are deliberately outside the current mobile release scope:
+
+- media downloads or durable offline playback;
+- picture-in-picture, casting, and remote-control integrations;
+- P2P playback;
+- third-party integrations such as Trakt, debrid providers, Jellyfin, or Plex;
+- push notifications and background catalog refresh; and
+- store distribution, automated store submission, and production signing for
+  iOS.
 
 ## Repository layout
 
-- `apps/mobile/composeApp`: shared Compose UI plus Android/iOS adapters
-- `apps/mobile/iosApp`: small SwiftUI host, generated with XcodeGen
-- `packages/mobile-bridge`: opaque Rust C ABI and versioned JSON protocol
-- `packages/core`: existing Conduit add-on parsing and request logic
+- `apps/mobile/composeApp`: shared Compose UI, account and profile flows,
+  networking, state, preferences, and the expect/actual player boundary;
+- `apps/mobile/iosApp`: the small Swift/UIKit host and generated Xcode project;
+- `packages/mobile-bridge`: the versioned Rust C ABI used by the retained local
+  architecture fixture and native bridge tests;
+- `packages/core`: shared Rust add-on parsing and request logic; and
+- `apps/mobile/scripts`: native Rust library and iOS IPA packaging helpers.
 
-Important pins are Kotlin 2.3.0, Compose Multiplatform 1.10.0, Android Gradle
-Plugin 8.10.1, Media3 1.10.1, and cargo-ndk 3.5.4.
+The iOS host directory and target retain the historical `ConduitMobileSpike`
+name. The product bundle identifier on both platforms is
+`media.conduit.mobile`.
 
-## Platform-neutral checks (Linux or macOS)
+The shared app uses Kotlin 2.3.0, Compose Multiplatform 1.10.0, Android Gradle
+Plugin 8.10.1, and Ktor 3.5.1. Android playback uses Media3 1.10.1. iOS
+playback uses the pinned MPVKit revision in
+`apps/mobile/iosApp/project.yml`.
+
+## Platform-neutral checks
+
+Run these from the repository root:
 
 ```sh
 cargo test -p conduit-core -p conduit-mobile
@@ -30,53 +79,62 @@ cd apps/mobile
 ./gradlew :composeApp:compileCommonMainKotlinMetadata
 ```
 
-The Gradle task needs JDK 17. iOS compilation tasks need macOS/Xcode even when
-common tests run on Linux.
+The Gradle tasks require JDK 17. iOS compilation and packaging require macOS
+and Xcode. The mobile workflows run common checks in CI through the Android and
+iOS-specific workflows:
 
-## Android on Linux or macOS
+- `.github/workflows/mobile-android.yml` builds the Rust Android libraries,
+  runs JVM tests, and assembles a debug APK;
+- `.github/workflows/mobile-ios.yml` builds the Rust Apple libraries and runs
+  the iOS simulator test target; and
+- `.github/workflows/release.yml` packages the Android APK and iOS IPA on a
+  version tag or through its manual `android` and `ios` targets.
 
-Install Android Studio, JDK 17, SDK Platform 36, Build Tools 36, NDK 28.2.13676358,
-Rust with `rustup`, and the pinned cargo-ndk:
+## Android development
+
+Install Android Studio, JDK 17, SDK Platform 36, Build Tools 36, NDK
+28.2.13676358, Rust through `rustup`, and the pinned `cargo-ndk`:
 
 ```sh
 cargo install cargo-ndk --version 3.5.4 --locked
 rustup target add aarch64-linux-android x86_64-linux-android
-apps/mobile/scripts/build-rust-android.sh
+ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358" \
+  apps/mobile/scripts/build-rust-android.sh
 cd apps/mobile
 ./gradlew :composeApp:installDebug
-adb shell am start -n media.conduit.mobile.spike/media.conduit.mobile.MainActivity
+adb shell am start -n media.conduit.mobile/.MainActivity
 ```
 
-Use an API 26+ emulator or device. Keep SDK paths in `local.properties`, never
-in Git.
+Android supports API 26 and newer. The debug build includes ARM64 and x86_64
+native libraries. Keep SDK paths in `local.properties`; do not commit them.
 
-Android smoke test:
+For an emulator connected to a development server on the host, use
+`http://10.0.2.2:3000` as the server URL. The app accepts HTTP for local
+development addresses and requires HTTPS for non-local servers.
 
-1. Launch and confirm the connection/catalog card renders.
-2. Resolve; confirm the add-on name, title, and encoded resource URL appear.
-3. Play; confirm Media3 renders video and the 500 ms progress text advances.
-4. Background/foreground during playback; confirm playback pauses safely and
-   the app resumes without a crash.
-5. Rotate twice, close the player, reopen it ten times, then inspect `adb
-   shell dumpsys meminfo media.conduit.mobile.spike`.
-6. Close the app and confirm no player/network activity remains in Logcat.
-
-Record device, OS/API, ABI, first-frame time, memory delta, and each result.
-
-On NixOS, Android's generic Linux binaries need an FHS environment. If AAPT2
-or NDK Clang reports that it cannot start a dynamically linked executable, stop
-existing Gradle daemons and run the build with:
+The focused Android checks are:
 
 ```sh
-./gradlew --stop
-NIXPKGS_ALLOW_UNFREE=1 nix shell --impure nixpkgs#steam-run nixpkgs#jdk17 \
-  --command steam-run ./gradlew --no-daemon \
-  :composeApp:testDebugUnitTest :composeApp:assembleDebug
+cd apps/mobile
+./gradlew :composeApp:testDebugUnitTest :composeApp:assembleDebug
+./gradlew :composeApp:connectedDebugAndroidTest
 ```
 
-## iOS on macOS
+Exercise server validation, local sign-in and registration, recovery codes,
+household creation, profile switching, add-on installation, catalog search,
+stream selection, playback, watch progress, subtitle and audio selection,
+background/foreground transitions, rotation, and the OAuth deep link. Verify
+that the cached library and history remain visible after stopping the server,
+and that signing out removes access to the cached session.
 
-Install Xcode, its command-line tools, XcodeGen, JDK 17, and Rust through rustup:
+On NixOS, Android's generic Linux binaries may need an FHS environment. If
+AAPT2 or the NDK compiler cannot start, stop existing Gradle daemons and run
+the Gradle command inside an appropriate `steam-run` or equivalent FHS shell.
+
+## iOS development
+
+Install Xcode and its command-line tools, XcodeGen, JDK 17, and Rust through
+`rustup`:
 
 ```sh
 apps/mobile/scripts/build-rust-ios.sh
@@ -87,73 +145,68 @@ xcodegen generate
 open ConduitMobileSpike.xcodeproj
 ```
 
-The generated project resolves the pinned Nuvio MPVKit fork through Swift
-Package Manager. The first Xcode build downloads the package and its binary
-framework dependencies; this is expected and cannot be completed on Linux.
-The iOS adapter renders libmpv through a `CAMetalLayer`/MoltenVK surface and
-keeps the player object on the Swift/UIKit side of the Compose boundary.
-To test a different maintained fork, change the URL and revision under
-`MPVKit` in `apps/mobile/iosApp/project.yml` before regenerating the project.
+The generated project resolves the pinned MPVKit fork through Swift Package
+Manager. The first Xcode build downloads its package and binary framework
+dependencies. The Compose app owns the shared UI and playback controls while
+the Swift/UIKit host owns the MPVKit/libmpv player, `CAMetalLayer` surface,
+audio session, and orientation handoff.
 
-Select an iOS 15+ simulator. For a device, choose a development team in Xcode;
-no signing identity is committed. Xcode's pre-build step creates the Compose
-framework for the selected SDK.
+The app requires iOS 15 or newer. The normal app is portrait-oriented; the
+player takes ownership of both landscape orientations and restores portrait
+when playback closes. For a device build, select a development team in Xcode.
+No signing identity is committed to the repository.
 
-iOS smoke test:
+Exercise the same account, profile, add-on, catalog, playback, progress,
+subtitle, audio, and OAuth cases as Android. Also test background/foreground,
+lock/unlock, rotation, interruptions, repeated player open/close cycles, and
+memory cleanup. The release guide records the current iOS 15 through 17.4
+runtime compatibility caveat for the pinned MPVKit build.
 
-1. Launch and exercise the same resolve/play/progress/close flow.
-2. Background/foreground, lock/unlock, rotate, and simulate an interruption.
-3. Exercise play/pause, double-tap seek, pinch resize, speed, audio, subtitle,
-   and episode controls.
-4. Close/reopen playback ten times and use Xcode's memory graph to check that
-   libmpv, the MPVKit controller, and Metal layers are released.
-5. Stop the app and confirm Instruments shows no continuing network task.
+## Mobile authentication and storage
 
-Record model, iOS version, architecture, first-frame time, memory delta, and
-simulator/real-device status.
+The app stores the selected server and device preferences in platform settings.
+The bearer session, pending OAuth request, and cached profile snapshot use the
+platform secure store:
 
-## Known scope limits
+- Android uses an AES-GCM value encrypted by a non-exportable Android Keystore
+  key;
+- iOS uses a Keychain item scoped to this device; and
+- both platforms keep the server URL with the session, so a token is never
+  sent to a different selected server.
 
-The spike does not fetch a third-party manifest, authenticate, synchronize
-progress, enable PiP/casting, or implement P2P. The iOS MPVKit adapter now
-supports the initial stream URL, request headers, external subtitles, basic
-track selection, lifecycle pause/resume, and Compose-owned controls. The mobile
-engine boundary uses protocol v2 with correlated work and cancellation messages,
-bounded inputs, and serialized access to opaque handles. See
-[ADR 0003](adr/0003-mobile-engine-protocol-v2.md) for the ownership contract.
-Host dispatch tasks must finish before destroying an engine. The iOS and
-Android device matrices must be completed before accepting ADR 0001 or closing
-issue #41.
+Mobile OAuth uses the system browser. The app creates a PKCE verifier, starts a
+short-lived request at `/v1/auth/mobile/start`, saves the pending request before
+opening the browser, and receives only a one-time code at
+`conduit://oauth/callback`. The app verifies the request ID and exchanges the
+code and verifier at `/v1/auth/mobile/exchange` for a seven-day mobile bearer
+session. A cancelled, mismatched, expired, or replayed callback must not create
+a session.
 
-## Server connection checkpoint
+The server-side authentication model is documented in
+[Authentication and account recovery](authentication.md).
 
-With the development server on port 3000, enter `http://10.0.2.2:3000` in the
-emulator. The app calls `/health` and `/v1/auth/config` and saves the endpoint
-only after both succeed. Run the platform security test on a running emulator:
+## Release packaging
+
+Create a semantic version tag to run the complete release workflow:
 
 ```sh
-cd apps/mobile
-./gradlew :composeApp:connectedDebugAndroidTest
+git tag v0.2.0
+git push origin v0.2.0
 ```
 
-See [ADR 0004](adr/0004-mobile-server-session-foundation.md) for token scoping,
-Android Keystore ownership, and the intentionally deferred mobile OAuth and iOS
-Keychain work.
+The workflow publishes these mobile artifacts with the GitHub release:
 
-After validation, sign in with a local server account or create one when the
-server permits registration. The app stores the bearer session in Android
-Keystore-backed ciphertext, loads households and profiles from `/v1/bootstrap`,
-and restores the session after restart. Sign out from Settings and verify that
-the login screen returns.
+- `conduit-<version>-android-universal.apk`, a signed APK containing ARM64
+  and x86_64 native libraries, plus a SHA-256 checksum;
+- `conduit-<version>-ios-unsigned.ipa`, an arm64 device IPA, plus a SHA-256
+  checksum.
 
-Library, history, and installed add-on summaries refresh for the selected
-profile. After one successful refresh, stop the local server and reopen the app;
-the same profile should render its encrypted cached snapshot with an Offline
-label. A newly registered account must show its one-time recovery codes before
-household creation.
+Android release signing requires the four `ANDROID_KEYSTORE_*` Actions secrets
+described in [Releases](releases.md#android). The same keystore must be kept
+for every update. iOS packaging intentionally disables code signing and is
+useful for sideloading environments or a later signing step. It is not a
+store-ready submission.
 
-When OAuth is enabled, **Continue with Google** (or the configured OIDC label)
-opens the system browser. Successful authentication returns through
-`conduit://oauth/callback`; the app verifies the request, exchanges the PKCE
-code, deletes pending state, and loads the household. A cancelled, mismatched,
-expired, or replayed callback must show an error and must not create a session.
+To build the mobile release targets without publishing a tag, run the release
+workflow manually and choose `android` or `ios`. For local IPA packaging, use
+the commands in [Releases](releases.md#ios).

@@ -4,23 +4,30 @@ This roadmap communicates direction, not release guarantees. Security,
 portability, reliable playback, and a coherent film/television experience take
 priority over feature count.
 
-## Near term: mobile clients
+## Current: mobile release hardening
 
 ### iOS and Android
 
-The next major product work is first-class iOS and Android support:
+The shared iOS and Android clients now provide the first mobile product
+surface. The near-term work is release hardening rather than a new foundation:
 
-- Shared browsing, profiles, library, and progress behavior
-- Platform-appropriate secure session storage
-- OAuth callbacks and account linking
-- Mobile-native playback and track controls
-- Deep links and handoff into media details
-- Download/offline design investigation where sources and rights permit
+- Device-matrix testing across real Android hardware, emulators, and supported
+  iOS versions
+- Production crash, playback, lifecycle, and memory validation
+- App signing, store metadata, sideloading, and distribution decisions
+- Accessibility, localization, and release-quality polish
+- Clear user-facing handling for unsupported streams and unavailable add-ons
 
-The goal is not merely a wrapped web page; playback, lifecycle, remote controls,
-and secure storage need platform-native treatment.
+The current client already includes shared browsing, profiles, library,
+history, progress synchronization, secure session storage, OAuth callbacks,
+native playback, track controls, deep-link return from OAuth, and encrypted
+offline profile snapshots. The snapshots do not include media downloads.
 
-## TV experiences
+The mobile client remains a native product surface rather than a wrapped web
+page. Playback, lifecycle, orientation, and secure storage use platform-native
+adapters behind shared Compose presentation.
+
+## Next: TV experiences
 
 tvOS is a planned target after the mobile foundations. Broader TV work may
 include Android TV and other practical living-room platforms.

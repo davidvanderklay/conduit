@@ -4,6 +4,11 @@
 - Date: 2026-07-31
 - Scope: issue #42 and issue #38
 
+This ADR records the shared native-boundary decision made during Android-first
+development. The current product client keeps this ABI for the retained
+architecture fixture and contract tests; its live add-on networking and
+stream selection are implemented in the shared Kotlin client.
+
 ## Context
 
 The architecture spike exposed one synchronous fixture operation through an
@@ -57,5 +62,5 @@ Swift and Kotlin domain implementations would duplicate selection behavior.
 Protocol v1 and v2 are deliberately incompatible and the ABI reports version 2.
 This is acceptable before release and is covered by Rust and Kotlin contract
 tests. Future protocol changes require fixtures for old-message rejection and
-new-message round trips. iOS packaging remains source-complete but unverified
-under the current Android-first sequencing decision.
+new-message round trips. The iOS player and packaging path now exist, while
+real-device validation remains part of mobile release hardening.

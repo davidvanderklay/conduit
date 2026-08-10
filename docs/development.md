@@ -5,7 +5,10 @@
 - `apps/web`: React web interface shared with desktop
 - `apps/server`: Fastify API, Better Auth, Drizzle, and PostgreSQL
 - `apps/desktop`: Electron shell and native libmpv playback
+- `apps/mobile`: shared Compose Multiplatform Android/iOS client and native
+  playback hosts
 - `packages/core`: Rust client engine compiled to WebAssembly
+- `packages/mobile-bridge`: Rust C ABI used by the mobile architecture fixture
 - `docs`: user, operator, format, and roadmap documentation
 
 ## Prerequisites
@@ -135,6 +138,18 @@ pnpm --filter @conduit/web check
 pnpm --filter @conduit/web test
 ```
 
+Mobile development has platform-specific toolchains and a separate release
+path. Use [Mobile development and release](mobile-development.md) for Android
+and iOS prerequisites, native library setup, device checks, OAuth testing, and
+APK/IPA packaging. The mobile CI workflows are:
+
+- `.github/workflows/mobile-android.yml`, which builds the Android Rust
+  libraries, runs unit tests, and assembles a debug APK;
+- `.github/workflows/mobile-ios.yml`, which builds the Apple Rust libraries and
+  runs the iOS simulator tests; and
+- `.github/workflows/release.yml`, which packages mobile artifacts alongside
+  desktop releases from a semantic version tag.
+
 Authentication changes should be tested with:
 
 - A new local account
@@ -148,6 +163,13 @@ Authentication changes should be tested with:
 
 Never log OAuth codes, recovery tokens, client secrets, password hashes, or full
 provider subject identifiers.
+
+The mobile client has its own secure session vault and profile snapshot cache.
+Android uses Android Keystore-backed AES-GCM storage and iOS uses the Keychain.
+Do not replace either adapter with ordinary preferences or local files. Mobile
+catalog, metadata, stream, and subtitle requests remain direct device-to-source
+requests, so mobile changes must preserve the same add-on URL and credential
+handling rules as the web client.
 
 ## Desktop client
 

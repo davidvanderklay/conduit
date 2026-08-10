@@ -5,14 +5,17 @@ Stremio-compatible add-ons. The server synchronizes households, profiles,
 installed add-ons, libraries, and watch progress; clients contact add-ons and
 media sources directly.
 
-The project is under active development. Treat current deployments as
-pre-release installations and keep profile exports and database backups.
+The project is under active development. The web and desktop clients are
+available today, and the shared Android/iOS mobile client is in release
+preparation. Treat current deployments and mobile builds as pre-release
+installations and keep profile exports and database backups.
 
 ## What Conduit does
 
 - Shared household profiles with independent libraries and watch history
 - Stremio-compatible catalogs, metadata, streams, and subtitles
 - Web and Electron desktop clients backed by one shared interface
+- Android and iOS clients with shared Compose UI and native playback
 - Portable profile import/export
 - Local password accounts without an email-delivery dependency
 - Google OAuth or administrator-configured OpenID Connect
@@ -79,10 +82,10 @@ backups, bootstrap modes, and upgrades.
 
 - [User and authentication setup](docs/authentication.md)
 - [Deployment and operations](docs/deployment.md)
-- [Desktop and Android releases](docs/releases.md)
+- [Desktop, Android, and iOS releases](docs/releases.md)
+- [Mobile development and release](docs/mobile-development.md)
 - [Media compatibility](docs/media-compatibility.md)
 - [Development guide](docs/development.md)
-- [Mobile architecture spike](docs/mobile-development.md)
 - [Project roadmap](docs/roadmap.md)
 - [Portable profile format](docs/portable-profile-format.md)
 
@@ -118,12 +121,21 @@ does not proxy add-on or media traffic.
 Profile exports protect portable user data, while recovery codes protect
 account access. They solve different problems, and users should keep both.
 
-## Roadmap
+## Current direction
 
-The next major client targets are iOS and Android, followed by TV-oriented
-experiences including tvOS. Longer-term work includes an optional default
-public instance and first-class Jellyfin/Plex integration for unified progress
-and library workflows. See the detailed [Roadmap](docs/roadmap.md).
+The mobile clients now cover server selection, local and OAuth sign-in,
+households and profiles, add-on catalogs, search, libraries, watch history,
+continue watching, native stream playback, subtitles, and synchronized watch
+progress. They also retain an encrypted profile snapshot for limited offline
+access to library and history state; media is not downloaded for offline
+playback. See
+[Mobile development and release](docs/mobile-development.md) for the current
+support boundary and packaging path.
+
+The next major product targets are mobile release hardening and TV-oriented
+experiences including tvOS. Longer-term work includes first-class
+Jellyfin/Plex integration for unified progress and library workflows. See the
+detailed [Roadmap](docs/roadmap.md).
 
 Conduit is intentionally not becoming a general reader or media inbox. YouTube,
 RSS, audiobooks, and podcast aggregation are outside the current product scope;
