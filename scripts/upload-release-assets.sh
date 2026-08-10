@@ -9,11 +9,11 @@ test "$#" -gt 0
 : "${GH_TOKEN:?GH_TOKEN is required}"
 : "${GITHUB_REPOSITORY:?GITHUB_REPOSITORY is required}"
 
-release_id="$(gh release list \
+release_id="$(gh api \
   --repo "$GITHUB_REPOSITORY" \
-  --limit 100 \
-  --json tagName,databaseId \
-  --jq ".[] | select(.tagName == \"$release_tag\") | .databaseId" | head -n 1)"
+  --paginate \
+  "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+  --jq ".[] | select(.tag_name == \"$release_tag\") | .id" | head -n 1)"
 test -n "$release_id"
 
 upload_url="$(gh api \
