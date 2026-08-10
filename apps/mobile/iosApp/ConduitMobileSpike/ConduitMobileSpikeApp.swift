@@ -4,6 +4,15 @@ import SwiftUI
 final class ConduitAppDelegate: NSObject, UIApplicationDelegate {
     func application(
         _ application: UIApplication,
+        open url: URL,
+        options: [UIApplication.OpenURLOptionsKey: Any] = [:]
+    ) -> Bool {
+        IosOAuthCallbacks.shared.capture(url: url.absoluteString)
+        return true
+    }
+
+    func application(
+        _ application: UIApplication,
         supportedInterfaceOrientationsFor window: UIWindow?
     ) -> UIInterfaceOrientationMask {
         ConduitOrientationCoordinator.shared.supportedOrientations

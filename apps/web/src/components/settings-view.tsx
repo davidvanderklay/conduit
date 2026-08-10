@@ -70,7 +70,7 @@ const settingsEntries: SettingsEntry[] = [
   { id: "playback", group: "General", title: "Playback", description: "Player, subtitles, and behavior", keywords: "audio language autoplay volume resume", icon: PlayCircle },
   { id: "integrations", group: "General", title: "Integrations", description: "Connected media services", keywords: "trakt debrid metadata", icon: Link2 },
   { id: "data", group: "General", title: "Your data", description: "Import, export, and portability", keywords: "backup transfer json library history", icon: Database },
-  { id: "about", group: "About", title: "About Conduit", description: "Project, privacy, and licenses", keywords: "contributors supporters attribution version", icon: BadgeInfo },
+  { id: "about", group: "About", title: "About conduit", description: "Project, privacy, and licenses", keywords: "contributors supporters attribution version", icon: BadgeInfo },
   { id: "advanced", group: "Advanced", title: "Advanced settings", description: "Performance and diagnostics", keywords: "cache hardware read ahead debug server", icon: SlidersHorizontal },
 ]
 
@@ -111,7 +111,7 @@ export function SettingsView({ profile, profiles, householdId, onSelectProfile, 
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-400">Profile & device</p>
           <h1 className="mt-2 font-display text-3xl font-semibold tracking-tight">Settings</h1>
-          <p className="mt-2 text-sm text-zinc-500">Personalize Conduit and manage your account from one place.</p>
+          <p className="mt-2 text-sm text-zinc-500">Personalize conduit and manage your account from one place.</p>
         </div>
         {saved && <span className="hidden items-center gap-2 rounded-full border border-emerald-900/70 bg-emerald-950/50 px-3 py-1.5 text-xs text-emerald-300 sm:flex"><Check size={13} /> Saved on this device</span>}
       </div>
@@ -245,8 +245,8 @@ function ProfileOptionCard({ title, description, checked, onChange }: { title: s
 
 function AppearanceSettings({ preferences, update }: PreferencePageProps) {
   return <div className="grid items-start gap-7 2xl:grid-cols-2">
-    <SettingsGroup title="THEME"><SettingRow icon={Palette} title="Theme" description="Choose how Conduit follows your desktop appearance"><Select value={preferences.theme} onChange={(value) => update("theme", value as DevicePreferences["theme"])} options={[["dark", "Conduit dark"], ["system", "System default"]]} /></SettingRow><Divider /><SettingToggle label="AMOLED black" description="Use pure black backgrounds throughout the app." checked={preferences.amoledBlack} onChange={(value) => update("amoledBlack", value)} /></SettingsGroup>
-    <SettingsGroup title="DISPLAY"><SettingToggle label="Reduce animations" description="Use simpler transitions and less interface motion." checked={preferences.reducedMotion} onChange={(value) => update("reducedMotion", value)} /><Divider /><SettingRow icon={Eye} title="App language" description="Conduit currently follows your system language"><span className="text-sm text-zinc-500">System default</span></SettingRow></SettingsGroup>
+    <SettingsGroup title="THEME"><SettingRow icon={Palette} title="Theme" description="Choose how conduit follows your desktop appearance"><Select value={preferences.theme} onChange={(value) => update("theme", value as DevicePreferences["theme"])} options={[["dark", "conduit dark"], ["system", "System default"]]} /></SettingRow><Divider /><SettingToggle label="AMOLED black" description="Use pure black backgrounds throughout the app." checked={preferences.amoledBlack} onChange={(value) => update("amoledBlack", value)} /></SettingsGroup>
+    <SettingsGroup title="DISPLAY"><SettingToggle label="Reduce animations" description="Use simpler transitions and less interface motion." checked={preferences.reducedMotion} onChange={(value) => update("reducedMotion", value)} /><Divider /><SettingRow icon={Eye} title="App language" description="conduit currently follows your system language"><span className="text-sm text-zinc-500">System default</span></SettingRow></SettingsGroup>
   </div>
 }
 
@@ -262,11 +262,11 @@ function ContentSettings({ onAddons }: { onAddons: () => void }) {
 }
 
 function IntegrationsSettings() {
-  return <SettingsGroup title="CONNECTED SERVICES"><InfoAction icon={Link2} title="Stremio add-ons" description="Conduit uses the add-ons installed for your active profile directly." /><Divider /><InfoAction icon={Gauge} title="Trakt, debrid, and metadata services" description="These will appear here once secure credential storage and synchronization are implemented." muted /></SettingsGroup>
+  return <SettingsGroup title="CONNECTED SERVICES"><InfoAction icon={Link2} title="Stremio add-ons" description="conduit uses the add-ons installed for your active profile directly." /><Divider /><InfoAction icon={Gauge} title="Trakt, debrid, and metadata services" description="These will appear here once secure credential storage and synchronization are implemented." muted /></SettingsGroup>
 }
 
 function AboutSettings() {
-  return <div className="space-y-7"><SettingsGroup title="CONDUIT"><InfoAction icon={Heart} title="Supporters & contributors" description="Conduit is open source and built by its community." href="https://github.com/davidvanderklay/conduit" /><Divider /><InfoAction icon={ShieldCheck} title="Privacy policy" description="Your account, profile, library, and viewing data stay on the server you choose." href="https://github.com/davidvanderklay/conduit#data-and-privacy-model" /><Divider /><InfoAction icon={BadgeInfo} title="Licenses & attribution" description="Conduit is MIT licensed and includes open-source software listed in THIRD_PARTY_NOTICES.md." href="https://github.com/davidvanderklay/conduit/blob/main/THIRD_PARTY_NOTICES.md" /></SettingsGroup><SettingsGroup title="APPLICATION"><div className="grid gap-4 p-5 text-sm sm:grid-cols-2"><Stat label="Application" value="Conduit" /><Stat label="Client" value={isDesktop() ? "Desktop" : "Web"} /></div></SettingsGroup></div>
+  return <div className="space-y-7"><SettingsGroup title="ABOUT"><InfoAction icon={Heart} title="Supporters & contributors" description="conduit is open source and built by its community." href="https://github.com/davidvanderklay/conduit" /><Divider /><InfoAction icon={ShieldCheck} title="Privacy policy" description="Your account, profile, library, and viewing data stay on the server you choose." href="https://github.com/davidvanderklay/conduit#data-and-privacy-model" /><Divider /><InfoAction icon={BadgeInfo} title="Licenses & attribution" description="conduit is MIT licensed and includes open-source software listed in THIRD_PARTY_NOTICES.md." href="https://github.com/davidvanderklay/conduit/blob/main/THIRD_PARTY_NOTICES.md" /></SettingsGroup><SettingsGroup title="APPLICATION"><div className="grid gap-4 p-5 text-sm sm:grid-cols-2"><Stat label="Application" value="conduit" /><Stat label="Client" value={isDesktop() ? "Desktop" : "Web"} /></div></SettingsGroup></div>
 }
 
 function AdvancedSettings({ preferences, update, profile }: PreferencePageProps & { profile: Profile }) {
@@ -312,14 +312,14 @@ function DataSettings({ profile, preferences, onPreferences }: { profile: Profil
     }
   }
   return <div className="space-y-7">
-    <SettingsGroup title="EXPORT" description="Move this profile between Conduit servers.">
+    <SettingsGroup title="EXPORT" description="Move this profile between conduit servers.">
       <div className="p-5"><p className="text-sm leading-6 text-zinc-400">Exports include the profile, library, watch history, add-on order, and device preferences.</p><label className="mt-4 flex max-w-2xl items-start gap-3 text-sm text-zinc-400"><input className="mt-1 accent-amber-400" type="checkbox" checked={includeSecrets} onChange={(event) => setIncludeSecrets(event.target.checked)} /><span>Include add-on URLs<span className="mt-1 block text-xs text-amber-300">URLs can contain credentials. Store this file securely.</span></span></label><Button className="mt-5" variant="secondary" disabled={busy} onClick={async () => { setBusy(true); setError(""); try { const save = await prepareJsonSave(`conduit-${safeFilename(profile.name)}.json`); if (!save) return; const data = await api<Record<string, unknown>>(`/v1/profiles/${profile.id}/export?includeSecrets=${includeSecrets}`); data.preferences = preferences; await save(data) } catch (cause) { setError(cause instanceof Error ? cause.message : "Export failed") } finally { setBusy(false) } }}><Download size={15} /> Export profile</Button></div>
     </SettingsGroup>
     <SettingsGroup title="IMPORT" description="Preview changes before applying them.">
       <div className="p-5">
         <label className="flex max-w-3xl cursor-pointer items-center gap-4 rounded-xl border border-dashed border-zinc-700 bg-zinc-950/50 p-4 transition hover:border-amber-400/50 hover:bg-amber-400/[.03]">
           <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-zinc-800 text-zinc-300"><Upload size={19} /></span>
-          <span className="min-w-0 flex-1"><span className="block text-sm font-medium text-zinc-200">{importFilename || "Choose a Conduit export"}</span><span className="mt-1 block text-xs text-zinc-500">JSON files up to 10 MiB · changes are previewed first</span></span>
+          <span className="min-w-0 flex-1"><span className="block text-sm font-medium text-zinc-200">{importFilename || "Choose a conduit export"}</span><span className="mt-1 block text-xs text-zinc-500">JSON files up to 10 MiB · changes are previewed first</span></span>
           <span className="rounded-lg bg-zinc-800 px-4 py-2 text-sm font-medium text-zinc-200">Browse</span>
           <input className="sr-only" type="file" accept="application/json,.json" onChange={(event) => { const file = event.target.files?.[0]; if (file) void chooseImport(file) }} />
         </label>
@@ -348,7 +348,7 @@ function Pill({ enabled, children }: { enabled: boolean; children: ReactNode }) 
 interface ImportPreview { profile: { name: string; isKids: boolean }; counts: { library: number; progress: number; addons: number }; importableAddons: number; warnings: string[] }
 type JsonSaver = (data: unknown) => Promise<void>
 interface SaveFileHandle { createWritable(): Promise<{ write(data: Blob): Promise<void>; close(): Promise<void> }> }
-async function prepareJsonSave(filename: string): Promise<JsonSaver | null> { if (isDesktop()) { const save = await prepareNativeTextSave(filename); return save ? async (data) => save(JSON.stringify(data, null, 2)) : null } const picker = (window as Window & { showSaveFilePicker?: (options: { suggestedName: string; types: Array<{ description: string; accept: Record<string, string[]> }> }) => Promise<SaveFileHandle> }).showSaveFilePicker; if (picker) { try { const handle = await picker.call(window, { suggestedName: filename, types: [{ description: "Conduit profile export", accept: { "application/json": [".json"] } }] }); return async (data) => { const writable = await handle.createWritable(); await writable.write(jsonBlob(data)); await writable.close() } } catch (error) { if (error instanceof DOMException && error.name === "AbortError") return null; throw error } } return async (data) => { const url = URL.createObjectURL(jsonBlob(data)); const link = document.createElement("a"); link.href = url; link.download = filename; link.click(); URL.revokeObjectURL(url) } }
+async function prepareJsonSave(filename: string): Promise<JsonSaver | null> { if (isDesktop()) { const save = await prepareNativeTextSave(filename); return save ? async (data) => save(JSON.stringify(data, null, 2)) : null } const picker = (window as Window & { showSaveFilePicker?: (options: { suggestedName: string; types: Array<{ description: string; accept: Record<string, string[]> }> }) => Promise<SaveFileHandle> }).showSaveFilePicker; if (picker) { try { const handle = await picker.call(window, { suggestedName: filename, types: [{ description: "conduit profile export", accept: { "application/json": [".json"] } }] }); return async (data) => { const writable = await handle.createWritable(); await writable.write(jsonBlob(data)); await writable.close() } } catch (error) { if (error instanceof DOMException && error.name === "AbortError") return null; throw error } } return async (data) => { const url = URL.createObjectURL(jsonBlob(data)); const link = document.createElement("a"); link.href = url; link.download = filename; link.click(); URL.revokeObjectURL(url) } }
 function jsonBlob(data: unknown) { return new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }) }
 function safeFilename(value: string) { return value.trim().replace(/[^a-z0-9_-]+/gi, "-").replace(/^-|-$/g, "") || "profile" }
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value) }

@@ -12,6 +12,7 @@
 		7CDCF257DBFF434F69BC4080 /* PlatformBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F8980C2E64758A37052A0ED /* PlatformBridge.swift */; };
 		B33594ED17E331E3DC1494DE /* ConduitMobileSpikeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CB31B15E7546FEECDEF1B53 /* ConduitMobileSpikeApp.swift */; };
 		B9B43AA3AC1A274208E498A9 /* MPVKit in Frameworks */ = {isa = PBXBuildFile; productRef = 6722BC9818D0FD97D537EA0C /* MPVKit */; };
+		D0E8F6D6E0F4D6B2A0B2A001 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D0E8F6D6E0F4D6B2A0B2A002 /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -21,6 +22,7 @@
 		8C36451C3657ACC0B4612422 /* ConduitMobileSpike.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ConduitMobileSpike.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		8C4D3715EC258774BDAE0C6F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		99D2F22946D55A7EF71C2DD5 /* MetalLayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetalLayer.swift; sourceTree = "<group>"; };
+		D0E8F6D6E0F4D6B2A0B2A002 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -33,6 +35,17 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXResourcesBuildPhase section */
+		D0E8F6D6E0F4D6B2A0B2A003 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D0E8F6D6E0F4D6B2A0B2A001 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
 
 /* Begin PBXGroup section */
 		0CE6CCC24D6415A440B3754A = {
@@ -59,6 +72,7 @@
 				99D2F22946D55A7EF71C2DD5 /* MetalLayer.swift */,
 				1696757C18566865DC5CE890 /* MPVPlayerBridge.swift */,
 				1F8980C2E64758A37052A0ED /* PlatformBridge.swift */,
+				D0E8F6D6E0F4D6B2A0B2A002 /* Assets.xcassets */,
 			);
 			path = ConduitMobileSpike;
 			sourceTree = "<group>";
@@ -73,6 +87,7 @@
 				88B6EDC485BA8EE8081EF044 /* Build Compose framework */,
 				51DC600A8740E217C2F687B4 /* Sources */,
 				1FF4B0A7E803635B28771D8C /* Frameworks */,
+				D0E8F6D6E0F4D6B2A0B2A003 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -203,7 +218,7 @@
 				MARKETING_VERSION = 0.1.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_NAME = conduit;
 				SDKROOT = iphoneos;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
@@ -268,7 +283,7 @@
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_NAME = conduit;
 				SDKROOT = iphoneos;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
@@ -299,6 +314,7 @@
 					"$(SRCROOT)/../native/ios/iosSimulatorArm64/libconduit_mobile.a",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = media.conduit.mobile;
+				PRODUCT_NAME = conduit;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -327,6 +343,7 @@
 					"$(SRCROOT)/../native/ios/iosSimulatorArm64/libconduit_mobile.a",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = media.conduit.mobile;
+				PRODUCT_NAME = conduit;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};

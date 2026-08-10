@@ -432,19 +432,16 @@ export function DesktopPlayer({
     }
   }, [activeMenu, error, showControls, snapshot?.paused])
 
-  const close = async () => {
+  const close = () => {
     if (closing.current) return
     closing.current = true
-    try {
-      if (snapshot && resumed.current) {
-        await saveProgress(snapshot.position, snapshot.duration, true)
-      }
-      await stopNativePlayer()
-    } finally {
-      document.documentElement.classList.remove("native-playback")
-      onClose()
-      window.requestAnimationFrame(() => void refreshNativeSurface())
+    if (snapshot && resumed.current) {
+      void saveProgress(snapshot.position, snapshot.duration, true).catch(() => undefined)
     }
+    void stopNativePlayer().catch(() => undefined)
+    document.documentElement.classList.remove("native-playback")
+    onClose()
+    window.requestAnimationFrame(() => void refreshNativeSurface())
   }
 
   const togglePlayback = useCallback(() => {
@@ -677,7 +674,7 @@ export function DesktopPlayer({
             }`}
             onClick={(event) => {
               event.stopPropagation()
-              void close()
+              close()
             }}
             aria-label="Back to details"
             data-native-overlay
@@ -734,10 +731,11 @@ export function DesktopPlayer({
           aria-label="Video loading"
         >
           <div
-            className="rounded-full bg-black/55 p-3 shadow-lg backdrop-blur-sm"
+            className="flex items-center gap-3 rounded-xl border border-white/15 bg-black/80 px-4 py-3 shadow-xl shadow-black/40"
             data-native-overlay
           >
-            <LoaderCircle className="animate-spin text-white" size={36} />
+            <LoaderCircle className="animate-spin text-amber-300" size={30} />
+            <PlayerHeadingText heading={heading} expanded={false} />
           </div>
         </div>
       ) : null}

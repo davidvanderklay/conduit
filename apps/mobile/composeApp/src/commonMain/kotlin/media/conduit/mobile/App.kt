@@ -20,6 +20,7 @@ import androidx.compose.material.icons.rounded.Movie
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.BookmarkRemove
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -81,14 +82,45 @@ private fun AccountGate(
     }
     val oauthPlatform = rememberMobileOAuthPlatform()
     val accountScope = rememberCoroutineScope()
+    val lifecycleMutex = remember(repository) { Mutex() }
     var account by remember(endpoint.baseUrl) { mutableStateOf<AccountStatus>(AccountStatus.Loading) }
+    var restoreStarted by remember(endpoint.baseUrl) { mutableStateOf(false) }
+    var handledCallback by remember(endpoint.baseUrl) { mutableStateOf<String?>(null) }
+    var oauthPending by remember(endpoint.baseUrl) { mutableStateOf(repository.hasPendingOAuth(endpoint.baseUrl)) }
+    var oauthLaunching by remember(endpoint.baseUrl) { mutableStateOf(false) }
     DisposableEffect(api) { onDispose(api::close) }
-    LaunchedEffect(repository) { account = repository.restore(endpoint) }
+    LaunchedEffect(repository) {
+        if (restoreStarted) return@LaunchedEffect
+        restoreStarted = true
+        lifecycleMutex.withLock {
+            account = repository.restore(endpoint)
+            oauthPending = repository.hasPendingOAuth(endpoint.baseUrl)
+        }
+    }
     LaunchedEffect(oauthPlatform.callbackUrl) {
         val callback = oauthPlatform.callbackUrl ?: return@LaunchedEffect
-        account = AccountStatus.Loading
-        account = repository.completeOAuth(endpoint, callback)
-        oauthPlatform.consumeCallback()
+        if (callback == handledCallback) {
+            oauthPlatform.consumeCallback()
+            return@LaunchedEffect
+        }
+        lifecycleMutex.withLock {
+            if (callback == handledCallback) {
+                oauthPlatform.consumeCallback()
+                return@withLock
+            }
+            if (!repository.hasPendingOAuth(endpoint.baseUrl)) {
+                handledCallback = callback
+                oauthPlatform.consumeCallback()
+                LifecycleDiagnostics.event("oauth.callback.ignored", "reason=no-pending-request")
+                return@withLock
+            }
+            oauthLaunching = false
+            account = AccountStatus.Loading
+            account = repository.completeOAuth(endpoint, callback)
+            handledCallback = callback
+            oauthPending = repository.hasPendingOAuth(endpoint.baseUrl)
+            oauthPlatform.consumeCallback()
+        }
     }
 
     when (val current = account) {
@@ -97,6 +129,8 @@ private fun AccountGate(
             endpoint = endpoint,
             authentication = current.authentication,
             initialError = current.error,
+            oauthPending = oauthPending,
+            oauthLaunching = oauthLaunching,
             onSignIn = { email, password ->
                 account = AccountStatus.Loading
                 accountScope.launch {
@@ -114,16 +148,24 @@ private fun AccountGate(
                 accountScope.launch { account = repository.recover(endpoint, current.authentication, email, code, password) }
             },
             onOAuth = {
-                accountScope.launch {
-                    runCatching {
-                        repository.startOAuth(endpoint, oauthPlatform.createPkce())
-                    }.onSuccess { pending ->
-                        oauthPlatform.openSystemBrowser(pending.authorizationUrl)
-                    }.onFailure { cause ->
-                        account = AccountStatus.SignedOut(
-                            current.authentication,
-                            cause.message ?: "Unable to start OAuth",
-                        )
+                if (!oauthLaunching) {
+                    oauthLaunching = true
+                    accountScope.launch {
+                        lifecycleMutex.withLock {
+                            runCatching {
+                                repository.pendingOAuth(endpoint.baseUrl)
+                                    ?: repository.startOAuth(endpoint, oauthPlatform.createPkce())
+                            }.onSuccess { pending ->
+                                oauthPlatform.openSystemBrowser(pending.authorizationUrl)
+                            }.onFailure { cause ->
+                                account = AccountStatus.SignedOut(
+                                    current.authentication,
+                                    cause.message ?: "Unable to start OAuth",
+                                )
+                            }
+                        }
+                        oauthPending = repository.hasPendingOAuth(endpoint.baseUrl)
+                        oauthLaunching = false
                     }
                 }
             },
@@ -136,7 +178,7 @@ private fun AccountGate(
                 if (candidate != null) accountScope.launch {
                     runCatching { api.validate(candidate.baseUrl) }
                         .onSuccess { dispatch(AppAction.ConnectionSucceeded(candidate)) }
-                        .onFailure { dispatch(AppAction.ConnectionFailed(it.message ?: "Unable to connect to this Conduit server")) }
+                        .onFailure { dispatch(AppAction.ConnectionFailed(it.message ?: "Unable to connect to this conduit server")) }
                 }
             },
         )
@@ -181,7 +223,12 @@ private fun AccountGate(
             message = current.message,
             onRetry = {
                 account = AccountStatus.Loading
-                accountScope.launch { account = repository.restore(endpoint) }
+                accountScope.launch {
+                    lifecycleMutex.withLock {
+                        account = repository.restore(endpoint)
+                        oauthPending = repository.hasPendingOAuth(endpoint.baseUrl)
+                    }
+                }
             },
             onChangeServer = { dispatch(AppAction.ForgetEndpoint) },
         )
@@ -227,7 +274,7 @@ private fun HouseholdSetup(onCreate: (String, String) -> Unit) {
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Text("Create your household", style = MaterialTheme.typography.headlineMedium)
-            Text("Profiles, add-ons, and watch state synchronize through your Conduit server.")
+            Text("Profiles, add-ons, and watch state synchronize through your conduit server.")
             OutlinedTextField(
                 household, { household = it }, label = { Text("Household name") },
                 singleLine = true, modifier = Modifier.fillMaxWidth(),
@@ -272,6 +319,8 @@ private fun SignInScreen(
     endpoint: ServerEndpoint,
     authentication: AuthenticationConfiguration,
     initialError: String?,
+    oauthPending: Boolean,
+    oauthLaunching: Boolean,
     onSignIn: (String, String) -> Unit,
     onRegister: (String, String) -> Unit,
     onRecover: (String, String, String) -> Unit,
@@ -305,10 +354,10 @@ private fun SignInScreen(
             }
             Card(colors = CardDefaults.cardColors(containerColor = Color(0xFA18181B), contentColor = Color.White), border = BorderStroke(1.dp, Color.White.copy(.11f)), shape = RoundedCornerShape(22.dp), modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(15.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(if (recovering) "Recover your account" else if (registering) if (authentication.needsOwner) "Set up Conduit" else "Create your account" else "Welcome back", color = Color.White, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-            Text(if (recovering) "Enter one of the recovery codes you saved." else if (registering) "Create a private account for this Conduit instance." else "Sign in to continue to your household.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+            Text(if (recovering) "Recover your account" else if (registering) if (authentication.needsOwner) "Set up conduit" else "Create your account" else "Welcome back", color = Color.White, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+            Text(if (recovering) "Enter one of the recovery codes you saved." else if (registering) "Create a private account for this conduit instance." else "Sign in to continue to your household.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
             authentication.oidc.takeIf { it.enabled && !recovering }?.let {
-                Button(enabled = !pending, onClick = { pending = true; onOAuth() }, colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color(0xFF202124), disabledContainerColor = Color(0xFFE6E6E6), disabledContentColor = Color(0xFF5F6368)), shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth().height(50.dp)) { GoogleMark(); Spacer(Modifier.width(12.dp)); Text(it.displayName ?: "Continue with Google", fontWeight = FontWeight.SemiBold) }
+                Button(enabled = !pending && !oauthLaunching, onClick = onOAuth, colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color(0xFF202124), disabledContainerColor = Color(0xFFE6E6E6), disabledContentColor = Color(0xFF5F6368)), shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth().height(50.dp)) { GoogleMark(); Spacer(Modifier.width(12.dp)); Text(if (oauthLaunching) "Opening sign-in…" else if (oauthPending) "Resume sign-in" else it.displayName ?: "Continue with Google", fontWeight = FontWeight.SemiBold) }
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) { HorizontalDivider(Modifier.weight(1f), color = Color.White.copy(.1f)); Text("  OR CONTINUE WITH EMAIL  ", color = Color.White.copy(.3f), style = MaterialTheme.typography.labelSmall); HorizontalDivider(Modifier.weight(1f), color = Color.White.copy(.1f)) }
             }
             OutlinedTextField(
@@ -437,7 +486,7 @@ private fun ServerSetup(state: AppState, dispatch: (AppAction) -> Unit) {
             .onFailure { cause ->
                 dispatch(
                     AppAction.ConnectionFailed(
-                        cause.message ?: "Unable to connect to this Conduit server",
+                        cause.message ?: "Unable to connect to this conduit server",
                     ),
                 )
             }
@@ -448,7 +497,7 @@ private fun ServerSetup(state: AppState, dispatch: (AppAction) -> Unit) {
                 Modifier.widthIn(max = 560.dp).fillMaxWidth().padding(24.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                Text("Conduit", style = MaterialTheme.typography.displaySmall)
+                Text("conduit", style = MaterialTheme.typography.displaySmall)
                 Text("Connect to your server", style = MaterialTheme.typography.headlineSmall)
                 Text(
                     "Use HTTPS for hosted or self-hosted instances. HTTP is limited to local development hosts.",
@@ -478,7 +527,7 @@ private fun ServerSetup(state: AppState, dispatch: (AppAction) -> Unit) {
                     }
                 }
                 Text(
-                    "Conduit checks server health and authentication capabilities before saving it.",
+                    "conduit checks server health and authentication capabilities before saving it.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -627,7 +676,38 @@ private fun AppShell(
             }
         }
         Scaffold(
-            snackbarHost = { SnackbarHost(snackbarHostState) },
+            snackbarHost = {
+                SnackbarHost(snackbarHostState) { data ->
+                    val removed = data.visuals.message == "Removed from library"
+                    Surface(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        color = Color(0xFF151518),
+                        contentColor = Color.White,
+                        shape = RoundedCornerShape(14.dp),
+                        border = BorderStroke(1.dp, Color.White.copy(alpha = .16f)),
+                        shadowElevation = 12.dp,
+                    ) {
+                        Row(
+                            Modifier.padding(start = 12.dp, end = 6.dp, top = 8.dp, bottom = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(9.dp),
+                        ) {
+                            Icon(
+                                if (removed) Icons.Rounded.BookmarkRemove else Icons.Rounded.CheckCircle,
+                                contentDescription = null,
+                                tint = if (removed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Text(data.visuals.message, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                            data.visuals.actionLabel?.let { actionLabel ->
+                                TextButton(onClick = data::performAction) {
+                                    Text(actionLabel, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+                }
+            },
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
         ) { padding ->
             if (expanded) {

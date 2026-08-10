@@ -76,7 +76,7 @@ actual fun NativePlayer(
     val player = remember(url, requestHeaders, subtitles) {
         val http = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
-            .setUserAgent("Conduit Mobile")
+            .setUserAgent("conduit Mobile")
             .setDefaultRequestProperties(requestHeaders)
         val renderers = DefaultRenderersFactory(context).setEnableDecoderFallback(true)
         ExoPlayer.Builder(context, renderers).setMediaSourceFactory(DefaultMediaSourceFactory(http)).build()

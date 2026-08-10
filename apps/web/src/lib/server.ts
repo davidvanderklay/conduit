@@ -18,7 +18,7 @@ export const DEFAULT_SERVER_URL = runtimeDefaultServerUrl()
 
 export function normalizeServerUrl(value: string): string {
   const input = value.trim()
-  if (!input) throw new Error("Enter your Conduit server address.")
+  if (!input) throw new Error("Enter your conduit server address.")
 
   let url: URL
   try {
@@ -92,7 +92,7 @@ export async function testConduitServer(
 
   const body = (await response.json().catch(() => null)) as { status?: unknown } | null
   if (body?.status !== "ok") {
-    throw new Error("This does not appear to be a Conduit server.")
+    throw new Error("This does not appear to be a conduit server.")
   }
   return normalized
 }

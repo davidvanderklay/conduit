@@ -16,6 +16,7 @@ export function useLibrary(profileId: string) {
 export function useLibraryToggle(profileId: string, item: CatalogItem | MetaItem) {
   const queryClient = useQueryClient()
   const library = useLibrary(profileId)
+  const queryKey = libraryQueryKey(profileId)
   const supported = item.type === "movie" || item.type === "series"
   const existing = library.data?.items.find(
     (saved) => saved.type === item.type && saved.id === item.id,
@@ -44,7 +45,35 @@ export function useLibraryToggle(profileId: string, item: CatalogItem | MetaItem
         )
       }
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: libraryQueryKey(profileId) }),
+    onMutate: async () => {
+      await queryClient.cancelQueries({ queryKey })
+      const previous = queryClient.getQueryData<{ items: LibraryItem[] }>(queryKey)
+      if (previous) {
+        const nextItems = existing
+          ? previous.items.filter((saved) => saved.id !== existing.id || saved.type !== existing.type)
+          : [
+              {
+                id: item.id,
+                type: item.type as LibraryItem["type"],
+                name: item.name,
+                poster: item.poster,
+                background: item.background,
+                description: item.description,
+                releaseInfo: "releaseInfo" in item ? item.releaseInfo : undefined,
+                runtime: "runtime" in item ? item.runtime : undefined,
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+              },
+              ...previous.items,
+            ]
+        queryClient.setQueryData(queryKey, { ...previous, items: nextItems })
+      }
+      return { previous }
+    },
+    onError: (_error, _variables, context) => {
+      if (context?.previous) queryClient.setQueryData(queryKey, context.previous)
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey }),
   })
 
   return {
@@ -53,5 +82,6 @@ export function useLibraryToggle(profileId: string, item: CatalogItem | MetaItem
     loading: library.isLoading || mutation.isPending,
     error: mutation.error,
     toggle: mutation.mutate,
+    toggleAsync: mutation.mutateAsync,
   }
 }

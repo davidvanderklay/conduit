@@ -31,14 +31,20 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Velocity
 import coil3.compose.AsyncImage
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -49,6 +55,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.booleanOrNull
 import media.conduit.mobile.account.*
 import media.conduit.mobile.foundation.*
+import kotlin.math.min
 
 private val VideoItem.displayTitle: String
     get() = title?.takeIf(String::isNotBlank)
@@ -449,6 +456,36 @@ private fun typeLabel(type: String): String = when (type.lowercase()) {
     else -> type.replaceFirstChar(Char::uppercase)
 }
 
+private class HeroOverscrollConnection(
+    private val atTop: () -> Boolean,
+    private val maxPullPx: Float,
+    private val pull: MutableFloatState,
+) : NestedScrollConnection {
+    override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+        if (available.y >= 0f || pull.floatValue <= 0f) return Offset.Zero
+        val consumed = min(-available.y, pull.floatValue)
+        pull.floatValue -= consumed
+        return Offset(0f, -consumed)
+    }
+
+    override fun onPostScroll(
+        consumed: Offset,
+        available: Offset,
+        source: NestedScrollSource,
+    ): Offset {
+        if (available.y <= 0f || !atTop()) return Offset.Zero
+        val consumedY = min(available.y, maxPullPx - pull.floatValue)
+        if (consumedY <= 0f) return Offset.Zero
+        pull.floatValue += consumedY
+        return Offset(0f, consumedY)
+    }
+
+    override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
+        pull.floatValue = 0f
+        return Velocity.Zero
+    }
+}
+
 @Composable
 private fun MetadataCreditLinks(
     label: String,
@@ -504,6 +541,19 @@ internal fun MediaDetailsScreen(
     var currentAddonName by remember(item.id) { mutableStateOf<String?>(null) }
     var externalSubtitles by remember(item.id) { mutableStateOf<List<SubtitleItem>>(emptyList()) }
     var selectedSeason by remember(item.id) { mutableStateOf<Int?>(null) }
+    val detailsListState = rememberLazyListState()
+    val heroPull = remember { mutableFloatStateOf(0f) }
+    val maxHeroPullPx = with(LocalDensity.current) { 128.dp.toPx() }
+    val heroPullConnection = remember(detailsListState, maxHeroPullPx) {
+        HeroOverscrollConnection(
+            atTop = {
+                detailsListState.firstVisibleItemIndex == 0 &&
+                    detailsListState.firstVisibleItemScrollOffset == 0
+            },
+            maxPullPx = maxHeroPullPx,
+            pull = heroPull,
+        )
+    }
     val detailsSeasonListState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val uriHandler = LocalUriHandler.current
@@ -537,12 +587,12 @@ internal fun MediaDetailsScreen(
             ?: profile?.let { runCatching { api.loadProgress(baseUrl, token, it.id, playingVideoId) }.getOrNull()?.takeUnless { progress -> progress.watched }?.positionMs }
             ?: 0L
     }
-    suspend fun persistProgress() {
+    suspend fun persistProgress(state: PlaybackState = playback) {
         val activeProfile = profile ?: return
         val video = selectedVideo
         api.saveProgress(baseUrl, token, activeProfile.id, video?.id ?: item.id, item.type, item.id,
             meta?.name ?: item.name, meta?.poster ?: item.poster, video?.displayTitle, video?.season, video?.episode,
-            playback.positionMs, playback.durationMs)
+            state.positionMs, state.durationMs)
         onProgressChanged()
     }
     fun playNext(video: VideoItem) {
@@ -572,7 +622,11 @@ internal fun MediaDetailsScreen(
     }
     PlatformBackHandler {
         when {
-            playing != null -> scope.launch { runCatching { persistProgress() }; playing = null }
+            playing != null -> {
+                val playbackSnapshot = playback
+                playing = null
+                scope.launch { runCatching { persistProgress(playbackSnapshot) } }
+            }
             streamPageOpen -> { streamPageOpen = false; streams = null }
             else -> onBack()
         }
@@ -611,7 +665,14 @@ internal fun MediaDetailsScreen(
                     modifier = Modifier.matchParentSize(),
                 )
             }
-            if (playerControlsVisible) IconButton(onClick = { scope.launch { runCatching { persistProgress() }; playing = null } }, modifier = Modifier.statusBarsPadding().padding(12.dp).background(Color.Black.copy(.55f), CircleShape).align(Alignment.TopStart)) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = Color.White) }
+            if (playerControlsVisible) IconButton(
+                onClick = {
+                    val playbackSnapshot = playback
+                    playing = null
+                    scope.launch { runCatching { persistProgress(playbackSnapshot) } }
+                },
+                modifier = Modifier.statusBarsPadding().padding(12.dp).background(Color.Black.copy(.55f), CircleShape).align(Alignment.TopStart),
+            ) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = Color.White) }
             playback.error?.let { message -> Box(Modifier.matchParentSize().background(Color.Black.copy(.72f)).clickable(enabled = true, onClick = {}), contentAlignment = Alignment.Center) { Surface(color = Color(0xF21A1A1D), shape = RoundedCornerShape(18.dp), modifier = Modifier.padding(28.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(.45f))) { Column(Modifier.padding(22.dp), horizontalAlignment = Alignment.CenterHorizontally) { Icon(Icons.Rounded.ErrorOutline, null, tint = MaterialTheme.colorScheme.error); Spacer(Modifier.height(8.dp)); Text("Playback failed", color = Color.White, fontWeight = FontWeight.Bold); Text(message, color = Color.White.copy(.7f), style = MaterialTheme.typography.bodySmall); Spacer(Modifier.height(14.dp)); Button(onClick = { playing = null }) { Text("Choose another stream") } } } } }
             if (!episodesOpen && nextVideo != null && playback.durationMs > 0 && playback.durationMs - playback.positionMs in 1..30_000) {
                 Surface(Modifier.align(Alignment.BottomEnd).padding(end = 18.dp, bottom = 112.dp).widthIn(min = 300.dp, max = 365.dp), color = Color(0xE619191B), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, Color.White.copy(.16f)), shadowElevation = 18.dp) {
@@ -637,9 +698,14 @@ internal fun MediaDetailsScreen(
     val seriesProgress = snapshot?.progress.orEmpty().filter { it.mediaId == item.id && !it.watched }.maxByOrNull { it.updatedAt }
     val resumeVideo = details?.videos?.firstOrNull { it.id == seriesProgress?.videoId }
     LaunchedEffect(details?.id, resumeVideo?.season) { if (selectedSeason == null) selectedSeason = resumeVideo?.season ?: details?.videos?.firstOrNull()?.season }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
+    val heroPullDp = with(LocalDensity.current) { heroPull.floatValue.toDp() }
+    LazyColumn(
+        state = detailsListState,
+        modifier = Modifier.fillMaxSize().nestedScroll(heroPullConnection),
+        contentPadding = PaddingValues(bottom = 32.dp),
+    ) {
         item {
-            Box(Modifier.fillMaxWidth().height(if (item.type == "movie") 390.dp else 350.dp)) {
+            Box(Modifier.fillMaxWidth().height((if (item.type == "movie") 390.dp else 350.dp) + heroPullDp)) {
                 AsyncImage(
                     model = details?.background ?: item.background ?: details?.poster ?: item.poster,
                     contentDescription = item.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize(),
@@ -679,13 +745,20 @@ internal fun MediaDetailsScreen(
                 val saved = snapshot?.library.orEmpty().any { it.type == actionItem.type && it.id == actionItem.id }
                 val movieProgress = snapshot?.progress.orEmpty().firstOrNull { it.videoId == actionItem.id }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    OutlinedButton(
-                        onClick = { scope.launch { onMutation(ProfileMutation.SetLibrary(actionItem, !saved, details?.runtime)) } },
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Icon(if (saved) Icons.Rounded.BookmarkRemove else Icons.Rounded.BookmarkAdd, null)
-                        Spacer(Modifier.width(7.dp))
-                        Text(if (saved) "Remove" else "My library")
+                        OutlinedButton(
+                            onClick = { scope.launch { onMutation(ProfileMutation.SetLibrary(actionItem, !saved, details?.runtime)) } },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = if (saved) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                            ),
+                            border = BorderStroke(
+                                1.dp,
+                                if (saved) MaterialTheme.colorScheme.error.copy(alpha = .7f) else MaterialTheme.colorScheme.primary.copy(alpha = .7f),
+                            ),
+                        ) {
+                            Icon(if (saved) Icons.Rounded.BookmarkRemove else Icons.Rounded.BookmarkAdd, null)
+                            Spacer(Modifier.width(7.dp))
+                            Text(if (saved) "Remove from library" else "Add to library")
                     }
                     if (actionItem.type == "movie") {
                         OutlinedButton(
@@ -781,11 +854,23 @@ private fun PlayerOpeningOverlay(artwork: String?, logo: String?, title: String,
     Box(modifier.background(Color.Black)) {
         artwork?.let { AsyncImage(model = it, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().scale(scale)) }
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Black.copy(.48f), Color.Black.copy(.72f), Color.Black.copy(.9f)))))
-        Column(Modifier.align(Alignment.Center).fillMaxWidth(.72f), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(18.dp)) {
-            if (!logo.isNullOrBlank()) AsyncImage(model = logo, contentDescription = title, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxWidth(.58f).heightIn(max = 92.dp).alpha(glow))
-            else Text(title, color = Color.White, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.alpha(glow))
-            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary, trackColor = Color.White.copy(.18f), strokeWidth = 3.dp, modifier = Modifier.size(34.dp))
-            Text("Preparing playback…", color = Color.White.copy(.72f), style = MaterialTheme.typography.labelLarge)
+        Surface(
+            modifier = Modifier.align(Alignment.Center).fillMaxWidth(.72f),
+            color = Color.Black.copy(alpha = .82f),
+            shape = RoundedCornerShape(18.dp),
+            border = BorderStroke(1.dp, Color.White.copy(alpha = .2f)),
+            shadowElevation = 14.dp,
+        ) {
+            Column(
+                Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(18.dp),
+            ) {
+                if (!logo.isNullOrBlank()) AsyncImage(model = logo, contentDescription = title, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxWidth(.72f).heightIn(max = 92.dp).alpha(glow))
+                else Text(title, color = Color.White, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.alpha(glow))
+                CircularProgressIndicator(color = MaterialTheme.colorScheme.primary, trackColor = Color.White.copy(.18f), strokeWidth = 3.dp, modifier = Modifier.size(34.dp))
+                Text("Preparing playback…", color = Color.White.copy(.72f), style = MaterialTheme.typography.labelLarge)
+            }
         }
     }
 }
@@ -831,9 +916,33 @@ private fun StreamSelectionScreen(
     onSelect: (StreamSource) -> Unit,
 ) {
     val listState = rememberLazyListState()
+    val heroPull = remember { mutableFloatStateOf(0f) }
+    val maxHeroPullPx = with(LocalDensity.current) { 112.dp.toPx() }
+    val heroPullConnection = remember(listState, maxHeroPullPx) {
+        HeroOverscrollConnection(
+            atTop = {
+                listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0
+            },
+            maxPullPx = maxHeroPullPx,
+            pull = heroPull,
+        )
+    }
+    val heroPullDp = with(LocalDensity.current) { heroPull.floatValue.toDp() }
     val collapsed by remember { derivedStateOf { listState.firstVisibleItemIndex > 0 } }
-    LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        artwork?.let { image -> item(key = "artwork") { Box(Modifier.fillMaxWidth().height(170.dp)) { AsyncImage(image, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop); Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Black.copy(.08f), MaterialTheme.colorScheme.background)))) } } }
+    LazyColumn(
+        state = listState,
+        modifier = Modifier.fillMaxSize().nestedScroll(heroPullConnection),
+        contentPadding = PaddingValues(bottom = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        artwork?.let { image ->
+            item(key = "artwork") {
+                Box(Modifier.fillMaxWidth().height(170.dp + heroPullDp)) {
+                    AsyncImage(image, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Black.copy(.08f), MaterialTheme.colorScheme.background))))
+                }
+            }
+        }
         stickyHeader(key = "stream-header") {
             Surface(color = MaterialTheme.colorScheme.background.copy(alpha = .96f), shadowElevation = if (collapsed) 8.dp else 0.dp) {
                 Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 8.dp, vertical = if (collapsed) 4.dp else 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -893,10 +1002,10 @@ internal fun ProfileSettingsScreen(
         ProfileRoute.Content -> return ContentSettingsScreen({ route = ProfileRoute.Settings }, { route = ProfileRoute.Addons }, modifier)
         ProfileRoute.Playback -> return PlaybackSettingsScreen(platform, preferences, onPreferencesChanged, { route = ProfileRoute.Settings }, modifier)
         ProfileRoute.Advanced -> return AdvancedSettingsScreen(preferences, onPreferencesChanged, { route = ProfileRoute.Settings }, { route = ProfileRoute.Diagnostics }, modifier)
-        ProfileRoute.Integrations -> return InformationalSettingsScreen("Integrations", "Connected services", listOf("Conduit currently uses your installed Stremio add-ons directly.", "Trakt, debrid, and metadata-service connections will appear here only when their credential storage and synchronization flows are implemented."), { route = ProfileRoute.Settings }, modifier)
-        ProfileRoute.Supporters -> return InformationalSettingsScreen("Supporters & contributors", "Conduit is open source", listOf("Contributors are acknowledged through the project repository.", "https://github.com/davidvanderklay/conduit", "A server-funding goal will appear here once a verified funding source is configured."), { route = ProfileRoute.Settings }, modifier)
-        ProfileRoute.Privacy -> return InformationalSettingsScreen("Privacy policy", "Your server, your data", listOf("Conduit stores account, profile, library, and viewing data on the server you choose.", "https://github.com/davidvanderklay/conduit#data-and-privacy-model"), { route = ProfileRoute.Settings }, modifier)
-        ProfileRoute.Licenses -> return InformationalSettingsScreen("Licenses & attribution", "Open-source software", listOf("Conduit — MIT License", "AndroidX Media3 — Apache License 2.0", "Ktor — Apache License 2.0", "Compose Multiplatform — Apache License 2.0", "Coil — Apache License 2.0", "https://github.com/davidvanderklay/conduit/blob/main/THIRD_PARTY_NOTICES.md"), { route = ProfileRoute.Settings }, modifier)
+        ProfileRoute.Integrations -> return InformationalSettingsScreen("Integrations", "Connected services", listOf("conduit currently uses your installed Stremio add-ons directly.", "Trakt, debrid, and metadata-service connections will appear here only when their credential storage and synchronization flows are implemented."), { route = ProfileRoute.Settings }, modifier)
+        ProfileRoute.Supporters -> return InformationalSettingsScreen("Supporters & contributors", "conduit is open source", listOf("Contributors are acknowledged through the project repository.", "https://github.com/davidvanderklay/conduit", "A server-funding goal will appear here once a verified funding source is configured."), { route = ProfileRoute.Settings }, modifier)
+        ProfileRoute.Privacy -> return InformationalSettingsScreen("Privacy policy", "Your server, your data", listOf("conduit stores account, profile, library, and viewing data on the server you choose.", "https://github.com/davidvanderklay/conduit#data-and-privacy-model"), { route = ProfileRoute.Settings }, modifier)
+        ProfileRoute.Licenses -> return InformationalSettingsScreen("Licenses & attribution", "Open-source software", listOf("conduit - MIT License", "AndroidX Media3 - Apache License 2.0", "Ktor - Apache License 2.0", "Compose Multiplatform - Apache License 2.0", "Coil - Apache License 2.0", "https://github.com/davidvanderklay/conduit/blob/main/THIRD_PARTY_NOTICES.md"), { route = ProfileRoute.Settings }, modifier)
         ProfileRoute.Diagnostics -> return InformationalSettingsScreen("Debug information", "${platform.name} ${platform.version}", listOf("Device: ${platform.device}", "Server: ${state.endpoint?.baseUrl}", "Profile: ${activeProfile?.name ?: "None"}", "Add-ons: ${profileSync.snapshot?.addons?.size ?: 0}", "Debug logging: ${if (preferences.debugLogging) "enabled" else "disabled"}"), { route = ProfileRoute.Advanced }, modifier)
         ProfileRoute.Settings -> Unit
     }
@@ -1038,7 +1147,7 @@ private fun AccountSettingsScreen(state: AppState, account: AccountStatus.Signed
     LaunchedEffect(account.session.token) { methods = runCatching { api.authenticationMethods(state.endpoint!!.baseUrl, account.session.token) }.getOrElse { message = it.message; null } }
     SettingsPage("Account", onBack, modifier) {
         SettingsGroup("STATUS") {
-            ListItem(headlineContent = { Text("Signed in", fontWeight = FontWeight.SemiBold) }, supportingContent = { Text(account.bootstrap.user?.email ?: "Conduit account") }, leadingContent = { Icon(Icons.Rounded.VerifiedUser, null, tint = Color(0xFF34D399)) }, colors = ListItemDefaults.colors(containerColor = Color.Transparent))
+            ListItem(headlineContent = { Text("Signed in", fontWeight = FontWeight.SemiBold) }, supportingContent = { Text(account.bootstrap.user?.email ?: "conduit account") }, leadingContent = { Icon(Icons.Rounded.VerifiedUser, null, tint = Color(0xFF34D399)) }, colors = ListItemDefaults.colors(containerColor = Color.Transparent))
             HorizontalDivider(color = Color.White.copy(.06f))
             ListItem(headlineContent = { Text("Server") }, supportingContent = { Text(state.endpoint?.baseUrl.orEmpty(), maxLines = 1, overflow = TextOverflow.Ellipsis) }, colors = ListItemDefaults.colors(containerColor = Color.Transparent))
         }
@@ -1065,7 +1174,7 @@ private fun AppearanceSettingsScreen(preferences: DevicePreferences, update: (De
     var showNavigation by remember { mutableStateOf(false) }
     SettingsPage("Appearance & layout", onBack, modifier) {
         SettingsGroup("THEME") {
-            ListItem(headlineContent = { Text("Theme") }, supportingContent = { Text("Conduit dark") }, leadingContent = { Icon(Icons.Rounded.DarkMode, null) }, colors = ListItemDefaults.colors(containerColor = Color.Transparent))
+            ListItem(headlineContent = { Text("Theme") }, supportingContent = { Text("conduit dark") }, leadingContent = { Icon(Icons.Rounded.DarkMode, null) }, colors = ListItemDefaults.colors(containerColor = Color.Transparent))
             SettingsToggle("AMOLED black", "Use pure black backgrounds on OLED displays", preferences.amoledBlack) { update(preferences.copy(amoledBlack = it)) }
             SettingsToggle("Reduce animations", "Use simpler transitions and motion", preferences.reduceAnimations) { update(preferences.copy(reduceAnimations = it)) }
         }
