@@ -6,6 +6,7 @@ import io.ktor.client.engine.mock.respond
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.HttpMethod
 import io.ktor.http.headersOf
 import io.ktor.serialization.kotlinx.json.json
 import kotlin.test.Test
@@ -155,7 +156,7 @@ class ConduitApiTest {
 
         val fresh = repository.synchronize("https://conduit.example", "token", "p1")
         assertEquals("A Movie", fresh.snapshot?.library?.single()?.name)
-        assertEquals(setOf("history", "continue"), requestedProgressViews)
+        assertEquals(setOf("status", "history", "continue"), requestedProgressViews)
         assertTrue(fresh.offline.not())
 
         online = false
@@ -196,6 +197,44 @@ class ConduitApiTest {
         assertEquals(listOf("/configured/catalog/movie/popular.json", "/configured/catalog/series/popular.json"), requested)
         assertEquals("A Movie", result.catalogs.single().items.single().name)
         assertEquals(1, result.failedRequests)
+    }
+
+    @Test
+    fun profileMutationsUseExistingLibraryAndProgressRoutes() = runTest {
+        val requests = mutableListOf<Pair<HttpMethod, String>>()
+        val engine = MockEngine { request ->
+            requests += request.method to request.url.encodedPath
+            val body = when (request.method) {
+                HttpMethod.Put -> if (request.url.encodedPath.contains("/library/")) {
+                    """{"item":{"id":"movie","type":"movie","name":"Movie","updatedAt":"2026-08-09T00:00:00Z"}}"""
+                } else {
+                    """{"item":{"videoId":"movie","mediaType":"movie","mediaId":"movie","name":"Movie","positionMs":0,"durationMs":0,"watched":true,"updatedAt":"2026-08-09T00:00:00Z"}}"""
+                }
+                HttpMethod.Patch ->
+                    """{"item":{"videoId":"movie","mediaType":"movie","mediaId":"movie","name":"Movie","positionMs":0,"durationMs":0,"watched":true,"updatedAt":"2026-08-09T00:00:00Z"}}"""
+                HttpMethod.Delete -> ""
+                else -> error("Unexpected method ${request.method}")
+            }
+            respond(body, if (request.method == HttpMethod.Delete) HttpStatusCode.NoContent else HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "application/json"))
+        }
+        val api = ConduitApi(HttpClient(engine) { install(ContentNegotiation) { json() } })
+        val item = CatalogItem("movie", "movie", "Movie")
+        val progress = ProgressSummary("movie", "movie", "movie", "Movie", positionMs = 1, durationMs = 2, watched = false, updatedAt = "2026-01-01")
+
+        api.saveLibraryItem("https://conduit.example", "token", "p1", item)
+        api.setProgressWatched("https://conduit.example", "token", "p1", progress, item, null, true)
+        api.setProgressDismissed("https://conduit.example", "token", "p1", "movie", true)
+        api.deleteProgress("https://conduit.example", "token", "p1", "movie")
+
+        assertEquals(
+            listOf(
+                HttpMethod.Put to "/v1/profiles/p1/library/movie/movie",
+                HttpMethod.Patch to "/v1/profiles/p1/progress/movie",
+                HttpMethod.Patch to "/v1/profiles/p1/progress/movie",
+                HttpMethod.Delete to "/v1/profiles/p1/progress/movie",
+            ),
+            requests,
+        )
     }
 
     @Test

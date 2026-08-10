@@ -5,6 +5,7 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
@@ -58,12 +59,17 @@ private val VideoItem.displayTitle: String
 @Composable
 internal fun MobileLibraryScreen(
     snapshot: ProfileSnapshot?,
+    api: ConduitApi,
+    onMutation: suspend (ProfileMutation) -> Result<Unit>,
     onSelect: (CatalogItem) -> Unit,
+    onSelectVideo: (CatalogItem, String?) -> Unit,
     gridState: androidx.compose.foundation.lazy.grid.LazyGridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState(),
     modifier: Modifier = Modifier,
 ) {
     var filter by remember { mutableStateOf("all") }
     var sortNewest by remember { mutableStateOf(true) }
+    var actionTarget by remember { mutableStateOf<MediaActionTarget?>(null) }
+    val metadataCache = rememberWatchMetadataCache(api, snapshot?.addons.orEmpty())
     val items = snapshot?.library.orEmpty()
         .filter { filter == "all" || it.type == filter }
         .let { if (sortNewest) it.sortedByDescending(LibraryItemSummary::updatedAt) else it.sortedBy(LibraryItemSummary::name) }
@@ -97,19 +103,35 @@ internal fun MobileLibraryScreen(
                 verticalArrangement = Arrangement.spacedBy(20.dp),
             ) {
                 items(items, key = { "${it.type}:${it.id}" }) { item ->
-                    MediaPoster(item.name, item.poster, item.type) {
-                        onSelect(CatalogItem(item.id, item.type, item.name, poster = item.poster))
-                    }
+                    val catalogItem = item.asCatalogItem()
+                    RichPosterCard(
+                        item = catalogItem,
+                        caption = item.type,
+                        snapshot = snapshot,
+                        metadataCache = metadataCache,
+                        onClick = { onSelect(catalogItem) },
+                        onActions = { actionTarget = MediaActionTarget(catalogItem, MediaActionContext.Library, latestProgress(snapshot, catalogItem)) },
+                    )
                 }
             }
         }
     }
+    MediaActionSheet(
+        target = actionTarget,
+        snapshot = snapshot,
+        onDismiss = { actionTarget = null },
+        onPlay = { onSelectVideo(it.item, it.progress?.videoId) },
+        onDetails = onSelect,
+        onMutation = onMutation,
+    )
 }
 
 @Composable
 internal fun SearchDiscoverScreen(
     addons: List<InstalledAddonSummary>,
     api: ConduitApi,
+    snapshot: ProfileSnapshot?,
+    onMutation: suspend (ProfileMutation) -> Result<Unit>,
     onSelect: (CatalogItem) -> Unit,
     listState: androidx.compose.foundation.lazy.LazyListState = rememberLazyListState(),
     modifier: Modifier = Modifier,
@@ -118,6 +140,8 @@ internal fun SearchDiscoverScreen(
     var results by remember(addons) { mutableStateOf<List<HomeCatalog>>(emptyList()) }
     var discover by remember(addons) { mutableStateOf<List<HomeCatalog>>(emptyList()) }
     var loading by remember { mutableStateOf(false) }
+    var actionTarget by remember { mutableStateOf<MediaActionTarget?>(null) }
+    val metadataCache = rememberWatchMetadataCache(api, addons)
     LaunchedEffect(addons) {
         discover = runCatching { api.loadHomeCatalogs(addons).catalogs }.getOrDefault(emptyList())
     }
@@ -172,27 +196,32 @@ internal fun SearchDiscoverScreen(
                 item(key = "search-rail-${catalog.key}-$query") {
                     LazyRow(contentPadding = PaddingValues(horizontal = 10.dp), horizontalArrangement = Arrangement.spacedBy(11.dp)) {
                         items(catalog.items, key = { "${catalog.key}:${it.type}:${it.id}" }) { item ->
-                            Box(Modifier.width(132.dp)) { MediaPoster(item.name, item.poster, item.releaseInfo ?: item.type) { onSelect(item) } }
+                            RichPosterCard(
+                                item = item,
+                                caption = item.releaseInfo ?: item.type,
+                                snapshot = snapshot,
+                                metadataCache = metadataCache,
+                                onClick = { onSelect(item) },
+                                onActions = { actionTarget = MediaActionTarget(item, MediaActionContext.Browse, latestProgress(snapshot, item)) },
+                                modifier = Modifier.width(132.dp),
+                            )
                         }
                     }
                 }
             }
         }
     }
+    MediaActionSheet(
+        target = actionTarget,
+        snapshot = snapshot,
+        onDismiss = { actionTarget = null },
+        onPlay = { onSelect(it.item) },
+        onDetails = onSelect,
+        onMutation = onMutation,
+    )
 }
 
-@Composable
-private fun MediaPoster(name: String, poster: String?, caption: String, onClick: () -> Unit) {
-    Column(Modifier.clickable(onClick = onClick), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-        AsyncImage(
-            model = poster, contentDescription = name, contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceVariant),
-        )
-        Text(name, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-        Text(caption.replaceFirstChar(Char::uppercase), maxLines = 1, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
-    }
-}
-
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun MediaDetailsScreen(
     item: CatalogItem,
@@ -205,6 +234,7 @@ internal fun MediaDetailsScreen(
     token: String,
     preferences: DevicePreferences,
     onProgressChanged: () -> Unit,
+    onMutation: suspend (ProfileMutation) -> Result<Unit>,
     onBack: () -> Unit,
 ) {
     var meta by remember(item.id, item.type) { mutableStateOf<MetaItem?>(null) }
@@ -223,6 +253,8 @@ internal fun MediaDetailsScreen(
     var selectedSeason by remember(item.id) { mutableStateOf<Int?>(null) }
     val detailsSeasonListState = rememberLazyListState()
     val scope = rememberCoroutineScope()
+    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
+    var actionTarget by remember(item.id) { mutableStateOf<MediaActionTarget?>(null) }
     LaunchedEffect(item.id, item.type, addons) {
         runCatching { api.loadMeta(addons, item.type, item.id) }
             .onSuccess {
@@ -347,6 +379,7 @@ internal fun MediaDetailsScreen(
     }
 
     val details = meta
+    val actionItem = details?.asCatalogItem() ?: item
     val seriesProgress = snapshot?.progress.orEmpty().filter { it.mediaId == item.id && !it.watched }.maxByOrNull { it.updatedAt }
     val resumeVideo = details?.videos?.firstOrNull { it.id == seriesProgress?.videoId }
     LaunchedEffect(details?.id, resumeVideo?.season) { if (selectedSeason == null) selectedSeason = resumeVideo?.season ?: details?.videos?.firstOrNull()?.season }
@@ -377,6 +410,28 @@ internal fun MediaDetailsScreen(
                 Button(onClick = { val target = resumeVideo ?: selectedVideo; selectedVideo = target; requestStreams(target) }, modifier = Modifier.fillMaxWidth().height(54.dp)) {
                     Icon(Icons.Rounded.PlayArrow, null); Spacer(Modifier.width(8.dp)); Text(if (resumeVideo != null) "Resume S${resumeVideo.season ?: 0}E${resumeVideo.episode ?: 0}" else "Play")
                 }
+                val saved = snapshot?.library.orEmpty().any { it.type == actionItem.type && it.id == actionItem.id }
+                val movieProgress = snapshot?.progress.orEmpty().firstOrNull { it.videoId == actionItem.id }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedButton(
+                        onClick = { scope.launch { onMutation(ProfileMutation.SetLibrary(actionItem, !saved, details?.runtime)) } },
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Icon(if (saved) Icons.Rounded.BookmarkRemove else Icons.Rounded.BookmarkAdd, null)
+                        Spacer(Modifier.width(7.dp))
+                        Text(if (saved) "Remove" else "My library")
+                    }
+                    if (actionItem.type == "movie") {
+                        OutlinedButton(
+                            onClick = { scope.launch { onMutation(ProfileMutation.SetWatched(actionItem, movieProgress, watched = movieProgress?.watched != true)) } },
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Icon(if (movieProgress?.watched == true) Icons.Rounded.Replay else Icons.Rounded.Check, null)
+                            Spacer(Modifier.width(7.dp))
+                            Text(if (movieProgress?.watched == true) "Unwatch" else "Watched")
+                        }
+                    }
+                }
                 details?.genres?.takeIf { it.isNotEmpty() }?.let { genres ->
                     Text(genres.joinToString("  ·  "), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
                 }
@@ -398,7 +453,19 @@ internal fun MediaDetailsScreen(
                     LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         items(videos.filter { it.season == selectedSeason }, key = VideoItem::id) { video ->
                             val progress = snapshot?.progress?.firstOrNull { it.videoId == video.id }
-                            Surface(onClick = { selectedVideo = video; requestStreams(video) }, modifier = Modifier.width(260.dp), shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceVariant.copy(.65f)) {
+                            Surface(
+                                modifier = Modifier.width(260.dp).combinedClickable(
+                                    onClickLabel = "Play ${video.displayTitle}",
+                                    onLongClickLabel = "More actions for ${video.displayTitle}",
+                                    onClick = { selectedVideo = video; requestStreams(video) },
+                                    onLongClick = {
+                                        haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                        actionTarget = MediaActionTarget(actionItem, MediaActionContext.Episode, progress, video)
+                                    },
+                                ),
+                                shape = RoundedCornerShape(16.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(.65f),
+                            ) {
                                 Column { Box { AsyncImage(video.thumbnail ?: details.background, null, Modifier.fillMaxWidth().height(142.dp), contentScale = ContentScale.Crop); Surface(Modifier.padding(8.dp), color = Color.Black.copy(.65f), shape = RoundedCornerShape(8.dp)) { Text("S${video.season ?: 0}E${video.episode ?: 0}", color = Color.White, modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp), style = MaterialTheme.typography.labelSmall) } }; Column(Modifier.padding(12.dp)) { Text(video.displayTitle, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis); (video.overview ?: video.description)?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall) }; if (progress != null && progress.durationMs > 0) LinearProgressIndicator({ progress.positionMs.toFloat() / progress.durationMs }, Modifier.fillMaxWidth().padding(top = 8.dp), color = MaterialTheme.colorScheme.primary) } }
                             }
                         }
@@ -407,6 +474,17 @@ internal fun MediaDetailsScreen(
             }
         }
     }
+    MediaActionSheet(
+        target = actionTarget,
+        snapshot = snapshot,
+        onDismiss = { actionTarget = null },
+        onPlay = { target ->
+            selectedVideo = target.video
+            requestStreams(target.video)
+        },
+        onDetails = {},
+        onMutation = onMutation,
+    )
 }
 
 @Composable
@@ -507,6 +585,8 @@ internal fun ProfileSettingsScreen(
     onProfilesChanged: (String?) -> Unit,
     onProfileFlowChanged: (Boolean) -> Unit,
     onProfileDataChanged: () -> Unit,
+    onProfileMutation: suspend (ProfileMutation) -> Result<Unit>,
+    onSelectMedia: (CatalogItem, String?) -> Unit,
     preferences: DevicePreferences,
     onPreferencesChanged: (DevicePreferences) -> Unit,
     settingsListState: androidx.compose.foundation.lazy.LazyListState = rememberLazyListState(),
@@ -521,6 +601,7 @@ internal fun ProfileSettingsScreen(
         ProfileRoute.Create -> return ProfileEditorScreen(null, activeProfile, api, state, account, { route = ProfileRoute.Switcher }, onProfilesChanged, modifier)
         is ProfileRoute.Edit -> return ProfileEditorScreen(current.profile, activeProfile, api, state, account, { route = ProfileRoute.Overview }, onProfilesChanged, modifier)
         ProfileRoute.Addons -> return AddonManagerScreen(activeProfile, profileSync.snapshot?.addons.orEmpty(), api, state, account, { route = ProfileRoute.Settings }, onProfileDataChanged, modifier)
+        ProfileRoute.History -> return WatchHistoryScreen(profileSync.snapshot, { route = ProfileRoute.Settings }, onSelectMedia, onProfileMutation, modifier)
         ProfileRoute.Account -> return AccountSettingsScreen(state, account, api, onSignOut, { route = ProfileRoute.Settings }, modifier)
         ProfileRoute.Appearance -> return AppearanceSettingsScreen(preferences, onPreferencesChanged, { route = ProfileRoute.Settings }, modifier)
         ProfileRoute.Content -> return ContentSettingsScreen({ route = ProfileRoute.Settings }, { route = ProfileRoute.Addons }, modifier)
@@ -539,6 +620,7 @@ internal fun ProfileSettingsScreen(
             SettingEntry("Account", "Sign-in, security, and recovery", Icons.Rounded.Person),
         )),
         SettingSection("General", listOf(
+            SettingEntry("Watch history", "Recent movies and episodes", Icons.Rounded.History),
             SettingEntry("Appearance & layout", "Theme, language, and navigation", Icons.Rounded.Tune),
             SettingEntry("Content & discovery", "Add-ons, catalogs, and search", Icons.Rounded.Explore),
             SettingEntry("Playback", "Player, subtitles, and behavior", Icons.Rounded.PlayCircle),
@@ -600,6 +682,7 @@ internal fun ProfileSettingsScreen(
                     modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable { when (entry.title) {
                         "Profile" -> route = ProfileRoute.Overview
                         "Account" -> route = ProfileRoute.Account
+                        "Watch history" -> route = ProfileRoute.History
                         "Appearance & layout" -> route = ProfileRoute.Appearance
                         "Content & discovery" -> route = ProfileRoute.Content
                         "Playback" -> route = ProfileRoute.Playback
@@ -763,6 +846,7 @@ private sealed interface ProfileRoute {
     data object Switcher : ProfileRoute
     data object Create : ProfileRoute
     data object Addons : ProfileRoute
+    data object History : ProfileRoute
     data object Account : ProfileRoute
     data object Appearance : ProfileRoute
     data object Content : ProfileRoute
@@ -774,6 +858,51 @@ private sealed interface ProfileRoute {
     data object Licenses : ProfileRoute
     data object Diagnostics : ProfileRoute
     data class Edit(val profile: ProfileSummary) : ProfileRoute
+}
+
+@Composable
+private fun WatchHistoryScreen(
+    snapshot: ProfileSnapshot?,
+    onBack: () -> Unit,
+    onSelect: (CatalogItem, String?) -> Unit,
+    onMutation: suspend (ProfileMutation) -> Result<Unit>,
+    modifier: Modifier,
+) {
+    var actionTarget by remember { mutableStateOf<MediaActionTarget?>(null) }
+    val history = snapshot?.history.orEmpty()
+    Column(modifier.fillMaxSize()) {
+        ProfileHeader("Watch history", onBack)
+        when {
+            snapshot == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+            history.isEmpty() -> Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
+                Text("Nothing watched yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            else -> LazyVerticalGrid(
+                columns = GridCells.Adaptive(170.dp),
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(20.dp),
+            ) {
+                items(history, key = ProgressSummary::videoId) { progress ->
+                    val item = CatalogItem(progress.mediaId, progress.mediaType, progress.name, poster = progress.poster)
+                    RichProgressCard(
+                        progress = progress,
+                        onClick = { onSelect(item, progress.videoId) },
+                        onActions = { actionTarget = MediaActionTarget(item, MediaActionContext.History, progress) },
+                    )
+                }
+            }
+        }
+    }
+    MediaActionSheet(
+        target = actionTarget,
+        snapshot = snapshot,
+        onDismiss = { actionTarget = null },
+        onPlay = { onSelect(it.item, it.progress?.videoId) },
+        onDetails = { onSelect(it, null) },
+        onMutation = onMutation,
+    )
 }
 
 @Composable
