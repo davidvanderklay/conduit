@@ -576,11 +576,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          release_id="$(gh release list \
+          release_id="$(gh api \
             --repo "$GITHUB_REPOSITORY" \
-            --limit 100 \
-            --json tagName,databaseId \
-            --jq ".[] | select(.tagName == \"$RELEASE_TAG\") | .databaseId" | head -n 1)"
+            --paginate \
+            "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --jq ".[] | select(.tag_name == \"$RELEASE_TAG\") | .id" | head -n 1)"
           test -n "$release_id"
           mkdir -p downloaded
           shopt -s nullglob
@@ -616,11 +616,11 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          release_id="$(gh release list \
+          release_id="$(gh api \
             --repo "$GITHUB_REPOSITORY" \
-            --limit 100 \
-            --json tagName,databaseId \
-            --jq ".[] | select(.tagName == \"$RELEASE_TAG\") | .databaseId" | head -n 1)"
+            --paginate \
+            "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --jq ".[] | select(.tag_name == \"$RELEASE_TAG\") | .id" | head -n 1)"
           test -n "$release_id"
           gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$release_id" -F draft=false
 
