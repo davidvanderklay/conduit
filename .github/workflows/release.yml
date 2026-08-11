@@ -518,7 +518,7 @@ jobs:
         with:
           generate_release_notes: true
           prerelease: ${{ contains(github.ref_name, '-') }}
-          draft: true
+          draft: false
           files: release-files/*
       - name: Upload DMGs with GitHub CLI
         env:
@@ -602,25 +602,6 @@ jobs:
             hdiutil imageinfo "$downloaded_dmg"
             hdiutil verify "$downloaded_dmg"
           done
-
-  finalize-release:
-    name: Publish verified GitHub release
-    if: needs.publish.result == 'success' && needs.verify-macos-release.result == 'success'
-    needs: [publish, verify-macos-release]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Publish the verified draft
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.ref_name }}
-        run: |
-          set -euo pipefail
-          release_id="$(gh api \
-            --paginate \
-            "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
-            --jq ".[] | select(.tag_name == \"$RELEASE_TAG\") | .id" | head -n 1)"
-          test -n "$release_id"
-          gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$release_id" -F draft=false
 
   publish-flatpak-repository:
     name: Publish Flatpak repository
