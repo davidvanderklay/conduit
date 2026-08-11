@@ -226,6 +226,8 @@ private fun AccountGate(
                     }
                 }
             },
+            serverNotice = state.notice,
+            onDismissServerNotice = { dispatch(AppAction.DismissNotice) },
             serverError = state.setupError,
             serverPending = state.pendingEndpoint != null,
             onConnectServer = { rawUrl ->
@@ -394,6 +396,8 @@ private fun SignInScreen(
     onRegister: (String, String) -> Unit,
     onRecover: (String, String, String) -> Unit,
     onOAuth: () -> Unit,
+    serverNotice: String?,
+    onDismissServerNotice: () -> Unit,
     serverError: String?,
     serverPending: Boolean,
     onConnectServer: (String) -> Unit,
@@ -406,10 +410,20 @@ private fun SignInScreen(
     var recovering by remember { mutableStateOf(false) }
     var recoveryCode by remember { mutableStateOf("") }
     var showServerDialog by remember { mutableStateOf(false) }
+    val serverSnackbar = remember { SnackbarHostState() }
     var useDefault by remember(endpoint.baseUrl) { mutableStateOf(endpoint == DefaultServerEndpoint) }
     var customServer by remember(endpoint.baseUrl) { mutableStateOf(if (endpoint == DefaultServerEndpoint) "" else endpoint.baseUrl) }
     LaunchedEffect(authentication.needsOwner) {
         if (authentication.needsOwner) registering = true
+    }
+    LaunchedEffect(endpoint.baseUrl) {
+        showServerDialog = false
+    }
+    LaunchedEffect(serverNotice) {
+        val notice = serverNotice ?: return@LaunchedEffect
+        showServerDialog = false
+        serverSnackbar.showSnackbar(notice)
+        onDismissServerNotice()
     }
     Box(Modifier.fillMaxSize().background(Brush.radialGradient(listOf(MaterialTheme.colorScheme.primary.copy(.09f), MaterialTheme.colorScheme.background), radius = 900f)), contentAlignment = Alignment.Center) {
         Column(Modifier.safeContentPadding().verticalScroll(rememberScrollState()).widthIn(max = 460.dp).fillMaxWidth().padding(horizontal = 20.dp, vertical = 28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -512,6 +526,10 @@ private fun SignInScreen(
               }
             }
           }
+        SnackbarHost(
+            hostState = serverSnackbar,
+            modifier = Modifier.align(Alignment.BottomCenter).safeContentPadding().padding(12.dp),
+        )
     }
 }
 
