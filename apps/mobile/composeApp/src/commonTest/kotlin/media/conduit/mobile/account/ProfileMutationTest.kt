@@ -15,6 +15,7 @@ class ProfileMutationTest {
         positionMs = 45_000,
         durationMs = 100_000,
         watched = false,
+        continueWatching = true,
         updatedAt = "2026-01-01",
     )
     private val snapshot = ProfileSnapshot(
@@ -32,7 +33,8 @@ class ProfileMutationTest {
 
         assertTrue(updated.progress.single().watched)
         assertTrue(updated.history.single().watched)
-        assertTrue(updated.continueWatching.isEmpty())
+        assertTrue(updated.continueWatching.single().watched)
+        assertTrue(updated.continueWatching.single().continueWatching)
     }
 
     @Test

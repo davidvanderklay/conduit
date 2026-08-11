@@ -6,7 +6,12 @@ import type { RouteContext } from "./route-modules/context.js"
 import { rehashAddonInstallationUrls } from "./route-modules/helpers.js"
 import { registerLibraryRoutes } from "./route-modules/library-routes.js"
 import { registerProfileRoutes } from "./route-modules/profile-routes.js"
-import { filterContinueWatching, isPlaybackComplete, registerProgressRoutes } from "./route-modules/progress-routes.js"
+import {
+  filterContinueWatching,
+  isPlaybackComplete,
+  registerProgressRoutes,
+  shouldKeepContinueWatching,
+} from "./route-modules/progress-routes.js"
 
 export async function registerRoutes(app: FastifyInstance, context: RouteContext) {
   await rehashAddonInstallationUrls(context.db, context.config.addonEncryptionKey)
@@ -28,4 +33,4 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
   registerProgressRoutes(app, context)
 }
 
-export { filterContinueWatching, isPlaybackComplete }
+export { filterContinueWatching, isPlaybackComplete, shouldKeepContinueWatching }

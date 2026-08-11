@@ -137,6 +137,7 @@ data class ProgressSummary(
     val durationMs: Long,
     val watched: Boolean,
     val dismissed: Boolean = false,
+    val continueWatching: Boolean = false,
     val playbackSource: PlaybackSource? = null,
     val updatedAt: String,
 )
@@ -809,6 +810,7 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
         mediaType: String, mediaId: String, name: String, poster: String?,
         videoTitle: String?, season: Int?, episode: Int?, positionMs: Long, durationMs: Long,
         playbackSource: PlaybackSource? = null,
+        watched: Boolean? = null,
     ) {
         if (durationMs < 0) return
         val response = client.put("$baseUrl/v1/profiles/$profileId/progress/${videoId.encodeURLPathPart()}") {
@@ -817,6 +819,7 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
                 poster?.let { put("poster", it) }; videoTitle?.let { put("videoTitle", it) }
                 season?.let { put("season", it) }; episode?.let { put("episode", it) }
                 playbackSource?.let { put("playbackSource", addonJson.encodeToJsonElement(it)) }
+                watched?.let { put("watched", it) }
                 put("positionMs", positionMs.coerceAtLeast(0)); put("durationMs", durationMs.coerceAtLeast(0))
             })
         }

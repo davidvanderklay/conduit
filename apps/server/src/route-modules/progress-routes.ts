@@ -36,7 +36,6 @@ export function registerProgressRoutes(app: FastifyInstance, context: RouteConte
       }
       if (!(await canAccessProfile(db, user.id, profileId))) return reply.forbidden()
 
-      const staleAfter = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
       const rows =
         view === "continue"
           ? await db
@@ -47,7 +46,7 @@ export function registerProgressRoutes(app: FastifyInstance, context: RouteConte
                   eq(watchProgress.profileId, profileId),
                   notLike(watchProgress.videoId, `${LEGACY_COMPLETION_MARKER_PREFIX}%`),
                   eq(watchProgress.dismissed, false),
-                  sql`${watchProgress.updatedAt} >= ${staleAfter}`,
+                  eq(watchProgress.continueWatching, true),
                 ),
               )
               .orderBy(
@@ -134,6 +133,16 @@ export function registerProgressRoutes(app: FastifyInstance, context: RouteConte
       if (!(await canAccessProfile(db, user.id, profileId))) return reply.forbidden()
       const body = request.body as ProgressBody
       const watched = body.watched ?? isPlaybackComplete(body.positionMs, body.durationMs)
+      const [existing] = await db
+        .select({ continueWatching: watchProgress.continueWatching })
+        .from(watchProgress)
+        .where(and(eq(watchProgress.profileId, profileId), eq(watchProgress.videoId, videoId)))
+        .limit(1)
+      const continueWatching = shouldKeepContinueWatching(
+        existing?.continueWatching === true,
+        watched,
+        body.positionMs,
+      )
       const values = {
         profileId,
         videoId,
@@ -148,6 +157,7 @@ export function registerProgressRoutes(app: FastifyInstance, context: RouteConte
         durationMs: body.durationMs,
         watched,
         dismissed: body.dismissed ?? false,
+        continueWatching,
         ...(body.playbackSource !== undefined
           ? { playbackSource: body.playbackSource }
           : {}),
@@ -191,6 +201,7 @@ export function registerProgressRoutes(app: FastifyInstance, context: RouteConte
           ...(watched !== undefined ? { watched } : {}),
           ...(watched === true ? { positionMs: sql`${watchProgress.durationMs}` } : {}),
           ...(watched === false ? { positionMs: 0 } : {}),
+          ...(watched === true ? { continueWatching: true } : {}),
           ...(dismissed !== undefined ? { dismissed } : {}),
           updatedAt: new Date(),
         })
@@ -271,13 +282,17 @@ export function isPlaybackComplete(positionMs: number, durationMs: number): bool
   )
 }
 
+export const CONTINUE_WATCHING_ENTRY_POSITION_MS = 30_000
+
+export function shouldKeepContinueWatching(existing: boolean, watched: boolean, positionMs: number): boolean {
+  return existing || watched || positionMs >= CONTINUE_WATCHING_ENTRY_POSITION_MS
+}
+
 export function filterContinueWatching<
-  T extends { mediaType?: string; positionMs: number; watched: boolean; updatedAt: Date },
+  T extends { continueWatching: boolean; dismissed: boolean; updatedAt: Date },
 >(items: T[], limit: number): T[] {
   return items
-    .filter((item) =>
-      (item.mediaType === "series" && item.watched) ||
-      (!item.watched && item.positionMs >= 30_000))
+    .filter((item) => item.continueWatching && !item.dismissed)
     .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
     .slice(0, limit)
 }
