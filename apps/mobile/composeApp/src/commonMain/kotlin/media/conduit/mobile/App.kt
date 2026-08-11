@@ -77,14 +77,31 @@ private fun AccountGate(
 ) {
     val endpoint = state.endpoint ?: return
     val api = remember(endpoint.baseUrl) { ConduitApi() }
-    val repository = remember(api, services.secure) {
-        AccountRepository(api, SessionVault(services.secure))
+    val sessionVault = remember(services.secure) { SessionVault(services.secure) }
+    val repository = remember(api, sessionVault) { AccountRepository(api, sessionVault) }
+    val authenticationCache = remember(services.settings) { AuthenticationConfigurationCache(services.settings) }
+    val cachedAuthentication = remember(endpoint.baseUrl) { authenticationCache.load(endpoint.baseUrl) }
+    val hasStoredSession = remember(endpoint.baseUrl) { repository.hasStoredSession(endpoint.baseUrl) }
+    val discoveryPlaceholder = remember {
+        AuthenticationConfiguration(
+            needsOwner = false,
+            localRegistration = false,
+            oidc = OidcConfiguration(enabled = false),
+        )
     }
     val oauthPlatform = rememberMobileOAuthPlatform()
     val accountScope = rememberCoroutineScope()
     val lifecycleMutex = remember(repository) { Mutex() }
-    var account by remember(endpoint.baseUrl) { mutableStateOf<AccountStatus>(AccountStatus.Loading) }
+    var account by remember(endpoint.baseUrl) {
+        mutableStateOf<AccountStatus>(
+            if (hasStoredSession) AccountStatus.Loading
+            else AccountStatus.SignedOut(cachedAuthentication ?: discoveryPlaceholder),
+        )
+    }
     var restoreStarted by remember(endpoint.baseUrl) { mutableStateOf(false) }
+    var authenticationLoading by remember(endpoint.baseUrl) { mutableStateOf(!hasStoredSession) }
+    var authenticationReady by remember(endpoint.baseUrl) { mutableStateOf(cachedAuthentication != null) }
+    var authenticationError by remember(endpoint.baseUrl) { mutableStateOf<String?>(null) }
     var handledCallback by remember(endpoint.baseUrl) { mutableStateOf<String?>(null) }
     var oauthPending by remember(endpoint.baseUrl) { mutableStateOf(repository.hasPendingOAuth(endpoint.baseUrl)) }
     var oauthLaunching by remember(endpoint.baseUrl) { mutableStateOf(false) }
@@ -93,7 +110,24 @@ private fun AccountGate(
         if (restoreStarted) return@LaunchedEffect
         restoreStarted = true
         lifecycleMutex.withLock {
-            account = repository.restore(endpoint)
+            if (hasStoredSession) {
+                account = repository.restore(endpoint)
+                (account as? AccountStatus.SignedOut)?.authentication?.let { configuration ->
+                    authenticationCache.save(endpoint.baseUrl, configuration)
+                    authenticationReady = true
+                }
+            } else {
+                runCatching { repository.discoverAuthentication(endpoint) }
+                    .onSuccess { configuration ->
+                        authenticationCache.save(endpoint.baseUrl, configuration)
+                        account = AccountStatus.SignedOut(configuration)
+                        authenticationReady = true
+                    }
+                    .onFailure { cause ->
+                        authenticationError = cause.message ?: "Unable to reach this server"
+                    }
+                authenticationLoading = false
+            }
             oauthPending = repository.hasPendingOAuth(endpoint.baseUrl)
         }
     }
@@ -131,6 +165,29 @@ private fun AccountGate(
             initialError = current.error,
             oauthPending = oauthPending,
             oauthLaunching = oauthLaunching,
+            authenticationLoading = authenticationLoading,
+            authenticationReady = authenticationReady,
+            authenticationError = authenticationError,
+            onRetryAuthentication = {
+                if (!authenticationLoading) {
+                    authenticationLoading = true
+                    authenticationError = null
+                    accountScope.launch {
+                        lifecycleMutex.withLock {
+                            runCatching { repository.discoverAuthentication(endpoint) }
+                                .onSuccess { configuration ->
+                                    authenticationCache.save(endpoint.baseUrl, configuration)
+                                    account = AccountStatus.SignedOut(configuration)
+                                    authenticationReady = true
+                                }
+                                .onFailure { cause ->
+                                    authenticationError = cause.message ?: "Unable to reach this server"
+                                }
+                            authenticationLoading = false
+                        }
+                    }
+                }
+            },
             onSignIn = { email, password ->
                 account = AccountStatus.Loading
                 accountScope.launch {
@@ -169,6 +226,8 @@ private fun AccountGate(
                     }
                 }
             },
+            serverNotice = state.notice,
+            onDismissServerNotice = { dispatch(AppAction.DismissNotice) },
             serverError = state.setupError,
             serverPending = state.pendingEndpoint != null,
             onConnectServer = { rawUrl ->
@@ -204,6 +263,10 @@ private fun AccountGate(
                     onSignOut = {
                         accountScope.launch {
                             account = repository.signOut(endpoint, current.session)
+                            (account as? AccountStatus.SignedOut)?.authentication?.let { configuration ->
+                                authenticationCache.save(endpoint.baseUrl, configuration)
+                                authenticationReady = true
+                            }
                         }
                     },
                     onProfilesChanged = { selectedId ->
@@ -226,6 +289,10 @@ private fun AccountGate(
                 accountScope.launch {
                     lifecycleMutex.withLock {
                         account = repository.restore(endpoint)
+                        (account as? AccountStatus.SignedOut)?.authentication?.let { configuration ->
+                            authenticationCache.save(endpoint.baseUrl, configuration)
+                            authenticationReady = true
+                        }
                         oauthPending = repository.hasPendingOAuth(endpoint.baseUrl)
                     }
                 }
@@ -321,10 +388,16 @@ private fun SignInScreen(
     initialError: String?,
     oauthPending: Boolean,
     oauthLaunching: Boolean,
+    authenticationLoading: Boolean,
+    authenticationReady: Boolean,
+    authenticationError: String?,
+    onRetryAuthentication: () -> Unit,
     onSignIn: (String, String) -> Unit,
     onRegister: (String, String) -> Unit,
     onRecover: (String, String, String) -> Unit,
     onOAuth: () -> Unit,
+    serverNotice: String?,
+    onDismissServerNotice: () -> Unit,
     serverError: String?,
     serverPending: Boolean,
     onConnectServer: (String) -> Unit,
@@ -337,8 +410,21 @@ private fun SignInScreen(
     var recovering by remember { mutableStateOf(false) }
     var recoveryCode by remember { mutableStateOf("") }
     var showServerDialog by remember { mutableStateOf(false) }
+    val serverSnackbar = remember { SnackbarHostState() }
     var useDefault by remember(endpoint.baseUrl) { mutableStateOf(endpoint == DefaultServerEndpoint) }
     var customServer by remember(endpoint.baseUrl) { mutableStateOf(if (endpoint == DefaultServerEndpoint) "" else endpoint.baseUrl) }
+    LaunchedEffect(authentication.needsOwner) {
+        if (authentication.needsOwner) registering = true
+    }
+    LaunchedEffect(endpoint.baseUrl) {
+        showServerDialog = false
+    }
+    LaunchedEffect(serverNotice) {
+        val notice = serverNotice ?: return@LaunchedEffect
+        showServerDialog = false
+        serverSnackbar.showSnackbar(notice)
+        onDismissServerNotice()
+    }
     Box(Modifier.fillMaxSize().background(Brush.radialGradient(listOf(MaterialTheme.colorScheme.primary.copy(.09f), MaterialTheme.colorScheme.background), radius = 900f)), contentAlignment = Alignment.Center) {
         Column(Modifier.safeContentPadding().verticalScroll(rememberScrollState()).widthIn(max = 460.dp).fillMaxWidth().padding(horizontal = 20.dp, vertical = 28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Row(Modifier.fillMaxWidth().padding(bottom = 18.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -346,7 +432,12 @@ private fun SignInScreen(
                 Spacer(Modifier.weight(1f))
                 Surface(onClick = { showServerDialog = true }, shape = RoundedCornerShape(20.dp), color = Color(0xE61D1D20), contentColor = Color.White, border = BorderStroke(1.dp, Color.White.copy(.13f))) {
                     Row(Modifier.padding(horizontal = 11.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.size(7.dp).background(Color(0xFF34D399), androidx.compose.foundation.shape.CircleShape))
+                        val serverColor = when {
+                            authenticationError != null -> MaterialTheme.colorScheme.error
+                            authenticationLoading -> Color(0xFFFBBF24)
+                            else -> Color(0xFF34D399)
+                        }
+                        Box(Modifier.size(7.dp).background(serverColor, androidx.compose.foundation.shape.CircleShape))
                         Spacer(Modifier.width(7.dp))
                         Text(if (endpoint == DefaultServerEndpoint) "Default" else endpoint.label, color = Color.White.copy(.86f), style = MaterialTheme.typography.labelMedium, maxLines = 1)
                     }
@@ -356,8 +447,20 @@ private fun SignInScreen(
                 Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(15.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(if (recovering) "Recover your account" else if (registering) if (authentication.needsOwner) "Set up conduit" else "Create your account" else "Welcome back", color = Color.White, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
             Text(if (recovering) "Enter one of the recovery codes you saved." else if (registering) "Create a private account for this conduit instance." else "Sign in to continue to your household.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+            if (authenticationLoading && !authenticationReady) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                    CircularProgressIndicator(Modifier.size(17.dp), strokeWidth = 2.dp)
+                    Text("Waking server…", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            authenticationError?.let { message ->
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    TextButton(onClick = onRetryAuthentication) { Text("Retry") }
+                }
+            }
             authentication.oidc.takeIf { it.enabled && !recovering }?.let {
-                Button(enabled = !pending && !oauthLaunching, onClick = onOAuth, colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color(0xFF202124), disabledContainerColor = Color(0xFFE6E6E6), disabledContentColor = Color(0xFF5F6368)), shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth().height(50.dp)) { GoogleMark(); Spacer(Modifier.width(12.dp)); Text(if (oauthLaunching) "Opening sign-in…" else if (oauthPending) "Resume sign-in" else it.displayName ?: "Continue with Google", fontWeight = FontWeight.SemiBold) }
+                Button(enabled = authenticationReady && !pending && !oauthLaunching, onClick = onOAuth, colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color(0xFF202124), disabledContainerColor = Color(0xFFE6E6E6), disabledContentColor = Color(0xFF5F6368)), shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth().height(50.dp)) { GoogleMark(); Spacer(Modifier.width(12.dp)); Text(if (oauthLaunching) "Opening sign-in…" else if (oauthPending) "Resume sign-in" else it.displayName ?: "Continue with Google", fontWeight = FontWeight.SemiBold) }
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) { HorizontalDivider(Modifier.weight(1f), color = Color.White.copy(.1f)); Text("  OR CONTINUE WITH EMAIL  ", color = Color.White.copy(.3f), style = MaterialTheme.typography.labelSmall); HorizontalDivider(Modifier.weight(1f), color = Color.White.copy(.1f)) }
             }
             OutlinedTextField(
@@ -378,7 +481,7 @@ private fun SignInScreen(
             )
             error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             Button(
-                enabled = !pending && email.isNotBlank() && password.length >= 8 && (!recovering || recoveryCode.isNotBlank()),
+                enabled = authenticationReady && !pending && email.isNotBlank() && password.length >= 8 && (!recovering || recoveryCode.isNotBlank()),
                 onClick = {
                     pending = true
                     if (recovering) onRecover(email, recoveryCode, password) else if (registering) onRegister(email, password) else onSignIn(email, password)
@@ -398,7 +501,7 @@ private fun SignInScreen(
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
-            if (!recovering && !registering) TextButton(onClick = { recovering = true; error = null; password = "" }) { Text("Use recovery code", color = Color.White.copy(.72f)) }
+            if (authenticationReady && !recovering && !registering) TextButton(onClick = { recovering = true; error = null; password = "" }) { Text("Use recovery code", color = Color.White.copy(.72f)) }
             if (recovering) TextButton(onClick = { recovering = false; error = null; password = "" }) { Text("Back to sign in", color = Color.White.copy(.72f)) }
             if (authentication.localRegistration && !recovering) {
                 TextButton(onClick = { registering = !registering; error = null }) {
@@ -423,6 +526,10 @@ private fun SignInScreen(
               }
             }
           }
+        SnackbarHost(
+            hostState = serverSnackbar,
+            modifier = Modifier.align(Alignment.BottomCenter).safeContentPadding().padding(12.dp),
+        ) { data -> ConduitSnackbar(data) }
     }
 }
 
@@ -677,50 +784,23 @@ private fun AppShell(
         }
         Scaffold(
             snackbarHost = {
-                SnackbarHost(snackbarHostState) { data ->
-                    val removed = data.visuals.message == "Removed from library"
-                    Surface(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                        color = Color(0xFF151518),
-                        contentColor = Color.White,
-                        shape = RoundedCornerShape(14.dp),
-                        border = BorderStroke(1.dp, Color.White.copy(alpha = .16f)),
-                        shadowElevation = 12.dp,
-                    ) {
-                        Row(
-                            Modifier.padding(start = 12.dp, end = 6.dp, top = 8.dp, bottom = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(9.dp),
-                        ) {
-                            Icon(
-                                if (removed) Icons.Rounded.BookmarkRemove else Icons.Rounded.CheckCircle,
-                                contentDescription = null,
-                                tint = if (removed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(18.dp),
-                            )
-                            Text(data.visuals.message, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-                            data.visuals.actionLabel?.let { actionLabel ->
-                                TextButton(onClick = data::performAction) {
-                                    Text(actionLabel, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                                }
-                            }
-                        }
-                    }
-                }
+                SnackbarHost(snackbarHostState) { data -> ConduitSnackbar(data) }
             },
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
         ) { padding ->
             if (expanded) {
                 Row(Modifier.fillMaxSize().padding(padding)) {
-                    NavigationRail {
-                        Spacer(Modifier.height(16.dp))
-                        AppDestination.entries.filter(AppDestination::showInNavigation).forEach { destination ->
-                            NavigationRailItem(
-                                selected = state.destination == destination,
-                                onClick = { dispatch(AppAction.Navigate(destination)) },
-                                icon = { Icon(destination.icon, destination.label) },
-                                label = { Text(destination.label) },
-                            )
+                    if (selectedMedia == null) {
+                        NavigationRail {
+                            Spacer(Modifier.height(16.dp))
+                            AppDestination.entries.filter(AppDestination::showInNavigation).forEach { destination ->
+                                NavigationRailItem(
+                                    selected = state.destination == destination,
+                                    onClick = { dispatch(AppAction.Navigate(destination)) },
+                                    icon = { Icon(destination.icon, destination.label) },
+                                    label = { Text(destination.label) },
+                                )
+                            }
                         }
                     }
                     DestinationContent(
@@ -771,6 +851,38 @@ private fun AppShell(
                             modifier = Modifier.weight(1f),
                         )
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ConduitSnackbar(data: SnackbarData) {
+    val removed = data.visuals.message == "Removed from library"
+    Surface(
+        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+        color = Color(0xFF151518),
+        contentColor = Color.White,
+        shape = RoundedCornerShape(14.dp),
+        border = BorderStroke(1.dp, Color.White.copy(alpha = .16f)),
+        shadowElevation = 12.dp,
+    ) {
+        Row(
+            Modifier.padding(start = 12.dp, end = 6.dp, top = 8.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(9.dp),
+        ) {
+            Icon(
+                if (removed) Icons.Rounded.BookmarkRemove else Icons.Rounded.CheckCircle,
+                contentDescription = null,
+                tint = if (removed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(18.dp),
+            )
+            Text(data.visuals.message, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+            data.visuals.actionLabel?.let { actionLabel ->
+                TextButton(onClick = data::performAction) {
+                    Text(actionLabel, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                 }
             }
         }

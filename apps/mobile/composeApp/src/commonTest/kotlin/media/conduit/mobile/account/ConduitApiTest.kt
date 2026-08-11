@@ -343,10 +343,10 @@ class ConduitApiTest {
         val engine = MockEngine { request ->
             val body = when (request.url.encodedPath) {
                 "/v1/auth/mobile/start" ->
-                    """{"requestId":"request-12345678901234567890123456789012","expiresAt":"2026-07-31T01:00:00Z","authorizationUrl":"https://conduit.example/v1/auth/mobile/authorize?request=abc"}"""
+                    """{"requestId":"request-12345678901234567890123456789012","expiresAt":"2099-07-31T01:00:00Z","authorizationUrl":"https://conduit.example/v1/auth/mobile/authorize?request=abc"}"""
                 "/v1/auth/mobile/exchange" -> {
                     exchangeAttempts += 1
-                    """{"token":"oauth-session","expiresAt":"2026-08-07T00:00:00Z"}"""
+                    """{"token":"oauth-session","expiresAt":"2099-08-07T00:00:00Z"}"""
                 }
                 "/v1/bootstrap" -> """{"households":[]}"""
                 else -> error("Unexpected path ${request.url.encodedPath}")

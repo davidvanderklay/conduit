@@ -36,6 +36,7 @@ final class ConduitMPVPlayerBridge: NSObject, IosPlayerBridge {
 
     override init() {
         super.init()
+        ConduitOrientationCoordinator.shared.beginPlayback()
         ConduitOrientationCoordinator.shared.lockPlayerToLandscape()
     }
 
@@ -154,6 +155,7 @@ final class ConduitMPVPlayerBridge: NSObject, IosPlayerBridge {
         controller?.destroyPlayer()
         if holdsLandscapeLock {
             holdsLandscapeLock = false
+            ConduitOrientationCoordinator.shared.endPlayback()
             ConduitOrientationCoordinator.shared.restorePortrait()
         }
     }

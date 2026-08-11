@@ -1,4 +1,5 @@
 import ComposeApp
+import AuthenticationServices
 import CryptoKit
 import Foundation
 import Security
@@ -56,7 +57,9 @@ final class ConduitKeychainStore: NSObject, IosSecureStoreBridge {
     }
 }
 
-final class ConduitOAuthBridge: NSObject, IosOAuthBridge {
+final class ConduitOAuthBridge: NSObject, IosOAuthBridge, ASWebAuthenticationPresentationContextProviding {
+    private var authenticationSession: ASWebAuthenticationSession?
+
     func generateVerifier() -> String {
         var bytes = [UInt8](repeating: 0, count: 32)
         precondition(SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess)
@@ -69,7 +72,41 @@ final class ConduitOAuthBridge: NSObject, IosOAuthBridge {
 
     func openSystemBrowser(url: String) {
         guard let url = URL(string: url) else { return }
-        UIApplication.shared.open(url)
+        let start = { [weak self] in
+            guard let self else { return }
+            self.authenticationSession?.cancel()
+            let session = ASWebAuthenticationSession(
+                url: url,
+                callbackURLScheme: "conduit"
+            ) { [weak self] callbackURL, error in
+                self?.authenticationSession = nil
+                if let callbackURL {
+                    IosOAuthCallbacks.shared.capture(url: callbackURL.absoluteString)
+                } else if let error = error as? ASWebAuthenticationSessionError,
+                          error.code != .canceledLogin {
+                    print("[Conduit OAuth] authentication session failed: \(error)")
+                }
+            }
+            session.presentationContextProvider = self
+            self.authenticationSession = session
+            if !session.start() {
+                self.authenticationSession = nil
+                print("[Conduit OAuth] authentication session could not start")
+            }
+        }
+        if Thread.isMainThread { start() } else { DispatchQueue.main.async(execute: start) }
+    }
+
+    func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive }?
+            .windows.first { $0.isKeyWindow }
+            ?? UIApplication.shared.connectedScenes
+                .compactMap { $0 as? UIWindowScene }
+                .flatMap(\.windows)
+                .first
+            ?? UIWindow()
     }
 }
 
