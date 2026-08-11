@@ -571,10 +571,13 @@ internal fun MediaDetailsScreen(
     var playing by remember(item.id) { mutableStateOf<StreamItem?>(null) }
     var playback by remember(item.id) { mutableStateOf(PlaybackState()) }
     var resumePosition by remember(item.id) { mutableStateOf(0L) }
+    var currentAddonId by remember(item.id) { mutableStateOf<String?>(null) }
     var episodesOpen by remember(item.id) { mutableStateOf(false) }
     var currentAddonName by remember(item.id) { mutableStateOf<String?>(null) }
     var externalSubtitles by remember(item.id) { mutableStateOf<List<SubtitleItem>>(emptyList()) }
     var selectedSeason by remember(item.id) { mutableStateOf<Int?>(null) }
+    var temporarySpeedActive by remember(item.id) { mutableStateOf(false) }
+    var autoResumeAttempted by remember(item.id) { mutableStateOf(false) }
     val detailsListState = rememberLazyListState()
     val heroPull = remember { mutableFloatStateOf(0f) }
     val maxHeroPullPx = with(LocalDensity.current) { HeroMotion.maxPull.toPx() }
@@ -601,16 +604,34 @@ internal fun MediaDetailsScreen(
                     ?: it.videos.firstOrNull()
             }.onFailure { error = it.message }
     }
-    fun requestStreams(video: VideoItem? = selectedVideo) {
-        streamPageOpen = true
+    fun requestStreams(video: VideoItem? = selectedVideo, autoPlaySavedSource: Boolean = false) {
+        if (!autoPlaySavedSource) streamPageOpen = true
         streamsLoading = true
         streamsError = null
         val videoId = video?.id ?: item.id
         streams = null
         scope.launch {
             runCatching { api.loadStreams(addons, item.type, videoId) }
-                .onSuccess { streams = it }
-                .onFailure { streamsError = it.message ?: "Unable to load streams" }
+                .onSuccess { choices ->
+                    streams = choices
+                    if (autoPlaySavedSource) {
+                        val saved = snapshot?.progress?.firstOrNull { it.videoId == videoId }?.playbackSource
+                        val choice = selectSavedStream(choices, saved)
+                        if (choice != null) {
+                            currentAddonId = choice.addonId
+                            currentAddonName = choice.addonName
+                            playback = PlaybackState()
+                            playing = choice.stream
+                        } else {
+                            streamsError = "Saved source unavailable. Choose another source below."
+                            streamPageOpen = true
+                        }
+                    }
+                }
+                .onFailure {
+                    streamsError = it.message ?: "Unable to load streams"
+                    if (autoPlaySavedSource) streamPageOpen = true
+                }
             streamsLoading = false
         }
     }
@@ -621,45 +642,46 @@ internal fun MediaDetailsScreen(
             ?: profile?.let { runCatching { api.loadProgress(baseUrl, token, it.id, playingVideoId) }.getOrNull()?.takeUnless { progress -> progress.watched }?.positionMs }
             ?: 0L
     }
-    suspend fun persistProgress(state: PlaybackState = playback) {
+    LaunchedEffect(meta?.id, selectedVideo?.id, initialVideoId, snapshot?.progress) {
+        if (autoResumeAttempted || initialVideoId == null || meta == null) return@LaunchedEffect
+        val targetVideoId = selectedVideo?.id ?: item.id
+        if (targetVideoId != initialVideoId) return@LaunchedEffect
+        val saved = snapshot?.progress?.firstOrNull { it.videoId == initialVideoId }?.playbackSource
+        if (saved == null) return@LaunchedEffect
+        autoResumeAttempted = true
+        requestStreams(selectedVideo, autoPlaySavedSource = true)
+    }
+    fun currentPlaybackSource(): PlaybackSource? =
+        currentAddonId?.let { addonId -> playing?.let { playbackSourceForStream(addonId, it) } }
+
+    suspend fun persistProgress(
+        state: PlaybackState = playback,
+        source: PlaybackSource? = currentPlaybackSource(),
+    ) {
         val activeProfile = profile ?: return
         val video = selectedVideo
         api.saveProgress(baseUrl, token, activeProfile.id, video?.id ?: item.id, item.type, item.id,
             meta?.name ?: item.name, meta?.poster ?: item.poster, video?.displayTitle, video?.season, video?.episode,
-            state.positionMs, state.durationMs)
+            state.positionMs, state.durationMs, source)
         onProgressChanged()
     }
     fun playNext(video: VideoItem) {
-        val preferredAddon = currentAddonName
-        scope.launch {
-            runCatching { persistProgress() }
-            playing = null
-            playback = PlaybackState()
-            selectedVideo = video
-            resumePosition = 0L
-            streamsLoading = true
-            val choices = runCatching { api.loadStreams(addons, item.type, video.id) }.getOrDefault(emptyList())
-            streamsLoading = false
-            val choice = choices.firstOrNull { it.addonName == preferredAddon && it.stream.url != null }
-                ?: choices.firstOrNull { it.stream.url != null }
-            if (choice != null) {
-                currentAddonName = choice.addonName
-                playback = PlaybackState()
-                playing = choice.stream
-            } else {
-                streams = choices
-                streamsError = if (choices.isEmpty()) "No streams were returned for the next episode." else null
-                streamPageOpen = true
-                playing = null
-            }
-        }
+        val playbackSnapshot = playback
+        val source = currentPlaybackSource()
+        scope.launch { runCatching { persistProgress(playbackSnapshot, source) } }
+        playing = null
+        playback = PlaybackState()
+        selectedVideo = video
+        resumePosition = 0L
+        requestStreams(video)
     }
     PlatformBackHandler {
         when {
             playing != null -> {
                 val playbackSnapshot = playback
+                val source = currentPlaybackSource()
                 playing = null
-                scope.launch { runCatching { persistProgress(playbackSnapshot) } }
+                scope.launch { runCatching { persistProgress(playbackSnapshot, source) } }
             }
             streamPageOpen -> { streamPageOpen = false; streams = null }
             else -> onBack()
@@ -690,6 +712,7 @@ internal fun MediaDetailsScreen(
                 preferredAudioLanguage = preferences.preferredAudioLanguage,
                 preferredSubtitleLanguage = preferences.preferredSubtitleLanguage,
                 onControlsVisibilityChanged = { playerControlsVisible = it },
+                onTemporarySpeedChanged = { temporarySpeedActive = it },
             ) {
                 playback = it
                 if (!it.loading || it.error != null) openingOverlay = false
@@ -708,11 +731,26 @@ internal fun MediaDetailsScreen(
             if (playerControlsVisible) IconButton(
                 onClick = {
                     val playbackSnapshot = playback
+                    val source = currentPlaybackSource()
                     playing = null
-                    scope.launch { runCatching { persistProgress(playbackSnapshot) } }
+                    scope.launch { runCatching { persistProgress(playbackSnapshot, source) } }
                 },
                 modifier = Modifier.statusBarsPadding().padding(12.dp).background(Color.Black.copy(.55f), CircleShape).align(Alignment.TopStart),
             ) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = Color.White) }
+            if (temporarySpeedActive) {
+                Text(
+                    "› 2×",
+                    color = Color.White,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .statusBarsPadding()
+                        .padding(top = 12.dp)
+                        .background(Color.Black.copy(.72f), RoundedCornerShape(12.dp))
+                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                )
+            }
             playback.error?.let { message -> Box(Modifier.matchParentSize().background(Color.Black.copy(.72f)).clickable(enabled = true, onClick = {}), contentAlignment = Alignment.Center) { Surface(color = Color(0xF21A1A1D), shape = RoundedCornerShape(18.dp), modifier = Modifier.padding(28.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(.45f))) { Column(Modifier.padding(22.dp), horizontalAlignment = Alignment.CenterHorizontally) { Icon(Icons.Rounded.ErrorOutline, null, tint = MaterialTheme.colorScheme.error); Spacer(Modifier.height(8.dp)); Text("Playback failed", color = Color.White, fontWeight = FontWeight.Bold); Text(message, color = Color.White.copy(.7f), style = MaterialTheme.typography.bodySmall); Spacer(Modifier.height(14.dp)); Button(onClick = { playing = null }) { Text("Choose another stream") } } } } }
             if (!episodesOpen && nextVideo != null && playback.durationMs > 0 && playback.durationMs - playback.positionMs in 1..30_000) {
                 Surface(Modifier.align(Alignment.BottomEnd).padding(end = 18.dp, bottom = 112.dp).widthIn(min = 300.dp, max = 365.dp), color = Color(0xE619191B), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, Color.White.copy(.16f)), shadowElevation = 18.dp) {
@@ -728,7 +766,12 @@ internal fun MediaDetailsScreen(
     }
     if (streamPageOpen) {
         StreamSelectionScreen(meta?.name ?: item.name, meta?.background ?: meta?.poster ?: item.background ?: item.poster, selectedVideo, streams.orEmpty(), streamsLoading, streamsError, onBack = { streamPageOpen = false; streams = null }) { source ->
-            if (source.stream.url != null) { currentAddonName = source.addonName; playback = PlaybackState(); playing = source.stream }
+            if (source.stream.url != null) {
+                currentAddonId = source.addonId
+                currentAddonName = source.addonName
+                playback = PlaybackState()
+                playing = source.stream
+            }
         }
         return
     }

@@ -63,4 +63,25 @@ describe("portable profile data", () => {
       }),
     ).toThrow(/HTTP or HTTPS/)
   })
+
+  it("preserves and validates saved playback sources", () => {
+    const playbackSource = {
+      addonId: "org.example",
+      sourceKey: "https://cdn.example/video.m3u8",
+      kind: "url",
+      name: "Example stream",
+    }
+    const data = validatePortableData({
+      ...validArchive,
+      progress: [{ ...validArchive.progress[0], playbackSource }],
+    })
+    expect(data.progress).toHaveLength(1)
+    expect(data.progress[0]?.playbackSource).toEqual(playbackSource)
+    expect(() =>
+      validatePortableData({
+        ...validArchive,
+        progress: [{ ...validArchive.progress[0], playbackSource: { ...playbackSource, kind: "invalid" } }],
+      }),
+    ).toThrow(/kind must be url, torrent, or other/)
+  })
 })

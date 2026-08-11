@@ -360,6 +360,7 @@ export function registerProfileRoutes(app: FastifyInstance, context: RouteContex
             durationMs: item.durationMs,
             watched: item.watched,
             dismissed: item.dismissed ?? false,
+            playbackSource: item.playbackSource,
             updatedAt: new Date(item.updatedAt),
           }
           await tx

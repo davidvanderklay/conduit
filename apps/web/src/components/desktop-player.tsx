@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react"
 import { createPortal } from "react-dom"
 import {
   Captions,
@@ -13,7 +13,7 @@ import {
   VolumeX,
   X,
 } from "lucide-react"
-import type { InstalledAddon, ProgressMetadata } from "../lib/api"
+import type { InstalledAddon, PlaybackSource, ProgressMetadata } from "../lib/api"
 import { addonsForResource } from "../lib/addons"
 import {
   nativePlayerCommand,
@@ -94,6 +94,7 @@ export function DesktopPlayer({
   type,
   videoId,
   profileId,
+  playbackSource,
   progressMetadata,
   addons,
   seriesContext,
@@ -108,6 +109,7 @@ export function DesktopPlayer({
   type: string
   videoId: string
   profileId: string
+  playbackSource?: PlaybackSource
   progressMetadata: ProgressMetadata
   addons: InstalledAddon[]
   seriesContext?: PlayerSeriesContext
@@ -133,7 +135,11 @@ export function DesktopPlayer({
   const [selectedAddonSubtitle, setSelectedAddonSubtitle] = useState<string>()
   const [subtitlePosition, setSubtitlePosition] = useState(preferences.subtitlePosition)
   const [episodeDrawerOpen, setEpisodeDrawerOpen] = useState(false)
+  const [holdSpeedActive, setHoldSpeedActive] = useState(false)
   const hideTimer = useRef<number | undefined>(undefined)
+  const holdSpeedTimer = useRef<number | undefined>(undefined)
+  const holdSpeedActiveRef = useRef(false)
+  const holdSpeedTriggered = useRef(false)
   const closing = useRef(false)
   const audioButton = useRef<HTMLDivElement>(null)
   const subtitleButton = useRef<HTMLDivElement>(null)
@@ -162,12 +168,45 @@ export function DesktopPlayer({
     profileId,
     videoId,
     progressMetadata,
+    playbackSource,
   )
 
   const showControls = useCallback(() => {
     setControlsVisible(true)
     window.clearTimeout(hideTimer.current)
     hideTimer.current = window.setTimeout(() => setControlsVisible(false), 2800)
+  }, [])
+
+  const endHoldSpeed = useCallback(() => {
+    window.clearTimeout(holdSpeedTimer.current)
+    holdSpeedTimer.current = undefined
+    if (!holdSpeedActiveRef.current) return
+    holdSpeedActiveRef.current = false
+    setHoldSpeedActive(false)
+    void nativePlayerCommand(["set", "speed", 1]).catch(() => undefined)
+  }, [])
+
+  const beginHoldSpeed = useCallback((event: ReactPointerEvent) => {
+    if (
+      (event.pointerType === "mouse" && event.button !== 0) ||
+      event.target instanceof Element && event.target.closest("[data-native-overlay]")
+    ) return
+    window.clearTimeout(holdSpeedTimer.current)
+    holdSpeedTriggered.current = false
+    holdSpeedTimer.current = window.setTimeout(() => {
+      holdSpeedTriggered.current = true
+      holdSpeedActiveRef.current = true
+      setHoldSpeedActive(true)
+      void nativePlayerCommand(["set", "speed", 2]).catch(() => undefined)
+    }, 450)
+  }, [])
+
+  useEffect(() => () => {
+    window.clearTimeout(holdSpeedTimer.current)
+    if (holdSpeedActiveRef.current) {
+      holdSpeedActiveRef.current = false
+      void nativePlayerCommand(["set", "speed", 1]).catch(() => undefined)
+    }
   }, [])
 
   const redrawControls = useCallback(() => {
@@ -653,12 +692,28 @@ export function DesktopPlayer({
         chromeVisible ? "cursor-default" : "cursor-none"
       }`}
       onMouseMove={showControls}
+      onPointerDown={beginHoldSpeed}
+      onPointerUp={endHoldSpeed}
+      onPointerCancel={endHoldSpeed}
+      onPointerLeave={endHoldSpeed}
     >
       <div
         className={`absolute inset-0 z-0 ${activeMenu ? "pointer-events-none" : ""}`}
-        onClick={togglePlayback}
+        onClick={(event) => {
+          if (holdSpeedTriggered.current) {
+            holdSpeedTriggered.current = false
+            event.preventDefault()
+            return
+          }
+          togglePlayback()
+        }}
         aria-hidden="true"
       />
+      {holdSpeedActive && (
+        <div className="pointer-events-none absolute inset-x-0 top-6 z-20 text-center text-xl font-semibold text-white drop-shadow-[0_2px_10px_rgba(0,0,0,0.95)]" aria-live="polite">
+          › 2×
+        </div>
+      )}
       <div
         data-player-chrome="top"
         className={`pointer-events-none absolute inset-x-0 top-0 z-10 flex items-center justify-between gap-4 bg-gradient-to-b from-black/85 via-black/45 to-transparent ${

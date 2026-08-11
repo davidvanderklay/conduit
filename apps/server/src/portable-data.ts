@@ -1,4 +1,5 @@
 import { parseTrustedHttpUrl } from "./url-security.js"
+import type { PlaybackSource } from "./playback-source.js"
 
 export const PORTABLE_DATA_FORMAT = "conduit-profile"
 export const PORTABLE_DATA_VERSION = 1
@@ -36,6 +37,7 @@ export interface PortableProfileData {
     durationMs: number
     watched: boolean
     dismissed?: boolean
+    playbackSource?: PlaybackSource
     updatedAt: string
   }>
   addons: Array<{
@@ -115,6 +117,7 @@ export function validatePortableData(value: unknown): PortableProfileData {
     if (raw.dismissed !== undefined && typeof raw.dismissed !== "boolean") {
       throw new Error(`${path}.dismissed must be a boolean`)
     }
+    if (raw.playbackSource !== undefined) assertPlaybackSource(raw.playbackSource, `${path}.playbackSource`)
     assertTimestamp(raw.updatedAt, `${path}.updatedAt`)
     assertUnique(videoIds, raw.videoId, path)
   }
@@ -172,6 +175,21 @@ function assertInteger(value: unknown, path: string): asserts value is number {
 }
 function assertOptionalInteger(value: unknown, path: string) {
   if (value !== undefined) assertInteger(value, path)
+}
+
+function assertPlaybackSource(value: unknown, path: string): asserts value is PlaybackSource {
+  if (!isRecord(value)) throw new Error(`${path} must be an object`)
+  assertString(value.addonId, `${path}.addonId`, 1, 200)
+  assertString(value.sourceKey, `${path}.sourceKey`, 1, 1200)
+  if (value.kind !== "url" && value.kind !== "torrent" && value.kind !== "other") {
+    throw new Error(`${path}.kind must be url, torrent, or other`)
+  }
+  assertOptionalString(value.infoHash, `${path}.infoHash`, 200)
+  assertOptionalString(value.fileIdx, `${path}.fileIdx`, 100)
+  assertOptionalString(value.name, `${path}.name`, 500)
+  assertOptionalString(value.title, `${path}.title`, 500)
+  assertOptionalString(value.filename, `${path}.filename`, 500)
+  assertOptionalString(value.bingeGroup, `${path}.bingeGroup`, 500)
 }
 function assertTimestamp(value: unknown, path: string): asserts value is string {
   if (typeof value !== "string" || !Number.isFinite(Date.parse(value))) throw new Error(`${path} must be an ISO timestamp`)

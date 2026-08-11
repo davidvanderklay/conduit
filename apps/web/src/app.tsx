@@ -869,6 +869,7 @@ function ProfileApp({
 }) {
   const [selectedItem, setSelectedItem] = useState<CatalogItem>()
   const [selectedVideoId, setSelectedVideoId] = useState<string>()
+  const [selectedProgress, setSelectedProgress] = useState<WatchProgress>()
   const addons = useQuery({
     queryKey: ["addons", profile.id],
     queryFn: () => api<{ addons: InstalledAddon[] }>(`/v1/profiles/${profile.id}/addons`),
@@ -876,6 +877,7 @@ function ProfileApp({
 
   useEffect(() => {
     setSelectedItem(undefined)
+    setSelectedProgress(undefined)
   }, [profile.id])
 
   return (
@@ -899,6 +901,7 @@ function ProfileApp({
           onChange={onDiscoverSelection}
           onSelect={(item) => {
             setSelectedVideoId(undefined)
+            setSelectedProgress(undefined)
             setSelectedItem(item)
           }}
         />
@@ -909,6 +912,7 @@ function ProfileApp({
           addons={addons.data?.addons ?? []}
           onSelect={(item) => {
             setSelectedVideoId(undefined)
+            setSelectedProgress(undefined)
             setSelectedItem(item)
           }}
         />
@@ -916,9 +920,10 @@ function ProfileApp({
       {!searchInput && section === "history" && (
         <HistoryView
           profileId={profile.id}
-          onSelect={(item, videoId) => {
+          onSelect={(item, videoId, progress) => {
             setSelectedItem(item)
             setSelectedVideoId(videoId)
+            setSelectedProgress(progress)
           }}
         />
       )}
@@ -929,6 +934,7 @@ function ProfileApp({
           onSelect={(item, videoId) => {
             setSelectedItem(item)
             setSelectedVideoId(videoId)
+            setSelectedProgress(undefined)
           }}
         />
       )}
@@ -954,6 +960,7 @@ function ProfileApp({
           query={query}
           onSelect={(item) => {
             setSelectedVideoId(undefined)
+            setSelectedProgress(undefined)
             setSelectedItem(item)
           }}
         />
@@ -964,8 +971,12 @@ function ProfileApp({
           addons={addons.data.addons}
           profileId={profile.id}
           initialVideoId={selectedVideoId}
+          initialProgress={selectedProgress}
           onBrowse={onMetadataBrowse}
-          onClose={() => setSelectedItem(undefined)}
+          onClose={() => {
+            setSelectedItem(undefined)
+            setSelectedProgress(undefined)
+          }}
         />
       )}
     </PosterWatchStatusProvider>
@@ -1001,6 +1012,7 @@ function MediaHome({
 }) {
   const [selectedItem, setSelectedItem] = useState<CatalogItem>()
   const [selectedVideoId, setSelectedVideoId] = useState<string>()
+  const [selectedProgress, setSelectedProgress] = useState<WatchProgress>()
   const continueWatching = useProgressList(profile.id, "continue", 14)
   const catalogs = useQuery({
     queryKey: ["catalogs", profile.id, addons.map((addon) => [addon.id, addon.enabled])],
@@ -1080,9 +1092,10 @@ function MediaHome({
                 items={feedItem.items}
                 profileId={profile.id}
                 onSeeMore={onHistory}
-                onSelect={(item, videoId) => {
+                onSelect={(item, videoId, progress) => {
                   setSelectedItem(item)
                   setSelectedVideoId(videoId)
+                  setSelectedProgress(progress)
                 }}
               />
             )
@@ -1105,6 +1118,7 @@ function MediaHome({
               items={catalog.items}
               onSelect={(item) => {
                 setSelectedVideoId(undefined)
+                setSelectedProgress(undefined)
                 setSelectedItem(item)
               }}
               onSeeMore={() =>
@@ -1125,8 +1139,12 @@ function MediaHome({
           addons={addons}
           profileId={profile.id}
           initialVideoId={selectedVideoId}
+          initialProgress={selectedProgress}
           onBrowse={onMetadataBrowse}
-          onClose={() => setSelectedItem(undefined)}
+          onClose={() => {
+            setSelectedItem(undefined)
+            setSelectedProgress(undefined)
+          }}
         />
       )}
     </main>
