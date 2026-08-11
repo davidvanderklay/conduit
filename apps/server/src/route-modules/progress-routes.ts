@@ -2,6 +2,7 @@ import { Type } from "@sinclair/typebox"
 import { and, asc, desc, eq, notLike, sql } from "drizzle-orm"
 import type { FastifyInstance } from "fastify"
 import { watchProgress } from "../db/schema.js"
+import type { PlaybackSource } from "../playback-source.js"
 import type { RouteContext } from "./context.js"
 import { canAccessProfile, requireUser, toProgressItem } from "./helpers.js"
 
@@ -122,6 +123,7 @@ export function registerProgressRoutes(app: FastifyInstance, context: RouteConte
           durationMs: Type.Integer({ minimum: 0 }),
           watched: Type.Optional(Type.Boolean()),
           dismissed: Type.Optional(Type.Boolean()),
+          playbackSource: playbackSourceSchema,
         }),
       },
     },
@@ -146,6 +148,9 @@ export function registerProgressRoutes(app: FastifyInstance, context: RouteConte
         durationMs: body.durationMs,
         watched,
         dismissed: body.dismissed ?? false,
+        ...(body.playbackSource !== undefined
+          ? { playbackSource: body.playbackSource }
+          : {}),
         updatedAt: new Date(),
       }
       const [item] = await db
@@ -233,7 +238,25 @@ interface ProgressBody {
   durationMs: number
   watched?: boolean
   dismissed?: boolean
+  playbackSource?: PlaybackSource
 }
+
+const playbackSourceSchema = Type.Optional(
+  Type.Object(
+    {
+      addonId: Type.String({ minLength: 1, maxLength: 200 }),
+      sourceKey: Type.String({ minLength: 1, maxLength: 1200 }),
+      kind: Type.Union([Type.Literal("url"), Type.Literal("torrent"), Type.Literal("other")]),
+      infoHash: Type.Optional(Type.String({ maxLength: 200 })),
+      fileIdx: Type.Optional(Type.String({ maxLength: 100 })),
+      name: Type.Optional(Type.String({ maxLength: 500 })),
+      title: Type.Optional(Type.String({ maxLength: 500 })),
+      filename: Type.Optional(Type.String({ maxLength: 500 })),
+      bingeGroup: Type.Optional(Type.String({ maxLength: 500 })),
+    },
+    { additionalProperties: false },
+  ),
+)
 
 export function isPlaybackComplete(positionMs: number, durationMs: number): boolean {
   if (

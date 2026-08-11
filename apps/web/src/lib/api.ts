@@ -1,4 +1,7 @@
 import { API_URL, DESKTOP_SESSION_TOKEN } from "./auth"
+import type { PlaybackSource } from "./stream-selection"
+
+export type { PlaybackSource } from "./stream-selection"
 
 export interface Profile {
   id: string
@@ -83,6 +86,7 @@ export interface WatchProgress {
   durationMs: number
   watched: boolean
   dismissed?: boolean
+  playbackSource?: PlaybackSource
   updatedAt: string
 }
 

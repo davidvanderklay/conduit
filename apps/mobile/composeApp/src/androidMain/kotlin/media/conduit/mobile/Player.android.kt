@@ -77,6 +77,7 @@ actual fun NativePlayer(
     preferredSubtitleLanguage: String,
     onEpisodes: () -> Unit,
     onControlsVisibilityChanged: (Boolean) -> Unit,
+    onTemporarySpeedChanged: (Boolean) -> Unit,
     modifier: Modifier,
     onState: (PlaybackState) -> Unit,
 ) {
@@ -89,6 +90,7 @@ actual fun NativePlayer(
         windowSize.width.toDp() >= 600.dp || windowSize.height.toDp() >= 600.dp
     }
     val currentCallback by rememberUpdatedState(onState)
+    val latestTemporarySpeedCallback by rememberUpdatedState(onTemporarySpeedChanged)
     val player = remember(url, requestHeaders, subtitles) {
         val http = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
@@ -243,7 +245,7 @@ actual fun NativePlayer(
         if (next != resizeMode) resizeMode = next
     } }.pointerInput(player, touchGestures, holdToSpeed, controlsVisible) {
         detectTapGestures(
-            onPress = { if (holdToSpeed) coroutineScope { val release = async { tryAwaitRelease() }; delay(450); if (!release.isCompleted) { val previousSpeed = player.playbackParameters.speed; player.setPlaybackSpeed(2f); release.await(); player.setPlaybackSpeed(previousSpeed) } } else tryAwaitRelease() },
+            onPress = { if (holdToSpeed) coroutineScope { val release = async { tryAwaitRelease() }; delay(450); if (!release.isCompleted) { val previousSpeed = player.playbackParameters.speed; player.setPlaybackSpeed(2f); latestTemporarySpeedCallback(true); try { release.await() } finally { player.setPlaybackSpeed(previousSpeed); latestTemporarySpeedCallback(false) } } } else tryAwaitRelease() },
             onTap = { controlsVisible = true },
             onDoubleTap = if (touchGestures) {{ offset -> if (offset.x < size.width / 2f) player.seekBack() else player.seekForward(); controlsVisible = true }} else null,
         )
@@ -259,7 +261,7 @@ actual fun NativePlayer(
                 if (next != resizeMode) resizeMode = next
             } }.pointerInput(player, touchGestures, holdToSpeed) {
                 detectTapGestures(
-                    onPress = { if (holdToSpeed) coroutineScope { val release = async { tryAwaitRelease() }; delay(450); if (!release.isCompleted) { val previousSpeed = player.playbackParameters.speed; player.setPlaybackSpeed(2f); release.await(); player.setPlaybackSpeed(previousSpeed) } } else tryAwaitRelease() },
+                    onPress = { if (holdToSpeed) coroutineScope { val release = async { tryAwaitRelease() }; delay(450); if (!release.isCompleted) { val previousSpeed = player.playbackParameters.speed; player.setPlaybackSpeed(2f); latestTemporarySpeedCallback(true); try { release.await() } finally { player.setPlaybackSpeed(previousSpeed); latestTemporarySpeedCallback(false) } } } else tryAwaitRelease() },
                     onTap = { controlsVisible = false },
                     onDoubleTap = if (touchGestures) {{ offset -> if (offset.x < size.width / 2f) player.seekBack() else player.seekForward(); controlsVisible = true }} else null,
                 )

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { api, type ProgressMetadata, type WatchProgress } from "./api"
+import { api, type PlaybackSource, type ProgressMetadata, type WatchProgress } from "./api"
 
 const SAVE_INTERVAL_MS = 15_000
 
@@ -12,6 +12,7 @@ export function usePlaybackProgress(
   profileId: string,
   videoId: string,
   metadata: ProgressMetadata,
+  playbackSource?: PlaybackSource,
 ) {
   const queryClient = useQueryClient()
   const progress = useQuery({
@@ -24,6 +25,8 @@ export function usePlaybackProgress(
   const latest = useRef({ position: 0, duration: 0 })
   const metadataRef = useRef(metadata)
   metadataRef.current = metadata
+  const sourceRef = useRef(playbackSource)
+  sourceRef.current = playbackSource
   const lastSavedAt = useRef(0)
 
   const save = useCallback(
@@ -37,6 +40,7 @@ export function usePlaybackProgress(
         method: "PUT",
         body: JSON.stringify({
           ...metadataRef.current,
+          ...(sourceRef.current ? { playbackSource: sourceRef.current } : {}),
           positionMs: Math.max(0, Math.round(position * 1000)),
           durationMs: Math.max(0, Math.round(duration * 1000)),
         }),

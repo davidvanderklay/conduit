@@ -8,6 +8,7 @@ import {
   type Dispatch,
   type ReactNode,
   type SetStateAction,
+  type PointerEvent as ReactPointerEvent,
 } from "react"
 import {
   Captions,
@@ -54,12 +55,16 @@ export function ElectronPlayerOverlay({ initialTitle }: { initialTitle: string }
   const [fullscreen, setFullscreen] = useState(false)
   const [scale, setScale] = useState<VideoScale>("fit")
   const [controlsVisible, setControlsVisible] = useState(true)
+  const [holdSpeedActive, setHoldSpeedActive] = useState(false)
   const [activeTrackMenu, setActiveTrackMenu] = useState<TrackMenuName>()
   const [selectedSubtitleCode, setSelectedSubtitleCode] = useState<string>()
   const [subtitlePosition, setSubtitlePosition] = useState(
     () => readPreferences().subtitlePosition,
   )
   const hideTimer = useRef<number | undefined>(undefined)
+  const holdSpeedTimer = useRef<number | undefined>(undefined)
+  const holdSpeedActiveRef = useRef(false)
+  const holdSpeedTriggered = useRef(false)
   const preferredSubtitleApplied = useRef(false)
   const audioAnchorRef = useRef<HTMLDivElement>(null)
   const subtitleAnchorRef = useRef<HTMLDivElement>(null)
@@ -170,6 +175,38 @@ export function ElectronPlayerOverlay({ initialTitle }: { initialTitle: string }
     void nativePlayerCommand(next).catch(() => undefined)
   }, [])
 
+  const endHoldSpeed = useCallback(() => {
+    window.clearTimeout(holdSpeedTimer.current)
+    holdSpeedTimer.current = undefined
+    if (!holdSpeedActiveRef.current) return
+    holdSpeedActiveRef.current = false
+    setHoldSpeedActive(false)
+    command(["set", "speed", 1])
+  }, [command])
+
+  const beginHoldSpeed = useCallback((event: ReactPointerEvent) => {
+    if (
+      (event.pointerType === "mouse" && event.button !== 0) ||
+      event.target instanceof Element && event.target.closest("[data-overlay-interactive]")
+    ) return
+    window.clearTimeout(holdSpeedTimer.current)
+    holdSpeedTriggered.current = false
+    holdSpeedTimer.current = window.setTimeout(() => {
+      holdSpeedTriggered.current = true
+      holdSpeedActiveRef.current = true
+      setHoldSpeedActive(true)
+      command(["set", "speed", 2])
+    }, 450)
+  }, [command])
+
+  useEffect(() => () => {
+    window.clearTimeout(holdSpeedTimer.current)
+    if (holdSpeedActiveRef.current) {
+      holdSpeedActiveRef.current = false
+      command(["set", "speed", 1])
+    }
+  }, [command])
+
   const togglePlayback = useCallback(() => {
     const paused = snapshot?.paused ?? false
     command(["set", "pause", paused ? "no" : "yes"])
@@ -263,7 +300,16 @@ export function ElectronPlayerOverlay({ initialTitle }: { initialTitle: string }
     <div
       className={rootClassName}
       onMouseMove={showControls}
+      onPointerDown={beginHoldSpeed}
+      onPointerUp={endHoldSpeed}
+      onPointerCancel={endHoldSpeed}
+      onPointerLeave={endHoldSpeed}
       onClick={(event) => {
+        if (holdSpeedTriggered.current) {
+          holdSpeedTriggered.current = false
+          event.preventDefault()
+          return
+        }
         if (event.target === event.currentTarget) togglePlayback()
       }}
     >
@@ -272,6 +318,11 @@ export function ElectronPlayerOverlay({ initialTitle }: { initialTitle: string }
         className={`pointer-events-none absolute inset-x-0 top-0 h-48 bg-gradient-to-b from-black/85 via-black/55 to-transparent transition-opacity duration-300 ${controlsVisible ? "opacity-100" : "opacity-0"}`}
         aria-hidden="true"
       />
+      {holdSpeedActive && (
+        <div className="pointer-events-none absolute inset-x-0 top-6 z-20 text-center text-xl font-semibold text-white drop-shadow-[0_2px_10px_rgba(0,0,0,0.95)]" aria-live="polite">
+          › 2×
+        </div>
+      )}
       <div
         className={`pointer-events-none absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-black via-black/70 to-transparent transition-opacity duration-300 ${controlsVisible ? "opacity-100" : "opacity-0"}`}
         aria-hidden="true"

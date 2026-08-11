@@ -34,7 +34,10 @@ import {
   trailerUrl,
 } from "../lib/metadata"
 import { readPreferences } from "../lib/preferences"
-import { selectNextEpisodeStream } from "../lib/stream-selection"
+import {
+  playbackSourceForStream,
+  selectSavedStream,
+} from "../lib/stream-selection"
 import { Button } from "./ui/button"
 import { Player } from "./player"
 import { LibraryToggle } from "./library-toggle"
@@ -42,6 +45,7 @@ import { EpisodeSelector } from "./episode-selector"
 
 interface ResolvedStream extends Stream {
   key: string
+  addonId: string
   addonName: string
 }
 
@@ -54,6 +58,7 @@ export function MediaDetails({
   addons,
   profileId,
   initialVideoId,
+  initialProgress,
   onBrowse,
   onClose,
 }: {
@@ -61,6 +66,7 @@ export function MediaDetails({
   addons: InstalledAddon[]
   profileId: string
   initialVideoId?: string
+  initialProgress?: WatchProgress
   onBrowse?: (target: MetadataBrowseTarget) => void
   onClose: () => void
 }) {
@@ -74,6 +80,7 @@ export function MediaDetails({
   const episodeTransition = useRef(0)
   const initialSeriesVideoResolved = useRef(false)
   const episodeRailScrollTop = useRef<number | undefined>(undefined)
+  const autoResumeAttempted = useRef(false)
   const seriesReturnVideoId = useRef<string | undefined>(
     initialVideoId && initialVideoId !== item.id ? initialVideoId : undefined,
   )
@@ -128,6 +135,33 @@ export function MediaDetails({
   }, [initialVideoId, item.type, metadata.isSuccess, progress.data, progress.isSuccess, videos])
 
   useEffect(() => {
+    if (
+      autoResumeAttempted.current ||
+      !initialProgress?.playbackSource ||
+      !metadata.isSuccess ||
+      !progress.isSuccess ||
+      !activeVideoId ||
+      (item.type === "series" && activeVideoId !== initialProgress.videoId)
+    ) return
+    autoResumeAttempted.current = true
+    void queryClient.fetchQuery({
+      queryKey: ["streams", item.type, activeVideoId, addonIds],
+      queryFn: () => resolveStreams(addons, item.type, activeVideoId),
+      staleTime: 5 * 60 * 1000,
+    }).then((resolved) => {
+      const saved = selectSavedStream(resolved, initialProgress.playbackSource)
+      if (saved) {
+        setStreamResolutionError(undefined)
+        setPlaying(saved)
+      } else {
+        setStreamResolutionError("Saved source unavailable. Choose another source below.")
+      }
+    }).catch(() => {
+      setStreamResolutionError("Saved source could not be loaded. Choose another source below.")
+    })
+  }, [activeVideoId, addons, addonIds, initialProgress, item.type, metadata.isSuccess, progress.isSuccess, queryClient])
+
+  useEffect(() => {
     if (selectedVideo && selectedSeason == null) {
       setSelectedSeason(selectedVideo.season ?? 1)
       return
@@ -155,35 +189,12 @@ export function MediaDetails({
     onBrowse?.(target)
   }
 
-  const playEpisode = async (video: Video) => {
-    const transition = ++episodeTransition.current
-    const currentStream = playing
-    setStreamResolutionError(undefined)
-    setPlaying(undefined)
-    setSelectedVideoId(video.id)
-    setSelectedSeason(video.season ?? 1)
-    seriesReturnVideoId.current = video.id
-    const nextStreams = await queryClient.fetchQuery({
-      queryKey: ["streams", item.type, video.id, addonIds],
-      queryFn: () => resolveStreams(addons, item.type, video.id),
-      staleTime: 5 * 60 * 1000,
-    })
-    if (transition !== episodeTransition.current) return
-    const stream = selectNextEpisodeStream(nextStreams, currentStream)
-    if (!stream) {
-      setStreamResolutionError(
-        `No playable source could be selected automatically for ${episodeLabel(video)}. Choose a source below.`,
-      )
-    }
-    setPlaying(stream)
-  }
-
-  const autoplayNextEpisode = async (allowAutoplay = true) => {
+  const autoplayNextEpisode = (allowAutoplay = true) => {
     if (!allowAutoplay || !nextEpisode || !readPreferences().autoplay) {
       setPlaying(undefined)
       return
     }
-    await playEpisode(nextEpisode)
+    openEpisodeSources(nextEpisode)
   }
 
   const openEpisodeSources = (video: Video) => {
@@ -305,6 +316,7 @@ export function MediaDetails({
           type={item.type}
           videoId={activeVideoId!}
           profileId={profileId}
+          playbackSource={playbackSourceForStream(playing)}
           progressMetadata={{
             mediaType: item.type,
             mediaId: item.id,
@@ -329,7 +341,7 @@ export function MediaDetails({
           nextEpisodeLabel={nextEpisode ? episodeLabel(nextEpisode) : undefined}
           onSelectEpisode={openEpisodeSources}
           onNextEpisode={
-            nextEpisode ? () => playEpisode(nextEpisode) : undefined
+            nextEpisode ? () => openEpisodeSources(nextEpisode) : undefined
           }
           onEnded={autoplayNextEpisode}
           onClose={() => {
@@ -765,6 +777,7 @@ async function resolveStreams(
     if (result.status === "rejected") return []
     return result.value.streams.map((stream, index) => ({
       ...stream,
+      addonId: result.value.addon.id,
       externalUrl: safeExternalUrl(stream.externalUrl),
       key: `${result.value.addon.id}:${index}:${stream.url ?? stream.infoHash ?? stream.externalUrl ?? "stream"}`,
       addonName: result.value.addon.manifest.name,
