@@ -7,6 +7,7 @@ export interface DevicePreferences {
   subtitleSize: number
   subtitlePosition: number
   readAheadSeconds: number
+  autoSelectSavedStreams: boolean
   autoplay: boolean
   volume: number
   hardwareAcceleration: boolean
@@ -27,6 +28,7 @@ export const defaultPreferences: DevicePreferences = {
   subtitleSize: 100,
   subtitlePosition: 90,
   readAheadSeconds: 30,
+  autoSelectSavedStreams: true,
   autoplay: true,
   volume: 100,
   hardwareAcceleration: true,

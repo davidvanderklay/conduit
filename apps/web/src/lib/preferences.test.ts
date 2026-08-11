@@ -16,6 +16,7 @@ describe("device preferences", () => {
   it("defaults audio and subtitles to English", () => {
     expect(defaultPreferences.audioLanguage).toBe("en")
     expect(defaultPreferences.subtitleLanguage).toBe("en")
+    expect(defaultPreferences.autoSelectSavedStreams).toBe(true)
   })
 
   it("uses safe defaults for missing or invalid data", () => {
@@ -41,10 +42,17 @@ describe("device preferences", () => {
     expect(value).toMatchObject({
       volume: 42,
       autoplay: false,
+      autoSelectSavedStreams: true,
       amoledBlack: false,
       subtitleOutline: true,
       rememberLastProfile: true,
       debugLogging: false,
+    })
+  })
+
+  it("preserves an explicit saved-stream selection preference", () => {
+    expect(readPreferences(storage(JSON.stringify({ autoSelectSavedStreams: false })))).toMatchObject({
+      autoSelectSavedStreams: false,
     })
   })
 })

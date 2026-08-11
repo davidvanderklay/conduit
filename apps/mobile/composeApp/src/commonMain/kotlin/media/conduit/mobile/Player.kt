@@ -13,6 +13,8 @@ expect fun NativePlayer(
     subtitles: List<SubtitleItem> = emptyList(),
     contentLogo: String? = null,
     contentTitle: String? = null,
+    hasNextEpisode: Boolean = false,
+    onNextEpisode: () -> Unit = {},
     hasEpisodes: Boolean = false,
     touchGestures: Boolean = true,
     holdToSpeed: Boolean = true,
