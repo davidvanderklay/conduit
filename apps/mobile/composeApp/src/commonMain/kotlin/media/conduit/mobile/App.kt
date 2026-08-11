@@ -969,7 +969,7 @@ private fun DestinationContent(
                     snapshot = profileSync.snapshot, query = browseQuery, onQueryChange = onBrowseQueryChange,
                     selection = discoverSelection, onSelectionChange = onDiscoverSelectionChange,
                     onMutation = onProfileMutation,
-                    onSelect = { onSelectMedia(it, null) }, listState = searchListState,
+                    onSelect = { item, videoId -> onSelectMedia(item, videoId) }, listState = searchListState,
                     gridState = discoverGridState, requestFocus = requestSearchFocus,
                     onFocusConsumed = onSearchFocusConsumed, modifier = tabModifier,
                 )
