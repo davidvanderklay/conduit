@@ -218,13 +218,16 @@ actual fun NativePlayer(
                 }
             }
             .pointerInput(bridge, touchGestures, holdToSpeed) {
+                var holdSpeedTriggered = false
                 detectTapGestures(
                     onPress = {
+                        holdSpeedTriggered = false
                         if (holdToSpeed) {
                             coroutineScope {
                                 val release = async { tryAwaitRelease() }
                                 delay(450)
                                 if (!release.isCompleted) {
+                                    holdSpeedTriggered = true
                                     val previousSpeed = playbackSpeed
                                     bridge.setPlaybackSpeed(2f)
                                     latestTemporarySpeedCallback(true)
@@ -240,7 +243,13 @@ actual fun NativePlayer(
                             tryAwaitRelease()
                         }
                     },
-                    onTap = { controlsVisible = !controlsVisible },
+                    onTap = {
+                        if (holdSpeedTriggered) {
+                            holdSpeedTriggered = false
+                        } else {
+                            controlsVisible = !controlsVisible
+                        }
+                    },
                     onDoubleTap = if (touchGestures) {
                         { offset ->
                             if (offset.x < size.width / 2f) bridge.seekBy(-10_000) else bridge.seekBy(10_000)
