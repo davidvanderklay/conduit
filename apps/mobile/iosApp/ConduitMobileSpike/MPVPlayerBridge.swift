@@ -437,9 +437,17 @@ final class ConduitMPVPlayerViewController: UIViewController {
             guard let self, self.mpv != nil else { return }
             switch mode {
             case 1, 2:
+                self.setStringProperty("keepaspect", "yes")
                 self.setStringProperty("panscan", "1.0")
-            default:
+                self.setStringProperty("video-aspect-override", "no")
+            case 3:
+                self.setStringProperty("keepaspect", "no")
                 self.setStringProperty("panscan", "0.0")
+                self.setStringProperty("video-aspect-override", "no")
+            default:
+                self.setStringProperty("keepaspect", "yes")
+                self.setStringProperty("panscan", "0.0")
+                self.setStringProperty("video-aspect-override", "no")
             }
             self.setStringProperty("video-unscaled", "no")
         }

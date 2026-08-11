@@ -2,6 +2,7 @@ package media.conduit.mobile.account
 
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
+import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsText
 import io.ktor.client.request.bearerAuth
 import io.ktor.client.request.get
@@ -17,8 +18,11 @@ import io.ktor.http.isSuccess
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
@@ -237,6 +241,44 @@ private data class StreamsResponse(val streams: List<StreamItem> = emptyList())
 
 @Serializable
 private data class CatalogResponse(val metas: List<CatalogItem> = emptyList())
+
+private val addonJson = Json {
+    ignoreUnknownKeys = true
+    explicitNulls = false
+}
+
+private val metadataStringListFields = setOf("genres", "director", "cast", "writer")
+private val metadataArrayFields = metadataStringListFields + setOf("trailers", "trailerStreams", "videos")
+
+private suspend inline fun <reified T> HttpResponse.decodeAddonBody(
+    normalize: (JsonElement) -> JsonElement = { it },
+): T {
+    val value = addonJson.parseToJsonElement(bodyAsText())
+    return addonJson.decodeFromJsonElement(normalize(value))
+}
+
+private fun normalizeMetaResponse(value: JsonElement): JsonElement {
+    val root = value as? JsonObject ?: return value
+    val meta = root["meta"] as? JsonObject ?: return value
+    val normalizedMeta = buildJsonObject {
+        meta.forEach { (key, field) ->
+            when {
+                key in metadataStringListFields -> put(key, normalizeStringList(field))
+                key in metadataArrayFields -> put(key, field as? JsonArray ?: JsonArray(emptyList()))
+                else -> put(key, field)
+            }
+        }
+    }
+    return buildJsonObject {
+        root.forEach { (key, field) -> put(key, if (key == "meta") normalizedMeta else field) }
+    }
+}
+
+private fun normalizeStringList(value: JsonElement): JsonArray = when (value) {
+    is JsonArray -> JsonArray(value.filter { (it as? JsonPrimitive)?.isString == true })
+    is JsonPrimitive -> if (value.isString) JsonArray(listOf(value)) else JsonArray(emptyList())
+    else -> JsonArray(emptyList())
+}
 
 data class HomeCatalog(
     val key: String,
@@ -709,7 +751,7 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
                         HomeCatalog(
                             key = "${addon.id}:$type:$id",
                             title = title,
-                            items = response.body<CatalogResponse>().metas,
+                            items = response.decodeAddonBody<CatalogResponse>().metas,
                             addonId = addon.id,
                             type = type,
                             catalogId = id,
@@ -735,7 +777,8 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
                 results.send(runCatching {
                     val response = client.get(resourceUrl(addon.manifestUrl, "meta", type, id))
                     if (!response.status.isSuccess()) error("metadata request failed")
-                    response.body<MetaResponse>().meta ?: error("add-on returned no metadata")
+                    response.decodeAddonBody<MetaResponse>(::normalizeMetaResponse).meta
+                        ?: error("add-on returned no metadata")
                 })
             } }
             var lastFailure: Throwable? = null
@@ -764,7 +807,7 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
                     val response = client.get(resourceUrl(addon.manifestUrl, "stream", type, videoId))
                     if (!response.status.isSuccess()) error("stream request failed")
                     val name = addon.manifest["name"]?.jsonPrimitive?.contentOrNull ?: addon.manifestId
-                    response.body<StreamsResponse>().streams.map { StreamSource(name, it) }
+                    response.decodeAddonBody<StreamsResponse>().streams.map { StreamSource(name, it) }
                 }
             }
         }.map { it.await() }
@@ -783,7 +826,7 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
                     val response = client.get(resourceUrl(addon.manifestUrl, "subtitles", type, videoId))
                     if (!response.status.isSuccess()) error("subtitle request failed")
                     val addonName = addon.manifest["name"]?.jsonPrimitive?.contentOrNull ?: addon.manifestId
-                    response.body<SubtitlesResponse>().subtitles.map { it.copy(addonName = addonName) }
+                    response.decodeAddonBody<SubtitlesResponse>().subtitles.map { it.copy(addonName = addonName) }
                 }.getOrDefault(emptyList())
             }
         }.flatMap { it.await() }.distinctBy(SubtitleItem::url)
@@ -814,7 +857,7 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
                     HomeCatalog(
                         key = "search:${addon.id}:$type:$id",
                         title = "$catalogName · $typeLabel · $addonName",
-                        items = response.body<CatalogResponse>().metas.distinctBy { "${it.type}:${it.id}" },
+                        items = response.decodeAddonBody<CatalogResponse>().metas.distinctBy { "${it.type}:${it.id}" },
                         addonId = addon.id,
                         type = type,
                         catalogId = id,
@@ -838,7 +881,7 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
         if (!response.status.isSuccess()) {
             throw ServerRequestException("${catalog.name} returned HTTP ${response.status.value}", response.status.value)
         }
-        return response.body<CatalogResponse>().metas
+        return response.decodeAddonBody<CatalogResponse>().metas
     }
 
     private fun resourceUrl(
