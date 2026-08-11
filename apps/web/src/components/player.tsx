@@ -12,7 +12,7 @@ import {
   VolumeX,
 } from "lucide-react"
 import type Hls from "hls.js"
-import type { InstalledAddon, ProgressMetadata } from "../lib/api"
+import type { InstalledAddon, PlaybackSource, ProgressMetadata } from "../lib/api"
 import { addonsForResource } from "../lib/addons"
 import { loadSubtitles, type Subtitle, type Video } from "../lib/core"
 import { isDesktop } from "../lib/desktop"
@@ -50,6 +50,7 @@ export function Player({
   type,
   videoId,
   profileId,
+  playbackSource,
   progressMetadata,
   addons,
   seriesContext,
@@ -64,6 +65,7 @@ export function Player({
   type: string
   videoId: string
   profileId: string
+  playbackSource?: PlaybackSource
   progressMetadata: ProgressMetadata
   addons: InstalledAddon[]
   seriesContext?: PlayerSeriesContext
@@ -81,6 +83,7 @@ export function Player({
         type={type}
         videoId={videoId}
         profileId={profileId}
+        playbackSource={playbackSource}
         progressMetadata={progressMetadata}
         addons={addons}
         seriesContext={seriesContext}
@@ -99,6 +102,7 @@ export function Player({
       type={type}
       videoId={videoId}
       profileId={profileId}
+      playbackSource={playbackSource}
       progressMetadata={progressMetadata}
       addons={addons}
       seriesContext={seriesContext}
@@ -117,6 +121,7 @@ function WebPlayer({
   type,
   videoId,
   profileId,
+  playbackSource,
   progressMetadata,
   addons,
   seriesContext,
@@ -131,6 +136,7 @@ function WebPlayer({
   type: string
   videoId: string
   profileId: string
+  playbackSource?: PlaybackSource
   progressMetadata: ProgressMetadata
   addons: InstalledAddon[]
   seriesContext?: PlayerSeriesContext
@@ -171,6 +177,7 @@ function WebPlayer({
     profileId,
     videoId,
     progressMetadata,
+    playbackSource,
   )
   const resumed = useRef(false)
 

@@ -76,11 +76,13 @@ actual fun NativePlayer(
     preferredSubtitleLanguage: String,
     onEpisodes: () -> Unit,
     onControlsVisibilityChanged: (Boolean) -> Unit,
+    onTemporarySpeedChanged: (Boolean) -> Unit,
     modifier: Modifier,
     onState: (PlaybackState) -> Unit,
 ) {
     val currentCallback by rememberUpdatedState(onState)
     val latestControlsCallback by rememberUpdatedState(onControlsVisibilityChanged)
+    val latestTemporarySpeedCallback by rememberUpdatedState(onTemporarySpeedChanged)
     val bridge = remember { IosPlayerBridgeFactory.create() }
     val density = LocalDensity.current
     val windowSize = LocalWindowInfo.current.containerSize
@@ -225,8 +227,13 @@ actual fun NativePlayer(
                                 if (!release.isCompleted) {
                                     val previousSpeed = playbackSpeed
                                     bridge.setPlaybackSpeed(2f)
-                                    release.await()
-                                    bridge.setPlaybackSpeed(previousSpeed)
+                                    latestTemporarySpeedCallback(true)
+                                    try {
+                                        release.await()
+                                    } finally {
+                                        bridge.setPlaybackSpeed(previousSpeed)
+                                        latestTemporarySpeedCallback(false)
+                                    }
                                 }
                             }
                         } else {

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest"
 import {
   isPlayableStreamUrl,
+  playbackSourceForStream,
+  selectSavedStream,
   selectNextEpisodeStream,
   type AutoSelectableStream,
 } from "./stream-selection"
@@ -47,5 +49,29 @@ describe("selectNextEpisodeStream", () => {
     expect(isPlayableStreamUrl("file:///tmp/video.mp4")).toBe(false)
     expect(isPlayableStreamUrl("not a url")).toBe(false)
     expect(isPlayableStreamUrl("https://example.com/video.mp4")).toBe(true)
+  })
+
+  it("matches a saved source without persisting transient URL tokens", () => {
+    const saved = playbackSourceForStream(stream("saved", "Provider", {
+      addonId: "addon-1",
+      url: "https://video.example/movie.m3u8?token=old&quality=1080p",
+      title: "1080p HEVC",
+    }))
+    const result = selectSavedStream([
+      stream("fresh", "Provider", {
+        addonId: "addon-1",
+        url: "https://video.example/movie.m3u8?token=new&quality=1080p",
+        title: "1080p HEVC",
+      }),
+    ], saved)
+    expect(saved?.sourceKey).toBe("url:https://video.example/movie.m3u8?quality=1080p")
+    expect(result?.key).toBe("fresh")
+  })
+
+  it("does not match a saved source from another add-on", () => {
+    const saved = playbackSourceForStream(stream("saved", "Provider", { addonId: "addon-1" }))
+    expect(selectSavedStream([
+      stream("same-looking", "Provider", { addonId: "addon-2" }),
+    ], saved)).toBeUndefined()
   })
 })
