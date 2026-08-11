@@ -36,7 +36,6 @@ import {
 import { readPreferences } from "../lib/preferences"
 import {
   playbackSourceForStream,
-  selectNextEpisodeStream,
   selectSavedStream,
 } from "../lib/stream-selection"
 import { Button } from "./ui/button"
@@ -190,35 +189,12 @@ export function MediaDetails({
     onBrowse?.(target)
   }
 
-  const playEpisode = async (video: Video) => {
-    const transition = ++episodeTransition.current
-    const currentStream = playing
-    setStreamResolutionError(undefined)
-    setPlaying(undefined)
-    setSelectedVideoId(video.id)
-    setSelectedSeason(video.season ?? 1)
-    seriesReturnVideoId.current = video.id
-    const nextStreams = await queryClient.fetchQuery({
-      queryKey: ["streams", item.type, video.id, addonIds],
-      queryFn: () => resolveStreams(addons, item.type, video.id),
-      staleTime: 5 * 60 * 1000,
-    })
-    if (transition !== episodeTransition.current) return
-    const stream = selectNextEpisodeStream(nextStreams, currentStream)
-    if (!stream) {
-      setStreamResolutionError(
-        `No playable source could be selected automatically for ${episodeLabel(video)}. Choose a source below.`,
-      )
-    }
-    setPlaying(stream)
-  }
-
-  const autoplayNextEpisode = async (allowAutoplay = true) => {
+  const autoplayNextEpisode = (allowAutoplay = true) => {
     if (!allowAutoplay || !nextEpisode || !readPreferences().autoplay) {
       setPlaying(undefined)
       return
     }
-    await playEpisode(nextEpisode)
+    openEpisodeSources(nextEpisode)
   }
 
   const openEpisodeSources = (video: Video) => {
@@ -365,7 +341,7 @@ export function MediaDetails({
           nextEpisodeLabel={nextEpisode ? episodeLabel(nextEpisode) : undefined}
           onSelectEpisode={openEpisodeSources}
           onNextEpisode={
-            nextEpisode ? () => playEpisode(nextEpisode) : undefined
+            nextEpisode ? () => openEpisodeSources(nextEpisode) : undefined
           }
           onEnded={autoplayNextEpisode}
           onClose={() => {
