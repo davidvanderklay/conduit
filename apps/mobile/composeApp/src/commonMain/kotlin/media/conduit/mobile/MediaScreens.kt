@@ -785,13 +785,25 @@ internal fun MediaDetailsScreen(
         return
     }
     if (streamPageOpen) {
-        StreamSelectionScreen(meta?.name ?: item.name, meta?.background ?: meta?.poster ?: item.background ?: item.poster, selectedVideo, streams.orEmpty(), streamsLoading, streamsError, onBack = { streamPageOpen = false; streams = null }, onRetry = { requestStreams(selectedVideo) }) { source ->
-            if (source.stream.url != null) {
-                currentAddonId = source.addonId
-                currentAddonName = source.addonName
-                playback = PlaybackState()
-                playing = source.stream
+        val closeStreamPage = {
+            streamPageOpen = false
+            streams = null
+        }
+        Box(Modifier.fillMaxSize()) {
+            StreamSelectionScreen(meta?.name ?: item.name, meta?.background ?: meta?.poster ?: item.background ?: item.poster, selectedVideo, streams.orEmpty(), streamsLoading, streamsError, onRetry = { requestStreams(selectedVideo) }) { source ->
+                if (source.stream.url != null) {
+                    currentAddonId = source.addonId
+                    currentAddonName = source.addonName
+                    playback = PlaybackState()
+                    playing = source.stream
+                }
             }
+            MobileBackButton(
+                onClick = closeStreamPage,
+                modifier = Modifier.align(Alignment.TopStart),
+                background = MaterialTheme.colorScheme.background.copy(alpha = .96f),
+                safeArea = true,
+            )
         }
         return
     }
@@ -808,12 +820,13 @@ internal fun MediaDetailsScreen(
     val imdbId = listOfNotNull(details?.id, item.id).firstOrNull { id ->
         id.length > 2 && id.startsWith("tt") && id.drop(2).all(Char::isDigit)
     }
-    LazyColumn(
-        state = detailsListState,
-        modifier = Modifier.fillMaxSize().nestedScroll(heroPullConnection),
-        overscrollEffect = null,
-        contentPadding = PaddingValues(bottom = 32.dp),
-    ) {
+    Box(Modifier.fillMaxSize()) {
+        LazyColumn(
+            state = detailsListState,
+            modifier = Modifier.fillMaxSize().nestedScroll(heroPullConnection),
+            overscrollEffect = null,
+            contentPadding = PaddingValues(bottom = 32.dp),
+        ) {
         item {
             Box(Modifier.fillMaxWidth().height(heroHeight + 64.dp + heroPullDp)) {
                 Box(Modifier.fillMaxWidth().height(heroHeight + heroPullDp).clipToBounds()) {
@@ -828,9 +841,6 @@ internal fun MediaDetailsScreen(
                         },
                     )
                     Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Black.copy(.15f), MaterialTheme.colorScheme.background))))
-                    IconButton(onClick = onBack, modifier = Modifier.statusBarsPadding().padding(12.dp).background(Color.Black.copy(.5f), CircleShape)) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = Color.White)
-                    }
                 }
                 if (titleLogo != null) {
                     AsyncImage(
@@ -984,6 +994,14 @@ internal fun MediaDetailsScreen(
                 }
             }
         }
+        }
+        MobileBackButton(
+            onClick = onBack,
+            modifier = Modifier.align(Alignment.TopStart),
+            background = Color.Black.copy(alpha = .5f),
+            tint = Color.White,
+            safeArea = true,
+        )
     }
     MediaActionSheet(
         target = actionTarget,
@@ -1106,7 +1124,6 @@ private fun StreamSelectionScreen(
     streams: List<StreamSource>,
     loading: Boolean,
     error: String?,
-    onBack: () -> Unit,
     onRetry: () -> Unit,
     onSelect: (StreamSource) -> Unit,
 ) {
@@ -1152,7 +1169,7 @@ private fun StreamSelectionScreen(
         stickyHeader(key = "stream-header") {
             Surface(color = MaterialTheme.colorScheme.background.copy(alpha = .96f), shadowElevation = if (collapsed) 8.dp else 0.dp) {
                 Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 8.dp, vertical = if (collapsed) 4.dp else 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") }
+                    Spacer(Modifier.width(48.dp))
                     Column { Text("Choose a stream", style = if (collapsed) MaterialTheme.typography.titleMedium else MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold); if (!collapsed) Text(listOfNotNull(title, episode?.let { "S${it.season ?: 0}E${it.episode ?: 0} · ${it.displayTitle}" }).joinToString(" · "), color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                 }
             }
@@ -1209,6 +1226,27 @@ internal fun ProfileSettingsScreen(
     var route by remember { mutableStateOf<ProfileRoute>(ProfileRoute.Settings) }
     LaunchedEffect(route) { onProfileFlowChanged(route != ProfileRoute.Settings) }
     DisposableEffect(Unit) { onDispose { onProfileFlowChanged(false) } }
+    PlatformBackHandler(enabled = route != ProfileRoute.Settings) {
+        when (route) {
+            ProfileRoute.Settings -> Unit
+            ProfileRoute.Overview -> route = ProfileRoute.Settings
+            ProfileRoute.Switcher -> route = ProfileRoute.Overview
+            ProfileRoute.Create -> route = ProfileRoute.Switcher
+            is ProfileRoute.Edit -> route = ProfileRoute.Overview
+            ProfileRoute.Diagnostics -> route = ProfileRoute.Advanced
+            ProfileRoute.Addons,
+            ProfileRoute.History,
+            ProfileRoute.Account,
+            ProfileRoute.Appearance,
+            ProfileRoute.Content,
+            ProfileRoute.Playback,
+            ProfileRoute.Advanced,
+            ProfileRoute.Integrations,
+            ProfileRoute.Supporters,
+            ProfileRoute.Privacy,
+            ProfileRoute.Licenses -> route = ProfileRoute.Settings
+        }
+    }
     when (val current = route) {
         ProfileRoute.Overview -> return ProfileOverviewScreen(activeProfile, profileSync.snapshot, { route = ProfileRoute.Settings }, { route = ProfileRoute.Switcher }, { activeProfile?.let { route = ProfileRoute.Edit(it) } }, modifier)
         ProfileRoute.Switcher -> return ProfileSwitcherScreen(account.bootstrap.households.flatMap { it.profiles }, activeProfile, { route = ProfileRoute.Overview }, { route = ProfileRoute.Edit(it) }, { route = ProfileRoute.Create }, { dispatch(AppAction.SelectProfile(it.id)); route = ProfileRoute.Overview }, modifier)
@@ -1521,9 +1559,27 @@ private fun WatchHistoryScreen(
 }
 
 @Composable
+private fun MobileBackButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    background: Color = Color.Transparent,
+    tint: Color = MaterialTheme.colorScheme.onSurface,
+    safeArea: Boolean = false,
+) {
+    IconButton(
+        onClick = onClick,
+        modifier = modifier
+            .then(if (safeArea) Modifier.statusBarsPadding().padding(12.dp) else Modifier)
+            .background(background, CircleShape),
+    ) {
+        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back", tint = tint)
+    }
+}
+
+@Composable
 private fun ProfileHeader(title: String, onBack: () -> Unit) {
     Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 6.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-        IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") }
+        MobileBackButton(onClick = onBack)
         Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
     }
 }
@@ -1566,8 +1622,9 @@ private fun ProfileOverviewScreen(profile: ProfileSummary?, snapshot: ProfileSna
         trackedMs >= 3_600_000 -> "${trackedMs / 3_600_000} h"
         else -> "${trackedMs / 60_000} m"
     }
-    LazyColumn(modifier, contentPadding = PaddingValues(bottom = 130.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        item { ProfileHeader("Profile", onBack) }
+    Column(modifier.fillMaxSize()) {
+        ProfileHeader("Profile", onBack)
+        LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 130.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item { Row(Modifier.padding(horizontal = 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Button(onClick = onSwitch, modifier = Modifier.weight(1f).height(58.dp)) { Icon(Icons.Rounded.People, null); Spacer(Modifier.width(8.dp)); Text("Switch profile") }
             OutlinedButton(onClick = onEdit, modifier = Modifier.weight(1f).height(58.dp)) { Icon(Icons.Rounded.Edit, null); Spacer(Modifier.width(8.dp)); Text("Edit profile") }
@@ -1586,6 +1643,7 @@ private fun ProfileOverviewScreen(profile: ProfileSummary?, snapshot: ProfileSna
                 listOf(StatCardData("${snapshot?.progress?.take(7)?.size ?: 0}", "Recent activity", "Latest history entries", Icons.Rounded.Notifications), StatCardData("0", "Upcoming", "Saved upcoming releases", Icons.Rounded.Event)),
             ).forEach { pair -> Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) { pair.forEach { StatCard(it, Modifier.weight(1f)) } } }
         } }
+        }
     }
 }
 
@@ -1613,8 +1671,9 @@ private fun ProfileEditorScreen(profile: ProfileSummary?, active: ProfileSummary
     val canUsePrimary = profile == null || profile.id != primary?.id
     var usesPrimaryAddons by remember { mutableStateOf(profile?.usesPrimaryAddons ?: false) }
     val preview = ProfileSummary(profile?.id ?: "new", name.ifBlank { "P" }, kids, usesPrimaryAddons, color.takeIf { avatarMode == "color" }, url.trim().ifBlank { null }.takeIf { avatarMode == "image" })
-    LazyColumn(modifier, contentPadding = PaddingValues(bottom = 130.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        item { ProfileHeader(if (profile == null) "Add Profile" else "Edit Profile", onBack) }
+    Column(modifier.fillMaxSize()) {
+        ProfileHeader(if (profile == null) "Add Profile" else "Edit Profile", onBack)
+        LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 130.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item { Column(Modifier.padding(horizontal = 10.dp), horizontalAlignment = Alignment.CenterHorizontally) { ProfileAvatar(preview, 104); Spacer(Modifier.height(10.dp)); Text(name.ifBlank { "New profile" }, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) } }
         item { Card(Modifier.padding(horizontal = 10.dp).fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             OutlinedTextField(name, { name = it }, label = { Text("Profile name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
@@ -1624,6 +1683,7 @@ private fun ProfileEditorScreen(profile: ProfileSummary?, active: ProfileSummary
         item { Card(Modifier.padding(horizontal = 10.dp).fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) { Text("Avatar", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold); Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { FilterChip(selected = avatarMode == "color", onClick = { avatarMode = "color" }, label = { Text("Profile color") }); FilterChip(selected = avatarMode == "image", onClick = { avatarMode = "image" }, label = { Text("Custom image") }) }; if (avatarMode == "color") Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { colors.forEach { option -> Surface(shape = CircleShape, color = profileColor(option), border = if (color == option) BorderStroke(3.dp, Color.White) else null, modifier = Modifier.size(36.dp).clickable { color = option }) {} } } else { Text("Enter an HTTP or HTTPS image link.", color = MaterialTheme.colorScheme.onSurfaceVariant); OutlinedTextField(url, { url = it }, placeholder = { Text("https://example.com/avatar.png") }, singleLine = true, modifier = Modifier.fillMaxWidth()) } } } }
         error?.let { item { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 18.dp)) } }
         item { Button(onClick = { scope.launch { saving = true; error = null; runCatching { val endpoint = requireNotNull(state.endpoint); val cleanUrl = url.trim().ifBlank { null }.takeIf { avatarMode == "image" }; val cleanColor = color.takeIf { avatarMode == "color" }; require(cleanUrl == null || cleanUrl.startsWith("https://") || cleanUrl.startsWith("http://")) { "Avatar URL must begin with http:// or https://" }; require(avatarMode != "image" || cleanUrl != null) { "Enter a custom image URL" }; require(name.isNotBlank()) { "Enter a profile name" }; if (profile == null) { val household = account.bootstrap.households.first(); api.createProfile(endpoint.baseUrl, account.session.token, household.id, name, kids, usesPrimaryAddons, cleanColor, cleanUrl) } else api.updateProfile(endpoint.baseUrl, account.session.token, profile.id, name, kids, usesPrimaryAddons, cleanColor, cleanUrl) }.onSuccess { onSaved(it.id); onBack() }.onFailure { error = it.message ?: "Unable to save profile" }; saving = false } }, enabled = !saving, modifier = Modifier.padding(horizontal = 10.dp).fillMaxWidth().height(54.dp)) { if (saving) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp) else Text(if (profile == null) "Create profile" else "Save changes") } }
+        }
     }
 }
 
@@ -1667,8 +1727,9 @@ private fun AddonManagerScreen(
     }
     val activeCount = addons.count { it.enabled }
     val catalogCount = addons.filter { it.enabled }.sumOf { it.manifest["catalogs"]?.let { value -> runCatching { value.jsonArray.size }.getOrDefault(0) } ?: 0 }
-    LazyColumn(modifier, contentPadding = PaddingValues(start = 10.dp, end = 10.dp, bottom = 40.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item { ProfileHeader("Add-ons", onBack) }
+    Column(modifier.fillMaxSize()) {
+        ProfileHeader("Add-ons", onBack)
+        LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(start = 10.dp, end = 10.dp, bottom = 40.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { AddonSectionLabel("Overview") }
         item { Surface(color = Color.White.copy(.075f), shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
             Row(Modifier.fillMaxWidth().padding(vertical = 18.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -1739,6 +1800,7 @@ private fun AddonManagerScreen(
             }
         }
         if (busy) item { LinearProgressIndicator(Modifier.padding(horizontal = 10.dp).fillMaxWidth()) }
+        }
     }
 }
 
