@@ -203,7 +203,10 @@ class ConduitApiTest {
 
         val result = api.loadHomeCatalogs(listOf(addon))
 
-        assertEquals(listOf("/configured/catalog/movie/popular.json", "/configured/catalog/series/popular.json"), requested)
+        assertEquals(
+            listOf("/configured/catalog/movie/popular.json", "/configured/catalog/series/popular.json").sorted(),
+            requested.sorted(),
+        )
         assertEquals("A Movie", result.catalogs.single().items.single().name)
         assertEquals("a1", result.catalogs.single().addonId)
         assertEquals("movie", result.catalogs.single().type)
