@@ -6,7 +6,7 @@ onlyBuiltDependencies:
   - esbuild
 
 overrides:
-  vite: npm:@voidzero-dev/vite-plus-core@latest
+  vite: npm:@voidzero-dev/vite-plus-core@0.2.8
   "fast-uri@>=3.0.0 <3.1.5": 3.1.5
   "fast-uri@>=4.0.0 <4.1.2": 4.1.2
   "nanoid@<3.3.17": 3.3.17
