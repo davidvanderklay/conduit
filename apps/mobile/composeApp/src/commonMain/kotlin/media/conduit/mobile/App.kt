@@ -690,6 +690,7 @@ private fun AppShell(
     val historyGridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
     val settingsListState = rememberLazyListState()
     var browseQuery by remember(activeProfile?.id) { mutableStateOf("") }
+    var focusSearchOnOpen by remember(activeProfile?.id) { mutableStateOf(false) }
     var discoverSelection by remember(activeProfile?.id) { mutableStateOf(DiscoverSelection()) }
     var adaptiveCompact by remember { mutableStateOf(false) }
     LaunchedEffect(
@@ -770,9 +771,19 @@ private fun AppShell(
                 is MobileBrowseTarget.Discover -> {
                     browseQuery = ""
                     discoverSelection = target.selection
+                    focusSearchOnOpen = false
                 }
-                is MobileBrowseTarget.Search -> browseQuery = target.query
+                is MobileBrowseTarget.Search -> {
+                    browseQuery = target.query
+                    focusSearchOnOpen = true
+                }
             }
+            selectedMedia = null
+            dispatch(AppAction.Navigate(AppDestination.Search))
+        }
+        val openSearch: () -> Unit = {
+            browseQuery = ""
+            focusSearchOnOpen = true
             selectedMedia = null
             dispatch(AppAction.Navigate(AppDestination.Search))
         }
@@ -803,16 +814,25 @@ private fun AppShell(
                             }
                         }
                     }
-                    DestinationContent(
-                        state, platform, account, activeProfile, profileSync, api, selectedMedia,
-                        selectedVideoId, openMedia, { selectedMedia = null }, dispatch, onSignOut, onProfilesChanged,
-                        { profileFlowActive = it },
-                        { activeProfile?.let { profile -> appScope.launch { profileSync = syncRepository.synchronize(state.endpoint!!.baseUrl, account.session.token, profile.id) } } },
-                        ::mutateProfile,
-                        browseQuery, { browseQuery = it }, discoverSelection, { discoverSelection = it }, openBrowse,
-                        preferences, onPreferencesChanged, homeListState, searchListState, discoverGridState, libraryGridState, historyGridState, settingsListState,
-                        Modifier.weight(1f),
-                    )
+                    Box(Modifier.weight(1f)) {
+                        DestinationContent(
+                            state, platform, account, activeProfile, profileSync, api, selectedMedia,
+                            selectedVideoId, openMedia, { selectedMedia = null }, dispatch, onSignOut, onProfilesChanged,
+                            { profileFlowActive = it },
+                            { activeProfile?.let { profile -> appScope.launch { profileSync = syncRepository.synchronize(state.endpoint!!.baseUrl, account.session.token, profile.id) } } },
+                            ::mutateProfile,
+                            browseQuery, { browseQuery = it }, discoverSelection, { discoverSelection = it }, openBrowse,
+                            focusSearchOnOpen, { focusSearchOnOpen = false },
+                            preferences, onPreferencesChanged, homeListState, searchListState, discoverGridState, libraryGridState, historyGridState, settingsListState,
+                            Modifier.fillMaxSize(),
+                        )
+                        if (selectedMedia != null || state.destination != AppDestination.Search) {
+                            IpadSearchAction(
+                                onClick = openSearch,
+                                modifier = Modifier.align(Alignment.TopEnd),
+                            )
+                        }
+                    }
                 }
             } else {
                 DestinationContent(
@@ -822,6 +842,7 @@ private fun AppShell(
                     { activeProfile?.let { profile -> appScope.launch { profileSync = syncRepository.synchronize(state.endpoint!!.baseUrl, account.session.token, profile.id) } } },
                     ::mutateProfile,
                     browseQuery, { browseQuery = it }, discoverSelection, { discoverSelection = it }, openBrowse,
+                    false, {},
                     preferences, onPreferencesChanged, homeListState, searchListState, discoverGridState, libraryGridState, historyGridState, settingsListState,
                     Modifier.padding(padding),
                 )
@@ -912,6 +933,8 @@ private fun DestinationContent(
     discoverSelection: DiscoverSelection,
     onDiscoverSelectionChange: (DiscoverSelection) -> Unit,
     onBrowse: (MobileBrowseTarget) -> Unit,
+    requestSearchFocus: Boolean,
+    onSearchFocusConsumed: () -> Unit,
     preferences: DevicePreferences,
     onPreferencesChanged: (DevicePreferences) -> Unit,
     homeListState: androidx.compose.foundation.lazy.LazyListState,
@@ -944,7 +967,8 @@ private fun DestinationContent(
                     selection = discoverSelection, onSelectionChange = onDiscoverSelectionChange,
                     onMutation = onProfileMutation,
                     onSelect = { onSelectMedia(it, null) }, listState = searchListState,
-                    gridState = discoverGridState, modifier = tabModifier,
+                    gridState = discoverGridState, requestFocus = requestSearchFocus,
+                    onFocusConsumed = onSearchFocusConsumed, modifier = tabModifier,
                 )
                 AppDestination.Library -> MobileLibraryScreen(
                     snapshot = profileSync.snapshot, api = api, onMutation = onProfileMutation,
@@ -982,6 +1006,22 @@ private fun DestinationContent(
             )
         }
         if (profileSync.refreshing) LinearProgressIndicator(Modifier.fillMaxWidth().align(Alignment.TopCenter))
+    }
+}
+
+@Composable
+private fun IpadSearchAction(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    IconButton(
+        onClick = onClick,
+        modifier = modifier
+            .statusBarsPadding()
+            .padding(end = 10.dp, top = 6.dp)
+            .background(Color(0xCC151518), RoundedCornerShape(14.dp)),
+    ) {
+        Icon(Icons.Rounded.Search, contentDescription = "Search", tint = Color.White)
     }
 }
 

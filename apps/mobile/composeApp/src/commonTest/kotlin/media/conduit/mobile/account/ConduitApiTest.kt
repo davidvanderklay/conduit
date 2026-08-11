@@ -317,6 +317,49 @@ class ConduitApiTest {
     }
 
     @Test
+    fun metadataNormalizesNullAndScalarCreditFields() = runTest {
+        val engine = MockEngine {
+            respond(
+                """{"meta":{
+                    "id":"series:sg1",
+                    "type":"series",
+                    "name":"Stargate SG-1",
+                    "director":null,
+                    "cast":"Richard Dean Anderson",
+                    "writer":["Writer A",null],
+                    "genres":null,
+                    "trailers":null,
+                    "trailerStreams":null,
+                    "videos":null
+                }}""",
+                HttpStatusCode.OK,
+                headersOf(HttpHeaders.ContentType, "application/json"),
+            )
+        }
+        val api = ConduitApi(HttpClient(engine) { install(ContentNegotiation) { json() } })
+        val addon = InstalledAddonSummary(
+            id = "cinemeta",
+            manifestId = "cinemeta",
+            manifestUrl = "https://addon.example/manifest.json",
+            manifest = Json.parseToJsonElement(
+                """{"name":"Cinemeta","resources":["meta"]}""",
+            ).jsonObject,
+            position = 0,
+            enabled = true,
+        )
+
+        val metadata = api.loadMeta(listOf(addon), "series", "series:sg1")
+
+        assertEquals(emptyList<String>(), metadata.director)
+        assertEquals(listOf("Richard Dean Anderson"), metadata.cast)
+        assertEquals(listOf("Writer A"), metadata.writer)
+        assertEquals(emptyList<String>(), metadata.genres)
+        assertTrue(metadata.trailers.isEmpty())
+        assertTrue(metadata.trailerStreams.isEmpty())
+        assertTrue(metadata.videos.isEmpty())
+    }
+
+    @Test
     fun streamParsingAcceptsProviderHeaderValuesAndNonNumericFileIndexes() = runTest {
         val engine = MockEngine {
             respond(
