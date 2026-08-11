@@ -37,6 +37,7 @@ export interface PortableProfileData {
     durationMs: number
     watched: boolean
     dismissed?: boolean
+    continueWatching?: boolean
     playbackSource?: PlaybackSource
     updatedAt: string
   }>
@@ -116,6 +117,9 @@ export function validatePortableData(value: unknown): PortableProfileData {
     if (typeof raw.watched !== "boolean") throw new Error(`${path}.watched must be a boolean`)
     if (raw.dismissed !== undefined && typeof raw.dismissed !== "boolean") {
       throw new Error(`${path}.dismissed must be a boolean`)
+    }
+    if (raw.continueWatching !== undefined && typeof raw.continueWatching !== "boolean") {
+      throw new Error(`${path}.continueWatching must be a boolean`)
     }
     if (raw.playbackSource !== undefined) assertPlaybackSource(raw.playbackSource, `${path}.playbackSource`)
     assertTimestamp(raw.updatedAt, `${path}.updatedAt`)

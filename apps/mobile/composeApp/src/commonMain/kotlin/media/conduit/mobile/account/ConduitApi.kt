@@ -137,6 +137,7 @@ data class ProgressSummary(
     val durationMs: Long,
     val watched: Boolean,
     val dismissed: Boolean = false,
+    val continueWatching: Boolean = false,
     val playbackSource: PlaybackSource? = null,
     val updatedAt: String,
 )
@@ -263,14 +264,49 @@ fun playbackSourceForStream(addonId: String, stream: StreamItem): PlaybackSource
     bingeGroup = stream.behaviorHints?.bingeGroup,
 )
 
-fun selectSavedStream(streams: List<StreamSource>, source: PlaybackSource?): StreamSource? =
-    source?.let { saved ->
-        streams.firstOrNull { candidate ->
-            candidate.addonId == saved.addonId &&
-                candidate.stream.url != null &&
-                streamSourceKey(candidate.stream) == saved.sourceKey
-        }
+fun selectSavedStream(streams: List<StreamSource>, source: PlaybackSource?): StreamSource? {
+    val saved = source ?: return null
+    val candidates = streams.filter { candidate ->
+        candidate.addonId == saved.addonId && isPlayableStreamUrl(candidate.stream.url)
     }
+    candidates.firstOrNull { candidate -> streamSourceKey(candidate.stream) == saved.sourceKey }?.let { return it }
+
+    // Providers commonly rotate signed query parameters. Prefer the same
+    // stable URL path before falling back to metadata the add-on kept stable.
+    val savedUrlPath = saved.sourceKey
+        .takeIf { it.startsWith("url:") }
+        ?.removePrefix("url:")
+        ?.let(::normalizeStreamUrlPath)
+    if (savedUrlPath != null) {
+        candidates.firstOrNull { candidate ->
+            candidate.stream.url?.let(::normalizeStreamUrlPath) == savedUrlPath
+        }?.let { return it }
+    }
+
+    return candidates
+        .map { candidate -> candidate to streamMatchScore(candidate.stream, saved) }
+        .maxByOrNull { it.second }
+        ?.takeIf { it.second > 0 }
+        ?.first
+}
+
+private fun isPlayableStreamUrl(value: String?): Boolean {
+    val protocol = value?.substringBefore(':')?.lowercase()
+    return protocol == "http" || protocol == "https"
+}
+
+private fun streamMatchScore(stream: StreamItem, saved: PlaybackSource): Int {
+    var score = 0
+    if (sameSourceText(stream.behaviorHints?.filename, saved.filename)) score += 100
+    if (sameSourceText(stream.title, saved.title)) score += 20
+    if (sameSourceText(stream.name, saved.name)) score += 10
+    if (sameSourceText(stream.behaviorHints?.bingeGroup, saved.bingeGroup)) score += 5
+    return score
+}
+
+private fun sameSourceText(left: String?, right: String?): Boolean =
+    left?.isNotBlank() == true && right?.isNotBlank() == true &&
+        normalizeSourceText(listOf(left)) == normalizeSourceText(listOf(right))
 
 private fun streamSourceKey(stream: StreamItem): String = when {
     stream.infoHash != null -> "torrent:${stream.infoHash.lowercase()}:${stream.fileIdx?.toString()?.trim('"').orEmpty()}"
@@ -292,6 +328,9 @@ private fun normalizeStreamUrl(value: String): String {
         .joinToString("&")
     return if (query.isBlank()) base else "$base?$query"
 }
+
+private fun normalizeStreamUrlPath(value: String): String =
+    value.substringBefore('#').substringBefore('?').trimEnd('/')
 
 private fun normalizeSourceText(values: List<String?>): String =
     values.filterNotNull().joinToString("|").trim().lowercase().replace(Regex("\\s+"), " ")
@@ -771,14 +810,16 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
         mediaType: String, mediaId: String, name: String, poster: String?,
         videoTitle: String?, season: Int?, episode: Int?, positionMs: Long, durationMs: Long,
         playbackSource: PlaybackSource? = null,
+        watched: Boolean? = null,
     ) {
-        if (durationMs <= 0) return
+        if (durationMs < 0) return
         val response = client.put("$baseUrl/v1/profiles/$profileId/progress/${videoId.encodeURLPathPart()}") {
             bearerAuth(token); contentType(ContentType.Application.Json); setBody(buildJsonObject {
                 put("mediaType", mediaType); put("mediaId", mediaId); put("name", name)
                 poster?.let { put("poster", it) }; videoTitle?.let { put("videoTitle", it) }
                 season?.let { put("season", it) }; episode?.let { put("episode", it) }
                 playbackSource?.let { put("playbackSource", addonJson.encodeToJsonElement(it)) }
+                watched?.let { put("watched", it) }
                 put("positionMs", positionMs.coerceAtLeast(0)); put("durationMs", durationMs.coerceAtLeast(0))
             })
         }

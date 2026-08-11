@@ -97,7 +97,7 @@ internal fun HomeScreen(
                         val catalogItem = CatalogItem(item.mediaId, item.mediaType, item.name, poster = item.poster)
                         RichProgressCard(
                             progress = item,
-                            onClick = { onSelect(catalogItem, if (item.mediaType == "series") item.mediaId else item.videoId) },
+                            onClick = { onSelect(catalogItem, item.videoId) },
                             onActions = { actionTarget = MediaActionTarget(catalogItem, MediaActionContext.Continue, item) },
                             modifier = Modifier.width(210.dp),
                         )
@@ -113,7 +113,7 @@ internal fun HomeScreen(
                         val catalogItem = item.toCatalogItem()
                         RichPosterCard(
                             catalogItem, item.type, sync.snapshot, metadataCache,
-                            onClick = { onSelect(catalogItem, null) },
+                            onClick = { onSelect(catalogItem, latestProgress(sync.snapshot, catalogItem)?.videoId) },
                             onActions = { actionTarget = MediaActionTarget(catalogItem, MediaActionContext.Library, latestProgress(sync.snapshot, catalogItem)) },
                             modifier = Modifier.width(112.dp),
                         )
