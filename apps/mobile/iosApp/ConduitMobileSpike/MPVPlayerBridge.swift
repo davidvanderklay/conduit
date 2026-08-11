@@ -76,6 +76,9 @@ final class ConduitMPVPlayerBridge: NSObject, IosPlayerBridge {
         ensurePlayerViewController().setPreferredSubtitleLanguage(language)
     }
     func setResizeMode(mode: Int32) { playerViewController?.setResize(Int(mode)) }
+    func setImmersivePlayback(enabled: Bool) {
+        ConduitSystemChromeCoordinator.shared.setImmersivePlayback(enabled)
+    }
     func syncVideoSurfaceLayout(width: Double, height: Double) {
         ensurePlayerViewController().syncVideoSurfaceLayout(
             CGSize(width: width, height: height)
@@ -152,6 +155,7 @@ final class ConduitMPVPlayerBridge: NSObject, IosPlayerBridge {
     func destroy() {
         let controller = playerViewController
         playerViewController = nil
+        ConduitSystemChromeCoordinator.shared.setImmersivePlayback(false)
         controller?.destroyPlayer()
         if holdsLandscapeLock {
             holdsLandscapeLock = false

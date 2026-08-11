@@ -1,5 +1,7 @@
 import ComposeApp
+import Combine
 import SwiftUI
+import UIKit
 
 final class ConduitAppDelegate: NSObject, UIApplicationDelegate {
     func application(
@@ -16,6 +18,44 @@ final class ConduitAppDelegate: NSObject, UIApplicationDelegate {
         supportedInterfaceOrientationsFor window: UIWindow?
     ) -> UIInterfaceOrientationMask {
         ConduitOrientationCoordinator.shared.supportedOrientations
+    }
+}
+
+/// Owns the system UI state for the full-screen player.
+///
+/// The MPV controller is embedded below Compose, so its UIKit appearance
+/// preferences do not reliably reach the SwiftUI scene that owns the window.
+/// SwiftUI observes this coordinator and applies the state at the real host
+/// boundary instead.
+final class ConduitSystemChromeCoordinator: ObservableObject {
+    static let shared = ConduitSystemChromeCoordinator()
+
+    @Published private(set) var immersivePlayback = false
+
+    private init() {}
+
+    func setImmersivePlayback(_ enabled: Bool) {
+        performOnMain { [weak self] in
+            guard let self, self.immersivePlayback != enabled else { return }
+            self.immersivePlayback = enabled
+            self.requestAppearanceUpdate()
+        }
+    }
+
+    private func requestAppearanceUpdate() {
+        guard let window = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene })
+            .first(where: { $0.activationState == .foregroundActive })?
+            .windows
+            .first(where: \.isKeyWindow)
+        else { return }
+
+        window.rootViewController?.setNeedsStatusBarAppearanceUpdate()
+        window.rootViewController?.setNeedsUpdateOfHomeIndicatorAutoHidden()
+    }
+
+    private func performOnMain(_ action: @escaping () -> Void) {
+        if Thread.isMainThread { action() } else { DispatchQueue.main.async(execute: action) }
     }
 }
 
@@ -110,6 +150,7 @@ final class ConduitOrientationCoordinator {
 @main
 struct ConduitMobileSpikeApp: App {
     @UIApplicationDelegateAdaptor(ConduitAppDelegate.self) private var appDelegate
+    @StateObject private var systemChrome = ConduitSystemChromeCoordinator.shared
 
     init() {
         ConduitPlayerRegistration.register()
@@ -118,12 +159,35 @@ struct ConduitMobileSpikeApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ZStack {
-                Color.black.ignoresSafeArea()
-                ComposeView().ignoresSafeArea()
-            }
+            ConduitRootView(systemChrome: systemChrome)
             .preferredColorScheme(.dark)
             .onOpenURL { IosOAuthCallbacks.shared.capture(url: $0.absoluteString) }
+        }
+    }
+}
+
+private struct ConduitRootView: View {
+    @ObservedObject var systemChrome: ConduitSystemChromeCoordinator
+
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+            ComposeView().ignoresSafeArea()
+        }
+        .statusBarHidden(systemChrome.immersivePlayback)
+        .modifier(ConduitPersistentSystemOverlaysModifier(hidden: systemChrome.immersivePlayback))
+    }
+}
+
+private struct ConduitPersistentSystemOverlaysModifier: ViewModifier {
+    let hidden: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(iOS 16.0, *) {
+            content.persistentSystemOverlays(hidden ? .hidden : .automatic)
+        } else {
+            content
         }
     }
 }
