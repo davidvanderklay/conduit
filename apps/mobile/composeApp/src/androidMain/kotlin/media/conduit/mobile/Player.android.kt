@@ -70,6 +70,8 @@ actual fun NativePlayer(
     subtitles: List<SubtitleItem>,
     contentLogo: String?,
     contentTitle: String?,
+    hasNextEpisode: Boolean,
+    onNextEpisode: () -> Unit,
     hasEpisodes: Boolean,
     touchGestures: Boolean,
     holdToSpeed: Boolean,
@@ -267,9 +269,18 @@ actual fun NativePlayer(
                 )
             }) {
                 val loadingOrPortrait = !landscape || durationMs <= 0
-                Row(Modifier.align(Alignment.Center), verticalAlignment = Alignment.CenterVertically) {
-                    FilledIconButton(onClick = { if (player.isPlaying) player.pause() else player.play(); controlsVisible = true }, modifier = Modifier.size(64.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color.White, contentColor = Color.Black)) {
+                Box(Modifier.fillMaxSize()) {
+                    FilledIconButton(onClick = { if (player.isPlaying) player.pause() else player.play(); controlsVisible = true }, modifier = Modifier.align(Alignment.Center).size(64.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color.White, contentColor = Color.Black)) {
                         Icon(if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, if (playing) "Pause" else "Play", modifier = Modifier.size(38.dp))
+                    }
+                    if (hasNextEpisode) {
+                        FilledIconButton(
+                            onClick = { onNextEpisode(); controlsVisible = true },
+                            modifier = Modifier.align(Alignment.Center).offset(x = 70.dp).size(52.dp),
+                            colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color.Black.copy(alpha = .72f), contentColor = Color.White),
+                        ) {
+                            Icon(Icons.Rounded.SkipNext, "Next episode", modifier = Modifier.size(30.dp))
+                        }
                     }
                 }
                 Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(start = 18.dp, end = 18.dp, top = 6.dp, bottom = if (loadingOrPortrait) 66.dp else 14.dp), verticalArrangement = Arrangement.spacedBy(0.dp)) {

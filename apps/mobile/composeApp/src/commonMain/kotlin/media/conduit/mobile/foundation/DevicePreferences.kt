@@ -18,6 +18,7 @@ data class DevicePreferences(
     val subtitleOutline: Boolean = true,
     val touchGestures: Boolean = true,
     val holdToSpeed: Boolean = true,
+    val autoSelectSavedStreams: Boolean = true,
     val autoplayNextEpisode: Boolean = false,
     val p2pEnabled: Boolean = false,
     val rememberLastProfile: Boolean = true,
@@ -38,6 +39,7 @@ class DevicePreferencesRepository(private val store: SettingsStore) {
         subtitleOutline = bool("subtitle-outline", true),
         touchGestures = bool("touch-gestures", true),
         holdToSpeed = bool("hold-to-speed", true),
+        autoSelectSavedStreams = bool("auto-select-saved-streams", true),
         autoplayNextEpisode = bool("autoplay-next", false),
         p2pEnabled = bool("p2p", false),
         rememberLastProfile = bool("remember-profile", true),
@@ -55,6 +57,7 @@ class DevicePreferencesRepository(private val store: SettingsStore) {
         store.put(prefix + "subtitle-outline", value.subtitleOutline.toString())
         store.put(prefix + "touch-gestures", value.touchGestures.toString())
         store.put(prefix + "hold-to-speed", value.holdToSpeed.toString())
+        store.put(prefix + "auto-select-saved-streams", value.autoSelectSavedStreams.toString())
         store.put(prefix + "autoplay-next", value.autoplayNextEpisode.toString())
         store.put(prefix + "p2p", value.p2pEnabled.toString())
         store.put(prefix + "remember-profile", value.rememberLastProfile.toString())
