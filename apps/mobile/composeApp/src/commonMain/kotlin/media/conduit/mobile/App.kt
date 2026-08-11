@@ -712,15 +712,17 @@ private fun AppShell(
         ) { padding ->
             if (expanded) {
                 Row(Modifier.fillMaxSize().padding(padding)) {
-                    NavigationRail {
-                        Spacer(Modifier.height(16.dp))
-                        AppDestination.entries.filter(AppDestination::showInNavigation).forEach { destination ->
-                            NavigationRailItem(
-                                selected = state.destination == destination,
-                                onClick = { dispatch(AppAction.Navigate(destination)) },
-                                icon = { Icon(destination.icon, destination.label) },
-                                label = { Text(destination.label) },
-                            )
+                    if (selectedMedia == null) {
+                        NavigationRail {
+                            Spacer(Modifier.height(16.dp))
+                            AppDestination.entries.filter(AppDestination::showInNavigation).forEach { destination ->
+                                NavigationRailItem(
+                                    selected = state.destination == destination,
+                                    onClick = { dispatch(AppAction.Navigate(destination)) },
+                                    icon = { Icon(destination.icon, destination.label) },
+                                    label = { Text(destination.label) },
+                                )
+                            }
                         }
                     }
                     DestinationContent(

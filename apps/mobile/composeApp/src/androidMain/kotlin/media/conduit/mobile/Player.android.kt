@@ -9,6 +9,8 @@ import androidx.annotation.OptIn
 import androidx.compose.runtime.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
@@ -23,6 +25,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
@@ -83,10 +87,12 @@ actual fun NativePlayer(
     }
     var playbackError by remember(player) { mutableStateOf<String?>(null) }
     var controlsVisible by remember(player) { mutableStateOf(true) }
+    var speedMenuOpen by remember(player) { mutableStateOf(false) }
     LaunchedEffect(controlsVisible) { onControlsVisibilityChanged(controlsVisible) }
     var positionMs by remember(player) { mutableLongStateOf(0L) }
     var durationMs by remember(player) { mutableLongStateOf(0L) }
     var playing by remember(player) { mutableStateOf(false) }
+    var playbackSpeed by remember(player) { mutableFloatStateOf(1f) }
     var initialLoadComplete by remember(player) { mutableStateOf(false) }
     var dragging by remember(player) { mutableStateOf(false) }
     var draggedPosition by remember(player) { mutableFloatStateOf(0f) }
@@ -207,12 +213,13 @@ actual fun NativePlayer(
                 if (!dragging) positionMs = player.currentPosition.coerceAtLeast(0)
                 durationMs = player.duration.coerceAtLeast(0)
                 playing = player.isPlaying
+                playbackSpeed = player.playbackParameters.speed
                 delay(500)
             }
         }
     }
-    LaunchedEffect(controlsVisible, playing) {
-        if (controlsVisible && playing) {
+    LaunchedEffect(controlsVisible, playing, speedMenuOpen) {
+        if (controlsVisible && playing && !speedMenuOpen) {
             delay(4_000)
             controlsVisible = false
         }
@@ -263,11 +270,43 @@ actual fun NativePlayer(
                         PlayerTimePill(formatPlayerTime(durationMs))
                     }
                     if (!loadingOrPortrait) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceEvenly) {
+                        val haptics = LocalHapticFeedback.current
                         val speeds = listOf(.5f, .75f, 1f, 1.25f, 1.5f, 2f)
-                        PlayerBottomAction(Icons.Rounded.Speed, "${player.playbackParameters.speed}×", landscape) { val current = player.playbackParameters.speed; player.setPlaybackSpeed(speeds[(speeds.indexOfFirst { it == current }.takeIf { it >= 0 } ?: 1).let { (it + 1) % speeds.size }]); controlsVisible = true }
+                        Box {
+                            PlayerBottomAction(
+                                Icons.Rounded.Speed,
+                                "$playbackSpeed×",
+                                landscape,
+                                onLongClick = {
+                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    speedMenuOpen = true
+                                    controlsVisible = true
+                                },
+                            ) {
+                                val current = player.playbackParameters.speed
+                                val index = speeds.indexOfFirst { it == current }.takeIf { it >= 0 } ?: 2
+                                playbackSpeed = speeds[(index + 1) % speeds.size]
+                                player.setPlaybackSpeed(playbackSpeed)
+                                controlsVisible = true
+                            }
+                            DropdownMenu(speedMenuOpen, { speedMenuOpen = false }) {
+                                speeds.forEach { speed ->
+                                    DropdownMenuItem(
+                                        text = { Text("$speed×") },
+                                        leadingIcon = if (speed == playbackSpeed) {{ Icon(Icons.Rounded.Check, null) }} else null,
+                                        onClick = {
+                                            player.setPlaybackSpeed(speed)
+                                            playbackSpeed = speed
+                                            speedMenuOpen = false
+                                            controlsVisible = true
+                                        },
+                                    )
+                                }
+                            }
+                        }
                         PlayerBottomAction(Icons.Rounded.Headphones, "Audio", landscape) { trackPanel = C.TRACK_TYPE_AUDIO; controlsVisible = true }
                         PlayerBottomAction(Icons.Rounded.Subtitles, "Subtitles", landscape) { trackPanel = C.TRACK_TYPE_TEXT; controlsVisible = true }
-                        if (hasEpisodes) PlayerBottomAction(Icons.Rounded.PlaylistPlay, "Episodes", landscape, onEpisodes)
+                        if (hasEpisodes) PlayerBottomAction(Icons.Rounded.PlaylistPlay, "Episodes", landscape, onClick = onEpisodes)
                     }
                 }
                 if (loadingOrPortrait && hasEpisodes) IconButton(onClick = onEpisodes, modifier = Modifier.align(Alignment.BottomEnd).padding(end = 14.dp, bottom = 8.dp).background(Color.Black.copy(.58f), CircleShape)) { Icon(Icons.Rounded.PlaylistPlay, "Episodes", tint = Color.White) }
@@ -371,21 +410,47 @@ private fun BoxScope.FullscreenSubtitlePanel(player: ExoPlayer, options: List<Pl
     var selectedTrackKey by remember { mutableStateOf(selected?.key) }
     LaunchedEffect(selected?.key) { selectedTrackKey = selected?.key }
     fun choose(option: PlayerTrackOption) { onBeforeSelection(); language = option.languageKey; selectedTrackKey = option.key; player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false).clearOverridesOfType(C.TRACK_TYPE_TEXT).addOverride(TrackSelectionOverride(option.group.mediaTrackGroup, option.index)).build() }
-    Surface(Modifier.fillMaxSize(), color = Color(0xFA0D0C22)) {
-        Box {
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val expanded = maxWidth >= 700.dp && maxHeight >= 500.dp
+        if (expanded) Box(Modifier.fillMaxSize().background(Color.Black.copy(.52f)).clickable(onClick = onDismiss))
+        Surface(
+            modifier = if (expanded) {
+                Modifier.align(Alignment.Center).fillMaxWidth(.9f).fillMaxHeight(.8f)
+                    .widthIn(max = 1_100.dp).heightIn(max = 760.dp).clickable(onClick = {})
+            } else Modifier.fillMaxSize(),
+            color = Color(0xFA0D0C22),
+            shape = if (expanded) RoundedCornerShape(24.dp) else RoundedCornerShape(0.dp),
+            shadowElevation = if (expanded) 24.dp else 0.dp,
+        ) {
+          Box {
             Row(Modifier.fillMaxSize().padding(horizontal = 30.dp, vertical = 28.dp), horizontalArrangement = Arrangement.spacedBy(30.dp)) {
                 Column(Modifier.weight(1f)) { Text("Subtitle Languages", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold); Spacer(Modifier.height(18.dp)); LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) { item { PlayerTrackRow("Disabled", selectedTrackKey == null) { selectedTrackKey = null; player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().clearOverridesOfType(C.TRACK_TYPE_TEXT).setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build() } }; options.distinctBy(PlayerTrackOption::languageKey).forEach { option -> item(option.languageKey) { PlayerTrackRow(option.languageName, selectedTrackKey != null && language == option.languageKey, option.supported) { val best = options.firstOrNull { it.languageKey == option.languageKey && it.supported } ?: option; choose(best) } } } } }
                 Column(Modifier.weight(1f)) { Text("Subtitle Variants", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold); Spacer(Modifier.height(18.dp)); LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) { options.filter { it.languageKey == language }.forEach { option -> item(option.key) { PlayerTrackRow(option.variantName, option.key == selectedTrackKey, option.supported) { choose(option) } } } } }
                 Column(Modifier.weight(1f)) { Text("Subtitle Settings", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold); Spacer(Modifier.weight(1f)); Text("Subtitle appearance follows Android system settings. Change it under Accessibility → Caption preferences for consistent styling across apps.", color = Color.White.copy(.72f), style = MaterialTheme.typography.bodyLarge); Spacer(Modifier.weight(1f)) }
             }
             IconButton(onClick = onDismiss, Modifier.align(Alignment.TopEnd).padding(12.dp)) { Icon(Icons.Rounded.Close, "Close", tint = Color.White, modifier = Modifier.size(34.dp)) }
+          }
         }
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun PlayerBottomAction(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, showLabel: Boolean, onClick: () -> Unit) {
-    TextButton(onClick = onClick, contentPadding = PaddingValues(horizontal = if (showLabel) 10.dp else 6.dp, vertical = 2.dp)) { Icon(icon, label, tint = Color.White); if (showLabel) { Spacer(Modifier.width(6.dp)); Text(label, color = Color.White) } }
+private fun PlayerBottomAction(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    showLabel: Boolean,
+    onLongClick: (() -> Unit)? = null,
+    onClick: () -> Unit,
+) {
+    Row(
+        Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .padding(horizontal = if (showLabel) 10.dp else 6.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, label, tint = Color.White)
+        if (showLabel) { Spacer(Modifier.width(6.dp)); Text(label, color = Color.White) }
+    }
 }
 
 private data class PlayerTrackOption(val group: Tracks.Group, val index: Int) {
