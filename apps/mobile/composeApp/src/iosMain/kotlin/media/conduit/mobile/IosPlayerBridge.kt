@@ -28,6 +28,7 @@ interface IosPlayerBridge {
     fun setPreferredSubtitleLanguage(language: String)
     fun setResizeMode(mode: Int) // 0 = fit, 1 = fill, 2 = legacy phone crop, 3 = stretch
     fun syncVideoSurfaceLayout(width: Double, height: Double)
+    fun setImmersivePlayback(enabled: Boolean)
 
     fun getAudioTrackCount(): Int
     fun getAudioTrackId(at: Int): Int
