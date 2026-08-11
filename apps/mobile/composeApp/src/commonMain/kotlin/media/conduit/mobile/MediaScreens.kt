@@ -577,7 +577,8 @@ internal fun MediaDetailsScreen(
     var externalSubtitles by remember(item.id) { mutableStateOf<List<SubtitleItem>>(emptyList()) }
     var selectedSeason by remember(item.id) { mutableStateOf<Int?>(null) }
     var temporarySpeedActive by remember(item.id) { mutableStateOf(false) }
-    var autoResumeAttempted by remember(item.id) { mutableStateOf(false) }
+    var autoResumeAttemptedKey by remember(item.id) { mutableStateOf<String?>(null) }
+    var streamRequestVersion by remember(item.id) { mutableIntStateOf(0) }
     val detailsListState = rememberLazyListState()
     val heroPull = remember { mutableFloatStateOf(0f) }
     val maxHeroPullPx = with(LocalDensity.current) { HeroMotion.maxPull.toPx() }
@@ -604,14 +605,26 @@ internal fun MediaDetailsScreen(
                     ?: it.videos.firstOrNull()
             }.onFailure { error = it.message }
     }
+    suspend fun loadStreamsWithRetry(videoId: String): Result<List<StreamSource>> {
+        var result = Result.failure<List<StreamSource>>(IllegalStateException("Unable to load streams"))
+        repeat(3) { attempt ->
+            result = runCatching { api.loadStreams(addons, item.type, videoId) }
+            if (result.isSuccess && result.getOrThrow().isNotEmpty()) return result
+            if (attempt < 2) delay(400L * (attempt + 1))
+        }
+        return result
+    }
     fun requestStreams(video: VideoItem? = selectedVideo, autoPlaySavedSource: Boolean = false) {
         if (!autoPlaySavedSource) streamPageOpen = true
         streamsLoading = true
         streamsError = null
         val videoId = video?.id ?: item.id
+        val requestVersion = ++streamRequestVersion
         streams = null
         scope.launch {
-            runCatching { api.loadStreams(addons, item.type, videoId) }
+            val result = loadStreamsWithRetry(videoId)
+            if (requestVersion != streamRequestVersion) return@launch
+            result
                 .onSuccess { choices ->
                     streams = choices
                     if (autoPlaySavedSource) {
@@ -623,7 +636,11 @@ internal fun MediaDetailsScreen(
                             playback = PlaybackState()
                             playing = choice.stream
                         } else {
-                            streamsError = "Saved source unavailable. Choose another source below."
+                            streamsError = if (choices.isEmpty()) {
+                                "No streams were returned. Try again."
+                            } else {
+                                "Saved source unavailable. Choose another source below."
+                            }
                             streamPageOpen = true
                         }
                     }
@@ -642,13 +659,16 @@ internal fun MediaDetailsScreen(
             ?: profile?.let { runCatching { api.loadProgress(baseUrl, token, it.id, playingVideoId) }.getOrNull()?.takeUnless { progress -> progress.watched }?.positionMs }
             ?: 0L
     }
-    LaunchedEffect(meta?.id, selectedVideo?.id, initialVideoId, snapshot?.progress) {
-        if (autoResumeAttempted || initialVideoId == null || meta == null) return@LaunchedEffect
+    val addonSignature = addons.joinToString("|") { "${it.id}:${it.enabled}:${it.manifestUrl}" }
+    val savedPlaybackSource = snapshot?.progress?.firstOrNull { it.videoId == initialVideoId }?.playbackSource
+    val currentAutoResumeAttemptKey = savedPlaybackSource?.let { "$addonSignature:${it.addonId}:${it.sourceKey}" }
+    LaunchedEffect(meta?.id, selectedVideo?.id, initialVideoId, savedPlaybackSource, addonSignature) {
+        if (initialVideoId == null || meta == null || addons.isEmpty()) return@LaunchedEffect
         val targetVideoId = selectedVideo?.id ?: item.id
         if (targetVideoId != initialVideoId) return@LaunchedEffect
-        val saved = snapshot?.progress?.firstOrNull { it.videoId == initialVideoId }?.playbackSource
-        if (saved == null) return@LaunchedEffect
-        autoResumeAttempted = true
+        val saved = savedPlaybackSource ?: return@LaunchedEffect
+        if (currentAutoResumeAttemptKey == null || autoResumeAttemptedKey == currentAutoResumeAttemptKey) return@LaunchedEffect
+        autoResumeAttemptedKey = currentAutoResumeAttemptKey
         requestStreams(selectedVideo, autoPlaySavedSource = true)
     }
     fun currentPlaybackSource(): PlaybackSource? =
@@ -765,7 +785,7 @@ internal fun MediaDetailsScreen(
         return
     }
     if (streamPageOpen) {
-        StreamSelectionScreen(meta?.name ?: item.name, meta?.background ?: meta?.poster ?: item.background ?: item.poster, selectedVideo, streams.orEmpty(), streamsLoading, streamsError, onBack = { streamPageOpen = false; streams = null }) { source ->
+        StreamSelectionScreen(meta?.name ?: item.name, meta?.background ?: meta?.poster ?: item.background ?: item.poster, selectedVideo, streams.orEmpty(), streamsLoading, streamsError, onBack = { streamPageOpen = false; streams = null }, onRetry = { requestStreams(selectedVideo) }) { source ->
             if (source.stream.url != null) {
                 currentAddonId = source.addonId
                 currentAddonName = source.addonName
@@ -1087,6 +1107,7 @@ private fun StreamSelectionScreen(
     loading: Boolean,
     error: String?,
     onBack: () -> Unit,
+    onRetry: () -> Unit,
     onSelect: (StreamSource) -> Unit,
 ) {
     val listState = rememberLazyListState()
@@ -1138,14 +1159,27 @@ private fun StreamSelectionScreen(
         }
         when {
             loading -> item(key = "loading") { Box(Modifier.fillParentMaxHeight(.65f).fillMaxWidth(), contentAlignment = Alignment.Center) { Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) { CircularProgressIndicator(); Text("Finding streams…", color = MaterialTheme.colorScheme.onSurfaceVariant) } } }
-            error != null -> item(key = "error") { Box(Modifier.fillParentMaxHeight(.65f).fillMaxWidth().padding(28.dp), contentAlignment = Alignment.Center) { Text(error, color = MaterialTheme.colorScheme.error) } }
-            streams.isEmpty() -> item(key = "empty") { Box(Modifier.fillParentMaxHeight(.65f).fillMaxWidth(), contentAlignment = Alignment.Center) { Text("No streams were returned.") } }
-            else -> items(streams) { source ->
+            streams.isEmpty() -> item(key = if (error != null) "error" else "empty") {
+                Box(Modifier.fillParentMaxHeight(.65f).fillMaxWidth().padding(28.dp), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                        Text(error ?: "No streams were returned.", color = error?.let { MaterialTheme.colorScheme.error } ?: MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (error != null) Button(onClick = onRetry) { Text("Try again") }
+                    }
+                }
+            }
+            else -> {
+                if (error != null) {
+                    item(key = "error") {
+                        Text(error, Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), color = MaterialTheme.colorScheme.error)
+                    }
+                }
+                items(streams) { source ->
                 Surface(color = Color.White.copy(alpha = .05f), shape = RoundedCornerShape(12.dp), modifier = Modifier.padding(horizontal = 16.dp).fillMaxWidth().clickable(enabled = source.stream.url != null) { onSelect(source) }) {
                     Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) { Text(source.stream.name ?: source.stream.title ?: "Stream", fontWeight = FontWeight.Bold); source.stream.description?.let { Text(it, maxLines = 2, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant) }; Text(source.addonName, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelSmall) }
                         Icon(if (source.stream.url != null) Icons.Rounded.PlayArrow else Icons.Rounded.Link, null)
                     }
+                }
                 }
             }
         }
