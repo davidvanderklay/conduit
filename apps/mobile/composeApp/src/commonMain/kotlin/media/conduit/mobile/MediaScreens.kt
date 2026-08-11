@@ -666,30 +666,14 @@ internal fun MediaDetailsScreen(
         onProgressChanged()
     }
     fun playNext(video: VideoItem) {
-        val preferredAddon = currentAddonName
-        scope.launch {
-            runCatching { persistProgress() }
-            playing = null
-            playback = PlaybackState()
-            selectedVideo = video
-            resumePosition = 0L
-            streamsLoading = true
-            val choices = runCatching { api.loadStreams(addons, item.type, video.id) }.getOrDefault(emptyList())
-            streamsLoading = false
-            val choice = choices.firstOrNull { it.addonName == preferredAddon && it.stream.url != null }
-                ?: choices.firstOrNull { it.stream.url != null }
-            if (choice != null) {
-                currentAddonId = choice.addonId
-                currentAddonName = choice.addonName
-                playback = PlaybackState()
-                playing = choice.stream
-            } else {
-                streams = choices
-                streamsError = if (choices.isEmpty()) "No streams were returned for the next episode." else null
-                streamPageOpen = true
-                playing = null
-            }
-        }
+        val playbackSnapshot = playback
+        val source = currentPlaybackSource()
+        scope.launch { runCatching { persistProgress(playbackSnapshot, source) } }
+        playing = null
+        playback = PlaybackState()
+        selectedVideo = video
+        resumePosition = 0L
+        requestStreams(video)
     }
     PlatformBackHandler {
         when {
