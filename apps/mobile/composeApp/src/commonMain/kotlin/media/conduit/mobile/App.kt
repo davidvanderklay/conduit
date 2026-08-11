@@ -826,7 +826,10 @@ private fun AppShell(
                             preferences, onPreferencesChanged, homeListState, searchListState, discoverGridState, libraryGridState, historyGridState, settingsListState,
                             Modifier.fillMaxSize(),
                         )
-                        if (selectedMedia != null || state.destination != AppDestination.Search) {
+                        if (selectedMedia == null &&
+                            state.destination != AppDestination.Search &&
+                            state.destination != AppDestination.Profile
+                        ) {
                             IpadSearchAction(
                                 onClick = openSearch,
                                 modifier = Modifier.align(Alignment.TopEnd),
