@@ -29,6 +29,7 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.encodeToJsonElement
 import io.ktor.http.encodeURLPathPart
 import kotlinx.coroutines.async
 import kotlinx.coroutines.CancellationException
@@ -136,6 +137,7 @@ data class ProgressSummary(
     val durationMs: Long,
     val watched: Boolean,
     val dismissed: Boolean = false,
+    val playbackSource: PlaybackSource? = null,
     val updatedAt: String,
 )
 
@@ -212,7 +214,25 @@ data class MetaItem(
 @Serializable
 data class StreamProxyHeaders(val request: Map<String, JsonElement> = emptyMap())
 @Serializable
-data class StreamBehaviorHints(val proxyHeaders: StreamProxyHeaders? = null, val filename: String? = null)
+data class StreamBehaviorHints(
+    val proxyHeaders: StreamProxyHeaders? = null,
+    val filename: String? = null,
+    val bingeGroup: String? = null,
+)
+
+@Serializable
+data class PlaybackSource(
+    val addonId: String,
+    val sourceKey: String,
+    val kind: String,
+    val infoHash: String? = null,
+    val fileIdx: String? = null,
+    val name: String? = null,
+    val title: String? = null,
+    val filename: String? = null,
+    val bingeGroup: String? = null,
+)
+
 @Serializable
 data class StreamItem(
     val url: String? = null,
@@ -225,7 +245,56 @@ data class StreamItem(
     val behaviorHints: StreamBehaviorHints? = null,
 )
 
-data class StreamSource(val addonName: String, val stream: StreamItem)
+data class StreamSource(val addonId: String, val addonName: String, val stream: StreamItem)
+
+fun playbackSourceForStream(addonId: String, stream: StreamItem): PlaybackSource = PlaybackSource(
+    addonId = addonId,
+    sourceKey = streamSourceKey(stream),
+    kind = when {
+        stream.infoHash != null -> "torrent"
+        stream.url != null -> "url"
+        else -> "other"
+    },
+    infoHash = stream.infoHash,
+    fileIdx = stream.fileIdx?.toString()?.trim('"'),
+    name = stream.name,
+    title = stream.title,
+    filename = stream.behaviorHints?.filename,
+    bingeGroup = stream.behaviorHints?.bingeGroup,
+)
+
+fun selectSavedStream(streams: List<StreamSource>, source: PlaybackSource?): StreamSource? =
+    source?.let { saved ->
+        streams.firstOrNull { candidate ->
+            candidate.addonId == saved.addonId &&
+                candidate.stream.url != null &&
+                streamSourceKey(candidate.stream) == saved.sourceKey
+        }
+    }
+
+private fun streamSourceKey(stream: StreamItem): String = when {
+    stream.infoHash != null -> "torrent:${stream.infoHash.lowercase()}:${stream.fileIdx?.toString()?.trim('"').orEmpty()}"
+    stream.url != null -> "url:${normalizeStreamUrl(stream.url)}"
+    else -> "other:${normalizeSourceText(listOf(stream.name, stream.title, stream.behaviorHints?.filename))}"
+}
+
+private fun normalizeStreamUrl(value: String): String {
+    val withoutFragment = value.substringBefore('#')
+    val base = withoutFragment.substringBefore('?').trimEnd('/')
+    val query = withoutFragment.substringAfter('?', "")
+        .split('&')
+        .mapNotNull { part ->
+            val key = part.substringBefore('=', part).trim()
+            if (key.isBlank() || Regex("token|sig|signature|expires|expiry|auth|key", RegexOption.IGNORE_CASE).containsMatchIn(key)) null
+            else part
+        }
+        .sorted()
+        .joinToString("&")
+    return if (query.isBlank()) base else "$base?$query"
+}
+
+private fun normalizeSourceText(values: List<String?>): String =
+    values.filterNotNull().joinToString("|").trim().lowercase().replace(Regex("\\s+"), " ")
 
 @Serializable
 data class SubtitleItem(val id: String? = null, val url: String, val lang: String? = null, val addonName: String? = null)
@@ -701,6 +770,7 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
         baseUrl: String, token: String, profileId: String, videoId: String,
         mediaType: String, mediaId: String, name: String, poster: String?,
         videoTitle: String?, season: Int?, episode: Int?, positionMs: Long, durationMs: Long,
+        playbackSource: PlaybackSource? = null,
     ) {
         if (durationMs <= 0) return
         val response = client.put("$baseUrl/v1/profiles/$profileId/progress/${videoId.encodeURLPathPart()}") {
@@ -708,6 +778,7 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
                 put("mediaType", mediaType); put("mediaId", mediaId); put("name", name)
                 poster?.let { put("poster", it) }; videoTitle?.let { put("videoTitle", it) }
                 season?.let { put("season", it) }; episode?.let { put("episode", it) }
+                playbackSource?.let { put("playbackSource", addonJson.encodeToJsonElement(it)) }
                 put("positionMs", positionMs.coerceAtLeast(0)); put("durationMs", durationMs.coerceAtLeast(0))
             })
         }
@@ -807,7 +878,7 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
                     val response = client.get(resourceUrl(addon.manifestUrl, "stream", type, videoId))
                     if (!response.status.isSuccess()) error("stream request failed")
                     val name = addon.manifest["name"]?.jsonPrimitive?.contentOrNull ?: addon.manifestId
-                    response.decodeAddonBody<StreamsResponse>().streams.map { StreamSource(name, it) }
+                    response.decodeAddonBody<StreamsResponse>().streams.map { StreamSource(addon.id, name, it) }
                 }
             }
         }.map { it.await() }

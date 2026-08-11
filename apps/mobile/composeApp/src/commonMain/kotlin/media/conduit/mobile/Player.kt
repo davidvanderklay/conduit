@@ -20,6 +20,7 @@ expect fun NativePlayer(
     preferredSubtitleLanguage: String = "English",
     onEpisodes: () -> Unit = {},
     onControlsVisibilityChanged: (Boolean) -> Unit = {},
+    onTemporarySpeedChanged: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier,
     onState: (PlaybackState) -> Unit,
 )

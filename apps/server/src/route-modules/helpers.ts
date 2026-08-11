@@ -205,6 +205,7 @@ export function toProgressItem(item: typeof watchProgress.$inferSelect) {
     durationMs: item.durationMs,
     watched: item.watched,
     dismissed: item.dismissed,
+    playbackSource: item.playbackSource ?? undefined,
     updatedAt: item.updatedAt.toISOString(),
   }
 }

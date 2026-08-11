@@ -42,7 +42,7 @@ export function ContinueWatching({
 }: {
   items: WatchProgress[]
   profileId: string
-  onSelect: (item: CatalogItem, videoId: string) => void
+  onSelect: (item: CatalogItem, videoId: string, progress: WatchProgress) => void
   onSeeMore: () => void
 }) {
   const ref = useRef<HTMLDivElement>(null)
@@ -102,7 +102,7 @@ export function HistoryView({
   onSelect,
 }: {
   profileId: string
-  onSelect: (item: CatalogItem, videoId: string) => void
+  onSelect: (item: CatalogItem, videoId: string, progress: WatchProgress) => void
 }) {
   const progress = useProgressList(profileId, "history", 1000)
   const [filter, setFilter] = useState<Filter>("all")
@@ -184,13 +184,13 @@ function ProgressCard({
 }: {
   item: WatchProgress
   profileId: string
-  onSelect: (item: CatalogItem, videoId: string) => void
+  onSelect: (item: CatalogItem, videoId: string, progress: WatchProgress) => void
   history?: boolean
 }) {
   const catalogItem = toCatalogItem(item)
   const percent = item.durationMs ? Math.min(100, (item.positionMs / item.durationMs) * 100) : 0
   const open = () =>
-    onSelect(catalogItem, item.mediaType === "series" && !history ? item.mediaId : item.videoId)
+    onSelect(catalogItem, item.videoId, item)
   return (
     <div>
       <div className={`relative ${posterCoverClass}`}>
