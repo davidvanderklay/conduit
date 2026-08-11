@@ -23,10 +23,10 @@
     "dist:mac:x64": "pnpm build && electron-builder --mac --x64"
   },
   "devDependencies": {
-    "@types/node": "latest",
-    "electron": "latest",
-    "electron-builder": "latest",
-    "typescript": "latest"
+    "@types/node": "26.2.0",
+    "electron": "43.3.0",
+    "electron-builder": "26.15.3",
+    "typescript": "7.0.2"
   },
   "version": "0.1.0",
   "build": {

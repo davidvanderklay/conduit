@@ -4,7 +4,8 @@
   "license": "MIT",
   "scripts": {
     "build": "vp run ci:build",
-    "check": "vp run ci:check",
+    "check": "pnpm check:deps && vp run ci:check",
+    "check:deps": "node scripts/check-package-manifests.mjs",
     "format": "vp fmt --write",
     "lint": "vp lint --deny-warnings",
     "lint:fix": "vp lint --fix --deny-warnings",
@@ -20,9 +21,9 @@
     "test": "vp run ci:test"
   },
   "devDependencies": {
-    "@voidzero-dev/vite-plus-core": "latest",
-    "@voidzero-dev/vite-plus-test": "latest",
-    "vite-plus": "latest"
+    "@voidzero-dev/vite-plus-core": "0.2.8",
+    "@voidzero-dev/vite-plus-test": "0.1.24",
+    "vite-plus": "0.2.8"
   },
   "packageManager": "pnpm@10.14.0"
 }
