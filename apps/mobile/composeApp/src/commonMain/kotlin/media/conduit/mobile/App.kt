@@ -529,7 +529,7 @@ private fun SignInScreen(
         SnackbarHost(
             hostState = serverSnackbar,
             modifier = Modifier.align(Alignment.BottomCenter).safeContentPadding().padding(12.dp),
-        )
+        ) { data -> ConduitSnackbar(data) }
     }
 }
 
@@ -784,36 +784,7 @@ private fun AppShell(
         }
         Scaffold(
             snackbarHost = {
-                SnackbarHost(snackbarHostState) { data ->
-                    val removed = data.visuals.message == "Removed from library"
-                    Surface(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                        color = Color(0xFF151518),
-                        contentColor = Color.White,
-                        shape = RoundedCornerShape(14.dp),
-                        border = BorderStroke(1.dp, Color.White.copy(alpha = .16f)),
-                        shadowElevation = 12.dp,
-                    ) {
-                        Row(
-                            Modifier.padding(start = 12.dp, end = 6.dp, top = 8.dp, bottom = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(9.dp),
-                        ) {
-                            Icon(
-                                if (removed) Icons.Rounded.BookmarkRemove else Icons.Rounded.CheckCircle,
-                                contentDescription = null,
-                                tint = if (removed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(18.dp),
-                            )
-                            Text(data.visuals.message, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-                            data.visuals.actionLabel?.let { actionLabel ->
-                                TextButton(onClick = data::performAction) {
-                                    Text(actionLabel, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                                }
-                            }
-                        }
-                    }
-                }
+                SnackbarHost(snackbarHostState) { data -> ConduitSnackbar(data) }
             },
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
         ) { padding ->
@@ -880,6 +851,38 @@ private fun AppShell(
                             modifier = Modifier.weight(1f),
                         )
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ConduitSnackbar(data: SnackbarData) {
+    val removed = data.visuals.message == "Removed from library"
+    Surface(
+        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+        color = Color(0xFF151518),
+        contentColor = Color.White,
+        shape = RoundedCornerShape(14.dp),
+        border = BorderStroke(1.dp, Color.White.copy(alpha = .16f)),
+        shadowElevation = 12.dp,
+    ) {
+        Row(
+            Modifier.padding(start = 12.dp, end = 6.dp, top = 8.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(9.dp),
+        ) {
+            Icon(
+                if (removed) Icons.Rounded.BookmarkRemove else Icons.Rounded.CheckCircle,
+                contentDescription = null,
+                tint = if (removed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(18.dp),
+            )
+            Text(data.visuals.message, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+            data.visuals.actionLabel?.let { actionLabel ->
+                TextButton(onClick = data::performAction) {
+                    Text(actionLabel, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                 }
             }
         }
