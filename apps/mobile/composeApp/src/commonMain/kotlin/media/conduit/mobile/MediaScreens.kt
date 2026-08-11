@@ -40,6 +40,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -263,6 +264,7 @@ internal fun SearchDiscoverScreen(
     var hasMore by remember { mutableStateOf(true) }
     var actionTarget by remember { mutableStateOf<MediaActionTarget?>(null) }
     val metadataCache = rememberWatchMetadataCache(api, addons)
+    val windowWidth = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.width.toDp() }
 
     LaunchedEffect(normalizedSelection) {
         if (selection != normalizedSelection) onSelectionChange(normalizedSelection)
@@ -341,7 +343,7 @@ internal fun SearchDiscoverScreen(
                 discoverItems.isEmpty() -> EmptyBrowseState("This catalog returned no titles.")
                 else -> LazyVerticalGrid(
                     state = gridState,
-                    columns = GridCells.Fixed(2),
+                    columns = if (windowWidth >= 600.dp) GridCells.Adaptive(150.dp) else GridCells.Fixed(2),
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(start = 10.dp, end = 10.dp, top = 10.dp, bottom = 112.dp),
                     horizontalArrangement = Arrangement.spacedBy(9.dp),
@@ -462,7 +464,7 @@ private class HeroOverscrollConnection(
     private val atTop: () -> Boolean,
     private val maxPullPx: Float,
     private val pull: MutableFloatState,
-    private val pullResistance: Float = .42f,
+    private val pullResistance: Float = HeroMotion.pullResistance,
 ) : NestedScrollConnection {
     override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
         if (available.y >= 0f || pull.floatValue <= 0f) return Offset.Zero
@@ -494,6 +496,13 @@ private class HeroOverscrollConnection(
         }
         return Velocity.Zero
     }
+}
+
+private object HeroMotion {
+    val maxPull = 128.dp
+    const val pullResistance = .42f
+    const val expansionScale = .22f
+    const val upwardTranslation = .12f
 }
 
 @Composable
@@ -553,7 +562,7 @@ internal fun MediaDetailsScreen(
     var selectedSeason by remember(item.id) { mutableStateOf<Int?>(null) }
     val detailsListState = rememberLazyListState()
     val heroPull = remember { mutableFloatStateOf(0f) }
-    val maxHeroPullPx = with(LocalDensity.current) { 128.dp.toPx() }
+    val maxHeroPullPx = with(LocalDensity.current) { HeroMotion.maxPull.toPx() }
     val heroPullConnection = remember(detailsListState, maxHeroPullPx) {
         HeroOverscrollConnection(
             atTop = {
@@ -715,7 +724,7 @@ internal fun MediaDetailsScreen(
     val resumeVideo = details?.videos?.firstOrNull { it.id == seriesProgress?.videoId }
     LaunchedEffect(details?.id, resumeVideo?.season) { if (selectedSeason == null) selectedSeason = resumeVideo?.season ?: details?.videos?.firstOrNull()?.season }
     val heroPullDp = with(LocalDensity.current) { heroPull.floatValue.toDp() }
-    val heroScale = 1f + (heroPull.floatValue / maxHeroPullPx) * .22f
+    val heroScale = 1f + (heroPull.floatValue / maxHeroPullPx) * HeroMotion.expansionScale
     val heroHeight = if (item.type == "movie") 390.dp else 350.dp
     val titleLogo = details?.logo?.takeIf(String::isNotBlank)
     val imdbId = listOfNotNull(details?.id, item.id).firstOrNull { id ->
@@ -737,7 +746,7 @@ internal fun MediaDetailsScreen(
                         modifier = Modifier.fillMaxSize().graphicsLayer {
                             scaleX = heroScale
                             scaleY = heroScale
-                            translationY = -heroPull.floatValue * .12f
+                            translationY = -heroPull.floatValue * HeroMotion.upwardTranslation
                         },
                     )
                     Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Black.copy(.15f), MaterialTheme.colorScheme.background))))
@@ -1024,7 +1033,7 @@ private fun StreamSelectionScreen(
 ) {
     val listState = rememberLazyListState()
     val heroPull = remember { mutableFloatStateOf(0f) }
-    val maxHeroPullPx = with(LocalDensity.current) { 112.dp.toPx() }
+    val maxHeroPullPx = with(LocalDensity.current) { HeroMotion.maxPull.toPx() }
     val heroPullConnection = remember(listState, maxHeroPullPx) {
         HeroOverscrollConnection(
             atTop = {
@@ -1035,7 +1044,7 @@ private fun StreamSelectionScreen(
         )
     }
     val heroPullDp = with(LocalDensity.current) { heroPull.floatValue.toDp() }
-    val heroScale = 1f + (heroPull.floatValue / maxHeroPullPx) * .22f
+    val heroScale = 1f + (heroPull.floatValue / maxHeroPullPx) * HeroMotion.expansionScale
     val collapsed by remember { derivedStateOf { listState.firstVisibleItemIndex > 0 } }
     LazyColumn(
         state = listState,
@@ -1046,14 +1055,14 @@ private fun StreamSelectionScreen(
     ) {
         artwork?.let { image ->
             item(key = "artwork") {
-                Box(Modifier.fillMaxWidth().height(170.dp + heroPullDp)) {
+                Box(Modifier.fillMaxWidth().height(170.dp + heroPullDp).clipToBounds()) {
                     AsyncImage(
                         image,
                         null,
                         Modifier.fillMaxSize().graphicsLayer {
                             scaleX = heroScale
                             scaleY = heroScale
-                            translationY = -heroPull.floatValue * .12f
+                            translationY = -heroPull.floatValue * HeroMotion.upwardTranslation
                         },
                         contentScale = ContentScale.Crop,
                     )
@@ -1526,6 +1535,8 @@ private fun ProfileEditorScreen(profile: ProfileSummary?, active: ProfileSummary
     }
 }
 
+internal fun normalizeManifestUrl(value: String): String = value.trim()
+
 @Composable
 private fun AddonManagerScreen(
     profile: ProfileSummary?, initialAddons: List<InstalledAddonSummary>, api: ConduitApi,
@@ -1539,7 +1550,7 @@ private fun AddonManagerScreen(
     var error by remember { mutableStateOf<String?>(null) }
     var removeTarget by remember { mutableStateOf<InstalledAddonSummary?>(null) }
     val linked = profile?.usesPrimaryAddons == true
-    fun runMutation(block: suspend (String, String, String) -> Unit) {
+    fun runMutation(onSuccess: () -> Unit = {}, block: suspend (String, String, String) -> Unit) {
         val endpoint = state.endpoint ?: return
         val profileId = profile?.id ?: return
         scope.launch {
@@ -1548,6 +1559,7 @@ private fun AddonManagerScreen(
                 block(endpoint.baseUrl, account.session.token, profileId)
                 addons = api.synchronizeProfile(endpoint.baseUrl, account.session.token, profileId).addons
                 onChanged()
+                onSuccess()
             }.onFailure { error = it.message ?: "Unable to update add-ons" }
             busy = false
         }
@@ -1582,7 +1594,16 @@ private fun AddonManagerScreen(
             item { AddonSectionLabel("Add add-on") }
             item { Surface(color = Color.White.copy(.075f), shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(manifestUrl, { manifestUrl = it }, modifier = Modifier.fillMaxWidth(), placeholder = { Text("https://…/manifest.json") }, singleLine = true)
-                Button(onClick = { val url = manifestUrl; runMutation { base, token, id -> api.installAddon(base, token, id, url) }; manifestUrl = "" }, enabled = !busy && manifestUrl.isNotBlank(), modifier = Modifier.fillMaxWidth().height(52.dp)) { Text(if (busy) "Verifying…" else "Install add-on") }
+                Button(
+                    onClick = {
+                        val url = normalizeManifestUrl(manifestUrl)
+                        runMutation(onSuccess = { manifestUrl = "" }) { base, token, id ->
+                            api.installAddon(base, token, id, url)
+                        }
+                    },
+                    enabled = !busy && normalizeManifestUrl(manifestUrl).isNotBlank(),
+                    modifier = Modifier.fillMaxWidth().height(52.dp),
+                ) { Text(if (busy) "Verifying…" else "Install add-on") }
             } } }
         }
         error?.let { item { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 16.dp)) } }

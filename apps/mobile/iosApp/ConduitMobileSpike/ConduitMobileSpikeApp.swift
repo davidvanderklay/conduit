@@ -25,8 +25,37 @@ final class ConduitOrientationCoordinator {
     static let shared = ConduitOrientationCoordinator()
 
     private(set) var supportedOrientations: UIInterfaceOrientationMask = .portrait
+    private var activePlaybackCount = 0
+    private var observers: [NSObjectProtocol] = []
 
-    private init() {}
+    private init() {
+        observers.append(NotificationCenter.default.addObserver(
+            forName: UIApplication.willResignActiveNotification,
+            object: nil,
+            queue: .main
+        ) { _ in UIApplication.shared.isIdleTimerDisabled = false })
+        observers.append(NotificationCenter.default.addObserver(
+            forName: UIApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in self?.updateIdleTimer() })
+    }
+
+    func beginPlayback() {
+        performOnMain { [weak self] in
+            guard let self else { return }
+            self.activePlaybackCount += 1
+            self.updateIdleTimer()
+        }
+    }
+
+    func endPlayback() {
+        performOnMain { [weak self] in
+            guard let self else { return }
+            self.activePlaybackCount = max(0, self.activePlaybackCount - 1)
+            self.updateIdleTimer()
+        }
+    }
 
     func lockPlayerToLandscape() {
         updateOrientation(to: .landscape)
@@ -66,6 +95,15 @@ final class ConduitOrientationCoordinator {
             )
             UIViewController.attemptRotationToDeviceOrientation()
         }
+    }
+
+    private func updateIdleTimer() {
+        UIApplication.shared.isIdleTimerDisabled = activePlaybackCount > 0 &&
+            UIApplication.shared.applicationState == .active
+    }
+
+    private func performOnMain(_ action: @escaping () -> Void) {
+        if Thread.isMainThread { action() } else { DispatchQueue.main.async(execute: action) }
     }
 }
 

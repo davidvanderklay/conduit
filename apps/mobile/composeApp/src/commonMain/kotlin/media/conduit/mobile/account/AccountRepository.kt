@@ -25,6 +25,13 @@ class AccountRepository(
     private val api: ConduitApi,
     private val vault: SessionVault,
 ) {
+    fun hasStoredSession(serverBaseUrl: String): Boolean = vault.loadFor(serverBaseUrl) != null
+
+    suspend fun discoverAuthentication(endpoint: ServerEndpoint): AuthenticationConfiguration =
+        LifecycleDiagnostics.timed("auth.discovery") {
+            api.validate(endpoint.baseUrl).authentication
+        }
+
     suspend fun startOAuth(endpoint: ServerEndpoint, pkce: PkcePair): PendingOAuth {
         LifecycleDiagnostics.event("oauth.start")
         val started = LifecycleDiagnostics.timed("oauth.start.request") {
@@ -99,7 +106,7 @@ class AccountRepository(
         LifecycleDiagnostics.event("auth.restore.start")
         val authentication = try {
             LifecycleDiagnostics.timed("auth.restore.validate") {
-                api.validate(endpoint.baseUrl).authentication
+                discoverAuthentication(endpoint)
             }
         } catch (cause: Exception) {
             if (cause is CancellationException) throw cause

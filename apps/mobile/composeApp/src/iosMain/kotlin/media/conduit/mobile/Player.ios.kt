@@ -3,6 +3,8 @@ package media.conduit.mobile
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
@@ -23,12 +25,15 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.interop.UIKitViewController
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -102,6 +107,7 @@ actual fun NativePlayer(
     var playbackSpeed by remember(bridge) { mutableFloatStateOf(1f) }
     var resizeMode by remember(bridge) { mutableIntStateOf(0) }
     var trackPanel by remember(bridge) { mutableStateOf<Int?>(null) }
+    var speedMenuOpen by remember(bridge) { mutableStateOf(false) }
     var audioTracks by remember(bridge) { mutableStateOf<List<IosTrack>>(emptyList()) }
     var subtitleTracks by remember(bridge) { mutableStateOf<List<IosTrack>>(emptyList()) }
 
@@ -173,8 +179,8 @@ actual fun NativePlayer(
         }
     }
 
-    LaunchedEffect(controlsVisible, playing) {
-        if (controlsVisible && playing) {
+    LaunchedEffect(controlsVisible, playing, speedMenuOpen) {
+        if (controlsVisible && playing && !speedMenuOpen) {
             delay(4_000)
             controlsVisible = false
         }
@@ -307,13 +313,54 @@ actual fun NativePlayer(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceEvenly,
                     ) {
-                        IosPlayerBottomAction(Icons.Rounded.Speed, "${playbackSpeed.trimSpeed()}×") {
-                            val speeds = listOf(.5f, .75f, 1f, 1.25f, 1.5f, 2f)
-                            val index = speeds.indexOfFirst { it == playbackSpeed }.takeIf { it >= 0 } ?: 2
-                            val next = speeds[(index + 1) % speeds.size]
-                            bridge.setPlaybackSpeed(next)
-                            playbackSpeed = next
-                            controlsVisible = true
+                        val haptics = LocalHapticFeedback.current
+                        val speeds = listOf(.5f, .75f, 1f, 1.25f, 1.5f, 2f)
+                        Box {
+                            IosPlayerBottomAction(
+                                Icons.Rounded.Speed,
+                                "${playbackSpeed.trimSpeed()}×",
+                                onLongClick = {
+                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    speedMenuOpen = true
+                                    controlsVisible = true
+                                },
+                            ) {
+                                val index = speeds.indexOfFirst { it == playbackSpeed }.takeIf { it >= 0 } ?: 2
+                                val next = speeds[(index + 1) % speeds.size]
+                                bridge.setPlaybackSpeed(next)
+                                playbackSpeed = next
+                                controlsVisible = true
+                            }
+                            DropdownMenu(
+                                expanded = speedMenuOpen,
+                                onDismissRequest = { speedMenuOpen = false },
+                                modifier = Modifier.width(176.dp).background(Color(0xFF151518)),
+                                shape = RoundedCornerShape(16.dp),
+                                containerColor = Color(0xFF151518),
+                                border = BorderStroke(1.dp, Color.White.copy(alpha = .16f)),
+                                shadowElevation = 12.dp,
+                            ) {
+                                Text(
+                                    "Playback speed",
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                    color = Color.White.copy(alpha = .58f),
+                                    style = MaterialTheme.typography.labelMedium,
+                                )
+                                speeds.forEach { speed ->
+                                    val selected = speed == playbackSpeed
+                                    DropdownMenuItem(
+                                        modifier = Modifier.padding(horizontal = 6.dp).clip(RoundedCornerShape(10.dp)).background(if (selected) MaterialTheme.colorScheme.primary.copy(alpha = .13f) else Color.Transparent),
+                                        text = { Text("${speed.trimSpeed()}×", color = if (selected) Color.White else Color.White.copy(alpha = .78f), fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal) },
+                                        trailingIcon = if (selected) {{ Icon(Icons.Rounded.Check, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp)) }} else null,
+                                        onClick = {
+                                            bridge.setPlaybackSpeed(speed)
+                                            playbackSpeed = speed
+                                            speedMenuOpen = false
+                                            controlsVisible = true
+                                        },
+                                    )
+                                }
+                            }
                         }
                         IosPlayerBottomAction(Icons.Rounded.Headphones, "Audio") {
                             trackPanel = 0
@@ -324,7 +371,7 @@ actual fun NativePlayer(
                             controlsVisible = true
                         }
                         if (hasEpisodes) {
-                            IosPlayerBottomAction(Icons.Rounded.PlaylistPlay, "Episodes", onEpisodes)
+                            IosPlayerBottomAction(Icons.Rounded.PlaylistPlay, "Episodes", onClick = onEpisodes)
                         }
                     }
                 }
@@ -393,13 +440,19 @@ private fun IosPlayerTimePill(value: String) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun IosPlayerBottomAction(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,
+    onLongClick: (() -> Unit)? = null,
     onClick: () -> Unit,
 ) {
-    TextButton(onClick = onClick) {
+    Row(
+        Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         Icon(icon, label, tint = Color.White)
         Spacer(Modifier.width(5.dp))
         Text(label, color = Color.White, style = MaterialTheme.typography.labelMedium)
@@ -501,10 +554,29 @@ private fun BoxScope.IosSubtitlePanel(
         onSelect(track.id)
     }
 
-    Surface(Modifier.fillMaxSize(), color = Color(0xFA0D0C12)) {
-        Box {
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val expanded = maxWidth >= 700.dp && maxHeight >= 500.dp
+        if (expanded) {
+            Box(
+                Modifier.fillMaxSize().background(Color.Black.copy(alpha = .52f))
+                    .clickable(onClick = onDismiss),
+            )
+        }
+        Surface(
+            modifier = if (expanded) {
+                Modifier.align(Alignment.Center).fillMaxWidth(.9f).fillMaxHeight(.8f)
+                    .widthIn(max = 1_100.dp).heightIn(max = 760.dp)
+                    .clickable(onClick = {})
+            } else {
+                Modifier.fillMaxSize()
+            },
+            color = Color(0xFA0D0C12),
+            shape = if (expanded) RoundedCornerShape(24.dp) else RoundedCornerShape(0.dp),
+            shadowElevation = if (expanded) 24.dp else 0.dp,
+        ) {
+          Box {
             Row(
-                Modifier.fillMaxSize().padding(horizontal = 30.dp, vertical = 28.dp),
+                Modifier.fillMaxSize().safeDrawingPadding().padding(horizontal = 30.dp, vertical = 28.dp),
                 horizontalArrangement = Arrangement.spacedBy(30.dp),
             ) {
                 Column(Modifier.weight(1f)) {
@@ -549,9 +621,10 @@ private fun BoxScope.IosSubtitlePanel(
                     Spacer(Modifier.weight(1f))
                 }
             }
-            IconButton(onClick = onDismiss, Modifier.align(Alignment.TopEnd).padding(12.dp)) {
+            IconButton(onClick = onDismiss, Modifier.align(Alignment.TopEnd).safeDrawingPadding().padding(12.dp)) {
                 Icon(Icons.Rounded.Close, "Close", tint = Color.White, modifier = Modifier.size(34.dp))
             }
+          }
         }
     }
 }
