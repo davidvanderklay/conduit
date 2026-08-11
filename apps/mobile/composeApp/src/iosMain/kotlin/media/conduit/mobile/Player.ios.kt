@@ -15,6 +15,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Headphones
+import androidx.compose.material.icons.rounded.AspectRatio
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.PlaylistPlay
@@ -34,6 +35,10 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -78,6 +83,10 @@ actual fun NativePlayer(
     val latestControlsCallback by rememberUpdatedState(onControlsVisibilityChanged)
     val bridge = remember { IosPlayerBridgeFactory.create() }
     val density = LocalDensity.current
+    val windowSize = LocalWindowInfo.current.containerSize
+    val isIpad = with(density) {
+        windowSize.width.toDp() >= 600.dp || windowSize.height.toDp() >= 600.dp
+    }
 
     if (bridge == null) {
         LaunchedEffect(Unit) {
@@ -106,6 +115,7 @@ actual fun NativePlayer(
     var playing by remember(bridge) { mutableStateOf(false) }
     var playbackSpeed by remember(bridge) { mutableFloatStateOf(1f) }
     var resizeMode by remember(bridge) { mutableIntStateOf(0) }
+    var showRemainingTime by remember(bridge) { mutableStateOf(false) }
     var trackPanel by remember(bridge) { mutableStateOf<Int?>(null) }
     var speedMenuOpen by remember(bridge) { mutableStateOf(false) }
     var audioTracks by remember(bridge) { mutableStateOf<List<IosTrack>>(emptyList()) }
@@ -119,6 +129,8 @@ actual fun NativePlayer(
     }
 
     LaunchedEffect(bridge, url, encodedHeaders, encodedSubtitles, startPositionMs) {
+        showRemainingTime = false
+        resizeMode = 0
         url?.takeIf(String::isNotBlank)?.let {
             bridge.loadFile(
                 url = it,
@@ -196,7 +208,7 @@ actual fun NativePlayer(
             .pointerInput(bridge, resizeMode) {
                 detectTransformGestures { _, _, zoom, _ ->
                     val next = when {
-                        zoom > 1.04f -> 2
+                        zoom > 1.04f -> if (isIpad) 1 else 2
                         zoom < .96f -> 0
                         else -> resizeMode
                     }
@@ -304,9 +316,25 @@ actual fun NativePlayer(
                         ),
                         modifier = Modifier.height(30.dp),
                     )
+                    val displayedPosition = if (dragging) draggedPosition else positionMs
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        IosPlayerTimePill(formatPlayerTime(if (dragging) draggedPosition else positionMs))
-                        IosPlayerTimePill(formatPlayerTime(durationMs))
+                        IosPlayerTimePill(formatPlayerTime(displayedPosition))
+                        IosPlayerTimePill(
+                            value = if (showRemainingTime) {
+                                "-${formatPlayerTime((durationMs - displayedPosition).coerceAtLeast(0))}"
+                            } else {
+                                formatPlayerTime(durationMs)
+                            },
+                            onClick = {
+                                showRemainingTime = !showRemainingTime
+                                controlsVisible = true
+                            },
+                            contentDescription = if (showRemainingTime) {
+                                "Time remaining. Tap to show end time."
+                            } else {
+                                "End time. Tap to show time remaining."
+                            },
+                        )
                     }
                     Row(
                         Modifier.fillMaxWidth(),
@@ -360,6 +388,15 @@ actual fun NativePlayer(
                                         },
                                     )
                                 }
+                            }
+                        }
+                        if (isIpad) {
+                            IosPlayerBottomAction(
+                                Icons.Rounded.AspectRatio,
+                                iosResizeModeLabel(resizeMode),
+                            ) {
+                                resizeMode = nextIosResizeMode(resizeMode)
+                                controlsVisible = true
                             }
                         }
                         IosPlayerBottomAction(Icons.Rounded.Headphones, "Audio") {
@@ -425,8 +462,20 @@ private fun IosPlayerBridge.readSubtitleTracks(): List<IosTrack> =
     }
 
 @Composable
-private fun IosPlayerTimePill(value: String) {
+private fun IosPlayerTimePill(
+    value: String,
+    onClick: (() -> Unit)? = null,
+    contentDescription: String? = null,
+) {
+    val interactionModifier = if (onClick != null) {
+        Modifier
+            .clickable(role = Role.Button, onClick = onClick)
+            .semantics { contentDescription?.let { this.contentDescription = it } }
+    } else {
+        Modifier
+    }
     Surface(
+        modifier = interactionModifier,
         color = Color.Black.copy(alpha = .65f),
         shape = RoundedCornerShape(18.dp),
         border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = .22f)),
@@ -438,6 +487,18 @@ private fun IosPlayerTimePill(value: String) {
             style = MaterialTheme.typography.labelLarge,
         )
     }
+}
+
+private fun nextIosResizeMode(mode: Int): Int = when (mode) {
+    0 -> 1
+    1 -> 3
+    else -> 0
+}
+
+private fun iosResizeModeLabel(mode: Int): String = when (mode) {
+    1 -> "Fill"
+    3 -> "Stretch"
+    else -> "Fit"
 }
 
 @OptIn(ExperimentalFoundationApi::class)
