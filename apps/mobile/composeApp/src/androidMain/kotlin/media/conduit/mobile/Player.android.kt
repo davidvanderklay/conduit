@@ -8,6 +8,7 @@ import android.widget.Toast
 import androidx.annotation.OptIn
 import androidx.compose.runtime.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -24,9 +25,11 @@ import androidx.compose.material3.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
@@ -289,11 +292,27 @@ actual fun NativePlayer(
                                 player.setPlaybackSpeed(playbackSpeed)
                                 controlsVisible = true
                             }
-                            DropdownMenu(speedMenuOpen, { speedMenuOpen = false }) {
+                            DropdownMenu(
+                                expanded = speedMenuOpen,
+                                onDismissRequest = { speedMenuOpen = false },
+                                modifier = Modifier.width(176.dp).background(Color(0xFF151518)),
+                                shape = RoundedCornerShape(16.dp),
+                                containerColor = Color(0xFF151518),
+                                border = BorderStroke(1.dp, Color.White.copy(alpha = .16f)),
+                                shadowElevation = 12.dp,
+                            ) {
+                                Text(
+                                    "Playback speed",
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                    color = Color.White.copy(alpha = .58f),
+                                    style = MaterialTheme.typography.labelMedium,
+                                )
                                 speeds.forEach { speed ->
+                                    val selected = speed == playbackSpeed
                                     DropdownMenuItem(
-                                        text = { Text("$speed×") },
-                                        leadingIcon = if (speed == playbackSpeed) {{ Icon(Icons.Rounded.Check, null) }} else null,
+                                        modifier = Modifier.padding(horizontal = 6.dp).clip(RoundedCornerShape(10.dp)).background(if (selected) MaterialTheme.colorScheme.primary.copy(alpha = .13f) else Color.Transparent),
+                                        text = { Text("$speed×", color = if (selected) Color.White else Color.White.copy(alpha = .78f), fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal) },
+                                        trailingIcon = if (selected) {{ Icon(Icons.Rounded.Check, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp)) }} else null,
                                         onClick = {
                                             player.setPlaybackSpeed(speed)
                                             playbackSpeed = speed

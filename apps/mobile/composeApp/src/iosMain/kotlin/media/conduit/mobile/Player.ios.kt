@@ -25,6 +25,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.interop.UIKitViewController
@@ -333,11 +334,24 @@ actual fun NativePlayer(
                             DropdownMenu(
                                 expanded = speedMenuOpen,
                                 onDismissRequest = { speedMenuOpen = false },
+                                modifier = Modifier.width(176.dp).background(Color(0xFF151518)),
+                                shape = RoundedCornerShape(16.dp),
+                                containerColor = Color(0xFF151518),
+                                border = BorderStroke(1.dp, Color.White.copy(alpha = .16f)),
+                                shadowElevation = 12.dp,
                             ) {
+                                Text(
+                                    "Playback speed",
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                    color = Color.White.copy(alpha = .58f),
+                                    style = MaterialTheme.typography.labelMedium,
+                                )
                                 speeds.forEach { speed ->
+                                    val selected = speed == playbackSpeed
                                     DropdownMenuItem(
-                                        text = { Text("${speed.trimSpeed()}×") },
-                                        leadingIcon = if (speed == playbackSpeed) {{ Icon(Icons.Rounded.Check, null) }} else null,
+                                        modifier = Modifier.padding(horizontal = 6.dp).clip(RoundedCornerShape(10.dp)).background(if (selected) MaterialTheme.colorScheme.primary.copy(alpha = .13f) else Color.Transparent),
+                                        text = { Text("${speed.trimSpeed()}×", color = if (selected) Color.White else Color.White.copy(alpha = .78f), fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal) },
+                                        trailingIcon = if (selected) {{ Icon(Icons.Rounded.Check, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp)) }} else null,
                                         onClick = {
                                             bridge.setPlaybackSpeed(speed)
                                             playbackSpeed = speed
