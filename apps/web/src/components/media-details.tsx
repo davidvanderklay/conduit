@@ -89,6 +89,7 @@ export function MediaDetails({
     queryFn: () => resolveMetadata(addons, item),
   })
   const meta = metadata.data ?? normalizeMetaItem(item, item)
+  const autoSelectSavedStreams = readPreferences().autoSelectSavedStreams
   const videos = meta.videos ?? []
   const selectedVideo = videos.find((video) => video.id === selectedVideoId)
   const nextEpisode = selectedVideo
@@ -137,6 +138,7 @@ export function MediaDetails({
   useEffect(() => {
     if (
       autoResumeAttempted.current ||
+      !autoSelectSavedStreams ||
       !initialProgress?.playbackSource ||
       !metadata.isSuccess ||
       !progress.isSuccess ||
@@ -159,7 +161,7 @@ export function MediaDetails({
     }).catch(() => {
       setStreamResolutionError("Saved source could not be loaded. Choose another source below.")
     })
-  }, [activeVideoId, addons, addonIds, initialProgress, item.type, metadata.isSuccess, progress.isSuccess, queryClient])
+  }, [activeVideoId, addons, addonIds, autoSelectSavedStreams, initialProgress, item.type, metadata.isSuccess, progress.isSuccess, queryClient])
 
   useEffect(() => {
     if (selectedVideo && selectedSeason == null) {

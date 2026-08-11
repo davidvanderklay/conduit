@@ -19,6 +19,7 @@ import androidx.compose.material.icons.rounded.AspectRatio
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.PlaylistPlay
+import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.Subtitles
 import androidx.compose.material3.*
@@ -69,6 +70,8 @@ actual fun NativePlayer(
     subtitles: List<SubtitleItem>,
     contentLogo: String?,
     contentTitle: String?,
+    hasNextEpisode: Boolean,
+    onNextEpisode: () -> Unit,
     hasEpisodes: Boolean,
     touchGestures: Boolean,
     holdToSpeed: Boolean,
@@ -280,7 +283,7 @@ actual fun NativePlayer(
                     .fillMaxSize()
                     .background(Color.Black.copy(alpha = .42f)),
             ) {
-                Row(Modifier.align(Alignment.Center), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.fillMaxSize()) {
                     FilledIconButton(
                         onClick = {
                             if (playing) {
@@ -292,7 +295,7 @@ actual fun NativePlayer(
                             }
                             controlsVisible = true
                         },
-                        modifier = Modifier.size(64.dp),
+                        modifier = Modifier.align(Alignment.Center).size(64.dp),
                         colors = IconButtonDefaults.filledIconButtonColors(
                             containerColor = Color.White,
                             contentColor = Color.Black,
@@ -303,6 +306,15 @@ actual fun NativePlayer(
                             if (playing) "Pause" else "Play",
                             modifier = Modifier.size(38.dp),
                         )
+                    }
+                    if (hasNextEpisode) {
+                        FilledIconButton(
+                            onClick = { onNextEpisode(); controlsVisible = true },
+                            modifier = Modifier.align(Alignment.Center).offset(x = 70.dp).size(52.dp),
+                            colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color.Black.copy(alpha = .72f), contentColor = Color.White),
+                        ) {
+                            Icon(Icons.Rounded.SkipNext, "Next episode", modifier = Modifier.size(30.dp))
+                        }
                     }
                 }
 

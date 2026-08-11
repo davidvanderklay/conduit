@@ -661,15 +661,15 @@ internal fun MediaDetailsScreen(
     }
     val addonSignature = addons.joinToString("|") { "${it.id}:${it.enabled}:${it.manifestUrl}" }
     val savedPlaybackSource = snapshot?.progress?.firstOrNull { it.videoId == initialVideoId }?.playbackSource
-    val currentAutoResumeAttemptKey = savedPlaybackSource?.let { "$addonSignature:${it.addonId}:${it.sourceKey}" }
-    LaunchedEffect(meta?.id, selectedVideo?.id, initialVideoId, savedPlaybackSource, addonSignature) {
+    val currentAutoResumeAttemptKey = savedPlaybackSource?.let { "$addonSignature:${it.addonId}:${it.sourceKey}:${preferences.autoSelectSavedStreams}" }
+    LaunchedEffect(meta?.id, selectedVideo?.id, initialVideoId, savedPlaybackSource, addonSignature, preferences.autoSelectSavedStreams) {
         if (initialVideoId == null || meta == null || addons.isEmpty()) return@LaunchedEffect
         val targetVideoId = selectedVideo?.id ?: item.id
         if (targetVideoId != initialVideoId) return@LaunchedEffect
         val saved = savedPlaybackSource ?: return@LaunchedEffect
         if (currentAutoResumeAttemptKey == null || autoResumeAttemptedKey == currentAutoResumeAttemptKey) return@LaunchedEffect
         autoResumeAttemptedKey = currentAutoResumeAttemptKey
-        requestStreams(selectedVideo, autoPlaySavedSource = true)
+        requestStreams(selectedVideo, autoPlaySavedSource = preferences.autoSelectSavedStreams)
     }
     fun currentPlaybackSource(): PlaybackSource? =
         currentAddonId?.let { addonId -> playing?.let { playbackSourceForStream(addonId, it) } }
@@ -727,6 +727,7 @@ internal fun MediaDetailsScreen(
                 subtitles = externalSubtitles,
                 contentLogo = meta?.logo,
                 contentTitle = if (selectedVideo != null) "${meta?.name ?: item.name} · ${selectedVideo?.displayTitle}" else meta?.name ?: item.name,
+                hasNextEpisode = nextVideo != null, onNextEpisode = { nextVideo?.let(::playNext) },
                 hasEpisodes = orderedVideos.isNotEmpty(), onEpisodes = { episodesOpen = true }, modifier = Modifier.fillMaxSize(),
                 touchGestures = preferences.touchGestures, holdToSpeed = preferences.holdToSpeed,
                 preferredAudioLanguage = preferences.preferredAudioLanguage,
@@ -1456,6 +1457,7 @@ private fun PlaybackSettingsScreen(platform: PlatformInfo, preferences: DevicePr
     var picker by remember { mutableStateOf<String?>(null) }
     SettingsPage("Playback", onBack, modifier) {
         SettingsGroup("PLAYER") {
+            SettingsToggle("Auto-select saved streams", "Reuse the last selected stream when it is available", preferences.autoSelectSavedStreams) { update(preferences.copy(autoSelectSavedStreams = it)) }
             SettingsToggle("Touch gestures", "Double-tap seeking and player gestures", preferences.touchGestures) { update(preferences.copy(touchGestures = it)) }
             SettingsToggle("Hold to speed", "Hold the player to temporarily speed up", preferences.holdToSpeed) { update(preferences.copy(holdToSpeed = it)) }
         }
