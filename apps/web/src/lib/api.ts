@@ -86,6 +86,7 @@ export interface WatchProgress {
   durationMs: number
   watched: boolean
   dismissed?: boolean
+  continueWatching?: boolean
   playbackSource?: PlaybackSource
   updatedAt: string
 }

@@ -698,9 +698,12 @@ internal fun MediaDetailsScreen(
     ) {
         val activeProfile = profile ?: return
         val video = selectedVideo
+        val videoId = video?.id ?: item.id
+        val existing = snapshot?.progress?.firstOrNull { it.videoId == videoId }
+        val resolved = resolveProgressState(state, existing) ?: return
         api.saveProgress(baseUrl, token, activeProfile.id, video?.id ?: item.id, item.type, item.id,
             meta?.name ?: item.name, meta?.poster ?: item.poster, video?.displayTitle, video?.season, video?.episode,
-            state.positionMs, state.durationMs, source)
+            resolved.positionMs, resolved.durationMs, source, resolved.watched)
         onProgressChanged()
     }
     fun playNext(video: VideoItem) {

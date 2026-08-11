@@ -61,11 +61,16 @@ fun ProfileSnapshot.applyOptimistically(mutation: ProfileMutation): ProfileSnaps
             watched = mutation.watched,
             positionMs = if (mutation.watched) current?.durationMs ?: 0 else 0,
             dismissed = false,
+            continueWatching = current?.continueWatching == true || mutation.watched,
         )
         copy(
             progress = progress.replaceProgress(optimistic),
             history = history.replaceProgress(optimistic),
-            continueWatching = continueWatching.filterNot { it.videoId == optimistic.videoId },
+            continueWatching = if (optimistic.continueWatching) {
+                continueWatching.replaceProgress(optimistic)
+            } else {
+                continueWatching.filterNot { it.videoId == optimistic.videoId }
+            },
         )
     }
 
@@ -76,8 +81,10 @@ fun ProfileSnapshot.applyOptimistically(mutation: ProfileMutation): ProfileSnaps
             history = history.replaceProgress(optimistic),
             continueWatching = if (mutation.dismissed) {
                 continueWatching.filterNot { it.videoId == optimistic.videoId }
-            } else {
+            } else if (optimistic.continueWatching) {
                 continueWatching.replaceProgress(optimistic)
+            } else {
+                continueWatching.filterNot { it.videoId == optimistic.videoId }
             },
         )
     }
