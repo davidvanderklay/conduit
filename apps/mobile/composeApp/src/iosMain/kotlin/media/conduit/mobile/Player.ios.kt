@@ -196,6 +196,13 @@ actual fun NativePlayer(
         }
     }
 
+    LaunchedEffect(bridge) {
+        // Full-screen playback owns system chrome for the whole session. Keeping
+        // it hidden while controls are shown avoids a status-bar flash whenever
+        // the user taps to reveal the player overlay.
+        bridge.setImmersivePlayback(true)
+    }
+
     LaunchedEffect(controlsVisible, playing, speedMenuOpen) {
         if (controlsVisible && playing && !speedMenuOpen) {
             delay(4_000)
@@ -204,7 +211,10 @@ actual fun NativePlayer(
     }
 
     DisposableEffect(bridge) {
-        onDispose { bridge.destroy() }
+        onDispose {
+            bridge.setImmersivePlayback(false)
+            bridge.destroy()
+        }
     }
 
     Box(
