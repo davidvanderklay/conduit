@@ -8,9 +8,9 @@
 
 Conduit already uses Rust for Stremio-compatible manifest validation and
 resource URL construction, React for web/desktop presentation, and native
-libmpv behind a command/event contract in Tauri. Mobile needs shared
-presentation without moving media bytes, decoded frames, lifecycle, or player
-objects through a language bridge.
+libmpv behind a command/event contract in the Electron desktop shell. Mobile
+needs shared presentation without moving media bytes, decoded frames, lifecycle,
+or player objects through a language bridge.
 
 The spike exercises a local manifest and streams fixture. Rust validates the
 manifest with `conduit-core`, checks stream capability, constructs the resource

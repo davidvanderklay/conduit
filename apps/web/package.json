@@ -10,27 +10,27 @@
     "test": "vitest run src"
   },
   "dependencies": {
-    "@tanstack/react-query": "latest",
-    "@tanstack/react-router": "latest",
+    "@tanstack/react-query": "5.101.4",
+    "@tanstack/react-router": "1.170.25",
     "@tanstack/react-virtual": "^3.14.9",
-    "better-auth": "latest",
-    "class-variance-authority": "latest",
-    "clsx": "latest",
-    "hls.js": "latest",
-    "lucide-react": "latest",
-    "react": "latest",
-    "react-dom": "latest",
-    "tailwind-merge": "latest"
+    "better-auth": "1.6.26",
+    "class-variance-authority": "0.7.1",
+    "clsx": "2.1.1",
+    "hls.js": "1.6.17",
+    "lucide-react": "1.31.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "tailwind-merge": "3.6.0"
   },
   "devDependencies": {
-    "@tailwindcss/vite": "latest",
-    "@types/react": "latest",
-    "@types/react-dom": "latest",
-    "@vitejs/plugin-react": "latest",
-    "jsdom": "latest",
-    "tailwindcss": "latest",
-    "typescript": "latest",
-    "vite": "latest",
-    "vitest": "latest"
+    "@tailwindcss/vite": "4.3.3",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.4",
+    "@vitejs/plugin-react": "6.0.5",
+    "jsdom": "30.0.1",
+    "tailwindcss": "4.3.3",
+    "typescript": "7.0.2",
+    "vite": "npm:@voidzero-dev/vite-plus-core@0.2.8",
+    "vitest": "4.1.10"
   }
 }
