@@ -121,7 +121,7 @@ internal fun MobileLibraryScreen(
                         caption = item.type,
                         snapshot = snapshot,
                         metadataCache = metadataCache,
-                        onClick = { onSelect(catalogItem) },
+                        onClick = { onSelectVideo(catalogItem, latestProgress(snapshot, catalogItem)?.videoId) },
                         onActions = { actionTarget = MediaActionTarget(catalogItem, MediaActionContext.Library, latestProgress(snapshot, catalogItem)) },
                     )
                 }
@@ -197,7 +197,7 @@ internal fun MobileHistoryScreen(
                         caption = progress.videoTitle ?: progress.mediaType,
                         snapshot = snapshot,
                         metadataCache = metadataCache,
-                        onClick = { onSelectVideo(catalogItem, progress.videoId) },
+                        onClick = { onSelectVideo(catalogItem, null) },
                         onActions = { actionTarget = MediaActionTarget(catalogItem, MediaActionContext.History, progress) },
                     )
                 }
@@ -208,7 +208,7 @@ internal fun MobileHistoryScreen(
         target = actionTarget,
         snapshot = snapshot,
         onDismiss = { actionTarget = null },
-        onPlay = { onSelectVideo(it.item, it.progress?.videoId) },
+        onPlay = { onSelectVideo(it.item, null) },
         onDetails = onSelect,
         onMutation = onMutation,
     )
@@ -236,7 +236,7 @@ internal fun SearchDiscoverScreen(
     selection: DiscoverSelection,
     onSelectionChange: (DiscoverSelection) -> Unit,
     onMutation: suspend (ProfileMutation) -> Result<Unit>,
-    onSelect: (CatalogItem) -> Unit,
+    onSelect: (CatalogItem, String?) -> Unit,
     listState: androidx.compose.foundation.lazy.LazyListState = rememberLazyListState(),
     gridState: androidx.compose.foundation.lazy.grid.LazyGridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState(),
     requestFocus: Boolean = false,
@@ -370,7 +370,7 @@ internal fun SearchDiscoverScreen(
                             caption = item.releaseInfo ?: typeLabel(item.type),
                             snapshot = snapshot,
                             metadataCache = metadataCache,
-                            onClick = { onSelect(item) },
+                            onClick = { onSelect(item, null) },
                             onActions = { actionTarget = MediaActionTarget(item, MediaActionContext.Browse, latestProgress(snapshot, item)) },
                             showLabels = false,
                         )
@@ -414,7 +414,7 @@ internal fun SearchDiscoverScreen(
                                 RichPosterCard(
                                     item = item, caption = item.releaseInfo ?: item.type,
                                     snapshot = snapshot, metadataCache = metadataCache,
-                                    onClick = { onSelect(item) },
+                                    onClick = { onSelect(item, null) },
                                     onActions = { actionTarget = MediaActionTarget(item, MediaActionContext.Browse, latestProgress(snapshot, item)) },
                                     modifier = Modifier.width(132.dp),
                                 )
@@ -427,7 +427,7 @@ internal fun SearchDiscoverScreen(
     }
     MediaActionSheet(
         target = actionTarget, snapshot = snapshot, onDismiss = { actionTarget = null },
-        onPlay = { onSelect(it.item) }, onDetails = onSelect, onMutation = onMutation,
+        onPlay = { onSelect(it.item, null) }, onDetails = { onSelect(it, null) }, onMutation = onMutation,
     )
 }
 
@@ -578,6 +578,7 @@ internal fun MediaDetailsScreen(
     var selectedSeason by remember(item.id) { mutableStateOf<Int?>(null) }
     var temporarySpeedActive by remember(item.id) { mutableStateOf(false) }
     var autoResumeAttemptedKey by remember(item.id) { mutableStateOf<String?>(null) }
+    var selectedPlaybackSources by remember(item.id) { mutableStateOf<Map<String, PlaybackSource>>(emptyMap()) }
     var streamRequestVersion by remember(item.id) { mutableIntStateOf(0) }
     val detailsListState = rememberLazyListState()
     val heroPull = remember { mutableFloatStateOf(0f) }
@@ -614,6 +615,14 @@ internal fun MediaDetailsScreen(
         }
         return result
     }
+    fun savedPlaybackSourceFor(videoId: String): PlaybackSource? =
+        selectedPlaybackSources[videoId]
+            ?: snapshot?.progress?.firstOrNull { it.videoId == videoId }?.playbackSource
+
+    val addonSignature = addons.joinToString("|") { "${it.id}:${it.enabled}:${it.manifestUrl}" }
+    fun autoResumeAttemptKey(source: PlaybackSource): String =
+        "$addonSignature:${source.addonId}:${source.sourceKey}:${preferences.autoSelectSavedStreams}"
+
     fun requestStreams(video: VideoItem? = selectedVideo, autoPlaySavedSource: Boolean = false) {
         if (!autoPlaySavedSource) streamPageOpen = true
         streamsLoading = true
@@ -628,11 +637,14 @@ internal fun MediaDetailsScreen(
                 .onSuccess { choices ->
                     streams = choices
                     if (autoPlaySavedSource) {
-                        val saved = snapshot?.progress?.firstOrNull { it.videoId == videoId }?.playbackSource
+                        val saved = savedPlaybackSourceFor(videoId)
                         val choice = selectSavedStream(choices, saved)
                         if (choice != null) {
                             currentAddonId = choice.addonId
                             currentAddonName = choice.addonName
+                            val selectedSource = playbackSourceForStream(choice.addonId, choice.stream)
+                            selectedPlaybackSources = selectedPlaybackSources + (videoId to selectedSource)
+                            if (autoPlaySavedSource) autoResumeAttemptedKey = autoResumeAttemptKey(selectedSource)
                             playback = PlaybackState()
                             playing = choice.stream
                         } else {
@@ -659,9 +671,10 @@ internal fun MediaDetailsScreen(
             ?: profile?.let { runCatching { api.loadProgress(baseUrl, token, it.id, playingVideoId) }.getOrNull()?.takeUnless { progress -> progress.watched }?.positionMs }
             ?: 0L
     }
-    val addonSignature = addons.joinToString("|") { "${it.id}:${it.enabled}:${it.manifestUrl}" }
-    val savedPlaybackSource = snapshot?.progress?.firstOrNull { it.videoId == initialVideoId }?.playbackSource
-    val currentAutoResumeAttemptKey = savedPlaybackSource?.let { "$addonSignature:${it.addonId}:${it.sourceKey}:${preferences.autoSelectSavedStreams}" }
+    val savedPlaybackSource = initialVideoId?.let { videoId ->
+        snapshot?.progress?.firstOrNull { it.videoId == videoId }?.playbackSource
+    }
+    val currentAutoResumeAttemptKey = savedPlaybackSource?.let(::autoResumeAttemptKey)
     LaunchedEffect(meta?.id, selectedVideo?.id, initialVideoId, savedPlaybackSource, addonSignature, preferences.autoSelectSavedStreams) {
         if (initialVideoId == null || meta == null || addons.isEmpty()) return@LaunchedEffect
         val targetVideoId = selectedVideo?.id ?: item.id
@@ -671,6 +684,11 @@ internal fun MediaDetailsScreen(
         autoResumeAttemptedKey = currentAutoResumeAttemptKey
         requestStreams(selectedVideo, autoPlaySavedSource = preferences.autoSelectSavedStreams)
     }
+    val waitingForSavedPlayback = preferences.autoSelectSavedStreams &&
+        initialVideoId != null && savedPlaybackSource != null &&
+        error == null && (meta == null || addons.isNotEmpty()) &&
+        !streamPageOpen && playing == null &&
+        (autoResumeAttemptedKey == null || streamsLoading)
     fun currentPlaybackSource(): PlaybackSource? =
         currentAddonId?.let { addonId -> playing?.let { playbackSourceForStream(addonId, it) } }
 
@@ -785,6 +803,15 @@ internal fun MediaDetailsScreen(
         }
         return
     }
+    if (waitingForSavedPlayback) {
+        Box(Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                CircularProgressIndicator(color = Color.White)
+                Text("Resuming playback…", color = Color.White.copy(alpha = .72f))
+            }
+        }
+        return
+    }
     if (streamPageOpen) {
         val closeStreamPage = {
             streamPageOpen = false
@@ -795,6 +822,10 @@ internal fun MediaDetailsScreen(
                 if (source.stream.url != null) {
                     currentAddonId = source.addonId
                     currentAddonName = source.addonName
+                    val selectedSource = playbackSourceForStream(source.addonId, source.stream)
+                    val videoId = selectedVideo?.id ?: item.id
+                    selectedPlaybackSources = selectedPlaybackSources + (videoId to selectedSource)
+                    if (videoId == initialVideoId) autoResumeAttemptedKey = autoResumeAttemptKey(selectedSource)
                     playback = PlaybackState()
                     playing = source.stream
                 }
@@ -1543,7 +1574,7 @@ private fun WatchHistoryScreen(
                     val item = CatalogItem(progress.mediaId, progress.mediaType, progress.name, poster = progress.poster)
                     RichProgressCard(
                         progress = progress,
-                        onClick = { onSelect(item, progress.videoId) },
+                        onClick = { onSelect(item, null) },
                         onActions = { actionTarget = MediaActionTarget(item, MediaActionContext.History, progress) },
                     )
                 }
@@ -1554,7 +1585,7 @@ private fun WatchHistoryScreen(
         target = actionTarget,
         snapshot = snapshot,
         onDismiss = { actionTarget = null },
-        onPlay = { onSelect(it.item, it.progress?.videoId) },
+        onPlay = { onSelect(it.item, null) },
         onDetails = { onSelect(it, null) },
         onMutation = onMutation,
     )
