@@ -28,7 +28,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -79,6 +84,10 @@ actual fun NativePlayer(
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val activity = context as? Activity
     val landscape = context.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val windowSize = LocalWindowInfo.current.containerSize
+    val isTablet = with(LocalDensity.current) {
+        windowSize.width.toDp() >= 600.dp || windowSize.height.toDp() >= 600.dp
+    }
     val currentCallback by rememberUpdatedState(onState)
     val player = remember(url, requestHeaders, subtitles) {
         val http = DefaultHttpDataSource.Factory()
@@ -105,6 +114,7 @@ actual fun NativePlayer(
     var lastTrackChangeAt by remember(player) { mutableLongStateOf(0L) }
     var autoAudioSelection by remember(player) { mutableStateOf<String?>(null) }
     var resizeMode by remember(player) { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
+    var showRemainingTime by remember(player) { mutableStateOf(false) }
     val preferredAudioCode = remember(preferredAudioLanguage) { audioLanguageCode(preferredAudioLanguage) }
 
     DisposableEffect(player, url) {
@@ -268,9 +278,25 @@ actual fun NativePlayer(
                         valueRange = 0f..durationMs.coerceAtLeast(1).toFloat(),
                         colors = SliderDefaults.colors(thumbColor = MaterialTheme.colorScheme.primary, activeTrackColor = MaterialTheme.colorScheme.primary, inactiveTrackColor = Color.White.copy(.35f)), modifier = Modifier.height(30.dp),
                     )
+                    val displayedPosition = if (dragging) draggedPosition.toLong() else positionMs
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        PlayerTimePill(formatPlayerTime(if (dragging) draggedPosition.toLong() else positionMs))
-                        PlayerTimePill(formatPlayerTime(durationMs))
+                        PlayerTimePill(formatPlayerTime(displayedPosition))
+                        PlayerTimePill(
+                            value = if (showRemainingTime) {
+                                "-${formatPlayerTime((durationMs - displayedPosition).coerceAtLeast(0))}"
+                            } else {
+                                formatPlayerTime(durationMs)
+                            },
+                            onClick = {
+                                showRemainingTime = !showRemainingTime
+                                controlsVisible = true
+                            },
+                            contentDescription = if (showRemainingTime) {
+                                "Time remaining. Tap to show end time."
+                            } else {
+                                "End time. Tap to show time remaining."
+                            },
+                        )
                     }
                     if (!loadingOrPortrait) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceEvenly) {
                         val haptics = LocalHapticFeedback.current
@@ -323,6 +349,10 @@ actual fun NativePlayer(
                                 }
                             }
                         }
+                        if (isTablet) PlayerBottomAction(Icons.Rounded.AspectRatio, androidResizeModeLabel(resizeMode), landscape) {
+                            resizeMode = nextAndroidResizeMode(resizeMode)
+                            controlsVisible = true
+                        }
                         PlayerBottomAction(Icons.Rounded.Headphones, "Audio", landscape) { trackPanel = C.TRACK_TYPE_AUDIO; controlsVisible = true }
                         PlayerBottomAction(Icons.Rounded.Subtitles, "Subtitles", landscape) { trackPanel = C.TRACK_TYPE_TEXT; controlsVisible = true }
                         if (hasEpisodes) PlayerBottomAction(Icons.Rounded.PlaylistPlay, "Episodes", landscape, onClick = onEpisodes)
@@ -360,10 +390,33 @@ private fun audioTrackScore(format: androidx.media3.common.Format, preferredLang
 }
 
 @Composable
-private fun PlayerTimePill(value: String) {
-    Surface(color = Color.Black.copy(.65f), shape = RoundedCornerShape(18.dp), border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(.22f))) {
+private fun PlayerTimePill(
+    value: String,
+    onClick: (() -> Unit)? = null,
+    contentDescription: String? = null,
+) {
+    val interactionModifier = if (onClick != null) {
+        Modifier
+            .clickable(role = Role.Button, onClick = onClick)
+            .semantics { contentDescription?.let { this.contentDescription = it } }
+    } else {
+        Modifier
+    }
+    Surface(modifier = interactionModifier, color = Color.Black.copy(.65f), shape = RoundedCornerShape(18.dp), border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(.22f))) {
         Text(value, color = Color.White, modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp), style = MaterialTheme.typography.labelLarge)
     }
+}
+
+private fun nextAndroidResizeMode(mode: Int): Int = when (mode) {
+    AspectRatioFrameLayout.RESIZE_MODE_FIT -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+    AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+    else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+}
+
+private fun androidResizeModeLabel(mode: Int): String = when (mode) {
+    AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> "Fill"
+    AspectRatioFrameLayout.RESIZE_MODE_FILL -> "Stretch"
+    else -> "Fit"
 }
 
 @Composable
