@@ -329,7 +329,8 @@ so role authorization is the primary control on this stack.
 Use a strong owner password, store recovery codes offline, and test
 `pnpm admin:recover` from a trusted checkout before relying on OAuth alone.
 
-CORS and Better Auth trust exactly `WEB_ORIGIN` plus the packaged Tauri origins.
+CORS and Better Auth trust exactly `WEB_ORIGIN` plus the packaged desktop
+origin, `conduit://localhost`.
 Credentials are allowed only for those origins. If OAuth is enabled, register:
 
 ```text

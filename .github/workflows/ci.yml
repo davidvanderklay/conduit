@@ -42,6 +42,8 @@ jobs:
             libegl1-mesa-dev \
             libx11-dev
       - run: pnpm install --frozen-lockfile
+      - name: Check package version policy
+        run: pnpm check:deps
       - name: Audit production dependencies
         run: pnpm audit --prod --audit-level high
       - run: pnpm core:build

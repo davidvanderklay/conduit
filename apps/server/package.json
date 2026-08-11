@@ -18,21 +18,21 @@
     "test": "vitest run src"
   },
   "dependencies": {
-    "@fastify/cors": "latest",
-    "@fastify/sensible": "latest",
-    "@sinclair/typebox": "latest",
-    "better-auth": "latest",
-    "dotenv": "latest",
-    "drizzle-orm": "latest",
-    "fastify": "latest",
-    "pg": "latest"
+    "@fastify/cors": "11.3.0",
+    "@fastify/sensible": "6.0.5",
+    "@sinclair/typebox": "0.34.52",
+    "better-auth": "1.6.26",
+    "dotenv": "17.4.2",
+    "drizzle-orm": "0.45.2",
+    "fastify": "5.11.3",
+    "pg": "8.23.0"
   },
   "devDependencies": {
-    "@types/node": "latest",
-    "@types/pg": "latest",
-    "drizzle-kit": "latest",
-    "tsx": "latest",
-    "typescript": "latest",
-    "vitest": "latest"
+    "@types/node": "26.2.0",
+    "@types/pg": "8.21.0",
+    "drizzle-kit": "0.31.10",
+    "tsx": "4.23.12",
+    "typescript": "7.0.2",
+    "vitest": "4.1.10"
   }
 }
