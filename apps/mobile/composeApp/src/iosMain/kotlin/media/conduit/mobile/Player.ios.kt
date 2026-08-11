@@ -562,7 +562,7 @@ private fun BoxScope.IosSubtitlePanel(
         ) {
           Box {
             Row(
-                Modifier.fillMaxSize().padding(horizontal = 30.dp, vertical = 28.dp),
+                Modifier.fillMaxSize().safeDrawingPadding().padding(horizontal = 30.dp, vertical = 28.dp),
                 horizontalArrangement = Arrangement.spacedBy(30.dp),
             ) {
                 Column(Modifier.weight(1f)) {
@@ -607,7 +607,7 @@ private fun BoxScope.IosSubtitlePanel(
                     Spacer(Modifier.weight(1f))
                 }
             }
-            IconButton(onClick = onDismiss, Modifier.align(Alignment.TopEnd).padding(12.dp)) {
+            IconButton(onClick = onDismiss, Modifier.align(Alignment.TopEnd).safeDrawingPadding().padding(12.dp)) {
                 Icon(Icons.Rounded.Close, "Close", tint = Color.White, modifier = Modifier.size(34.dp))
             }
           }
