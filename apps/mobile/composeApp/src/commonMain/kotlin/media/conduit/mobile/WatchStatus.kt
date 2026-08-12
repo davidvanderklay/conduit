@@ -56,3 +56,28 @@ internal fun latestProgress(snapshot: media.conduit.mobile.account.ProfileSnapsh
     snapshot?.progress.orEmpty()
         .filter { it.mediaType == item.type && it.mediaId == item.id && !it.videoId.startsWith(LegacyCompletionMarkerPrefix) }
         .maxByOrNull(ProgressSummary::updatedAt)
+
+internal fun latestUnfinishedProgress(
+    progress: List<ProgressSummary>,
+    item: CatalogItem,
+): ProgressSummary? = progress
+    .filter {
+        it.mediaType == item.type && it.mediaId == item.id &&
+            !it.videoId.startsWith(LegacyCompletionMarkerPrefix) &&
+            !it.watched && it.positionMs > 0
+    }
+    .maxByOrNull(ProgressSummary::updatedAt)
+
+internal fun detailsPlayLabel(
+    item: CatalogItem,
+    progress: ProgressSummary?,
+    resumeVideo: VideoItem?,
+): String {
+    if (progress == null || progress.watched || progress.positionMs <= 0) return "Play"
+    if (item.type != "series") return "Resume"
+    if (resumeVideo?.id != progress.videoId) return "Play"
+
+    val season = resumeVideo.season
+    val episode = resumeVideo.episode
+    return if (season != null && episode != null) "Resume S${season}E$episode" else "Resume"
+}
