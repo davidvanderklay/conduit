@@ -74,6 +74,7 @@ internal fun MobileLibraryScreen(
     snapshot: ProfileSnapshot?,
     api: ConduitApi,
     onMutation: suspend (ProfileMutation) -> Result<Unit>,
+    onOpenCalendar: () -> Unit,
     onSelect: (CatalogItem) -> Unit,
     onSelectVideo: (CatalogItem, String?) -> Unit,
     gridState: androidx.compose.foundation.lazy.grid.LazyGridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState(),
@@ -108,7 +109,12 @@ internal fun MobileLibraryScreen(
 
     Column(modifier.statusBarsPadding()) {
         Column(Modifier.padding(horizontal = 10.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            Text("Library", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Library", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                IconButton(onClick = onOpenCalendar) {
+                    Icon(Icons.Rounded.CalendarMonth, "Open release calendar")
+                }
+            }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 CompactFilterMenu(
                     value = when (filter) { "movie" -> "Movies"; "series" -> "Series"; else -> "All types" },
