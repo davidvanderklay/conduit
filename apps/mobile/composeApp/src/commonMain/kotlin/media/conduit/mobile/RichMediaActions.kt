@@ -38,6 +38,7 @@ internal data class MediaActionTarget(
     val context: MediaActionContext,
     val progress: ProgressSummary? = null,
     val video: VideoItem? = null,
+    val canPlay: Boolean = true,
 )
 
 internal fun LibraryItemSummary.asCatalogItem() = CatalogItem(
@@ -66,22 +67,24 @@ internal class WatchMetadataCache(
 ) {
     private val requests = Semaphore(4)
     private val loading = mutableSetOf<String>()
-    private val videos = mutableStateMapOf<String, List<VideoItem>>()
+    private val metadata = mutableStateMapOf<String, MetaItem>()
 
-    suspend fun load(item: CatalogItem) {
+    suspend fun load(item: CatalogItem, includeMovies: Boolean = false) {
         val key = "${item.type}:${item.id}"
-        if (item.type != "series" || videos.containsKey(key) || !loading.add(key)) return
+        if ((item.type != "series" && !includeMovies) || metadata.containsKey(key) || !loading.add(key)) return
         try {
             requests.withPermit {
-                runCatching { api.loadMeta(addons, item.type, item.id).videos }
-                    .onSuccess { videos[key] = it }
+                runCatching { api.loadMeta(addons, item.type, item.id) }
+                    .onSuccess { metadata[key] = it }
             }
         } finally {
             loading.remove(key)
         }
     }
 
-    fun videosFor(item: CatalogItem): List<VideoItem> = videos["${item.type}:${item.id}"].orEmpty()
+    fun metadataFor(item: CatalogItem): MetaItem? = metadata["${item.type}:${item.id}"]
+
+    fun videosFor(item: CatalogItem): List<VideoItem> = metadataFor(item)?.videos.orEmpty()
 }
 
 @Composable
@@ -89,6 +92,150 @@ internal fun rememberWatchMetadataCache(
     api: ConduitApi,
     addons: List<InstalledAddonSummary>,
 ): WatchMetadataCache = remember(api, addons) { WatchMetadataCache(api, addons) }
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+internal fun ContinueWatchingCard(
+    progress: ProgressSummary,
+    item: CatalogItem,
+    metadata: MetaItem?,
+    metadataReady: Boolean,
+    onClick: () -> Unit,
+    onActions: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val presentation = continueWatchingPresentation(progress, metadata?.videos.orEmpty())
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val cardScale by animateFloatAsState(if (pressed) .98f else 1f, label = "continue-card-press")
+    val haptics = LocalHapticFeedback.current
+    val video = presentation.video
+    val artworkSources = listOfNotNull(
+        video?.thumbnail?.let { it to ContentScale.Crop },
+        metadata?.background?.let { it to ContentScale.Crop },
+        metadata?.poster?.let { it to ContentScale.Fit },
+        item.poster?.let { it to ContentScale.Fit },
+    ).distinct()
+    var artworkIndex by remember(artworkSources) { mutableIntStateOf(0) }
+    val artwork = artworkSources.getOrNull(artworkIndex)
+    val badge = if (!metadataReady && progress.mediaType == "series" && progress.watched) {
+        null
+    } else when (presentation.kind) {
+        ContinueWatchingKind.InProgress -> remainingTimeLabel(progress)
+        ContinueWatchingKind.NewEpisode -> "New Episode"
+        ContinueWatchingKind.Scheduled -> presentation.label
+        ContinueWatchingKind.CaughtUp -> "Caught up"
+    }
+    val season = video?.season ?: progress.season
+    val episode = video?.episode ?: progress.episode
+    val episodeTitle = video?.title ?: video?.name ?: progress.videoTitle
+
+    Box(
+        modifier.scale(cardScale).aspectRatio(16f / 9f).clip(RoundedCornerShape(14.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .combinedClickable(
+                interactionSource = interaction,
+                indication = null,
+                onClickLabel = when (presentation.kind) {
+                    ContinueWatchingKind.InProgress -> "Resume ${progress.name}"
+                    ContinueWatchingKind.NewEpisode -> "Play the new episode of ${progress.name}"
+                    ContinueWatchingKind.Scheduled -> "View ${progress.name}, next episode ${presentation.label}"
+                    ContinueWatchingKind.CaughtUp -> "View ${progress.name}, caught up"
+                },
+                onLongClickLabel = "More actions for ${progress.name}",
+                onClick = onClick,
+                onLongClick = {
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onActions()
+                },
+            ),
+    ) {
+        if (artwork?.second == ContentScale.Fit) {
+            AsyncImage(
+                model = artwork.first,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                alpha = .38f,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+        AsyncImage(
+            model = artwork?.first,
+            contentDescription = progress.name,
+            contentScale = artwork?.second ?: ContentScale.Crop,
+            modifier = Modifier.fillMaxSize(),
+            onError = { artworkIndex += 1 },
+        )
+        if (artwork == null) {
+            Text(
+                progress.name.take(1),
+                modifier = Modifier.align(Alignment.Center),
+                style = MaterialTheme.typography.displayMedium,
+                color = Color.White.copy(alpha = .24f),
+            )
+        }
+        Box(
+            Modifier.fillMaxSize().background(
+                Brush.verticalGradient(
+                    listOf(Color.Transparent, Color.Black.copy(alpha = .12f), Color.Black.copy(alpha = .9f)),
+                ),
+            ),
+        )
+        badge?.let { label ->
+            Surface(
+                modifier = Modifier.align(Alignment.TopEnd).padding(7.dp),
+                shape = RoundedCornerShape(6.dp),
+                color = if (presentation.kind == ContinueWatchingKind.NewEpisode) {
+                    Color(0xFF1D5DDD)
+                } else {
+                    Color.Black.copy(alpha = .82f)
+                },
+                contentColor = Color.White,
+                shadowElevation = 5.dp,
+            ) {
+                Text(
+                    label,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+        }
+        Column(
+            modifier = Modifier.align(Alignment.BottomStart).padding(start = 10.dp, end = 10.dp, bottom = 9.dp),
+            verticalArrangement = Arrangement.spacedBy(1.dp),
+        ) {
+            if (progress.mediaType == "series" && season != null && episode != null) {
+                Text(
+                    "S$season E$episode",
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+            Text(
+                progress.name,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                color = Color.White,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Bold,
+            )
+            episodeTitle?.let {
+                Text(
+                    it,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    color = Color.White.copy(alpha = .72f),
+                    style = MaterialTheme.typography.labelMedium,
+                )
+            }
+        }
+        if (presentation.kind == ContinueWatchingKind.InProgress) {
+            ProgressRail(progress, Modifier.align(Alignment.BottomCenter))
+        }
+    }
+}
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -254,6 +401,7 @@ internal fun MediaActionSheet(
     var removingHistory by remember(active.progress?.videoId) { mutableStateOf(false) }
     val saved = snapshot?.library.orEmpty().any { it.type == active.item.type && it.id == active.item.id }
     val progress = active.progress
+    val watchProgress = progress?.takeIf { active.video == null || active.video.id == it.videoId }
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Color(0xFF171719)) {
         Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = 8.dp)) {
             Text(
@@ -264,21 +412,24 @@ internal fun MediaActionSheet(
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
-            if (active.context != MediaActionContext.Browse) {
-                ActionRow(if (progress != null && progress.positionMs > 0 && !progress.watched) "Resume" else "Play", Icons.Rounded.PlayArrow) {
+            if (active.context != MediaActionContext.Browse && active.canPlay) {
+                ActionRow(if (watchProgress != null && watchProgress.positionMs > 0 && !watchProgress.watched) "Resume" else "Play", Icons.Rounded.PlayArrow) {
                     onDismiss(); onPlay(active)
                 }
             }
             if (active.context != MediaActionContext.Episode) {
                 ActionRow("Details", Icons.Rounded.Info) { onDismiss(); onDetails(active.item) }
             }
-            if (active.context != MediaActionContext.Browse && (progress != null || active.item.type == "movie" || active.context == MediaActionContext.Episode)) {
+            if (active.context != MediaActionContext.Browse &&
+                (watchProgress != null || active.item.type == "movie" || active.context == MediaActionContext.Episode ||
+                    (active.video != null && active.canPlay))
+            ) {
                 ActionRow(
-                    if (progress?.watched == true) "Mark unwatched" else if (active.item.type == "series") "Mark episode watched" else "Mark watched",
-                    if (progress?.watched == true) Icons.Rounded.Replay else Icons.Rounded.Check,
+                    if (watchProgress?.watched == true) "Mark unwatched" else if (active.item.type == "series") "Mark episode watched" else "Mark watched",
+                    if (watchProgress?.watched == true) Icons.Rounded.Replay else Icons.Rounded.Check,
                 ) {
                     onDismiss()
-                    scope.launch { onMutation(ProfileMutation.SetWatched(active.item, progress, active.video, progress?.watched != true)) }
+                    scope.launch { onMutation(ProfileMutation.SetWatched(active.item, watchProgress, active.video, watchProgress?.watched != true)) }
                 }
             }
             if (active.context == MediaActionContext.Continue && progress != null) {
