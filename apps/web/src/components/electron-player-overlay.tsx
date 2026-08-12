@@ -26,6 +26,7 @@ import {
   VolumeX,
   X,
 } from "lucide-react"
+import { audioTrackDisplay } from "../lib/audio-track-display"
 import {
   nativePlayerCommand,
   nativePlayerSnapshot,
@@ -186,6 +187,7 @@ export function ElectronPlayerOverlay({ initialTitle }: { initialTitle: string }
 
   const beginHoldSpeed = useCallback((event: ReactPointerEvent) => {
     if (
+      !snapshot || snapshot.loading || snapshot.duration <= 0 ||
       (event.pointerType === "mouse" && event.button !== 0) ||
       event.target instanceof Element && event.target.closest("[data-overlay-interactive]")
     ) return
@@ -197,7 +199,7 @@ export function ElectronPlayerOverlay({ initialTitle }: { initialTitle: string }
       setHoldSpeedActive(true)
       command(["set", "speed", 2])
     }, 450)
-  }, [command])
+  }, [command, snapshot])
 
   useEffect(() => () => {
     window.clearTimeout(holdSpeedTimer.current)
@@ -320,7 +322,7 @@ export function ElectronPlayerOverlay({ initialTitle }: { initialTitle: string }
       />
       {holdSpeedActive && (
         <div className="pointer-events-none absolute inset-x-0 top-6 z-20 text-center text-xl font-semibold text-white drop-shadow-[0_2px_10px_rgba(0,0,0,0.95)]" aria-live="polite">
-          › 2×
+          » 2×
         </div>
       )}
       <div
@@ -580,7 +582,7 @@ function AudioTrackMenu({
   }, [anchor])
   return (
     <div
-      className="pointer-events-auto fixed z-20 w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-white/10 bg-zinc-950/95 p-2 shadow-2xl"
+      className="pointer-events-auto fixed z-20 w-[46rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-white/10 bg-zinc-950/95 p-2 shadow-2xl"
       data-overlay-interactive
       data-track-menu
       style={position}
@@ -594,6 +596,7 @@ function AudioTrackMenu({
           key={track.id}
           track={track}
           fallback="Audio"
+          audio
           onClick={() => onSelect(track.id)}
         />
       )) : (
@@ -763,12 +766,15 @@ function TrackMenuChoice({
 function TrackMenuRow({
   track,
   fallback,
+  audio = false,
   onClick,
 }: {
   track: NativeTrack
   fallback: string
+  audio?: boolean
   onClick: () => void
 }) {
+  const display = audio ? audioTrackDisplay(track, `${fallback} ${track.id}`) : undefined
   return (
     <button
       className={`pointer-events-auto mb-1 block w-full rounded-lg px-3 py-2 text-left ${
@@ -778,9 +784,11 @@ function TrackMenuRow({
       onClick={onClick}
       aria-pressed={track.selected}
     >
-      <span className="block text-sm font-medium">{trackName(track, fallback)}</span>
+      <span className="block truncate text-sm font-medium" title={display?.primary}>
+        {display?.primary ?? trackName(track, fallback)}
+      </span>
       <span className={`block text-xs ${track.selected ? "text-zinc-800" : "text-zinc-500"}`}>
-        {trackDetails(track)}
+        {display?.secondary ?? trackDetails(track)}
       </span>
     </button>
   )

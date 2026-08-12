@@ -26,7 +26,7 @@ interface IosPlayerBridge {
     fun setMuted(muted: Boolean)
     fun setPreferredAudioLanguage(language: String)
     fun setPreferredSubtitleLanguage(language: String)
-    fun setResizeMode(mode: Int) // 0 = fit, 1 = fill, 2 = legacy phone crop, 3 = stretch
+    fun setResizeMode(mode: Int) // 0 = fit, 1 = fill, 2 = zoom
     fun syncVideoSurfaceLayout(width: Double, height: Double)
     fun setImmersivePlayback(enabled: Boolean)
 
@@ -34,6 +34,12 @@ interface IosPlayerBridge {
     fun getAudioTrackId(at: Int): Int
     fun getAudioTrackLabel(at: Int): String
     fun getAudioTrackLang(at: Int): String
+    fun getAudioTrackLanguageName(at: Int): String
+    fun getAudioTrackCodec(at: Int): String
+    fun getAudioTrackChannels(at: Int): String
+    fun getAudioTrackChannelCount(at: Int): Int
+    fun getAudioTrackSampleRate(at: Int): Int
+    fun getAudioTrackBitrate(at: Int): Long
     fun isAudioTrackSelected(at: Int): Boolean
     fun getSubtitleTrackCount(): Int
     fun getSubtitleTrackId(at: Int): Int
