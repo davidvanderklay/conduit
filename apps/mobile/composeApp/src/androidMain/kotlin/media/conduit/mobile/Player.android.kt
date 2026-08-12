@@ -60,6 +60,17 @@ import kotlinx.coroutines.coroutineScope
 import media.conduit.mobile.account.SubtitleItem
 import android.net.Uri
 
+@Composable
+actual fun PlayerOrientationLock(active: Boolean) {
+    val activity = androidx.compose.ui.platform.LocalContext.current as? Activity
+    DisposableEffect(activity, active) {
+        if (active) activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        onDispose {
+            if (active) activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+        }
+    }
+}
+
 @OptIn(UnstableApi::class)
 @Composable
 actual fun NativePlayer(

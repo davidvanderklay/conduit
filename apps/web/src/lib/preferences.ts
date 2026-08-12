@@ -8,6 +8,7 @@ export interface DevicePreferences {
   subtitlePosition: number
   readAheadSeconds: number
   autoSelectSavedStreams: boolean
+  lastStreamAddonId?: string
   autoplay: boolean
   volume: number
   hardwareAcceleration: boolean

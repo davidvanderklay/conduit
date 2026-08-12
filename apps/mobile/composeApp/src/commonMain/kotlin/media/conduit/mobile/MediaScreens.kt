@@ -592,6 +592,7 @@ internal fun MediaDetailsScreen(
     baseUrl: String,
     token: String,
     preferences: DevicePreferences,
+    onPreferencesChanged: (DevicePreferences) -> Unit,
     onProgressChanged: () -> Unit,
     onMutation: suspend (ProfileMutation) -> Result<Unit>,
     onBrowse: (MobileBrowseTarget) -> Unit,
@@ -604,6 +605,7 @@ internal fun MediaDetailsScreen(
     var streamPageOpen by remember(item.id) { mutableStateOf(false) }
     var streamsLoading by remember(item.id) { mutableStateOf(false) }
     var streamsError by remember(item.id) { mutableStateOf<String?>(null) }
+    var selectedStreamAddonId by remember(item.id) { mutableStateOf(preferences.lastStreamAddonId) }
     var playing by remember(item.id) { mutableStateOf<StreamItem?>(null) }
     var playback by remember(item.id) { mutableStateOf(PlaybackState()) }
     var resumePosition by remember(item.id) { mutableStateOf(0L) }
@@ -642,10 +644,13 @@ internal fun MediaDetailsScreen(
                     ?: it.videos.firstOrNull()
             }.onFailure { error = it.message }
     }
-    suspend fun loadStreamsWithRetry(videoId: String): Result<List<StreamSource>> {
+    suspend fun loadStreamsWithRetry(
+        videoId: String,
+        requestedAddons: List<InstalledAddonSummary>,
+    ): Result<List<StreamSource>> {
         var result = Result.failure<List<StreamSource>>(IllegalStateException("Unable to load streams"))
         repeat(3) { attempt ->
-            result = runCatching { api.loadStreams(addons, item.type, videoId) }
+            result = runCatching { api.loadStreams(requestedAddons, item.type, videoId) }
             if (result.isSuccess && result.getOrThrow().isNotEmpty()) return result
             if (attempt < 2) delay(400L * (attempt + 1))
         }
@@ -659,7 +664,11 @@ internal fun MediaDetailsScreen(
     fun autoResumeAttemptKey(source: PlaybackSource): String =
         "$addonSignature:${source.addonId}:${source.sourceKey}:${preferences.autoSelectSavedStreams}"
 
-    fun requestStreams(video: VideoItem? = selectedVideo, autoPlaySavedSource: Boolean = false) {
+    fun requestStreams(
+        video: VideoItem? = selectedVideo,
+        autoPlaySavedSource: Boolean = false,
+        addonId: String? = selectedStreamAddonId,
+    ) {
         if (!autoPlaySavedSource) streamPageOpen = true
         streamsLoading = true
         streamsError = null
@@ -667,7 +676,13 @@ internal fun MediaDetailsScreen(
         val requestVersion = ++streamRequestVersion
         streams = null
         scope.launch {
-            val result = loadStreamsWithRetry(videoId)
+            val compatibleAddons = addons.filter { it.enabled && it.supportsResource("stream", item.type, videoId) }
+            val effectiveAddonId = addonId?.takeIf { selectedId ->
+                compatibleAddons.size > 1 && compatibleAddons.any { it.id == selectedId }
+            }
+            val requestedAddons = effectiveAddonId?.let { selectedId -> compatibleAddons.filter { it.id == selectedId } }
+                ?: compatibleAddons
+            val result = loadStreamsWithRetry(videoId, requestedAddons)
             if (requestVersion != streamRequestVersion) return@launch
             result
                 .onSuccess { choices ->
@@ -701,6 +716,23 @@ internal fun MediaDetailsScreen(
         }
     }
     val playingVideoId = selectedVideo?.id ?: item.id
+    val streamAddonChoices = remember(addons, item.type, playingVideoId) {
+        addons
+            .filter { it.enabled && it.supportsResource("stream", item.type, playingVideoId) }
+            .map { addon ->
+                StreamAddonChoice(
+                    id = addon.id,
+                    name = addon.manifest["name"]?.jsonPrimitive?.contentOrNull ?: addon.manifestId,
+                )
+            }
+    }
+    LaunchedEffect(playingVideoId, streamAddonChoices) {
+        if (selectedStreamAddonId == null || streamAddonChoices.none { it.id == selectedStreamAddonId }) {
+            selectedStreamAddonId = preferences.lastStreamAddonId?.takeIf { rememberedId ->
+                streamAddonChoices.any { it.id == rememberedId }
+            }
+        }
+    }
     LaunchedEffect(playingVideoId, addons) { externalSubtitles = runCatching { api.loadSubtitles(addons, item.type, playingVideoId) }.getOrDefault(emptyList()) }
     LaunchedEffect(playingVideoId, profile?.id) {
         resumePosition = snapshot?.progress?.firstOrNull { it.videoId == playingVideoId }?.takeUnless { it.watched }?.positionMs
@@ -725,6 +757,7 @@ internal fun MediaDetailsScreen(
         error == null && (meta == null || addons.isNotEmpty()) &&
         !streamPageOpen && playing == null &&
         (autoResumeAttemptedKey == null || streamsLoading)
+    PlayerOrientationLock(active = waitingForSavedPlayback || playing?.url != null)
     fun currentPlaybackSource(): PlaybackSource? =
         currentAddonId?.let { addonId -> playing?.let { playbackSourceForStream(addonId, it) } }
 
@@ -843,12 +876,12 @@ internal fun MediaDetailsScreen(
         return
     }
     if (waitingForSavedPlayback) {
-        Box(Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                CircularProgressIndicator(color = Color.White)
-                Text("Resuming playback…", color = Color.White.copy(alpha = .72f))
-            }
-        }
+        PlayerOpeningOverlay(
+            artwork = meta?.background ?: item.background ?: meta?.poster ?: item.poster,
+            logo = meta?.logo,
+            title = meta?.name ?: item.name,
+            modifier = Modifier.fillMaxSize(),
+        )
         return
     }
     if (streamPageOpen) {
@@ -857,7 +890,24 @@ internal fun MediaDetailsScreen(
             streams = null
         }
         Box(Modifier.fillMaxSize()) {
-            StreamSelectionScreen(meta?.name ?: item.name, meta?.background ?: meta?.poster ?: item.background ?: item.poster, selectedVideo, streams.orEmpty(), streamsLoading, streamsError, onRetry = { requestStreams(selectedVideo) }) { source ->
+            StreamSelectionScreen(
+                title = meta?.name ?: item.name,
+                artwork = meta?.background ?: meta?.poster ?: item.background ?: item.poster,
+                episode = selectedVideo,
+                streams = streams.orEmpty(),
+                addonChoices = streamAddonChoices,
+                selectedAddonId = selectedStreamAddonId,
+                loading = streamsLoading,
+                error = streamsError,
+                onSelectAddon = { addonId ->
+                    val currentEffective = effectiveStreamAddonId(selectedStreamAddonId, streamAddonChoices)
+                    val nextEffective = effectiveStreamAddonId(addonId, streamAddonChoices)
+                    selectedStreamAddonId = addonId
+                    onPreferencesChanged(preferences.copy(lastStreamAddonId = addonId))
+                    if (currentEffective != nextEffective) requestStreams(selectedVideo, addonId = addonId)
+                },
+                onRetry = { requestStreams(selectedVideo) },
+            ) { source ->
                 if (source.stream.url != null) {
                     currentAddonId = source.addonId
                     currentAddonName = source.addonName
@@ -888,6 +938,14 @@ internal fun MediaDetailsScreen(
     val heroScale = 1f + (heroPull.floatValue / maxHeroPullPx) * HeroMotion.expansionScale
     val heroHeight = if (item.type == "movie") 390.dp else 350.dp
     val titleLogo = details?.logo?.takeIf(String::isNotBlank)
+    val detailHeaderCollapseOffset = with(LocalDensity.current) { (heroHeight - 72.dp).roundToPx() }
+    val detailHeaderCollapsed by remember(detailsListState, detailHeaderCollapseOffset) {
+        derivedStateOf {
+            detailsListState.firstVisibleItemIndex > 0 ||
+                detailsListState.firstVisibleItemScrollOffset >= detailHeaderCollapseOffset
+        }
+    }
+    val saved = snapshot?.library.orEmpty().any { it.type == actionItem.type && it.id == actionItem.id }
     val imdbId = listOfNotNull(details?.id, item.id).firstOrNull { id ->
         id.length > 2 && id.startsWith("tt") && id.drop(2).all(Char::isDigit)
     }
@@ -975,7 +1033,6 @@ internal fun MediaDetailsScreen(
                 Button(onClick = { val target = resumeVideo ?: selectedVideo; selectedVideo = target; requestStreams(target) }, modifier = Modifier.fillMaxWidth().height(54.dp)) {
                     Icon(Icons.Rounded.PlayArrow, null); Spacer(Modifier.width(8.dp)); Text(detailsPlayLabel(actionItem, unfinishedProgress, resumeVideo))
                 }
-                val saved = snapshot?.library.orEmpty().any { it.type == actionItem.type && it.id == actionItem.id }
                 val movieProgress = snapshot?.progress.orEmpty().firstOrNull { it.videoId == actionItem.id }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         OutlinedButton(
@@ -1066,13 +1123,55 @@ internal fun MediaDetailsScreen(
             }
         }
         }
-        MobileBackButton(
-            onClick = onBack,
-            modifier = Modifier.align(Alignment.TopStart),
-            background = Color.Black.copy(alpha = .5f),
-            tint = Color.White,
-            safeArea = true,
-        )
+        if (detailHeaderCollapsed) {
+            Surface(
+                color = MaterialTheme.colorScheme.background.copy(alpha = .97f),
+                shadowElevation = 8.dp,
+                modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth(),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().statusBarsPadding().height(58.dp).padding(horizontal = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back")
+                    }
+                    Box(Modifier.weight(1f).height(42.dp), contentAlignment = Alignment.Center) {
+                        if (titleLogo != null) {
+                            AsyncImage(
+                                model = titleLogo,
+                                contentDescription = details.name,
+                                contentScale = ContentScale.Fit,
+                                modifier = Modifier.fillMaxWidth(.72f).heightIn(max = 38.dp),
+                            )
+                        } else {
+                            Text(
+                                details?.name ?: item.name,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                    IconButton(onClick = {
+                        scope.launch { onMutation(ProfileMutation.SetLibrary(actionItem, !saved, details?.runtime)) }
+                    }) {
+                        Icon(
+                            if (saved) Icons.Rounded.BookmarkRemove else Icons.Rounded.BookmarkAdd,
+                            if (saved) "Remove from library" else "Add to library",
+                        )
+                    }
+                }
+            }
+        } else {
+            MobileBackButton(
+                onClick = onBack,
+                modifier = Modifier.align(Alignment.TopStart),
+                background = Color.Black.copy(alpha = .5f),
+                tint = Color.White,
+                safeArea = true,
+            )
+        }
     }
     MediaActionSheet(
         target = actionTarget,
@@ -1110,6 +1209,7 @@ private fun PlayerOpeningOverlay(artwork: String?, logo: String?, title: String,
     )
     Box(modifier.background(Color.Black)) {
         artwork?.let { AsyncImage(model = it, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
+        Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = .64f)))
         val indicator = logo?.takeIf(String::isNotBlank) ?: artwork
         if (indicator != null) {
             AsyncImage(
@@ -1148,7 +1248,7 @@ private fun PlayerOpeningOverlay(artwork: String?, logo: String?, title: String,
 
 @Composable
 private fun PlayerBufferingOverlay(modifier: Modifier = Modifier) {
-    Box(modifier, contentAlignment = Alignment.Center) {
+    Box(modifier.background(Color.Black.copy(alpha = .55f)), contentAlignment = Alignment.Center) {
         CircularProgressIndicator(
             modifier = Modifier.size(32.dp),
             color = Color.White,
@@ -1186,6 +1286,11 @@ private fun BoxScope.PlayerEpisodeDrawer(videos: List<VideoItem>, current: Video
     }
 }
 
+private data class StreamAddonChoice(val id: String, val name: String)
+
+private fun effectiveStreamAddonId(selectedAddonId: String?, choices: List<StreamAddonChoice>): String? =
+    selectedAddonId?.takeIf { selectedId -> choices.size > 1 && choices.any { it.id == selectedId } }
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun StreamSelectionScreen(
@@ -1193,8 +1298,11 @@ private fun StreamSelectionScreen(
     artwork: String?,
     episode: VideoItem?,
     streams: List<StreamSource>,
+    addonChoices: List<StreamAddonChoice>,
+    selectedAddonId: String?,
     loading: Boolean,
     error: String?,
+    onSelectAddon: (String?) -> Unit,
     onRetry: () -> Unit,
     onSelect: (StreamSource) -> Unit,
 ) {
@@ -1245,8 +1353,34 @@ private fun StreamSelectionScreen(
                 }
             }
         }
+        item(key = "addon-filters") {
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                item {
+                    FilledTonalIconButton(onClick = onRetry, enabled = !loading) {
+                        Icon(Icons.Rounded.Refresh, "Refresh sources")
+                    }
+                }
+                item {
+                    FilterChip(
+                        selected = selectedAddonId == null,
+                        onClick = { onSelectAddon(null) },
+                        label = { Text("All") },
+                    )
+                }
+                items(addonChoices, key = StreamAddonChoice::id) { addon ->
+                    FilterChip(
+                        selected = selectedAddonId == addon.id,
+                        onClick = { onSelectAddon(addon.id) },
+                        label = { Text(addon.name) },
+                    )
+                }
+            }
+        }
         when {
-            loading -> item(key = "loading") { Box(Modifier.fillParentMaxHeight(.65f).fillMaxWidth(), contentAlignment = Alignment.Center) { Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) { CircularProgressIndicator(); Text("Finding streams…", color = MaterialTheme.colorScheme.onSurfaceVariant) } } }
+            loading -> item(key = "loading") { Box(Modifier.fillParentMaxHeight(.65f).fillMaxWidth().background(Color.Black.copy(alpha = .62f)), contentAlignment = Alignment.Center) { Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) { CircularProgressIndicator(); Text("Finding streams…", color = Color.White.copy(alpha = .72f)) } } }
             streams.isEmpty() -> item(key = if (error != null) "error" else "empty") {
                 Box(Modifier.fillParentMaxHeight(.65f).fillMaxWidth().padding(28.dp), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {

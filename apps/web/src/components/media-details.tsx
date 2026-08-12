@@ -9,6 +9,7 @@ import {
   ExternalLink,
   LoaderCircle,
   Play,
+  RefreshCw,
   RotateCcw,
   Star,
   X,
@@ -33,7 +34,7 @@ import {
   sortSeasons,
   trailerUrl,
 } from "../lib/metadata"
-import { readPreferences } from "../lib/preferences"
+import { readPreferences, writePreferences } from "../lib/preferences"
 import {
   playbackSourceForStream,
   selectSavedStream,
@@ -76,6 +77,9 @@ export function MediaDetails({
   const [selectedSeason, setSelectedSeason] = useState<number>()
   const [playing, setPlaying] = useState<ResolvedStream>()
   const [streamResolutionError, setStreamResolutionError] = useState<string>()
+  const [streamAddonId, setStreamAddonId] = useState<string | undefined>(
+    () => readPreferences().lastStreamAddonId,
+  )
   const queryClient = useQueryClient()
   const episodeTransition = useRef(0)
   const initialSeriesVideoResolved = useRef(false)
@@ -98,6 +102,17 @@ export function MediaDetails({
   const episodeMode = item.type === "series" && Boolean(selectedVideo)
   const activeVideoId = episodeMode ? selectedVideoId : item.id
   const addonIds = addons.map((addon) => addon.id)
+  const streamAddons = activeVideoId
+    ? addonsForResource(addons, "stream", item.type, activeVideoId)
+    : []
+  const effectiveStreamAddonId = streamAddonId &&
+      streamAddons.length > 1 &&
+      streamAddons.some((addon) => addon.id === streamAddonId)
+    ? streamAddonId
+    : undefined
+  const requestedStreamAddons = effectiveStreamAddonId
+    ? streamAddons.filter((addon) => addon.id === effectiveStreamAddonId)
+    : streamAddons
   const progress = useQuery({
     queryKey: ["series-progress", profileId, item.type, item.id],
     refetchOnMount: "always",
@@ -107,9 +122,9 @@ export function MediaDetails({
       ).then((result) => result.items),
   })
   const streams = useQuery({
-    queryKey: ["streams", item.type, activeVideoId, addonIds],
+    queryKey: ["streams", item.type, activeVideoId, addonIds, effectiveStreamAddonId ?? "all"],
     enabled: item.type !== "series" || episodeMode,
-    queryFn: () => resolveStreams(addons, item.type, activeVideoId!),
+    queryFn: () => resolveStreams(requestedStreamAddons, item.type, activeVideoId!),
     staleTime: 5 * 60 * 1000,
   })
   useQuery({
@@ -118,6 +133,15 @@ export function MediaDetails({
     queryFn: () => resolveStreams(addons, item.type, nextEpisode!.id),
     staleTime: 5 * 60 * 1000,
   })
+
+  useEffect(() => {
+    if (streamAddonId && streamAddons.some((addon) => addon.id === streamAddonId)) return
+    const rememberedAddonId = readPreferences().lastStreamAddonId
+    const nextAddonId = rememberedAddonId && streamAddons.some((addon) => addon.id === rememberedAddonId)
+      ? rememberedAddonId
+      : undefined
+    if (streamAddonId !== nextAddonId) setStreamAddonId(nextAddonId)
+  }, [activeVideoId, streamAddonId, streamAddons])
 
   useEffect(() => {
     if (
@@ -189,6 +213,11 @@ export function MediaDetails({
   const browse = (target: MetadataBrowseTarget) => {
     onClose()
     onBrowse?.(target)
+  }
+
+  const selectStreamAddon = (addonId?: string) => {
+    setStreamAddonId(addonId)
+    writePreferences({ ...readPreferences(), lastStreamAddonId: addonId })
   }
 
   const autoplayNextEpisode = (allowAutoplay = true) => {
@@ -291,9 +320,16 @@ export function MediaDetails({
           ) : (
             <StreamRail
               streams={streams.data ?? []}
-              loading={streams.isLoading}
+              loading={streams.isFetching}
               error={streamResolutionError}
               videoTitle={selectedVideo?.title ?? meta.name}
+              addons={streamAddons}
+              selectedAddonId={streamAddonId}
+              onSelectAddon={selectStreamAddon}
+              onRefresh={() => {
+                setStreamResolutionError(undefined)
+                void streams.refetch()
+              }}
               onPlay={(stream) => {
                 setStreamResolutionError(undefined)
                 setPlaying(stream)
@@ -523,6 +559,10 @@ function StreamRail({
   loading,
   error,
   videoTitle,
+  addons,
+  selectedAddonId,
+  onSelectAddon,
+  onRefresh,
   onPlay,
   onBackToSeries,
 }: {
@@ -530,12 +570,16 @@ function StreamRail({
   loading: boolean
   error?: string
   videoTitle: string
+  addons: InstalledAddon[]
+  selectedAddonId?: string
+  onSelectAddon: (addonId?: string) => void
+  onRefresh: () => void
   onPlay: (stream: ResolvedStream) => void
   onBackToSeries?: () => void
 }) {
   return (
-    <aside className="min-h-0 overflow-y-auto rounded-2xl border border-white/10 bg-zinc-950/80 p-2 shadow-2xl shadow-black/40 backdrop-blur-xl">
-      <div className="sticky top-0 z-10 flex items-center gap-2 rounded-xl bg-zinc-950/95 px-2 py-2 backdrop-blur">
+    <aside className="min-h-0 overflow-y-auto rounded-2xl border border-white/10 bg-zinc-950/80 shadow-2xl shadow-black/40 backdrop-blur-xl">
+      <div className="sticky top-0 z-10 flex items-center gap-2 rounded-t-2xl border-b border-white/8 bg-zinc-950/95 px-4 py-4 backdrop-blur">
         {onBackToSeries && (
           <Button
             size="icon"
@@ -554,13 +598,46 @@ function StreamRail({
           <h2 className="mt-0.5 line-clamp-1 font-display text-lg font-semibold">{videoTitle}</h2>
         </div>
       </div>
+      <div className="flex gap-2 overflow-x-auto px-2 pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <Button
+          size="icon"
+          variant="secondary"
+          className="shrink-0 rounded-full"
+          aria-label="Refresh sources"
+          disabled={loading}
+          onClick={onRefresh}
+        >
+          <RefreshCw className={loading ? "animate-spin" : ""} size={16} />
+        </Button>
+        <Button
+          size="sm"
+          variant={selectedAddonId == null ? "default" : "secondary"}
+          className="shrink-0 rounded-full"
+          aria-pressed={selectedAddonId == null}
+          onClick={() => onSelectAddon(undefined)}
+        >
+          All
+        </Button>
+        {addons.map((addon) => (
+          <Button
+            key={addon.id}
+            size="sm"
+            variant={selectedAddonId === addon.id ? "default" : "secondary"}
+            className="shrink-0 rounded-full"
+            aria-pressed={selectedAddonId === addon.id}
+            onClick={() => onSelectAddon(addon.id)}
+          >
+            {addon.manifest.name}
+          </Button>
+        ))}
+      </div>
       {error && (
         <p role="alert" className="m-2 rounded-xl border border-amber-400/25 bg-amber-400/8 p-3 text-xs leading-5 text-amber-100">
           {error}
         </p>
       )}
       {loading && (
-        <p className="flex items-center gap-2 px-3 py-6 text-sm text-zinc-400">
+        <p className="flex items-center gap-2 bg-black/65 px-3 py-6 text-sm text-zinc-300">
           <LoaderCircle className="animate-spin" size={16} />
           Asking installed add-ons…
         </p>
@@ -570,7 +647,7 @@ function StreamRail({
           No installed add-on returned a stream. Metadata and navigation are still available.
         </div>
       )}
-      <div className="space-y-2">
+      <div className="space-y-2 px-2 pb-2">
         {streams.map((stream) => {
           const title = stream.name ?? stream.title ?? stream.addonName
           const description = stream.description ?? stream.title ?? `Provided by ${stream.addonName}`

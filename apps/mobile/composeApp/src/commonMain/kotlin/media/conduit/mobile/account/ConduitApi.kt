@@ -444,7 +444,7 @@ fun discoverCatalogs(addons: List<InstalledAddonSummary>): List<DiscoverCatalog>
 
 private data class SearchCatalogRequest(val addon: InstalledAddonSummary, val type: String, val id: String, val name: String)
 
-private fun InstalledAddonSummary.supportsResource(resource: String, type: String, id: String): Boolean {
+internal fun InstalledAddonSummary.supportsResource(resource: String, type: String, id: String): Boolean {
     val resources = manifest["resources"]?.jsonArray ?: return false
     return resources.any { entry ->
         val primitiveName = runCatching { entry.jsonPrimitive.contentOrNull }.getOrNull()

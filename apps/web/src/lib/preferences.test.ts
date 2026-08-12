@@ -55,4 +55,10 @@ describe("device preferences", () => {
       autoSelectSavedStreams: false,
     })
   })
+
+  it("restores the last selected stream addon", () => {
+    expect(readPreferences(storage(JSON.stringify({ lastStreamAddonId: "torrentio" })))).toMatchObject({
+      lastStreamAddonId: "torrentio",
+    })
+  })
 })

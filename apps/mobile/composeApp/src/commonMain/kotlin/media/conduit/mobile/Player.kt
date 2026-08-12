@@ -5,6 +5,9 @@ import androidx.compose.ui.Modifier
 import media.conduit.mobile.account.SubtitleItem
 
 @Composable
+expect fun PlayerOrientationLock(active: Boolean)
+
+@Composable
 expect fun NativePlayer(
     url: String?,
     active: Boolean,
