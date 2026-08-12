@@ -1,5 +1,6 @@
 package media.conduit.mobile
 
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.runtime.Composable
@@ -62,7 +63,8 @@ internal actual fun PlatformBottomNavigation(
         update = { tabBar ->
             tabBar.selectedItem = items.getOrNull(destinations.indexOf(selected))
         },
-        modifier = modifier.navigationBarsPadding().height(58.dp),
+        modifier = modifier.fillMaxWidth().navigationBarsPadding().height(58.dp),
+        interactive = true,
     )
 }
 
