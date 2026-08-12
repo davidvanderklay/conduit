@@ -18,6 +18,7 @@ import androidx.compose.material.icons.rounded.AccountCircle
 import androidx.compose.material.icons.rounded.VideoLibrary
 import androidx.compose.material.icons.rounded.Movie
 import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.BookmarkRemove
@@ -711,6 +712,7 @@ private fun AppShell(
                 (searchListState.firstVisibleItemIndex.toLong() shl 32) or searchListState.firstVisibleItemScrollOffset.toLong()
             }
             AppDestination.Library -> (libraryGridState.firstVisibleItemIndex.toLong() shl 32) or libraryGridState.firstVisibleItemScrollOffset.toLong()
+            AppDestination.Calendar -> 0L
             AppDestination.Profile -> (settingsListState.firstVisibleItemIndex.toLong() shl 32) or settingsListState.firstVisibleItemScrollOffset.toLong()
             AppDestination.History -> (historyGridState.firstVisibleItemIndex.toLong() shl 32) or historyGridState.firstVisibleItemScrollOffset.toLong()
         }
@@ -806,7 +808,8 @@ private fun AppShell(
                             Spacer(Modifier.height(16.dp))
                             AppDestination.entries.filter(AppDestination::showInNavigation).forEach { destination ->
                                 NavigationRailItem(
-                                    selected = state.destination == destination,
+                                    selected = state.destination == destination ||
+                                        (state.destination == AppDestination.Calendar && destination == AppDestination.Library),
                                     onClick = { dispatch(AppAction.Navigate(destination)) },
                                     icon = { Icon(destination.icon, destination.label) },
                                     label = { Text(destination.label) },
@@ -828,7 +831,8 @@ private fun AppShell(
                         )
                         if (selectedMedia == null &&
                             state.destination != AppDestination.Search &&
-                            state.destination != AppDestination.Profile
+                            state.destination != AppDestination.Profile &&
+                            state.destination != AppDestination.Calendar
                         ) {
                             IpadSearchAction(
                                 onClick = openSearch,
@@ -851,7 +855,7 @@ private fun AppShell(
                 )
             }
         }
-        if (!expanded && selectedMedia == null && !profileFlowActive) {
+        if (!expanded && selectedMedia == null && !profileFlowActive && state.destination != AppDestination.Calendar) {
             val classic = preferences.navigationStyle == NavigationStyle.Classic
             val compact = preferences.navigationStyle == NavigationStyle.Compact ||
                 (preferences.navigationStyle == NavigationStyle.Adaptive && adaptiveCompact)
@@ -975,8 +979,17 @@ private fun DestinationContent(
                 )
                 AppDestination.Library -> MobileLibraryScreen(
                     snapshot = profileSync.snapshot, api = api, onMutation = onProfileMutation,
+                    onOpenCalendar = { dispatch(AppAction.Navigate(AppDestination.Calendar)) },
                     onSelect = { onSelectMedia(it, null) }, onSelectVideo = onSelectMedia,
                     gridState = libraryGridState, modifier = tabModifier,
+                )
+                AppDestination.Calendar -> MobileCalendarScreen(
+                    snapshot = profileSync.snapshot,
+                    api = api,
+                    active = active,
+                    onBack = { dispatch(AppAction.Navigate(AppDestination.Library)) },
+                    onSelect = onSelectMedia,
+                    modifier = tabModifier,
                 )
                 AppDestination.Profile -> ProfileSettingsScreen(
                     state, platform, account, activeProfile, profileSync, api, dispatch, onSignOut,
@@ -1033,6 +1046,7 @@ private val AppDestination.icon: ImageVector
         AppDestination.Home -> Icons.Rounded.Home
         AppDestination.Search -> Icons.Rounded.Search
         AppDestination.Library -> Icons.Rounded.VideoLibrary
+        AppDestination.Calendar -> Icons.Rounded.CalendarMonth
         AppDestination.Profile -> Icons.Rounded.AccountCircle
         AppDestination.History -> Icons.Rounded.History
     }
