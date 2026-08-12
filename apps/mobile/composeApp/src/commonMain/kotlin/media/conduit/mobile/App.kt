@@ -702,7 +702,6 @@ private fun AppShell(
     var focusSearchOnOpen by remember(activeProfile?.id) { mutableStateOf(false) }
     var discoverSelection by remember(activeProfile?.id) { mutableStateOf(DiscoverSelection()) }
     var adaptiveCompact by remember { mutableStateOf(false) }
-    var isScrolling by remember { mutableStateOf(false) }
     var profileLaunchRequest by remember { mutableStateOf<ProfileLaunchRequest?>(null) }
     var profileLaunchSequence by remember { mutableIntStateOf(0) }
     fun openProfile(target: ProfileLaunchTarget) {
@@ -741,22 +740,6 @@ private fun AppShell(
                 else if (current < previous) adaptiveCompact = false
                 previous = current
             }
-    }
-    LaunchedEffect(state.destination, browseQuery) {
-        snapshotFlow {
-            when (state.destination) {
-                AppDestination.Home -> homeListState.isScrollInProgress
-                AppDestination.Search -> if (browseQuery.isBlank()) {
-                    discoverGridState.isScrollInProgress
-                } else {
-                    searchListState.isScrollInProgress
-                }
-                AppDestination.Library -> libraryGridState.isScrollInProgress
-                AppDestination.Profile -> settingsListState.isScrollInProgress
-                AppDestination.Calendar -> false
-                AppDestination.History -> historyGridState.isScrollInProgress
-            }
-        }.collect { isScrolling = it }
     }
     val selectMedia: (CatalogItem, String?) -> Unit = { item, videoId ->
         selectedMedia = item
@@ -922,7 +905,6 @@ private fun AppShell(
                 onOpenAddons = { openProfile(ProfileLaunchTarget.Addons) },
                 onOpenSettings = { openProfile(ProfileLaunchTarget.Settings) },
                 onSignOut = onSignOut,
-                scrolling = isScrolling,
                 modifier = Modifier.align(Alignment.TopCenter)
                     .then(if (expanded) Modifier.padding(start = 80.dp) else Modifier),
             )
@@ -1117,7 +1099,6 @@ private fun MainTopBar(
     onOpenAddons: () -> Unit,
     onOpenSettings: () -> Unit,
     onSignOut: () -> Unit,
-    scrolling: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val searchFocus = remember { FocusRequester() }
@@ -1134,9 +1115,10 @@ private fun MainTopBar(
             onSearchFocusConsumed()
         }
     }
-    val controlColor = if (scrolling) Color(0xB817171A) else Color(0xFF17171A)
-    val searchFocusedColor = if (scrolling) Color.Black.copy(alpha = .34f) else Color.Black
-    val searchUnfocusedColor = if (scrolling) Color.Black.copy(alpha = .28f) else Color.Black
+    // Keep the top controls subtly glassy, but stable while scrolling.
+    val controlColor = Color(0xE817171A)
+    val searchFocusedColor = Color.Black.copy(alpha = .88f)
+    val searchUnfocusedColor = Color.Black.copy(alpha = .82f)
     Row(
         modifier.statusBarsPadding().fillMaxWidth().padding(horizontal = 10.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
