@@ -60,6 +60,14 @@ private data class IosTrack(
     val selected: Boolean,
 )
 
+@Composable
+actual fun PlayerOrientationLock(active: Boolean) {
+    val bridge = remember(active) { if (active) IosPlayerBridgeFactory.create() else null }
+    DisposableEffect(bridge) {
+        onDispose { bridge?.destroy() }
+    }
+}
+
 @OptIn(ExperimentalForeignApi::class)
 @Composable
 actual fun NativePlayer(
