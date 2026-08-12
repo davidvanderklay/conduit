@@ -6,7 +6,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -28,6 +28,7 @@ import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Explore
+import androidx.compose.material.icons.rounded.Extension
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
@@ -43,8 +44,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -702,6 +702,13 @@ private fun AppShell(
     var focusSearchOnOpen by remember(activeProfile?.id) { mutableStateOf(false) }
     var discoverSelection by remember(activeProfile?.id) { mutableStateOf(DiscoverSelection()) }
     var adaptiveCompact by remember { mutableStateOf(false) }
+    var profileLaunchRequest by remember { mutableStateOf<ProfileLaunchRequest?>(null) }
+    var profileLaunchSequence by remember { mutableIntStateOf(0) }
+    fun openProfile(target: ProfileLaunchTarget) {
+        profileLaunchSequence += 1
+        profileLaunchRequest = ProfileLaunchRequest(target, profileLaunchSequence)
+        dispatch(AppAction.Navigate(AppDestination.Profile))
+    }
     LaunchedEffect(
         state.destination,
         browseQuery,
@@ -738,7 +745,12 @@ private fun AppShell(
         selectedMedia = item
         selectedVideoId = videoId
     }
-    BoxWithConstraints(Modifier.fillMaxSize()) {
+    val focusManager = LocalFocusManager.current
+    BoxWithConstraints(
+        Modifier.fillMaxSize().pointerInput(Unit) {
+            detectTapGestures { focusManager.clearFocus() }
+        },
+    ) {
         // A rotated phone can be wider than 720dp while still having very little
         // vertical room. Treat only genuinely large windows as the expanded
         // layout so rotation does not move the active screen to a new branch and
@@ -804,7 +816,8 @@ private fun AppShell(
         }
         val navigateMain: (AppDestination) -> Unit = { destination ->
             if (destination != AppDestination.Search) browseQuery = ""
-            dispatch(AppAction.Navigate(destination))
+            if (destination == AppDestination.Profile) openProfile(ProfileLaunchTarget.Settings)
+            else dispatch(AppAction.Navigate(destination))
         }
         LaunchedEffect(state.notice) {
             state.notice?.let {
@@ -843,6 +856,7 @@ private fun AppShell(
                             ::mutateProfile,
                             browseQuery, { browseQuery = it }, discoverSelection, { discoverSelection = it }, openBrowse,
                             preferences, onPreferencesChanged, homeListState, searchListState, discoverGridState, libraryGridState, historyGridState, settingsListState,
+                            profileLaunchRequest,
                             Modifier.fillMaxSize(),
                         )
                     }
@@ -856,16 +870,23 @@ private fun AppShell(
                     ::mutateProfile,
                     browseQuery, { browseQuery = it }, discoverSelection, { discoverSelection = it }, openBrowse,
                     preferences, onPreferencesChanged, homeListState, searchListState, discoverGridState, libraryGridState, historyGridState, settingsListState,
+                    profileLaunchRequest,
                     Modifier.padding(padding),
                 )
             }
         }
-        val mainChromeVisible = selectedMedia == null && state.destination in setOf(
+        val topChromeVisible = selectedMedia == null && state.destination in setOf(
             AppDestination.Home,
             AppDestination.Search,
             AppDestination.Library,
         )
-        if (mainChromeVisible) {
+        val bottomChromeVisible = selectedMedia == null && state.destination in setOf(
+            AppDestination.Home,
+            AppDestination.Search,
+            AppDestination.Library,
+            AppDestination.Profile,
+        )
+        if (topChromeVisible) {
             MainTopBar(
                 profiles = profiles,
                 activeProfile = activeProfile,
@@ -879,83 +900,28 @@ private fun AppShell(
                 requestSearchFocus = focusSearchOnOpen,
                 onSearchFocusConsumed = { focusSearchOnOpen = false },
                 onSelectProfile = { dispatch(AppAction.SelectProfile(it)) },
-                onOpenSettings = { dispatch(AppAction.Navigate(AppDestination.Profile)) },
+                onOpenHome = { navigateMain(AppDestination.Home) },
+                onAddProfile = { openProfile(ProfileLaunchTarget.Create) },
+                onOpenAddons = { openProfile(ProfileLaunchTarget.Addons) },
+                onOpenSettings = { openProfile(ProfileLaunchTarget.Settings) },
                 onSignOut = onSignOut,
                 modifier = Modifier.align(Alignment.TopCenter)
                     .then(if (expanded) Modifier.padding(start = 80.dp) else Modifier),
             )
         }
-        if (!expanded && mainChromeVisible && !profileFlowActive) {
+        if (!expanded && bottomChromeVisible && (!profileFlowActive || state.destination == AppDestination.Profile)) {
             val classic = preferences.navigationStyle == NavigationStyle.Classic
             val compact = preferences.navigationStyle == NavigationStyle.Compact ||
                 (preferences.navigationStyle == NavigationStyle.Adaptive && adaptiveCompact)
             val destinations = AppDestination.entries.filter(AppDestination::showInNavigation)
-            var scrubIndex by remember { mutableStateOf<Int?>(null) }
-            var scrubX by remember { mutableFloatStateOf(0f) }
-            var scrubStartX by remember { mutableFloatStateOf(0f) }
-            var scrubDeltaY by remember { mutableFloatStateOf(0f) }
-            var scrubCancelled by remember { mutableStateOf(false) }
-            val haptics = LocalHapticFeedback.current
-            Surface(
-                color = if (classic) MaterialTheme.colorScheme.surfaceContainer else Color(0xDD202023),
-                shape = if (classic) RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp) else RoundedCornerShape(32.dp),
-                border = if (classic) null else BorderStroke(1.dp, Color.White.copy(alpha = .12f)),
-                shadowElevation = if (classic) 4.dp else 14.dp,
-                modifier = Modifier.align(Alignment.BottomCenter)
-                    .then(if (classic) Modifier else Modifier.navigationBarsPadding())
-                    .then(if (classic) Modifier.fillMaxWidth() else if (compact) Modifier.padding(horizontal = 64.dp, vertical = 10.dp).fillMaxWidth() else Modifier.padding(horizontal = 14.dp, vertical = 10.dp).fillMaxWidth()),
-            ) {
-                Row(
-                    Modifier.fillMaxWidth()
-                        .then(if (classic) Modifier.navigationBarsPadding() else Modifier)
-                        .pointerInput(destinations) {
-                            detectDragGesturesAfterLongPress(
-                                onDragStart = { offset ->
-                                    scrubX = offset.x
-                                    scrubStartX = offset.x
-                                    scrubDeltaY = 0f
-                                    scrubCancelled = false
-                                    scrubIndex = ((offset.x / size.width) * destinations.size)
-                                        .toInt().coerceIn(destinations.indices)
-                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                },
-                                onDrag = { change, amount ->
-                                    change.consume()
-                                    scrubX += amount.x
-                                    scrubDeltaY += amount.y
-                                    if (kotlin.math.abs(scrubDeltaY) > 24.dp.toPx() &&
-                                        kotlin.math.abs(scrubDeltaY) > kotlin.math.abs(scrubX - scrubStartX)
-                                    ) {
-                                        scrubCancelled = true
-                                        scrubIndex = null
-                                    } else if (!scrubCancelled) {
-                                        scrubIndex = ((scrubX / size.width) * destinations.size)
-                                            .toInt().coerceIn(destinations.indices)
-                                    }
-                                },
-                                onDragEnd = {
-                                    if (!scrubCancelled) scrubIndex?.let { index ->
-                                        navigateMain(destinations[index])
-                                    }
-                                    scrubIndex = null
-                                },
-                                onDragCancel = { scrubIndex = null },
-                            )
-                        }
-                        .padding(horizontal = 8.dp, vertical = if (compact) 2.dp else 4.dp),
-                ) {
-                    destinations.forEachIndexed { index, destination ->
-                        MobileNavigationItem(
-                            destination = destination,
-                            selected = scrubIndex?.let { it == index } ?: (state.destination == destination),
-                            profile = activeProfile,
-                            onClick = { navigateMain(destination) },
-                            showLabel = !compact,
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-                }
-            }
+            PlatformBottomNavigation(
+                destinations = destinations,
+                selected = state.destination,
+                compact = compact,
+                classic = classic,
+                onSelect = navigateMain,
+                modifier = Modifier.align(Alignment.BottomCenter),
+            )
         }
     }
 }
@@ -1041,6 +1007,7 @@ private fun DestinationContent(
     libraryGridState: androidx.compose.foundation.lazy.grid.LazyGridState,
     historyGridState: androidx.compose.foundation.lazy.grid.LazyGridState,
     settingsListState: androidx.compose.foundation.lazy.LazyListState,
+    profileLaunchRequest: ProfileLaunchRequest?,
     modifier: Modifier = Modifier,
 ) {
     val homeCache = remember(activeProfile?.id) { HomeScreenCache() }
@@ -1085,7 +1052,8 @@ private fun DestinationContent(
                     state, platform, account, activeProfile, profileSync, api, dispatch, onSignOut,
                     onProfilesChanged, { if (active) onProfileFlowChanged(it) }, onProfileDataChanged,
                     onProfileMutation, onSelectMedia,
-                    preferences, onPreferencesChanged, settingsListState = settingsListState, modifier = tabModifier,
+                    preferences, onPreferencesChanged, settingsListState = settingsListState,
+                    launchRequest = profileLaunchRequest, modifier = tabModifier,
                 )
                 AppDestination.History -> MobileHistoryScreen(
                     snapshot = profileSync.snapshot, api = api, onMutation = onProfileMutation,
@@ -1126,6 +1094,9 @@ private fun MainTopBar(
     requestSearchFocus: Boolean,
     onSearchFocusConsumed: () -> Unit,
     onSelectProfile: (String) -> Unit,
+    onOpenHome: () -> Unit,
+    onAddProfile: () -> Unit,
+    onOpenAddons: () -> Unit,
     onOpenSettings: () -> Unit,
     onSignOut: () -> Unit,
     modifier: Modifier = Modifier,
@@ -1144,31 +1115,35 @@ private fun MainTopBar(
             onSearchFocusConsumed()
         }
     }
-    Surface(
-        color = Color(0xB817171A),
-        contentColor = Color.White,
-        shape = RoundedCornerShape(22.dp),
-        border = BorderStroke(1.dp, Color.White.copy(alpha = .14f)),
-        shadowElevation = 12.dp,
-        modifier = modifier.statusBarsPadding().padding(horizontal = 10.dp, vertical = 7.dp),
+    Row(
+        modifier.statusBarsPadding().fillMaxWidth().padding(horizontal = 10.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Row(
-            Modifier.fillMaxWidth().padding(6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            ConduitMark(Modifier.size(38.dp))
+            Surface(
+                onClick = onOpenHome,
+                color = Color(0xB817171A),
+                contentColor = Color.White,
+                shape = RoundedCornerShape(17.dp),
+                border = BorderStroke(1.dp, Color.White.copy(alpha = .14f)),
+                shadowElevation = 10.dp,
+                modifier = Modifier.size(52.dp),
+            ) {
+                Box(Modifier.padding(8.dp), contentAlignment = Alignment.Center) {
+                    ConduitMark(Modifier.fillMaxSize())
+                }
+            }
             OutlinedTextField(
                 value = query,
                 onValueChange = onQueryChange,
-                modifier = Modifier.weight(1f).height(46.dp).focusRequester(searchFocus),
+                modifier = Modifier.weight(1f).heightIn(min = 52.dp).focusRequester(searchFocus),
                 placeholder = { Text("Search Conduit", maxLines = 1) },
                 leadingIcon = { Icon(Icons.Rounded.Search, null, Modifier.size(20.dp)) },
                 trailingIcon = if (query.isNotBlank()) {{
                     IconButton(onClick = { onQueryChange("") }) { Icon(Icons.Rounded.Close, "Clear") }
                 }} else null,
                 singleLine = true,
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(18.dp),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedContainerColor = Color.Black.copy(alpha = .34f),
                     unfocusedContainerColor = Color.Black.copy(alpha = .28f),
@@ -1179,16 +1154,26 @@ private fun MainTopBar(
             Box {
                 Surface(
                     onClick = { profileMenuOpen = true },
-                    modifier = Modifier.size(38.dp),
-                    shape = androidx.compose.foundation.shape.CircleShape,
-                    color = activeProfile?.avatarColor?.let(::topProfileColor) ?: MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(52.dp),
+                    shape = RoundedCornerShape(17.dp),
+                    color = Color(0xB817171A),
                     contentColor = Color.White,
-                    border = BorderStroke(2.dp, Color.White.copy(alpha = .18f)),
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = .14f)),
+                    shadowElevation = 10.dp,
                 ) {
-                    if (!activeProfile?.avatarUrl.isNullOrBlank()) {
-                        AsyncImage(activeProfile.avatarUrl, activeProfile.name, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-                    } else Box(contentAlignment = Alignment.Center) {
-                        Text(activeProfile?.name?.take(1)?.uppercase() ?: "P", fontWeight = FontWeight.Bold)
+                    Box(contentAlignment = Alignment.Center) {
+                        Surface(
+                            modifier = Modifier.size(38.dp),
+                            shape = androidx.compose.foundation.shape.CircleShape,
+                            color = activeProfile?.avatarColor?.let(::topProfileColor) ?: MaterialTheme.colorScheme.primary,
+                            border = BorderStroke(2.dp, Color.White.copy(alpha = .18f)),
+                        ) {
+                            if (!activeProfile?.avatarUrl.isNullOrBlank()) {
+                                AsyncImage(activeProfile.avatarUrl, activeProfile.name, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                            } else Box(contentAlignment = Alignment.Center) {
+                                Text(activeProfile?.name?.take(1)?.uppercase() ?: "P", fontWeight = FontWeight.Bold)
+                            }
+                        }
                     }
                 }
                 DropdownMenu(
@@ -1236,7 +1221,12 @@ private fun MainTopBar(
                     DropdownMenuItem(
                         text = { Text("Add profile") },
                         leadingIcon = { Icon(Icons.Rounded.Add, null) },
-                        onClick = { profileMenuOpen = false; onOpenSettings() },
+                        onClick = { profileMenuOpen = false; onAddProfile() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Add-ons") },
+                        leadingIcon = { Icon(Icons.Rounded.Extension, null) },
+                        onClick = { profileMenuOpen = false; onOpenAddons() },
                     )
                     DropdownMenuItem(
                         text = { Text("Settings") },
@@ -1250,7 +1240,6 @@ private fun MainTopBar(
                     )
                 }
             }
-        }
     }
 }
 
@@ -1269,10 +1258,9 @@ private val AppDestination.icon: ImageVector
     }
 
 @Composable
-private fun RowScope.MobileNavigationItem(
+internal fun RowScope.MobileNavigationItem(
     destination: AppDestination,
     selected: Boolean,
-    profile: ProfileSummary?,
     onClick: () -> Unit,
     showLabel: Boolean,
     modifier: Modifier = Modifier,
@@ -1285,20 +1273,7 @@ private fun RowScope.MobileNavigationItem(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        if (destination == AppDestination.Profile) {
-            Surface(
-                color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                contentColor = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                shape = MaterialTheme.shapes.extraLarge,
-                modifier = Modifier.size(25.dp),
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Text(profile?.name?.take(1)?.uppercase() ?: "P", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
-                }
-            }
-        } else {
-            Icon(destination.icon, destination.label, tint = color, modifier = Modifier.size(24.dp))
-        }
+        Icon(destination.icon, destination.label, tint = color, modifier = Modifier.size(24.dp))
         if (showLabel) Text(destination.label, color = color, style = MaterialTheme.typography.labelMedium, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
     }
 }

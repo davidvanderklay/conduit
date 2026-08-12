@@ -40,6 +40,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.AnnotatedString
@@ -452,9 +453,13 @@ private fun RowScope.CompactFilterMenu(
     enabled: Boolean = true,
 ) {
     var expanded by remember { mutableStateOf(false) }
+    val focusManager = LocalFocusManager.current
     Box(modifier) {
         Surface(
-            modifier = Modifier.fillMaxWidth().clickable(enabled && options.isNotEmpty()) { expanded = true },
+            modifier = Modifier.fillMaxWidth().clickable(enabled && options.isNotEmpty()) {
+                focusManager.clearFocus()
+                expanded = true
+            },
             shape = RoundedCornerShape(18.dp),
             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .78f),
         ) {
@@ -1413,6 +1418,13 @@ private fun StreamSelectionScreen(
     }
 }
 
+internal enum class ProfileLaunchTarget { Settings, Addons, Create }
+
+internal data class ProfileLaunchRequest(
+    val target: ProfileLaunchTarget,
+    val sequence: Int,
+)
+
 @Composable
 internal fun ProfileSettingsScreen(
     state: AppState,
@@ -1431,9 +1443,17 @@ internal fun ProfileSettingsScreen(
     preferences: DevicePreferences,
     onPreferencesChanged: (DevicePreferences) -> Unit,
     settingsListState: androidx.compose.foundation.lazy.LazyListState = rememberLazyListState(),
+    launchRequest: ProfileLaunchRequest? = null,
     modifier: Modifier = Modifier,
 ) {
     var route by remember { mutableStateOf<ProfileRoute>(ProfileRoute.Settings) }
+    LaunchedEffect(launchRequest) {
+        route = when (launchRequest?.target) {
+            ProfileLaunchTarget.Addons -> ProfileRoute.Addons
+            ProfileLaunchTarget.Create -> ProfileRoute.Create
+            ProfileLaunchTarget.Settings, null -> ProfileRoute.Settings
+        }
+    }
     LaunchedEffect(route) { onProfileFlowChanged(route != ProfileRoute.Settings) }
     DisposableEffect(Unit) { onDispose { onProfileFlowChanged(false) } }
     PlatformBackHandler(enabled = route != ProfileRoute.Settings) {

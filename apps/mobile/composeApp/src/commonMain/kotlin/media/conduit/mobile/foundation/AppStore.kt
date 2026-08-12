@@ -9,7 +9,7 @@ enum class AppDestination(val label: String, val showInNavigation: Boolean = tru
     Search("Discover"),
     Library("Library"),
     Calendar("Calendar", showInNavigation = false),
-    Profile("Settings", showInNavigation = false),
+    Profile("Settings"),
     History("History", showInNavigation = false),
 }
 
