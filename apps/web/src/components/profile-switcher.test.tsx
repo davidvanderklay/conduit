@@ -91,6 +91,29 @@ describe("ProfileSwitcher", () => {
     expect(document.querySelector('[role="dialog"]')).toBeNull()
   })
 
+  it("collapses large profile lists until requested", () => {
+    const manyProfiles = [
+      ...profiles,
+      { id: "profile-four", name: "Taylor", isKids: false },
+      { id: "profile-five", name: "Friends", isKids: false },
+      { id: "profile-six", name: "Parents", isKids: false },
+    ]
+    act(() => {
+      root.render(
+        <ProfileSwitcher
+          profiles={manyProfiles}
+          activeProfile={manyProfiles[0]!}
+          onSelect={vi.fn()}
+        />,
+      )
+    })
+
+    click(button("Switch profile, current profile Alex"))
+    expect(document.querySelectorAll('[role="option"]')).toHaveLength(4)
+    click(button("Show 2 more profiles"))
+    expect(document.querySelectorAll('[role="option"]')).toHaveLength(6)
+  })
+
   function render(
     onSelect: (profileId: string) => void,
     onCreate?: (values: { name: string; isKids: boolean; copyAddons: boolean }) => Promise<void>,

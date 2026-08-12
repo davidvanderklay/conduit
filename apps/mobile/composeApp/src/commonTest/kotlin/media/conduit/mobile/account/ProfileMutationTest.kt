@@ -38,6 +38,34 @@ class ProfileMutationTest {
     }
 
     @Test
+    fun seriesMutationUpdatesEveryReleasedEpisode() {
+        val series = CatalogItem("show", "series", "Show")
+        val first = ProgressSummary(
+            videoId = "s1e1",
+            mediaType = "series",
+            mediaId = "show",
+            name = "Show",
+            positionMs = 10_000,
+            durationMs = 40_000,
+            watched = false,
+            updatedAt = "2026-01-01",
+        )
+        val base = snapshot.copy(progress = listOf(first), history = listOf(first), continueWatching = emptyList())
+        val videos = listOf(
+            VideoItem("s1e1", title = "One", season = 1, episode = 1),
+            VideoItem("s1e2", title = "Two", season = 1, episode = 2),
+        )
+
+        val updated = base.applyOptimistically(
+            ProfileMutation.SetSeriesWatched(series, videos, listOf(first), watched = true),
+        )
+
+        assertEquals(setOf("s1e1", "s1e2"), updated.progress.map { it.videoId }.toSet())
+        assertTrue(updated.progress.all { it.watched })
+        assertTrue(updated.history.all { it.watched })
+    }
+
+    @Test
     fun dismissKeepsHistoryAndRemovesContinueWatching() {
         val updated = snapshot.applyOptimistically(ProfileMutation.SetDismissed(progress, true))
 

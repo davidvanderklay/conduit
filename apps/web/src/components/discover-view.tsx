@@ -5,6 +5,7 @@ import type { InstalledAddon } from "../lib/api"
 import { loadCatalog, type CatalogItem } from "../lib/core"
 import { posterCoverClass, posterTitleClass } from "../lib/poster-layout"
 import { Card } from "./ui/card"
+import { BrowsePosterMenu } from "./browse-poster-menu"
 import { PosterWatchStatus } from "./poster-watch-status"
 import { VirtualPosterGrid } from "./virtual-poster-grid"
 
@@ -16,11 +17,13 @@ export interface DiscoverSelection {
 }
 
 export function DiscoverView({
+  profileId,
   addons,
   selection,
   onChange,
   onSelect,
 }: {
+  profileId: string
   addons: InstalledAddon[]
   selection: DiscoverSelection
   onChange: (selection: DiscoverSelection) => void
@@ -217,8 +220,18 @@ export function DiscoverView({
                         </div>
                       )}
                     </div>
-                    <p className={posterTitleClass}>{item.name}</p>
                   </button>
+                  <div className="mt-2 flex items-start gap-1">
+                    <button className="min-w-0 flex-1 text-left" onClick={() => onSelect(item)}>
+                      <p className={posterTitleClass}>{item.name}</p>
+                    </button>
+                    <BrowsePosterMenu
+                      profileId={profileId}
+                      item={item}
+                      addons={addons}
+                      onSelect={() => onSelect(item)}
+                    />
+                  </div>
                   <div className="pointer-events-none absolute right-2 top-2">
                     <PosterWatchStatus item={item} addons={addons} />
                   </div>

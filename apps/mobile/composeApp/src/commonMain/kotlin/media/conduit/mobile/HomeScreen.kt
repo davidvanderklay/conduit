@@ -27,7 +27,6 @@ internal class HomeScreenCache {
 
 @Composable
 internal fun HomeScreen(
-    profile: ProfileSummary?,
     sync: ProfileSyncState,
     api: ConduitApi,
     onSelect: (CatalogItem, String?) -> Unit,
@@ -65,27 +64,9 @@ internal fun HomeScreen(
     LazyColumn(
         state = listState,
         modifier = modifier.fillMaxSize().statusBarsPadding(),
-        contentPadding = PaddingValues(start = 10.dp, end = 10.dp, top = 14.dp, bottom = 112.dp),
+        contentPadding = PaddingValues(start = 10.dp, end = 10.dp, top = 82.dp, bottom = 112.dp),
         verticalArrangement = Arrangement.spacedBy(28.dp),
     ) {
-        item {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(
-                    "${profile?.name ?: "Your"} space",
-                    color = MaterialTheme.colorScheme.primary,
-                    style = MaterialTheme.typography.labelLarge,
-                )
-                Text(
-                    "What are we watching?",
-                    style = MaterialTheme.typography.headlineLarge,
-                    fontWeight = FontWeight.Bold,
-                )
-                Text(
-                    "Movies, series, and your synced watchlist in one place.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
         if (sync.offline) {
             item { StatusPill("Offline · showing saved activity", MaterialTheme.colorScheme.tertiary) }
         }
@@ -207,6 +188,7 @@ internal fun HomeScreen(
     MediaActionSheet(
         target = actionTarget,
         snapshot = sync.snapshot,
+        metadataCache = metadataCache,
         onDismiss = { actionTarget = null },
         onPlay = { target -> onSelect(target.item, target.video?.id ?: target.progress?.videoId) },
         onDetails = { onSelect(it, null) },

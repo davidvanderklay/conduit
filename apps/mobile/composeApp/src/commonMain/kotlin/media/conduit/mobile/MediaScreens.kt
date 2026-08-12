@@ -41,8 +41,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -108,6 +106,7 @@ internal fun MobileLibraryScreen(
     }
 
     Column(modifier.statusBarsPadding()) {
+        Spacer(Modifier.height(68.dp))
         Column(Modifier.padding(horizontal = 10.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Library", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
@@ -273,8 +272,6 @@ internal fun SearchDiscoverScreen(
     onSelect: (CatalogItem, String?) -> Unit,
     listState: androidx.compose.foundation.lazy.LazyListState = rememberLazyListState(),
     gridState: androidx.compose.foundation.lazy.grid.LazyGridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState(),
-    requestFocus: Boolean = false,
-    onFocusConsumed: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val catalogs = remember(addons) { discoverCatalogs(addons) }
@@ -303,15 +300,6 @@ internal fun SearchDiscoverScreen(
     var actionTarget by remember { mutableStateOf<MediaActionTarget?>(null) }
     val metadataCache = rememberWatchMetadataCache(api, addons)
     val windowWidth = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.width.toDp() }
-    val searchFocusRequester = remember { FocusRequester() }
-
-    LaunchedEffect(requestFocus) {
-        if (requestFocus) {
-            searchFocusRequester.requestFocus()
-            onFocusConsumed()
-        }
-    }
-
     LaunchedEffect(normalizedSelection) {
         if (selection != normalizedSelection) onSelectionChange(normalizedSelection)
     }
@@ -337,19 +325,7 @@ internal fun SearchDiscoverScreen(
     }
 
     Column(modifier.fillMaxSize().statusBarsPadding()) {
-        OutlinedTextField(
-            value = query,
-            onValueChange = onQueryChange,
-            modifier = Modifier
-                .fillMaxWidth()
-                .focusRequester(searchFocusRequester)
-                .padding(horizontal = 10.dp, vertical = 8.dp),
-            placeholder = { Text("Search") },
-            leadingIcon = { Icon(Icons.Rounded.Search, null) },
-            trailingIcon = if (query.isNotBlank()) {{ IconButton(onClick = { onQueryChange("") }) { Icon(Icons.Rounded.Close, "Clear") } }} else null,
-            singleLine = true,
-            shape = RoundedCornerShape(22.dp),
-        )
+        Spacer(Modifier.height(68.dp))
         if (query.isBlank()) {
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp),
@@ -461,6 +437,7 @@ internal fun SearchDiscoverScreen(
     }
     MediaActionSheet(
         target = actionTarget, snapshot = snapshot, onDismiss = { actionTarget = null },
+        metadataCache = metadataCache,
         onPlay = { onSelect(it.item, null) }, onDetails = { onSelect(it, null) }, onMutation = onMutation,
     )
 }
