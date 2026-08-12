@@ -678,7 +678,7 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
             val library = async { get("/v1/profiles/$profileId/library") }
             val progress = async { get("/v1/profiles/$profileId/progress?view=status&limit=1000") }
             val history = async { get("/v1/profiles/$profileId/progress?view=history&limit=1000") }
-            val continueWatching = async { get("/v1/profiles/$profileId/progress?view=continue&limit=14") }
+            val continueWatching = async { get("/v1/profiles/$profileId/progress?view=continue&limit=50") }
             val responses = listOf(addons.await(), library.await(), progress.await(), history.await(), continueWatching.await())
             responses.firstOrNull { !it.status.isSuccess() }?.let { response ->
                 throw ServerRequestException(
