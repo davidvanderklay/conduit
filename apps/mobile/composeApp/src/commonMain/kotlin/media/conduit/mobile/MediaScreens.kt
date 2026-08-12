@@ -51,6 +51,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Velocity
 import coil3.compose.AsyncImage
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.contentOrNull
@@ -79,28 +80,55 @@ internal fun MobileLibraryScreen(
     modifier: Modifier = Modifier,
 ) {
     var filter by remember { mutableStateOf("all") }
-    var sortNewest by remember { mutableStateOf(true) }
+    var sort by remember { mutableStateOf(LibrarySort.LastWatched) }
     var actionTarget by remember { mutableStateOf<MediaActionTarget?>(null) }
     val metadataCache = rememberWatchMetadataCache(api, snapshot?.addons.orEmpty())
-    val items = snapshot?.library.orEmpty()
-        .filter { filter == "all" || it.type == filter }
-        .let { if (sortNewest) it.sortedByDescending(LibraryItemSummary::updatedAt) else it.sortedBy(LibraryItemSummary::name) }
+    val filteredItems = snapshot?.library.orEmpty().filter { filter == "all" || it.type == filter }
+    val statusSort = sort == LibrarySort.Watched || sort == LibrarySort.NotWatched
+    val statusKey = if (statusSort) {
+        filteredItems.joinToString(prefix = sort.name, separator = "|") { "${it.type}:${it.id}:${it.updatedAt}" }
+    } else {
+        null
+    }
+    var preparedStatusKey by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(statusKey, metadataCache) {
+        if (statusKey == null) {
+            preparedStatusKey = null
+            return@LaunchedEffect
+        }
+        coroutineScope {
+            filteredItems.forEach { item -> launch { metadataCache.load(item.asCatalogItem()) } }
+        }
+        preparedStatusKey = statusKey
+    }
+    val loadingStatus = statusKey != null && preparedStatusKey != statusKey
+    val items = orderLibraryItems(filteredItems, snapshot?.progress.orEmpty(), sort) { item ->
+        completionEpisodeIds(metadataCache.videosFor(item.asCatalogItem()))
+    }
 
     Column(modifier.statusBarsPadding()) {
-        Column(Modifier.padding(horizontal = 10.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.padding(horizontal = 10.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Text("Library", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
-            Text("Your saved movies and series", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("all" to "All", "movie" to "Movies", "series" to "Series").forEach { (value, label) ->
-                    FilterChip(selected = filter == value, onClick = { filter = value }, label = { Text(label) })
-                }
-                Spacer(Modifier.weight(1f))
-                IconButton(onClick = { sortNewest = !sortNewest }) {
-                    Icon(if (sortNewest) Icons.Rounded.Schedule else Icons.Rounded.SortByAlpha, "Change sort")
-                }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                CompactFilterMenu(
+                    value = when (filter) { "movie" -> "Movies"; "series" -> "Series"; else -> "All types" },
+                    options = listOf("all" to "All types", "movie" to "Movies", "series" to "Series"),
+                    selectedKey = filter,
+                    onSelect = { filter = it },
+                    modifier = Modifier.weight(.9f),
+                )
+                CompactFilterMenu(
+                    value = sort.label,
+                    options = LibrarySort.entries.map { it.name to it.label },
+                    selectedKey = sort.name,
+                    onSelect = { selected -> LibrarySort.entries.firstOrNull { it.name == selected }?.let { sort = it } },
+                    modifier = Modifier.weight(1.35f),
+                )
             }
         }
         if (snapshot == null) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+        } else if (loadingStatus) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         } else if (items.isEmpty()) {
             Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
@@ -435,6 +463,7 @@ internal fun SearchDiscoverScreen(
 private fun RowScope.CompactFilterMenu(
     value: String,
     options: List<Pair<String, String>>,
+    selectedKey: String? = null,
     onSelect: (String) -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
@@ -456,6 +485,7 @@ private fun RowScope.CompactFilterMenu(
                 DropdownMenuItem(
                     text = { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                     onClick = { expanded = false; onSelect(key) },
+                    trailingIcon = if (key == selectedKey) {{ Icon(Icons.Rounded.Check, null, Modifier.size(18.dp)) }} else null,
                 )
             }
         }
