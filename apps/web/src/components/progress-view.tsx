@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   Check,
@@ -10,9 +10,17 @@ import {
   Play,
   Trash2,
 } from "lucide-react"
-import { api, type WatchProgress } from "../lib/api"
-import type { CatalogItem } from "../lib/core"
+import { api, type InstalledAddon, type WatchProgress } from "../lib/api"
+import { addonsForResource } from "../lib/addons"
+import {
+  continueWatchingState,
+  groupContinueWatching,
+  remainingTimeLabel,
+  type ContinueWatchingState,
+} from "../lib/continue-watching"
+import { loadMeta, type CatalogItem, type MetaItem } from "../lib/core"
 import { useLibrary, useLibraryToggle } from "../lib/library"
+import { normalizeMetaItem } from "../lib/metadata"
 import { posterCoverClass, posterTitleSlotClass } from "../lib/poster-layout"
 import { Card } from "./ui/card"
 import { PaginationControls } from "./pagination-controls"
@@ -36,50 +44,23 @@ export function useProgressList(profileId: string, view: "continue" | "history",
 
 export function ContinueWatching({
   items,
+  addons,
   profileId,
   onSelect,
   onSeeMore,
 }: {
   items: WatchProgress[]
+  addons: InstalledAddon[]
   profileId: string
-  onSelect: (item: CatalogItem, videoId: string, progress: WatchProgress) => void
+  onSelect: (item: CatalogItem, videoId?: string, progress?: WatchProgress) => void
   onSeeMore: () => void
 }) {
-  const ref = useRef<HTMLDivElement>(null)
-  const [columns, setColumns] = useState(6)
-  useEffect(() => {
-    const el = ref.current
-    if (!el) return
-    const update = () => {
-      const w = el.clientWidth
-      let c = 2
-      if (w >= 2000) c = 10
-      else if (w >= 1700) c = 9
-      else if (w >= 1400) c = 8
-      else if (w >= 1200) c = 7
-      else if (w >= 1000) c = 6
-      else if (w >= 768) c = 5
-      else if (w >= 640) c = 4
-      else if (w >= 480) c = 3
-      else c = 2
-      setColumns(c)
-    }
-    update()
-    const ro = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(update)
-    if (el) ro?.observe(el)
-    window.addEventListener("resize", update)
-    return () => {
-      ro?.disconnect()
-      window.removeEventListener("resize", update)
-    }
-  }, [])
-  const visible = items.slice(0, columns)
-  const hasMore = items.length > columns
+  const grouped = useMemo(() => groupContinueWatching(items).slice(0, 14), [items])
   return (
-    <section ref={ref}>
+    <section>
       <div className="mb-4 flex items-center justify-between gap-4">
         <h2 className="font-display text-xl font-semibold">Continue Watching</h2>
-        {hasMore && (
+        {grouped.length > 4 && (
           <button
             className="text-xs font-semibold text-zinc-500 transition hover:text-amber-300"
             onClick={onSeeMore}
@@ -88,12 +69,125 @@ export function ContinueWatching({
           </button>
         )}
       </div>
-      <div className="grid gap-x-3 gap-y-6" style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>
-        {visible.map((item) => (
-          <ProgressCard item={item} profileId={profileId} onSelect={onSelect} key={item.videoId} />
+      <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        {grouped.map((item) => (
+          <ContinueWatchingCard
+            item={item}
+            addons={addons}
+            profileId={profileId}
+            onSelect={onSelect}
+            key={item.mediaType === "series" ? `${item.mediaType}:${item.mediaId}` : item.videoId}
+          />
         ))}
       </div>
     </section>
+  )
+}
+
+function ContinueWatchingCard({
+  item,
+  addons,
+  profileId,
+  onSelect,
+}: {
+  item: WatchProgress
+  addons: InstalledAddon[]
+  profileId: string
+  onSelect: (item: CatalogItem, videoId?: string, progress?: WatchProgress) => void
+}) {
+  const fallback = toCatalogItem(item)
+  const metadata = useQuery({
+    queryKey: ["meta", item.mediaType, item.mediaId, addons.map((addon) => addon.id)],
+    queryFn: () => resolveContinueMetadata(addons, fallback),
+    staleTime: 5 * 60 * 1000,
+  })
+  const meta = metadata.data ?? fallback
+  const state = continueWatchingState(item, metadata.data?.videos ?? [])
+  const loadingSeriesState =
+    item.mediaType === "series" && item.watched && !metadata.data?.videos?.length
+  const targetVideoId =
+    state.kind === "in-progress"
+      ? item.videoId
+      : state.kind === "new-episode"
+        ? state.video.id
+        : undefined
+  const selectedProgress = state.kind === "in-progress" ? item : undefined
+  const catalogItem: CatalogItem = {
+    id: item.mediaId,
+    type: item.mediaType,
+    name: item.name,
+    poster: meta.poster ?? item.poster,
+    background: meta.background,
+  }
+  const open = () => onSelect(catalogItem, targetVideoId, selectedProgress)
+  const badge = loadingSeriesState ? undefined : continueWatchingBadge(item, state)
+  const season = state.video?.season ?? item.season
+  const episode = state.video?.episode ?? item.episode
+  const episodeTitle =
+    state.video?.title ?? item.videoTitle ?? (item.mediaType === "series" ? undefined : "Movie")
+  const percent =
+    state.kind === "in-progress" && item.durationMs > 0
+      ? Math.min(100, (item.positionMs / item.durationMs) * 100)
+      : 0
+
+  return (
+    <article className="group relative w-[300px] shrink-0 snap-start">
+      <button
+        type="button"
+        className="relative block aspect-video w-full overflow-hidden rounded-2xl border border-white/10 bg-zinc-900 text-left shadow-lg shadow-black/20 outline-none transition duration-200 hover:border-white/25 focus-visible:ring-2 focus-visible:ring-amber-300"
+        aria-label={continueWatchingAriaLabel(item, state)}
+        onClick={open}
+      >
+        <PreviewImage
+          sources={[
+            { src: state.video?.thumbnail, fit: "cover" },
+            { src: catalogItem.background, fit: "cover" },
+            { src: catalogItem.poster, fit: "contain" },
+          ]}
+          alt=""
+        />
+        <span className="absolute inset-0 bg-gradient-to-t from-black via-black/15 to-transparent" />
+        {badge && (
+          <span
+            className={`absolute right-2.5 top-2.5 rounded-md px-2.5 py-1.5 text-[11px] font-bold tracking-wide text-white shadow-lg backdrop-blur-md ${
+              state.kind === "new-episode" ? "bg-blue-600" : "bg-zinc-950/80"
+            }`}
+          >
+            {badge}
+          </span>
+        )}
+        <span className="absolute bottom-3 left-3 right-11">
+          {item.mediaType === "series" && season != null && episode != null && (
+            <span className="mb-0.5 block text-[11px] font-bold uppercase tracking-[0.08em] text-zinc-100">
+              S{season} E{episode}
+            </span>
+          )}
+          <span className="block truncate font-display text-base font-semibold text-white">
+            {item.name}
+          </span>
+          {episodeTitle && (
+            <span className="mt-0.5 block truncate text-xs font-medium text-zinc-300">
+              {episodeTitle}
+            </span>
+          )}
+        </span>
+        {percent > 0 && (
+          <span className="absolute inset-x-0 bottom-0 h-1 bg-white/20">
+            <span className="block h-full bg-amber-400" style={{ width: `${percent}%` }} />
+          </span>
+        )}
+      </button>
+      <div className="absolute bottom-2 right-2 z-10 rounded-lg bg-black/55 opacity-70 backdrop-blur-sm transition group-hover:opacity-100 group-focus-within:opacity-100">
+        <ProgressMenu
+          item={item}
+          profileId={profileId}
+          onOpen={open}
+          history={false}
+          playable={state.kind === "in-progress" || state.kind === "new-episode"}
+          showWatchAction={state.kind !== "new-episode" && state.kind !== "scheduled"}
+        />
+      </div>
+    </article>
   )
 }
 
@@ -228,11 +322,15 @@ function ProgressMenu({
   profileId,
   onOpen,
   history,
+  playable = true,
+  showWatchAction = true,
 }: {
   item: WatchProgress
   profileId: string
   onOpen: () => void
   history: boolean
+  playable?: boolean
+  showWatchAction?: boolean
 }) {
   const queryClient = useQueryClient()
   const library = useLibrary(profileId)
@@ -256,16 +354,30 @@ function ProgressMenu({
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["progress", profileId] }),
   })
   const actions: PosterAction[] = [
-    { label: item.positionMs > 0 && !item.watched ? "Resume" : "Play", icon: <Play size={16} />, onSelect: onOpen },
+    ...(playable
+      ? [
+          {
+            label: item.positionMs > 0 && !item.watched ? "Resume" : "Play",
+            icon: <Play size={16} />,
+            onSelect: onOpen,
+          },
+        ]
+      : []),
     { label: "Details", icon: <Info size={16} />, onSelect: onOpen },
-    {
-      label: item.watched
-        ? "Mark unwatched"
-        : item.mediaType === "series" ? "Mark episode watched" : "Mark watched",
-      icon: <Check size={16} />,
-      onSelect: () => patch.mutate({ watched: !item.watched }),
-      disabled: patch.isPending,
-    },
+    ...(showWatchAction
+      ? [
+          {
+            label: item.watched
+              ? "Mark unwatched"
+              : item.mediaType === "series"
+                ? "Mark episode watched"
+                : "Mark watched",
+            icon: <Check size={16} />,
+            onSelect: () => patch.mutate({ watched: !item.watched }),
+            disabled: patch.isPending,
+          },
+        ]
+      : []),
   ]
   if (history) {
     if (saved) {
@@ -324,6 +436,87 @@ function HistorySelect({
 
 function toCatalogItem(item: WatchProgress): CatalogItem {
   return { id: item.mediaId, type: item.mediaType, name: item.name, poster: item.poster }
+}
+
+function continueWatchingBadge(
+  item: WatchProgress,
+  state: ContinueWatchingState,
+): string | undefined {
+  if (state.kind === "new-episode") return "New Episode"
+  if (state.kind === "scheduled") return state.label
+  if (state.kind === "caught-up") return "Caught up"
+  return remainingTimeLabel(item)
+}
+
+function continueWatchingAriaLabel(item: WatchProgress, state: ContinueWatchingState): string {
+  if (state.kind === "new-episode") return `Play the new episode of ${item.name}`
+  if (state.kind === "scheduled") return `View ${item.name}, next episode ${state.label}`
+  if (state.kind === "caught-up") return `View ${item.name}, caught up`
+  return `Resume ${item.name}`
+}
+
+function PreviewImage({
+  sources,
+  alt,
+}: {
+  sources: Array<{ src?: string; fit: "cover" | "contain" }>
+  alt: string
+}) {
+  const [failed, setFailed] = useState<string[]>([])
+  const source = sources.find(
+    (candidate): candidate is { src: string; fit: "cover" | "contain" } =>
+      Boolean(candidate.src && !failed.includes(candidate.src)),
+  )
+  if (!source)
+    return (
+      <span className="grid h-full place-items-center text-zinc-700">
+        <Film />
+      </span>
+    )
+  if (source.fit === "contain") {
+    return (
+      <span className="relative block h-full w-full overflow-hidden bg-black">
+        <img
+          className="absolute inset-0 h-full w-full scale-110 object-cover opacity-40 blur-xl"
+          src={source.src}
+          alt=""
+          aria-hidden="true"
+        />
+        <img
+          className="relative h-full w-full object-contain"
+          src={source.src}
+          alt={alt}
+          loading="lazy"
+          referrerPolicy="no-referrer"
+          onError={() => setFailed((current) => [...current, source.src])}
+        />
+      </span>
+    )
+  }
+  return (
+    <img
+      className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.02]"
+      src={source.src}
+      alt={alt}
+      loading="lazy"
+      referrerPolicy="no-referrer"
+      onError={() => setFailed((current) => [...current, source.src])}
+    />
+  )
+}
+
+async function resolveContinueMetadata(
+  addons: InstalledAddon[],
+  item: CatalogItem,
+): Promise<MetaItem> {
+  const candidates = addonsForResource(addons, "meta", item.type, item.id)
+  const results = await Promise.allSettled(
+    candidates.map((addon) => loadMeta(addon.manifestUrl, item.type, item.id)),
+  )
+  const match = results.find(
+    (result): result is PromiseFulfilledResult<MetaItem> => result.status === "fulfilled",
+  )
+  return normalizeMetaItem(match?.value, item)
 }
 
 function episodeLabel(item: WatchProgress) {

@@ -59,7 +59,7 @@ internal fun HomeScreen(
     }
     LaunchedEffect(sync.snapshot?.profileId, sync.snapshot?.addons) { load() }
 
-    val continueWatching = sync.snapshot?.continueWatching.orEmpty()
+    val continueWatching = groupContinueWatching(sync.snapshot?.continueWatching.orEmpty()).take(14)
     val library = sync.snapshot?.library.orEmpty().sortedByDescending { it.updatedAt }.take(14)
 
     LazyColumn(
@@ -95,11 +95,37 @@ internal fun HomeScreen(
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     items(continueWatching, key = { it.videoId }) { item ->
                         val catalogItem = CatalogItem(item.mediaId, item.mediaType, item.name, poster = item.poster)
-                        RichProgressCard(
+                        LaunchedEffect(catalogItem.type, catalogItem.id) {
+                            metadataCache.load(catalogItem, includeMovies = true)
+                        }
+                        val metadata = metadataCache.metadataFor(catalogItem)
+                        val presentation = continueWatchingPresentation(item, metadata?.videos.orEmpty())
+                        val displayItem = catalogItem.copy(
+                            poster = metadata?.poster ?: catalogItem.poster,
+                            background = metadata?.background,
+                        )
+                        val targetVideoId = when (presentation.kind) {
+                            ContinueWatchingKind.InProgress -> item.videoId
+                            ContinueWatchingKind.NewEpisode -> presentation.video?.id
+                            ContinueWatchingKind.Scheduled, ContinueWatchingKind.CaughtUp -> null
+                        }
+                        ContinueWatchingCard(
                             progress = item,
-                            onClick = { onSelect(catalogItem, item.videoId) },
-                            onActions = { actionTarget = MediaActionTarget(catalogItem, MediaActionContext.Continue, item) },
-                            modifier = Modifier.width(210.dp),
+                            item = displayItem,
+                            metadata = metadata,
+                            metadataReady = item.mediaType != "series" || metadata != null,
+                            onClick = { onSelect(displayItem, targetVideoId) },
+                            onActions = {
+                                actionTarget = MediaActionTarget(
+                                    displayItem,
+                                    MediaActionContext.Continue,
+                                    item,
+                                    presentation.video,
+                                    presentation.kind == ContinueWatchingKind.InProgress ||
+                                        presentation.kind == ContinueWatchingKind.NewEpisode,
+                                )
+                            },
+                            modifier = Modifier.width(220.dp),
                         )
                     }
                 }
@@ -182,7 +208,7 @@ internal fun HomeScreen(
         target = actionTarget,
         snapshot = sync.snapshot,
         onDismiss = { actionTarget = null },
-        onPlay = { target -> onSelect(target.item, target.progress?.videoId) },
+        onPlay = { target -> onSelect(target.item, target.video?.id ?: target.progress?.videoId) },
         onDetails = { onSelect(it, null) },
         onMutation = onMutation,
     )
