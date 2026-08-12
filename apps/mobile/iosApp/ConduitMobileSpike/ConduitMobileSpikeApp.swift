@@ -151,15 +151,22 @@ final class ConduitOrientationCoordinator {
 struct ConduitMobileSpikeApp: App {
     @UIApplicationDelegateAdaptor(ConduitAppDelegate.self) private var appDelegate
     @StateObject private var systemChrome = ConduitSystemChromeCoordinator.shared
+    @StateObject private var bottomNavigation = ConduitBottomNavigationCoordinator.shared
 
     init() {
         ConduitPlayerRegistration.register()
         ConduitPlatformRegistration.register()
+        IosBottomNavigationBridgeFactory.shared.register(
+            bridge: ConduitBottomNavigationCoordinator.shared
+        )
     }
 
     var body: some Scene {
         WindowGroup {
-            ConduitRootView(systemChrome: systemChrome)
+            ConduitRootView(
+                systemChrome: systemChrome,
+                bottomNavigation: bottomNavigation
+            )
             .preferredColorScheme(.dark)
             .onOpenURL { IosOAuthCallbacks.shared.capture(url: $0.absoluteString) }
         }
@@ -168,14 +175,112 @@ struct ConduitMobileSpikeApp: App {
 
 private struct ConduitRootView: View {
     @ObservedObject var systemChrome: ConduitSystemChromeCoordinator
+    @ObservedObject var bottomNavigation: ConduitBottomNavigationCoordinator
 
     var body: some View {
-        ZStack {
-            Color.black.ignoresSafeArea()
-            ComposeView().ignoresSafeArea()
+        GeometryReader { geometry in
+            ZStack(alignment: .bottom) {
+                Color.black.ignoresSafeArea()
+                ComposeView().ignoresSafeArea()
+
+                if bottomNavigation.visible {
+                    ConduitBottomTabBar(coordinator: bottomNavigation)
+                        .frame(height: 58)
+                        .padding(.bottom, geometry.safeAreaInsets.bottom)
+                }
+            }
+            .ignoresSafeArea()
         }
         .statusBarHidden(systemChrome.immersivePlayback)
         .modifier(ConduitPersistentSystemOverlaysModifier(hidden: systemChrome.immersivePlayback))
+    }
+}
+
+final class ConduitBottomNavigationCoordinator: NSObject, ObservableObject, IosBottomNavigationBridge {
+    static let shared = ConduitBottomNavigationCoordinator()
+
+    @Published private(set) var visible = false
+    @Published private(set) var selectedIndex: Int = 0
+    @Published private(set) var labels: [String] = []
+    private var selectionHandler: IosBottomNavigationSelectionHandler?
+
+    private override init() {}
+
+    func update(
+        visible: Bool,
+        selectedIndex: Int32,
+        labels: [String],
+        selectionHandler: IosBottomNavigationSelectionHandler?
+    ) {
+        let apply = { [weak self] in
+            guard let self else { return }
+            self.visible = visible
+            self.selectedIndex = Int(selectedIndex)
+            self.labels = labels
+            self.selectionHandler = selectionHandler
+        }
+        if Thread.isMainThread { apply() } else { DispatchQueue.main.async(execute: apply) }
+    }
+
+    fileprivate func select(_ index: Int) {
+        selectionHandler?.select(index: Int32(index))
+    }
+}
+
+private struct ConduitBottomTabBar: UIViewRepresentable {
+    @ObservedObject var coordinator: ConduitBottomNavigationCoordinator
+
+    func makeCoordinator() -> Delegate {
+        Delegate(owner: coordinator)
+    }
+
+    func makeUIView(context: Context) -> UITabBar {
+        let tabBar = UITabBar()
+        tabBar.delegate = context.coordinator
+        tabBar.tintColor = UIColor(red: 0.98, green: 0.75, blue: 0.14, alpha: 1)
+        tabBar.unselectedItemTintColor = UIColor.white.withAlphaComponent(0.55)
+        tabBar.backgroundColor = .clear
+        tabBar.isOpaque = false
+        return tabBar
+    }
+
+    func updateUIView(_ tabBar: UITabBar, context: Context) {
+        context.coordinator.owner = coordinator
+        if tabBar.items?.map(\.title) != coordinator.labels.map(Optional.some) {
+            let items = coordinator.labels.enumerated().map { index, label in
+                UITabBarItem(
+                    title: label,
+                    image: UIImage(systemName: systemImageName(for: label)),
+                    tag: index
+                )
+            }
+            tabBar.setItems(items, animated: false)
+        }
+        tabBar.selectedItem = tabBar.items?.first {
+            $0.tag == coordinator.selectedIndex
+        }
+    }
+
+    private func systemImageName(for label: String) -> String {
+        switch label {
+        case "Home": "house"
+        case "Discover": "safari"
+        case "Library": "rectangle.stack"
+        case "Settings": "gearshape"
+        default: "circle"
+        }
+    }
+
+    final class Delegate: NSObject, UITabBarDelegate {
+        var owner: ConduitBottomNavigationCoordinator
+
+        init(owner: ConduitBottomNavigationCoordinator) {
+            self.owner = owner
+        }
+
+        func tabBar(_ tabBar: UITabBar, didSelect item: UITabBarItem) {
+            owner.select(item.tag)
+        }
     }
 }
 
