@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -28,6 +29,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
@@ -37,6 +39,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import media.conduit.mobile.foundation.*
@@ -46,6 +49,7 @@ import media.conduit.mobile.account.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlin.math.abs
 
 @Composable
 fun App() {
@@ -755,7 +759,12 @@ private fun AppShell(
             }
             result.exceptionOrNull()?.let { snackbarHostState.showSnackbar(it.message ?: "Unable to update this title") }
             if (result.isSuccess && mutation is ProfileMutation.SetLibrary && !mutation.saved) {
-                if (snackbarHostState.showSnackbar("Removed from library", "Undo") == SnackbarResult.ActionPerformed) {
+                if (snackbarHostState.showSnackbar(
+                        message = "Removed from library",
+                        actionLabel = "Undo",
+                        duration = SnackbarDuration.Short,
+                    ) == SnackbarResult.ActionPerformed
+                ) {
                     mutateProfile(mutation.copy(saved = true))
                 }
             }
@@ -888,8 +897,26 @@ private fun AppShell(
 @Composable
 private fun ConduitSnackbar(data: SnackbarData) {
     val removed = data.visuals.message == "Removed from library"
+    var dragOffset by remember(data) { mutableFloatStateOf(0f) }
     Surface(
-        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+        modifier = Modifier
+            .padding(horizontal = 12.dp, vertical = 8.dp)
+            .graphicsLayer {
+                translationX = dragOffset
+                alpha = 1f - (abs(dragOffset) / (size.width.coerceAtLeast(1f) * .9f)).coerceIn(0f, .7f)
+            }
+            .pointerInput(data) {
+                detectHorizontalDragGestures(
+                    onHorizontalDrag = { change, amount ->
+                        change.consume()
+                        dragOffset += amount
+                    },
+                    onDragEnd = {
+                        if (abs(dragOffset) >= size.width * .25f) data.dismiss() else dragOffset = 0f
+                    },
+                    onDragCancel = { dragOffset = 0f },
+                )
+            },
         color = Color(0xFF151518),
         contentColor = Color.White,
         shape = RoundedCornerShape(14.dp),
@@ -1015,6 +1042,7 @@ private fun DestinationContent(
                 baseUrl = state.endpoint!!.baseUrl,
                 token = account.session.token,
                 preferences = preferences,
+                onPreferencesChanged = onPreferencesChanged,
                 onProgressChanged = onProfileDataChanged,
                 onMutation = onProfileMutation,
                 onBrowse = onBrowse,
