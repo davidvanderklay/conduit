@@ -56,6 +56,12 @@ private data class IosTrack(
     val id: Int,
     val label: String,
     val language: String,
+    val localizedLanguage: String = "",
+    val codec: String = "",
+    val channels: String = "",
+    val channelCount: Int = 0,
+    val sampleRate: Int = 0,
+    val bitrate: Long = 0,
     val external: Boolean = false,
     val selected: Boolean,
 )
@@ -131,6 +137,7 @@ actual fun NativePlayer(
     var showRemainingTime by remember(bridge) { mutableStateOf(false) }
     var trackPanel by remember(bridge) { mutableStateOf<Int?>(null) }
     var speedMenuOpen by remember(bridge) { mutableStateOf(false) }
+    var playbackReady by remember(bridge) { mutableStateOf(false) }
     var audioTracks by remember(bridge) { mutableStateOf<List<IosTrack>>(emptyList()) }
     var subtitleTracks by remember(bridge) { mutableStateOf<List<IosTrack>>(emptyList()) }
 
@@ -144,6 +151,7 @@ actual fun NativePlayer(
     LaunchedEffect(bridge, url, encodedHeaders, encodedSubtitles, startPositionMs) {
         showRemainingTime = false
         resizeMode = 0
+        playbackReady = false
         url?.takeIf(String::isNotBlank)?.let {
             bridge.loadFile(
                 url = it,
@@ -189,6 +197,7 @@ actual fun NativePlayer(
             currentCallback(next)
             if (!dragging) positionMs = next.positionMs
             durationMs = next.durationMs
+            playbackReady = playbackReady || (!next.loading && next.durationMs > 0)
             playing = next.playing
             playbackSpeed = bridge.getPlaybackSpeed()
             delay(500)
@@ -238,12 +247,12 @@ actual fun NativePlayer(
                     if (next != resizeMode) resizeMode = next
                 }
             }
-            .pointerInput(bridge, touchGestures, holdToSpeed) {
+            .pointerInput(bridge, touchGestures, holdToSpeed, playbackReady) {
                 var holdSpeedTriggered = false
                 detectTapGestures(
                     onPress = {
                         holdSpeedTriggered = false
-                        if (holdToSpeed) {
+                        if (holdToSpeed && playbackReady) {
                             coroutineScope {
                                 val release = async { tryAwaitRelease() }
                                 delay(450)
@@ -492,6 +501,12 @@ private fun IosPlayerBridge.readAudioTracks(): List<IosTrack> =
             id = getAudioTrackId(index),
             label = getAudioTrackLabel(index).ifBlank { "Audio ${index + 1}" },
             language = getAudioTrackLang(index),
+            localizedLanguage = getAudioTrackLanguageName(index),
+            codec = getAudioTrackCodec(index),
+            channels = getAudioTrackChannels(index),
+            channelCount = getAudioTrackChannelCount(index),
+            sampleRate = getAudioTrackSampleRate(index),
+            bitrate = getAudioTrackBitrate(index),
             selected = isAudioTrackSelected(index),
         )
     }
@@ -537,13 +552,13 @@ private fun IosPlayerTimePill(
 
 private fun nextIosResizeMode(mode: Int): Int = when (mode) {
     0 -> 1
-    1 -> 3
+    1 -> 2
     else -> 0
 }
 
 private fun iosResizeModeLabel(mode: Int): String = when (mode) {
     1 -> "Fill"
-    3 -> "Stretch"
+    2 -> "Zoom"
     else -> "Fit"
 }
 
@@ -609,8 +624,21 @@ private fun BoxScope.IosPlayerTrackPanel(
                         }
                     }
                     items(tracks, key = { it.id }) { track ->
-                        IosPlayerTrackRow(
-                            label = listOf(track.label, track.language).filter(String::isNotBlank).joinToString(" · "),
+                        val display = audioTrackDisplay(
+                            AudioTrackDisplayInfo(
+                                title = track.label,
+                                languageCode = track.language,
+                                languageName = track.audioLanguageName,
+                                codec = track.codec,
+                                channels = track.channels,
+                                channelCount = track.channelCount.takeIf { it > 0 },
+                                sampleRate = track.sampleRate.takeIf { it > 0 },
+                                bitrate = track.bitrate.takeIf { it > 0 },
+                            ),
+                            fallback = "Audio ${track.id}",
+                        )
+                        IosPlayerAudioTrackRow(
+                            display = display,
                             selected = track.id == selectedId,
                             onClick = { onSelect(track.id) },
                         )
@@ -740,11 +768,17 @@ private val IosTrack.languageKey: String
     get() = iosSubtitleLanguageKey(language, label)
 
 private val IosTrack.languageName: String
-    get() = when (languageKey) {
+    get() = localizedLanguage.ifBlank { iosLanguageName(languageKey) ?: label.ifBlank { "Unknown language" } }
+
+private val IosTrack.audioLanguageName: String
+    get() = localizedLanguage.ifBlank { iosLanguageName(languageKey) ?: "Unknown language" }
+
+private fun iosLanguageName(languageKey: String): String? = when (languageKey) {
         "en" -> "English"
         "es" -> "Spanish"
         "fr" -> "French"
         "de" -> "German"
+        "hu" -> "Hungarian"
         "it" -> "Italian"
         "pt" -> "Portuguese"
         "nl" -> "Dutch"
@@ -756,7 +790,7 @@ private val IosTrack.languageName: String
         "hi" -> "Hindi"
         "id" -> "Indonesian"
         "vi" -> "Vietnamese"
-        else -> label.ifBlank { "Unknown language" }
+        else -> null
     }
 
 private val IosTrack.variantName: String
@@ -774,6 +808,7 @@ private fun iosSubtitleLanguageKey(language: String, label: String): String {
     val aliases = mapOf(
         "eng" to "en", "english" to "en", "spa" to "es", "spanish" to "es", "español" to "es",
         "fra" to "fr", "fre" to "fr", "french" to "fr", "deu" to "de", "ger" to "de", "german" to "de",
+        "hun" to "hu", "hungarian" to "hu", "magyar" to "hu",
         "ita" to "it", "italian" to "it", "por" to "pt", "portuguese" to "pt", "nld" to "nl", "dut" to "nl", "dutch" to "nl",
         "jpn" to "ja", "japanese" to "ja", "kor" to "ko", "korean" to "ko", "zho" to "zh", "chi" to "zh", "chinese" to "zh",
         "rus" to "ru", "russian" to "ru", "ara" to "ar", "arabic" to "ar", "hin" to "hi", "hindi" to "hi",
@@ -800,6 +835,26 @@ private fun IosPlayerTrackRow(label: String, selected: Boolean, onClick: () -> U
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(label, color = Color.White, modifier = Modifier.weight(1f))
+            if (selected) Icon(Icons.Rounded.Check, "Selected", tint = MaterialTheme.colorScheme.primary)
+        }
+    }
+}
+
+@Composable
+private fun IosPlayerAudioTrackRow(display: AudioTrackDisplay, selected: Boolean, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        color = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = .18f) else Color.White.copy(alpha = .05f),
+        shape = RoundedCornerShape(12.dp),
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(display.primary, color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                Text(display.secondary, color = Color.White.copy(alpha = .6f), style = MaterialTheme.typography.bodySmall, maxLines = 1)
+            }
             if (selected) Icon(Icons.Rounded.Check, "Selected", tint = MaterialTheme.colorScheme.primary)
         }
     }
