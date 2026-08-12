@@ -68,6 +68,25 @@ struct PlayerTrack {
     lang: Option<String>,
     #[serde(default)]
     codec: Option<String>,
+    #[serde(
+        default,
+        rename(deserialize = "demux-channels", serialize = "audioChannels")
+    )]
+    audio_channels: Option<String>,
+    #[serde(default, rename(deserialize = "audio-channels"), skip_serializing)]
+    decoded_channel_count: Option<Value>,
+    #[serde(
+        default,
+        rename(deserialize = "demux-channel-count", serialize = "channelCount")
+    )]
+    channel_count: Option<u32>,
+    #[serde(
+        default,
+        rename(deserialize = "demux-samplerate", serialize = "sampleRate")
+    )]
+    sample_rate: Option<u32>,
+    #[serde(default, rename(deserialize = "demux-bitrate", serialize = "bitrate"))]
+    bitrate: Option<u64>,
     #[serde(default)]
     selected: bool,
     #[serde(default)]
@@ -537,7 +556,36 @@ fn is_network_media_url(url: &str) -> bool {
 }
 
 fn parse_track_list(value: &str) -> Vec<PlayerTrack> {
-    serde_json::from_str(value).unwrap_or_default()
+    let mut tracks = serde_json::from_str::<Vec<PlayerTrack>>(value).unwrap_or_default();
+    for track in &mut tracks {
+        if track.channel_count.is_none() {
+            track.channel_count = track
+                .decoded_channel_count
+                .as_ref()
+                .and_then(decoded_channel_count);
+        }
+    }
+    tracks
+}
+
+fn decoded_channel_count(value: &Value) -> Option<u32> {
+    value
+        .as_u64()
+        .and_then(|count| u32::try_from(count).ok())
+        .or_else(|| {
+            let channels = value.as_str()?.trim().to_lowercase();
+            match channels.as_str() {
+                "mono" => Some(1),
+                "stereo" => Some(2),
+                _ => {
+                    let layout = channels.split('(').next()?;
+                    let (main, subwoofer) = layout.split_once('.')?;
+                    main.parse::<u32>()
+                        .ok()?
+                        .checked_add(subwoofer.parse::<u32>().ok()?)
+                }
+            }
+        })
 }
 
 #[cfg(target_os = "linux")]
@@ -888,13 +936,21 @@ mod tests {
 
     #[test]
     fn parses_mpv_track_list_json() {
-        let tracks =
-            parse_track_list(r#"[{"id":1,"type":"video","title":"Main","selected":true}]"#);
+        let tracks = parse_track_list(
+            r#"[{"id":1,"type":"audio","title":"Main","codec":"ac3","audio-channels":6,"demux-channel-count":6,"demux-channels":"5.1(side)","demux-samplerate":48000,"demux-bitrate":640000,"selected":true},{"id":2,"type":"audio","audio-channels":2,"selected":false},{"id":3,"type":"audio","audio-channels":"stereo","selected":false}]"#,
+        );
 
-        assert_eq!(tracks.len(), 1);
+        assert_eq!(tracks.len(), 3);
         assert_eq!(tracks[0].id, 1);
-        assert_eq!(tracks[0].kind, "video");
+        assert_eq!(tracks[0].kind, "audio");
         assert_eq!(tracks[0].title.as_deref(), Some("Main"));
+        assert_eq!(tracks[0].codec.as_deref(), Some("ac3"));
+        assert_eq!(tracks[0].audio_channels.as_deref(), Some("5.1(side)"));
+        assert_eq!(tracks[0].channel_count, Some(6));
+        assert_eq!(tracks[0].sample_rate, Some(48_000));
+        assert_eq!(tracks[0].bitrate, Some(640_000));
         assert!(tracks[0].selected);
+        assert_eq!(tracks[1].channel_count, Some(2));
+        assert_eq!(tracks[2].channel_count, Some(2));
     }
 }

@@ -805,6 +805,17 @@ internal fun MediaDetailsScreen(
     LaunchedEffect(playback.ended) { if (playback.ended) runCatching { persistProgress() } }
     var openingOverlay by remember(playing?.url) { mutableStateOf(playing?.url != null) }
     var playerControlsVisible by remember(playing?.url) { mutableStateOf(true) }
+    val playerContentTitle = if (selectedVideo != null) {
+        val episodeNumber = listOfNotNull(selectedVideo?.season, selectedVideo?.episode)
+            .takeIf { it.size == 2 }
+            ?.joinToString("x")
+        listOfNotNull(
+            selectedVideo?.displayTitle,
+            episodeNumber?.let { "($it)" },
+        ).joinToString(" - ")
+    } else {
+        meta?.name ?: item.name
+    }
     LaunchedEffect(playing?.url) {
         playback = PlaybackState()
     }
@@ -816,7 +827,7 @@ internal fun MediaDetailsScreen(
                 requestHeaders = playing!!.behaviorHints?.proxyHeaders?.request.orEmpty().mapNotNull { (key, value) -> value.jsonPrimitive.contentOrNull?.let { key to it } }.toMap(),
                 subtitles = externalSubtitles,
                 contentLogo = meta?.logo,
-                contentTitle = if (selectedVideo != null) "${meta?.name ?: item.name} · ${selectedVideo?.displayTitle}" else meta?.name ?: item.name,
+                contentTitle = playerContentTitle,
                 hasNextEpisode = nextVideo != null, onNextEpisode = { nextVideo?.let(::playNext) },
                 hasEpisodes = orderedVideos.isNotEmpty(), onEpisodes = { episodesOpen = true }, modifier = Modifier.fillMaxSize(),
                 touchGestures = preferences.touchGestures, holdToSpeed = preferences.holdToSpeed,
@@ -839,18 +850,35 @@ internal fun MediaDetailsScreen(
             if (playback.buffering && !openingOverlay && playback.error == null) {
                 PlayerBufferingOverlay(Modifier.matchParentSize())
             }
-            if (playerControlsVisible) IconButton(
-                onClick = {
-                    val playbackSnapshot = playback
-                    val source = currentPlaybackSource()
-                    playing = null
-                    scope.launch { runCatching { persistProgress(playbackSnapshot, source) } }
-                },
-                modifier = Modifier.statusBarsPadding().padding(12.dp).background(Color.Black.copy(.55f), CircleShape).align(Alignment.TopStart),
-            ) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = Color.White) }
+            if (playerControlsVisible) Row(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .statusBarsPadding()
+                    .fillMaxWidth(.78f)
+                    .padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(
+                    onClick = {
+                        val playbackSnapshot = playback
+                        val source = currentPlaybackSource()
+                        playing = null
+                        scope.launch { runCatching { persistProgress(playbackSnapshot, source) } }
+                    },
+                    modifier = Modifier.background(Color.Black.copy(.55f), CircleShape),
+                ) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = Color.White) }
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    playerContentTitle,
+                    color = Color.White,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
             if (temporarySpeedActive) {
                 Text(
-                    "› 2×",
+                    "» 2×",
                     color = Color.White,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,

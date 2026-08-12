@@ -4,6 +4,10 @@ export interface NativeTrack {
   title?: string
   lang?: string
   codec?: string
+  audioChannels?: string
+  channelCount?: number
+  sampleRate?: number
+  bitrate?: number
   selected: boolean
   external: boolean
 }

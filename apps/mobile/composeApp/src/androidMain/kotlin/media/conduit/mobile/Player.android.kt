@@ -60,6 +60,8 @@ import kotlinx.coroutines.coroutineScope
 import media.conduit.mobile.account.SubtitleItem
 import android.net.Uri
 
+private const val ANDROID_RESIZE_MODE_ZOOM = -1
+
 @Composable
 actual fun PlayerOrientationLock(active: Boolean) {
     val activity = androidx.compose.ui.platform.LocalContext.current as? Activity
@@ -253,28 +255,35 @@ actual fun NativePlayer(
         }
     }
 
+    val holdToSpeedReady = initialLoadComplete && durationMs > 0
     Box(modifier.background(Color.Black).pointerInput(player, resizeMode) { detectTransformGestures { _, _, zoom, _ ->
-        val next = when { zoom > 1.04f -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM; zoom < .96f -> AspectRatioFrameLayout.RESIZE_MODE_FIT; else -> resizeMode }
+        val next = when { zoom > 1.04f -> ANDROID_RESIZE_MODE_ZOOM; zoom < .96f -> AspectRatioFrameLayout.RESIZE_MODE_FIT; else -> resizeMode }
         if (next != resizeMode) resizeMode = next
-    } }.pointerInput(player, touchGestures, holdToSpeed, controlsVisible) {
+    } }.pointerInput(player, touchGestures, holdToSpeed, holdToSpeedReady, controlsVisible) {
         detectTapGestures(
-            onPress = { if (holdToSpeed) coroutineScope { val release = async { tryAwaitRelease() }; delay(450); if (!release.isCompleted) { val previousSpeed = player.playbackParameters.speed; player.setPlaybackSpeed(2f); latestTemporarySpeedCallback(true); try { release.await() } finally { player.setPlaybackSpeed(previousSpeed); latestTemporarySpeedCallback(false) } } } else tryAwaitRelease() },
+            onPress = { if (holdToSpeed && holdToSpeedReady) coroutineScope { val release = async { tryAwaitRelease() }; delay(450); if (!release.isCompleted) { val previousSpeed = player.playbackParameters.speed; player.setPlaybackSpeed(2f); latestTemporarySpeedCallback(true); try { release.await() } finally { player.setPlaybackSpeed(previousSpeed); latestTemporarySpeedCallback(false) } } } else tryAwaitRelease() },
             onTap = { controlsVisible = true },
             onDoubleTap = if (touchGestures) {{ offset -> if (offset.x < size.width / 2f) player.seekBack() else player.seekForward(); controlsVisible = true }} else null,
         )
     }) {
         AndroidView(
             factory = { PlayerView(it).apply { this.player = player; useController = false; setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER); keepScreenOn = true } },
-            update = { it.player = player; it.resizeMode = resizeMode },
+            update = {
+                it.player = player
+                it.resizeMode = if (resizeMode == ANDROID_RESIZE_MODE_ZOOM) AspectRatioFrameLayout.RESIZE_MODE_ZOOM else resizeMode
+                val scale = if (resizeMode == ANDROID_RESIZE_MODE_ZOOM) 1.15f else 1f
+                it.scaleX = scale
+                it.scaleY = scale
+            },
             modifier = Modifier.fillMaxSize(),
         )
         if (controlsVisible) {
             Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .42f)).pointerInput(player, resizeMode) { detectTransformGestures { _, _, zoom, _ ->
-                val next = when { zoom > 1.04f -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM; zoom < .96f -> AspectRatioFrameLayout.RESIZE_MODE_FIT; else -> resizeMode }
+                val next = when { zoom > 1.04f -> ANDROID_RESIZE_MODE_ZOOM; zoom < .96f -> AspectRatioFrameLayout.RESIZE_MODE_FIT; else -> resizeMode }
                 if (next != resizeMode) resizeMode = next
-            } }.pointerInput(player, touchGestures, holdToSpeed) {
+            } }.pointerInput(player, touchGestures, holdToSpeed, holdToSpeedReady) {
                 detectTapGestures(
-                    onPress = { if (holdToSpeed) coroutineScope { val release = async { tryAwaitRelease() }; delay(450); if (!release.isCompleted) { val previousSpeed = player.playbackParameters.speed; player.setPlaybackSpeed(2f); latestTemporarySpeedCallback(true); try { release.await() } finally { player.setPlaybackSpeed(previousSpeed); latestTemporarySpeedCallback(false) } } } else tryAwaitRelease() },
+                    onPress = { if (holdToSpeed && holdToSpeedReady) coroutineScope { val release = async { tryAwaitRelease() }; delay(450); if (!release.isCompleted) { val previousSpeed = player.playbackParameters.speed; player.setPlaybackSpeed(2f); latestTemporarySpeedCallback(true); try { release.await() } finally { player.setPlaybackSpeed(previousSpeed); latestTemporarySpeedCallback(false) } } } else tryAwaitRelease() },
                     onTap = { controlsVisible = false },
                     onDoubleTap = if (touchGestures) {{ offset -> if (offset.x < size.width / 2f) player.seekBack() else player.seekForward(); controlsVisible = true }} else null,
                 )
@@ -413,6 +422,30 @@ private fun audioTrackScore(format: androidx.media3.common.Format, preferredLang
         (format.channelCount.takeIf { it > 0 } ?: 0)
 }
 
+private fun androidAudioLanguageName(format: androidx.media3.common.Format): String {
+    format.language?.takeIf(String::isNotBlank)?.let { language ->
+        return java.util.Locale.forLanguageTag(language.replace('_', '-'))
+            .displayLanguage
+            .replaceFirstChar(Char::uppercase)
+    }
+    val label = format.label?.substringBefore('(')?.substringBefore('[')?.trim()?.lowercase()
+    val code = when (label) {
+        "english" -> "en"
+        "spanish", "español" -> "es"
+        "german", "deutsch" -> "de"
+        "french", "français" -> "fr"
+        "hungarian", "magyar" -> "hu"
+        "italian", "italiano" -> "it"
+        "portuguese", "português" -> "pt"
+        "japanese", "日本語" -> "ja"
+        "korean", "한국어" -> "ko"
+        "chinese", "中文" -> "zh"
+        else -> null
+    }
+    return code?.let { java.util.Locale.forLanguageTag(it).displayLanguage.replaceFirstChar(Char::uppercase) }
+        ?: "Unknown language"
+}
+
 @Composable
 private fun PlayerTimePill(
     value: String,
@@ -433,13 +466,13 @@ private fun PlayerTimePill(
 
 private fun nextAndroidResizeMode(mode: Int): Int = when (mode) {
     AspectRatioFrameLayout.RESIZE_MODE_FIT -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-    AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+    AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> ANDROID_RESIZE_MODE_ZOOM
     else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
 }
 
 private fun androidResizeModeLabel(mode: Int): String = when (mode) {
     AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> "Fill"
-    AspectRatioFrameLayout.RESIZE_MODE_FILL -> "Stretch"
+    ANDROID_RESIZE_MODE_ZOOM -> "Zoom"
     else -> "Fit"
 }
 
@@ -487,10 +520,21 @@ private fun BoxScope.PlayerTrackPanel(player: ExoPlayer, type: Int, onBeforeSele
                 } else groups.forEach { group ->
                     items((0 until group.length).toList()) { index ->
                         val format = group.getTrackFormat(index)
-                        val language = format.label ?: format.language?.let { java.util.Locale.forLanguageTag(it).displayLanguage } ?: if (type == C.TRACK_TYPE_AUDIO) "Audio track ${index + 1}" else "Subtitle ${index + 1}"
-                        val detail = listOfNotNull(format.language?.uppercase(), format.roleFlags.takeIf { it != 0 }?.let { "Variant ${index + 1}" }).joinToString(" · ")
                         val supported = group.isTrackSupported(index)
-                        PlayerTrackRow(listOf(language, detail, if (!supported) "Unsupported on this device" else "").filter { it.isNotBlank() }.joinToString("  ·  "), group.isTrackSelected(index), supported) {
+                        val display = audioTrackDisplay(
+                            AudioTrackDisplayInfo(
+                                title = format.label.orEmpty(),
+                                languageCode = format.language,
+                                languageName = androidAudioLanguageName(format),
+                                codec = format.codecs ?: format.sampleMimeType,
+                                channelCount = format.channelCount.takeIf { it > 0 },
+                                sampleRate = format.sampleRate.takeIf { it > 0 },
+                                bitrate = (format.averageBitrate.takeIf { it > 0 }
+                                    ?: format.peakBitrate.takeIf { it > 0 })?.toLong(),
+                            ),
+                            fallback = "Audio track ${index + 1}",
+                        )
+                        PlayerAudioTrackRow(display, group.isTrackSelected(index), supported) {
                             select(PlayerTrackOption(group, index), true)
                         }
                     }
@@ -570,6 +614,24 @@ private data class PlayerTrackOption(val group: Tracks.Group, val index: Int) {
 private fun PlayerTrackRow(label: String, selected: Boolean, enabled: Boolean = true, onClick: () -> Unit) {
     Surface(onClick = onClick, enabled = enabled, color = if (selected) MaterialTheme.colorScheme.primary.copy(.18f) else Color.White.copy(.06f), shape = RoundedCornerShape(14.dp), border = if (selected) androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null) {
         Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) { Text(label, color = Color.White.copy(if (enabled) 1f else .38f), modifier = Modifier.weight(1f)); if (selected) Icon(Icons.Rounded.CheckCircle, null, tint = MaterialTheme.colorScheme.primary) else if (!enabled) Icon(Icons.Rounded.Block, null, tint = Color.White.copy(.35f)) }
+    }
+}
+
+@Composable
+private fun PlayerAudioTrackRow(
+    display: AudioTrackDisplay,
+    selected: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    Surface(onClick = onClick, enabled = enabled, color = if (selected) MaterialTheme.colorScheme.primary.copy(.18f) else Color.White.copy(.06f), shape = RoundedCornerShape(14.dp), border = if (selected) androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null) {
+        Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(display.primary, color = Color.White.copy(if (enabled) 1f else .38f), fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                Text(display.secondary, color = Color.White.copy(if (enabled) .6f else .3f), style = MaterialTheme.typography.bodySmall, maxLines = 1)
+            }
+            if (selected) Icon(Icons.Rounded.CheckCircle, null, tint = MaterialTheme.colorScheme.primary) else if (!enabled) Icon(Icons.Rounded.Block, null, tint = Color.White.copy(.35f))
+        }
     }
 }
 
