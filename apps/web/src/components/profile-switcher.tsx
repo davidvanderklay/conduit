@@ -66,7 +66,7 @@ export function ProfileSwitcher({
       <button
         ref={trigger}
         type="button"
-        className="group flex h-11 min-w-12 items-center gap-2 rounded-xl border border-zinc-800 bg-zinc-950 px-2 text-left text-white shadow-[0_8px_30px_rgba(0,0,0,0.25)] transition-colors hover:border-zinc-700 hover:bg-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+        className="group flex h-11 min-w-12 items-center gap-2 rounded-[18px] border border-zinc-800 bg-zinc-950 px-2 text-left text-white shadow-[0_8px_30px_rgba(0,0,0,0.25)] transition-colors hover:border-zinc-700 hover:bg-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
         aria-label={`Switch profile, current profile ${activeProfile.name}`}
         aria-haspopup="listbox"
         aria-expanded={open}
@@ -91,7 +91,7 @@ export function ProfileSwitcher({
 
       {open && (
         <div
-          className="absolute right-0 top-[calc(100%+0.6rem)] z-50 w-72 overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950 p-2 text-white shadow-[0_24px_70px_rgba(0,0,0,0.7)]"
+          className="absolute right-0 top-[calc(100%+0.6rem)] z-50 w-72 overflow-hidden rounded-[24px] border border-zinc-800 bg-zinc-950/95 p-2 text-white shadow-[0_24px_70px_rgba(0,0,0,0.7)]"
           role="listbox"
           aria-label="Profiles"
         >
@@ -106,7 +106,7 @@ export function ProfileSwitcher({
                 <button
                   key={profile.id}
                   type="button"
-                  className={`flex w-full items-center gap-3 rounded-xl border px-2.5 py-2 text-left transition-colors ${
+                    className={`flex w-full items-center gap-3 rounded-2xl border px-2.5 py-2 text-left transition-colors ${
                     selected
                       ? "border-amber-400/25 bg-amber-400/10"
                       : "border-transparent hover:border-zinc-800 hover:bg-zinc-900"
@@ -153,7 +153,7 @@ export function ProfileSwitcher({
           {onCreate && (
             <button
               type="button"
-              className="mt-2 flex w-full items-center gap-3 rounded-xl border border-dashed border-zinc-800 px-2.5 py-2.5 text-left text-zinc-400 transition-colors hover:border-amber-400/40 hover:bg-amber-400/5 hover:text-zinc-100"
+              className="mt-2 flex w-full items-center gap-3 rounded-2xl border border-dashed border-zinc-800 px-2.5 py-2.5 text-left text-zinc-400 transition-colors hover:border-amber-400/40 hover:bg-amber-400/5 hover:text-zinc-100"
               onClick={() => {
                 setOpen(false)
                 setCreating(true)
@@ -401,7 +401,7 @@ function MenuAction({
   return (
     <button
       type="button"
-      className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-zinc-400 hover:bg-zinc-900 hover:text-white"
+      className="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left text-sm text-zinc-400 hover:bg-zinc-900 hover:text-white"
       onClick={onClick}
     >
       <Icon size={17} />

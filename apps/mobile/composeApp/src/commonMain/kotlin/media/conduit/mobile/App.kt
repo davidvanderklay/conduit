@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -919,6 +920,7 @@ private fun AppShell(
                 selected = state.destination,
                 compact = compact,
                 classic = classic,
+                adaptive = preferences.navigationStyle == NavigationStyle.Adaptive,
                 onSelect = navigateMain,
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
@@ -1183,16 +1185,30 @@ private fun MainTopBar(
                 DropdownMenu(
                     expanded = profileMenuOpen,
                     onDismissRequest = { profileMenuOpen = false },
-                    modifier = Modifier.width(300.dp).heightIn(max = 480.dp),
+                    modifier = Modifier
+                        .width(300.dp)
+                        .heightIn(max = 480.dp)
+                        .border(BorderStroke(1.dp, Color.White.copy(alpha = .13f)), RoundedCornerShape(24.dp)),
+                    shape = RoundedCornerShape(24.dp),
+                    containerColor = Color(0xF018181B),
+                    tonalElevation = 0.dp,
+                    shadowElevation = 24.dp,
                 ) {
                     Text(
                         "Switch profile",
                         modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
                         style = MaterialTheme.typography.titleSmall,
+                        color = Color.White,
                         fontWeight = FontWeight.Bold,
                     )
                     visibleProfiles.forEach { profile ->
                         DropdownMenuItem(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(
+                                    if (profile.id == activeProfile?.id) Color(0x1FFBBF24) else Color.Transparent,
+                                    RoundedCornerShape(16.dp),
+                                ),
                             text = {
                                 Column {
                                     Text(profile.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -1216,6 +1232,7 @@ private fun MainTopBar(
                     }
                     if (hiddenProfiles > 0) {
                         DropdownMenuItem(
+                            modifier = Modifier.clip(RoundedCornerShape(16.dp)),
                             text = { Text(if (showAllProfiles) "Show fewer profiles" else "Show $hiddenProfiles more") },
                             leadingIcon = { Icon(Icons.Rounded.KeyboardArrowDown, null) },
                             onClick = { showAllProfiles = !showAllProfiles },
@@ -1223,21 +1240,25 @@ private fun MainTopBar(
                     }
                     HorizontalDivider()
                     DropdownMenuItem(
+                        modifier = Modifier.clip(RoundedCornerShape(16.dp)),
                         text = { Text("Add profile") },
                         leadingIcon = { Icon(Icons.Rounded.Add, null) },
                         onClick = { profileMenuOpen = false; onAddProfile() },
                     )
                     DropdownMenuItem(
+                        modifier = Modifier.clip(RoundedCornerShape(16.dp)),
                         text = { Text("Add-ons") },
                         leadingIcon = { Icon(Icons.Rounded.Extension, null) },
                         onClick = { profileMenuOpen = false; onOpenAddons() },
                     )
                     DropdownMenuItem(
+                        modifier = Modifier.clip(RoundedCornerShape(16.dp)),
                         text = { Text("Settings") },
                         leadingIcon = { Icon(Icons.Rounded.Settings, null) },
                         onClick = { profileMenuOpen = false; onOpenSettings() },
                     )
                     DropdownMenuItem(
+                        modifier = Modifier.clip(RoundedCornerShape(16.dp)),
                         text = { Text("Log out", color = MaterialTheme.colorScheme.error) },
                         leadingIcon = { Icon(Icons.AutoMirrored.Rounded.Logout, null, tint = MaterialTheme.colorScheme.error) },
                         onClick = { profileMenuOpen = false; onSignOut() },

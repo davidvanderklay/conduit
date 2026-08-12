@@ -185,8 +185,10 @@ private struct ConduitRootView: View {
 
                 if bottomNavigation.visible {
                     ConduitBottomTabBar(coordinator: bottomNavigation)
-                        .frame(height: 58)
+                        .frame(height: 76)
+                        .padding(.horizontal, bottomNavigation.classic ? 0 : (bottomNavigation.compact ? 64 : 24))
                         .padding(.bottom, geometry.safeAreaInsets.bottom)
+                        .animation(.easeInOut(duration: 0.22), value: bottomNavigation.compact)
                 }
             }
             .ignoresSafeArea()
@@ -202,6 +204,9 @@ final class ConduitBottomNavigationCoordinator: NSObject, ObservableObject, IosB
     @Published private(set) var visible = false
     @Published private(set) var selectedIndex: Int = 0
     @Published private(set) var labels: [String] = []
+    @Published private(set) var compact = false
+    @Published private(set) var classic = false
+    @Published private(set) var adaptive = false
     private var selectionHandler: IosBottomNavigationSelectionHandler?
 
     private override init() {}
@@ -210,6 +215,9 @@ final class ConduitBottomNavigationCoordinator: NSObject, ObservableObject, IosB
         visible: Bool,
         selectedIndex: Int32,
         labels: [String],
+        compact: Bool,
+        classic: Bool,
+        adaptive: Bool,
         selectionHandler: IosBottomNavigationSelectionHandler?
     ) {
         let apply = { [weak self] in
@@ -217,6 +225,9 @@ final class ConduitBottomNavigationCoordinator: NSObject, ObservableObject, IosB
             self.visible = visible
             self.selectedIndex = Int(selectedIndex)
             self.labels = labels
+            self.compact = compact
+            self.classic = classic
+            self.adaptive = adaptive
             self.selectionHandler = selectionHandler
         }
         if Thread.isMainThread { apply() } else { DispatchQueue.main.async(execute: apply) }
@@ -227,38 +238,72 @@ final class ConduitBottomNavigationCoordinator: NSObject, ObservableObject, IosB
     }
 }
 
-private struct ConduitBottomTabBar: UIViewRepresentable {
+private struct ConduitBottomTabBar: UIViewControllerRepresentable {
     @ObservedObject var coordinator: ConduitBottomNavigationCoordinator
 
     func makeCoordinator() -> Delegate {
         Delegate(owner: coordinator)
     }
 
-    func makeUIView(context: Context) -> UITabBar {
-        let tabBar = UITabBar()
-        tabBar.delegate = context.coordinator
-        tabBar.tintColor = UIColor(red: 0.98, green: 0.75, blue: 0.14, alpha: 1)
-        tabBar.unselectedItemTintColor = UIColor.white.withAlphaComponent(0.55)
-        tabBar.backgroundColor = .clear
-        tabBar.isOpaque = false
-        return tabBar
+    func makeUIViewController(context: Context) -> UITabBarController {
+        let controller = UITabBarController()
+        controller.delegate = context.coordinator
+        controller.view.backgroundColor = .clear
+        controller.view.isOpaque = false
+        controller.tabBar.tintColor = UIColor(red: 0.98, green: 0.75, blue: 0.14, alpha: 1)
+        controller.tabBar.unselectedItemTintColor = UIColor.white.withAlphaComponent(0.55)
+        controller.tabBar.backgroundColor = .clear
+        controller.tabBar.isOpaque = false
+        if #available(iOS 26.0, *) {
+            controller.tabBarMinimizeBehavior = .automatic
+        }
+        return controller
     }
 
-    func updateUIView(_ tabBar: UITabBar, context: Context) {
+    func updateUIViewController(_ controller: UITabBarController, context: Context) {
         context.coordinator.owner = coordinator
-        if tabBar.items?.map(\.title) != coordinator.labels.map(Optional.some) {
-            let items = coordinator.labels.enumerated().map { index, label in
-                UITabBarItem(
-                    title: label,
+        let titles = coordinator.labels.map { coordinator.compact ? nil : $0 }
+        if controller.viewControllers?.count != coordinator.labels.count {
+            let viewControllers = coordinator.labels.enumerated().map { index, label in
+                let viewController = UIViewController()
+                viewController.view.backgroundColor = .clear
+                viewController.view.isOpaque = false
+                viewController.tabBarItem = UITabBarItem(
+                    title: titles[index],
                     image: UIImage(systemName: systemImageName(for: label)),
                     tag: index
                 )
+                return viewController
             }
-            tabBar.setItems(items, animated: false)
+            controller.setViewControllers(viewControllers, animated: false)
+        } else {
+            controller.viewControllers?.enumerated().forEach { index, viewController in
+                viewController.tabBarItem.title = titles[index]
+            }
         }
-        tabBar.selectedItem = tabBar.items?.first {
-            $0.tag == coordinator.selectedIndex
+        controller.selectedIndex = coordinator.selectedIndex
+        if #available(iOS 26.0, *) {
+            controller.tabBarMinimizeBehavior = coordinator.adaptive && !coordinator.compact
+                ? .automatic
+                : .never
         }
+        let targetTransform = CGAffineTransform(
+            scaleX: 1,
+            y: coordinator.compact ? 0.68 : 1
+        )
+        if let lastCompact = context.coordinator.lastCompact,
+           lastCompact != coordinator.compact {
+            UIView.animate(
+                withDuration: 0.22,
+                delay: 0,
+                options: [.beginFromCurrentState, .curveEaseInOut]
+            ) {
+                controller.tabBar.transform = targetTransform
+            }
+        } else {
+            controller.tabBar.transform = targetTransform
+        }
+        context.coordinator.lastCompact = coordinator.compact
     }
 
     private func systemImageName(for label: String) -> String {
@@ -271,15 +316,16 @@ private struct ConduitBottomTabBar: UIViewRepresentable {
         }
     }
 
-    final class Delegate: NSObject, UITabBarDelegate {
+    final class Delegate: NSObject, UITabBarControllerDelegate {
         var owner: ConduitBottomNavigationCoordinator
+        var lastCompact: Bool?
 
         init(owner: ConduitBottomNavigationCoordinator) {
             self.owner = owner
         }
 
-        func tabBar(_ tabBar: UITabBar, didSelect item: UITabBarItem) {
-            owner.select(item.tag)
+        func tabBarController(_ tabBarController: UITabBarController, didSelect viewController: UIViewController) {
+            owner.select(viewController.tabBarItem.tag)
         }
     }
 }

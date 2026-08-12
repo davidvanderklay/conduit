@@ -22,6 +22,7 @@ internal actual fun PlatformBottomNavigation(
     selected: AppDestination,
     compact: Boolean,
     classic: Boolean,
+    adaptive: Boolean,
     onSelect: (AppDestination) -> Unit,
     modifier: Modifier,
 ) {
@@ -34,6 +35,9 @@ internal actual fun PlatformBottomNavigation(
             visible = true,
             selectedIndex = destinations.indexOf(selected),
             labels = destinations.map(AppDestination::label),
+            compact = compact,
+            classic = classic,
+            adaptive = adaptive,
             selectionHandler = handler,
         )
     }
@@ -44,6 +48,9 @@ internal actual fun PlatformBottomNavigation(
                 visible = false,
                 selectedIndex = -1,
                 labels = emptyList(),
+                compact = false,
+                classic = false,
+                adaptive = false,
                 selectionHandler = null,
             )
         }
