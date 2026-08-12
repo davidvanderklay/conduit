@@ -20,4 +20,14 @@ class DevicePreferencesTest {
 
         assertEquals(false, repository.load().autoSelectSavedStreams)
     }
+
+    @Test
+    fun lastStreamAddonRoundTripsAsADevicePreference() {
+        val store = MemorySettingsStore()
+        val repository = DevicePreferencesRepository(store)
+
+        repository.save(repository.load().copy(lastStreamAddonId = "torrentio"))
+
+        assertEquals("torrentio", repository.load().lastStreamAddonId)
+    }
 }
