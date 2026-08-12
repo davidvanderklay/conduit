@@ -21,6 +21,11 @@ fileprivate struct ConduitTrack {
     let id: Int
     let title: String
     let language: String
+    let codec: String
+    let channels: String
+    let channelCount: Int
+    let sampleRate: Int
+    let bitrate: Int64
     let external: Bool
     let selected: Bool
 }
@@ -100,6 +105,32 @@ final class ConduitMPVPlayerBridge: NSObject, IosPlayerBridge {
 
     func getAudioTrackLang(at: Int32) -> String {
         track(at: at, in: playerViewController?.audioTracks)?.language ?? ""
+    }
+
+    func getAudioTrackLanguageName(at: Int32) -> String {
+        guard let track = track(at: at, in: playerViewController?.audioTracks) else { return "" }
+        let code = track.language.replacingOccurrences(of: "_", with: "-").split(separator: "-").first.map(String.init) ?? ""
+        return Locale.current.localizedString(forLanguageCode: code)?.localizedCapitalized ?? ""
+    }
+
+    func getAudioTrackCodec(at: Int32) -> String {
+        track(at: at, in: playerViewController?.audioTracks)?.codec ?? ""
+    }
+
+    func getAudioTrackChannels(at: Int32) -> String {
+        track(at: at, in: playerViewController?.audioTracks)?.channels ?? ""
+    }
+
+    func getAudioTrackChannelCount(at: Int32) -> Int32 {
+        Int32(track(at: at, in: playerViewController?.audioTracks)?.channelCount ?? 0)
+    }
+
+    func getAudioTrackSampleRate(at: Int32) -> Int32 {
+        Int32(track(at: at, in: playerViewController?.audioTracks)?.sampleRate ?? 0)
+    }
+
+    func getAudioTrackBitrate(at: Int32) -> Int64 {
+        track(at: at, in: playerViewController?.audioTracks)?.bitrate ?? 0
     }
 
     func isAudioTrackSelected(at: Int32) -> Bool {
@@ -444,14 +475,17 @@ final class ConduitMPVPlayerViewController: UIViewController {
                 self.setStringProperty("keepaspect", "yes")
                 self.setStringProperty("panscan", "1.0")
                 self.setStringProperty("video-aspect-override", "no")
+                self.setStringProperty("video-zoom", mode == 2 ? "0.15" : "0.0")
             case 3:
                 self.setStringProperty("keepaspect", "no")
                 self.setStringProperty("panscan", "0.0")
                 self.setStringProperty("video-aspect-override", "no")
+                self.setStringProperty("video-zoom", "0.0")
             default:
                 self.setStringProperty("keepaspect", "yes")
                 self.setStringProperty("panscan", "0.0")
                 self.setStringProperty("video-aspect-override", "no")
+                self.setStringProperty("video-zoom", "0.0")
             }
             self.setStringProperty("video-unscaled", "no")
         }
@@ -914,6 +948,11 @@ final class ConduitMPVPlayerViewController: UIViewController {
                 id: id,
                 title: title.isEmpty ? fallback : title,
                 language: language,
+                codec: getString("track-list/\(index)/codec")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
+                channels: getString("track-list/\(index)/demux-channels")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
+                channelCount: getInt("track-list/\(index)/demux-channel-count"),
+                sampleRate: getInt("track-list/\(index)/demux-samplerate"),
+                bitrate: Int64(getInt("track-list/\(index)/demux-bitrate")),
                 external: getFlag("track-list/\(index)/external"),
                 selected: getFlag("track-list/\(index)/selected")
             )

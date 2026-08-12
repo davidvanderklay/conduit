@@ -15,6 +15,7 @@ import {
 } from "lucide-react"
 import type { InstalledAddon, PlaybackSource, ProgressMetadata } from "../lib/api"
 import { addonsForResource } from "../lib/addons"
+import { audioTrackDisplay } from "../lib/audio-track-display"
 import {
   nativePlayerCommand,
   nativeFullscreen,
@@ -188,6 +189,7 @@ export function DesktopPlayer({
 
   const beginHoldSpeed = useCallback((event: ReactPointerEvent) => {
     if (
+      !snapshot || snapshot.loading || snapshot.duration <= 0 ||
       (event.pointerType === "mouse" && event.button !== 0) ||
       event.target instanceof Element && event.target.closest("[data-native-overlay]")
     ) return
@@ -199,7 +201,7 @@ export function DesktopPlayer({
       setHoldSpeedActive(true)
       void nativePlayerCommand(["set", "speed", 2]).catch(() => undefined)
     }, 450)
-  }, [])
+  }, [snapshot])
 
   useEffect(() => () => {
     window.clearTimeout(holdSpeedTimer.current)
@@ -711,7 +713,7 @@ export function DesktopPlayer({
       />
       {holdSpeedActive && (
         <div className="pointer-events-none absolute inset-x-0 top-6 z-20 text-center text-xl font-semibold text-white drop-shadow-[0_2px_10px_rgba(0,0,0,0.95)]" aria-live="polite">
-          › 2×
+          » 2×
         </div>
       )}
       <div
@@ -1217,9 +1219,7 @@ function TrackMenu({
     <div
       data-track-menu
       data-native-overlay
-      className={`fixed z-[100] max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-white/10 bg-zinc-950 p-2 shadow-2xl ${
-        allowOff ? "w-[46rem]" : "w-80"
-      }`}
+      className="fixed z-[100] w-[46rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-white/10 bg-zinc-950 p-2 shadow-2xl"
       style={position}
       role="menu"
       onPointerDown={(event) => event.stopPropagation()}
@@ -1277,20 +1277,12 @@ function TrackMenu({
       ) : (
         <>
       {tracks.map((track) => (
-        <button
+        <AudioTrackMenuRow
           key={track.id}
-          className={`mb-1 block w-full rounded-lg px-3 py-2 text-left ${
-            track.selected ? "bg-amber-400 text-zinc-950" : "text-zinc-300 hover:bg-zinc-800"
-          }`}
-          onClick={() => onSelect(track)}
-        >
-          <span className="block text-sm font-medium">{trackName(track, title)}</span>
-          <span className={`text-xs ${track.selected ? "text-zinc-800" : "text-zinc-500"}`}>
-            {[track.codec?.toUpperCase(), track.lang, track.external ? "External" : "Embedded"]
-              .filter(Boolean)
-              .join(" · ")}
-          </span>
-        </button>
+          track={track}
+          fallback={`${title} ${track.id}`}
+          onSelect={() => onSelect(track)}
+        />
       ))}
       {availableAddonSubtitles.map((subtitle) => (
         <button
@@ -1319,6 +1311,33 @@ function TrackMenu({
       )}
     </div>,
     document.body,
+  )
+}
+
+function AudioTrackMenuRow({
+  track,
+  fallback,
+  onSelect,
+}: {
+  track: NativeTrack
+  fallback: string
+  onSelect: () => void
+}) {
+  const display = audioTrackDisplay(track, fallback)
+  return (
+    <button
+      className={`mb-1 block w-full rounded-lg px-3 py-2 text-left ${
+        track.selected ? "bg-amber-400 text-zinc-950" : "text-zinc-300 hover:bg-zinc-800"
+      }`}
+      onClick={onSelect}
+    >
+      <span className="block truncate text-sm font-medium" title={display.primary}>
+        {display.primary}
+      </span>
+      <span className={`text-xs ${track.selected ? "text-zinc-800" : "text-zinc-500"}`}>
+        {display.secondary}
+      </span>
+    </button>
   )
 }
 
