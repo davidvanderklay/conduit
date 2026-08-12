@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.interop.UIKitView
 import androidx.compose.ui.unit.dp
 import media.conduit.mobile.foundation.AppDestination
@@ -63,7 +64,10 @@ internal actual fun PlatformBottomNavigation(
         update = { tabBar ->
             tabBar.selectedItem = items.getOrNull(destinations.indexOf(selected))
         },
-        modifier = modifier.fillMaxWidth().navigationBarsPadding().height(58.dp),
+        // Give UIKit enough vertical room for the stacked icon + title layout;
+        // the safe-area padding is kept outside the tab bar itself.
+        modifier = modifier.fillMaxWidth().navigationBarsPadding().height(76.dp),
+        background = Color.Transparent,
         interactive = true,
     )
 }
