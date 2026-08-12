@@ -8,6 +8,7 @@ enum class AppDestination(val label: String, val showInNavigation: Boolean = tru
     Home("Home"),
     Search("Search"),
     Library("Library"),
+    Calendar("Calendar", showInNavigation = false),
     Profile("Profile"),
     History("History", showInNavigation = false),
 }
