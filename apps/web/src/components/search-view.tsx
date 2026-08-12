@@ -6,13 +6,16 @@ import type { CatalogItem } from "../lib/core"
 import { posterCoverClass, posterGridClass, posterTitleClass } from "../lib/poster-layout"
 import { searchAddons, searchableCatalogs, type SearchResult } from "../lib/search"
 import { Card } from "./ui/card"
+import { BrowsePosterMenu } from "./browse-poster-menu"
 import { PosterWatchStatus } from "./poster-watch-status"
 
 export function SearchView({
+  profileId,
   addons,
   query,
   onSelect,
 }: {
+  profileId: string
   addons: InstalledAddon[]
   query: string
   onSelect: (item: CatalogItem) => void
@@ -108,8 +111,18 @@ export function SearchView({
                           </div>
                         )}
                       </div>
-                      <p className={posterTitleClass}>{item.name}</p>
                     </button>
+                    <div className="mt-2 flex items-start gap-1">
+                      <button className="min-w-0 flex-1 text-left" onClick={() => onSelect(item)}>
+                        <p className={posterTitleClass}>{item.name}</p>
+                      </button>
+                      <BrowsePosterMenu
+                        profileId={profileId}
+                        item={item}
+                        addons={addons}
+                        onSelect={() => onSelect(item)}
+                      />
+                    </div>
                     <div className="pointer-events-none absolute right-2 top-2">
                       <PosterWatchStatus item={item} addons={addons} />
                     </div>

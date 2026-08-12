@@ -1,0 +1,17 @@
+export function ConduitMark({ className = "size-9" }: { className?: string }) {
+  return (
+    <svg
+      aria-hidden="true"
+      className={className}
+      viewBox="0 0 512 512"
+    >
+      <rect width="512" height="512" rx="112" fill="#09090b" />
+      <path
+        d="M154 120h204c27 0 48 21 48 48v176c0 27-21 48-48 48H154c-27 0-48-21-48-48V168c0-27 21-48 48-48Z"
+        fill="#fbbf24"
+      />
+      <path d="m225 198 96 58-96 58V198Z" fill="#09090b" />
+      <path d="M106 205h300M106 307h300" stroke="#09090b" strokeWidth="22" />
+    </svg>
+  )
+}

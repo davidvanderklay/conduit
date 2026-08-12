@@ -45,6 +45,8 @@ import {
 import { DiscoverView, type DiscoverSelection } from "./components/discover-view"
 import { VirtualVerticalList } from "./components/virtual-vertical-list"
 import { FullscreenToggle } from "./components/fullscreen-toggle"
+import { BrowsePosterMenu } from "./components/browse-poster-menu"
+import { ConduitMark } from "./components/conduit-mark"
 
 export function App() {
   const session = authClient.useSession()
@@ -218,9 +220,7 @@ function AuthScreen() {
       </div>
       <div className="relative w-full max-w-[27rem]">
         <a href="/" className="mb-8 flex items-center justify-center gap-2.5">
-          <div className="grid size-9 place-items-center rounded-xl bg-amber-400 text-zinc-950 shadow-lg shadow-amber-400/10">
-            <Film size={18} strokeWidth={2.4} />
-          </div>
+          <ConduitMark className="size-10 drop-shadow-lg" />
           <span className="font-display text-xl font-semibold tracking-tight">conduit</span>
         </a>
         <Card className="overflow-hidden border-zinc-800/90 bg-zinc-900/90 shadow-2xl shadow-black/40 backdrop-blur-xl">
@@ -687,10 +687,10 @@ function AuthenticatedApp({
 
   return (
     <div className="flex h-screen flex-col overflow-hidden">
-      <header className="app-chrome z-20 shrink-0 border-b border-zinc-900 bg-zinc-950/85 pl-[22px] pr-4 backdrop-blur-xl sm:pr-6 lg:pr-6 xl:pr-6 2xl:pr-8">
+      <header className="app-chrome z-20 shrink-0 border-b border-white/10 bg-zinc-950/70 pl-[14px] pr-3 shadow-lg shadow-black/20 backdrop-blur-2xl sm:pl-[22px] sm:pr-6 lg:pr-6 xl:pr-6 2xl:pr-8">
         <div className="flex h-16 items-center gap-3">
           <div className="flex shrink-0 items-center gap-2 font-display text-lg font-semibold">
-            <Film className="text-amber-400" size={21} />
+            <ConduitMark className="size-8" />
             <span className="hidden sm:inline">conduit</span>
           </div>
           <div className="relative mx-auto w-full max-w-xl">
@@ -717,7 +717,7 @@ function AuthenticatedApp({
             )}
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            <FullscreenToggle />
+            <div className="hidden sm:block"><FullscreenToggle /></div>
             <ProfileSwitcher
               profiles={profiles}
               activeProfile={activeProfile}
@@ -754,7 +754,7 @@ function AuthenticatedApp({
               <a
                 href="/admin"
                 aria-label="Instance administration"
-                className="grid size-10 place-items-center rounded-xl text-zinc-400 hover:bg-zinc-900 hover:text-white"
+                className="hidden size-10 place-items-center rounded-xl text-zinc-400 hover:bg-zinc-900 hover:text-white sm:grid"
               >
                 <Shield size={18} />
               </a>
@@ -766,7 +766,7 @@ function AuthenticatedApp({
       <div
         ref={scrollViewportRef}
         id="app-scroll-viewport"
-        className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-16 md:ml-16 md:pb-0"
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-24 md:ml-16 md:pb-0"
       >
         <ProfileApp
           profile={activeProfile}
@@ -896,6 +896,7 @@ function ProfileApp({
       )}
       {!searchInput && section === "discover" && (
         <DiscoverView
+          profileId={profile.id}
           addons={addons.data?.addons ?? []}
           selection={discoverSelection}
           onChange={onDiscoverSelection}
@@ -956,6 +957,7 @@ function ProfileApp({
       )}
       {searchInput && (
         <SearchView
+          profileId={profile.id}
           addons={addons.data?.addons ?? []}
           query={query}
           onSelect={(item) => {
@@ -1067,21 +1069,7 @@ function MediaHome({
   ]
 
   return (
-    <main className="mx-auto max-w-[2200px] 2xl:max-w-none px-4 py-10 sm:px-6 lg:px-6 xl:px-6 2xl:px-8">
-      <section className="mb-12">
-        <div>
-          <p className="mb-2 text-xs font-semibold uppercase tracking-[0.2em] text-amber-400">
-            {profile.name}&apos;s space
-          </p>
-          <h1 className="font-display text-4xl font-semibold tracking-tight">
-            What are we watching?
-          </h1>
-          <p className="mt-2 text-zinc-500">
-            Catalogs are loaded directly from your synchronized add-ons.
-          </p>
-        </div>
-      </section>
-
+    <main className="mx-auto max-w-[2200px] 2xl:max-w-none px-4 py-8 sm:px-6 lg:px-6 xl:px-6 2xl:px-8">
       <VirtualVerticalList
         items={feedItems}
         itemKey={(item) => item.key}
@@ -1113,6 +1101,7 @@ function MediaHome({
           const catalog = feedItem.catalog
           return (
             <CatalogShelf
+              profileId={profile.id}
               addons={addons}
               title={catalog.title}
               type={catalog.type}
@@ -1185,6 +1174,7 @@ function useShelfColumns() {
 }
 
 function CatalogShelf({
+  profileId,
   title,
   type,
   items,
@@ -1192,6 +1182,7 @@ function CatalogShelf({
   onSelect,
   onSeeMore,
 }: {
+  profileId: string
   title: string
   type: string
   items: CatalogItem[]
@@ -1237,8 +1228,18 @@ function CatalogShelf({
                   </div>
                 )}
               </div>
-              <p className={posterTitleClass}>{item.name}</p>
             </button>
+            <div className="mt-2 flex items-start gap-1">
+              <button className="min-w-0 flex-1 text-left" onClick={() => onSelect(item)}>
+                <p className={posterTitleClass}>{item.name}</p>
+              </button>
+              <BrowsePosterMenu
+                profileId={profileId}
+                item={item}
+                addons={addons}
+                onSelect={() => onSelect(item)}
+              />
+            </div>
             <div className="pointer-events-none absolute right-2 top-2">
               <PosterWatchStatus item={item} addons={addons} />
             </div>

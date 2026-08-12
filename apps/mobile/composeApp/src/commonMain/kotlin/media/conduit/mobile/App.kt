@@ -1,12 +1,12 @@
 package media.conduit.mobile
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.animation.core.*
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -15,20 +15,22 @@ import androidx.compose.material3.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material.icons.rounded.AccountCircle
 import androidx.compose.material.icons.rounded.VideoLibrary
-import androidx.compose.material.icons.rounded.Movie
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.BookmarkRemove
 import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.automirrored.rounded.Logout
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Explore
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -36,10 +38,16 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import media.conduit.mobile.foundation.*
@@ -50,6 +58,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlin.math.abs
+import coil3.compose.AsyncImage
 
 @Composable
 fun App() {
@@ -369,15 +378,10 @@ private fun HouseholdSetup(onCreate: (String, String) -> Unit) {
 
 @Composable
 private fun CenteredStatus(message: String) {
-    val pulse = rememberInfiniteTransition(label = "conduit-launch")
-    val scale by pulse.animateFloat(1f, 1.035f, infiniteRepeatable(tween(1_250, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "brand-scale")
-    val alpha by pulse.animateFloat(.88f, 1f, infiniteRepeatable(tween(1_250, easing = LinearEasing), RepeatMode.Reverse), label = "brand-alpha")
     Box(Modifier.fillMaxSize().background(Brush.radialGradient(colors = listOf(Color(0xFF1B1608), Color(0xFF09090B), Color(0xFF050506)), radius = 720f)), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(22.dp), modifier = Modifier.padding(32.dp)) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.scale(scale).alpha(alpha)) {
-                Surface(color = MaterialTheme.colorScheme.primary, contentColor = Color.Black, shape = RoundedCornerShape(18.dp), shadowElevation = 10.dp, modifier = Modifier.size(66.dp)) {
-                    Box(contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Movie, null, modifier = Modifier.size(36.dp)) }
-                }
+            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                ConduitMark(Modifier.size(66.dp))
                 Text("conduit", color = Color.White, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
             }
             CircularProgressIndicator(color = Color(0xFFFBBF24), trackColor = Color.White.copy(.14f), strokeWidth = 3.dp, modifier = Modifier.size(30.dp))
@@ -433,7 +437,7 @@ private fun SignInScreen(
     Box(Modifier.fillMaxSize().background(Brush.radialGradient(listOf(MaterialTheme.colorScheme.primary.copy(.09f), MaterialTheme.colorScheme.background), radius = 900f)), contentAlignment = Alignment.Center) {
         Column(Modifier.safeContentPadding().verticalScroll(rememberScrollState()).widthIn(max = 460.dp).fillMaxWidth().padding(horizontal = 20.dp, vertical = 28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Row(Modifier.fillMaxWidth().padding(bottom = 18.dp), verticalAlignment = Alignment.CenterVertically) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) { Surface(color = MaterialTheme.colorScheme.primary, contentColor = Color.Black, shape = RoundedCornerShape(12.dp), modifier = Modifier.size(40.dp)) { Box(contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Movie, null, modifier = Modifier.size(22.dp)) } }; Text("conduit", color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) }
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) { ConduitMark(Modifier.size(40.dp)); Text("conduit", color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) }
                 Spacer(Modifier.weight(1f))
                 Surface(onClick = { showServerDialog = true }, shape = RoundedCornerShape(20.dp), color = Color(0xE61D1D20), contentColor = Color.White, border = BorderStroke(1.dp, Color.White.copy(.13f))) {
                     Row(Modifier.padding(horizontal = 11.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -798,6 +802,10 @@ private fun AppShell(
             selectedMedia = null
             dispatch(AppAction.Navigate(AppDestination.Search))
         }
+        val navigateMain: (AppDestination) -> Unit = { destination ->
+            if (destination != AppDestination.Search) browseQuery = ""
+            dispatch(AppAction.Navigate(destination))
+        }
         LaunchedEffect(state.notice) {
             state.notice?.let {
                 snackbarHostState.showSnackbar(it)
@@ -819,7 +827,7 @@ private fun AppShell(
                                 NavigationRailItem(
                                     selected = state.destination == destination ||
                                         (state.destination == AppDestination.Calendar && destination == AppDestination.Library),
-                                    onClick = { dispatch(AppAction.Navigate(destination)) },
+                                    onClick = { navigateMain(destination) },
                                     icon = { Icon(destination.icon, destination.label) },
                                     label = { Text(destination.label) },
                                 )
@@ -834,20 +842,9 @@ private fun AppShell(
                             { activeProfile?.let { profile -> appScope.launch { profileSync = syncRepository.synchronize(state.endpoint!!.baseUrl, account.session.token, profile.id) } } },
                             ::mutateProfile,
                             browseQuery, { browseQuery = it }, discoverSelection, { discoverSelection = it }, openBrowse,
-                            focusSearchOnOpen, { focusSearchOnOpen = false },
                             preferences, onPreferencesChanged, homeListState, searchListState, discoverGridState, libraryGridState, historyGridState, settingsListState,
                             Modifier.fillMaxSize(),
                         )
-                        if (selectedMedia == null &&
-                            state.destination != AppDestination.Search &&
-                            state.destination != AppDestination.Profile &&
-                            state.destination != AppDestination.Calendar
-                        ) {
-                            IpadSearchAction(
-                                onClick = openSearch,
-                                modifier = Modifier.align(Alignment.TopEnd),
-                            )
-                        }
                     }
                 }
             } else {
@@ -858,16 +855,47 @@ private fun AppShell(
                     { activeProfile?.let { profile -> appScope.launch { profileSync = syncRepository.synchronize(state.endpoint!!.baseUrl, account.session.token, profile.id) } } },
                     ::mutateProfile,
                     browseQuery, { browseQuery = it }, discoverSelection, { discoverSelection = it }, openBrowse,
-                    false, {},
                     preferences, onPreferencesChanged, homeListState, searchListState, discoverGridState, libraryGridState, historyGridState, settingsListState,
                     Modifier.padding(padding),
                 )
             }
         }
-        if (!expanded && selectedMedia == null && !profileFlowActive && state.destination != AppDestination.Calendar) {
+        val mainChromeVisible = selectedMedia == null && state.destination in setOf(
+            AppDestination.Home,
+            AppDestination.Search,
+            AppDestination.Library,
+        )
+        if (mainChromeVisible) {
+            MainTopBar(
+                profiles = profiles,
+                activeProfile = activeProfile,
+                query = browseQuery,
+                onQueryChange = { value ->
+                    browseQuery = value
+                    if (state.destination != AppDestination.Search) {
+                        dispatch(AppAction.Navigate(AppDestination.Search))
+                    }
+                },
+                requestSearchFocus = focusSearchOnOpen,
+                onSearchFocusConsumed = { focusSearchOnOpen = false },
+                onSelectProfile = { dispatch(AppAction.SelectProfile(it)) },
+                onOpenSettings = { dispatch(AppAction.Navigate(AppDestination.Profile)) },
+                onSignOut = onSignOut,
+                modifier = Modifier.align(Alignment.TopCenter)
+                    .then(if (expanded) Modifier.padding(start = 80.dp) else Modifier),
+            )
+        }
+        if (!expanded && mainChromeVisible && !profileFlowActive) {
             val classic = preferences.navigationStyle == NavigationStyle.Classic
             val compact = preferences.navigationStyle == NavigationStyle.Compact ||
                 (preferences.navigationStyle == NavigationStyle.Adaptive && adaptiveCompact)
+            val destinations = AppDestination.entries.filter(AppDestination::showInNavigation)
+            var scrubIndex by remember { mutableStateOf<Int?>(null) }
+            var scrubX by remember { mutableFloatStateOf(0f) }
+            var scrubStartX by remember { mutableFloatStateOf(0f) }
+            var scrubDeltaY by remember { mutableFloatStateOf(0f) }
+            var scrubCancelled by remember { mutableStateOf(false) }
+            val haptics = LocalHapticFeedback.current
             Surface(
                 color = if (classic) MaterialTheme.colorScheme.surfaceContainer else Color(0xDD202023),
                 shape = if (classic) RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp) else RoundedCornerShape(32.dp),
@@ -877,13 +905,51 @@ private fun AppShell(
                     .then(if (classic) Modifier else Modifier.navigationBarsPadding())
                     .then(if (classic) Modifier.fillMaxWidth() else if (compact) Modifier.padding(horizontal = 64.dp, vertical = 10.dp).fillMaxWidth() else Modifier.padding(horizontal = 14.dp, vertical = 10.dp).fillMaxWidth()),
             ) {
-                Row(Modifier.fillMaxWidth().then(if (classic) Modifier.navigationBarsPadding() else Modifier).padding(horizontal = 8.dp, vertical = if (compact) 2.dp else 4.dp)) {
-                    AppDestination.entries.filter(AppDestination::showInNavigation).forEach { destination ->
+                Row(
+                    Modifier.fillMaxWidth()
+                        .then(if (classic) Modifier.navigationBarsPadding() else Modifier)
+                        .pointerInput(destinations) {
+                            detectDragGesturesAfterLongPress(
+                                onDragStart = { offset ->
+                                    scrubX = offset.x
+                                    scrubStartX = offset.x
+                                    scrubDeltaY = 0f
+                                    scrubCancelled = false
+                                    scrubIndex = ((offset.x / size.width) * destinations.size)
+                                        .toInt().coerceIn(destinations.indices)
+                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                },
+                                onDrag = { change, amount ->
+                                    change.consume()
+                                    scrubX += amount.x
+                                    scrubDeltaY += amount.y
+                                    if (kotlin.math.abs(scrubDeltaY) > 24.dp.toPx() &&
+                                        kotlin.math.abs(scrubDeltaY) > kotlin.math.abs(scrubX - scrubStartX)
+                                    ) {
+                                        scrubCancelled = true
+                                        scrubIndex = null
+                                    } else if (!scrubCancelled) {
+                                        scrubIndex = ((scrubX / size.width) * destinations.size)
+                                            .toInt().coerceIn(destinations.indices)
+                                    }
+                                },
+                                onDragEnd = {
+                                    if (!scrubCancelled) scrubIndex?.let { index ->
+                                        navigateMain(destinations[index])
+                                    }
+                                    scrubIndex = null
+                                },
+                                onDragCancel = { scrubIndex = null },
+                            )
+                        }
+                        .padding(horizontal = 8.dp, vertical = if (compact) 2.dp else 4.dp),
+                ) {
+                    destinations.forEachIndexed { index, destination ->
                         MobileNavigationItem(
                             destination = destination,
-                            selected = state.destination == destination,
+                            selected = scrubIndex?.let { it == index } ?: (state.destination == destination),
                             profile = activeProfile,
-                            onClick = { dispatch(AppAction.Navigate(destination)) },
+                            onClick = { navigateMain(destination) },
                             showLabel = !compact,
                             modifier = Modifier.weight(1f),
                         )
@@ -967,8 +1033,6 @@ private fun DestinationContent(
     discoverSelection: DiscoverSelection,
     onDiscoverSelectionChange: (DiscoverSelection) -> Unit,
     onBrowse: (MobileBrowseTarget) -> Unit,
-    requestSearchFocus: Boolean,
-    onSearchFocusConsumed: () -> Unit,
     preferences: DevicePreferences,
     onPreferencesChanged: (DevicePreferences) -> Unit,
     homeListState: androidx.compose.foundation.lazy.LazyListState,
@@ -989,7 +1053,7 @@ private fun DestinationContent(
             val tabModifier = if (active) Modifier.fillMaxSize() else Modifier.size(0.dp)
             when (destination) {
                 AppDestination.Home -> HomeScreen(
-                    activeProfile, profileSync, api, onSelectMedia, onProfileMutation,
+                    profileSync, api, onSelectMedia, onProfileMutation,
                     onOpenHistory = { dispatch(AppAction.Navigate(AppDestination.History)) },
                     onOpenLibrary = { dispatch(AppAction.Navigate(AppDestination.Library)) },
                     onOpenDiscover = { onBrowse(MobileBrowseTarget.Discover(it)) },
@@ -1001,8 +1065,7 @@ private fun DestinationContent(
                     selection = discoverSelection, onSelectionChange = onDiscoverSelectionChange,
                     onMutation = onProfileMutation,
                     onSelect = { item, videoId -> onSelectMedia(item, videoId) }, listState = searchListState,
-                    gridState = discoverGridState, requestFocus = requestSearchFocus,
-                    onFocusConsumed = onSearchFocusConsumed, modifier = tabModifier,
+                    gridState = discoverGridState, modifier = tabModifier,
                 )
                 AppDestination.Library -> MobileLibraryScreen(
                     snapshot = profileSync.snapshot, api = api, onMutation = onProfileMutation,
@@ -1053,29 +1116,155 @@ private fun DestinationContent(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun IpadSearchAction(
-    onClick: () -> Unit,
+private fun MainTopBar(
+    profiles: List<ProfileSummary>,
+    activeProfile: ProfileSummary?,
+    query: String,
+    onQueryChange: (String) -> Unit,
+    requestSearchFocus: Boolean,
+    onSearchFocusConsumed: () -> Unit,
+    onSelectProfile: (String) -> Unit,
+    onOpenSettings: () -> Unit,
+    onSignOut: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    IconButton(
-        onClick = onClick,
-        modifier = modifier
-            .statusBarsPadding()
-            .padding(end = 10.dp, top = 6.dp)
-            .background(Color(0xCC151518), RoundedCornerShape(14.dp)),
+    val searchFocus = remember { FocusRequester() }
+    var profileMenuOpen by remember { mutableStateOf(false) }
+    var showAllProfiles by remember { mutableStateOf(false) }
+    val compactProfiles = remember(profiles, activeProfile?.id) {
+        listOfNotNull(activeProfile) + profiles.filter { it.id != activeProfile?.id }.take(3)
+    }
+    val visibleProfiles = if (showAllProfiles) profiles else compactProfiles
+    val hiddenProfiles = (profiles.size - compactProfiles.size).coerceAtLeast(0)
+    LaunchedEffect(requestSearchFocus) {
+        if (requestSearchFocus) {
+            searchFocus.requestFocus()
+            onSearchFocusConsumed()
+        }
+    }
+    Surface(
+        color = Color(0xB817171A),
+        contentColor = Color.White,
+        shape = RoundedCornerShape(22.dp),
+        border = BorderStroke(1.dp, Color.White.copy(alpha = .14f)),
+        shadowElevation = 12.dp,
+        modifier = modifier.statusBarsPadding().padding(horizontal = 10.dp, vertical = 7.dp),
     ) {
-        Icon(Icons.Rounded.Search, contentDescription = "Search", tint = Color.White)
+        Row(
+            Modifier.fillMaxWidth().padding(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            ConduitMark(Modifier.size(38.dp))
+            OutlinedTextField(
+                value = query,
+                onValueChange = onQueryChange,
+                modifier = Modifier.weight(1f).height(46.dp).focusRequester(searchFocus),
+                placeholder = { Text("Search Conduit", maxLines = 1) },
+                leadingIcon = { Icon(Icons.Rounded.Search, null, Modifier.size(20.dp)) },
+                trailingIcon = if (query.isNotBlank()) {{
+                    IconButton(onClick = { onQueryChange("") }) { Icon(Icons.Rounded.Close, "Clear") }
+                }} else null,
+                singleLine = true,
+                shape = RoundedCornerShape(16.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor = Color.Black.copy(alpha = .34f),
+                    unfocusedContainerColor = Color.Black.copy(alpha = .28f),
+                    focusedBorderColor = MaterialTheme.colorScheme.primary.copy(alpha = .7f),
+                    unfocusedBorderColor = Color.White.copy(alpha = .1f),
+                ),
+            )
+            Box {
+                Surface(
+                    onClick = { profileMenuOpen = true },
+                    modifier = Modifier.size(38.dp),
+                    shape = androidx.compose.foundation.shape.CircleShape,
+                    color = activeProfile?.avatarColor?.let(::topProfileColor) ?: MaterialTheme.colorScheme.primary,
+                    contentColor = Color.White,
+                    border = BorderStroke(2.dp, Color.White.copy(alpha = .18f)),
+                ) {
+                    if (!activeProfile?.avatarUrl.isNullOrBlank()) {
+                        AsyncImage(activeProfile.avatarUrl, activeProfile.name, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                    } else Box(contentAlignment = Alignment.Center) {
+                        Text(activeProfile?.name?.take(1)?.uppercase() ?: "P", fontWeight = FontWeight.Bold)
+                    }
+                }
+                DropdownMenu(
+                    expanded = profileMenuOpen,
+                    onDismissRequest = { profileMenuOpen = false },
+                    modifier = Modifier.width(300.dp).heightIn(max = 480.dp),
+                ) {
+                    Text(
+                        "Switch profile",
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    visibleProfiles.forEach { profile ->
+                        DropdownMenuItem(
+                            text = {
+                                Column {
+                                    Text(profile.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    if (profile.isKids) Text("Kids profile", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            },
+                            leadingIcon = {
+                                Surface(
+                                    modifier = Modifier.size(32.dp),
+                                    shape = androidx.compose.foundation.shape.CircleShape,
+                                    color = profile.avatarColor?.let(::topProfileColor) ?: MaterialTheme.colorScheme.primary,
+                                ) {
+                                    if (!profile.avatarUrl.isNullOrBlank()) {
+                                        AsyncImage(profile.avatarUrl, profile.name, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                                    } else Box(contentAlignment = Alignment.Center) { Text(profile.name.take(1).uppercase(), fontWeight = FontWeight.Bold) }
+                                }
+                            },
+                            trailingIcon = if (profile.id == activeProfile?.id) {{ Icon(Icons.Rounded.CheckCircle, null, tint = MaterialTheme.colorScheme.primary) }} else null,
+                            onClick = { profileMenuOpen = false; onSelectProfile(profile.id) },
+                        )
+                    }
+                    if (hiddenProfiles > 0) {
+                        DropdownMenuItem(
+                            text = { Text(if (showAllProfiles) "Show fewer profiles" else "Show $hiddenProfiles more") },
+                            leadingIcon = { Icon(Icons.Rounded.KeyboardArrowDown, null) },
+                            onClick = { showAllProfiles = !showAllProfiles },
+                        )
+                    }
+                    HorizontalDivider()
+                    DropdownMenuItem(
+                        text = { Text("Add profile") },
+                        leadingIcon = { Icon(Icons.Rounded.Add, null) },
+                        onClick = { profileMenuOpen = false; onOpenSettings() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Settings") },
+                        leadingIcon = { Icon(Icons.Rounded.Settings, null) },
+                        onClick = { profileMenuOpen = false; onOpenSettings() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Log out", color = MaterialTheme.colorScheme.error) },
+                        leadingIcon = { Icon(Icons.AutoMirrored.Rounded.Logout, null, tint = MaterialTheme.colorScheme.error) },
+                        onClick = { profileMenuOpen = false; onSignOut() },
+                    )
+                }
+            }
+        }
     }
 }
+
+private fun topProfileColor(hex: String): Color = runCatching {
+    Color((0xFF000000L or hex.removePrefix("#").toLong(16)).toInt())
+}.getOrDefault(Color(0xFFFBBF24))
 
 private val AppDestination.icon: ImageVector
     get() = when (this) {
         AppDestination.Home -> Icons.Rounded.Home
-        AppDestination.Search -> Icons.Rounded.Search
+        AppDestination.Search -> Icons.Rounded.Explore
         AppDestination.Library -> Icons.Rounded.VideoLibrary
         AppDestination.Calendar -> Icons.Rounded.CalendarMonth
-        AppDestination.Profile -> Icons.Rounded.AccountCircle
+        AppDestination.Profile -> Icons.Rounded.Settings
         AppDestination.History -> Icons.Rounded.History
     }
 

@@ -14,6 +14,13 @@ sealed interface ProfileMutation {
         val watched: Boolean,
     ) : ProfileMutation
 
+    data class SetSeriesWatched(
+        val item: CatalogItem,
+        val videos: List<VideoItem>,
+        val progress: List<ProgressSummary>,
+        val watched: Boolean,
+    ) : ProfileMutation
+
     data class SetDismissed(
         val progress: ProgressSummary,
         val dismissed: Boolean,
@@ -74,6 +81,39 @@ fun ProfileSnapshot.applyOptimistically(mutation: ProfileMutation): ProfileSnaps
         )
     }
 
+    is ProfileMutation.SetSeriesWatched -> {
+        val optimistic = mutation.videos.map { video ->
+            val current = mutation.progress.firstOrNull { it.videoId == video.id }
+            (current ?: ProgressSummary(
+                videoId = video.id,
+                mediaType = mutation.item.type,
+                mediaId = mutation.item.id,
+                name = mutation.item.name,
+                poster = mutation.item.poster,
+                videoTitle = video.title,
+                season = video.season,
+                episode = video.episode,
+                positionMs = 0,
+                durationMs = 0,
+                watched = false,
+                updatedAt = "",
+            )).copy(
+                watched = mutation.watched,
+                positionMs = if (mutation.watched) current?.durationMs ?: 0 else 0,
+                dismissed = false,
+                continueWatching = current?.continueWatching == true || mutation.watched,
+            )
+        }
+        copy(
+            progress = optimistic.fold(progress, List<ProgressSummary>::replaceProgress),
+            history = optimistic.fold(history, List<ProgressSummary>::replaceProgress),
+            continueWatching = optimistic.fold(continueWatching) { entries, item ->
+                if (item.continueWatching) entries.replaceProgress(item)
+                else entries.filterNot { it.videoId == item.videoId }
+            },
+        )
+    }
+
     is ProfileMutation.SetDismissed -> {
         val optimistic = mutation.progress.copy(dismissed = mutation.dismissed)
         copy(
@@ -114,6 +154,17 @@ suspend fun ConduitApi.executeMutation(
         is ProfileMutation.SetWatched -> setProgressWatched(
             baseUrl, token, profileId, mutation.progress, mutation.item, mutation.video, mutation.watched,
         )
+        is ProfileMutation.SetSeriesWatched -> mutation.videos.forEach { video ->
+            setProgressWatched(
+                baseUrl,
+                token,
+                profileId,
+                mutation.progress.firstOrNull { it.videoId == video.id },
+                mutation.item,
+                video,
+                mutation.watched,
+            )
+        }
         is ProfileMutation.SetDismissed -> setProgressDismissed(
             baseUrl, token, profileId, mutation.progress.videoId, mutation.dismissed,
         )

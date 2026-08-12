@@ -24,6 +24,7 @@ export function ProfileSwitcher({
 }) {
   const [open, setOpen] = useState(false)
   const [creating, setCreating] = useState(false)
+  const [showAllProfiles, setShowAllProfiles] = useState(false)
   const root = useRef<HTMLDivElement>(null)
   const trigger = useRef<HTMLButtonElement>(null)
 
@@ -53,6 +54,12 @@ export function ProfileSwitcher({
     setOpen(false)
     trigger.current?.focus()
   }
+  const compactProfiles = [
+    activeProfile,
+    ...profiles.filter((profile) => profile.id !== activeProfile.id),
+  ].slice(0, 4)
+  const visibleProfiles = showAllProfiles ? profiles : compactProfiles
+  const hiddenProfileCount = Math.max(0, profiles.length - compactProfiles.length)
 
   return (
     <div ref={root} className="relative">
@@ -92,8 +99,8 @@ export function ProfileSwitcher({
             <p className="font-display text-sm font-semibold text-zinc-100">Switch profile</p>
             <p className="mt-0.5 text-xs text-zinc-500">Choose whose space to open.</p>
           </div>
-          <div className="space-y-1">
-            {profiles.map((profile) => {
+          <div className="max-h-80 space-y-1 overflow-y-auto overscroll-contain">
+            {visibleProfiles.map((profile) => {
               const selected = profile.id === activeProfile.id
               return (
                 <button
@@ -134,6 +141,15 @@ export function ProfileSwitcher({
               )
             })}
           </div>
+          {hiddenProfileCount > 0 && (
+            <button
+              type="button"
+              className="mt-1 w-full rounded-lg px-3 py-2 text-left text-xs font-semibold text-zinc-500 transition-colors hover:bg-zinc-900 hover:text-zinc-200"
+              onClick={() => setShowAllProfiles((current) => !current)}
+            >
+              {showAllProfiles ? "Show fewer profiles" : `Show ${hiddenProfileCount} more profile${hiddenProfileCount === 1 ? "" : "s"}`}
+            </button>
+          )}
           {onCreate && (
             <button
               type="button"
