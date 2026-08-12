@@ -881,8 +881,8 @@ internal fun MediaDetailsScreen(
 
     val details = meta
     val actionItem = details?.asCatalogItem() ?: item
-    val seriesProgress = snapshot?.progress.orEmpty().filter { it.mediaId == item.id && !it.watched }.maxByOrNull { it.updatedAt }
-    val resumeVideo = details?.videos?.firstOrNull { it.id == seriesProgress?.videoId }
+    val unfinishedProgress = latestUnfinishedProgress(snapshot?.progress.orEmpty(), actionItem)
+    val resumeVideo = details?.videos?.firstOrNull { it.id == unfinishedProgress?.videoId }
     LaunchedEffect(details?.id, resumeVideo?.season) { if (selectedSeason == null) selectedSeason = resumeVideo?.season ?: details?.videos?.firstOrNull()?.season }
     val heroPullDp = with(LocalDensity.current) { heroPull.floatValue.toDp() }
     val heroScale = 1f + (heroPull.floatValue / maxHeroPullPx) * HeroMotion.expansionScale
@@ -920,7 +920,7 @@ internal fun MediaDetailsScreen(
                         contentScale = ContentScale.Fit,
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
-                            .offset(y = (-40).dp)
+                            .offset(y = (-60).dp)
                             .fillMaxWidth(.58f)
                             .heightIn(max = 110.dp),
                     )
@@ -973,7 +973,7 @@ internal fun MediaDetailsScreen(
                 if (details == null && error == null) CircularProgressIndicator()
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 Button(onClick = { val target = resumeVideo ?: selectedVideo; selectedVideo = target; requestStreams(target) }, modifier = Modifier.fillMaxWidth().height(54.dp)) {
-                    Icon(Icons.Rounded.PlayArrow, null); Spacer(Modifier.width(8.dp)); Text(if (resumeVideo != null) "Resume S${resumeVideo.season ?: 0}E${resumeVideo.episode ?: 0}" else "Play")
+                    Icon(Icons.Rounded.PlayArrow, null); Spacer(Modifier.width(8.dp)); Text(detailsPlayLabel(actionItem, unfinishedProgress, resumeVideo))
                 }
                 val saved = snapshot?.library.orEmpty().any { it.type == actionItem.type && it.id == actionItem.id }
                 val movieProgress = snapshot?.progress.orEmpty().firstOrNull { it.videoId == actionItem.id }
