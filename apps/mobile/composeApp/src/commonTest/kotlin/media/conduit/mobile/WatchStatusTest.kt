@@ -37,6 +37,36 @@ class WatchStatusTest {
         )
     }
 
+    @Test
+    fun detailsResumeUnfinishedMovies() {
+        val movie = CatalogItem("movie", "movie", "Movie")
+        val unfinished = progress("movie", "movie", position = 30_000, type = "movie")
+
+        assertEquals(unfinished, latestUnfinishedProgress(listOf(unfinished), movie))
+        assertEquals("Resume", detailsPlayLabel(movie, unfinished, null))
+        assertEquals("Play", detailsPlayLabel(movie, unfinished.copy(watched = true), null))
+    }
+
+    @Test
+    fun detailsResumeSeriesWithEpisodeNumber() {
+        val series = CatalogItem("show", "series", "Show")
+        val unfinished = progress("s1e2", "show", position = 30_000)
+        val episode = VideoItem("s1e2", season = 1, episode = 2)
+
+        assertEquals(unfinished, latestUnfinishedProgress(listOf(unfinished), series))
+        assertEquals("Resume S1E2", detailsPlayLabel(series, unfinished, episode))
+        assertEquals("Play", detailsPlayLabel(series, unfinished, VideoItem("s1e3", season = 1, episode = 3)))
+    }
+
+    @Test
+    fun zeroProgressDoesNotOfferResume() {
+        val movie = CatalogItem("movie", "movie", "Movie")
+        val notStarted = progress("movie", "movie", position = 0, type = "movie")
+
+        assertEquals(null, latestUnfinishedProgress(listOf(notStarted), movie))
+        assertEquals("Play", detailsPlayLabel(movie, null, null))
+    }
+
     private fun progress(videoId: String, mediaId: String, watched: Boolean = false, position: Long = 0, type: String = "series") =
         ProgressSummary(videoId, type, mediaId, "Title", positionMs = position, durationMs = 100_000, watched = watched, updatedAt = "2026-01-01")
 }
