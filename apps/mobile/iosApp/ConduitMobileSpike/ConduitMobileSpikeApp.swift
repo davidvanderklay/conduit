@@ -185,7 +185,7 @@ private struct ConduitRootView: View {
 
                 if bottomNavigation.visible {
                     ConduitBottomTabBar(coordinator: bottomNavigation)
-                        .frame(height: 76)
+                        .frame(height: bottomNavigation.compact ? 52 : 76)
                         .padding(.horizontal, bottomNavigation.classic ? 0 : (bottomNavigation.compact ? 64 : 24))
                         .padding(.bottom, geometry.safeAreaInsets.bottom)
                         .animation(.easeInOut(duration: 0.22), value: bottomNavigation.compact)
@@ -222,6 +222,13 @@ final class ConduitBottomNavigationCoordinator: NSObject, ObservableObject, IosB
     ) {
         let apply = { [weak self] in
             guard let self else { return }
+            guard self.visible != visible ||
+                self.selectedIndex != Int(selectedIndex) ||
+                self.labels != labels ||
+                self.compact != compact ||
+                self.classic != classic ||
+                self.adaptive != adaptive
+            else { return }
             self.visible = visible
             self.selectedIndex = Int(selectedIndex)
             self.labels = labels
@@ -238,72 +245,41 @@ final class ConduitBottomNavigationCoordinator: NSObject, ObservableObject, IosB
     }
 }
 
-private struct ConduitBottomTabBar: UIViewControllerRepresentable {
+private struct ConduitBottomTabBar: UIViewRepresentable {
     @ObservedObject var coordinator: ConduitBottomNavigationCoordinator
 
     func makeCoordinator() -> Delegate {
         Delegate(owner: coordinator)
     }
 
-    func makeUIViewController(context: Context) -> UITabBarController {
-        let controller = UITabBarController()
-        controller.delegate = context.coordinator
-        controller.view.backgroundColor = .clear
-        controller.view.isOpaque = false
-        controller.tabBar.tintColor = UIColor(red: 0.98, green: 0.75, blue: 0.14, alpha: 1)
-        controller.tabBar.unselectedItemTintColor = UIColor.white.withAlphaComponent(0.55)
-        controller.tabBar.backgroundColor = .clear
-        controller.tabBar.isOpaque = false
-        if #available(iOS 26.0, *) {
-            controller.tabBarMinimizeBehavior = .automatic
-        }
-        return controller
+    func makeUIView(context: Context) -> UITabBar {
+        let tabBar = UITabBar()
+        tabBar.delegate = context.coordinator
+        tabBar.tintColor = UIColor(red: 0.98, green: 0.75, blue: 0.14, alpha: 1)
+        tabBar.unselectedItemTintColor = UIColor.white.withAlphaComponent(0.55)
+        tabBar.backgroundColor = .clear
+        tabBar.isOpaque = false
+        tabBar.itemPositioning = .fill
+        return tabBar
     }
 
-    func updateUIViewController(_ controller: UITabBarController, context: Context) {
+    func updateUIView(_ tabBar: UITabBar, context: Context) {
         context.coordinator.owner = coordinator
-        let titles = coordinator.labels.map { coordinator.compact ? nil : $0 }
-        if controller.viewControllers?.count != coordinator.labels.count {
-            let viewControllers = coordinator.labels.enumerated().map { index, label in
-                let viewController = UIViewController()
-                viewController.view.backgroundColor = .clear
-                viewController.view.isOpaque = false
-                viewController.tabBarItem = UITabBarItem(
-                    title: titles[index],
-                    image: UIImage(systemName: systemImageName(for: label)),
-                    tag: index
-                )
-                return viewController
-            }
-            controller.setViewControllers(viewControllers, animated: false)
+        let items = coordinator.labels.enumerated().map { index, label in
+            UITabBarItem(
+                title: coordinator.compact ? nil : label,
+                image: UIImage(systemName: systemImageName(for: label)),
+                tag: index
+            )
+        }
+        if tabBar.items?.count != items.count || tabBar.items?.map(\.title) != items.map(\.title) {
+            tabBar.setItems(items, animated: false)
         } else {
-            controller.viewControllers?.enumerated().forEach { index, viewController in
-                viewController.tabBarItem.title = titles[index]
+            tabBar.items?.enumerated().forEach { index, item in
+                item.title = items[index].title
             }
         }
-        controller.selectedIndex = coordinator.selectedIndex
-        if #available(iOS 26.0, *) {
-            controller.tabBarMinimizeBehavior = coordinator.adaptive && !coordinator.compact
-                ? .automatic
-                : .never
-        }
-        let targetTransform = CGAffineTransform(
-            scaleX: 1,
-            y: coordinator.compact ? 0.68 : 1
-        )
-        if let lastCompact = context.coordinator.lastCompact,
-           lastCompact != coordinator.compact {
-            UIView.animate(
-                withDuration: 0.22,
-                delay: 0,
-                options: [.beginFromCurrentState, .curveEaseInOut]
-            ) {
-                controller.tabBar.transform = targetTransform
-            }
-        } else {
-            controller.tabBar.transform = targetTransform
-        }
-        context.coordinator.lastCompact = coordinator.compact
+        tabBar.selectedItem = tabBar.items?.first { $0.tag == coordinator.selectedIndex }
     }
 
     private func systemImageName(for label: String) -> String {
@@ -316,16 +292,15 @@ private struct ConduitBottomTabBar: UIViewControllerRepresentable {
         }
     }
 
-    final class Delegate: NSObject, UITabBarControllerDelegate {
+    final class Delegate: NSObject, UITabBarDelegate {
         var owner: ConduitBottomNavigationCoordinator
-        var lastCompact: Bool?
 
         init(owner: ConduitBottomNavigationCoordinator) {
             self.owner = owner
         }
 
-        func tabBarController(_ tabBarController: UITabBarController, didSelect viewController: UIViewController) {
-            owner.select(viewController.tabBarItem.tag)
+        func tabBar(_ tabBar: UITabBar, didSelect item: UITabBarItem) {
+            owner.select(item.tag)
         }
     }
 }
