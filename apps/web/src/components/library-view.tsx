@@ -3,9 +3,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { AlertCircle, Check, ChevronDown, Film, Info, LoaderCircle, Play, Trash2 } from "lucide-react"
 import { api, type InstalledAddon, type LibraryItem, type WatchProgress } from "../lib/api"
 import { addonsForResource } from "../lib/addons"
-import { loadMeta, type CatalogItem } from "../lib/core"
+import { loadMeta, type CatalogItem, type MetaItem } from "../lib/core"
 import { posterCoverClass, posterTitleSlotClass } from "../lib/poster-layout"
+import { orderLibraryItems, type LibrarySort } from "../lib/library-order"
 import { useLibrary, useLibraryToggle } from "../lib/library"
+import { completionEpisodeIds } from "../lib/watch-status"
 import { PosterWatchStatus } from "./poster-watch-status"
 import { PosterActionMenu } from "./poster-action-menu"
 import { PaginationControls } from "./pagination-controls"
@@ -14,11 +16,10 @@ import { VirtualPosterGrid } from "./virtual-poster-grid"
 import { Card } from "./ui/card"
 
 type Filter = "all" | "movie" | "series"
-type Sort = "last-watched" | "added-desc" | "added-asc" | "title-asc" | "title-desc"
 
 interface DisplayItem {
   item: LibraryItem
-  catalogItem: CatalogItem
+  catalogItem: CatalogItem | MetaItem
   metadataAvailable: boolean
 }
 
@@ -34,7 +35,7 @@ export function LibraryView({
   onSelect: (item: CatalogItem) => void
 }) {
   const [filter, setFilter] = useState<Filter>("all")
-  const [sort, setSort] = useState<Sort>("last-watched")
+  const [sort, setSort] = useState<LibrarySort>("last-watched")
   const [page, setPage] = useState(0)
   const library = useLibrary(profileId)
   const progress = useQuery({
@@ -56,28 +57,47 @@ export function LibraryView({
     }
     return latest
   }, [progress.data])
-  const orderedItems = useMemo(() => {
-    const filtered = (library.data?.items ?? []).filter(
+  const filteredItems = useMemo(
+    () => (library.data?.items ?? []).filter(
       (item) => filter === "all" || item.type === filter,
-    )
-    return [...filtered].sort((a, b) => {
-      if (sort === "last-watched") {
-        const aProgress = latestProgress.get(`${a.type}:${a.id}`)
-        const bProgress = latestProgress.get(`${b.type}:${b.id}`)
-        if (aProgress && bProgress) {
-          const delta = Date.parse(bProgress.updatedAt) - Date.parse(aProgress.updatedAt)
-          if (delta) return delta
-        }
-        if (aProgress) return -1
-        if (bProgress) return 1
-        return Date.parse(b.createdAt) - Date.parse(a.createdAt)
-      }
-      if (sort === "title-asc") return a.name.localeCompare(b.name)
-      if (sort === "title-desc") return b.name.localeCompare(a.name)
-      const delta = Date.parse(a.createdAt) - Date.parse(b.createdAt)
-      return sort === "added-asc" ? delta : -delta
-    })
-  }, [filter, latestProgress, library.data?.items, sort])
+    ),
+    [filter, library.data?.items],
+  )
+  const statusSort = sort === "watched" || sort === "not-watched"
+  const statusMetadata = useQuery({
+    queryKey: [
+      "library-status-metadata",
+      profileId,
+      filteredItems
+        .filter((item) => item.type === "series")
+        .map((item) => `${item.type}:${item.id}:${item.updatedAt}`),
+      addons.map((addon) => [addon.id, addon.enabled]),
+    ],
+    enabled: statusSort && Boolean(library.data),
+    queryFn: () => resolveLibraryItems(
+      filteredItems.filter((item) => item.type === "series"),
+      addons,
+    ),
+  })
+  const statusMetadataByMedia = useMemo(
+    () => new Map((statusMetadata.data ?? []).map((entry) => [
+      `${entry.item.type}:${entry.item.id}`,
+      entry,
+    ])),
+    [statusMetadata.data],
+  )
+  const episodeIdsByMedia = useMemo(
+    () => new Map((statusMetadata.data ?? []).map(({ item, catalogItem }) => [
+      `${item.type}:${item.id}`,
+      completionEpisodeIds("videos" in catalogItem ? (catalogItem.videos ?? []) : []),
+    ])),
+    [statusMetadata.data],
+  )
+  const orderingReady = !statusSort || statusMetadata.isSuccess
+  const orderedItems = useMemo(() => {
+    if (!orderingReady) return []
+    return orderLibraryItems(filteredItems, progress.data ?? [], sort, episodeIdsByMedia)
+  }, [episodeIdsByMedia, filteredItems, orderingReady, progress.data, sort])
   const pageItems = orderedItems.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
   useEffect(() => setPage(0), [filter, sort])
 
@@ -87,26 +107,11 @@ export function LibraryView({
       profileId,
       pageItems.map((item) => `${item.type}:${item.id}:${item.updatedAt}`),
       addons.map((addon) => [addon.id, addon.enabled]),
+      statusMetadata.dataUpdatedAt,
     ],
-    enabled: Boolean(library.data),
-    queryFn: async (): Promise<DisplayItem[]> =>
-      Promise.all(
-        pageItems.map(async (item) => {
-          const candidates = addonsForResource(addons, "meta", item.type, item.id)
-          const attempts = await Promise.allSettled(
-            candidates.map((addon) => loadMeta(addon.manifestUrl, item.type, item.id)),
-          )
-          const match = attempts.find(
-            (result): result is PromiseFulfilledResult<Awaited<ReturnType<typeof loadMeta>>> =>
-              result.status === "fulfilled",
-          )
-          return {
-            item,
-            catalogItem: match?.value ?? item,
-            metadataAvailable: Boolean(match),
-          }
-        }),
-      ),
+    enabled: Boolean(library.data) && orderingReady,
+    queryFn: (): Promise<DisplayItem[]> =>
+      resolveLibraryItems(pageItems, addons, statusMetadataByMedia),
   })
   const items = resolved.data ?? []
 
@@ -123,7 +128,7 @@ export function LibraryView({
           label="Media type"
           value={filter}
           options={[
-            ["all", "Movies & series"],
+            ["all", "All types"],
             ["movie", "Movies"],
             ["series", "Series"],
           ]}
@@ -133,28 +138,28 @@ export function LibraryView({
           label="Sort library"
           value={sort}
           options={[
-            ["last-watched", "Last watched"],
-            ["added-desc", "Recently added"],
-            ["added-asc", "Oldest added"],
-            ["title-asc", "Title A–Z"],
-            ["title-desc", "Title Z–A"],
+            ["last-watched", "By last watched"],
+            ["name", "By name"],
+            ["name-desc", "By name descending"],
+            ["watched", "By watched"],
+            ["not-watched", "By not watched"],
           ]}
-          onChange={(value) => setSort(value as Sort)}
+          onChange={(value) => setSort(value as LibrarySort)}
         />
       </div>
 
-      {(library.isLoading || resolved.isLoading || progress.isLoading) && (
+      {(library.isLoading || resolved.isLoading || progress.isLoading || statusMetadata.isLoading) && (
         <div className="flex items-center justify-center gap-3 py-24 text-zinc-500">
           <LoaderCircle className="animate-spin text-amber-400" /> Loading your library…
         </div>
       )}
-      {(library.isError || resolved.isError || progress.isError) && (
+      {(library.isError || resolved.isError || progress.isError || statusMetadata.isError) && (
         <Card className="mt-8 border-red-900/70 bg-red-950/30 p-5 text-red-200">
           <AlertCircle className="mr-2 inline" size={18} />
-          {library.error?.message ?? resolved.error?.message}
+          {library.error?.message ?? resolved.error?.message ?? statusMetadata.error?.message}
         </Card>
       )}
-      {resolved.data && items.length === 0 && (
+      {orderingReady && resolved.data && items.length === 0 && (
         <Card className="mt-8 grid min-h-64 place-items-center border-dashed text-center">
           <div>
             <Film className="mx-auto text-zinc-700" size={34} />
@@ -332,4 +337,42 @@ function LibrarySelect({
       />
     </label>
   )
+}
+
+async function resolveLibraryItem(
+  item: LibraryItem,
+  addons: InstalledAddon[],
+): Promise<DisplayItem> {
+  const candidates = addonsForResource(addons, "meta", item.type, item.id)
+  const attempts = await Promise.allSettled(
+    candidates.map((addon) => loadMeta(addon.manifestUrl, item.type, item.id)),
+  )
+  const match = attempts.find(
+    (result): result is PromiseFulfilledResult<Awaited<ReturnType<typeof loadMeta>>> =>
+      result.status === "fulfilled",
+  )
+  return {
+    item,
+    catalogItem: match?.value ?? item,
+    metadataAvailable: Boolean(match),
+  }
+}
+
+async function resolveLibraryItems(
+  items: LibraryItem[],
+  addons: InstalledAddon[],
+  cached: ReadonlyMap<string, DisplayItem> = new Map(),
+): Promise<DisplayItem[]> {
+  const resolved: DisplayItem[] = []
+  let nextIndex = 0
+  const workers = Array.from({ length: Math.min(6, items.length) }, async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex++
+      const item = items[index]!
+      resolved[index] = cached.get(`${item.type}:${item.id}`) ??
+        await resolveLibraryItem(item, addons)
+    }
+  })
+  await Promise.all(workers)
+  return resolved
 }
