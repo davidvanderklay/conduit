@@ -702,6 +702,7 @@ private fun AppShell(
     var focusSearchOnOpen by remember(activeProfile?.id) { mutableStateOf(false) }
     var discoverSelection by remember(activeProfile?.id) { mutableStateOf(DiscoverSelection()) }
     var adaptiveCompact by remember { mutableStateOf(false) }
+    var isScrolling by remember { mutableStateOf(false) }
     var profileLaunchRequest by remember { mutableStateOf<ProfileLaunchRequest?>(null) }
     var profileLaunchSequence by remember { mutableIntStateOf(0) }
     fun openProfile(target: ProfileLaunchTarget) {
@@ -740,6 +741,22 @@ private fun AppShell(
                 else if (current < previous) adaptiveCompact = false
                 previous = current
             }
+    }
+    LaunchedEffect(state.destination, browseQuery) {
+        snapshotFlow {
+            when (state.destination) {
+                AppDestination.Home -> homeListState.isScrollInProgress
+                AppDestination.Search -> if (browseQuery.isBlank()) {
+                    discoverGridState.isScrollInProgress
+                } else {
+                    searchListState.isScrollInProgress
+                }
+                AppDestination.Library -> libraryGridState.isScrollInProgress
+                AppDestination.Profile -> settingsListState.isScrollInProgress
+                AppDestination.Calendar -> false
+                AppDestination.History -> historyGridState.isScrollInProgress
+            }
+        }.collect { isScrolling = it }
     }
     val selectMedia: (CatalogItem, String?) -> Unit = { item, videoId ->
         selectedMedia = item
@@ -905,6 +922,7 @@ private fun AppShell(
                 onOpenAddons = { openProfile(ProfileLaunchTarget.Addons) },
                 onOpenSettings = { openProfile(ProfileLaunchTarget.Settings) },
                 onSignOut = onSignOut,
+                scrolling = isScrolling,
                 modifier = Modifier.align(Alignment.TopCenter)
                     .then(if (expanded) Modifier.padding(start = 80.dp) else Modifier),
             )
@@ -1099,6 +1117,7 @@ private fun MainTopBar(
     onOpenAddons: () -> Unit,
     onOpenSettings: () -> Unit,
     onSignOut: () -> Unit,
+    scrolling: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val searchFocus = remember { FocusRequester() }
@@ -1115,6 +1134,9 @@ private fun MainTopBar(
             onSearchFocusConsumed()
         }
     }
+    val controlColor = if (scrolling) Color(0xB817171A) else Color(0xFF17171A)
+    val searchFocusedColor = if (scrolling) Color.Black.copy(alpha = .34f) else Color.Black
+    val searchUnfocusedColor = if (scrolling) Color.Black.copy(alpha = .28f) else Color.Black
     Row(
         modifier.statusBarsPadding().fillMaxWidth().padding(horizontal = 10.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -1122,7 +1144,7 @@ private fun MainTopBar(
     ) {
             Surface(
                 onClick = onOpenHome,
-                color = Color(0xB817171A),
+                color = controlColor,
                 contentColor = Color.White,
                 shape = RoundedCornerShape(17.dp),
                 border = BorderStroke(1.dp, Color.White.copy(alpha = .14f)),
@@ -1145,8 +1167,8 @@ private fun MainTopBar(
                 singleLine = true,
                 shape = RoundedCornerShape(18.dp),
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedContainerColor = Color.Black.copy(alpha = .34f),
-                    unfocusedContainerColor = Color.Black.copy(alpha = .28f),
+                    focusedContainerColor = searchFocusedColor,
+                    unfocusedContainerColor = searchUnfocusedColor,
                     focusedBorderColor = MaterialTheme.colorScheme.primary.copy(alpha = .7f),
                     unfocusedBorderColor = Color.White.copy(alpha = .1f),
                 ),
@@ -1156,7 +1178,7 @@ private fun MainTopBar(
                     onClick = { profileMenuOpen = true },
                     modifier = Modifier.size(52.dp),
                     shape = RoundedCornerShape(17.dp),
-                    color = Color(0xB817171A),
+                    color = controlColor,
                     contentColor = Color.White,
                     border = BorderStroke(1.dp, Color.White.copy(alpha = .14f)),
                     shadowElevation = 10.dp,
