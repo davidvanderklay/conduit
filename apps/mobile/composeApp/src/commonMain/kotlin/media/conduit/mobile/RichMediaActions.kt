@@ -247,8 +247,10 @@ internal fun MediaActionSheet(
     onDetails: (CatalogItem) -> Unit,
     onMutation: suspend (ProfileMutation) -> Result<Unit>,
 ) {
-    val active = target ?: return
+    // Keep mutation work owned by the screen-level sheet call, even after the
+    // active sheet is dismissed and its target is cleared.
     val scope = rememberCoroutineScope()
+    val active = target ?: return
     var removingHistory by remember(active.progress?.videoId) { mutableStateOf(false) }
     val saved = snapshot?.library.orEmpty().any { it.type == active.item.type && it.id == active.item.id }
     val progress = active.progress
