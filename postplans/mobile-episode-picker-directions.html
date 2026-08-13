@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mobile episode picker directions</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #000;
+      --surface: #101014;
+      --surface-2: #1b1b20;
+      --surface-3: #29292f;
+      --line: #36363d;
+      --text: #f5f5f7;
+      --muted: #a6a6ad;
+      --faint: #6f6f78;
+      --accent: #ffc52e;
+      --accent-dark: #5b4300;
+      --good: #93dfb0;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 15px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+    }
+    main { max-width: 1100px; margin: 0 auto; padding: 30px 20px 68px; }
+    h1, h2, h3 { line-height: 1.15; letter-spacing: -.02em; }
+    h1 { max-width: 820px; margin: 0 0 14px; font-size: clamp(30px, 5vw, 50px); }
+    h2 { margin: 38px 0 12px; font-size: 25px; }
+    h3 { margin: 18px 0 7px; font-size: 18px; }
+    p { margin: 9px 0; }
+    .eyebrow { color: var(--accent); font-size: 12px; letter-spacing: .11em; text-transform: uppercase; }
+    .lede { max-width: 820px; color: var(--muted); font-size: 18px; }
+    .recommendation { margin-top: 24px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 15px 0; color: var(--good); }
+    .section { margin-top: 35px; border-top: 1px solid var(--line); padding-top: 18px; }
+    .muted, .small { color: var(--muted); }
+    .small { font-size: 13px; }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+    .panel { min-width: 0; border: 1px solid var(--line); background: var(--surface); padding: 15px; }
+    .panel.recommended { border-color: var(--accent); }
+    .label { color: var(--accent); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
+    .tag { color: var(--good); margin-left: 7px; }
+    .decision { margin-top: 14px; border-left: 2px solid var(--accent); background: #17140b; padding: 10px 12px; }
+    .decision p { margin: 0; }
+    ol, ul { padding-left: 22px; }
+    li { margin: 7px 0; }
+    code { color: #ffe49a; font: .9em ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .measure { display: flex; flex-wrap: wrap; gap: 8px 14px; margin-top: 9px; color: var(--muted); font-size: 12px; }
+    .measure b { color: var(--text); font-weight: 600; }
+
+    .mock { margin-top: 14px; border: 1px solid #25252a; background: #070707; padding: 12px; }
+    .mock-caption { margin-bottom: 9px; color: var(--faint); font-size: 12px; }
+    .phone-frame { width: min(100%, 285px); margin: 0 auto; overflow: hidden; border: 1px solid #3b3b43; border-radius: 25px; background: #050505; box-shadow: 0 16px 28px rgba(0,0,0,.55); }
+    .phone-status { display: flex; justify-content: space-between; padding: 9px 14px 6px; color: #e8e8eb; font-size: 9px; }
+    .app-header { display: flex; align-items: center; gap: 9px; border-bottom: 1px solid #25252a; padding: 11px 12px; }
+    .app-header .back { width: 26px; height: 26px; display: grid; place-items: center; border-radius: 50%; background: #17171a; color: white; font-size: 18px; }
+    .app-header-copy { min-width: 0; flex: 1; }
+    .app-header-copy b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+    .app-header-copy span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--faint); font-size: 9px; }
+    .app-header .close { color: var(--muted); font-size: 19px; }
+    .source-background { min-height: 195px; padding: 34px 13px 12px; background: linear-gradient(145deg, #15120d, #030303 62%); }
+    .source-background h4 { margin: 0 0 4px; font-size: 19px; }
+    .source-background p { margin: 0; color: var(--muted); font-size: 11px; }
+    .source-actions { display: flex; gap: 6px; margin-top: 28px; }
+    .source-actions span, .mode span { border: 1px solid #3a3a42; border-radius: 8px; padding: 6px 8px; color: var(--muted); font-size: 9px; }
+    .source-actions span.active, .mode span.active { border-color: var(--accent); background: var(--accent-dark); color: #fff0b3; }
+    .source-empty { margin-top: 14px; color: var(--faint); font-size: 11px; }
+    .modal-backdrop { min-height: 385px; padding: 14px 10px; background: rgba(0,0,0,.84); }
+    .modal { overflow: hidden; border: 1px solid #3c3c44; border-radius: 22px; background: var(--surface); box-shadow: 0 18px 38px rgba(0,0,0,.65); }
+    .modal-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 15px 14px 11px; }
+    .modal-header b { font-size: 22px; }
+    .modal-header span { color: var(--muted); font-size: 21px; }
+    .seasons { display: flex; gap: 7px; overflow: hidden; padding: 0 14px 12px; }
+    .seasons span { flex: 0 0 auto; border: 1px solid #4a4a52; border-radius: 9px; padding: 7px 11px; color: var(--muted); font-size: 10px; }
+    .seasons span.active { border-color: var(--accent); background: var(--accent-dark); color: #fff0b3; }
+    .episode-list { display: grid; gap: 7px; max-height: 275px; overflow: hidden; padding: 0 10px 12px; }
+    .episode { display: grid; grid-template-columns: 91px minmax(0, 1fr); gap: 10px; align-items: center; border: 1px solid transparent; border-radius: 14px; background: var(--surface-2); padding: 8px; }
+    .episode.selected { border-color: var(--accent); background: #302817; }
+    .thumb { height: 54px; border-radius: 9px; background: linear-gradient(135deg, #765b36, #1e1810 65%, #070707); }
+    .thumb.two { background: linear-gradient(135deg, #9b6442, #2c1713 65%, #090909); }
+    .thumb.three { background: linear-gradient(135deg, #315b73, #101e25 65%, #070707); }
+    .thumb.four { background: linear-gradient(135deg, #8e7a4d, #2a251b 65%, #070707); }
+    .episode-copy { min-width: 0; }
+    .episode-copy b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+    .episode-copy span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 9px; }
+    .episode-copy small { display: block; margin-top: 4px; color: var(--faint); font-size: 8px; }
+    .drawer-scene { min-height: 385px; overflow: hidden; position: relative; background: linear-gradient(145deg, #15120d, #030303 62%); }
+    .drawer-scene .under-copy { padding: 50px 15px; }
+    .drawer-scene .under-copy h4 { margin: 0 0 4px; font-size: 19px; }
+    .drawer-scene .under-copy p { margin: 0; color: var(--muted); font-size: 11px; }
+    .tablet-drawer { position: absolute; top: 0; right: 0; bottom: 0; width: 63%; border-left: 1px solid #414149; background: #16161b; padding: 15px 12px; }
+    .tablet-drawer .modal-header { padding: 0 2px 11px; }
+    .tablet-drawer .modal-header b { font-size: 18px; }
+    .tablet-drawer .episode-list { max-height: 330px; padding: 0 0 12px; }
+    .tablet-drawer .episode { grid-template-columns: 90px minmax(0, 1fr); }
+    .mode { display: flex; gap: 7px; padding: 11px 14px; border-bottom: 1px solid #28282e; }
+    .mode span { flex: 1; text-align: center; }
+    .mode-content { padding: 12px; }
+    .mode-content .episode { grid-template-columns: 82px minmax(0, 1fr); margin-bottom: 7px; }
+    .footer-note { margin-top: 10px; color: var(--faint); font-size: 11px; }
+    @media (max-width: 760px) {
+      main { padding: 24px 14px 50px; }
+      .grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="eyebrow">Conduit · mobile stream selection · UI directions</div>
+    <h1>Make Episodes a real phone surface</h1>
+    <p class="lede">The current half-width drawer is too narrow for episode titles and thumbnails. The desktop web flow keeps its existing back-to-episodes control. These two directions only decide how the mobile app should expose episodes from stream selection.</p>
+    <div class="recommendation"><strong>Recommendation:</strong> choose A. Use a fullscreen episode modal on phones, and preserve a wider side drawer only on tablet-sized layouts. It fixes the screenshot problem without forcing phones into a cramped desktop composition.</div>
+
+    <section class="section">
+      <h2>What changes</h2>
+      <ul>
+        <li>Web and desktop: remove the new Episodes button. Keep the existing Back to series episodes control.</li>
+        <li>Mobile phone: Episodes opens a fullscreen modal with a clear title, season row, wide episode cards, and a close action.</li>
+        <li>Tablet: the same content can use a side drawer because there is enough width for readable copy and artwork.</li>
+        <li>Stream selection remains underneath. Selecting an episode closes the episode surface and loads sources for that episode.</li>
+      </ul>
+    </section>
+
+    <section class="section">
+      <h2>Mobile directions</h2>
+      <div class="grid">
+        <article class="panel recommended">
+          <div class="label">A · recommended <span class="tag">phone modal, tablet drawer</span></div>
+          <h3>Responsive episode surface</h3>
+          <p class="small">The interaction is the same across mobile sizes, but the container adapts to the available width. Phones get a readable fullscreen list. Tablets get the efficient drawer treatment.</p>
+          <div class="mock">
+            <div class="mock-caption">Phone · fullscreen modal</div>
+            <div class="phone-frame">
+              <div class="phone-status"><span>5:44</span><span>Wi-Fi · 96%</span></div>
+              <div class="app-header"><div class="back">‹</div><div class="app-header-copy"><b>Choose a stream</b><span>House of the Dragon · S1 E1</span></div><div class="close">×</div></div>
+              <div class="source-background"><h4>Choose a stream</h4><p>House of the Dragon · S1 E1</p><div class="source-actions"><span class="active">↻</span><span class="active">All</span><span>AIOStr...</span></div><div class="source-empty">No streams were returned.</div></div>
+              <div class="modal-backdrop">
+                <div class="modal">
+                  <div class="modal-header"><b>Episodes</b><span>×</span></div>
+                  <div class="seasons"><span class="active">Specials</span><span>Season 1</span><span>Season 2</span></div>
+                  <div class="episode-list">
+                    <div class="episode selected"><div class="thumb"></div><div class="episode-copy"><b>S1 E1 · The Heirs of the Dragon</b><span>Current episode</span><small>18 min remaining</small></div></div>
+                    <div class="episode"><div class="thumb two"></div><div class="episode-copy"><b>S1 E2 · The Rogue Prince</b><span>Not watched</span></div></div>
+                    <div class="episode"><div class="thumb three"></div><div class="episode-copy"><b>S1 E3 · Second of His Name</b><span>Not watched</span></div></div>
+                    <div class="episode"><div class="thumb four"></div><div class="episode-copy"><b>S1 E4 · King of the Narrow Sea</b><span>Not watched</span></div></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="measure"><span><b>Phone</b> fullscreen</span><span><b>Tablet</b> side drawer</span><span><b>Wide cards</b> readable titles</span></div>
+        </article>
+
+        <article class="panel">
+          <div class="label">B · option B</div>
+          <h3>Full-screen mode switch</h3>
+          <p class="small">Episodes becomes a full-screen page with a Sources / Episodes switch at the top. It is simple and predictable, but it hides the stream list while browsing episodes.</p>
+          <div class="mock">
+            <div class="mock-caption">Phone · Episodes mode</div>
+            <div class="phone-frame">
+              <div class="phone-status"><span>5:44</span><span>Wi-Fi · 96%</span></div>
+              <div class="app-header"><div class="back">‹</div><div class="app-header-copy"><b>House of the Dragon</b><span>Stream selection</span></div><div class="close">×</div></div>
+              <div class="mode"><span>Sources</span><span class="active">Episodes</span></div>
+              <div class="mode-content">
+                <div class="seasons" style="padding:0 0 12px"><span class="active">Season 1</span><span>Season 2</span></div>
+                <div class="episode selected"><div class="thumb"></div><div class="episode-copy"><b>S1 E1 · The Heirs of the Dragon</b><span>Current episode</span><small>18 min remaining</small></div></div>
+                <div class="episode"><div class="thumb two"></div><div class="episode-copy"><b>S1 E2 · The Rogue Prince</b><span>Not watched</span></div></div>
+                <div class="episode"><div class="thumb three"></div><div class="episode-copy"><b>S1 E3 · Second of His Name</b><span>Not watched</span></div></div>
+                <div class="episode"><div class="thumb four"></div><div class="episode-copy"><b>S1 E4 · King of the Narrow Sea</b><span>Not watched</span></div></div>
+              </div>
+            </div>
+          </div>
+          <div class="measure"><span><b>Phone</b> fullscreen</span><span><b>Simple</b> mental model</span><span><b>Sources</b> hidden in Episodes mode</span></div>
+        </article>
+      </div>
+      <div class="decision"><p><strong>Pick:</strong> A preserves the useful drawer behavior where it works, while making the phone experience deliberately full-screen. B is the fallback if you want the exact same layout at every mobile size.</p></div>
+    </section>
+
+    <section class="section">
+      <h2>Tablet treatment for A</h2>
+      <div class="panel">
+        <p class="muted">At tablet widths, the drawer can be wider than the current 52% layout and use two clear columns: a 110 to 140dp thumbnail and the episode title/details. The drawer should never squeeze the copy below a readable minimum.</p>
+        <div class="mock">
+          <div class="mock-caption">Tablet · sources remain visible behind the episode drawer</div>
+          <div class="drawer-scene">
+            <div class="under-copy"><h4>Choose a stream</h4><p>House of the Dragon · S1 E1</p><div class="source-actions"><span class="active">↻</span><span class="active">All</span><span>Provider</span></div><div class="source-empty">No streams were returned.</div></div>
+            <div class="tablet-drawer">
+              <div class="modal-header"><b>Episodes</b><span>×</span></div>
+              <div class="seasons"><span class="active">Season 1</span><span>Season 2</span></div>
+              <div class="episode-list">
+                <div class="episode selected"><div class="thumb"></div><div class="episode-copy"><b>S1 E1 · The Heirs of the Dragon</b><span>Current episode</span></div></div>
+                <div class="episode"><div class="thumb two"></div><div class="episode-copy"><b>S1 E2 · The Rogue Prince</b><span>Not watched</span></div></div>
+                <div class="episode"><div class="thumb three"></div><div class="episode-copy"><b>S1 E3 · Second of His Name</b><span>Not watched</span></div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Acceptance checks</h2>
+      <ul>
+        <li>On a phone, no episode title wraps into a one-character column.</li>
+        <li>Opening and closing Episodes does not change the selected episode or source state.</li>
+        <li>Selecting an episode closes the modal or drawer and requests sources for that video ID.</li>
+        <li>System Back closes the episode surface first, then follows the existing stream-selection Back behavior.</li>
+        <li>Web and desktop do not show a duplicate Episodes action.</li>
+        <li>Tablet layouts preserve enough room for thumbnail, episode title, and progress text.</li>
+      </ul>
+    </section>
+  </main>
+</body>
+</html>

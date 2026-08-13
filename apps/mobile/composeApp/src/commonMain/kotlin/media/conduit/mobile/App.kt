@@ -720,6 +720,7 @@ private fun AppShell(
         }
     }
     var selectedMedia by remember { mutableStateOf<CatalogItem?>(null) }
+    var selectedMediaFromContinueWatching by remember { mutableStateOf(false) }
     var profileFlowActive by remember { mutableStateOf(false) }
     var selectedVideoId by remember { mutableStateOf<String?>(null) }
     val homeListState = rememberLazyListState()
@@ -774,6 +775,7 @@ private fun AppShell(
     val selectMedia: (CatalogItem, String?) -> Unit = { item, videoId ->
         selectedMedia = item
         selectedVideoId = videoId
+        selectedMediaFromContinueWatching = false
     }
     BoxWithConstraints(Modifier.fillMaxSize()) {
         // A rotated phone can be wider than 720dp while still having very little
@@ -839,6 +841,15 @@ private fun AppShell(
                 appScope.launch { snackbarHostState.showSnackbar("Touch and hold a title for more options") }
             }
         }
+        val openContinueWatching: (CatalogItem, String?) -> Unit = { item, videoId ->
+            selectedMedia = item
+            selectedVideoId = videoId
+            selectedMediaFromContinueWatching = true
+            if (!state.richActionsHintShown) {
+                dispatch(AppAction.RichActionsHintShown)
+                appScope.launch { snackbarHostState.showSnackbar("Touch and hold a title for more options") }
+            }
+        }
         val openBrowse: (MobileBrowseTarget) -> Unit = { target ->
             when (target) {
                 is MobileBrowseTarget.Discover -> {
@@ -852,12 +863,14 @@ private fun AppShell(
                 }
             }
             selectedMedia = null
+            selectedMediaFromContinueWatching = false
             dispatch(AppAction.Navigate(AppDestination.Search))
         }
         val openSearch: () -> Unit = {
             browseQuery = ""
             focusSearchOnOpen = true
             selectedMedia = null
+            selectedMediaFromContinueWatching = false
             dispatch(AppAction.Navigate(AppDestination.Search))
         }
         val navigateMain: (AppDestination) -> Unit = { destination ->
@@ -896,7 +909,8 @@ private fun AppShell(
                     Box(Modifier.weight(1f)) {
                         DestinationContent(
                             state, platform, account, activeProfile, profileSync, api, selectedMedia,
-                            selectedVideoId, openMedia, { selectedMedia = null }, dispatch, onSignOut, onProfilesChanged,
+                            selectedVideoId, selectedMediaFromContinueWatching, openMedia, openContinueWatching,
+                            { selectedMedia = null; selectedMediaFromContinueWatching = false }, dispatch, onSignOut, onProfilesChanged,
                             { profileFlowActive = it },
                             { activeProfile?.let { profile -> appScope.launch { profileSync = syncRepository.synchronize(state.endpoint!!.baseUrl, account.session.token, profile.id) } } },
                             onPlaybackProgressChanged,
@@ -912,7 +926,8 @@ private fun AppShell(
             } else {
                 DestinationContent(
                     state, platform, account, activeProfile, profileSync, api, selectedMedia,
-                    selectedVideoId, openMedia, { selectedMedia = null }, dispatch, onSignOut, onProfilesChanged,
+                    selectedVideoId, selectedMediaFromContinueWatching, openMedia, openContinueWatching,
+                    { selectedMedia = null; selectedMediaFromContinueWatching = false }, dispatch, onSignOut, onProfilesChanged,
                     { profileFlowActive = it },
                     { activeProfile?.let { profile -> appScope.launch { profileSync = syncRepository.synchronize(state.endpoint!!.baseUrl, account.session.token, profile.id) } } },
                     onPlaybackProgressChanged,
@@ -1051,7 +1066,9 @@ private fun DestinationContent(
     api: ConduitApi,
     selectedMedia: CatalogItem?,
     selectedVideoId: String?,
+    selectedMediaFromContinueWatching: Boolean,
     onSelectMedia: (CatalogItem, String?) -> Unit,
+    onSelectContinueWatching: (CatalogItem, String?) -> Unit,
     onCloseMedia: () -> Unit,
     dispatch: (AppAction) -> Unit,
     onSignOut: () -> Unit,
@@ -1087,7 +1104,7 @@ private fun DestinationContent(
             val tabModifier = if (active) Modifier.fillMaxSize() else Modifier.size(0.dp)
             when (destination) {
                 AppDestination.Home -> HomeScreen(
-                    profileSync, api, onSelectMedia, onProfileMutation,
+                    profileSync, api, onSelectMedia, onSelectContinueWatching, onProfileMutation,
                     onOpenHistory = { dispatch(AppAction.Navigate(AppDestination.History)) },
                     onOpenDiscover = { onBrowse(MobileBrowseTarget.Discover(it)) },
                     listState = homeListState, cache = homeCache, modifier = tabModifier,
@@ -1133,6 +1150,7 @@ private fun DestinationContent(
             MediaDetailsScreen(
                 item = selectedMedia,
                 initialVideoId = selectedVideoId,
+                returnToHomeOnStreamBack = selectedMediaFromContinueWatching,
                 addons = profileSync.snapshot?.addons.orEmpty(),
                 api = api,
                 profile = activeProfile,
