@@ -62,6 +62,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChanged
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.unit.dp
@@ -78,6 +79,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlin.math.abs
 import kotlin.math.roundToInt
+import kotlin.math.sqrt
 import coil3.compose.AsyncImage
 
 @Composable
@@ -1145,6 +1147,8 @@ private fun BoxScope.PlaybackSessionHost(
     var miniWidthDp by remember(request.identity, request.url, expanded) {
         mutableFloatStateOf(if (expanded) 320f else 220f)
     }
+    var miniDockedLeft by remember(request.identity, request.url) { mutableStateOf(false) }
+    var miniDockedTop by remember(request.identity, request.url) { mutableStateOf(false) }
     var miniGestureActive by remember(request.identity, request.url) { mutableStateOf(false) }
     var containerSize by remember { mutableStateOf(IntSize.Zero) }
     var miniSize by remember { mutableStateOf(IntSize.Zero) }
@@ -1167,7 +1171,7 @@ private fun BoxScope.PlaybackSessionHost(
     }
 
     Box(Modifier.fillMaxSize().onSizeChanged { containerSize = it }) {
-        val miniBottomPadding = if (bottomNavigationVisible) 82.dp else 12.dp
+        val miniBottomPadding = if (bottomNavigationVisible) 98.dp else 12.dp
         val renderedMiniOffset = if (miniGestureActive) miniOffset else animatedMiniOffset
         val miniLayout = Modifier
             .align(Alignment.BottomEnd)
@@ -1322,11 +1326,20 @@ private fun BoxScope.PlaybackSessionHost(
             val currentVerticalLimit by rememberUpdatedState(verticalLimit)
             val currentMinimumWidthDp by rememberUpdatedState(minimumWidthDp)
             val currentMaximumWidthDp by rememberUpdatedState(maximumWidthDp)
-            LaunchedEffect(horizontalLimit, verticalLimit) {
-                miniOffset = IntOffset(
-                    miniOffset.x.coerceIn(-horizontalLimit, 0),
-                    miniOffset.y.coerceIn(-verticalLimit, 0),
-                )
+            val minimumFlingSpeedPx = with(density) { 650.dp.toPx() }
+            val currentMinimumFlingSpeedPx by rememberUpdatedState(minimumFlingSpeedPx)
+            LaunchedEffect(horizontalLimit, verticalLimit, miniGestureActive) {
+                miniOffset = if (miniGestureActive) {
+                    IntOffset(
+                        miniOffset.x.coerceIn(-horizontalLimit, 0),
+                        miniOffset.y.coerceIn(-verticalLimit, 0),
+                    )
+                } else {
+                    IntOffset(
+                        x = if (miniDockedLeft) -horizontalLimit else 0,
+                        y = if (miniDockedTop) -verticalLimit else 0,
+                    )
+                }
             }
             Box(
                 miniLayout
@@ -1334,7 +1347,9 @@ private fun BoxScope.PlaybackSessionHost(
                     .onSizeChanged { miniSize = it }
                     .pointerInput(request.identity, containerSize) {
                         awaitEachGesture {
-                            awaitFirstDown(requireUnconsumed = false)
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            val velocityTracker = VelocityTracker()
+                            velocityTracker.addPosition(down.uptimeMillis, down.position)
                             miniGestureActive = true
                             do {
                                 val event = awaitPointerEvent()
@@ -1350,22 +1365,28 @@ private fun BoxScope.PlaybackSessionHost(
                                     y = (miniOffset.y + pan.y.roundToInt())
                                         .coerceIn(-currentVerticalLimit, 0),
                                 )
+                                event.changes.firstOrNull { it.id == down.id }?.let { change ->
+                                    velocityTracker.addPosition(change.uptimeMillis, change.position)
+                                }
                                 event.changes.forEach { change ->
                                     if (change.positionChanged()) change.consume()
                                 }
                             } while (event.changes.any { it.pressed })
+                            val velocity = velocityTracker.calculateVelocity()
+                            val speed = sqrt(velocity.x * velocity.x + velocity.y * velocity.y)
+                            if (speed >= currentMinimumFlingSpeedPx) {
+                                val directionalThreshold = speed * .35f
+                                if (abs(velocity.x) >= directionalThreshold) {
+                                    miniDockedLeft = velocity.x < 0f
+                                }
+                                if (abs(velocity.y) >= directionalThreshold) {
+                                    miniDockedTop = velocity.y < 0f
+                                }
+                            }
                             miniGestureActive = false
                             miniOffset = IntOffset(
-                                x = if (miniOffset.x < -currentHorizontalLimit / 2) {
-                                    -currentHorizontalLimit
-                                } else {
-                                    0
-                                },
-                                y = if (miniOffset.y < -currentVerticalLimit / 2) {
-                                    -currentVerticalLimit
-                                } else {
-                                    0
-                                },
+                                x = if (miniDockedLeft) -currentHorizontalLimit else 0,
+                                y = if (miniDockedTop) -currentVerticalLimit else 0,
                             )
                         }
                     }

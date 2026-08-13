@@ -869,6 +869,7 @@ internal fun MediaDetailsScreen(
     val ownsPlayback = requestIdentity != null && playbackSession.state.request?.identity == requestIdentity
     PlayerOrientationLock(
         active = waitingForSavedPlayback ||
+            (playing != null && !ownsPlayback) ||
             (ownsPlayback && playbackSession.state.presentation == PlaybackPresentation.FullScreen),
     )
     PlatformBackHandler {

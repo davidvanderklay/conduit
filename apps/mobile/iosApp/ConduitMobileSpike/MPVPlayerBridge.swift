@@ -878,7 +878,12 @@ final class ConduitMPVPlayerViewController: UIViewController {
     }
 
     private func layoutMetalLayer() {
-        let bounds = CGRect(origin: .zero, size: externallyManagedViewSize ?? view.bounds.size)
+        // The Compose size callback is expressed through Compose density, which
+        // can differ slightly from UIKit's native pixel scale. Using it for the
+        // Metal drawable can therefore make MPV's render target a few pixels
+        // larger than the CAMetalDrawable attachment during interactive resize.
+        // UIKit's bounds are the authoritative dimensions of the embedded view.
+        let bounds = CGRect(origin: .zero, size: view.bounds.size)
         guard bounds.width > 1, bounds.height > 1 else { return }
         let scale = view.window?.screen.nativeScale ?? UIScreen.main.nativeScale
         let size = CGSize(
