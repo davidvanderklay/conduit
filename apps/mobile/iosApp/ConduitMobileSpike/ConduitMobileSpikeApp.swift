@@ -207,20 +207,24 @@ private struct ConduitRootView: View {
 
     var body: some View {
         GeometryReader { geometry in
+            let floatingBottomInset = max(geometry.safeAreaInsets.bottom - 16, 8)
             ZStack(alignment: .bottom) {
                 Color.black.ignoresSafeArea()
                 ComposeView().ignoresSafeArea()
 
-                if bottomNavigation.visible {
+                if !bottomNavigation.labels.isEmpty {
                     ConduitBottomTabBar(coordinator: bottomNavigation)
                         .frame(
                             width: bottomNavigation.classic
                                 ? geometry.size.width
-                                : geometry.size.width - (bottomNavigation.compact ? 128 : 28)
+                                : geometry.size.width - 48
                         )
-                        .frame(height: bottomNavigation.compact ? 60 : 80)
-                        .padding(.bottom, geometry.safeAreaInsets.bottom)
-                        .animation(.easeInOut(duration: 0.22), value: bottomNavigation.compact)
+                        .frame(height: 88)
+                        .padding(.bottom, bottomNavigation.classic ? geometry.safeAreaInsets.bottom : floatingBottomInset)
+                        .offset(y: bottomNavigation.visible ? 0 : 120)
+                        .opacity(bottomNavigation.visible ? 1 : 0)
+                        .allowsHitTesting(bottomNavigation.visible)
+                        .animation(.easeInOut(duration: 0.22), value: bottomNavigation.visible)
                 }
             }
             .ignoresSafeArea()
@@ -236,9 +240,7 @@ final class ConduitBottomNavigationCoordinator: NSObject, ObservableObject, IosB
     @Published private(set) var visible = false
     @Published private(set) var selectedIndex: Int = 0
     @Published private(set) var labels: [String] = []
-    @Published private(set) var compact = false
     @Published private(set) var classic = false
-    @Published private(set) var adaptive = false
     private var selectionHandler: IosBottomNavigationSelectionHandler?
 
     private override init() {}
@@ -247,9 +249,7 @@ final class ConduitBottomNavigationCoordinator: NSObject, ObservableObject, IosB
         visible: Bool,
         selectedIndex: Int32,
         labels: [String],
-        compact: Bool,
         classic: Bool,
-        adaptive: Bool,
         selectionHandler: IosBottomNavigationSelectionHandler?
     ) {
         let apply = { [weak self] in
@@ -257,16 +257,12 @@ final class ConduitBottomNavigationCoordinator: NSObject, ObservableObject, IosB
             guard self.visible != visible ||
                 self.selectedIndex != Int(selectedIndex) ||
                 self.labels != labels ||
-                self.compact != compact ||
-                self.classic != classic ||
-                self.adaptive != adaptive
+                self.classic != classic
             else { return }
             self.visible = visible
             self.selectedIndex = Int(selectedIndex)
             self.labels = labels
-            self.compact = compact
             self.classic = classic
-            self.adaptive = adaptive
             self.selectionHandler = selectionHandler
         }
         if Thread.isMainThread { apply() } else { DispatchQueue.main.async(execute: apply) }
@@ -292,7 +288,7 @@ private struct ConduitBottomTabBar: UIViewRepresentable {
         tabBar.backgroundColor = .clear
         tabBar.isOpaque = false
         tabBar.itemPositioning = .fill
-        tabBar.layoutMargins = UIEdgeInsets(top: 6, left: 8, bottom: 6, right: 8)
+        tabBar.layoutMargins = UIEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
         return ConduitTabBarContainer(tabBar: tabBar)
     }
 
@@ -300,19 +296,19 @@ private struct ConduitBottomTabBar: UIViewRepresentable {
         context.coordinator.owner = coordinator
         let tabBar = container.tabBar
         tabBar.layoutMargins = UIEdgeInsets(
-            top: 6,
+            top: 8,
             left: 8,
-            bottom: 6,
+            bottom: 8,
             right: 8
         )
         let symbolConfiguration = UIImage.SymbolConfiguration(
-            pointSize: 21,
+            pointSize: 22,
             weight: .regular,
             scale: .medium
         )
         let items = coordinator.labels.enumerated().map { index, label in
             UITabBarItem(
-                title: coordinator.compact ? nil : label,
+                title: label,
                 image: UIImage(
                     systemName: systemImageName(for: label),
                     withConfiguration: symbolConfiguration

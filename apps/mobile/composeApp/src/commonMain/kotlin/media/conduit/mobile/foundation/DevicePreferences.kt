@@ -1,9 +1,9 @@
 package media.conduit.mobile.foundation
 
 enum class NavigationStyle(val label: String, val description: String) {
-    Adaptive("Adaptive", "Compact on phones and expanded on larger screens"),
+    Adaptive("Adaptive", "Hide the full bar while scrolling on iOS; compact on Android phones"),
     Expanded("Always expanded", "Keep labels and the larger navigation treatment"),
-    Compact("Always compact", "Use the smallest navigation treatment"),
+    Compact("Always compact", "Use the smallest navigation treatment on Android"),
     Classic("Classic", "Use a conventional full-width bottom bar"),
 }
 
@@ -26,6 +26,13 @@ data class DevicePreferences(
     val rememberLastProfile: Boolean = true,
     val debugLogging: Boolean = false,
 )
+
+fun DevicePreferences.normalizedForPlatform(platformName: String): DevicePreferences =
+    if (platformName.equals("iOS", ignoreCase = true) && navigationStyle == NavigationStyle.Compact) {
+        copy(navigationStyle = NavigationStyle.Adaptive)
+    } else {
+        this
+    }
 
 class DevicePreferencesRepository(private val store: SettingsStore) {
     private val prefix = "preferences.v1."
