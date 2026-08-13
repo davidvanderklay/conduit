@@ -848,8 +848,8 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
         videoTitle: String?, season: Int?, episode: Int?, positionMs: Long, durationMs: Long,
         playbackSource: PlaybackSource? = null,
         watched: Boolean? = null,
-    ) {
-        if (durationMs < 0) return
+    ): ProgressSummary? {
+        if (durationMs < 0) return null
         val response = client.put("$baseUrl/v1/profiles/$profileId/progress/${videoId.encodeURLPathPart()}") {
             bearerAuth(token); contentType(ContentType.Application.Json); setBody(buildJsonObject {
                 put("mediaType", mediaType); put("mediaId", mediaId); put("name", name)
@@ -861,6 +861,8 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
             })
         }
         if (!response.status.isSuccess()) throw ServerRequestException("Unable to save playback progress", response.status.value)
+        return response.body<ProgressItemResponse>().item
+            ?: throw ServerRequestException("The server did not return playback progress")
     }
 
     suspend fun loadHomeCatalogs(addons: List<InstalledAddonSummary>): HomeCatalogResult = coroutineScope {

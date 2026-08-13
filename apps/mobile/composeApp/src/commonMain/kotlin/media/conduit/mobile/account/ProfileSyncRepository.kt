@@ -11,6 +11,22 @@ data class ProfileSyncState(
     val error: String? = null,
 )
 
+internal fun ProfileSnapshot.withProgressUpdate(update: ProgressSummary): ProfileSnapshot {
+    fun merge(items: List<ProgressSummary>): List<ProgressSummary> =
+        (listOf(update) + items.filterNot { it.videoId == update.videoId })
+            .sortedByDescending(ProgressSummary::updatedAt)
+
+    return copy(
+        progress = merge(this.progress),
+        history = merge(history),
+        continueWatching = if (update.continueWatching && !update.dismissed) {
+            merge(continueWatching)
+        } else {
+            continueWatching.filterNot { it.videoId == update.videoId }
+        },
+    )
+}
+
 class ProfileSyncRepository(
     private val api: ConduitApi,
     private val secureStore: SecureStore,

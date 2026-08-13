@@ -5,6 +5,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import media.conduit.mobile.account.PlaybackSource
 import media.conduit.mobile.account.SubtitleItem
@@ -80,11 +81,19 @@ class PlaybackSessionCallbacks(
 class PlaybackSessionController(
     private val scope: CoroutineScope,
 ) {
+    private data class PendingPersistence(
+        val request: PlaybackRequest,
+        val playback: PlaybackState,
+        val callback: suspend (PlaybackRequest, PlaybackState) -> Unit,
+    )
+
     var state by mutableStateOf(PlaybackSessionState())
         private set
 
     private var callbacks: PlaybackSessionCallbacks? = null
     private var commandSequence = 0L
+    private var pendingPersistence: PendingPersistence? = null
+    private var persistenceJob: Job? = null
 
     fun start(request: PlaybackRequest, callbacks: PlaybackSessionCallbacks) {
         val current = state.request
@@ -137,7 +146,10 @@ class PlaybackSessionController(
         if (state.request == null) return
         val wasInPip = state.presentation == PlaybackPresentation.SystemPip
         when {
-            active && !wasInPip -> state = state.copy(presentation = PlaybackPresentation.SystemPip)
+            active && !wasInPip -> {
+                persist()
+                state = state.copy(presentation = PlaybackPresentation.SystemPip)
+            }
             !active && wasInPip -> {
                 state = state.copy(presentation = PlaybackPresentation.FullScreen)
                 persist()
@@ -164,7 +176,25 @@ class PlaybackSessionController(
         val request = state.request ?: return
         val playback = state.playback
         val callback = callbacks?.persist ?: return
-        scope.launch { runCatching { callback(request, playback) } }
+        pendingPersistence = PendingPersistence(request, playback, callback)
+        if (persistenceJob?.isActive != true) {
+            persistenceJob = scope.launch { drainPersistence() }
+        }
+    }
+
+    suspend fun flush() {
+        persist()
+        persistenceJob?.join()
+    }
+
+    private suspend fun drainPersistence() {
+        while (true) {
+            val next = pendingPersistence ?: break
+            pendingPersistence = null
+            runCatching { next.callback(next.request, next.playback) }
+        }
+        persistenceJob = null
+        if (pendingPersistence != null) persist()
     }
 
     fun playNext() {
@@ -218,4 +248,10 @@ fun clampPipAspectRatio(width: Int, height: Int): Pair<Int, Int> {
         ratio < 1.0 / 2.39 -> 100 to 239
         else -> safeWidth to safeHeight
     }
+}
+
+fun playbackAspectRatio(width: Int, height: Int): Float {
+    if (width <= 0 || height <= 0) return 16f / 9f
+    val (safeWidth, safeHeight) = clampPipAspectRatio(width, height)
+    return safeWidth.toFloat() / safeHeight.toFloat()
 }

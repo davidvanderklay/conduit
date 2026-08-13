@@ -68,6 +68,12 @@ internal fun latestUnfinishedProgress(
     }
     .maxByOrNull(ProgressSummary::updatedAt)
 
+internal fun effectiveResumeVideoId(
+    explicitVideoId: String?,
+    progress: List<ProgressSummary>,
+    item: CatalogItem,
+): String? = explicitVideoId ?: latestUnfinishedProgress(progress, item)?.videoId
+
 internal fun detailsPlayLabel(
     item: CatalogItem,
     progress: ProgressSummary?,

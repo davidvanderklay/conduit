@@ -67,6 +67,15 @@ class WatchStatusTest {
         assertEquals("Play", detailsPlayLabel(movie, null, null))
     }
 
+    @Test
+    fun explicitHistoryEpisodeWinsAndMissingEpisodeFallsBackToLatestUnfinished() {
+        val series = CatalogItem("show", "series", "Show")
+        val unfinished = progress("s1e2", "show", position = 30_000)
+
+        assertEquals("s1e3", effectiveResumeVideoId("s1e3", listOf(unfinished), series))
+        assertEquals("s1e2", effectiveResumeVideoId(null, listOf(unfinished), series))
+    }
+
     private fun progress(videoId: String, mediaId: String, watched: Boolean = false, position: Long = 0, type: String = "series") =
         ProgressSummary(videoId, type, mediaId, "Title", positionMs = position, durationMs = 100_000, watched = watched, updatedAt = "2026-01-01")
 }

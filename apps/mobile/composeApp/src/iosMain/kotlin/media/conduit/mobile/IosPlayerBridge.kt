@@ -61,6 +61,8 @@ interface IosPlayerBridge {
     fun getIsEnded(): Boolean
     fun getDurationMs(): Long
     fun getPositionMs(): Long
+    fun getVideoWidth(): Int
+    fun getVideoHeight(): Int
     fun getPlaybackSpeed(): Float
     fun getErrorMessage(): String
     fun destroy()
