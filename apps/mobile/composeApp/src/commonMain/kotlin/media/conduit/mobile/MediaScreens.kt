@@ -1543,32 +1543,36 @@ internal fun ProfileSettingsScreen(
         ProfileRoute.Diagnostics -> return InformationalSettingsScreen("Debug information", "${platform.name} ${platform.version}", listOf("Device: ${platform.device}", "Server: ${state.endpoint?.baseUrl}", "Profile: ${activeProfile?.name ?: "None"}", "Add-ons: ${profileSync.snapshot?.addons?.size ?: 0}", "Debug logging: ${if (preferences.debugLogging) "enabled" else "disabled"}"), { route = ProfileRoute.Advanced }, modifier)
         ProfileRoute.Settings -> Unit
     }
-    val sections = listOf(
-        SettingSection("Account", listOf(
-            SettingEntry("Profile", "Profiles, appearance, and viewing overview", Icons.Rounded.AccountCircle),
-            SettingEntry("Account", "Sign-in, security, and recovery", Icons.Rounded.Person),
-        )),
-        SettingSection("General", listOf(
-            SettingEntry("Watch history", "Recent movies and episodes", Icons.Rounded.History),
-            SettingEntry("Appearance & layout", "Theme, language, and navigation", Icons.Rounded.Tune),
-            SettingEntry("Content & discovery", "Add-ons, catalogs, and search", Icons.Rounded.Explore),
-            SettingEntry("Playback", "Player, subtitles, and behavior", Icons.Rounded.PlayCircle),
-            SettingEntry("Integrations", "Connected media services", Icons.Rounded.Extension),
-        )),
-        SettingSection("About", listOf(
-            SettingEntry("Supporters & contributors", "Community and open source", Icons.Rounded.Favorite),
-            SettingEntry("Privacy policy", "Data and privacy details", Icons.Rounded.PrivacyTip),
-            SettingEntry("Licenses & attribution", "Open-source software and acknowledgements", Icons.Rounded.Description),
-        )),
-        SettingSection("Advanced", listOf(
-            SettingEntry("Advanced settings", "Server and diagnostics", Icons.Rounded.SettingsSuggest),
-        )),
-    )
+    val sections = remember {
+        listOf(
+            SettingSection("Account", listOf(
+                SettingEntry("Profile", "Profiles, appearance, and viewing overview", Icons.Rounded.AccountCircle),
+                SettingEntry("Account", "Sign-in, security, and recovery", Icons.Rounded.Person),
+            )),
+            SettingSection("General", listOf(
+                SettingEntry("Watch history", "Recent movies and episodes", Icons.Rounded.History),
+                SettingEntry("Appearance & layout", "Theme, language, and navigation", Icons.Rounded.Tune),
+                SettingEntry("Content & discovery", "Add-ons, catalogs, and search", Icons.Rounded.Explore),
+                SettingEntry("Playback", "Player, subtitles, and behavior", Icons.Rounded.PlayCircle),
+                SettingEntry("Integrations", "Connected media services", Icons.Rounded.Extension),
+            )),
+            SettingSection("About", listOf(
+                SettingEntry("Supporters & contributors", "Community and open source", Icons.Rounded.Favorite),
+                SettingEntry("Privacy policy", "Data and privacy details", Icons.Rounded.PrivacyTip),
+                SettingEntry("Licenses & attribution", "Open-source software and acknowledgements", Icons.Rounded.Description),
+            )),
+            SettingSection("Advanced", listOf(
+                SettingEntry("Advanced settings", "Server and diagnostics", Icons.Rounded.SettingsSuggest),
+            )),
+        )
+    }
     var settingsQuery by remember { mutableStateOf("") }
-    val visibleSections = sections.mapNotNull { section ->
+    val visibleSections = remember(settingsQuery) {
         val query = settingsQuery.trim()
-        val entries = section.entries.filter { query.isBlank() || "${section.title} ${it.title} ${it.description}".contains(query, ignoreCase = true) }
-        entries.takeIf { it.isNotEmpty() }?.let { SettingSection(section.title, it) }
+        sections.mapNotNull { section ->
+            val entries = section.entries.filter { query.isBlank() || "${section.title} ${it.title} ${it.description}".contains(query, ignoreCase = true) }
+            entries.takeIf { it.isNotEmpty() }?.let { SettingSection(section.title, it) }
+        }
     }
     LazyColumn(
         state = settingsListState,
