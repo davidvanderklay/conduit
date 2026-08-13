@@ -39,6 +39,8 @@ import {
   playbackSourceForStream,
   selectSavedStream,
 } from "../lib/stream-selection"
+import { mediaForWatchActions, setEpisodeWatched, setVideosWatched } from "../lib/watch-actions"
+import { episodeProgressPercent, episodeWatchState } from "../lib/watch-status"
 import { Button } from "./ui/button"
 import { Player } from "./player"
 import { LibraryToggle } from "./library-toggle"
@@ -303,6 +305,24 @@ export function MediaDetails({
               videos={videos}
               loading={metadata.isLoading}
               progress={progress.data ?? []}
+              profileId={profileId}
+              media={mediaForWatchActions(meta)}
+              onWatchAction={async (targets, watched) => {
+                try {
+                  await setVideosWatched(
+                    profileId,
+                    mediaForWatchActions(meta),
+                    targets,
+                    progress.data ?? [],
+                    watched,
+                  )
+                } finally {
+                  await Promise.all([
+                    queryClient.invalidateQueries({ queryKey: ["progress", profileId] }),
+                    queryClient.invalidateQueries({ queryKey: ["series-progress", profileId] }),
+                  ])
+                }
+              }}
               season={selectedSeason}
               restoreScrollTop={episodeRailScrollTop.current}
               focusVideoId={seriesReturnVideoId.current}
@@ -372,6 +392,24 @@ export function MediaDetails({
             selectedVideo
               ? {
                   name: meta.name,
+                  profileId,
+                  media: mediaForWatchActions(meta),
+                  onWatchAction: async (targets, watched) => {
+                    try {
+                      await setVideosWatched(
+                        profileId,
+                        mediaForWatchActions(meta),
+                        targets,
+                        progress.data ?? [],
+                        watched,
+                      )
+                    } finally {
+                      await Promise.all([
+                        queryClient.invalidateQueries({ queryKey: ["progress", profileId] }),
+                        queryClient.invalidateQueries({ queryKey: ["series-progress", profileId] }),
+                      ])
+                    }
+                  },
                   videos,
                   progress: progress.data ?? [],
                   currentVideoId: selectedVideo.id,
@@ -513,6 +551,8 @@ function EpisodeSummary({
   progress: WatchProgress[]
 }) {
   const state = progress.find((item) => item.videoId === video.id)
+  const watchState = episodeWatchState(state)
+  const percent = episodeProgressPercent(state)
   const description = video.overview ?? video.description
   return (
     <section className="max-h-[calc(100dvh-5rem)] overflow-hidden" aria-labelledby="episode-title">
@@ -546,6 +586,21 @@ function EpisodeSummary({
       </div>
       <p className="mt-[clamp(.75rem,2vh,1.35rem)] line-clamp-5 max-w-4xl text-sm leading-6 text-zinc-300">
         {description ?? "No episode overview was supplied."}
+      </p>
+      <p className={`mt-3 flex items-center gap-2 text-sm ${
+        watchState === "watched"
+          ? "text-amber-300"
+          : watchState === "in-progress"
+            ? "text-zinc-200"
+            : "text-zinc-500"
+      }`}>
+        <span className="inline-block h-1.5 w-24 overflow-hidden rounded-full bg-white/10">
+          <span
+            className="block h-full bg-amber-400"
+            style={{ width: `${watchState === "watched" ? 100 : percent}%` }}
+          />
+        </span>
+        {watchState === "watched" ? "Watched" : watchState === "in-progress" ? `${percent}% watched` : "Not watched"}
       </p>
       <div className="mt-[clamp(1rem,2.6vh,1.75rem)] flex items-center gap-3">
         <EpisodeWatchAction
@@ -704,26 +759,7 @@ function EpisodeWatchAction({
 }) {
   const queryClient = useQueryClient()
   const mutation = useMutation({
-    mutationFn: () => {
-      const path = `/v1/profiles/${profileId}/progress/${encodeURIComponent(video.id)}`
-      return item
-        ? api(path, { method: "PATCH", body: JSON.stringify({ watched: !item.watched }) })
-        : api(path, {
-            method: "PUT",
-            body: JSON.stringify({
-              mediaType: media.type,
-              mediaId: media.id,
-              name: media.name,
-              poster: media.poster,
-              videoTitle: video.title,
-              season: video.season,
-              episode: video.episode,
-              positionMs: 0,
-              durationMs: 0,
-              watched: true,
-            }),
-          })
-    },
+    mutationFn: () => setEpisodeWatched(profileId, media, video, item, !item?.watched),
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["progress", profileId] }),

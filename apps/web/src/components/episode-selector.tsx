@@ -1,5 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from "react"
-import { Check, ChevronDown, Film, LoaderCircle, Search } from "lucide-react"
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from "react"
+import {
+  Check,
+  ChevronDown,
+  Film,
+  ListEnd,
+  LoaderCircle,
+  Play,
+  RotateCcw,
+  Search,
+} from "lucide-react"
 import type { WatchProgress } from "../lib/api"
 import type { Video } from "../lib/core"
 import {
@@ -8,6 +17,12 @@ import {
   seasonLabel,
   sortSeasons,
 } from "../lib/metadata"
+import {
+  episodeProgressPercent,
+  episodeWatchState,
+  restOfSeasonWatchVideos,
+} from "../lib/watch-status"
+import type { WatchActionMedia } from "../lib/watch-actions"
 
 export function EpisodeSelector({
   videos,
@@ -18,6 +33,9 @@ export function EpisodeSelector({
   restoreScrollTop,
   focusVideoId,
   className = "",
+  profileId,
+  media,
+  onWatchAction,
   onSeasonChange,
   onScroll,
   onSelect,
@@ -30,6 +48,9 @@ export function EpisodeSelector({
   restoreScrollTop?: number
   focusVideoId?: string
   className?: string
+  profileId?: string
+  media?: WatchActionMedia
+  onWatchAction?: (targets: Video[], watched: boolean) => Promise<void>
   onSeasonChange: (season: number) => void
   onScroll?: (scrollTop: number) => void
   onSelect: (video: Video) => void
@@ -40,6 +61,8 @@ export function EpisodeSelector({
     [videos],
   )
   const [query, setQuery] = useState("")
+  const [contextMenu, setContextMenu] = useState<ContextMenuState>()
+  const [watchPending, setWatchPending] = useState(false)
   const activeSeason = season ?? seasons[0] ?? 1
   const episodes = videos
     .filter((video) => (video.season ?? 1) === activeSeason)
@@ -64,6 +87,45 @@ export function EpisodeSelector({
     )
     episode?.scrollIntoView({ block: "center" })
   }, [activeSeason, currentVideoId, focusVideoId, restoreScrollTop])
+
+  useEffect(() => {
+    if (!contextMenu) return
+    const dismiss = (event: PointerEvent) => {
+      const target = event.target
+      if (target instanceof Element && target.closest("[data-episode-context-menu]")) return
+      setContextMenu(undefined)
+    }
+    const dismissKeyboard = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setContextMenu(undefined)
+    }
+    document.addEventListener("pointerdown", dismiss, true)
+    window.addEventListener("keydown", dismissKeyboard)
+    return () => {
+      document.removeEventListener("pointerdown", dismiss, true)
+      window.removeEventListener("keydown", dismissKeyboard)
+    }
+  }, [contextMenu])
+
+  const openContextMenu = (event: MouseEvent, video: Video) => {
+    if (!profileId || !media) return
+    event.preventDefault()
+    const menuWidth = 250
+    const menuHeight = 190
+    setContextMenu({
+      video,
+      x: Math.max(8, Math.min(event.clientX, window.innerWidth - menuWidth - 8)),
+      y: Math.max(8, Math.min(event.clientY, window.innerHeight - menuHeight - 8)),
+    })
+  }
+
+  const runWatchAction = (targets: Video[], watched: boolean) => {
+    if (!onWatchAction) return
+    setContextMenu(undefined)
+    setWatchPending(true)
+    void onWatchAction(targets, watched)
+      .catch(() => undefined)
+      .finally(() => setWatchPending(false))
+  }
 
   return (
     <aside
@@ -135,14 +197,14 @@ export function EpisodeSelector({
       <div className="divide-y divide-white/6 px-2 pb-2">
         {episodes.map((video) => {
           const itemProgress = progress.find((item) => item.videoId === video.id)
-          const percent =
-            itemProgress && itemProgress.durationMs > 0
-              ? Math.min(
-                  100,
-                  Math.round((itemProgress.positionMs / itemProgress.durationMs) * 100),
-                )
-              : 0
+          const state = episodeWatchState(itemProgress)
+          const percent = episodeProgressPercent(itemProgress)
           const current = video.id === currentVideoId
+          const status = state === "watched"
+            ? "Watched"
+            : state === "in-progress"
+              ? `${percent}% watched`
+              : "Not watched"
           return (
             <button
               key={video.id}
@@ -152,8 +214,10 @@ export function EpisodeSelector({
                 current ? "bg-amber-400/10 ring-1 ring-inset ring-amber-400/35" : ""
               }`}
               aria-current={current ? "true" : undefined}
-              aria-label={`${current ? "Currently playing " : "Play "}${episodeLabel(video)}: ${video.title ?? "Untitled episode"}`}
+              aria-haspopup={profileId && media ? "menu" : undefined}
+              aria-label={`${current ? "Currently playing " : "Play "}${episodeLabel(video)}: ${video.title ?? "Untitled episode"}. ${status}`}
               onClick={() => onSelect(video)}
+              onContextMenu={(event) => openContextMenu(event, video)}
             >
               <div className="relative aspect-video w-24 shrink-0 overflow-hidden rounded-lg bg-zinc-900">
                 <EpisodeArtwork src={video.thumbnail} />
@@ -162,14 +226,17 @@ export function EpisodeSelector({
                     <Film size={18} />
                   </div>
                 )}
-                {itemProgress?.watched && (
+                {state === "watched" && (
                   <span className="absolute right-1 top-1 grid size-5 place-items-center rounded-full bg-amber-400 text-zinc-950">
                     <Check size={11} />
                   </span>
                 )}
-                {!itemProgress?.watched && percent > 0 && (
+                {(state === "watched" || percent > 0) && (
                   <span className="absolute inset-x-0 bottom-0 h-0.5 bg-white/20">
-                    <span className="block h-full bg-amber-400" style={{ width: `${percent}%` }} />
+                    <span
+                      className="block h-full bg-amber-400"
+                      style={{ width: `${state === "watched" ? 100 : percent}%` }}
+                    />
                   </span>
                 )}
               </div>
@@ -178,7 +245,14 @@ export function EpisodeSelector({
                   <span className="mr-1.5 text-zinc-500">{video.episode ?? "–"}.</span>
                   {video.title ?? episodeLabel(video)}
                 </p>
-                <p className="mt-1 flex flex-wrap gap-x-2 text-[11px] text-zinc-600">
+                <p className={`mt-1 flex flex-wrap gap-x-2 text-[11px] ${
+                  state === "watched"
+                    ? "text-amber-300"
+                    : state === "in-progress"
+                      ? "text-zinc-300"
+                      : "text-zinc-600"
+                }`}>
+                  <span>{status}</span>
                   {video.released && <span>{displayDate(video.released)}</span>}
                   {video.runtime && <span>{video.runtime}</span>}
                 </p>
@@ -187,7 +261,113 @@ export function EpisodeSelector({
           )
         })}
       </div>
+      {contextMenu && media && profileId && onWatchAction && (
+        <EpisodeContextMenu
+          video={contextMenu.video}
+          progress={progress}
+          rest={restOfSeasonWatchVideos(
+            videos,
+            contextMenu.video.season ?? 1,
+            contextMenu.video.id,
+          )}
+          pending={watchPending}
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+          onPlay={() => {
+            setContextMenu(undefined)
+            onSelect(contextMenu.video)
+          }}
+          onMark={(watched) => runWatchAction([contextMenu.video], watched)}
+          onMarkRest={(watched) => runWatchAction(
+            restOfSeasonWatchVideos(
+              videos,
+              contextMenu.video.season ?? 1,
+              contextMenu.video.id,
+            ),
+            watched,
+          )}
+        />
+      )}
     </aside>
+  )
+}
+
+interface ContextMenuState {
+  video: Video
+  x: number
+  y: number
+}
+
+function EpisodeContextMenu({
+  video,
+  progress,
+  rest,
+  pending,
+  style,
+  onPlay,
+  onMark,
+  onMarkRest,
+}: {
+  video: Video
+  progress: WatchProgress[]
+  rest: Video[]
+  pending: boolean
+  style: CSSProperties
+  onPlay: () => void
+  onMark: (watched: boolean) => void
+  onMarkRest: (watched: boolean) => void
+}) {
+  const selectedProgress = progress.find((item) => item.videoId === video.id)
+  const watched = episodeWatchState(selectedProgress) === "watched"
+  const allRestWatched = rest.length > 0 && rest.every((entry) =>
+    progress.some((item) => item.videoId === entry.id && item.watched),
+  )
+  return (
+    <div
+      data-episode-context-menu
+      role="menu"
+      className="fixed z-[80] w-60 overflow-hidden rounded-xl border border-zinc-700 bg-zinc-950 p-1.5 shadow-2xl shadow-black/70"
+      style={style}
+      onContextMenu={(event) => event.preventDefault()}
+    >
+      <ContextMenuAction label="Play" icon={<Play size={15} />} disabled={pending} onClick={onPlay} />
+      <ContextMenuAction
+        label={watched ? "Mark as unwatched" : "Mark as watched"}
+        icon={watched ? <RotateCcw size={15} /> : <Check size={15} />}
+        disabled={pending}
+        onClick={() => onMark(!watched)}
+      />
+      <ContextMenuAction
+        label={allRestWatched ? "Mark rest of season as unwatched" : "Mark rest of season as watched"}
+        icon={allRestWatched ? <RotateCcw size={15} /> : <ListEnd size={15} />}
+        disabled={pending || rest.length === 0}
+        onClick={() => onMarkRest(!allRestWatched)}
+      />
+    </div>
+  )
+}
+
+function ContextMenuAction({
+  label,
+  icon,
+  disabled,
+  onClick,
+}: {
+  label: string
+  icon: ReactNode
+  disabled: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm text-zinc-200 transition hover:bg-zinc-800 disabled:opacity-50"
+      disabled={disabled}
+      onClick={onClick}
+    >
+      {icon}
+      {label}
+    </button>
   )
 }
 
