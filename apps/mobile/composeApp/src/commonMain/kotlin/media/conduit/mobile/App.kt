@@ -7,7 +7,6 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculatePan
@@ -57,7 +56,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChanged
@@ -777,12 +775,7 @@ private fun AppShell(
         selectedMedia = item
         selectedVideoId = videoId
     }
-    val focusManager = LocalFocusManager.current
-    BoxWithConstraints(
-        Modifier.fillMaxSize().pointerInput(Unit) {
-            detectTapGestures { focusManager.clearFocus() }
-        },
-    ) {
+    BoxWithConstraints(Modifier.fillMaxSize()) {
         // A rotated phone can be wider than 720dp while still having very little
         // vertical room. Treat only genuinely large windows as the expanded
         // layout so rotation does not move the active screen to a new branch and
@@ -1180,7 +1173,7 @@ private fun BoxScope.PlaybackSessionHost(
     Box(Modifier.fillMaxSize().onSizeChanged { containerSize = it }) {
         // Adaptive iOS hides the native bar, but the mini-player keeps its
         // corner position so scrolling does not make it jump vertically.
-        val miniBottomPadding = if (bottomNavigationVisible) 132.dp else 12.dp
+        val miniBottomPadding = if (bottomNavigationVisible) 116.dp else 12.dp
         val renderedMiniOffset = if (miniGestureActive) miniOffset else animatedMiniOffset
         val miniLayout = Modifier
             .align(Alignment.BottomEnd)
