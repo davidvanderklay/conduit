@@ -62,6 +62,7 @@ export function MediaDetails({
   initialProgress,
   onBrowse,
   onClose,
+  streamSelectionReturnToHome = false,
 }: {
   item: CatalogItem
   addons: InstalledAddon[]
@@ -70,6 +71,7 @@ export function MediaDetails({
   initialProgress?: WatchProgress
   onBrowse?: (target: MetadataBrowseTarget) => void
   onClose: () => void
+  streamSelectionReturnToHome?: boolean
 }) {
   const [selectedVideoId, setSelectedVideoId] = useState<string | undefined>(
     initialVideoId && initialVideoId !== item.id ? initialVideoId : undefined,
@@ -335,7 +337,7 @@ export function MediaDetails({
                 setPlaying(stream)
               }}
               onBackToSeries={
-                episodeMode && selectedVideo
+                !streamSelectionReturnToHome && episodeMode && selectedVideo
                   ? () => {
                       setSelectedSeason(selectedVideo.season ?? 1)
                       seriesReturnVideoId.current = selectedVideo.id
@@ -343,6 +345,7 @@ export function MediaDetails({
                     }
                   : undefined
               }
+              onBack={streamSelectionReturnToHome ? onClose : undefined}
             />
           )}
         </main>
@@ -568,6 +571,7 @@ function StreamRail({
   onRefresh,
   onPlay,
   onBackToSeries,
+  onBack,
 }: {
   streams: ResolvedStream[]
   loading: boolean
@@ -579,17 +583,19 @@ function StreamRail({
   onRefresh: () => void
   onPlay: (stream: ResolvedStream) => void
   onBackToSeries?: () => void
+  onBack?: () => void
 }) {
+  const back = onBack ?? onBackToSeries
   return (
     <aside className="min-h-0 overflow-y-auto rounded-2xl border border-white/10 bg-zinc-950/80 shadow-2xl shadow-black/40 backdrop-blur-xl">
       <div className="sticky top-0 z-10 flex items-center gap-2 rounded-t-2xl border-b border-white/8 bg-zinc-950/95 px-4 py-4 backdrop-blur">
-        {onBackToSeries && (
+        {back && (
           <Button
             size="icon"
             variant="ghost"
             className="shrink-0"
-            aria-label="Back to series episodes"
-            onClick={onBackToSeries}
+            aria-label={onBack ? "Back" : "Back to series episodes"}
+            onClick={back}
           >
             <ArrowLeft size={17} />
           </Button>

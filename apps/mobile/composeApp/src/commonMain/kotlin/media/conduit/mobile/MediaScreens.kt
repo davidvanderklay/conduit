@@ -173,7 +173,7 @@ internal fun MobileLibraryScreen(
         snapshot = snapshot,
         onDismiss = { actionTarget = null },
         onPlay = { onSelectVideo(it.item, it.progress?.videoId) },
-        onDetails = onSelect,
+        onDetails = { onSelect(it.item) },
         onMutation = onMutation,
     )
 }
@@ -279,7 +279,7 @@ internal fun MobileHistoryScreen(
         snapshot = snapshot,
         onDismiss = { actionTarget = null },
         onPlay = { onSelectVideo(it.item, it.progress?.videoId) },
-        onDetails = onSelect,
+        onDetails = { onSelect(it.item) },
         onMutation = onMutation,
     )
 }
@@ -475,7 +475,7 @@ internal fun SearchDiscoverScreen(
     MediaActionSheet(
         target = actionTarget, snapshot = snapshot, onDismiss = { actionTarget = null },
         metadataCache = metadataCache,
-        onPlay = { onSelect(it.item, null) }, onDetails = { onSelect(it, null) }, onMutation = onMutation,
+        onPlay = { onSelect(it.item, null) }, onDetails = { onSelect(it.item, null) }, onMutation = onMutation,
     )
 }
 
@@ -616,6 +616,8 @@ internal fun MediaDetailsScreen(
     onMutation: suspend (ProfileMutation) -> Result<Unit>,
     onBrowse: (MobileBrowseTarget) -> Unit,
     onBack: () -> Unit,
+    returnToHomeOnStreamBack: Boolean,
+    autoResumeOnOpen: Boolean,
     playbackSession: PlaybackSessionController,
 ) {
     var meta by remember(item.id, item.type) { mutableStateOf<MetaItem?>(null) }
@@ -623,6 +625,7 @@ internal fun MediaDetailsScreen(
     var selectedVideo by remember(item.id) { mutableStateOf<VideoItem?>(null) }
     var streams by remember(item.id) { mutableStateOf<List<StreamSource>?>(null) }
     var streamPageOpen by remember(item.id) { mutableStateOf(false) }
+    var streamEpisodesOpen by remember(item.id) { mutableStateOf(false) }
     var streamsLoading by remember(item.id) { mutableStateOf(false) }
     var streamsError by remember(item.id) { mutableStateOf<String?>(null) }
     var selectedStreamAddonId by remember(item.id) { mutableStateOf(preferences.lastStreamAddonId) }
@@ -770,8 +773,8 @@ internal fun MediaDetailsScreen(
         snapshot?.progress?.firstOrNull { it.videoId == videoId }?.playbackSource
     }
     val currentAutoResumeAttemptKey = savedPlaybackSource?.let(::autoResumeAttemptKey)
-    LaunchedEffect(meta?.id, selectedVideo?.id, effectiveInitialVideoId, savedPlaybackSource, addonSignature, preferences.autoSelectSavedStreams) {
-        if (effectiveInitialVideoId == null || meta == null || addons.isEmpty()) return@LaunchedEffect
+    LaunchedEffect(meta?.id, selectedVideo?.id, effectiveInitialVideoId, savedPlaybackSource, addonSignature, preferences.autoSelectSavedStreams, autoResumeOnOpen) {
+        if (!autoResumeOnOpen || effectiveInitialVideoId == null || meta == null || addons.isEmpty()) return@LaunchedEffect
         val targetVideoId = selectedVideo?.id ?: item.id
         if (targetVideoId != effectiveInitialVideoId) return@LaunchedEffect
         val saved = savedPlaybackSource ?: return@LaunchedEffect
@@ -779,7 +782,7 @@ internal fun MediaDetailsScreen(
         autoResumeAttemptedKey = currentAutoResumeAttemptKey
         requestStreams(selectedVideo, autoPlaySavedSource = preferences.autoSelectSavedStreams)
     }
-    val waitingForSavedPlayback = preferences.autoSelectSavedStreams &&
+    val waitingForSavedPlayback = autoResumeOnOpen && preferences.autoSelectSavedStreams &&
         effectiveInitialVideoId != null && savedPlaybackSource != null &&
         error == null && (meta == null || addons.isNotEmpty()) &&
         !streamPageOpen && playing == null &&
@@ -878,6 +881,12 @@ internal fun MediaDetailsScreen(
     SideEffect {
         if (requestIdentity != null && sessionCallbacks != null) playbackSession.attach(requestIdentity, sessionCallbacks)
     }
+    fun closeStreamSelection() {
+        streamEpisodesOpen = false
+        streamPageOpen = false
+        streams = null
+        if (returnToHomeOnStreamBack) onBack()
+    }
     val ownsPlayback = requestIdentity != null && playbackSession.state.request?.identity == requestIdentity
     PlayerOrientationLock(
         active = waitingForSavedPlayback ||
@@ -889,24 +898,30 @@ internal fun MediaDetailsScreen(
             ownsPlayback && playbackSession.state.presentation == PlaybackPresentation.FullScreen -> {
                 playbackSession.leaveFullScreen(preferences.miniplayerOnBack)
             }
-            streamPageOpen -> { streamPageOpen = false; streams = null }
+            episodesOpen -> episodesOpen = false
+            streamEpisodesOpen -> streamEpisodesOpen = false
+            streamPageOpen -> closeStreamSelection()
             else -> onBack()
         }
     }
     if (episodesOpen) {
         Box(Modifier.fillMaxSize()) {
-            PlayerEpisodeDrawer(
-                orderedVideos,
-                selectedVideo,
-                snapshot,
-                onDismiss = { episodesOpen = false },
-            ) { video ->
-                episodesOpen = false
-                playbackSession.close()
-                selectedVideo = video
-                playing = null
-                resumePosition = 0L
-                requestStreams(video)
+            BoxWithConstraints(Modifier.fillMaxSize()) {
+                PlayerEpisodeDrawer(
+                    orderedVideos,
+                    selectedVideo,
+                    snapshot,
+                    fullscreen = maxWidth < 600.dp,
+                    onDismiss = { episodesOpen = false },
+                    onSelect = { video ->
+                        episodesOpen = false
+                        playbackSession.close()
+                        selectedVideo = video
+                        playing = null
+                        resumePosition = 0L
+                        requestStreams(video)
+                    },
+                )
             }
         }
         return
@@ -933,10 +948,7 @@ internal fun MediaDetailsScreen(
         return
     }
     if (streamPageOpen) {
-        val closeStreamPage = {
-            streamPageOpen = false
-            streams = null
-        }
+        val closeStreamPage = { closeStreamSelection() }
         Box(Modifier.fillMaxSize()) {
             StreamSelectionScreen(
                 title = meta?.name ?: item.name,
@@ -967,11 +979,44 @@ internal fun MediaDetailsScreen(
                 }
             }
             MobileBackButton(
-                onClick = closeStreamPage,
+                onClick = {
+                    if (streamEpisodesOpen) streamEpisodesOpen = false else closeStreamPage()
+                },
                 modifier = Modifier.align(Alignment.TopStart),
                 background = MaterialTheme.colorScheme.background.copy(alpha = .96f),
                 safeArea = true,
             )
+            if (orderedVideos.isNotEmpty()) {
+                IconButton(
+                    onClick = { streamEpisodesOpen = true },
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .statusBarsPadding()
+                        .padding(12.dp)
+                        .background(MaterialTheme.colorScheme.background.copy(alpha = .96f), CircleShape),
+                ) {
+                    Icon(Icons.Rounded.VideoLibrary, contentDescription = "Episodes")
+                }
+            }
+            if (streamEpisodesOpen) {
+                BoxWithConstraints(Modifier.fillMaxSize()) {
+                    PlayerEpisodeDrawer(
+                        videos = orderedVideos,
+                        current = selectedVideo,
+                        snapshot = snapshot,
+                        fullscreen = maxWidth < 600.dp,
+                        onDismiss = { streamEpisodesOpen = false },
+                        onSelect = { video ->
+                            streamEpisodesOpen = false
+                            playbackSession.close()
+                            selectedVideo = video
+                            playing = null
+                            resumePosition = 0L
+                            requestStreams(video)
+                        },
+                    )
+                }
+            }
         }
         return
     }
@@ -1321,25 +1366,151 @@ internal fun PlayerBufferingOverlay(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun BoxScope.PlayerEpisodeDrawer(videos: List<VideoItem>, current: VideoItem?, snapshot: ProfileSnapshot?, onDismiss: () -> Unit, onSelect: (VideoItem) -> Unit) {
+private fun PlayerEpisodeDrawer(
+    videos: List<VideoItem>,
+    current: VideoItem?,
+    snapshot: ProfileSnapshot?,
+    onDismiss: () -> Unit,
+    onSelect: (VideoItem) -> Unit,
+    fullscreen: Boolean = false,
+) {
     var season by remember(current?.id, videos) { mutableStateOf(current?.season ?: videos.firstOrNull()?.season ?: 1) }
     val seasons = videos.mapNotNull(VideoItem::season).distinct().sorted()
     val seasonListState = rememberLazyListState()
     LaunchedEffect(season, seasons) { seasons.indexOf(season).takeIf { it >= 0 }?.let { seasonListState.animateScrollToItem(it) } }
-    Box(Modifier.matchParentSize().background(Color.Black.copy(.32f)).clickable(onClick = onDismiss))
     var dragDistance by remember { mutableFloatStateOf(0f) }
-    Surface(Modifier.align(Alignment.CenterEnd).fillMaxHeight().fillMaxWidth(.52f).pointerInput(Unit) { detectHorizontalDragGestures(onDragEnd = { if (dragDistance > 100f) onDismiss(); dragDistance = 0f }, onDragCancel = { dragDistance = 0f }) { change, amount -> change.consume(); dragDistance += amount } }, color = Color(0xF21A1A1D), shape = RoundedCornerShape(topStart = 28.dp, bottomStart = 28.dp), shadowElevation = 20.dp) {
-        Column(Modifier.padding(18.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) { Text("Episodes", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold); Spacer(Modifier.weight(1f)); IconButton(onClick = onDismiss) { Icon(Icons.Rounded.Close, "Close", tint = Color.White) } }
-            LazyRow(state = seasonListState, horizontalArrangement = Arrangement.spacedBy(8.dp)) { items(seasons) { value -> FilterChip(selected = season == value, onClick = { season = value }, label = { Text(if (value == 0) "Specials" else "Season $value") }) } }
-            Spacer(Modifier.height(10.dp))
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                items(videos.filter { it.season == season }, key = VideoItem::id) { video ->
-                    val progress = snapshot?.progress?.firstOrNull { it.videoId == video.id }
-                    Surface(onClick = { onSelect(video) }, color = if (video.id == current?.id) MaterialTheme.colorScheme.primary.copy(.14f) else Color.White.copy(.05f), shape = RoundedCornerShape(16.dp), border = if (video.id == current?.id) BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null) {
-                        Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Box { AsyncImage(video.thumbnail, null, Modifier.size(120.dp, 68.dp).clip(RoundedCornerShape(10.dp)), contentScale = ContentScale.Crop); if (progress?.watched == true) Icon(Icons.Rounded.CheckCircle, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.align(Alignment.TopEnd).padding(4.dp)) }
-                            Spacer(Modifier.width(12.dp)); Column(Modifier.weight(1f)) { Text("${video.episode ?: ""}. ${video.displayTitle}", color = Color.White, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis); (video.overview ?: video.description)?.let { Text(it, color = Color.White.copy(.55f), maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall) }; if (progress != null && !progress.watched && progress.durationMs > 0) LinearProgressIndicator({ progress.positionMs.toFloat() / progress.durationMs }, Modifier.fillMaxWidth().padding(top = 7.dp), color = MaterialTheme.colorScheme.primary) }
+    Box(Modifier.fillMaxSize()) {
+        Box(
+            Modifier
+                .matchParentSize()
+                .background(Color.Black.copy(if (fullscreen) .72f else .32f))
+                .then(if (fullscreen) Modifier else Modifier.clickable(onClick = onDismiss)),
+        )
+        val surfaceModifier = if (fullscreen) {
+            Modifier
+                .align(Alignment.Center)
+                .fillMaxSize()
+        } else {
+            Modifier
+                .align(Alignment.CenterEnd)
+                .fillMaxHeight()
+                .fillMaxWidth(.68f)
+                .pointerInput(Unit) {
+                    detectHorizontalDragGestures(
+                        onDragEnd = { if (dragDistance > 100f) onDismiss(); dragDistance = 0f },
+                        onDragCancel = { dragDistance = 0f },
+                    ) { change, amount ->
+                        change.consume()
+                        dragDistance += amount
+                    }
+                }
+        }
+        Surface(
+            modifier = surfaceModifier,
+            color = Color(0xF21A1A1D),
+            shape = if (fullscreen) RoundedCornerShape(0.dp) else RoundedCornerShape(topStart = 28.dp, bottomStart = 28.dp),
+            shadowElevation = if (fullscreen) 0.dp else 20.dp,
+        ) {
+            Column(
+                Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding()
+                    .padding(if (fullscreen) 16.dp else 18.dp),
+            ) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "Episodes",
+                        color = Color.White,
+                        style = if (fullscreen) MaterialTheme.typography.headlineMedium else MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f),
+                    )
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Rounded.Close, "Close", tint = Color.White)
+                    }
+                }
+                LazyRow(
+                    state = seasonListState,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(vertical = 4.dp),
+                ) {
+                    items(seasons) { value ->
+                        FilterChip(
+                            selected = season == value,
+                            onClick = { season = value },
+                            label = { Text(if (value == 0) "Specials" else "Season $value") },
+                        )
+                    }
+                }
+                Spacer(Modifier.height(10.dp))
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth().weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    contentPadding = PaddingValues(bottom = 12.dp),
+                ) {
+                    items(videos.filter { it.season == season }, key = VideoItem::id) { video ->
+                        val progress = snapshot?.progress?.firstOrNull { it.videoId == video.id }
+                        val episodeNumber = listOfNotNull(
+                            video.season?.let { "S$it" },
+                            video.episode?.let { "E$it" },
+                        ).joinToString(" ")
+                        Surface(
+                            onClick = { onSelect(video) },
+                            modifier = Modifier.fillMaxWidth(),
+                            color = if (video.id == current?.id) MaterialTheme.colorScheme.primary.copy(.14f) else Color.White.copy(.05f),
+                            shape = RoundedCornerShape(16.dp),
+                            border = if (video.id == current?.id) BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null,
+                        ) {
+                            Row(
+                                Modifier.padding(if (fullscreen) 12.dp else 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Box(
+                                    Modifier
+                                        .width(if (fullscreen) 128.dp else 120.dp)
+                                        .aspectRatio(16f / 9f)
+                                        .clip(RoundedCornerShape(10.dp)),
+                                ) {
+                                    AsyncImage(video.thumbnail, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                                    if (progress?.watched == true) {
+                                        Icon(
+                                            Icons.Rounded.CheckCircle,
+                                            null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.align(Alignment.TopEnd).padding(5.dp),
+                                        )
+                                    }
+                                }
+                                Spacer(Modifier.width(12.dp))
+                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                    Text(
+                                        listOfNotNull(episodeNumber.takeIf(String::isNotBlank), video.displayTitle).joinToString(" · "),
+                                        color = Color.White,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    (video.overview ?: video.description)?.let {
+                                        Text(
+                                            it,
+                                            color = Color.White.copy(.55f),
+                                            maxLines = if (fullscreen) 2 else 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            style = MaterialTheme.typography.bodySmall,
+                                        )
+                                    }
+                                    if (progress != null && !progress.watched && progress.durationMs > 0) {
+                                        LinearProgressIndicator(
+                                            { (progress.positionMs.toFloat() / progress.durationMs).coerceIn(0f, 1f) },
+                                            Modifier.fillMaxWidth().padding(top = 5.dp),
+                                            color = MaterialTheme.colorScheme.primary,
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -1411,7 +1582,8 @@ private fun StreamSelectionScreen(
             Surface(color = MaterialTheme.colorScheme.background.copy(alpha = .96f), shadowElevation = if (collapsed) 8.dp else 0.dp) {
                 Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 8.dp, vertical = if (collapsed) 4.dp else 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Spacer(Modifier.width(48.dp))
-                    Column { Text("Choose a stream", style = if (collapsed) MaterialTheme.typography.titleMedium else MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold); if (!collapsed) Text(listOfNotNull(title, episode?.let { "S${it.season ?: 0}E${it.episode ?: 0} · ${it.displayTitle}" }).joinToString(" · "), color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                    Column(Modifier.weight(1f)) { Text("Choose a stream", style = if (collapsed) MaterialTheme.typography.titleMedium else MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold); if (!collapsed) Text(listOfNotNull(title, episode?.let { "S${it.season ?: 0}E${it.episode ?: 0} · ${it.displayTitle}" }).joinToString(" · "), color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                    Spacer(Modifier.width(48.dp))
                 }
             }
         }
@@ -1850,7 +2022,7 @@ private fun WatchHistoryScreen(
         snapshot = snapshot,
         onDismiss = { actionTarget = null },
         onPlay = { onSelect(it.item, it.progress?.videoId) },
-        onDetails = { onSelect(it, null) },
+        onDetails = { onSelect(it.item, null) },
         onMutation = onMutation,
     )
 }
