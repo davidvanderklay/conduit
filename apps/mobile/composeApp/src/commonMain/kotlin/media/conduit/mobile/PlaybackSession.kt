@@ -87,13 +87,21 @@ class PlaybackSessionController(
     private var commandSequence = 0L
 
     fun start(request: PlaybackRequest, callbacks: PlaybackSessionCallbacks) {
-        val replacingRequest = state.request?.let { it.identity != request.identity || it.url != request.url } == true
-        if (replacingRequest) persist()
-        this.callbacks = callbacks
         val current = state.request
-        state = if (current?.identity == request.identity && current.url == request.url) {
-            state.copy(request = request)
+        val sameStream = current?.isSameStream(request) == true
+        if (current != null && !sameStream) persist()
+        this.callbacks = callbacks
+        state = if (sameStream) {
+            // Reopening a minimized stream should resume the live player. Keeping
+            // the existing playback state avoids rebuilding the stream and
+            // leaving the details screen behind a second loading surface.
+            state.copy(
+                request = request,
+                presentation = PlaybackPresentation.FullScreen,
+            )
         } else {
+            // A new stream gets a clean playback state and immediately replaces
+            // the old miniplayer.
             PlaybackSessionState(
                 request = request,
                 presentation = PlaybackPresentation.FullScreen,
@@ -175,6 +183,12 @@ class PlaybackSessionController(
         state = state.copy(command = SequencedPlaybackCommand(commandSequence, command))
     }
 }
+
+private fun PlaybackRequest.isSameStream(other: PlaybackRequest): Boolean =
+    identity == other.identity &&
+        url == other.url &&
+        requestHeaders == other.requestHeaders &&
+        subtitles == other.subtitles
 
 fun transitionPlaybackPresentation(
     current: PlaybackPresentation,
