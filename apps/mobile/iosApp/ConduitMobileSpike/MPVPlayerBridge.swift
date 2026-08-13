@@ -277,6 +277,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
     private var lastDrawableSize: CGSize = .zero
     private var externallyManagedViewSize: CGSize?
     private var pendingSurfaceLayoutWorkItems: [DispatchWorkItem] = []
+    private var lifecycleObservers: [NSObjectProtocol] = []
     private var recentErrors: [String] = []
     private var playbackError: String?
     private var waitingForInitialVideoFrame = false
@@ -322,18 +323,16 @@ final class ConduitMPVPlayerViewController: UIViewController {
 
         setupMpv()
         activateAudioSession()
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(enterBackground),
-            name: UIApplication.didEnterBackgroundNotification,
-            object: nil
-        )
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(enterForeground),
-            name: UIApplication.willEnterForegroundNotification,
-            object: nil
-        )
+        lifecycleObservers.append(NotificationCenter.default.addObserver(
+            forName: UIApplication.willResignActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in self?.enterBackground() })
+        lifecycleObservers.append(NotificationCenter.default.addObserver(
+            forName: UIApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in self?.enterForeground() })
     }
 
     override func viewDidLayoutSubviews() {
@@ -567,7 +566,8 @@ final class ConduitMPVPlayerViewController: UIViewController {
         guard !destroyStarted else { return }
         destroyStarted = true
 
-        NotificationCenter.default.removeObserver(self)
+        lifecycleObservers.forEach(NotificationCenter.default.removeObserver)
+        lifecycleObservers.removeAll()
         pendingRetry?.cancel()
         pendingRetry = nil
         pendingSurfaceLayoutWorkItems.forEach { $0.cancel() }
@@ -594,15 +594,18 @@ final class ConduitMPVPlayerViewController: UIViewController {
         destroyPlayer()
     }
 
-    @objc private func enterBackground() {
+    private func enterBackground() {
         guard mpv != nil else { return }
         resumeAfterForeground = isPlayerPlaying || shouldPlay
+        pendingSurfaceLayoutWorkItems.forEach { $0.cancel() }
+        pendingSurfaceLayoutWorkItems.removeAll()
         pausePlayback()
         setStringProperty("vid", "no")
     }
 
-    @objc private func enterForeground() {
+    private func enterForeground() {
         guard mpv != nil else { return }
+        syncVideoSurfaceLayout()
         setStringProperty("vid", "auto")
         if resumeAfterForeground {
             playPlayback()
@@ -830,10 +833,11 @@ final class ConduitMPVPlayerViewController: UIViewController {
         guard isViewLoaded else { return }
         if let size, size.width > 1, size.height > 1 {
             externallyManagedViewSize = size
-            applyExternallyManagedViewSize(size)
         }
+        // Compose owns the embedded controller's view geometry. Forcing its
+        // frame or an immediate UIKit layout here can recursively lay out
+        // Compose's hidden input view while the app is entering the foreground.
         view.setNeedsLayout()
-        view.layoutIfNeeded()
         layoutMetalLayer()
 
         guard scheduleDeferredPasses else { return }
@@ -841,23 +845,10 @@ final class ConduitMPVPlayerViewController: UIViewController {
         pendingSurfaceLayoutWorkItems.removeAll(keepingCapacity: true)
         [0.0, 0.05, 0.15, 0.35].forEach { delay in
             let workItem = DispatchWorkItem { [weak self] in
-                self?.syncVideoSurfaceLayoutNow(scheduleDeferredPasses: false)
+                self?.layoutMetalLayer()
             }
             pendingSurfaceLayoutWorkItems.append(workItem)
             DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
-        }
-    }
-
-    private func applyExternallyManagedViewSize(_ size: CGSize) {
-        let targetBounds = CGRect(origin: .zero, size: size)
-        if view.bounds != targetBounds {
-            view.bounds = targetBounds
-        }
-
-        var targetFrame = view.frame
-        if targetFrame.size != size {
-            targetFrame.size = size
-            view.frame = targetFrame
         }
     }
 
