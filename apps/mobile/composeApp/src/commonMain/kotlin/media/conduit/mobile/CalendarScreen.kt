@@ -85,96 +85,198 @@ internal fun MobileCalendarScreen(
     val selectedReleases = monthReleases.filter { it.date == selectedDate }
     val releaseDays = monthReleases.mapNotNull { it.date.takeLast(2).toIntOrNull() }.toSet()
 
-    LazyColumn(
-        modifier = modifier.fillMaxSize().statusBarsPadding(),
-        contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 44.dp),
-        verticalArrangement = Arrangement.spacedBy(20.dp),
-    ) {
-        item {
-            Row(verticalAlignment = Alignment.Top) {
-                IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to library")
-                }
-                Column(Modifier.weight(1f).padding(top = 5.dp)) {
-                    Text("Calendar", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
-                    Text(
-                        "Episode releases from titles saved to your library.",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodyMedium,
+    val nextMonth = {
+        month = shiftCalendarMonth(month, 1)
+        selectedDay = min(selectedDay, daysInCalendarMonth(month))
+    }
+    BoxWithConstraints(modifier.fillMaxSize().statusBarsPadding()) {
+        val horizontalLayout = maxWidth >= 700.dp && maxHeight >= 500.dp && maxWidth > maxHeight
+        if (horizontalLayout) {
+            Column(
+                Modifier
+                    .fillMaxSize()
+                    .padding(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                CalendarHeader(onBack = onBack)
+                Row(
+                    Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
+                    CalendarMonthCard(
+                        modifier = Modifier.widthIn(min = 360.dp, max = 500.dp),
+                        month = month,
+                        today = today,
+                        selectedDay = selectedDay,
+                        releaseDays = releaseDays,
+                        releaseCount = monthReleases.size,
+                        onPrevious = {
+                            month = shiftCalendarMonth(month, -1)
+                            selectedDay = min(selectedDay, daysInCalendarMonth(month))
+                        },
+                        onNext = nextMonth,
+                        onToday = {
+                            month = today.calendarMonth
+                            selectedDay = today.day
+                        },
+                        onSelectDay = { selectedDay = it },
                     )
-                }
-            }
-        }
-
-        item {
-            CalendarMonthCard(
-                month = month,
-                today = today,
-                selectedDay = selectedDay,
-                releaseDays = releaseDays,
-                releaseCount = monthReleases.size,
-                onPrevious = {
-                    month = shiftCalendarMonth(month, -1)
-                    selectedDay = min(selectedDay, daysInCalendarMonth(month))
-                },
-                onNext = {
-                    month = shiftCalendarMonth(month, 1)
-                    selectedDay = min(selectedDay, daysInCalendarMonth(month))
-                },
-                onToday = {
-                    month = today.calendarMonth
-                    selectedDay = today.day
-                },
-                onSelectDay = { selectedDay = it },
-            )
-        }
-
-        item {
-            Row(verticalAlignment = Alignment.Bottom) {
-                Column(Modifier.weight(1f)) {
-                    Text("Release agenda", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                    Text(
-                        "${CalendarMonthNames[month.month - 1]} $selectedDay, ${month.year}",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    CalendarAgenda(
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
+                        month = month,
+                        selectedDay = selectedDay,
+                        selectedReleases = selectedReleases,
+                        loading = loading,
+                        today = today,
+                        onSelect = onSelect,
                     )
-                }
-                Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(50)) {
-                    Text(
-                        "${selectedReleases.size} ${if (selectedReleases.size == 1) "release" else "releases"}",
-                        modifier = Modifier.padding(horizontal = 13.dp, vertical = 8.dp),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.labelLarge,
-                    )
-                }
-            }
-        }
-
-        if (loading) {
-            item {
-                Box(Modifier.fillMaxWidth().height(120.dp), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
-                }
-            }
-        } else if (selectedReleases.isEmpty()) {
-            item {
-                Box(Modifier.fillMaxWidth().height(96.dp), contentAlignment = Alignment.Center) {
-                    Text("No releases scheduled for this day.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         } else {
-            items(selectedReleases, key = MobileCalendarRelease::key) { release ->
-                CalendarReleaseRow(
-                    release = release,
-                    available = release.date <= today.key,
-                    onClick = { onSelect(release.item, release.videoId) },
-                )
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 44.dp),
+                verticalArrangement = Arrangement.spacedBy(20.dp),
+            ) {
+                item { CalendarHeader(onBack = onBack) }
+                item {
+                    CalendarMonthCard(
+                        month = month,
+                        today = today,
+                        selectedDay = selectedDay,
+                        releaseDays = releaseDays,
+                        releaseCount = monthReleases.size,
+                        onPrevious = {
+                            month = shiftCalendarMonth(month, -1)
+                            selectedDay = min(selectedDay, daysInCalendarMonth(month))
+                        },
+                        onNext = nextMonth,
+                        onToday = {
+                            month = today.calendarMonth
+                            selectedDay = today.day
+                        },
+                        onSelectDay = { selectedDay = it },
+                    )
+                }
+                item {
+                    CalendarAgendaHeader(
+                        month = month,
+                        selectedDay = selectedDay,
+                        releaseCount = selectedReleases.size,
+                    )
+                }
+                if (loading) {
+                    item {
+                        Box(Modifier.fillMaxWidth().height(120.dp), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator()
+                        }
+                    }
+                } else if (selectedReleases.isEmpty()) {
+                    item {
+                        Box(Modifier.fillMaxWidth().height(96.dp), contentAlignment = Alignment.Center) {
+                            Text("No releases scheduled for this day.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                } else {
+                    items(selectedReleases, key = MobileCalendarRelease::key) { release ->
+                        CalendarReleaseRow(
+                            release = release,
+                            available = release.date <= today.key,
+                            onClick = { onSelect(release.item, release.videoId) },
+                        )
+                    }
+                }
             }
         }
     }
 }
 
 @Composable
+private fun CalendarHeader(onBack: () -> Unit) {
+    Row(verticalAlignment = Alignment.Top) {
+        IconButton(onClick = onBack) {
+            Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to library")
+        }
+        Column(Modifier.weight(1f).padding(top = 5.dp)) {
+            Text("Calendar", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+            Text(
+                "Episode releases from titles saved to your library.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+    }
+}
+
+@Composable
+private fun CalendarAgenda(
+    modifier: Modifier,
+    month: CalendarMonth,
+    selectedDay: Int,
+    selectedReleases: List<MobileCalendarRelease>,
+    loading: Boolean,
+    today: CalendarDate,
+    onSelect: (CatalogItem, String?) -> Unit,
+) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        CalendarAgendaHeader(month = month, selectedDay = selectedDay, releaseCount = selectedReleases.size)
+        when {
+            loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
+            selectedReleases.isEmpty() -> Box(
+                Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("No releases scheduled for this day.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            else -> LazyColumn(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                contentPadding = PaddingValues(bottom = 8.dp),
+            ) {
+                items(selectedReleases, key = MobileCalendarRelease::key) { release ->
+                    CalendarReleaseRow(
+                        release = release,
+                        available = release.date <= today.key,
+                        onClick = { onSelect(release.item, release.videoId) },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CalendarAgendaHeader(
+    month: CalendarMonth,
+    selectedDay: Int,
+    releaseCount: Int,
+) {
+    Row(verticalAlignment = Alignment.Bottom) {
+        Column(Modifier.weight(1f)) {
+            Text("Release agenda", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            Text(
+                "${CalendarMonthNames[month.month - 1]} $selectedDay, ${month.year}",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(50)) {
+            Text(
+                "${releaseCount} ${if (releaseCount == 1) "release" else "releases"}",
+                modifier = Modifier.padding(horizontal = 13.dp, vertical = 8.dp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.labelLarge,
+            )
+        }
+    }
+}
+
+@Composable
 private fun CalendarMonthCard(
+    modifier: Modifier = Modifier,
     month: CalendarMonth,
     today: CalendarDate,
     selectedDay: Int,
@@ -186,6 +288,7 @@ private fun CalendarMonthCard(
     onSelectDay: (Int) -> Unit,
 ) {
     Surface(
+        modifier = modifier,
         shape = RoundedCornerShape(28.dp),
         color = Color(0xFF1C1C20),
         border = BorderStroke(1.dp, Color.White.copy(alpha = .12f)),

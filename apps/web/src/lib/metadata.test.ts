@@ -79,6 +79,29 @@ describe("add-on metadata normalization", () => {
     expect(meta.videos?.[0]?.thumbnail).toBeUndefined()
   })
 
+  it("drops blank values from all optional metadata lists and text fields", () => {
+    const meta = normalizeMetaItem(
+      {
+        genres: [" ", "Drama", ""],
+        director: [" ", "Ada Director", ""],
+        cast: [" "],
+        writer: " , Wren Writer, ",
+        description: "  ",
+        country: " ",
+        awards: "  ",
+      },
+      fallback,
+    )
+
+    expect(meta.genres).toEqual(["Drama"])
+    expect(meta.director).toEqual(["Ada Director"])
+    expect(meta.cast).toBeUndefined()
+    expect(meta.writer).toEqual(["Wren Writer"])
+    expect(meta.description).toBeUndefined()
+    expect(meta.country).toBeUndefined()
+    expect(meta.awards).toBeUndefined()
+  })
+
   it("allows only http(s) external URLs and tolerates unparseable dates", () => {
     expect(safeExternalUrl("https://example.com/watch")).toBe("https://example.com/watch")
     expect(safeExternalUrl("javascript:alert(1)")).toBeUndefined()

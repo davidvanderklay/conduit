@@ -44,7 +44,7 @@ export function FullscreenToggle() {
       type="button"
       aria-label={label}
       title={label}
-      className="grid size-10 shrink-0 place-items-center rounded-xl text-zinc-400 transition-colors hover:bg-zinc-900 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+      className="grid size-11 shrink-0 place-items-center rounded-xl text-zinc-400 transition-colors hover:bg-zinc-900 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
       onClick={() => {
         if (isDesktop()) {
           void toggleNativeFullscreen().then(setFullscreen)

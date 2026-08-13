@@ -41,6 +41,32 @@ class PlaybackSessionTest {
     }
 
     @Test
+    fun leavingFullScreenUsesTheMiniplayerPreference() {
+        val controller = PlaybackSessionController(TestScope())
+        val request = PlaybackRequest(
+            identity = PlaybackIdentity("profile", "movie", "media", "video"),
+            url = "https://example.test/video.mp4",
+            title = "Movie",
+            mediaName = "Movie",
+        )
+        val callbacks = PlaybackSessionCallbacks(
+            persist = { _, _ -> },
+            playNext = {},
+            openEpisodes = {},
+            minimized = {},
+            closed = {},
+        )
+
+        controller.start(request, callbacks)
+        controller.leaveFullScreen(miniplayerOnBack = true)
+        assertEquals(PlaybackPresentation.Mini, controller.state.presentation)
+
+        controller.restore()
+        controller.leaveFullScreen(miniplayerOnBack = false)
+        assertEquals(PlaybackPresentation.Closed, controller.state.presentation)
+    }
+
+    @Test
     fun pictureInPictureAspectRatioIsClampedToPlatformRange() {
         assertEquals(16 to 9, clampPipAspectRatio(16, 9))
         assertEquals(239 to 100, clampPipAspectRatio(32, 9))
@@ -49,7 +75,7 @@ class PlaybackSessionTest {
     }
 
     @Test
-    fun refreshingTheSameRequestDoesNotRestoreAMinimizedPlayer() {
+    fun reopeningTheSameStreamRestoresAMinimizedPlayerWithoutResettingPlayback() {
         val controller = PlaybackSessionController(TestScope())
         val request = PlaybackRequest(
             identity = PlaybackIdentity("profile", "series", "media", "episode"),
@@ -66,11 +92,42 @@ class PlaybackSessionTest {
         )
 
         controller.start(request, callbacks)
+        val playback = PlaybackState(playing = true, positionMs = 42_000, durationMs = 120_000)
+        controller.updatePlayback(playback)
         controller.minimize()
-        controller.start(request.copy(subtitles = emptyList()), callbacks)
+        controller.start(request.copy(title = "Updated episode"), callbacks)
 
-        assertEquals(PlaybackPresentation.Mini, controller.state.presentation)
+        assertEquals(PlaybackPresentation.FullScreen, controller.state.presentation)
         assertEquals(request.url, controller.state.request?.url)
+        assertEquals(playback, controller.state.playback)
+    }
+
+    @Test
+    fun replacingAMinimizedStreamStartsFullScreenWithFreshPlaybackState() {
+        val controller = PlaybackSessionController(TestScope())
+        val first = PlaybackRequest(
+            identity = PlaybackIdentity("profile", "movie", "media", "video"),
+            url = "https://example.test/first.mp4",
+            title = "Movie",
+            mediaName = "Movie",
+        )
+        val second = first.copy(url = "https://example.test/second.mp4")
+        val callbacks = PlaybackSessionCallbacks(
+            persist = { _, _ -> },
+            playNext = {},
+            openEpisodes = {},
+            minimized = {},
+            closed = {},
+        )
+
+        controller.start(first, callbacks)
+        controller.updatePlayback(PlaybackState(playing = true, positionMs = 42_000, durationMs = 120_000))
+        controller.minimize()
+        controller.start(second, callbacks)
+
+        assertEquals(PlaybackPresentation.FullScreen, controller.state.presentation)
+        assertEquals(second.url, controller.state.request?.url)
+        assertEquals(PlaybackState(), controller.state.playback)
     }
 
     @Test

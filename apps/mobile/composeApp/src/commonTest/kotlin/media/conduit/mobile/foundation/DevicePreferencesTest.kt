@@ -12,6 +12,23 @@ class DevicePreferencesTest {
     }
 
     @Test
+    fun miniplayerOnBackDefaultsToEnabled() {
+        val preferences = DevicePreferencesRepository(MemorySettingsStore()).load()
+
+        assertEquals(true, preferences.miniplayerOnBack)
+    }
+
+    @Test
+    fun miniplayerOnBackRoundTripsAsADevicePreference() {
+        val store = MemorySettingsStore()
+        val repository = DevicePreferencesRepository(store)
+
+        repository.save(repository.load().copy(miniplayerOnBack = false))
+
+        assertEquals(false, repository.load().miniplayerOnBack)
+    }
+
+    @Test
     fun savedStreamSelectionRoundTripsAsADevicePreference() {
         val store = MemorySettingsStore()
         val repository = DevicePreferencesRepository(store)
