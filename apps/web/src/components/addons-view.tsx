@@ -19,9 +19,10 @@ export function AddonsView({
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["addons", profile.id] })
   const install = useMutation({
     mutationFn: async (manifestUrl: string) => {
-      const normalizedUrl = manifestUrl.startsWith("stremio://")
-        ? `https://${manifestUrl.slice("stremio://".length)}`
-        : manifestUrl
+      const input = manifestUrl.trim()
+      const normalizedUrl = input.startsWith("stremio://")
+        ? `https://${input.slice("stremio://".length)}`
+        : input
       const manifest = await loadManifest(normalizedUrl)
       await api(`/v1/profiles/${profile.id}/addons`, {
         method: "POST",
