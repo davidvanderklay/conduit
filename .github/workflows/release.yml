@@ -20,7 +20,7 @@ on:
           - macos
         default: all
       release_tag:
-        description: Existing tag to replace when target is macos
+        description: Existing release version to rebuild
         type: string
         required: false
 
@@ -379,8 +379,18 @@ jobs:
     if: github.event_name != 'workflow_dispatch' || inputs.target == 'all' || inputs.target == 'ios'
     name: iOS unsigned IPA
     runs-on: macos-15
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Verify iOS 26 SDK
+        run: |
+          xcodebuild -version
+          sdk_version="$(xcrun --sdk iphoneos --show-sdk-version)"
+          [[ "$sdk_version" == 26.* ]] || {
+            echo "Expected an iOS 26 SDK, found $sdk_version" >&2
+            exit 1
+          }
       - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
           distribution: temurin
@@ -399,7 +409,7 @@ jobs:
         run: brew install xcodegen
       - name: Build unsigned iOS IPA
         env:
-          CONDUIT_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || format('0.0.0-ci.{0}', github.run_number) }}
+          CONDUIT_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || inputs.release_tag || format('0.0.0-ci.{0}', github.run_number) }}
         run: |
           version="${CONDUIT_VERSION#v}"
           apps/mobile/scripts/package-ios-ipa.sh "$version" "$GITHUB_RUN_NUMBER"
