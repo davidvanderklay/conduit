@@ -188,12 +188,9 @@ private struct ConduitRootView: View {
                         .frame(
                             width: bottomNavigation.classic
                                 ? geometry.size.width
-                                : min(
-                                    bottomNavigation.compact ? 720 : 820,
-                                    geometry.size.width - (bottomNavigation.compact ? 64 : 32)
-                                )
+                                : geometry.size.width - (bottomNavigation.compact ? 128 : 28)
                         )
-                        .frame(height: bottomNavigation.compact ? 60 : 76)
+                        .frame(height: bottomNavigation.compact ? 68 : 87)
                         .padding(.bottom, geometry.safeAreaInsets.bottom)
                         .animation(.easeInOut(duration: 0.22), value: bottomNavigation.compact)
                 }
@@ -267,16 +264,31 @@ private struct ConduitBottomTabBar: UIViewRepresentable {
         tabBar.backgroundColor = .clear
         tabBar.isOpaque = false
         tabBar.itemPositioning = .fill
+        tabBar.layoutMargins = UIEdgeInsets(top: 4, left: 8, bottom: 4, right: 8)
         return ConduitTabBarContainer(tabBar: tabBar)
     }
 
     func updateUIView(_ container: ConduitTabBarContainer, context: Context) {
         context.coordinator.owner = coordinator
         let tabBar = container.tabBar
+        tabBar.layoutMargins = UIEdgeInsets(
+            top: coordinator.compact ? 2 : 4,
+            left: 8,
+            bottom: coordinator.compact ? 2 : 4,
+            right: 8
+        )
+        let symbolConfiguration = UIImage.SymbolConfiguration(
+            pointSize: 24,
+            weight: .regular,
+            scale: .medium
+        )
         let items = coordinator.labels.enumerated().map { index, label in
             UITabBarItem(
                 title: coordinator.compact ? nil : label,
-                image: UIImage(systemName: systemImageName(for: label)),
+                image: UIImage(
+                    systemName: systemImageName(for: label),
+                    withConfiguration: symbolConfiguration
+                ),
                 tag: index
             )
         }
@@ -321,8 +333,10 @@ private final class ConduitTabBarContainer: UIView {
         super.init(frame: .zero)
         backgroundColor = .clear
         isOpaque = false
-        clipsToBounds = true
+        tabBar.backgroundColor = .clear
+        tabBar.isOpaque = false
         tabBar.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        clipsToBounds = true
         addSubview(tabBar)
     }
 
@@ -333,8 +347,6 @@ private final class ConduitTabBarContainer: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        // Keep UIKit's glass surface tied to the SwiftUI host bounds. Without
-        // this explicit layout, UITabBar preserves its expanded minimum height.
         tabBar.frame = bounds
         tabBar.setNeedsLayout()
         tabBar.layoutIfNeeded()
