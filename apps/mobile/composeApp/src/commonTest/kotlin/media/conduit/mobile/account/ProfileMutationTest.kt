@@ -66,6 +66,37 @@ class ProfileMutationTest {
     }
 
     @Test
+    fun unwatchedSeriesMutationDoesNotCreateUntouchedRows() {
+        val series = CatalogItem("show", "series", "Show")
+        val first = ProgressSummary(
+            videoId = "s1e1",
+            mediaType = "series",
+            mediaId = "show",
+            name = "Show",
+            positionMs = 10_000,
+            durationMs = 40_000,
+            watched = true,
+            updatedAt = "2026-01-01",
+        )
+        val videos = listOf(
+            VideoItem("s1e1", title = "One", season = 1, episode = 1),
+            VideoItem("s1e2", title = "Two", season = 1, episode = 2),
+        )
+
+        val updated = snapshot.copy(
+            progress = listOf(first),
+            history = listOf(first),
+            continueWatching = listOf(first),
+        ).applyOptimistically(
+            ProfileMutation.SetSeriesWatched(series, videos, listOf(first), watched = false),
+        )
+
+        assertEquals(listOf("s1e1"), updated.progress.map { it.videoId })
+        assertFalse(updated.progress.single().watched)
+        assertTrue(updated.continueWatching.isEmpty())
+    }
+
+    @Test
     fun dismissKeepsHistoryAndRemovesContinueWatching() {
         val updated = snapshot.applyOptimistically(ProfileMutation.SetDismissed(progress, true))
 

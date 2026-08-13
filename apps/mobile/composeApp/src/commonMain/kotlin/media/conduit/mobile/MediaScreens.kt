@@ -911,6 +911,8 @@ internal fun MediaDetailsScreen(
                     orderedVideos,
                     selectedVideo,
                     snapshot,
+                    actionItem = item,
+                    onMutation = onMutation,
                     fullscreen = maxWidth < 600.dp,
                     onDismiss = { episodesOpen = false },
                     onSelect = { video ->
@@ -1004,6 +1006,8 @@ internal fun MediaDetailsScreen(
                         videos = orderedVideos,
                         current = selectedVideo,
                         snapshot = snapshot,
+                        actionItem = item,
+                        onMutation = onMutation,
                         fullscreen = maxWidth < 600.dp,
                         onDismiss = { streamEpisodesOpen = false },
                         onSelect = { video ->
@@ -1204,7 +1208,24 @@ internal fun MediaDetailsScreen(
                 Column(Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     LaunchedEffect(selectedSeason, seasons) { seasons.indexOf(selectedSeason).takeIf { it >= 0 }?.let { detailsSeasonListState.animateScrollToItem(it) } }
                     Text("Seasons", modifier = Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                    LazyRow(state = detailsSeasonListState, contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) { items(seasons) { season -> FilterChip(selected = selectedSeason == season, onClick = { selectedSeason = season }, label = { Text(if (season == 0) "Specials" else "Season $season") }) } }
+                    LazyRow(state = detailsSeasonListState, contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(seasons) { season ->
+                            WatchableSeasonChip(
+                                selected = selectedSeason == season,
+                                label = if (season == 0) "Specials" else "Season $season",
+                                onClick = { selectedSeason = season },
+                                onLongClick = {
+                                    haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                    actionTarget = MediaActionTarget(
+                                        actionItem,
+                                        MediaActionContext.Season,
+                                        season = season,
+                                        videos = videos,
+                                    )
+                                },
+                            )
+                        }
+                    }
                     Text(if (selectedSeason == 0) "Specials" else "Season ${selectedSeason ?: 1}", modifier = Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         items(videos.filter { it.season == selectedSeason }, key = VideoItem::id) { video ->
@@ -1216,13 +1237,66 @@ internal fun MediaDetailsScreen(
                                     onClick = { selectedVideo = video; requestStreams(video) },
                                     onLongClick = {
                                         haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
-                                        actionTarget = MediaActionTarget(actionItem, MediaActionContext.Episode, progress, video)
+                                        actionTarget = MediaActionTarget(actionItem, MediaActionContext.Episode, progress, video, videos = videos)
                                     },
                                 ),
                                 shape = RoundedCornerShape(16.dp),
                                 color = MaterialTheme.colorScheme.surfaceVariant.copy(.65f),
                             ) {
-                                Column { Box { AsyncImage(video.thumbnail ?: details.background, null, Modifier.fillMaxWidth().height(142.dp), contentScale = ContentScale.Crop); Surface(Modifier.padding(8.dp), color = Color.Black.copy(.65f), shape = RoundedCornerShape(8.dp)) { Text("S${video.season ?: 0}E${video.episode ?: 0}", color = Color.White, modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp), style = MaterialTheme.typography.labelSmall) } }; Column(Modifier.padding(12.dp)) { Text(video.displayTitle, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis); (video.overview ?: video.description)?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall) }; if (progress != null && progress.durationMs > 0) LinearProgressIndicator({ progress.positionMs.toFloat() / progress.durationMs }, Modifier.fillMaxWidth().padding(top = 8.dp), color = MaterialTheme.colorScheme.primary) } }
+                                Column {
+                                        Box {
+                                            AsyncImage(
+                                                video.thumbnail ?: details.background,
+                                            null,
+                                            Modifier.fillMaxWidth().height(142.dp),
+                                                contentScale = ContentScale.Crop,
+                                            )
+                                            if (episodeWatchState(progress) == EpisodeWatchState.Watched) {
+                                                Icon(
+                                                    Icons.Rounded.CheckCircle,
+                                                    null,
+                                                    tint = MaterialTheme.colorScheme.primary,
+                                                    modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
+                                                )
+                                            }
+                                            Surface(
+                                            Modifier.padding(8.dp),
+                                            color = Color.Black.copy(.65f),
+                                            shape = RoundedCornerShape(8.dp),
+                                        ) {
+                                            Text(
+                                                "S${video.season ?: 0}E${video.episode ?: 0}",
+                                                color = Color.White,
+                                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                                                style = MaterialTheme.typography.labelSmall,
+                                            )
+                                        }
+                                    }
+                                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                                        Text(video.displayTitle, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        (video.overview ?: video.description)?.let {
+                                            Text(
+                                                it,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                maxLines = 2,
+                                                overflow = TextOverflow.Ellipsis,
+                                                style = MaterialTheme.typography.bodySmall,
+                                            )
+                                        }
+                                        if (episodeWatchState(progress) == EpisodeWatchState.InProgress) {
+                                            LinearProgressIndicator(
+                                                { episodeProgressFraction(progress) },
+                                                Modifier.fillMaxWidth(),
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                            Text(
+                                                "${(episodeProgressFraction(progress) * 100).roundToInt()}%",
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                style = MaterialTheme.typography.labelSmall,
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -1366,15 +1440,20 @@ internal fun PlayerBufferingOverlay(modifier: Modifier = Modifier) {
 }
 
 @Composable
+@OptIn(ExperimentalFoundationApi::class)
 private fun PlayerEpisodeDrawer(
     videos: List<VideoItem>,
     current: VideoItem?,
     snapshot: ProfileSnapshot?,
+    actionItem: CatalogItem,
+    onMutation: suspend (ProfileMutation) -> Result<Unit>,
     onDismiss: () -> Unit,
     onSelect: (VideoItem) -> Unit,
     fullscreen: Boolean = false,
 ) {
     var season by remember(current?.id, videos) { mutableStateOf(current?.season ?: videos.firstOrNull()?.season ?: 1) }
+    var actionTarget by remember(current?.id, videos) { mutableStateOf<MediaActionTarget?>(null) }
+    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
     val seasons = videos.mapNotNull(VideoItem::season).distinct().sorted()
     val seasonListState = rememberLazyListState()
     LaunchedEffect(season, seasons) { seasons.indexOf(season).takeIf { it >= 0 }?.let { seasonListState.animateScrollToItem(it) } }
@@ -1438,10 +1517,19 @@ private fun PlayerEpisodeDrawer(
                     contentPadding = PaddingValues(vertical = 4.dp),
                 ) {
                     items(seasons) { value ->
-                        FilterChip(
+                        WatchableSeasonChip(
                             selected = season == value,
+                            label = if (value == 0) "Specials" else "Season $value",
                             onClick = { season = value },
-                            label = { Text(if (value == 0) "Specials" else "Season $value") },
+                            onLongClick = {
+                                haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                actionTarget = MediaActionTarget(
+                                    actionItem,
+                                    MediaActionContext.Season,
+                                    season = value,
+                                    videos = videos,
+                                )
+                            },
                         )
                     }
                 }
@@ -1458,8 +1546,21 @@ private fun PlayerEpisodeDrawer(
                             video.episode?.let { "E$it" },
                         ).joinToString(" ")
                         Surface(
-                            onClick = { onSelect(video) },
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier.fillMaxWidth().combinedClickable(
+                                onClickLabel = "Play ${video.displayTitle}",
+                                onLongClickLabel = "More actions for ${video.displayTitle}",
+                                onClick = { onSelect(video) },
+                                onLongClick = {
+                                    haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                    actionTarget = MediaActionTarget(
+                                        actionItem,
+                                        MediaActionContext.Episode,
+                                        progress,
+                                        video,
+                                        videos = videos,
+                                    )
+                                },
+                            ),
                             color = if (video.id == current?.id) MaterialTheme.colorScheme.primary.copy(.14f) else Color.White.copy(.05f),
                             shape = RoundedCornerShape(16.dp),
                             border = if (video.id == current?.id) BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null,
@@ -1475,7 +1576,7 @@ private fun PlayerEpisodeDrawer(
                                         .clip(RoundedCornerShape(10.dp)),
                                 ) {
                                     AsyncImage(video.thumbnail, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-                                    if (progress?.watched == true) {
+                                    if (episodeWatchState(progress) == EpisodeWatchState.Watched) {
                                         Icon(
                                             Icons.Rounded.CheckCircle,
                                             null,
@@ -1502,11 +1603,18 @@ private fun PlayerEpisodeDrawer(
                                             style = MaterialTheme.typography.bodySmall,
                                         )
                                     }
-                                    if (progress != null && !progress.watched && progress.durationMs > 0) {
+                                    if (episodeWatchState(progress) == EpisodeWatchState.InProgress) {
                                         LinearProgressIndicator(
-                                            { (progress.positionMs.toFloat() / progress.durationMs).coerceIn(0f, 1f) },
+                                            { episodeProgressFraction(progress) },
                                             Modifier.fillMaxWidth().padding(top = 5.dp),
                                             color = MaterialTheme.colorScheme.primary,
+                                        )
+                                    }
+                                    if (episodeWatchState(progress) == EpisodeWatchState.InProgress) {
+                                        Text(
+                                            "${(episodeProgressFraction(progress) * 100).roundToInt()}%",
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            style = MaterialTheme.typography.labelSmall,
                                         )
                                     }
                                 }
@@ -1515,6 +1623,44 @@ private fun PlayerEpisodeDrawer(
                     }
                 }
             }
+        }
+        MediaActionSheet(
+            target = actionTarget,
+            snapshot = snapshot,
+            onDismiss = { actionTarget = null },
+            onPlay = { target -> target.video?.let(onSelect) },
+            onDetails = {},
+            onMutation = onMutation,
+        )
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun WatchableSeasonChip(
+    selected: Boolean,
+    label: String,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier.combinedClickable(
+            onClickLabel = "Select $label",
+            onLongClickLabel = "More actions for $label",
+            onClick = onClick,
+            onLongClick = onLongClick,
+        ),
+        shape = RoundedCornerShape(8.dp),
+        color = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+        contentColor = if (selected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            if (selected) Icon(Icons.Rounded.Check, contentDescription = null, modifier = Modifier.size(16.dp))
+            Text(label)
         }
     }
 }

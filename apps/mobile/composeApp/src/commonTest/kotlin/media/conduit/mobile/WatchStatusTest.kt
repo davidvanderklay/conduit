@@ -38,6 +38,31 @@ class WatchStatusTest {
     }
 
     @Test
+    fun episodeStateAndProgressUseExplicitWatchedFlag() {
+        assertEquals(EpisodeWatchState.NotStarted, episodeWatchState(null))
+        val partial = progress("partial", "show", position = 25_000).copy(durationMs = 100_000)
+        assertEquals(EpisodeWatchState.InProgress, episodeWatchState(partial))
+        assertEquals(.25f, episodeProgressFraction(partial))
+        assertEquals(EpisodeWatchState.Watched, episodeWatchState(partial.copy(watched = true)))
+        assertEquals(0f, episodeProgressFraction(partial.copy(watched = true)))
+    }
+
+    @Test
+    fun seasonActionsIncludeEveryReleasedEpisodeAndSkipUnavailableEpisodes() {
+        val videos = listOf(
+            VideoItem("s1e1", season = 1, episode = 1, released = "2026-01-01"),
+            VideoItem("s1e2", season = 1, episode = 2, released = "2026-01-01"),
+            VideoItem("future", season = 1, episode = 3, released = "2027-01-01"),
+            VideoItem("s2e1", season = 2, episode = 1, released = "2026-01-01"),
+        )
+
+        assertEquals(
+            listOf("s1e1", "s1e2"),
+            seasonWatchVideos(videos, 1, today = "2026-06-01").map(VideoItem::id),
+        )
+    }
+
+    @Test
     fun detailsResumeUnfinishedMovies() {
         val movie = CatalogItem("movie", "movie", "Movie")
         val unfinished = progress("movie", "movie", position = 30_000, type = "movie")

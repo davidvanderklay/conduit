@@ -170,6 +170,52 @@ describe("next episode prompt", () => {
     expect(select).toHaveBeenCalledWith(episode)
   })
 
+  it("opens episode actions from a desktop context-menu event", () => {
+    const onWatchAction = vi.fn().mockResolvedValue(undefined)
+    const secondEpisode: Video = {
+      id: "series:3:2",
+      season: 3,
+      episode: 2,
+      title: "The next beginning",
+    }
+    act(() => {
+      root.render(
+        <PlayerEpisodeDrawer
+          open
+          context={{
+            name: "Example",
+            profileId: "profile-1",
+            media: { type: "series", id: "example", name: "Example" },
+            videos: [episode, secondEpisode],
+            progress: [],
+            currentVideoId: secondEpisode.id,
+            onWatchAction,
+          }}
+          onOpenChange={vi.fn()}
+          onSelect={vi.fn()}
+        />,
+      )
+    })
+
+    const currentEpisode = host.querySelector<HTMLButtonElement>(
+      `[data-video-id="${secondEpisode.id}"]`,
+    )
+    act(() => {
+      currentEpisode?.dispatchEvent(new MouseEvent("contextmenu", {
+        bubbles: true,
+        clientX: 120,
+        clientY: 120,
+      }))
+    })
+
+    expect(document.body.querySelector("[data-episode-context-menu]")).not.toBeNull()
+    const markSeason = [...document.body.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+      .find((button) => button.textContent?.includes("Mark season as watched"))
+    expect(markSeason).toBeDefined()
+    act(() => markSeason?.click())
+    expect(onWatchAction).toHaveBeenCalledWith([episode, secondEpisode], true)
+  })
+
   it("closes the open episode drawer when a pointer gesture starts outside it", () => {
     const openChange = vi.fn()
     act(() => {

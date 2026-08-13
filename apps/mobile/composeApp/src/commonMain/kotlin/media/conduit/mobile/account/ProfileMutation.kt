@@ -68,7 +68,7 @@ fun ProfileSnapshot.applyOptimistically(mutation: ProfileMutation): ProfileSnaps
             watched = mutation.watched,
             positionMs = if (mutation.watched) current?.durationMs ?: 0 else 0,
             dismissed = false,
-            continueWatching = current?.continueWatching == true || mutation.watched,
+            continueWatching = mutation.watched,
         )
         copy(
             progress = progress.replaceProgress(optimistic),
@@ -82,7 +82,10 @@ fun ProfileSnapshot.applyOptimistically(mutation: ProfileMutation): ProfileSnaps
     }
 
     is ProfileMutation.SetSeriesWatched -> {
-        val optimistic = mutation.videos.map { video ->
+        val targetVideos = mutation.videos.filter { video ->
+            mutation.watched || mutation.progress.any { it.videoId == video.id }
+        }
+        val optimistic = targetVideos.map { video ->
             val current = mutation.progress.firstOrNull { it.videoId == video.id }
             (current ?: ProgressSummary(
                 videoId = video.id,
@@ -101,7 +104,7 @@ fun ProfileSnapshot.applyOptimistically(mutation: ProfileMutation): ProfileSnaps
                 watched = mutation.watched,
                 positionMs = if (mutation.watched) current?.durationMs ?: 0 else 0,
                 dismissed = false,
-                continueWatching = current?.continueWatching == true || mutation.watched,
+                continueWatching = mutation.watched,
             )
         }
         copy(
@@ -154,7 +157,9 @@ suspend fun ConduitApi.executeMutation(
         is ProfileMutation.SetWatched -> setProgressWatched(
             baseUrl, token, profileId, mutation.progress, mutation.item, mutation.video, mutation.watched,
         )
-        is ProfileMutation.SetSeriesWatched -> mutation.videos.forEach { video ->
+        is ProfileMutation.SetSeriesWatched -> mutation.videos
+            .filter { video -> mutation.watched || mutation.progress.any { it.videoId == video.id } }
+            .forEach { video ->
             setProgressWatched(
                 baseUrl,
                 token,
