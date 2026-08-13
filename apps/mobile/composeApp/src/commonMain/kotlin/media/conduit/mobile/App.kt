@@ -7,8 +7,11 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -36,6 +39,8 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Explore
 import androidx.compose.material.icons.rounded.Extension
 import androidx.compose.runtime.*
+import androidx.compose.animation.core.animateIntOffsetAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
@@ -53,8 +58,10 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.unit.dp
@@ -775,13 +782,6 @@ private fun AppShell(
         // discard transient state such as the selected playback stream.
         val expanded = maxWidth >= 720.dp && maxHeight >= 600.dp
         val snackbarHostState = remember { SnackbarHostState() }
-        LaunchedEffect(playbackSession.state.presentation) {
-            if (playbackSession.state.presentation == PlaybackPresentation.SystemPip) {
-                selectedMedia = null
-                selectedVideoId = null
-                dispatch(AppAction.Navigate(AppDestination.Home))
-            }
-        }
         suspend fun mutateProfile(mutation: ProfileMutation): Result<Unit> {
             val profile = activeProfile ?: return Result.failure(IllegalStateException("No active profile"))
             val result = mutationMutex.withLock {
@@ -902,12 +902,16 @@ private fun AppShell(
                 )
             }
         }
-        val topChromeVisible = selectedMedia == null && state.destination in setOf(
+        val playbackAllowsAppChrome = playbackSession.state.presentation in setOf(
+            PlaybackPresentation.Closed,
+            PlaybackPresentation.Mini,
+        )
+        val topChromeVisible = playbackAllowsAppChrome && selectedMedia == null && state.destination in setOf(
             AppDestination.Home,
             AppDestination.Search,
             AppDestination.Library,
         )
-        val bottomChromeVisible = selectedMedia == null && state.destination in setOf(
+        val bottomChromeVisible = playbackAllowsAppChrome && selectedMedia == null && state.destination in setOf(
             AppDestination.Home,
             AppDestination.Search,
             AppDestination.Library,
@@ -1118,7 +1122,6 @@ private fun DestinationContent(
                 onBrowse = onBrowse,
                 onBack = onCloseMedia,
                 playbackSession = playbackSession,
-                onRestorePlayback = { request -> onSelectMedia(selectedMedia, request.identity.videoId) },
             )
         }
         if (profileSync.refreshing) LinearProgressIndicator(Modifier.fillMaxWidth().align(Alignment.TopCenter))
@@ -1139,8 +1142,18 @@ private fun BoxScope.PlaybackSessionHost(
     var controlsVisible by remember(request.identity, request.url) { mutableStateOf(true) }
     var temporarySpeedActive by remember(request.identity, request.url) { mutableStateOf(false) }
     var miniOffset by remember(request.identity, request.url) { mutableStateOf(IntOffset.Zero) }
+    var miniWidthDp by remember(request.identity, request.url, expanded) {
+        mutableFloatStateOf(if (expanded) 320f else 220f)
+    }
+    var miniGestureActive by remember(request.identity, request.url) { mutableStateOf(false) }
     var containerSize by remember { mutableStateOf(IntSize.Zero) }
     var miniSize by remember { mutableStateOf(IntSize.Zero) }
+    val density = LocalDensity.current
+    val animatedMiniOffset by animateIntOffsetAsState(
+        targetValue = miniOffset,
+        animationSpec = spring(dampingRatio = .78f, stiffness = 520f),
+        label = "mini-player-corner",
+    )
 
     PlayerOrientationLock(active = session.presentation == PlaybackPresentation.FullScreen)
     LaunchedEffect(request.identity, request.url) {
@@ -1155,14 +1168,18 @@ private fun BoxScope.PlaybackSessionHost(
 
     Box(Modifier.fillMaxSize().onSizeChanged { containerSize = it }) {
         val miniBottomPadding = if (bottomNavigationVisible) 82.dp else 12.dp
-        val miniPlayerWidth = if (expanded) 320.dp else 220.dp
+        val renderedMiniOffset = if (miniGestureActive) miniOffset else animatedMiniOffset
         val miniLayout = Modifier
             .align(Alignment.BottomEnd)
             .padding(end = 12.dp, bottom = miniBottomPadding)
-            .offset { miniOffset }
-            .width(miniPlayerWidth)
+            .offset { renderedMiniOffset }
+            .width(miniWidthDp.dp)
             .aspectRatio(16f / 9f)
-        val playerModifier = if (fullScreen || systemPip) Modifier.fillMaxSize() else miniLayout
+        val playerModifier = if (fullScreen || systemPip) {
+            Modifier.fillMaxSize()
+        } else {
+            miniLayout.clip(RoundedCornerShape(10.dp))
+        }
         NativePlayer(
             url = request.url,
             active = true,
@@ -1288,19 +1305,67 @@ private fun BoxScope.PlaybackSessionHost(
                 }
             }
         } else if (!systemPip) {
-            val horizontalLimit = (containerSize.width - miniSize.width).coerceAtLeast(0)
-            val verticalLimit = (containerSize.height - miniSize.height).coerceAtLeast(0)
+            val edgePaddingPx = with(density) { 12.dp.roundToPx() }
+            val bottomPaddingPx = with(density) { miniBottomPadding.roundToPx() }
+            val topPaddingPx = WindowInsets.statusBars.getTop(density) + edgePaddingPx
+            val horizontalLimit = (containerSize.width - miniSize.width - edgePaddingPx * 2).coerceAtLeast(0)
+            val verticalLimit = (
+                containerSize.height - miniSize.height - bottomPaddingPx - topPaddingPx
+            ).coerceAtLeast(0)
+            val minimumWidthDp = if (expanded) 240f else 180f
+            val availableWidthDp = with(density) {
+                (containerSize.width - 24.dp.roundToPx()).coerceAtLeast(1).toDp().value
+            }
+            val maximumWidthDp = (if (expanded) 480f else 340f).coerceAtMost(availableWidthDp)
+                .coerceAtLeast(minimumWidthDp)
+            val currentHorizontalLimit by rememberUpdatedState(horizontalLimit)
+            val currentVerticalLimit by rememberUpdatedState(verticalLimit)
+            val currentMinimumWidthDp by rememberUpdatedState(minimumWidthDp)
+            val currentMaximumWidthDp by rememberUpdatedState(maximumWidthDp)
+            LaunchedEffect(horizontalLimit, verticalLimit) {
+                miniOffset = IntOffset(
+                    miniOffset.x.coerceIn(-horizontalLimit, 0),
+                    miniOffset.y.coerceIn(-verticalLimit, 0),
+                )
+            }
             Box(
                 miniLayout
                     .clip(RoundedCornerShape(10.dp))
-                    .background(Color.Black)
                     .onSizeChanged { miniSize = it }
-                    .pointerInput(containerSize, miniSize) {
-                        detectDragGestures { change, amount ->
-                            change.consume()
+                    .pointerInput(request.identity, containerSize) {
+                        awaitEachGesture {
+                            awaitFirstDown(requireUnconsumed = false)
+                            miniGestureActive = true
+                            do {
+                                val event = awaitPointerEvent()
+                                val pan = event.calculatePan()
+                                val zoom = event.calculateZoom()
+                                miniWidthDp = (miniWidthDp * zoom).coerceIn(
+                                    currentMinimumWidthDp,
+                                    currentMaximumWidthDp,
+                                )
+                                miniOffset = IntOffset(
+                                    x = (miniOffset.x + pan.x.roundToInt())
+                                        .coerceIn(-currentHorizontalLimit, 0),
+                                    y = (miniOffset.y + pan.y.roundToInt())
+                                        .coerceIn(-currentVerticalLimit, 0),
+                                )
+                                event.changes.forEach { change ->
+                                    if (change.positionChanged()) change.consume()
+                                }
+                            } while (event.changes.any { it.pressed })
+                            miniGestureActive = false
                             miniOffset = IntOffset(
-                                x = (miniOffset.x + amount.x.roundToInt()).coerceIn(-horizontalLimit, 0),
-                                y = (miniOffset.y + amount.y.roundToInt()).coerceIn(-verticalLimit, 0),
+                                x = if (miniOffset.x < -currentHorizontalLimit / 2) {
+                                    -currentHorizontalLimit
+                                } else {
+                                    0
+                                },
+                                y = if (miniOffset.y < -currentVerticalLimit / 2) {
+                                    -currentVerticalLimit
+                                } else {
+                                    0
+                                },
                             )
                         }
                     }

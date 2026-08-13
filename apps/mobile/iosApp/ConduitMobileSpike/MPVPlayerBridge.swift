@@ -296,6 +296,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
     private var hasLoadedFile = false
     private var shouldPlay = false
     private var resumeAfterForeground = false
+    private var backgroundedWithPictureInPicture = false
     private var lastDrawableSize: CGSize = .zero
     private var externallyManagedViewSize: CGSize?
     private var pendingSurfaceLayoutWorkItems: [DispatchWorkItem] = []
@@ -650,9 +651,11 @@ final class ConduitMPVPlayerViewController: UIViewController {
     private func enterBackground() {
         guard mpv != nil else { return }
         if pictureInPicture?.isStartingOrActive == true {
+            backgroundedWithPictureInPicture = true
             resumeAfterForeground = false
             return
         }
+        backgroundedWithPictureInPicture = false
         resumeAfterForeground = isPlayerPlaying || shouldPlay
         pendingRetry?.cancel()
         pendingRetry = nil
@@ -664,9 +667,10 @@ final class ConduitMPVPlayerViewController: UIViewController {
 
     private func enterForeground() {
         guard mpv != nil else { return }
-        if pictureInPicture?.isActive == true {
+        if backgroundedWithPictureInPicture && pictureInPicture?.isActive == true {
             pictureInPicture?.stop()
         }
+        backgroundedWithPictureInPicture = false
         syncVideoSurfaceLayout()
         attemptStartPendingLoad()
         setStringProperty("vid", "auto")
@@ -1518,7 +1522,6 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         priming = false
         startRequested = false
         stopCapture()
-        if UIApplication.shared.applicationState != .active { owner?.pausePlayback() }
     }
 
     func pictureInPictureController(

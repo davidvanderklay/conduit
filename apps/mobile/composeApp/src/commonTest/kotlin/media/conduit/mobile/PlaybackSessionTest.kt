@@ -59,7 +59,6 @@ class PlaybackSessionTest {
         )
         val callbacks = PlaybackSessionCallbacks(
             persist = { _, _ -> },
-            restore = {},
             playNext = {},
             openEpisodes = {},
             minimized = {},
@@ -72,5 +71,33 @@ class PlaybackSessionTest {
 
         assertEquals(PlaybackPresentation.Mini, controller.state.presentation)
         assertEquals(request.url, controller.state.request?.url)
+    }
+
+    @Test
+    fun restoringMiniPlayerKeepsTheLivePlaybackState() {
+        val controller = PlaybackSessionController(TestScope())
+        val request = PlaybackRequest(
+            identity = PlaybackIdentity("profile", "movie", "media", "video"),
+            url = "https://example.test/video.m3u8",
+            title = "Movie",
+            mediaName = "Movie",
+        )
+        val callbacks = PlaybackSessionCallbacks(
+            persist = { _, _ -> },
+            playNext = {},
+            openEpisodes = {},
+            minimized = {},
+            closed = {},
+        )
+        val playback = PlaybackState(playing = true, positionMs = 42_000, durationMs = 120_000)
+
+        controller.start(request, callbacks)
+        controller.updatePlayback(playback)
+        controller.minimize()
+        controller.restore()
+
+        assertEquals(PlaybackPresentation.FullScreen, controller.state.presentation)
+        assertEquals(request, controller.state.request)
+        assertEquals(playback, controller.state.playback)
     }
 }

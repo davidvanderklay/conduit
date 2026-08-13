@@ -70,7 +70,6 @@ data class PlaybackSessionState(
 
 class PlaybackSessionCallbacks(
     val persist: suspend (PlaybackRequest, PlaybackState) -> Unit,
-    val restore: (PlaybackRequest) -> Unit,
     val playNext: () -> Unit,
     val openEpisodes: () -> Unit,
     val minimized: () -> Unit,
@@ -118,9 +117,8 @@ class PlaybackSessionController(
     }
 
     fun restore() {
-        val request = state.request ?: return
+        if (state.request == null) return
         state = state.copy(presentation = PlaybackPresentation.FullScreen)
-        callbacks?.restore?.invoke(request)
     }
 
     fun systemPipChanged(active: Boolean) {
