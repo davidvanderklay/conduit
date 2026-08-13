@@ -1410,7 +1410,8 @@ private fun BoxScope.PlaybackSessionHost(
                         )
                     },
                     modifier = Modifier
-                        .align(Alignment.Center)
+                        .align(Alignment.TopStart)
+                        .padding(2.dp)
                         .background(Color.Black.copy(alpha = .68f), androidx.compose.foundation.shape.CircleShape),
                 ) {
                     Icon(
