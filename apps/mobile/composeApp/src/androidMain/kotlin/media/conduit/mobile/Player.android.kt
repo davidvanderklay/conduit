@@ -12,7 +12,6 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -55,8 +54,6 @@ import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.ui.PlayerView
 import androidx.media3.ui.AspectRatioFrameLayout
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
 import media.conduit.mobile.account.SubtitleItem
 import android.net.Uri
 
@@ -130,6 +127,8 @@ actual fun NativePlayer(
     var playing by remember(player) { mutableStateOf(false) }
     var playbackSpeed by remember(player) { mutableFloatStateOf(1f) }
     var initialLoadComplete by remember(player) { mutableStateOf(false) }
+    var firstFrameRendered by remember(player) { mutableStateOf(false) }
+    var buffering by remember(player) { mutableStateOf(false) }
     var dragging by remember(player) { mutableStateOf(false) }
     var draggedPosition by remember(player) { mutableFloatStateOf(0f) }
     var trackPanel by remember { mutableStateOf<Int?>(null) }
@@ -199,7 +198,7 @@ actual fun NativePlayer(
                 (activity as? MainActivity)?.updateConduitPipVideoSize(videoSize.width, videoSize.height)
             }
             override fun onRenderedFirstFrame() {
-                initialLoadComplete = true
+                firstFrameRendered = true
             }
         }
         player.addListener(listener)
@@ -258,24 +257,33 @@ actual fun NativePlayer(
     LaunchedEffect(presentation) {
         controlsVisible = presentation == PlaybackPresentation.FullScreen
     }
-    LaunchedEffect(player, lifecycle) {
+    LaunchedEffect(player, lifecycle, landscape) {
         lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             while (true) {
+                val isBuffering = initialLoadComplete && player.playbackState == Player.STATE_BUFFERING
+                val playerPipReady = landscape &&
+                    initialLoadComplete &&
+                    firstFrameRendered &&
+                    player.duration > 0 &&
+                    playbackError == null
                 currentCallback(
                     PlaybackState(
                         loading = !initialLoadComplete,
-                        buffering = initialLoadComplete && player.playbackState == Player.STATE_BUFFERING,
+                        buffering = isBuffering,
                         playing = player.isPlaying,
                         positionMs = player.currentPosition.coerceAtLeast(0),
                         durationMs = player.duration.coerceAtLeast(0),
                         ended = player.playbackState == Player.STATE_ENDED,
                         error = playbackError,
+                        pipReady = playerPipReady,
                     ),
                 )
                 if (!dragging) positionMs = player.currentPosition.coerceAtLeast(0)
                 durationMs = player.duration.coerceAtLeast(0)
                 playing = player.isPlaying
+                buffering = isBuffering
                 playbackSpeed = player.playbackParameters.speed
+                (activity as? MainActivity)?.updateConduitPipReadiness(playerPipReady)
                 delay(500)
             }
         }
@@ -287,15 +295,25 @@ actual fun NativePlayer(
         }
     }
 
-    val holdToSpeedReady = initialLoadComplete && durationMs > 0
+    val holdToSpeedReady = firstFrameRendered && durationMs > 0
+    val doubleTapSlopPx = with(LocalDensity.current) { 48.dp.toPx() }
     Box(modifier.background(Color.Black).pointerInput(player, resizeMode) { detectTransformGestures { _, _, zoom, _ ->
         val next = when { zoom > 1.04f -> ANDROID_RESIZE_MODE_ZOOM; zoom < .96f -> AspectRatioFrameLayout.RESIZE_MODE_FIT; else -> resizeMode }
         if (next != resizeMode) resizeMode = next
     } }.pointerInput(player, touchGestures, holdToSpeed, holdToSpeedReady, controlsVisible) {
-        detectTapGestures(
-            onPress = { if (holdToSpeed && holdToSpeedReady) coroutineScope { val release = async { tryAwaitRelease() }; delay(450); if (!release.isCompleted) { val previousSpeed = player.playbackParameters.speed; player.setPlaybackSpeed(2f); latestTemporarySpeedCallback(true); try { release.await() } finally { player.setPlaybackSpeed(previousSpeed); latestTemporarySpeedCallback(false) } } } else tryAwaitRelease() },
+        detectMovementTolerantPlayerGestures(
+            touchGestures = touchGestures,
+            holdToSpeed = holdToSpeed,
+            holdToSpeedReady = holdToSpeedReady,
+            doubleTapSlopPx = doubleTapSlopPx,
+            currentSpeed = { player.playbackParameters.speed },
+            setSpeed = player::setPlaybackSpeed,
+            onTemporarySpeedChanged = latestTemporarySpeedCallback,
             onTap = { controlsVisible = true },
-            onDoubleTap = if (touchGestures) {{ offset -> if (offset.x < size.width / 2f) player.seekBack() else player.seekForward(); controlsVisible = true }} else null,
+            onDoubleTap = { offset ->
+                if (offset.x < size.width / 2f) player.seekBack() else player.seekForward()
+                controlsVisible = true
+            },
         )
     }) {
         AndroidView(
@@ -318,16 +336,27 @@ actual fun NativePlayer(
                 val next = when { zoom > 1.04f -> ANDROID_RESIZE_MODE_ZOOM; zoom < .96f -> AspectRatioFrameLayout.RESIZE_MODE_FIT; else -> resizeMode }
                 if (next != resizeMode) resizeMode = next
             } }.pointerInput(player, touchGestures, holdToSpeed, holdToSpeedReady) {
-                detectTapGestures(
-                    onPress = { if (holdToSpeed && holdToSpeedReady) coroutineScope { val release = async { tryAwaitRelease() }; delay(450); if (!release.isCompleted) { val previousSpeed = player.playbackParameters.speed; player.setPlaybackSpeed(2f); latestTemporarySpeedCallback(true); try { release.await() } finally { player.setPlaybackSpeed(previousSpeed); latestTemporarySpeedCallback(false) } } } else tryAwaitRelease() },
+                detectMovementTolerantPlayerGestures(
+                    touchGestures = touchGestures,
+                    holdToSpeed = holdToSpeed,
+                    holdToSpeedReady = holdToSpeedReady,
+                    doubleTapSlopPx = doubleTapSlopPx,
+                    currentSpeed = { player.playbackParameters.speed },
+                    setSpeed = player::setPlaybackSpeed,
+                    onTemporarySpeedChanged = latestTemporarySpeedCallback,
                     onTap = { controlsVisible = false },
-                    onDoubleTap = if (touchGestures) {{ offset -> if (offset.x < size.width / 2f) player.seekBack() else player.seekForward(); controlsVisible = true }} else null,
+                    onDoubleTap = { offset ->
+                        if (offset.x < size.width / 2f) player.seekBack() else player.seekForward()
+                        controlsVisible = true
+                    },
                 )
             }) {
                 val loadingOrPortrait = !landscape || durationMs <= 0
                 Box(Modifier.fillMaxSize()) {
-                    FilledIconButton(onClick = { if (player.isPlaying) player.pause() else player.play(); controlsVisible = true }, modifier = Modifier.align(Alignment.Center).size(64.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color.White, contentColor = Color.Black)) {
-                        Icon(if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, if (playing) "Pause" else "Play", modifier = Modifier.size(38.dp))
+                    if (shouldShowCenterPlaybackControl(controlsVisible, dragging, buffering)) {
+                        FilledIconButton(onClick = { if (player.isPlaying) player.pause() else player.play(); controlsVisible = true }, modifier = Modifier.align(Alignment.Center).size(64.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color.White, contentColor = Color.Black)) {
+                            Icon(if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, if (playing) "Pause" else "Play", modifier = Modifier.size(38.dp))
+                        }
                     }
                     if (hasNextEpisode) {
                         FilledIconButton(
