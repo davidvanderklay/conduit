@@ -9,8 +9,25 @@ import UIKit
 /// leaking rendering concerns into the Compose player contract.
 final class ConduitMetalLayer: CAMetalLayer {
     private let captureLock = NSLock()
+    private let resizeLock = NSLock()
     private var latestDrawable: CAMetalDrawable?
+    private var liveResize = false
     private lazy var captureContext = device.map(CIContext.init(mtlDevice:))
+
+    /// MPVKit's MoltenVK bridge checks this selector before rebuilding its
+    /// swapchain. Keep it thread-safe because MPV reads it off the main queue.
+    @objc dynamic var isNuvioLiveResize: Bool {
+        get {
+            resizeLock.lock()
+            defer { resizeLock.unlock() }
+            return liveResize
+        }
+        set {
+            resizeLock.lock()
+            liveResize = newValue
+            resizeLock.unlock()
+        }
+    }
 
     override var drawableSize: CGSize {
         get { super.drawableSize }

@@ -92,4 +92,5 @@ data class PlaybackState(
     val durationMs: Long = 0,
     val ended: Boolean = false,
     val error: String? = null,
+    val pipReady: Boolean = false,
 )
