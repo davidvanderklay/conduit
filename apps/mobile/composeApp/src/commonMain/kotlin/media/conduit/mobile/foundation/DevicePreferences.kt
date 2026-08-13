@@ -20,6 +20,7 @@ data class DevicePreferences(
     val holdToSpeed: Boolean = true,
     val autoSelectSavedStreams: Boolean = true,
     val lastStreamAddonId: String? = null,
+    val miniplayerOnBack: Boolean = true,
     val autoplayNextEpisode: Boolean = false,
     val p2pEnabled: Boolean = false,
     val rememberLastProfile: Boolean = true,
@@ -42,6 +43,7 @@ class DevicePreferencesRepository(private val store: SettingsStore) {
         holdToSpeed = bool("hold-to-speed", true),
         autoSelectSavedStreams = bool("auto-select-saved-streams", true),
         lastStreamAddonId = store.get(prefix + "last-stream-addon-id")?.takeIf(String::isNotBlank),
+        miniplayerOnBack = bool("miniplayer-on-back", true),
         autoplayNextEpisode = bool("autoplay-next", false),
         p2pEnabled = bool("p2p", false),
         rememberLastProfile = bool("remember-profile", true),
@@ -61,6 +63,7 @@ class DevicePreferencesRepository(private val store: SettingsStore) {
         store.put(prefix + "hold-to-speed", value.holdToSpeed.toString())
         store.put(prefix + "auto-select-saved-streams", value.autoSelectSavedStreams.toString())
         store.put(prefix + "last-stream-addon-id", value.lastStreamAddonId.orEmpty())
+        store.put(prefix + "miniplayer-on-back", value.miniplayerOnBack.toString())
         store.put(prefix + "autoplay-next", value.autoplayNextEpisode.toString())
         store.put(prefix + "p2p", value.p2pEnabled.toString())
         store.put(prefix + "remember-profile", value.rememberLastProfile.toString())

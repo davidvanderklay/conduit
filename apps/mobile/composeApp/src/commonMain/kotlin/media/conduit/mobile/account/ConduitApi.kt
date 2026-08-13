@@ -19,6 +19,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
@@ -357,6 +358,19 @@ private val addonJson = Json {
 
 private val metadataStringListFields = setOf("genres", "director", "cast", "writer")
 private val metadataArrayFields = metadataStringListFields + setOf("trailers", "trailerStreams", "videos")
+private val metadataTextFields = setOf(
+    "description",
+    "releaseInfo",
+    "runtime",
+    "imdbRating",
+    "contentRating",
+    "country",
+    "awards",
+    "released",
+    "poster",
+    "background",
+    "logo",
+)
 
 private suspend inline fun <reified T> HttpResponse.decodeAddonBody(
     normalize: (JsonElement) -> JsonElement = { it },
@@ -373,6 +387,7 @@ private fun normalizeMetaResponse(value: JsonElement): JsonElement {
             when {
                 key in metadataStringListFields -> put(key, normalizeStringList(field))
                 key in metadataArrayFields -> put(key, field as? JsonArray ?: JsonArray(emptyList()))
+                key in metadataTextFields -> put(key, normalizeTextField(field))
                 else -> put(key, field)
             }
         }
@@ -383,10 +398,32 @@ private fun normalizeMetaResponse(value: JsonElement): JsonElement {
 }
 
 private fun normalizeStringList(value: JsonElement): JsonArray = when (value) {
-    is JsonArray -> JsonArray(value.filter { (it as? JsonPrimitive)?.isString == true })
-    is JsonPrimitive -> if (value.isString) JsonArray(listOf(value)) else JsonArray(emptyList())
+    is JsonArray -> JsonArray(
+        value.mapNotNull { item ->
+            (item as? JsonPrimitive)
+                ?.takeIf(JsonPrimitive::isString)
+                ?.contentOrNull
+                ?.trim()
+                ?.takeIf(String::isNotBlank)
+        }.distinct().map(::JsonPrimitive),
+    )
+    is JsonPrimitive -> value.contentOrNull
+        ?.trim()
+        ?.takeIf(String::isNotBlank)
+        ?.let(::JsonPrimitive)
+        ?.let(::listOf)
+        ?.let(::JsonArray)
+        ?: JsonArray(emptyList())
     else -> JsonArray(emptyList())
 }
+
+private fun normalizeTextField(value: JsonElement): JsonElement =
+    (value as? JsonPrimitive)
+        ?.contentOrNull
+        ?.trim()
+        ?.takeIf(String::isNotBlank)
+        ?.let(::JsonPrimitive)
+        ?: JsonNull
 
 data class HomeCatalog(
     val key: String,

@@ -329,7 +329,10 @@ class ConduitApiTest {
                     "name":"Stargate SG-1",
                     "director":null,
                     "cast":"Richard Dean Anderson",
-                    "writer":["Writer A",null],
+                    "writer":["Writer A",null,"  "],
+                    "description":"  ",
+                    "country":" ",
+                    "awards":"  ",
                     "genres":null,
                     "trailers":null,
                     "trailerStreams":null,
@@ -356,6 +359,9 @@ class ConduitApiTest {
         assertEquals(emptyList<String>(), metadata.director)
         assertEquals(listOf("Richard Dean Anderson"), metadata.cast)
         assertEquals(listOf("Writer A"), metadata.writer)
+        assertEquals(null, metadata.description)
+        assertEquals(null, metadata.country)
+        assertEquals(null, metadata.awards)
         assertEquals(emptyList<String>(), metadata.genres)
         assertTrue(metadata.trailers.isEmpty())
         assertTrue(metadata.trailerStreams.isEmpty())
