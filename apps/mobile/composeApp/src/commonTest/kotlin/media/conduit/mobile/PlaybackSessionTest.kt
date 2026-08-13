@@ -1,6 +1,9 @@
 package media.conduit.mobile
 
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -72,6 +75,44 @@ class PlaybackSessionTest {
         assertEquals(239 to 100, clampPipAspectRatio(32, 9))
         assertEquals(100 to 239, clampPipAspectRatio(9, 32))
         assertEquals(1 to 1, clampPipAspectRatio(0, 0))
+    }
+
+    @Test
+    fun miniPlayerUsesVideoAspectRatioWithA16By9Fallback() {
+        assertEquals(4f / 3f, playbackAspectRatio(4, 3), 0.001f)
+        assertEquals(9f / 16f, playbackAspectRatio(9, 16), 0.001f)
+        assertEquals(16f / 9f, playbackAspectRatio(0, 0), 0.001f)
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun progressPersistenceCoalescesPendingPositions() = runTest {
+        val positions = mutableListOf<Long>()
+        val controller = PlaybackSessionController(this)
+        val request = PlaybackRequest(
+            identity = PlaybackIdentity("profile", "movie", "media", "video"),
+            url = "https://example.test/video.mp4",
+            title = "Movie",
+            mediaName = "Movie",
+        )
+        controller.start(
+            request,
+            PlaybackSessionCallbacks(
+                persist = { _, playback -> positions += playback.positionMs },
+                playNext = {},
+                openEpisodes = {},
+                minimized = {},
+                closed = {},
+            ),
+        )
+
+        controller.updatePlayback(PlaybackState(playing = true, positionMs = 15_000, durationMs = 120_000))
+        controller.persist()
+        controller.updatePlayback(PlaybackState(playing = true, positionMs = 45_000, durationMs = 120_000))
+        controller.persist()
+        advanceUntilIdle()
+
+        assertEquals(listOf(45_000L), positions)
     }
 
     @Test

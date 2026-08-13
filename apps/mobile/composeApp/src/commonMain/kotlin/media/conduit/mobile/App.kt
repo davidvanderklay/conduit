@@ -811,6 +811,27 @@ private fun AppShell(
             }
             return result
         }
+        fun refreshProfileData() {
+            activeProfile?.let { profile ->
+                appScope.launch {
+                    profileSync = syncRepository.synchronize(
+                        state.endpoint!!.baseUrl,
+                        account.session.token,
+                        profile.id,
+                    )
+                }
+            }
+        }
+        val onPlaybackProgressChanged: (ProgressSummary?) -> Unit = { saved ->
+            val current = profileSync.snapshot
+            if (saved == null || current == null) {
+                refreshProfileData()
+            } else {
+                val updated = current.withProgressUpdate(saved)
+                profileSync = profileSync.copy(snapshot = updated, offline = false, error = null)
+                syncRepository.save(updated)
+            }
+        }
         val openMedia: (CatalogItem, String?) -> Unit = { item, videoId ->
             selectMedia(item, videoId)
             if (!state.richActionsHintShown) {
@@ -878,6 +899,7 @@ private fun AppShell(
                             selectedVideoId, openMedia, { selectedMedia = null }, dispatch, onSignOut, onProfilesChanged,
                             { profileFlowActive = it },
                             { activeProfile?.let { profile -> appScope.launch { profileSync = syncRepository.synchronize(state.endpoint!!.baseUrl, account.session.token, profile.id) } } },
+                            onPlaybackProgressChanged,
                             ::mutateProfile,
                             browseQuery, { browseQuery = it }, discoverSelection, { discoverSelection = it }, openBrowse,
                             preferences, onPreferencesChanged, homeListState, searchListState, discoverGridState, libraryGridState, historyGridState, settingsListState,
@@ -893,6 +915,7 @@ private fun AppShell(
                     selectedVideoId, openMedia, { selectedMedia = null }, dispatch, onSignOut, onProfilesChanged,
                     { profileFlowActive = it },
                     { activeProfile?.let { profile -> appScope.launch { profileSync = syncRepository.synchronize(state.endpoint!!.baseUrl, account.session.token, profile.id) } } },
+                    onPlaybackProgressChanged,
                     ::mutateProfile,
                     browseQuery, { browseQuery = it }, discoverSelection, { discoverSelection = it }, openBrowse,
                     preferences, onPreferencesChanged, homeListState, searchListState, discoverGridState, libraryGridState, historyGridState, settingsListState,
@@ -1035,6 +1058,7 @@ private fun DestinationContent(
     onProfilesChanged: (String?) -> Unit,
     onProfileFlowChanged: (Boolean) -> Unit,
     onProfileDataChanged: () -> Unit,
+    onPlaybackProgressChanged: (ProgressSummary?) -> Unit,
     onProfileMutation: suspend (ProfileMutation) -> Result<Unit>,
     browseQuery: String,
     onBrowseQueryChange: (String) -> Unit,
@@ -1117,7 +1141,7 @@ private fun DestinationContent(
                 token = account.session.token,
                 preferences = preferences,
                 onPreferencesChanged = onPreferencesChanged,
-                onProgressChanged = onProfileDataChanged,
+                onProgressChanged = onPlaybackProgressChanged,
                 onMutation = onProfileMutation,
                 onBrowse = onBrowse,
                 onBack = onCloseMedia,
@@ -1169,18 +1193,25 @@ private fun BoxScope.PlaybackSessionHost(
     LaunchedEffect(session.playback.ended) {
         if (session.playback.ended) controller.persist()
     }
+    LaunchedEffect(session.playback.playing) {
+        if (!session.playback.playing && session.playback.durationMs > 0) controller.persist()
+    }
 
     Box(Modifier.fillMaxSize().onSizeChanged { containerSize = it }) {
         // Adaptive iOS hides the native bar, but the mini-player keeps its
         // corner position so scrolling does not make it jump vertically.
         val miniBottomPadding = if (bottomNavigationVisible) 116.dp else 12.dp
         val renderedMiniOffset = if (miniGestureActive) miniOffset else animatedMiniOffset
+        val miniAspectRatio = playbackAspectRatio(
+            session.playback.videoWidth,
+            session.playback.videoHeight,
+        )
         val miniLayout = Modifier
             .align(Alignment.BottomEnd)
             .padding(end = 12.dp, bottom = miniBottomPadding)
             .offset { renderedMiniOffset }
             .width(miniWidthDp.dp)
-            .aspectRatio(16f / 9f)
+            .aspectRatio(miniAspectRatio)
         val playerModifier = if (fullScreen || systemPip) {
             Modifier.fillMaxSize()
         } else {

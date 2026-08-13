@@ -267,7 +267,7 @@ internal fun MobileHistoryScreen(
                         caption = progress.videoTitle ?: progress.mediaType,
                         snapshot = snapshot,
                         metadataCache = metadataCache,
-                        onClick = { onSelectVideo(catalogItem, null) },
+                        onClick = { onSelectVideo(catalogItem, progress.videoId) },
                         onActions = { actionTarget = MediaActionTarget(catalogItem, MediaActionContext.History, progress) },
                     )
                 }
@@ -278,7 +278,7 @@ internal fun MobileHistoryScreen(
         target = actionTarget,
         snapshot = snapshot,
         onDismiss = { actionTarget = null },
-        onPlay = { onSelectVideo(it.item, null) },
+        onPlay = { onSelectVideo(it.item, it.progress?.videoId) },
         onDetails = onSelect,
         onMutation = onMutation,
     )
@@ -612,7 +612,7 @@ internal fun MediaDetailsScreen(
     token: String,
     preferences: DevicePreferences,
     onPreferencesChanged: (DevicePreferences) -> Unit,
-    onProgressChanged: () -> Unit,
+    onProgressChanged: (ProgressSummary?) -> Unit,
     onMutation: suspend (ProfileMutation) -> Result<Unit>,
     onBrowse: (MobileBrowseTarget) -> Unit,
     onBack: () -> Unit,
@@ -637,6 +637,11 @@ internal fun MediaDetailsScreen(
     var autoResumeAttemptedKey by remember(item.id) { mutableStateOf<String?>(null) }
     var selectedPlaybackSources by remember(item.id) { mutableStateOf<Map<String, PlaybackSource>>(emptyMap()) }
     var streamRequestVersion by remember(item.id) { mutableIntStateOf(0) }
+    val effectiveInitialVideoId = effectiveResumeVideoId(
+        initialVideoId,
+        snapshot?.progress.orEmpty(),
+        item,
+    )
     val detailsListState = rememberLazyListState()
     val heroPull = remember { mutableFloatStateOf(0f) }
     val maxHeroPullPx = with(LocalDensity.current) { HeroMotion.maxPull.toPx() }
@@ -659,7 +664,7 @@ internal fun MediaDetailsScreen(
         runCatching { api.loadMeta(addons, item.type, item.id) }
             .onSuccess {
                 meta = it
-                selectedVideo = it.videos.firstOrNull { video -> video.id == initialVideoId }
+                selectedVideo = it.videos.firstOrNull { video -> video.id == effectiveInitialVideoId }
                     ?: it.videos.firstOrNull()
             }.onFailure { error = it.message }
     }
@@ -761,21 +766,21 @@ internal fun MediaDetailsScreen(
             ?: profile?.let { runCatching { api.loadProgress(baseUrl, token, it.id, playingVideoId) }.getOrNull()?.takeUnless { progress -> progress.watched }?.positionMs }
             ?: 0L
     }
-    val savedPlaybackSource = initialVideoId?.let { videoId ->
+    val savedPlaybackSource = effectiveInitialVideoId?.let { videoId ->
         snapshot?.progress?.firstOrNull { it.videoId == videoId }?.playbackSource
     }
     val currentAutoResumeAttemptKey = savedPlaybackSource?.let(::autoResumeAttemptKey)
-    LaunchedEffect(meta?.id, selectedVideo?.id, initialVideoId, savedPlaybackSource, addonSignature, preferences.autoSelectSavedStreams) {
-        if (initialVideoId == null || meta == null || addons.isEmpty()) return@LaunchedEffect
+    LaunchedEffect(meta?.id, selectedVideo?.id, effectiveInitialVideoId, savedPlaybackSource, addonSignature, preferences.autoSelectSavedStreams) {
+        if (effectiveInitialVideoId == null || meta == null || addons.isEmpty()) return@LaunchedEffect
         val targetVideoId = selectedVideo?.id ?: item.id
-        if (targetVideoId != initialVideoId) return@LaunchedEffect
+        if (targetVideoId != effectiveInitialVideoId) return@LaunchedEffect
         val saved = savedPlaybackSource ?: return@LaunchedEffect
         if (currentAutoResumeAttemptKey == null || autoResumeAttemptedKey == currentAutoResumeAttemptKey) return@LaunchedEffect
         autoResumeAttemptedKey = currentAutoResumeAttemptKey
         requestStreams(selectedVideo, autoPlaySavedSource = preferences.autoSelectSavedStreams)
     }
     val waitingForSavedPlayback = preferences.autoSelectSavedStreams &&
-        initialVideoId != null && savedPlaybackSource != null &&
+        effectiveInitialVideoId != null && savedPlaybackSource != null &&
         error == null && (meta == null || addons.isNotEmpty()) &&
         !streamPageOpen && playing == null &&
         (autoResumeAttemptedKey == null || streamsLoading)
@@ -804,13 +809,13 @@ internal fun MediaDetailsScreen(
             persist = { request, state ->
                 val existing = snapshot?.progress?.firstOrNull { it.videoId == request.identity.videoId }
                 resolveProgressState(state, existing)?.let { resolved ->
-                    api.saveProgress(
+                    val saved = api.saveProgress(
                         baseUrl, token, request.identity.profileId, request.identity.videoId,
                         request.identity.mediaType, request.identity.mediaId, request.mediaName,
                         request.poster, request.episodeTitle, request.season, request.episode,
                         resolved.positionMs, resolved.durationMs, request.source, resolved.watched,
                     )
-                    onProgressChanged()
+                    onProgressChanged(saved)
                 }
             },
             playNext = {
@@ -957,7 +962,7 @@ internal fun MediaDetailsScreen(
                     val selectedSource = playbackSourceForStream(source.addonId, source.stream)
                     val videoId = selectedVideo?.id ?: item.id
                     selectedPlaybackSources = selectedPlaybackSources + (videoId to selectedSource)
-                    if (videoId == initialVideoId) autoResumeAttemptedKey = autoResumeAttemptKey(selectedSource)
+                    if (videoId == effectiveInitialVideoId) autoResumeAttemptedKey = autoResumeAttemptKey(selectedSource)
                     playing = source.stream
                 }
             }
@@ -1833,7 +1838,7 @@ private fun WatchHistoryScreen(
                     val item = CatalogItem(progress.mediaId, progress.mediaType, progress.name, poster = progress.poster)
                     RichProgressCard(
                         progress = progress,
-                        onClick = { onSelect(item, null) },
+                        onClick = { onSelect(item, progress.videoId) },
                         onActions = { actionTarget = MediaActionTarget(item, MediaActionContext.History, progress) },
                     )
                 }
@@ -1844,7 +1849,7 @@ private fun WatchHistoryScreen(
         target = actionTarget,
         snapshot = snapshot,
         onDismiss = { actionTarget = null },
-        onPlay = { onSelect(it.item, null) },
+        onPlay = { onSelect(it.item, it.progress?.videoId) },
         onDetails = { onSelect(it, null) },
         onMutation = onMutation,
     )
