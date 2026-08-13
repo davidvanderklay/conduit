@@ -43,6 +43,7 @@ import androidx.compose.animation.core.animateIntOffsetAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -1327,7 +1328,7 @@ private fun BoxScope.PlaybackSessionHost(
             val currentVerticalLimit by rememberUpdatedState(verticalLimit)
             val currentMinimumWidthDp by rememberUpdatedState(minimumWidthDp)
             val currentMaximumWidthDp by rememberUpdatedState(maximumWidthDp)
-            val minimumFlingSpeedPx = with(density) { 220.dp.toPx() }
+            val minimumFlingSpeedPx = with(density) { 50.dp.toPx() }
             val currentMinimumFlingSpeedPx by rememberUpdatedState(minimumFlingSpeedPx)
             LaunchedEffect(horizontalLimit, verticalLimit, miniGestureActive) {
                 miniOffset = if (miniGestureActive) {
@@ -1350,12 +1351,17 @@ private fun BoxScope.PlaybackSessionHost(
                         awaitEachGesture {
                             val down = awaitFirstDown(requireUnconsumed = false)
                             val velocityTracker = VelocityTracker()
-                            velocityTracker.addPosition(down.uptimeMillis, down.position)
+                            var trackedDrag = Offset.Zero
+                            var resizedDuringGesture = false
+                            velocityTracker.addPosition(down.uptimeMillis, trackedDrag)
                             miniGestureActive = true
                             do {
                                 val event = awaitPointerEvent()
                                 val pan = event.calculatePan()
                                 val zoom = event.calculateZoom()
+                                if (event.changes.count { it.pressed } > 1) {
+                                    resizedDuringGesture = true
+                                }
                                 miniWidthDp = (miniWidthDp * zoom).coerceIn(
                                     currentMinimumWidthDp,
                                     currentMaximumWidthDp,
@@ -1366,22 +1372,26 @@ private fun BoxScope.PlaybackSessionHost(
                                     y = (miniOffset.y + pan.y.roundToInt())
                                         .coerceIn(-currentVerticalLimit, 0),
                                 )
-                                event.changes.firstOrNull { it.id == down.id }?.let { change ->
-                                    velocityTracker.addPosition(change.uptimeMillis, change.position)
-                                }
+                                trackedDrag += pan
+                                val eventTime = event.changes.maxOfOrNull { it.uptimeMillis }
+                                    ?: down.uptimeMillis
+                                velocityTracker.addPosition(eventTime, trackedDrag)
                                 event.changes.forEach { change ->
                                     if (change.positionChanged()) change.consume()
                                 }
                             } while (event.changes.any { it.pressed })
                             val velocity = velocityTracker.calculateVelocity()
                             val speed = sqrt(velocity.x * velocity.x + velocity.y * velocity.y)
-                            if (speed >= currentMinimumFlingSpeedPx) {
-                                val directionalThreshold = speed * .2f
-                                if (abs(velocity.x) >= directionalThreshold) {
-                                    miniDockedLeft = velocity.x < 0f
+                            if (!resizedDuringGesture && speed >= currentMinimumFlingSpeedPx) {
+                                val projectedX = miniOffset.x + velocity.x * .25f
+                                val projectedY = miniOffset.y + velocity.y * .25f
+                                val horizontalDominant = abs(velocity.x) > abs(velocity.y) * 1.35f
+                                val verticalDominant = abs(velocity.y) > abs(velocity.x) * 1.35f
+                                if (!verticalDominant) {
+                                    miniDockedLeft = projectedX < -currentHorizontalLimit / 2f
                                 }
-                                if (abs(velocity.y) >= directionalThreshold) {
-                                    miniDockedTop = velocity.y < 0f
+                                if (!horizontalDominant) {
+                                    miniDockedTop = projectedY < -currentVerticalLimit / 2f
                                 }
                             }
                             miniGestureActive = false
