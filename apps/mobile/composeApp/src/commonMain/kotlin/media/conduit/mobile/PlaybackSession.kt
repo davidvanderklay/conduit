@@ -121,6 +121,10 @@ class PlaybackSessionController(
         state = state.copy(presentation = PlaybackPresentation.FullScreen)
     }
 
+    fun leaveFullScreen(miniplayerOnBack: Boolean) {
+        if (miniplayerOnBack) minimize() else close()
+    }
+
     fun systemPipChanged(active: Boolean) {
         if (state.request == null) return
         val wasInPip = state.presentation == PlaybackPresentation.SystemPip

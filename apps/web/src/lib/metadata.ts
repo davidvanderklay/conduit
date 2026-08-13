@@ -94,7 +94,7 @@ export function normalizeMetaItem(value: unknown, fallback: CatalogItem): MetaIt
     const normalized = normalizeVideo(video, index)
     return normalized ? [normalized] : []
   })
-  const releaseInfo = text(raw.releaseInfo ?? raw.year, 100) ?? fallback.releaseInfo
+  const releaseInfo = text(raw.releaseInfo ?? raw.year, 100) ?? text(fallback.releaseInfo, 100)
   const contentRating = text(
     raw.contentRating ?? raw.certification ?? raw.ageRating,
     100,
@@ -107,10 +107,10 @@ export function normalizeMetaItem(value: unknown, fallback: CatalogItem): MetaIt
     poster: imageUrl(raw.poster) ?? imageUrl(fallback.poster),
     background: imageUrl(raw.background) ?? imageUrl(fallback.background),
     logo: imageUrl(raw.logo),
-    description: text(raw.description ?? raw.overview) ?? fallback.description,
+    description: text(raw.description ?? raw.overview) ?? text(fallback.description),
     releaseInfo,
-    runtime: text(raw.runtime, 100) ?? fallback.runtime,
-    genres: stringList(raw.genres) ?? fallback.genres,
+    runtime: text(raw.runtime, 100) ?? text(fallback.runtime, 100),
+    genres: stringList(raw.genres) ?? stringList(fallback.genres),
     imdbRating: text(raw.imdbRating ?? raw.rating, 40),
     contentRating,
     director: stringList(raw.director ?? raw.directors),

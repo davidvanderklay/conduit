@@ -58,9 +58,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.input.pointer.util.VelocityTracker
@@ -1239,7 +1237,9 @@ private fun BoxScope.PlaybackSessionHost(
                         .padding(12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    PlayerBackButton(controller)
+                    PlayerBackButton {
+                        controller.leaveFullScreen(preferences.miniplayerOnBack)
+                    }
                     Spacer(Modifier.width(10.dp))
                     Text(
                         request.title,
@@ -1449,41 +1449,14 @@ private fun BoxScope.PlaybackSessionHost(
 }
 
 @Composable
-private fun PlayerBackButton(controller: PlaybackSessionController) {
-    val haptics = LocalHapticFeedback.current
-    var holdActivated by remember { mutableStateOf(false) }
-    Box(
-        Modifier
+private fun PlayerBackButton(onClick: () -> Unit) {
+    IconButton(
+        onClick = onClick,
+        modifier = Modifier
             .size(48.dp)
-            .background(Color.Black.copy(.55f), androidx.compose.foundation.shape.CircleShape)
-            .pointerInput(controller) {
-                detectTapGestures(
-                    onPress = {
-                        var longPress = false
-                        coroutineScope {
-                            val holdJob = launch {
-                                kotlinx.coroutines.delay(450)
-                                longPress = true
-                                holdActivated = true
-                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                            }
-                            val released = tryAwaitRelease()
-                            holdJob.cancel()
-                            holdActivated = false
-                            if (released) {
-                                if (longPress) controller.minimize() else controller.close()
-                            }
-                        }
-                    },
-                )
-            },
-        contentAlignment = Alignment.Center,
+            .background(Color.Black.copy(.55f), androidx.compose.foundation.shape.CircleShape),
     ) {
-        Icon(
-            if (holdActivated) Icons.Rounded.PictureInPictureAlt else Icons.AutoMirrored.Rounded.ArrowBack,
-            if (holdActivated) "Release to minimize player" else "Back",
-            tint = Color.White,
-        )
+        Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = Color.White)
     }
 }
 
@@ -1543,7 +1516,7 @@ private fun MainTopBar(
             OutlinedTextField(
                 value = query,
                 onValueChange = onQueryChange,
-                modifier = Modifier.weight(1f).heightIn(min = 52.dp).focusRequester(searchFocus),
+                modifier = Modifier.weight(1f).height(52.dp).focusRequester(searchFocus),
                 placeholder = { Text("Search Conduit", maxLines = 1) },
                 leadingIcon = { Icon(Icons.Rounded.Search, null, Modifier.size(20.dp)) },
                 trailingIcon = if (query.isNotBlank()) {{

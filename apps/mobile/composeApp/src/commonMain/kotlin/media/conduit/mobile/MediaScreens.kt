@@ -574,7 +574,8 @@ private fun MetadataCreditLinks(
     values: List<String>,
     onBrowse: (MobileBrowseTarget) -> Unit,
 ) {
-    if (values.isEmpty()) return
+    val visibleValues = values.map(String::trim).filter(String::isNotBlank).distinct()
+    if (visibleValues.isEmpty()) return
     Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
         Text(
             label.uppercase(),
@@ -582,7 +583,7 @@ private fun MetadataCreditLinks(
             style = MaterialTheme.typography.labelSmall,
         )
         LazyRow(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-            items(values) { value ->
+            items(visibleValues) { value ->
                 SuggestionChip(
                     onClick = { onBrowse(MobileBrowseTarget.Search(value)) },
                     label = { Text(value, maxLines = 1) },
@@ -875,7 +876,7 @@ internal fun MediaDetailsScreen(
     PlatformBackHandler {
         when {
             ownsPlayback && playbackSession.state.presentation == PlaybackPresentation.FullScreen -> {
-                playbackSession.close()
+                playbackSession.leaveFullScreen(preferences.miniplayerOnBack)
             }
             streamPageOpen -> { streamPageOpen = false; streams = null }
             else -> onBack()
@@ -984,6 +985,12 @@ internal fun MediaDetailsScreen(
     val imdbId = listOfNotNull(details?.id, item.id).firstOrNull { id ->
         id.length > 2 && id.startsWith("tt") && id.drop(2).all(Char::isDigit)
     }
+    val metadataFacts = listOfNotNull(
+        details?.runtime,
+        details?.releaseInfo ?: details?.released?.take(4),
+        details?.contentRating,
+        details?.imdbRating,
+    ).map(String::trim).filter(String::isNotBlank)
     Box(Modifier.fillMaxSize()) {
         LazyColumn(
             state = detailsListState,
@@ -1032,16 +1039,13 @@ internal fun MediaDetailsScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    Text(
-                        listOfNotNull(
-                            details?.runtime,
-                            details?.releaseInfo ?: details?.released?.take(4),
-                            details?.contentRating,
-                            details?.imdbRating,
-                        ).joinToString("  ·  "),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    if (imdbId != null && details?.imdbRating != null) {
+                    metadataFacts.takeIf { it.isNotEmpty() }?.let { facts ->
+                        Text(
+                            facts.joinToString("  ·  "),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    if (imdbId != null && details?.imdbRating?.isNotBlank() == true) {
                         Surface(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(6.dp))
@@ -1096,9 +1100,12 @@ internal fun MediaDetailsScreen(
                         }
                     }
                 }
-                val trailerId = details?.trailerStreams?.firstNotNullOfOrNull(TrailerStreamItem::youtubeId)
-                    ?: details?.trailers?.firstNotNullOfOrNull(TrailerItem::source)
-                trailerId?.takeIf { id -> id.all { it.isLetterOrDigit() || it == '-' || it == '_' } }?.let { id ->
+                val trailerId = details?.trailerStreams?.firstNotNullOfOrNull {
+                    it.youtubeId?.trim()?.takeIf(String::isNotBlank)
+                } ?: details?.trailers?.firstNotNullOfOrNull {
+                    it.source?.trim()?.takeIf(String::isNotBlank)
+                }
+                trailerId?.takeIf { id -> id.isNotEmpty() && id.all { it.isLetterOrDigit() || it == '-' || it == '_' } }?.let { id ->
                     OutlinedButton(
                         onClick = { uriHandler.openUri("https://www.youtube.com/watch?v=$id") },
                         modifier = Modifier.fillMaxWidth(),
@@ -1108,7 +1115,12 @@ internal fun MediaDetailsScreen(
                         Text("Trailer")
                     }
                 }
-                details?.genres?.takeIf { it.isNotEmpty() }?.let { genres ->
+                details?.genres
+                    ?.map(String::trim)
+                    ?.filter(String::isNotBlank)
+                    ?.distinct()
+                    ?.takeIf { it.isNotEmpty() }
+                    ?.let { genres ->
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                         items(genres) { genre ->
                             AssistChip(
@@ -1118,12 +1130,16 @@ internal fun MediaDetailsScreen(
                         }
                     }
                 }
-                details?.description?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyLarge) }
+                details?.description?.trim()?.takeIf(String::isNotBlank)?.let {
+                    Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyLarge)
+                }
                 MetadataCreditLinks("Directors", details?.director.orEmpty(), onBrowse)
                 MetadataCreditLinks("Cast", details?.cast.orEmpty(), onBrowse)
                 MetadataCreditLinks("Writers", details?.writer.orEmpty(), onBrowse)
                 details?.country?.let { MetadataCreditLinks("Country", listOf(it), onBrowse) }
-                details?.awards?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis) }
+                details?.awards?.trim()?.takeIf(String::isNotBlank)?.let {
+                    Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                }
             }
         }
         details?.videos?.takeIf { it.isNotEmpty() }?.let { videos ->
@@ -1712,6 +1728,7 @@ private fun PlaybackSettingsScreen(platform: PlatformInfo, preferences: DevicePr
     SettingsPage("Playback", onBack, modifier) {
         SettingsGroup("PLAYER") {
             SettingsToggle("Auto-select saved streams", "Reuse the last selected stream when it is available", preferences.autoSelectSavedStreams) { update(preferences.copy(autoSelectSavedStreams = it)) }
+            SettingsToggle("Miniplayer on back", "Minimize playback instead of closing it when you press Back", preferences.miniplayerOnBack) { update(preferences.copy(miniplayerOnBack = it)) }
             SettingsToggle("Touch gestures", "Double-tap seeking and player gestures", preferences.touchGestures) { update(preferences.copy(touchGestures = it)) }
             SettingsToggle("Hold to speed", "Hold the player to temporarily speed up", preferences.holdToSpeed) { update(preferences.copy(holdToSpeed = it)) }
         }

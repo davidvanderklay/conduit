@@ -703,7 +703,7 @@ function AuthenticatedApp({
               value={searchInput}
               aria-label="Search or paste a link"
               placeholder="Search or paste a link"
-              className="h-10 w-full rounded-xl border border-zinc-800 bg-zinc-900/80 pl-10 pr-10 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20"
+              className="h-11 w-full rounded-xl border border-zinc-800 bg-zinc-900/80 pl-10 pr-10 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20"
               onChange={(event) => setSearchInput(event.target.value)}
             />
             {searchInput && (

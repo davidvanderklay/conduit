@@ -41,6 +41,32 @@ class PlaybackSessionTest {
     }
 
     @Test
+    fun leavingFullScreenUsesTheMiniplayerPreference() {
+        val controller = PlaybackSessionController(TestScope())
+        val request = PlaybackRequest(
+            identity = PlaybackIdentity("profile", "movie", "media", "video"),
+            url = "https://example.test/video.mp4",
+            title = "Movie",
+            mediaName = "Movie",
+        )
+        val callbacks = PlaybackSessionCallbacks(
+            persist = { _, _ -> },
+            playNext = {},
+            openEpisodes = {},
+            minimized = {},
+            closed = {},
+        )
+
+        controller.start(request, callbacks)
+        controller.leaveFullScreen(miniplayerOnBack = true)
+        assertEquals(PlaybackPresentation.Mini, controller.state.presentation)
+
+        controller.restore()
+        controller.leaveFullScreen(miniplayerOnBack = false)
+        assertEquals(PlaybackPresentation.Closed, controller.state.presentation)
+    }
+
+    @Test
     fun pictureInPictureAspectRatioIsClampedToPlatformRange() {
         assertEquals(16 to 9, clampPipAspectRatio(16, 9))
         assertEquals(239 to 100, clampPipAspectRatio(32, 9))

@@ -402,11 +402,14 @@ function MediaSummary({
   onBrowse?: (target: MetadataBrowseTarget) => void
 }) {
   const trailer = trailerUrl(meta)
+  const description = meta.description?.trim()
+  const awards = meta.awards?.trim()
   const facts = [
     meta.runtime,
     meta.releaseInfo ?? displayDate(meta.released),
     meta.contentRating,
-  ].filter(Boolean)
+  ].map((fact) => fact?.trim()).filter((fact): fact is string => Boolean(fact))
+  const imdbRating = meta.imdbRating?.trim()
   return (
     <section className="max-h-[calc(100dvh-5rem)] overflow-hidden" aria-labelledby="media-title">
       {meta.logo ? (
@@ -442,10 +445,10 @@ function MediaSummary({
 
       <div className="mt-[clamp(.75rem,2.3vh,1.5rem)] flex flex-wrap items-center gap-x-4 gap-y-1.5 text-sm font-medium text-zinc-200">
         {facts.map((fact) => <span key={fact}>{fact}</span>)}
-        {meta.imdbRating && (
+        {imdbRating && (
           <span className="flex items-center gap-1.5">
             <Star className="fill-amber-400 text-amber-400" size={14} />
-            {meta.imdbRating}
+            {imdbRating}
             <span className="rounded bg-amber-400 px-1 py-0.5 text-[9px] font-black text-zinc-950">
               IMDb
             </span>
@@ -462,9 +465,9 @@ function MediaSummary({
             : undefined
         }
       />
-      {meta.description ? (
+      {description ? (
         <p className="mt-[clamp(.75rem,2vh,1.35rem)] line-clamp-4 max-w-4xl text-sm leading-6 text-zinc-300">
-          {meta.description}
+          {description}
         </p>
       ) : (
         <p className="mt-4 text-sm italic text-zinc-500">No synopsis was supplied.</p>
@@ -475,8 +478,8 @@ function MediaSummary({
       {meta.country && (
         <Credits label="Country" values={[meta.country]} onSelect={onBrowse} />
       )}
-      {meta.awards && (
-        <p className="mt-2 line-clamp-1 text-xs text-zinc-500">{meta.awards}</p>
+      {awards && (
+        <p className="mt-2 line-clamp-1 text-xs text-zinc-500">{awards}</p>
       )}
 
       <div className="mt-[clamp(1rem,2.6vh,1.75rem)] flex items-center gap-3">
@@ -739,12 +742,13 @@ function MetadataChips({
   values?: string[]
   onSelect?: (value: string) => void
 }) {
-  if (!values?.length) return null
+  const visibleValues = [...new Set(values?.map((value) => value.trim()).filter(Boolean) ?? [])]
+  if (!visibleValues.length) return null
   return (
     <div className="mt-[clamp(.65rem,1.8vh,1.15rem)]">
       <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">{label}</p>
       <div className="flex flex-wrap gap-1.5">
-        {values.map((value) =>
+        {visibleValues.map((value) =>
           onSelect ? (
             <button
               key={value}
@@ -772,14 +776,15 @@ function Credits({
   values?: string[]
   onSelect?: (target: MetadataBrowseTarget) => void
 }) {
-  if (!values?.length) return null
+  const visibleValues = [...new Set(values?.map((value) => value.trim()).filter(Boolean) ?? [])]
+  if (!visibleValues.length) return null
   return (
     <div className="mt-2.5 min-w-0">
       <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
         {label}
       </p>
       <div className="flex max-h-8 flex-wrap gap-1.5 overflow-hidden text-xs">
-        {values.map((value) => (
+        {visibleValues.map((value) => (
           <span key={value}>
             {onSelect ? (
               <button
