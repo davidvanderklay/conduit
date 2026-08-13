@@ -47,4 +47,18 @@ class DevicePreferencesTest {
 
         assertEquals("torrentio", repository.load().lastStreamAddonId)
     }
+
+    @Test
+    fun compactNavigationMigratesToAdaptiveOnIos() {
+        val preferences = DevicePreferences(navigationStyle = NavigationStyle.Compact)
+
+        assertEquals(NavigationStyle.Adaptive, preferences.normalizedForPlatform("iOS").navigationStyle)
+    }
+
+    @Test
+    fun compactNavigationRemainsAvailableOnAndroid() {
+        val preferences = DevicePreferences(navigationStyle = NavigationStyle.Compact)
+
+        assertEquals(NavigationStyle.Compact, preferences.normalizedForPlatform("Android").navigationStyle)
+    }
 }
