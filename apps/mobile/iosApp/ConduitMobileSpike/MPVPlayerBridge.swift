@@ -106,6 +106,9 @@ final class ConduitMPVPlayerBridge: NSObject, IosPlayerBridge {
             CGSize(width: width, height: height)
         )
     }
+    func setInteractiveResize(active: Bool) {
+        ensurePlayerViewController().setInteractiveResize(active)
+    }
 
     func getAudioTrackCount() -> Int32 {
         Int32(playerViewController?.audioTracks.count ?? 0)
@@ -300,6 +303,9 @@ final class ConduitMPVPlayerViewController: UIViewController {
     private var lastDrawableSize: CGSize = .zero
     private var externallyManagedViewSize: CGSize?
     private var pendingSurfaceLayoutWorkItems: [DispatchWorkItem] = []
+    private var pendingDrawableResize: DispatchWorkItem?
+    private var pendingDrawableSize: CGSize?
+    private var interactiveResizeActive = false
     private var lifecycleObservers: [NSObjectProtocol] = []
     private var recentErrors: [String] = []
     private var playbackError: String?
@@ -403,6 +409,16 @@ final class ConduitMPVPlayerViewController: UIViewController {
     func syncVideoSurfaceLayout(_ size: CGSize) {
         runOnMain { [weak self] in
             self?.syncVideoSurfaceLayoutNow(size: size, scheduleDeferredPasses: true)
+        }
+    }
+
+    func setInteractiveResize(_ active: Bool) {
+        runOnMain { [weak self] in
+            guard let self, self.interactiveResizeActive != active else { return }
+            self.interactiveResizeActive = active
+            self.pendingDrawableResize?.cancel()
+            self.pendingDrawableResize = nil
+            if !active { self.layoutMetalLayer() }
         }
     }
 
@@ -624,6 +640,9 @@ final class ConduitMPVPlayerViewController: UIViewController {
         pendingRetry = nil
         pendingSurfaceLayoutWorkItems.forEach { $0.cancel() }
         pendingSurfaceLayoutWorkItems.removeAll()
+        pendingDrawableResize?.cancel()
+        pendingDrawableResize = nil
+        pendingDrawableSize = nil
         pendingLoad = nil
         shouldPlay = false
         pictureInPicture?.invalidate()
@@ -661,6 +680,9 @@ final class ConduitMPVPlayerViewController: UIViewController {
         pendingRetry = nil
         pendingSurfaceLayoutWorkItems.forEach { $0.cancel() }
         pendingSurfaceLayoutWorkItems.removeAll()
+        pendingDrawableResize?.cancel()
+        pendingDrawableResize = nil
+        pendingDrawableSize = nil
         pausePlayback()
         setStringProperty("vid", "no")
     }
@@ -896,17 +918,43 @@ final class ConduitMPVPlayerViewController: UIViewController {
         metalLayer.contentsScale = scale
         metalLayer.position = .zero
         metalLayer.bounds = bounds
-        if size != lastDrawableSize {
-#if DEBUG
-            print(
-                "[Conduit MPV][surface] points=\(Int(bounds.width))x\(Int(bounds.height)) " +
-                "drawable=\(Int(size.width))x\(Int(size.height))"
-            )
-#endif
-            metalLayer.drawableSize = size
-            lastDrawableSize = size
+        if lastDrawableSize == .zero {
+            applyDrawableSize(size)
+        } else if size == lastDrawableSize {
+            pendingDrawableResize?.cancel()
+            pendingDrawableResize = nil
+            pendingDrawableSize = nil
+        } else if interactiveResizeActive {
+            pendingDrawableResize?.cancel()
+            pendingDrawableResize = nil
+            pendingDrawableSize = size
+        } else if size != pendingDrawableSize || pendingDrawableResize == nil {
+            pendingDrawableResize?.cancel()
+            pendingDrawableSize = size
+            let resize = DispatchWorkItem { [weak self] in
+                guard let self, self.pendingDrawableSize == size else { return }
+                self.pendingDrawableResize = nil
+                self.pendingDrawableSize = nil
+                self.applyDrawableSize(size)
+            }
+            pendingDrawableResize = resize
+            // MoltenVK must rebuild its swapchain before rendering at the new
+            // attachment size. Coalescing interactive changes prevents it from
+            // rendering a previous, larger target into a newer small drawable.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.18, execute: resize)
         }
         CATransaction.commit()
+    }
+
+    private func applyDrawableSize(_ size: CGSize) {
+#if DEBUG
+        print(
+            "[Conduit MPV][surface] points=\(Int(metalLayer.bounds.width))x\(Int(metalLayer.bounds.height)) " +
+            "drawable=\(Int(size.width))x\(Int(size.height))"
+        )
+#endif
+        metalLayer.drawableSize = size
+        lastDrawableSize = size
     }
 
     private func syncVideoSurfaceLayout() {

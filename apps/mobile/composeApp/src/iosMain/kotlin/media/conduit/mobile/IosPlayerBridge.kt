@@ -28,6 +28,7 @@ interface IosPlayerBridge {
     fun setPreferredSubtitleLanguage(language: String)
     fun setResizeMode(mode: Int) // 0 = fit, 1 = fill, 2 = zoom
     fun syncVideoSurfaceLayout(width: Double, height: Double)
+    fun setInteractiveResize(active: Boolean)
     fun setImmersivePlayback(enabled: Boolean)
     fun isPictureInPictureSupported(): Boolean
     fun isPictureInPictureActive(): Boolean

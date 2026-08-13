@@ -102,6 +102,7 @@ actual fun NativePlayer(
     onTemporarySpeedChanged: (Boolean) -> Unit,
     onSystemPipChanged: (Boolean) -> Unit,
     onSystemPipAvailabilityChanged: (Boolean) -> Unit,
+    interactiveResize: Boolean,
     modifier: Modifier,
     onState: (PlaybackState) -> Unit,
 ) {
@@ -261,6 +262,10 @@ actual fun NativePlayer(
             bridge.setImmersivePlayback(false)
             bridge.destroy()
         }
+    }
+
+    LaunchedEffect(bridge, interactiveResize) {
+        bridge.setInteractiveResize(interactiveResize)
     }
 
     Box(
