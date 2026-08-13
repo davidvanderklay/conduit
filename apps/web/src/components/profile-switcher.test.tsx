@@ -4,7 +4,7 @@ import { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { Profile } from "../lib/api"
-import { ProfileSwitcher } from "./profile-switcher"
+import { ProfileColorPicker, ProfileSwitcher } from "./profile-switcher"
 
 ;(
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
@@ -112,6 +112,19 @@ describe("ProfileSwitcher", () => {
     expect(document.querySelectorAll('[role="option"]')).toHaveLength(4)
     click(button("Show 2 more profiles"))
     expect(document.querySelectorAll('[role="option"]')).toHaveLength(6)
+  })
+
+  it("selects the custom color option when the value is not a preset", () => {
+    act(() => {
+      root.render(<ProfileColorPicker value="#123456" onChange={vi.fn()} />)
+    })
+
+    const customInput = document.querySelector<HTMLInputElement>(
+      'input[aria-label="Choose custom profile color"]',
+    )
+    expect(customInput).not.toBeNull()
+    expect(customInput?.parentElement?.className).toContain("ring-2")
+    expect(document.querySelectorAll('button[class*="ring-2"]')).toHaveLength(0)
   })
 
   function render(

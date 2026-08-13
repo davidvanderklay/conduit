@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from "react"
-import { Baby, Check, ChevronDown, LogOut, Plus, Puzzle, Settings, X } from "lucide-react"
+import { Baby, Check, ChevronDown, LogOut, Palette, Plus, Puzzle, Settings, X } from "lucide-react"
 import type { AppSection } from "./app-sidebar"
 import type { Profile } from "../lib/api"
 import { Button } from "./ui/button"
@@ -325,18 +325,7 @@ function CreateProfileDialog({
               <button type="button" className={`rounded-lg px-3 py-2 text-sm ${avatarMode === "color" ? "bg-zinc-700 text-white" : "text-zinc-500"}`} onClick={() => setAvatarMode("color")}>Profile color</button>
               <button type="button" className={`rounded-lg px-3 py-2 text-sm ${avatarMode === "image" ? "bg-zinc-700 text-white" : "text-zinc-500"}`} onClick={() => setAvatarMode("image")}>Custom image</button>
             </div>
-            {avatarMode === "color" ? <div className="flex flex-wrap gap-3">
-              {PROFILE_COLORS.map((color) => (
-                <button
-                  key={color}
-                  type="button"
-                  className={`size-9 rounded-full transition ${avatarColor === color ? "ring-2 ring-white ring-offset-2 ring-offset-zinc-950" : "hover:scale-110"}`}
-                  style={{ backgroundColor: color }}
-                  aria-label={`Use profile color ${color}`}
-                  onClick={() => setAvatarColor(color)}
-                />
-              ))}
-            </div> : <Input type="url" placeholder="https://example.com/avatar.png" value={avatarUrl} onChange={(event) => setAvatarUrl(event.target.value)} />}
+            {avatarMode === "color" ? <ProfileColorPicker value={avatarColor} onChange={setAvatarColor} /> : <Input type="url" placeholder="https://example.com/avatar.png" value={avatarUrl} onChange={(event) => setAvatarUrl(event.target.value)} />}
           </div>
 
           {error && <p className="text-sm text-red-400">{error}</p>}
@@ -424,6 +413,11 @@ export function ProfileAvatar({ profile, className }: { profile: Profile; classN
       )}
     </span>
   )
+}
+
+export function ProfileColorPicker({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const isPreset = PROFILE_COLORS.some((color) => color.toLowerCase() === value.toLowerCase())
+  return <div><div className="flex flex-wrap items-center gap-3">{PROFILE_COLORS.map((color) => <button key={color} type="button" className={`size-9 rounded-full transition ${color.toLowerCase() === value.toLowerCase() ? "ring-2 ring-white ring-offset-2 ring-offset-zinc-950" : "hover:scale-110"}`} style={{ backgroundColor: color }} aria-label={`Use profile color ${color}`} onClick={() => onChange(color)} />)}<label className={`group relative grid size-9 cursor-pointer place-items-center rounded-full border transition ${!isPreset ? "ring-2 ring-white ring-offset-2 ring-offset-zinc-950" : "border-zinc-700 hover:border-amber-400/70"}`} style={{ backgroundColor: value }}><Palette size={14} className="text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]" /><span className="sr-only">Choose custom profile color</span><input className="absolute inset-0 size-full cursor-pointer opacity-0" type="color" value={value} onChange={(event) => onChange(event.target.value.toUpperCase())} aria-label="Choose custom profile color" /></label><span className="text-xs tabular-nums text-zinc-500">{value.toUpperCase()} · {!isPreset ? "Custom" : "Choose custom"}</span></div></div>
 }
 
 export interface CreateProfileValues {
