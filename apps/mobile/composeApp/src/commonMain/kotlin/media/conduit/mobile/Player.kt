@@ -11,6 +11,8 @@ expect fun PlayerOrientationLock(active: Boolean)
 expect fun NativePlayer(
     url: String?,
     active: Boolean,
+    presentation: PlaybackPresentation = PlaybackPresentation.FullScreen,
+    command: SequencedPlaybackCommand? = null,
     startPositionMs: Long = 0,
     requestHeaders: Map<String, String> = emptyMap(),
     subtitles: List<SubtitleItem> = emptyList(),
@@ -26,6 +28,9 @@ expect fun NativePlayer(
     onEpisodes: () -> Unit = {},
     onControlsVisibilityChanged: (Boolean) -> Unit = {},
     onTemporarySpeedChanged: (Boolean) -> Unit = {},
+    onSystemPipChanged: (Boolean) -> Unit = {},
+    onSystemPipAvailabilityChanged: (Boolean) -> Unit = {},
+    interactiveResize: Boolean = false,
     modifier: Modifier = Modifier,
     onState: (PlaybackState) -> Unit,
 )

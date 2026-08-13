@@ -31,14 +31,29 @@ final class ConduitSystemChromeCoordinator: ObservableObject {
     static let shared = ConduitSystemChromeCoordinator()
 
     @Published private(set) var immersivePlayback = false
+    private var immersivePlaybackCount = 0
 
     private init() {}
 
-    func setImmersivePlayback(_ enabled: Bool) {
+    func beginImmersivePlayback() {
         performOnMain { [weak self] in
-            guard let self, self.immersivePlayback != enabled else { return }
-            self.immersivePlayback = enabled
-            self.requestAppearanceUpdate()
+            guard let self else { return }
+            self.immersivePlaybackCount += 1
+            if !self.immersivePlayback {
+                self.immersivePlayback = true
+                self.requestAppearanceUpdate()
+            }
+        }
+    }
+
+    func endImmersivePlayback() {
+        performOnMain { [weak self] in
+            guard let self else { return }
+            self.immersivePlaybackCount = max(0, self.immersivePlaybackCount - 1)
+            if self.immersivePlaybackCount == 0 && self.immersivePlayback {
+                self.immersivePlayback = false
+                self.requestAppearanceUpdate()
+            }
         }
     }
 
@@ -66,6 +81,7 @@ final class ConduitOrientationCoordinator {
 
     private(set) var supportedOrientations: UIInterfaceOrientationMask = .portrait
     private var activePlaybackCount = 0
+    private var landscapeLockCount = 0
     private var observers: [NSObjectProtocol] = []
 
     private init() {
@@ -97,12 +113,24 @@ final class ConduitOrientationCoordinator {
         }
     }
 
-    func lockPlayerToLandscape() {
-        updateOrientation(to: .landscape)
+    func beginLandscapeLock() {
+        performOnMain { [weak self] in
+            guard let self else { return }
+            self.landscapeLockCount += 1
+            if self.landscapeLockCount == 1 {
+                self.updateOrientation(to: .landscape)
+            }
+        }
     }
 
-    func restorePortrait() {
-        updateOrientation(to: .portrait)
+    func endLandscapeLock() {
+        performOnMain { [weak self] in
+            guard let self else { return }
+            self.landscapeLockCount = max(0, self.landscapeLockCount - 1)
+            if self.landscapeLockCount == 0 {
+                self.updateOrientation(to: .portrait)
+            }
+        }
     }
 
     private func updateOrientation(to mask: UIInterfaceOrientationMask) {
