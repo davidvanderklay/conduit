@@ -597,6 +597,8 @@ final class ConduitMPVPlayerViewController: UIViewController {
     private func enterBackground() {
         guard mpv != nil else { return }
         resumeAfterForeground = isPlayerPlaying || shouldPlay
+        pendingRetry?.cancel()
+        pendingRetry = nil
         pendingSurfaceLayoutWorkItems.forEach { $0.cancel() }
         pendingSurfaceLayoutWorkItems.removeAll()
         pausePlayback()
@@ -606,6 +608,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
     private func enterForeground() {
         guard mpv != nil else { return }
         syncVideoSurfaceLayout()
+        attemptStartPendingLoad()
         setStringProperty("vid", "auto")
         if resumeAfterForeground {
             playPlayback()
@@ -695,16 +698,26 @@ final class ConduitMPVPlayerViewController: UIViewController {
         }
 
         let surfaceSize = externallyManagedViewSize ?? view.bounds.size
-        guard surfaceSize.width > surfaceSize.height,
-              window.windowScene?.interfaceOrientation.isLandscape == true
-        else {
+        guard surfaceSize.width > 1, surfaceSize.height > 1 else {
             schedulePendingRetry()
             return
         }
 
-        // Commit the final landscape drawable before MPV creates its video
-        // output. Resizing a live portrait render pass to landscape can make
-        // Metal observe mismatched render-target and attachment dimensions.
+        let windowArea = window.bounds.width * window.bounds.height
+        let screenBounds = window.screen.bounds
+        let screenArea = screenBounds.width * screenBounds.height
+        let isWindowedIpad = UIDevice.current.userInterfaceIdiom == .pad
+            && windowArea < screenArea * 0.98
+        let isSettledLandscape = surfaceSize.width > surfaceSize.height
+            && window.windowScene?.interfaceOrientation.isLandscape == true
+        guard isWindowedIpad || isSettledLandscape else {
+            schedulePendingRetry()
+            return
+        }
+
+        // Full-screen playback waits for landscape to settle before MPV creates
+        // its video output. iPad multitasking windows may legitimately remain
+        // taller than wide, so their current drawable is already the final one.
         layoutMetalLayer()
         pendingLoad = nil
         pendingRetry?.cancel()
