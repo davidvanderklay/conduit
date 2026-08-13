@@ -28,6 +28,9 @@ import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Pause
+import androidx.compose.material.icons.rounded.PictureInPictureAlt
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Explore
 import androidx.compose.material.icons.rounded.Extension
 import androidx.compose.runtime.*
@@ -671,6 +674,11 @@ private fun AppShell(
     val syncRepository = remember(api, secureStore) { ProfileSyncRepository(api, secureStore) }
     val mutationMutex = remember { Mutex() }
     val appScope = rememberCoroutineScope()
+    val playbackSession = remember(appScope) { PlaybackSessionController(appScope) }
+    LaunchedEffect(activeProfile?.id) {
+        val playbackProfileId = playbackSession.state.request?.identity?.profileId
+        if (playbackProfileId != null && playbackProfileId != activeProfile?.id) playbackSession.close()
+    }
     var profileSync by remember(activeProfile?.id) {
         mutableStateOf(
             ProfileSyncState(snapshot = activeProfile?.let { syncRepository.cached(it.id) }),
@@ -858,6 +866,7 @@ private fun AppShell(
                             browseQuery, { browseQuery = it }, discoverSelection, { discoverSelection = it }, openBrowse,
                             preferences, onPreferencesChanged, homeListState, searchListState, discoverGridState, libraryGridState, historyGridState, settingsListState,
                             profileLaunchRequest,
+                            playbackSession,
                             Modifier.fillMaxSize(),
                         )
                     }
@@ -872,6 +881,7 @@ private fun AppShell(
                     browseQuery, { browseQuery = it }, discoverSelection, { discoverSelection = it }, openBrowse,
                     preferences, onPreferencesChanged, homeListState, searchListState, discoverGridState, libraryGridState, historyGridState, settingsListState,
                     profileLaunchRequest,
+                    playbackSession,
                     Modifier.padding(padding),
                 )
             }
@@ -927,6 +937,13 @@ private fun AppShell(
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
         }
+        PlaybackSessionHost(
+            controller = playbackSession,
+            preferences = preferences,
+            expanded = expanded,
+            bottomNavigationVisible = !expanded && bottomChromeVisible &&
+                (!profileFlowActive || state.destination == AppDestination.Profile),
+        )
     }
 }
 
@@ -1012,6 +1029,7 @@ private fun DestinationContent(
     historyGridState: androidx.compose.foundation.lazy.grid.LazyGridState,
     settingsListState: androidx.compose.foundation.lazy.LazyListState,
     profileLaunchRequest: ProfileLaunchRequest?,
+    playbackSession: PlaybackSessionController,
     modifier: Modifier = Modifier,
 ) {
     val homeCache = remember(activeProfile?.id) { HomeScreenCache() }
@@ -1083,9 +1101,217 @@ private fun DestinationContent(
                 onMutation = onProfileMutation,
                 onBrowse = onBrowse,
                 onBack = onCloseMedia,
+                playbackSession = playbackSession,
+                onRestorePlayback = { request -> onSelectMedia(selectedMedia, request.identity.videoId) },
             )
         }
         if (profileSync.refreshing) LinearProgressIndicator(Modifier.fillMaxWidth().align(Alignment.TopCenter))
+    }
+}
+
+@Composable
+private fun BoxScope.PlaybackSessionHost(
+    controller: PlaybackSessionController,
+    preferences: DevicePreferences,
+    expanded: Boolean,
+    bottomNavigationVisible: Boolean,
+) {
+    val session = controller.state
+    val request = session.request ?: return
+    val fullScreen = session.presentation != PlaybackPresentation.Mini
+    var controlsVisible by remember(request.identity, request.url) { mutableStateOf(true) }
+    var temporarySpeedActive by remember(request.identity, request.url) { mutableStateOf(false) }
+
+    PlayerOrientationLock(active = session.presentation == PlaybackPresentation.FullScreen)
+    LaunchedEffect(request.identity, request.url) {
+        while (true) {
+            kotlinx.coroutines.delay(15_000)
+            controller.persist()
+        }
+    }
+    LaunchedEffect(session.playback.ended) {
+        if (session.playback.ended) controller.persist()
+    }
+
+    val hostModifier = when {
+        fullScreen -> Modifier.fillMaxSize()
+        expanded -> Modifier
+            .align(Alignment.BottomEnd)
+            .padding(end = 18.dp, bottom = 18.dp)
+            .width(320.dp)
+            .aspectRatio(16f / 9f)
+        else -> Modifier
+            .align(Alignment.BottomCenter)
+            .padding(start = 8.dp, end = 8.dp, bottom = if (bottomNavigationVisible) 82.dp else 8.dp)
+            .fillMaxWidth()
+            .height(76.dp)
+    }
+    Box(hostModifier.background(Color.Black)) {
+        val playerModifier = if (!fullScreen && !expanded) {
+            Modifier.align(Alignment.CenterStart).width(136.dp).fillMaxHeight()
+        } else {
+            Modifier.fillMaxSize()
+        }
+        NativePlayer(
+            url = request.url,
+            active = true,
+            presentation = session.presentation,
+            command = session.command,
+            startPositionMs = request.startPositionMs,
+            requestHeaders = request.requestHeaders,
+            subtitles = request.subtitles,
+            contentLogo = request.logo,
+            contentTitle = request.title,
+            hasNextEpisode = request.hasNextEpisode,
+            onNextEpisode = controller::playNext,
+            hasEpisodes = request.hasEpisodes,
+            onEpisodes = controller::openEpisodes,
+            touchGestures = preferences.touchGestures,
+            holdToSpeed = preferences.holdToSpeed,
+            preferredAudioLanguage = preferences.preferredAudioLanguage,
+            preferredSubtitleLanguage = preferences.preferredSubtitleLanguage,
+            onControlsVisibilityChanged = { controlsVisible = it },
+            onTemporarySpeedChanged = { temporarySpeedActive = it },
+            onSystemPipChanged = controller::systemPipChanged,
+            onSystemPipAvailabilityChanged = controller::systemPipAvailabilityChanged,
+            modifier = playerModifier,
+            onState = controller::updatePlayback,
+        )
+
+        if (fullScreen) {
+            if (session.playback.loading && session.playback.error == null) {
+                PlayerOpeningOverlay(
+                    artwork = request.artwork,
+                    logo = request.logo,
+                    title = request.mediaName,
+                    modifier = Modifier.matchParentSize(),
+                )
+            }
+            if (session.playback.buffering && !session.playback.loading && session.playback.error == null) {
+                PlayerBufferingOverlay(Modifier.matchParentSize())
+            }
+            if (controlsVisible) {
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .statusBarsPadding()
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(
+                        onClick = controller::minimize,
+                        modifier = Modifier.background(Color.Black.copy(.55f), androidx.compose.foundation.shape.CircleShape),
+                    ) { Icon(Icons.Rounded.KeyboardArrowDown, "Minimize player", tint = Color.White) }
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        request.title,
+                        color = Color.White,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (session.systemPipAvailable) {
+                        IconButton(
+                            onClick = { controller.send(PlaybackCommand.EnterSystemPip) },
+                            modifier = Modifier.background(Color.Black.copy(.55f), androidx.compose.foundation.shape.CircleShape),
+                        ) { Icon(Icons.Rounded.PictureInPictureAlt, "Picture in Picture", tint = Color.White) }
+                    }
+                    IconButton(
+                        onClick = controller::close,
+                        modifier = Modifier.background(Color.Black.copy(.55f), androidx.compose.foundation.shape.CircleShape),
+                    ) { Icon(Icons.Rounded.Close, "Close player", tint = Color.White) }
+                }
+            }
+            if (temporarySpeedActive) {
+                Text(
+                    "» 2×",
+                    color = Color.White,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 12.dp)
+                        .background(Color.Black.copy(.72f), RoundedCornerShape(12.dp))
+                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                )
+            }
+            session.playback.error?.let { message ->
+                Box(
+                    Modifier.matchParentSize().background(Color.Black.copy(.72f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("Playback failed", color = Color.White, fontWeight = FontWeight.Bold)
+                        Text(message, color = Color.White.copy(.7f), style = MaterialTheme.typography.bodySmall)
+                        TextButton(onClick = controller::close) { Text("Choose another stream") }
+                    }
+                }
+            }
+            if (
+                request.hasNextEpisode &&
+                session.playback.durationMs > 0 &&
+                session.playback.durationMs - session.playback.positionMs in 1..30_000
+            ) {
+                Surface(
+                    Modifier.align(Alignment.BottomEnd).padding(end = 18.dp, bottom = 112.dp)
+                        .widthIn(min = 300.dp, max = 365.dp),
+                    color = Color(0xE619191B),
+                    shape = RoundedCornerShape(20.dp),
+                    border = BorderStroke(1.dp, Color.White.copy(.16f)),
+                ) {
+                    Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        AsyncImage(
+                            request.nextEpisodeArtwork,
+                            null,
+                            Modifier.size(88.dp, 54.dp).clip(RoundedCornerShape(11.dp)),
+                            contentScale = ContentScale.Crop,
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("NEXT EPISODE", color = Color.White.copy(.6f), style = MaterialTheme.typography.labelSmall)
+                            Text(request.nextEpisodeTitle.orEmpty(), color = Color.White, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        FilledTonalIconButton(onClick = controller::playNext) {
+                            Icon(Icons.Rounded.PlayArrow, "Play next")
+                        }
+                    }
+                }
+            }
+        } else if (expanded) {
+            Row(
+                Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(Color.Black.copy(.72f)).padding(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(request.title, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).clickable(onClick = controller::restore))
+                MiniPlayerControls(controller, session.playback.playing)
+            }
+        } else {
+            Row(
+                Modifier.fillMaxHeight().padding(start = 144.dp, end = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(request.title, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).clickable(onClick = controller::restore))
+                MiniPlayerControls(controller, session.playback.playing)
+            }
+        }
+    }
+}
+
+@Composable
+private fun MiniPlayerControls(
+    controller: PlaybackSessionController,
+    playing: Boolean,
+) {
+    IconButton(onClick = {
+        controller.send(if (playing) PlaybackCommand.Pause else PlaybackCommand.Play)
+    }) {
+        Icon(if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, if (playing) "Pause" else "Play", tint = Color.White)
+    }
+    IconButton(onClick = controller::restore) {
+        Icon(Icons.Rounded.PictureInPictureAlt, "Restore player", tint = Color.White)
+    }
+    IconButton(onClick = controller::close) {
+        Icon(Icons.Rounded.Close, "Close player", tint = Color.White)
     }
 }
 

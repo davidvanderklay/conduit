@@ -1,4 +1,5 @@
 import AVFoundation
+import AVKit
 import ComposeApp
 import Foundation
 import Libmpv
@@ -37,12 +38,12 @@ fileprivate struct ConduitTrack {
 /// CAMetalLayer used by MPVKit's MoltenVK video output.
 final class ConduitMPVPlayerBridge: NSObject, IosPlayerBridge {
     private var playerViewController: ConduitMPVPlayerViewController?
-    private var holdsLandscapeLock = true
+    private var holdsLandscapeLock = false
+    private var playbackRegistered = true
 
     override init() {
         super.init()
         ConduitOrientationCoordinator.shared.beginPlayback()
-        ConduitOrientationCoordinator.shared.lockPlayerToLandscape()
     }
 
     func createPlayerViewController() -> UIViewController {
@@ -83,7 +84,24 @@ final class ConduitMPVPlayerBridge: NSObject, IosPlayerBridge {
     func setResizeMode(mode: Int32) { playerViewController?.setResize(Int(mode)) }
     func setImmersivePlayback(enabled: Bool) {
         ConduitSystemChromeCoordinator.shared.setImmersivePlayback(enabled)
+        if enabled {
+            if !holdsLandscapeLock {
+                holdsLandscapeLock = true
+            }
+            ConduitOrientationCoordinator.shared.lockPlayerToLandscape()
+        } else if holdsLandscapeLock {
+            holdsLandscapeLock = false
+            ConduitOrientationCoordinator.shared.restorePortrait()
+        }
     }
+    func isPictureInPictureSupported() -> Bool {
+        ensurePlayerViewController().isPictureInPictureSupported
+    }
+    func isPictureInPictureActive() -> Bool {
+        playerViewController?.isPictureInPictureActive ?? false
+    }
+    func startPictureInPicture() { ensurePlayerViewController().startPictureInPicture() }
+    func stopPictureInPicture() { playerViewController?.stopPictureInPicture() }
     func syncVideoSurfaceLayout(width: Double, height: Double) {
         ensurePlayerViewController().syncVideoSurfaceLayout(
             CGSize(width: width, height: height)
@@ -190,8 +208,11 @@ final class ConduitMPVPlayerBridge: NSObject, IosPlayerBridge {
         controller?.destroyPlayer()
         if holdsLandscapeLock {
             holdsLandscapeLock = false
-            ConduitOrientationCoordinator.shared.endPlayback()
             ConduitOrientationCoordinator.shared.restorePortrait()
+        }
+        if playbackRegistered {
+            playbackRegistered = false
+            ConduitOrientationCoordinator.shared.endPlayback()
         }
     }
 
@@ -264,6 +285,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
     private let subtitleLock = NSLock()
     private let errorLock = NSLock()
     private var metalLayer = ConduitMetalLayer()
+    private var pictureInPicture: ConduitPictureInPictureCoordinator?
     private var mpv: OpaquePointer?
     private var pendingLoad: ConduitPendingLoad?
     private var pendingRetry: DispatchWorkItem?
@@ -315,11 +337,12 @@ final class ConduitMPVPlayerViewController: UIViewController {
 
         metalLayer.contentsGravity = .resize
         metalLayer.contentsScale = UIScreen.main.nativeScale
-        metalLayer.framebufferOnly = true
+        metalLayer.framebufferOnly = false
         metalLayer.backgroundColor = UIColor.black.cgColor
         metalLayer.anchorPoint = CGPoint(x: 0, y: 0)
         metalLayer.position = .zero
         view.layer.addSublayer(metalLayer)
+        pictureInPicture = ConduitPictureInPictureCoordinator(owner: self, metalLayer: metalLayer)
 
         setupMpv()
         activateAudioSession()
@@ -327,7 +350,10 @@ final class ConduitMPVPlayerViewController: UIViewController {
             forName: UIApplication.willResignActiveNotification,
             object: nil,
             queue: .main
-        ) { [weak self] _ in self?.enterBackground() })
+        ) { [weak self] _ in
+            self?.pictureInPicture?.prepareForAutomaticEntry()
+            self?.enterBackground()
+        })
         lifecycleObservers.append(NotificationCenter.default.addObserver(
             forName: UIApplication.didBecomeActiveNotification,
             object: nil,
@@ -338,6 +364,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         layoutMetalLayer()
+        pictureInPicture?.layout(in: view.bounds)
         attemptStartPendingLoad()
     }
 
@@ -406,6 +433,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
             self.setFlag("pause", false)
             self.isPlayerPlaying = true
             self.refreshPlaybackState()
+            self.pictureInPicture?.playbackStateChanged()
         }
     }
 
@@ -417,6 +445,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
             self.setFlag("pause", true)
             self.isPlayerPlaying = false
             self.refreshPlaybackState()
+            self.pictureInPicture?.playbackStateChanged()
         }
     }
 
@@ -424,6 +453,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
         runOnMain { [weak self] in
             guard let self, self.mpv != nil else { return }
             self.command("seek", args: [String(format: "%.3f", Double(milliseconds) / 1000.0), "absolute"])
+            self.pictureInPicture?.playbackStateChanged()
         }
     }
 
@@ -431,6 +461,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
         runOnMain { [weak self] in
             guard let self, self.mpv != nil else { return }
             self.command("seek", args: [String(format: "%.3f", Double(milliseconds) / 1000.0), "relative"])
+            self.pictureInPicture?.playbackStateChanged()
         }
     }
 
@@ -557,6 +588,22 @@ final class ConduitMPVPlayerViewController: UIViewController {
         currentSpeed = Float(speed > 0 ? speed : 1.0)
     }
 
+    var isPictureInPictureSupported: Bool {
+        pictureInPicture?.isSupported == true
+    }
+
+    var isPictureInPictureActive: Bool {
+        pictureInPicture?.isActive == true
+    }
+
+    func startPictureInPicture() {
+        pictureInPicture?.start()
+    }
+
+    func stopPictureInPicture() {
+        pictureInPicture?.stop()
+    }
+
     func destroyPlayer() {
         if !Thread.isMainThread {
             DispatchQueue.main.sync { [weak self] in self?.destroyPlayer() }
@@ -574,6 +621,8 @@ final class ConduitMPVPlayerViewController: UIViewController {
         pendingSurfaceLayoutWorkItems.removeAll()
         pendingLoad = nil
         shouldPlay = false
+        pictureInPicture?.invalidate()
+        pictureInPicture = nil
         deactivateAudioSession()
 
         guard let context = mpv else { return }
@@ -596,6 +645,10 @@ final class ConduitMPVPlayerViewController: UIViewController {
 
     private func enterBackground() {
         guard mpv != nil else { return }
+        if pictureInPicture?.isStartingOrActive == true {
+            resumeAfterForeground = false
+            return
+        }
         resumeAfterForeground = isPlayerPlaying || shouldPlay
         pendingRetry?.cancel()
         pendingRetry = nil
@@ -1161,6 +1214,283 @@ final class ConduitMPVPlayerViewController: UIViewController {
         recentErrors.append(text)
         if recentErrors.count > 3 { recentErrors.removeFirst(recentErrors.count - 3) }
         errorLock.unlock()
+    }
+}
+
+/// Mirrors MPV's final Metal drawable into AVKit without creating a second decoder.
+/// The copier is bounded to 20 fps and one in-flight frame; late frames are dropped.
+final class ConduitPictureInPictureCoordinator: NSObject,
+    AVPictureInPictureControllerDelegate,
+    AVPictureInPictureSampleBufferPlaybackDelegate {
+    private weak var owner: ConduitMPVPlayerViewController?
+    private let metalLayer: ConduitMetalLayer
+    private let displayLayer = AVSampleBufferDisplayLayer()
+    private let captureQueue = DispatchQueue(label: "media.conduit.pip-capture", qos: .userInitiated)
+    private var controller: AVPictureInPictureController?
+    private var displayLink: CADisplayLink?
+    private var pixelBufferPool: CVPixelBufferPool?
+    private var formatDescription: CMVideoFormatDescription?
+    private var poolSize = CGSize.zero
+    private var captureInFlight = false
+    private var priming = false
+    private var startRequested = false
+    private var startAttempts = 0
+    private var lastTimestamp = CMTime.invalid
+    private var automaticEntryTimeout: DispatchWorkItem?
+
+    init(owner: ConduitMPVPlayerViewController, metalLayer: ConduitMetalLayer) {
+        self.owner = owner
+        self.metalLayer = metalLayer
+        super.init()
+        displayLayer.videoGravity = .resizeAspect
+        displayLayer.backgroundColor = UIColor.black.cgColor
+        owner.view.layer.insertSublayer(displayLayer, at: 0)
+        let source = AVPictureInPictureController.ContentSource(
+            sampleBufferDisplayLayer: displayLayer,
+            playbackDelegate: self
+        )
+        let controller = AVPictureInPictureController(contentSource: source)
+        controller.delegate = self
+        controller.canStartPictureInPictureAutomaticallyFromInline = true
+        self.controller = controller
+    }
+
+    var isSupported: Bool { AVPictureInPictureController.isPictureInPictureSupported() }
+    var isActive: Bool {
+        controller?.isPictureInPictureActive == true || controller?.isPictureInPictureSuspended == true
+    }
+    var isStartingOrActive: Bool { priming || isActive }
+
+    func layout(in bounds: CGRect) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        displayLayer.frame = bounds
+        CATransaction.commit()
+    }
+
+    func start() {
+        guard isSupported, !isActive else { return }
+        startRequested = true
+        beginPriming()
+        attemptStart()
+    }
+
+    func prepareForAutomaticEntry() {
+        guard isSupported, owner?.isPlayerPlaying == true, !isActive else { return }
+        startRequested = false
+        beginPriming()
+        automaticEntryTimeout?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, !self.isActive else { return }
+            self.priming = false
+            self.stopCapture()
+            self.owner?.pausePlayback()
+        }
+        automaticEntryTimeout = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: work)
+    }
+
+    func stop() {
+        controller?.stopPictureInPicture()
+    }
+
+    func playbackStateChanged() {
+        controller?.invalidatePlaybackState()
+    }
+
+    func invalidate() {
+        automaticEntryTimeout?.cancel()
+        automaticEntryTimeout = nil
+        stopCapture()
+        controller?.delegate = nil
+        controller = nil
+        displayLayer.flushAndRemoveImage()
+        displayLayer.removeFromSuperlayer()
+    }
+
+    private func beginPriming() {
+        priming = true
+        startAttempts = 0
+        if displayLink == nil {
+            let link = CADisplayLink(target: self, selector: #selector(captureTick))
+            link.preferredFrameRateRange = CAFrameRateRange(minimum: 10, maximum: 20, preferred: 20)
+            link.add(to: .main, forMode: .common)
+            displayLink = link
+        }
+    }
+
+    private func stopCapture() {
+        displayLink?.invalidate()
+        displayLink = nil
+        captureInFlight = false
+        pixelBufferPool = nil
+        formatDescription = nil
+        poolSize = .zero
+        lastTimestamp = .invalid
+    }
+
+    @objc private func captureTick() {
+        if displayLayer.status == .failed { displayLayer.flush() }
+        guard priming || isActive, !captureInFlight, displayLayer.isReadyForMoreMediaData else { return }
+        guard let owner else { return }
+        let sourceSize = metalLayer.drawableSize
+        guard sourceSize.width > 1, sourceSize.height > 1 else { return }
+        ensurePool(for: sourceSize)
+        guard let pixelBufferPool else { return }
+        var buffer: CVPixelBuffer?
+        guard CVPixelBufferPoolCreatePixelBuffer(nil, pixelBufferPool, &buffer) == kCVReturnSuccess,
+              let buffer
+        else { return }
+
+        captureInFlight = true
+        let requestedTimestamp = CMTime(value: max(owner.positionMs, 0), timescale: 1_000)
+        let minimumNext = lastTimestamp.isValid
+            ? CMTimeAdd(lastTimestamp, CMTime(value: 1, timescale: 20))
+            : requestedTimestamp
+        let timestamp = CMTimeCompare(requestedTimestamp, minimumNext) < 0 ? minimumNext : requestedTimestamp
+        captureQueue.async { [weak self] in
+            guard let self else { return }
+            let copied = self.metalLayer.copyLatestFrame(to: buffer)
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.captureInFlight = false
+                guard copied, let formatDescription = self.formatDescription else { return }
+                var timing = CMSampleTimingInfo(
+                    duration: CMTime(value: 1, timescale: 20),
+                    presentationTimeStamp: timestamp,
+                    decodeTimeStamp: .invalid
+                )
+                var sample: CMSampleBuffer?
+                guard CMSampleBufferCreateReadyWithImageBuffer(
+                    allocator: kCFAllocatorDefault,
+                    imageBuffer: buffer,
+                    formatDescription: formatDescription,
+                    sampleTiming: &timing,
+                    sampleBufferOut: &sample
+                ) == noErr, let sample else { return }
+                self.lastTimestamp = timestamp
+                self.displayLayer.enqueue(sample)
+                if self.startRequested { self.attemptStart() }
+            }
+        }
+    }
+
+    private func ensurePool(for sourceSize: CGSize) {
+        let scale = min(1, 1280 / sourceSize.width, 720 / sourceSize.height)
+        let width = max(2, Int((sourceSize.width * scale).rounded()) & ~1)
+        let height = max(2, Int((sourceSize.height * scale).rounded()) & ~1)
+        let size = CGSize(width: width, height: height)
+        guard size != poolSize else { return }
+
+        var pool: CVPixelBufferPool?
+        let attributes: [CFString: Any] = [
+            kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_32BGRA,
+            kCVPixelBufferWidthKey: width,
+            kCVPixelBufferHeightKey: height,
+            kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary,
+            kCVPixelBufferMetalCompatibilityKey: true,
+        ]
+        guard CVPixelBufferPoolCreate(nil, nil, attributes as CFDictionary, &pool) == kCVReturnSuccess,
+              let pool
+        else { return }
+        var buffer: CVPixelBuffer?
+        guard CVPixelBufferPoolCreatePixelBuffer(nil, pool, &buffer) == kCVReturnSuccess,
+              let buffer
+        else { return }
+        var description: CMVideoFormatDescription?
+        guard CMVideoFormatDescriptionCreateForImageBuffer(
+            allocator: kCFAllocatorDefault,
+            imageBuffer: buffer,
+            formatDescriptionOut: &description
+        ) == noErr else { return }
+        pixelBufferPool = pool
+        formatDescription = description
+        poolSize = size
+        displayLayer.flush()
+    }
+
+    private func attemptStart() {
+        guard startRequested, let controller, !controller.isPictureInPictureActive else { return }
+        if controller.isPictureInPicturePossible {
+            startRequested = false
+            controller.startPictureInPicture()
+            return
+        }
+        guard startAttempts < 20 else {
+            startRequested = false
+            priming = false
+            stopCapture()
+            return
+        }
+        startAttempts += 1
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in self?.attemptStart() }
+    }
+
+    func pictureInPictureControllerWillStartPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
+        automaticEntryTimeout?.cancel()
+        automaticEntryTimeout = nil
+    }
+
+    func pictureInPictureControllerDidStartPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
+        priming = false
+    }
+
+    func pictureInPictureController(
+        _ pictureInPictureController: AVPictureInPictureController,
+        failedToStartPictureInPictureWithError error: Error
+    ) {
+        print("[Conduit PiP] Failed to start: \(error)")
+        priming = false
+        startRequested = false
+        stopCapture()
+    }
+
+    func pictureInPictureControllerDidStopPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
+        priming = false
+        startRequested = false
+        stopCapture()
+        if UIApplication.shared.applicationState != .active { owner?.pausePlayback() }
+    }
+
+    func pictureInPictureController(
+        _ pictureInPictureController: AVPictureInPictureController,
+        restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler: @escaping (Bool) -> Void
+    ) {
+        completionHandler(true)
+    }
+
+    func pictureInPictureController(
+        _ pictureInPictureController: AVPictureInPictureController,
+        setPlaying playing: Bool
+    ) {
+        playing ? owner?.playPlayback() : owner?.pausePlayback()
+    }
+
+    func pictureInPictureControllerTimeRangeForPlayback(
+        _ pictureInPictureController: AVPictureInPictureController
+    ) -> CMTimeRange {
+        let duration = CMTime(value: max(owner?.durationMs ?? 0, 1), timescale: 1_000)
+        return CMTimeRange(start: .zero, duration: duration)
+    }
+
+    func pictureInPictureControllerIsPlaybackPaused(
+        _ pictureInPictureController: AVPictureInPictureController
+    ) -> Bool {
+        owner?.isPlayerPlaying != true
+    }
+
+    func pictureInPictureController(
+        _ pictureInPictureController: AVPictureInPictureController,
+        didTransitionToRenderSize newRenderSize: CMVideoDimensions
+    ) {}
+
+    func pictureInPictureController(
+        _ pictureInPictureController: AVPictureInPictureController,
+        skipByInterval skipInterval: CMTime,
+        completion completionHandler: @escaping () -> Void
+    ) {
+        owner?.seekByMs(Int64(CMTimeGetSeconds(skipInterval) * 1_000))
+        completionHandler()
     }
 }
 
