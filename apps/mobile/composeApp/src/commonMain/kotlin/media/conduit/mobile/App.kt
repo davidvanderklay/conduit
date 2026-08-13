@@ -720,6 +720,8 @@ private fun AppShell(
         }
     }
     var selectedMedia by remember { mutableStateOf<CatalogItem?>(null) }
+    var selectedMediaFromContinueWatching by remember { mutableStateOf(false) }
+    var selectedMediaAutoResume by remember { mutableStateOf(true) }
     var profileFlowActive by remember { mutableStateOf(false) }
     var selectedVideoId by remember { mutableStateOf<String?>(null) }
     val homeListState = rememberLazyListState()
@@ -774,6 +776,8 @@ private fun AppShell(
     val selectMedia: (CatalogItem, String?) -> Unit = { item, videoId ->
         selectedMedia = item
         selectedVideoId = videoId
+        selectedMediaFromContinueWatching = false
+        selectedMediaAutoResume = true
     }
     BoxWithConstraints(Modifier.fillMaxSize()) {
         // A rotated phone can be wider than 720dp while still having very little
@@ -839,6 +843,22 @@ private fun AppShell(
                 appScope.launch { snackbarHostState.showSnackbar("Touch and hold a title for more options") }
             }
         }
+        val openContinueWatching: (CatalogItem, String?) -> Unit = { item, videoId ->
+            selectedMedia = item
+            selectedVideoId = videoId
+            selectedMediaFromContinueWatching = true
+            selectedMediaAutoResume = true
+            if (!state.richActionsHintShown) {
+                dispatch(AppAction.RichActionsHintShown)
+                appScope.launch { snackbarHostState.showSnackbar("Touch and hold a title for more options") }
+            }
+        }
+        val openContinueWatchingDetails: (CatalogItem) -> Unit = { item ->
+            selectedMedia = item
+            selectedVideoId = null
+            selectedMediaFromContinueWatching = true
+            selectedMediaAutoResume = false
+        }
         val openBrowse: (MobileBrowseTarget) -> Unit = { target ->
             when (target) {
                 is MobileBrowseTarget.Discover -> {
@@ -852,12 +872,14 @@ private fun AppShell(
                 }
             }
             selectedMedia = null
+            selectedMediaFromContinueWatching = false
             dispatch(AppAction.Navigate(AppDestination.Search))
         }
         val openSearch: () -> Unit = {
             browseQuery = ""
             focusSearchOnOpen = true
             selectedMedia = null
+            selectedMediaFromContinueWatching = false
             dispatch(AppAction.Navigate(AppDestination.Search))
         }
         val navigateMain: (AppDestination) -> Unit = { destination ->
@@ -896,7 +918,9 @@ private fun AppShell(
                     Box(Modifier.weight(1f)) {
                         DestinationContent(
                             state, platform, account, activeProfile, profileSync, api, selectedMedia,
-                            selectedVideoId, openMedia, { selectedMedia = null }, dispatch, onSignOut, onProfilesChanged,
+                            selectedVideoId, selectedMediaFromContinueWatching, selectedMediaAutoResume,
+                            openMedia, openContinueWatching, openContinueWatchingDetails,
+                            { selectedMedia = null; selectedMediaFromContinueWatching = false; selectedMediaAutoResume = true }, dispatch, onSignOut, onProfilesChanged,
                             { profileFlowActive = it },
                             { activeProfile?.let { profile -> appScope.launch { profileSync = syncRepository.synchronize(state.endpoint!!.baseUrl, account.session.token, profile.id) } } },
                             onPlaybackProgressChanged,
@@ -912,7 +936,9 @@ private fun AppShell(
             } else {
                 DestinationContent(
                     state, platform, account, activeProfile, profileSync, api, selectedMedia,
-                    selectedVideoId, openMedia, { selectedMedia = null }, dispatch, onSignOut, onProfilesChanged,
+                    selectedVideoId, selectedMediaFromContinueWatching, selectedMediaAutoResume,
+                    openMedia, openContinueWatching, openContinueWatchingDetails,
+                    { selectedMedia = null; selectedMediaFromContinueWatching = false; selectedMediaAutoResume = true }, dispatch, onSignOut, onProfilesChanged,
                     { profileFlowActive = it },
                     { activeProfile?.let { profile -> appScope.launch { profileSync = syncRepository.synchronize(state.endpoint!!.baseUrl, account.session.token, profile.id) } } },
                     onPlaybackProgressChanged,
@@ -1051,7 +1077,11 @@ private fun DestinationContent(
     api: ConduitApi,
     selectedMedia: CatalogItem?,
     selectedVideoId: String?,
+    selectedMediaFromContinueWatching: Boolean,
+    selectedMediaAutoResume: Boolean,
     onSelectMedia: (CatalogItem, String?) -> Unit,
+    onSelectContinueWatching: (CatalogItem, String?) -> Unit,
+    onSelectContinueWatchingDetails: (CatalogItem) -> Unit,
     onCloseMedia: () -> Unit,
     dispatch: (AppAction) -> Unit,
     onSignOut: () -> Unit,
@@ -1087,7 +1117,7 @@ private fun DestinationContent(
             val tabModifier = if (active) Modifier.fillMaxSize() else Modifier.size(0.dp)
             when (destination) {
                 AppDestination.Home -> HomeScreen(
-                    profileSync, api, onSelectMedia, onProfileMutation,
+                    profileSync, api, onSelectMedia, onSelectContinueWatching, onSelectContinueWatchingDetails, onProfileMutation,
                     onOpenHistory = { dispatch(AppAction.Navigate(AppDestination.History)) },
                     onOpenDiscover = { onBrowse(MobileBrowseTarget.Discover(it)) },
                     listState = homeListState, cache = homeCache, modifier = tabModifier,
@@ -1133,6 +1163,8 @@ private fun DestinationContent(
             MediaDetailsScreen(
                 item = selectedMedia,
                 initialVideoId = selectedVideoId,
+                returnToHomeOnStreamBack = selectedMediaFromContinueWatching,
+                autoResumeOnOpen = selectedMediaAutoResume,
                 addons = profileSync.snapshot?.addons.orEmpty(),
                 api = api,
                 profile = activeProfile,

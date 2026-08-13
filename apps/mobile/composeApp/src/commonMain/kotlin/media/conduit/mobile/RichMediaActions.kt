@@ -392,7 +392,7 @@ internal fun MediaActionSheet(
     metadataCache: WatchMetadataCache? = null,
     onDismiss: () -> Unit,
     onPlay: (MediaActionTarget) -> Unit,
-    onDetails: (CatalogItem) -> Unit,
+    onDetails: (MediaActionTarget) -> Unit,
     onMutation: suspend (ProfileMutation) -> Result<Unit>,
 ) {
     // Keep mutation work owned by the screen-level sheet call, even after the
@@ -433,7 +433,7 @@ internal fun MediaActionSheet(
                 }
             }
             if (active.context != MediaActionContext.Episode) {
-                ActionRow("Details", Icons.Rounded.Info) { onDismiss(); onDetails(active.item) }
+                ActionRow("Details", Icons.Rounded.Info) { onDismiss(); onDetails(active) }
             }
             if (active.context == MediaActionContext.Browse && active.item.type == "series" && active.video == null) {
                 ActionRow(

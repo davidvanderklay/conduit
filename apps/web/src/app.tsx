@@ -1015,6 +1015,7 @@ function MediaHome({
   const [selectedItem, setSelectedItem] = useState<CatalogItem>()
   const [selectedVideoId, setSelectedVideoId] = useState<string>()
   const [selectedProgress, setSelectedProgress] = useState<WatchProgress>()
+  const [returnHomeFromStreamSelection, setReturnHomeFromStreamSelection] = useState(false)
   const continueWatching = useProgressList(profile.id, "continue", 50)
   const catalogs = useQuery({
     queryKey: ["catalogs", profile.id, addons.map((addon) => [addon.id, addon.enabled])],
@@ -1082,6 +1083,7 @@ function MediaHome({
                 profileId={profile.id}
                 onSeeMore={onHistory}
                 onSelect={(item, videoId, progress) => {
+                  setReturnHomeFromStreamSelection(true)
                   setSelectedItem(item)
                   setSelectedVideoId(videoId)
                   setSelectedProgress(progress)
@@ -1107,6 +1109,7 @@ function MediaHome({
               type={catalog.type}
               items={catalog.items}
               onSelect={(item) => {
+                setReturnHomeFromStreamSelection(false)
                 setSelectedVideoId(undefined)
                 setSelectedProgress(undefined)
                 setSelectedItem(item)
@@ -1130,10 +1133,12 @@ function MediaHome({
           profileId={profile.id}
           initialVideoId={selectedVideoId}
           initialProgress={selectedProgress}
+          streamSelectionReturnToHome={returnHomeFromStreamSelection}
           onBrowse={onMetadataBrowse}
           onClose={() => {
             setSelectedItem(undefined)
             setSelectedProgress(undefined)
+            setReturnHomeFromStreamSelection(false)
           }}
         />
       )}
