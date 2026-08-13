@@ -18,6 +18,7 @@ internal actual fun PlatformBottomNavigation(
     compact: Boolean,
     classic: Boolean,
     adaptive: Boolean,
+    adaptiveHidden: Boolean,
     onSelect: (AppDestination) -> Unit,
     modifier: Modifier,
 ) {
