@@ -7,7 +7,8 @@ import { loadMeta, type CatalogItem, type MetaItem } from "../lib/core"
 import { posterCoverClass, posterTitleSlotClass } from "../lib/poster-layout"
 import { orderLibraryItems, type LibrarySort } from "../lib/library-order"
 import { useLibrary, useLibraryToggle } from "../lib/library"
-import { completionEpisodeIds } from "../lib/watch-status"
+import { completionEpisodeIds, seriesWatchVideos } from "../lib/watch-status"
+import { mediaForWatchActions, setEpisodeWatched, setVideosWatched } from "../lib/watch-actions"
 import { PosterWatchStatus } from "./poster-watch-status"
 import { PosterActionMenu } from "./poster-action-menu"
 import { PaginationControls } from "./pagination-controls"
@@ -233,7 +234,7 @@ export function LibraryView({
                   <LibraryPosterMenu
                     profileId={profileId}
                     item={catalogItem}
-                    latest={latest}
+                    progress={progress.data ?? []}
                     onSelect={() => onSelect(catalogItem)}
                   />
                 </div>
@@ -259,25 +260,37 @@ export function LibraryView({
 function LibraryPosterMenu({
   profileId,
   item,
-  latest,
+  progress,
   onSelect,
 }: {
   profileId: string
-  item: CatalogItem
-  latest?: WatchProgress
+  item: CatalogItem | MetaItem
+  progress: WatchProgress[]
   onSelect: () => void
 }) {
   const library = useLibraryToggle(profileId, item)
   const queryClient = useQueryClient()
+  const videos = "videos" in item ? item.videos ?? [] : []
+  const seriesVideos = item.type === "series" ? seriesWatchVideos(videos) : []
+  const mediaProgress = progress.filter(
+    (entry) => entry.mediaType === item.type && entry.mediaId === item.id,
+  )
+  const complete = item.type === "series"
+    ? seriesVideos.length > 0 && seriesVideos.every((video) =>
+        mediaProgress.some((entry) => entry.videoId === video.id && entry.watched),
+      )
+    : mediaProgress.some((entry) => entry.videoId === item.id && entry.watched)
   const watched = useMutation({
-    mutationFn: () =>
-      latest
-        ? api(`/v1/profiles/${profileId}/progress/${encodeURIComponent(latest.videoId)}`, {
-            method: "PATCH",
-            body: JSON.stringify({ watched: !latest.watched }),
-          })
-        : Promise.resolve(),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["progress", profileId] }),
+    mutationFn: () => item.type === "series"
+      ? setVideosWatched(profileId, mediaForWatchActions(item), seriesVideos, mediaProgress, !complete)
+      : setEpisodeWatched(
+          profileId,
+          mediaForWatchActions(item),
+          { id: item.id, title: item.name },
+          mediaProgress.find((entry) => entry.videoId === item.id),
+          !complete,
+        ),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ["progress", profileId] }),
   })
   return (
     <PosterActionMenu
@@ -285,14 +298,16 @@ function LibraryPosterMenu({
       actions={[
         { label: "Play", icon: <Play size={16} />, onSelect },
         { label: "Details", icon: <Info size={16} />, onSelect },
-        ...(latest
-          ? [{
-              label: latest.watched ? "Mark unwatched" : item.type === "series" ? "Mark episode watched" : "Mark watched",
-              icon: <Check size={16} />,
-              onSelect: () => watched.mutate(),
-              disabled: watched.isPending,
-            }]
-          : []),
+        {
+          label: item.type === "series"
+            ? seriesVideos.length === 0
+              ? "Series episodes unavailable"
+              : complete ? "Mark series unwatched" : "Mark series watched"
+            : complete ? "Mark unwatched" : "Mark watched",
+          icon: <Check size={16} />,
+          onSelect: () => watched.mutate(),
+          disabled: watched.isPending || (item.type === "series" && seriesVideos.length === 0),
+        },
         {
           label: "Remove from library",
           icon: <Trash2 size={16} />,

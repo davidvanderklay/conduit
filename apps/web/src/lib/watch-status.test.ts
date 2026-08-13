@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest"
 import type { WatchProgress } from "./api"
-import { completionEpisodeIds, posterWatchState } from "./watch-status"
+import {
+  completionEpisodeIds,
+  episodeProgressPercent,
+  episodeWatchState,
+  posterWatchState,
+  seasonWatchVideos,
+  seriesWatchVideos,
+} from "./watch-status"
 
 function progress(values: Partial<WatchProgress> & Pick<WatchProgress, "videoId">): WatchProgress {
   return {
@@ -55,5 +62,39 @@ describe("poster watch state", () => {
         Date.parse("2026-06-01"),
       ),
     ).toEqual(["regular"])
+  })
+})
+
+describe("episode watch state", () => {
+  it("distinguishes not started, in progress, and watched", () => {
+    expect(episodeWatchState()).toBe("not-started")
+    expect(episodeWatchState(progress({ videoId: "partial", positionMs: 25, durationMs: 100 })))
+      .toBe("in-progress")
+    expect(episodeProgressPercent(progress({ videoId: "partial", positionMs: 125, durationMs: 100 })))
+      .toBe(100)
+    expect(episodeWatchState(progress({ videoId: "complete", watched: true }))).toBe("watched")
+    expect(episodeProgressPercent(progress({ videoId: "complete", watched: true, positionMs: 1, durationMs: 2 })))
+      .toBe(0)
+  })
+
+  it("selects every released episode in one season", () => {
+    const videos = [
+      { id: "s1e1", season: 1, episode: 1, released: "2026-01-01" },
+      { id: "s1e2", season: 1, episode: 2, released: "2026-01-01" },
+      { id: "s1e3", season: 1, episode: 3, released: "2027-01-01" },
+      { id: "s2e1", season: 2, episode: 1, released: "2026-01-01" },
+      { id: "unavailable", season: 1, episode: 4, available: false },
+    ]
+    expect(seasonWatchVideos(videos, 1, Date.parse("2026-06-01")))
+      .toEqual([videos[0], videos[1]])
+  })
+
+  it("uses regular episodes for series actions while preserving specials-only titles", () => {
+    const regular = [
+      { id: "special", season: 0, episode: 1 },
+      { id: "episode", season: 1, episode: 1 },
+    ]
+    expect(seriesWatchVideos(regular).map((video) => video.id)).toEqual(["episode"])
+    expect(completionEpisodeIds([{ id: "special", season: 0, episode: 1 }])).toEqual(["special"])
   })
 })

@@ -3,10 +3,14 @@ import { ChevronLeft, ChevronRight, Play, X } from "lucide-react"
 import type { WatchProgress } from "../lib/api"
 import type { Video } from "../lib/core"
 import { episodeLabel } from "../lib/metadata"
+import type { WatchActionMedia } from "../lib/watch-actions"
 import { EpisodeSelector } from "./episode-selector"
 
 export interface PlayerSeriesContext {
   name: string
+  profileId?: string
+  media?: WatchActionMedia
+  onWatchAction?: (targets: Video[], watched: boolean) => Promise<void>
   videos: Video[]
   progress: WatchProgress[]
   currentVideoId: string
@@ -101,6 +105,9 @@ export function PlayerEpisodeDrawer({
       <EpisodeSelector
         videos={context.videos}
         progress={context.progress}
+        profileId={context.profileId}
+        media={context.media}
+        onWatchAction={context.onWatchAction}
         season={season}
         currentVideoId={context.currentVideoId}
         className="h-full flex-1 rounded-l-none"

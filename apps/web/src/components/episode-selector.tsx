@@ -1,5 +1,15 @@
-import { useEffect, useMemo, useRef, useState } from "react"
-import { Check, ChevronDown, Film, LoaderCircle, Search } from "lucide-react"
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent, type ReactNode } from "react"
+import { createPortal } from "react-dom"
+import {
+  Check,
+  ChevronDown,
+  Film,
+  LoaderCircle,
+  MoreHorizontal,
+  Play,
+  RotateCcw,
+  Search,
+} from "lucide-react"
 import type { WatchProgress } from "../lib/api"
 import type { Video } from "../lib/core"
 import {
@@ -8,6 +18,12 @@ import {
   seasonLabel,
   sortSeasons,
 } from "../lib/metadata"
+import {
+  episodeProgressPercent,
+  episodeWatchState,
+  seasonWatchVideos,
+} from "../lib/watch-status"
+import type { WatchActionMedia } from "../lib/watch-actions"
 
 export function EpisodeSelector({
   videos,
@@ -18,6 +34,9 @@ export function EpisodeSelector({
   restoreScrollTop,
   focusVideoId,
   className = "",
+  profileId,
+  media,
+  onWatchAction,
   onSeasonChange,
   onScroll,
   onSelect,
@@ -30,6 +49,9 @@ export function EpisodeSelector({
   restoreScrollTop?: number
   focusVideoId?: string
   className?: string
+  profileId?: string
+  media?: WatchActionMedia
+  onWatchAction?: (targets: Video[], watched: boolean) => Promise<void>
   onSeasonChange: (season: number) => void
   onScroll?: (scrollTop: number) => void
   onSelect: (video: Video) => void
@@ -40,6 +62,8 @@ export function EpisodeSelector({
     [videos],
   )
   const [query, setQuery] = useState("")
+  const [contextMenu, setContextMenu] = useState<ContextMenuState>()
+  const [watchPending, setWatchPending] = useState(false)
   const activeSeason = season ?? seasons[0] ?? 1
   const episodes = videos
     .filter((video) => (video.season ?? 1) === activeSeason)
@@ -65,13 +89,67 @@ export function EpisodeSelector({
     episode?.scrollIntoView({ block: "center" })
   }, [activeSeason, currentVideoId, focusVideoId, restoreScrollTop])
 
+  useEffect(() => {
+    if (!contextMenu) return
+    const dismiss = (event: PointerEvent) => {
+      const target = event.target
+      if (target instanceof Element && target.closest("[data-episode-context-menu]")) return
+      setContextMenu(undefined)
+    }
+    const dismissKeyboard = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") setContextMenu(undefined)
+    }
+    document.addEventListener("pointerdown", dismiss, true)
+    window.addEventListener("keydown", dismissKeyboard)
+    return () => {
+      document.removeEventListener("pointerdown", dismiss, true)
+      window.removeEventListener("keydown", dismissKeyboard)
+    }
+  }, [contextMenu])
+
+  const openContextMenu = (event: MouseEvent, video: Video) => {
+    event.preventDefault()
+    if (!profileId || !media || !onWatchAction) return
+    openContextMenuAt(video, event.clientX, event.clientY)
+  }
+
+  const openContextMenuAt = (video: Video, clientX: number, clientY: number) => {
+    const menuWidth = 250
+    const menuHeight = 190
+    setContextMenu({
+      video,
+      x: Math.max(8, Math.min(clientX, window.innerWidth - menuWidth - 8)),
+      y: Math.max(8, Math.min(clientY, window.innerHeight - menuHeight - 8)),
+    })
+  }
+
+  const openKeyboardContextMenu = (event: ReactKeyboardEvent, video: Video) => {
+    if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return
+    event.preventDefault()
+    if (!profileId || !media || !onWatchAction) return
+    const target = event.currentTarget
+    if (!(target instanceof HTMLElement)) return
+    const bounds = target.getBoundingClientRect()
+    openContextMenuAt(video, bounds.right - 8, bounds.bottom - 8)
+  }
+
+  const runWatchAction = (targets: Video[], watched: boolean) => {
+    if (!onWatchAction) return
+    setContextMenu(undefined)
+    setWatchPending(true)
+    void onWatchAction(targets, watched)
+      .catch(() => undefined)
+      .finally(() => setWatchPending(false))
+  }
+
   return (
-    <aside
-      ref={railRef}
-      className={`min-h-0 overflow-y-auto rounded-2xl border border-white/10 bg-zinc-950/95 shadow-2xl shadow-black/40 backdrop-blur-xl [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${className}`}
-      aria-label="Episodes"
-      onScroll={(event) => onScroll?.(event.currentTarget.scrollTop)}
-    >
+    <>
+      <aside
+        ref={railRef}
+        className={`min-h-0 overflow-y-auto rounded-2xl border border-white/10 bg-zinc-950/95 shadow-2xl shadow-black/40 backdrop-blur-xl [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${className}`}
+        aria-label="Episodes"
+        onScroll={(event) => onScroll?.(event.currentTarget.scrollTop)}
+      >
       <div className="sticky top-0 z-10 border-b border-white/8 bg-zinc-950/95 p-3 backdrop-blur">
         <div className="flex items-center justify-between gap-3">
           <div>
@@ -135,59 +213,189 @@ export function EpisodeSelector({
       <div className="divide-y divide-white/6 px-2 pb-2">
         {episodes.map((video) => {
           const itemProgress = progress.find((item) => item.videoId === video.id)
-          const percent =
-            itemProgress && itemProgress.durationMs > 0
-              ? Math.min(
-                  100,
-                  Math.round((itemProgress.positionMs / itemProgress.durationMs) * 100),
-                )
-              : 0
+          const state = episodeWatchState(itemProgress)
+          const percent = episodeProgressPercent(itemProgress)
           const current = video.id === currentVideoId
+          const status = state === "watched"
+            ? "Watched"
+            : state === "in-progress"
+              ? `${percent}% watched`
+              : "Not watched"
           return (
-            <button
-              key={video.id}
-              type="button"
-              data-video-id={video.id}
-              className={`group relative flex w-full gap-3 rounded-xl p-2.5 text-left transition hover:bg-white/7 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 ${
-                current ? "bg-amber-400/10 ring-1 ring-inset ring-amber-400/35" : ""
-              }`}
-              aria-current={current ? "true" : undefined}
-              aria-label={`${current ? "Currently playing " : "Play "}${episodeLabel(video)}: ${video.title ?? "Untitled episode"}`}
-              onClick={() => onSelect(video)}
-            >
-              <div className="relative aspect-video w-24 shrink-0 overflow-hidden rounded-lg bg-zinc-900">
-                <EpisodeArtwork src={video.thumbnail} />
-                {!video.thumbnail && (
-                  <div className="absolute inset-0 grid place-items-center text-zinc-700">
-                    <Film size={18} />
-                  </div>
-                )}
-                {itemProgress?.watched && (
-                  <span className="absolute right-1 top-1 grid size-5 place-items-center rounded-full bg-amber-400 text-zinc-950">
-                    <Check size={11} />
-                  </span>
-                )}
-                {!itemProgress?.watched && percent > 0 && (
-                  <span className="absolute inset-x-0 bottom-0 h-0.5 bg-white/20">
-                    <span className="block h-full bg-amber-400" style={{ width: `${percent}%` }} />
-                  </span>
-                )}
-              </div>
-              <div className="min-w-0 flex-1 py-0.5">
-                <p className="line-clamp-2 text-sm font-medium leading-5">
-                  <span className="mr-1.5 text-zinc-500">{video.episode ?? "–"}.</span>
-                  {video.title ?? episodeLabel(video)}
-                </p>
-                <p className="mt-1 flex flex-wrap gap-x-2 text-[11px] text-zinc-600">
-                  {video.released && <span>{displayDate(video.released)}</span>}
-                  {video.runtime && <span>{video.runtime}</span>}
-                </p>
-              </div>
-            </button>
+            <div className="group/episode relative" key={video.id}>
+              <button
+                type="button"
+                data-video-id={video.id}
+                className={`group relative flex w-full gap-3 rounded-xl p-2.5 pr-10 text-left transition hover:bg-white/7 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 ${
+                  current ? "bg-amber-400/10 ring-1 ring-inset ring-amber-400/35" : ""
+                }`}
+                aria-current={current ? "true" : undefined}
+                aria-haspopup={profileId && media ? "menu" : undefined}
+                aria-label={`${current ? "Currently playing " : "Play "}${episodeLabel(video)}: ${video.title ?? "Untitled episode"}. ${status}`}
+                onClick={() => onSelect(video)}
+                onContextMenu={(event) => openContextMenu(event, video)}
+                onKeyDown={(event) => openKeyboardContextMenu(event, video)}
+              >
+                <div className="relative aspect-video w-24 shrink-0 overflow-hidden rounded-lg bg-zinc-900">
+                  <EpisodeArtwork src={video.thumbnail} />
+                  {!video.thumbnail && (
+                    <div className="absolute inset-0 grid place-items-center text-zinc-700">
+                      <Film size={18} />
+                    </div>
+                  )}
+                  {state === "watched" && (
+                    <span className="absolute right-1 top-1 grid size-5 place-items-center rounded-full bg-amber-400 text-zinc-950">
+                      <Check size={11} />
+                    </span>
+                  )}
+                  {(state === "watched" || percent > 0) && (
+                    <span className="absolute inset-x-0 bottom-0 h-0.5 bg-white/20">
+                      <span
+                        className="block h-full bg-amber-400"
+                        style={{ width: `${state === "watched" ? 100 : percent}%` }}
+                      />
+                    </span>
+                  )}
+                </div>
+                <div className="min-w-0 flex-1 py-0.5">
+                  <p className="line-clamp-2 text-sm font-medium leading-5">
+                    <span className="mr-1.5 text-zinc-500">{video.episode ?? "–"}.</span>
+                    {video.title ?? episodeLabel(video)}
+                  </p>
+                  <p className="mt-1 flex flex-wrap gap-x-2 text-[11px] text-zinc-500">
+                    {state === "in-progress" && <span>{percent}%</span>}
+                    {video.released && <span>{displayDate(video.released)}</span>}
+                    {video.runtime && <span>{video.runtime}</span>}
+                  </p>
+                </div>
+              </button>
+              {profileId && media && onWatchAction && (
+                <button
+                  type="button"
+                  aria-label={`Actions for ${episodeLabel(video)}`}
+                  aria-haspopup="menu"
+                  className="absolute right-2 top-1/2 z-10 grid size-7 -translate-y-1/2 place-items-center rounded-md text-zinc-500 opacity-0 transition hover:bg-white/10 hover:text-white focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 group-hover/episode:opacity-100"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    const bounds = event.currentTarget.getBoundingClientRect()
+                    openContextMenuAt(video, bounds.right, bounds.bottom)
+                  }}
+                  onContextMenu={(event) => openContextMenu(event, video)}
+                >
+                  <MoreHorizontal size={17} />
+                </button>
+              )}
+            </div>
           )
         })}
       </div>
-    </aside>
+      </aside>
+      {renderContextMenu()}
+    </>
+  )
+
+  function renderContextMenu() {
+    if (!contextMenu || !media || !profileId || !onWatchAction) return null
+    const season = seasonWatchVideos(
+      videos,
+      contextMenu.video.season ?? 1,
+    )
+    return createPortal(
+      <EpisodeContextMenu
+        video={contextMenu.video}
+        progress={progress}
+        season={season}
+        pending={watchPending}
+        style={{ left: contextMenu.x, top: contextMenu.y }}
+        onPlay={() => {
+          setContextMenu(undefined)
+          onSelect(contextMenu.video)
+        }}
+        onMark={(watched) => runWatchAction([contextMenu.video], watched)}
+        onMarkSeason={(watched) => runWatchAction(season, watched)}
+      />,
+      document.body,
+    )
+  }
+}
+
+interface ContextMenuState {
+  video: Video
+  x: number
+  y: number
+}
+
+function EpisodeContextMenu({
+  video,
+  progress,
+  season,
+  pending,
+  style,
+  onPlay,
+  onMark,
+  onMarkSeason,
+}: {
+  video: Video
+  progress: WatchProgress[]
+  season: Video[]
+  pending: boolean
+  style: CSSProperties
+  onPlay: () => void
+  onMark: (watched: boolean) => void
+  onMarkSeason: (watched: boolean) => void
+}) {
+  const selectedProgress = progress.find((item) => item.videoId === video.id)
+  const watched = episodeWatchState(selectedProgress) === "watched"
+  const allSeasonWatched = season.length > 0 && season.every((entry) =>
+    progress.some((item) => item.videoId === entry.id && item.watched),
+  )
+  return (
+    <div
+      data-episode-context-menu
+      role="menu"
+      className="fixed z-[80] w-60 overflow-hidden rounded-xl border border-zinc-700 bg-zinc-950 p-1.5 shadow-2xl shadow-black/70"
+      style={style}
+      onContextMenu={(event) => event.preventDefault()}
+    >
+      <ContextMenuAction label="Play" icon={<Play size={15} />} disabled={pending} onClick={onPlay} />
+      <ContextMenuAction
+        label={watched ? "Mark as unwatched" : "Mark as watched"}
+        icon={watched ? <RotateCcw size={15} /> : <Check size={15} />}
+        disabled={pending}
+        onClick={() => onMark(!watched)}
+      />
+      <ContextMenuAction
+        label={allSeasonWatched ? "Mark season as unwatched" : "Mark season as watched"}
+        icon={allSeasonWatched ? <RotateCcw size={15} /> : <Check size={15} />}
+        disabled={pending || season.length === 0}
+        onClick={() => onMarkSeason(!allSeasonWatched)}
+      />
+    </div>
+  )
+}
+
+function ContextMenuAction({
+  label,
+  icon,
+  disabled,
+  onClick,
+}: {
+  label: string
+  icon: ReactNode
+  disabled: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm text-zinc-200 transition hover:bg-zinc-800 disabled:opacity-50"
+      disabled={disabled}
+      onClick={onClick}
+    >
+      {icon}
+      {label}
+    </button>
   )
 }
 
