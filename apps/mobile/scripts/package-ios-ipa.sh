@@ -57,6 +57,14 @@ test -x "$executable"
 test "$(plutil -extract CFBundleIdentifier raw "$info_plist")" = "media.conduit.mobile"
 test "$(plutil -extract CFBundleShortVersionString raw "$info_plist")" = "$marketing_version"
 test "$(plutil -extract CFBundleVersion raw "$info_plist")" = "$build_number"
+sdk_name="$(plutil -extract DTSDKName raw "$info_plist")"
+case "$sdk_name" in
+  iphoneos2[6-9].*|iphoneos[3-9][0-9].*) ;;
+  *)
+    echo "The packaged iOS application used legacy SDK $sdk_name; iOS 26 or newer is required." >&2
+    exit 1
+    ;;
+esac
 
 case "$(lipo -archs "$executable")" in
   *arm64*) ;;
