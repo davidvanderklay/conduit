@@ -301,10 +301,12 @@ final class ConduitMPVPlayerViewController: UIViewController {
     private var resumeAfterForeground = false
     private var backgroundedWithPictureInPicture = false
     private var lastDrawableSize: CGSize = .zero
+    private var settledMetalBounds: CGRect = .zero
     private var externallyManagedViewSize: CGSize?
     private var pendingSurfaceLayoutWorkItems: [DispatchWorkItem] = []
     private var pendingDrawableResize: DispatchWorkItem?
     private var pendingDrawableSize: CGSize?
+    private var pendingDrawableBounds: CGRect?
     private var interactiveResizeActive = false
     private var lifecycleObservers: [NSObjectProtocol] = []
     private var recentErrors: [String] = []
@@ -418,7 +420,13 @@ final class ConduitMPVPlayerViewController: UIViewController {
             self.interactiveResizeActive = active
             self.pendingDrawableResize?.cancel()
             self.pendingDrawableResize = nil
-            if !active { self.layoutMetalLayer() }
+            self.metalLayer.isNuvioLiveResize = true
+            if !active {
+                self.layoutMetalLayer()
+                if self.pendingDrawableResize == nil {
+                    self.metalLayer.isNuvioLiveResize = false
+                }
+            }
         }
     }
 
@@ -643,6 +651,8 @@ final class ConduitMPVPlayerViewController: UIViewController {
         pendingDrawableResize?.cancel()
         pendingDrawableResize = nil
         pendingDrawableSize = nil
+        pendingDrawableBounds = nil
+        metalLayer.isNuvioLiveResize = false
         pendingLoad = nil
         shouldPlay = false
         pictureInPicture?.invalidate()
@@ -917,25 +927,37 @@ final class ConduitMPVPlayerViewController: UIViewController {
         CATransaction.setDisableActions(true)
         metalLayer.contentsScale = scale
         metalLayer.position = .zero
-        metalLayer.bounds = bounds
         if lastDrawableSize == .zero {
-            applyDrawableSize(size)
+            applyDrawableSize(size, bounds: bounds)
         } else if size == lastDrawableSize {
             pendingDrawableResize?.cancel()
             pendingDrawableResize = nil
             pendingDrawableSize = nil
+            pendingDrawableBounds = nil
+            settleMetalBounds(bounds)
+            metalLayer.isNuvioLiveResize = false
         } else if interactiveResizeActive {
             pendingDrawableResize?.cancel()
             pendingDrawableResize = nil
             pendingDrawableSize = size
+            pendingDrawableBounds = bounds
+            showStableSurface(in: bounds)
         } else if size != pendingDrawableSize || pendingDrawableResize == nil {
             pendingDrawableResize?.cancel()
             pendingDrawableSize = size
+            pendingDrawableBounds = bounds
+            showStableSurface(in: bounds)
+            metalLayer.isNuvioLiveResize = true
             let resize = DispatchWorkItem { [weak self] in
-                guard let self, self.pendingDrawableSize == size else { return }
+                guard let self,
+                      self.pendingDrawableSize == size,
+                      self.pendingDrawableBounds == bounds
+                else { return }
                 self.pendingDrawableResize = nil
                 self.pendingDrawableSize = nil
-                self.applyDrawableSize(size)
+                self.pendingDrawableBounds = nil
+                self.applyDrawableSize(size, bounds: bounds)
+                self.metalLayer.isNuvioLiveResize = false
             }
             pendingDrawableResize = resize
             // MoltenVK must rebuild its swapchain before rendering at the new
@@ -946,13 +968,28 @@ final class ConduitMPVPlayerViewController: UIViewController {
         CATransaction.commit()
     }
 
-    private func applyDrawableSize(_ size: CGSize) {
+    private func showStableSurface(in desiredBounds: CGRect) {
+        guard settledMetalBounds.width > 1, settledMetalBounds.height > 1 else { return }
+        let scaleX = desiredBounds.width / settledMetalBounds.width
+        let scaleY = desiredBounds.height / settledMetalBounds.height
+        metalLayer.bounds = settledMetalBounds
+        metalLayer.setAffineTransform(CGAffineTransform(scaleX: scaleX, y: scaleY))
+    }
+
+    private func settleMetalBounds(_ bounds: CGRect) {
+        metalLayer.setAffineTransform(.identity)
+        metalLayer.bounds = bounds
+        settledMetalBounds = bounds
+    }
+
+    private func applyDrawableSize(_ size: CGSize, bounds: CGRect) {
 #if DEBUG
         print(
-            "[Conduit MPV][surface] points=\(Int(metalLayer.bounds.width))x\(Int(metalLayer.bounds.height)) " +
+            "[Conduit MPV][surface] points=\(Int(bounds.width))x\(Int(bounds.height)) " +
             "drawable=\(Int(size.width))x\(Int(size.height))"
         )
 #endif
+        settleMetalBounds(bounds)
         metalLayer.drawableSize = size
         lastDrawableSize = size
     }
