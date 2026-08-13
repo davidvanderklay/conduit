@@ -30,6 +30,7 @@ internal fun HomeScreen(
     sync: ProfileSyncState,
     api: ConduitApi,
     onSelect: (CatalogItem, String?) -> Unit,
+    onSelectContinueWatching: (CatalogItem, String?) -> Unit,
     onMutation: suspend (ProfileMutation) -> Result<Unit>,
     onOpenHistory: () -> Unit,
     onOpenDiscover: (DiscoverSelection) -> Unit,
@@ -92,7 +93,7 @@ internal fun HomeScreen(
                             item = displayItem,
                             metadata = metadata,
                             metadataReady = item.mediaType != "series" || metadata != null,
-                            onClick = { onSelect(displayItem, targetVideoId) },
+                            onClick = { onSelectContinueWatching(displayItem, targetVideoId) },
                             onActions = {
                                 actionTarget = MediaActionTarget(
                                     displayItem,
@@ -171,8 +172,14 @@ internal fun HomeScreen(
         snapshot = sync.snapshot,
         metadataCache = metadataCache,
         onDismiss = { actionTarget = null },
-        onPlay = { target -> onSelect(target.item, target.video?.id ?: target.progress?.videoId) },
-        onDetails = { onSelect(it, null) },
+        onPlay = { target ->
+            val select = if (target.context == MediaActionContext.Continue) onSelectContinueWatching else onSelect
+            select(target.item, target.video?.id ?: target.progress?.videoId)
+        },
+        onDetails = { target ->
+            val select = if (target.context == MediaActionContext.Continue) onSelectContinueWatching else onSelect
+            select(target.item, null)
+        },
         onMutation = onMutation,
     )
 }
