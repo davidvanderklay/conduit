@@ -207,7 +207,9 @@ private struct ConduitRootView: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let floatingBottomInset = max(geometry.safeAreaInsets.bottom - 16, 8)
+            // Keep the floating bar close to the home-indicator edge. The
+            // native tab bar already owns its internal bottom spacing.
+            let floatingBottomInset = max(geometry.safeAreaInsets.bottom - 32, 0)
             ZStack(alignment: .bottom) {
                 Color.black.ignoresSafeArea()
                 ComposeView().ignoresSafeArea()
