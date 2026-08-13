@@ -1171,7 +1171,7 @@ private fun BoxScope.PlaybackSessionHost(
     }
 
     Box(Modifier.fillMaxSize().onSizeChanged { containerSize = it }) {
-        val miniBottomPadding = if (bottomNavigationVisible) 98.dp else 12.dp
+        val miniBottomPadding = if (bottomNavigationVisible) 132.dp else 12.dp
         val renderedMiniOffset = if (miniGestureActive) miniOffset else animatedMiniOffset
         val miniLayout = Modifier
             .align(Alignment.BottomEnd)
@@ -1206,6 +1206,7 @@ private fun BoxScope.PlaybackSessionHost(
             onTemporarySpeedChanged = { temporarySpeedActive = it },
             onSystemPipChanged = controller::systemPipChanged,
             onSystemPipAvailabilityChanged = controller::systemPipAvailabilityChanged,
+            interactiveResize = miniGestureActive,
             modifier = playerModifier,
             onState = controller::updatePlayback,
         )
@@ -1326,7 +1327,7 @@ private fun BoxScope.PlaybackSessionHost(
             val currentVerticalLimit by rememberUpdatedState(verticalLimit)
             val currentMinimumWidthDp by rememberUpdatedState(minimumWidthDp)
             val currentMaximumWidthDp by rememberUpdatedState(maximumWidthDp)
-            val minimumFlingSpeedPx = with(density) { 650.dp.toPx() }
+            val minimumFlingSpeedPx = with(density) { 220.dp.toPx() }
             val currentMinimumFlingSpeedPx by rememberUpdatedState(minimumFlingSpeedPx)
             LaunchedEffect(horizontalLimit, verticalLimit, miniGestureActive) {
                 miniOffset = if (miniGestureActive) {
@@ -1375,7 +1376,7 @@ private fun BoxScope.PlaybackSessionHost(
                             val velocity = velocityTracker.calculateVelocity()
                             val speed = sqrt(velocity.x * velocity.x + velocity.y * velocity.y)
                             if (speed >= currentMinimumFlingSpeedPx) {
-                                val directionalThreshold = speed * .35f
+                                val directionalThreshold = speed * .2f
                                 if (abs(velocity.x) >= directionalThreshold) {
                                     miniDockedLeft = velocity.x < 0f
                                 }

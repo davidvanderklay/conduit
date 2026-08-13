@@ -30,6 +30,7 @@ expect fun NativePlayer(
     onTemporarySpeedChanged: (Boolean) -> Unit = {},
     onSystemPipChanged: (Boolean) -> Unit = {},
     onSystemPipAvailabilityChanged: (Boolean) -> Unit = {},
+    interactiveResize: Boolean = false,
     modifier: Modifier = Modifier,
     onState: (PlaybackState) -> Unit,
 )

@@ -97,6 +97,7 @@ actual fun NativePlayer(
     onTemporarySpeedChanged: (Boolean) -> Unit,
     onSystemPipChanged: (Boolean) -> Unit,
     onSystemPipAvailabilityChanged: (Boolean) -> Unit,
+    interactiveResize: Boolean,
     modifier: Modifier,
     onState: (PlaybackState) -> Unit,
 ) {
