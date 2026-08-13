@@ -20,7 +20,7 @@ on:
           - macos
         default: all
       release_tag:
-        description: Existing tag to replace when target is macos
+        description: Existing release version to rebuild
         type: string
         required: false
 
@@ -409,7 +409,7 @@ jobs:
         run: brew install xcodegen
       - name: Build unsigned iOS IPA
         env:
-          CONDUIT_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || format('0.0.0-ci.{0}', github.run_number) }}
+          CONDUIT_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || inputs.release_tag || format('0.0.0-ci.{0}', github.run_number) }}
         run: |
           version="${CONDUIT_VERSION#v}"
           apps/mobile/scripts/package-ios-ipa.sh "$version" "$GITHUB_RUN_NUMBER"
