@@ -617,6 +617,7 @@ internal fun MediaDetailsScreen(
     onBrowse: (MobileBrowseTarget) -> Unit,
     onBack: () -> Unit,
     returnToHomeOnStreamBack: Boolean,
+    autoResumeOnOpen: Boolean,
     playbackSession: PlaybackSessionController,
 ) {
     var meta by remember(item.id, item.type) { mutableStateOf<MetaItem?>(null) }
@@ -772,8 +773,8 @@ internal fun MediaDetailsScreen(
         snapshot?.progress?.firstOrNull { it.videoId == videoId }?.playbackSource
     }
     val currentAutoResumeAttemptKey = savedPlaybackSource?.let(::autoResumeAttemptKey)
-    LaunchedEffect(meta?.id, selectedVideo?.id, effectiveInitialVideoId, savedPlaybackSource, addonSignature, preferences.autoSelectSavedStreams) {
-        if (effectiveInitialVideoId == null || meta == null || addons.isEmpty()) return@LaunchedEffect
+    LaunchedEffect(meta?.id, selectedVideo?.id, effectiveInitialVideoId, savedPlaybackSource, addonSignature, preferences.autoSelectSavedStreams, autoResumeOnOpen) {
+        if (!autoResumeOnOpen || effectiveInitialVideoId == null || meta == null || addons.isEmpty()) return@LaunchedEffect
         val targetVideoId = selectedVideo?.id ?: item.id
         if (targetVideoId != effectiveInitialVideoId) return@LaunchedEffect
         val saved = savedPlaybackSource ?: return@LaunchedEffect
@@ -781,7 +782,7 @@ internal fun MediaDetailsScreen(
         autoResumeAttemptedKey = currentAutoResumeAttemptKey
         requestStreams(selectedVideo, autoPlaySavedSource = preferences.autoSelectSavedStreams)
     }
-    val waitingForSavedPlayback = preferences.autoSelectSavedStreams &&
+    val waitingForSavedPlayback = autoResumeOnOpen && preferences.autoSelectSavedStreams &&
         effectiveInitialVideoId != null && savedPlaybackSource != null &&
         error == null && (meta == null || addons.isNotEmpty()) &&
         !streamPageOpen && playing == null &&
@@ -958,8 +959,6 @@ internal fun MediaDetailsScreen(
                 selectedAddonId = selectedStreamAddonId,
                 loading = streamsLoading,
                 error = streamsError,
-                hasEpisodes = orderedVideos.isNotEmpty(),
-                onEpisodes = { streamEpisodesOpen = true },
                 onSelectAddon = { addonId ->
                     val currentEffective = effectiveStreamAddonId(selectedStreamAddonId, streamAddonChoices)
                     val nextEffective = effectiveStreamAddonId(addonId, streamAddonChoices)
@@ -987,6 +986,18 @@ internal fun MediaDetailsScreen(
                 background = MaterialTheme.colorScheme.background.copy(alpha = .96f),
                 safeArea = true,
             )
+            if (orderedVideos.isNotEmpty()) {
+                IconButton(
+                    onClick = { streamEpisodesOpen = true },
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .statusBarsPadding()
+                        .padding(12.dp)
+                        .background(MaterialTheme.colorScheme.background.copy(alpha = .96f), CircleShape),
+                ) {
+                    Icon(Icons.Rounded.VideoLibrary, contentDescription = "Episodes")
+                }
+            }
             if (streamEpisodesOpen) {
                 BoxWithConstraints(Modifier.fillMaxSize()) {
                     PlayerEpisodeDrawer(
@@ -1524,8 +1535,6 @@ private fun StreamSelectionScreen(
     selectedAddonId: String?,
     loading: Boolean,
     error: String?,
-    hasEpisodes: Boolean,
-    onEpisodes: () -> Unit,
     onSelectAddon: (String?) -> Unit,
     onRetry: () -> Unit,
     onSelect: (StreamSource) -> Unit,
@@ -1574,13 +1583,7 @@ private fun StreamSelectionScreen(
                 Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 8.dp, vertical = if (collapsed) 4.dp else 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Spacer(Modifier.width(48.dp))
                     Column(Modifier.weight(1f)) { Text("Choose a stream", style = if (collapsed) MaterialTheme.typography.titleMedium else MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold); if (!collapsed) Text(listOfNotNull(title, episode?.let { "S${it.season ?: 0}E${it.episode ?: 0} · ${it.displayTitle}" }).joinToString(" · "), color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                    if (hasEpisodes) {
-                        IconButton(onClick = onEpisodes) {
-                            Icon(Icons.Rounded.VideoLibrary, "Episodes")
-                        }
-                    } else {
-                        Spacer(Modifier.width(48.dp))
-                    }
+                    Spacer(Modifier.width(48.dp))
                 }
             }
         }

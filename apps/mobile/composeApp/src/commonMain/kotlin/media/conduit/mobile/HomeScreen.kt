@@ -31,6 +31,7 @@ internal fun HomeScreen(
     api: ConduitApi,
     onSelect: (CatalogItem, String?) -> Unit,
     onSelectContinueWatching: (CatalogItem, String?) -> Unit,
+    onSelectContinueWatchingDetails: (CatalogItem) -> Unit,
     onMutation: suspend (ProfileMutation) -> Result<Unit>,
     onOpenHistory: () -> Unit,
     onOpenDiscover: (DiscoverSelection) -> Unit,
@@ -177,8 +178,11 @@ internal fun HomeScreen(
             select(target.item, target.video?.id ?: target.progress?.videoId)
         },
         onDetails = { target ->
-            val select = if (target.context == MediaActionContext.Continue) onSelectContinueWatching else onSelect
-            select(target.item, null)
+            if (target.context == MediaActionContext.Continue) {
+                onSelectContinueWatchingDetails(target.item)
+            } else {
+                onSelect(target.item, null)
+            }
         },
         onMutation = onMutation,
     )
