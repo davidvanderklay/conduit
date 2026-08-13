@@ -1,11 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Bookmark, Check, Info } from "lucide-react"
-import type { InstalledAddon, WatchProgress } from "../lib/api"
-import { api } from "../lib/api"
+import type { InstalledAddon } from "../lib/api"
 import { addonsForResource } from "../lib/addons"
 import { useLibraryToggle } from "../lib/library"
-import { loadMeta, type CatalogItem, type MetaItem, type Video } from "../lib/core"
-import { completionEpisodeIds, posterWatchState } from "../lib/watch-status"
+import { loadMeta, type CatalogItem, type MetaItem } from "../lib/core"
+import { completionEpisodeIds, posterWatchState, seriesWatchVideos } from "../lib/watch-status"
+import { mediaForWatchActions, setEpisodeWatched, setVideosWatched } from "../lib/watch-actions"
 import { PosterActionMenu } from "./poster-action-menu"
 import { usePosterProgress } from "./poster-watch-status"
 
@@ -34,19 +34,21 @@ export function BrowsePosterMenu({
     mutationFn: async () => {
       if (item.type !== "series") {
         const existing = progress.find((entry) => entry.videoId === item.id)
-        await setWatched(profileId, item, existing, undefined, !complete)
+        if (!existing && complete) return
+        await setEpisodeWatched(
+          profileId,
+          mediaForWatchActions(item),
+          { id: item.id, title: item.name },
+          existing,
+          !complete,
+        )
         return
       }
 
       const meta = metadata.data ?? await firstMetadata(addons, item)
-      const releasedIds = new Set(completionEpisodeIds(meta.videos ?? []))
-      const released = (meta.videos ?? []).filter((video) => releasedIds.has(video.id))
+      const released = seriesWatchVideos(meta.videos ?? [])
       if (released.length === 0) throw new Error("No released episodes are available")
-      await Promise.all(released.map((video) => {
-        const existing = progress.find((entry) => entry.videoId === video.id)
-        if (complete && !existing) return Promise.resolve()
-        return setWatched(profileId, item, existing, video, !complete)
-      }))
+      await setVideosWatched(profileId, mediaForWatchActions(item), released, progress, !complete)
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey: ["progress", profileId] }),
   })
@@ -57,7 +59,7 @@ export function BrowsePosterMenu({
       actions={[
         {
           label: item.type === "series"
-            ? complete ? "Mark released episodes unwatched" : "Mark released episodes watched"
+            ? complete ? "Mark series unwatched" : "Mark series watched"
             : complete ? "Mark unwatched" : "Mark watched",
           icon: <Check size={16} />,
           onSelect: () => watched.mutate(),
@@ -85,34 +87,4 @@ async function firstMetadata(addons: InstalledAddon[], item: CatalogItem): Promi
   )
   if (!result) throw new Error("No installed add-on returned episode metadata")
   return result.value
-}
-
-async function setWatched(
-  profileId: string,
-  item: CatalogItem,
-  progress: WatchProgress | undefined,
-  video: Video | undefined,
-  watched: boolean,
-) {
-  const videoId = progress?.videoId ?? video?.id ?? item.id
-  const path = `/v1/profiles/${profileId}/progress/${encodeURIComponent(videoId)}`
-  if (progress) {
-    await api(path, { method: "PATCH", body: JSON.stringify({ watched }) })
-    return
-  }
-  await api(path, {
-    method: "PUT",
-    body: JSON.stringify({
-      mediaType: item.type,
-      mediaId: item.id,
-      name: item.name,
-      poster: item.poster,
-      videoTitle: video?.title,
-      season: video?.season,
-      episode: video?.episode,
-      positionMs: 0,
-      durationMs: 0,
-      watched,
-    }),
-  })
 }

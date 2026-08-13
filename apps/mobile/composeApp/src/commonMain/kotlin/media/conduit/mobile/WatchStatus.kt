@@ -6,8 +6,19 @@ import media.conduit.mobile.account.ProgressSummary
 import media.conduit.mobile.account.VideoItem
 
 internal enum class PosterWatchState { Unwatched, Partial, Complete }
+internal enum class EpisodeWatchState { NotStarted, InProgress, Watched }
 
 private const val LegacyCompletionMarkerPrefix = "conduit:completion:"
+
+internal fun episodeWatchState(progress: ProgressSummary?): EpisodeWatchState = when {
+    progress?.watched == true -> EpisodeWatchState.Watched
+    (progress?.positionMs ?: 0L) > 0L -> EpisodeWatchState.InProgress
+    else -> EpisodeWatchState.NotStarted
+}
+
+internal fun episodeProgressFraction(progress: ProgressSummary?): Float =
+    if (progress == null || progress.watched || progress.durationMs <= 0L) 0f
+    else (progress.positionMs.toFloat() / progress.durationMs).coerceIn(0f, 1f)
 
 internal fun posterWatchState(
     progress: List<ProgressSummary>,
@@ -38,11 +49,38 @@ internal fun posterWatchState(
 internal fun completionEpisodeIds(
     videos: List<VideoItem>,
     today: String = Clock.System.now().toString().take(10),
-): List<String> {
-    val regularEpisodes = videos.filter { video ->
-        video.season != 0 && video.releasedOrAvailable(today)
-    }
-    return (regularEpisodes.ifEmpty { videos }).map(VideoItem::id)
+): List<String> = seriesWatchVideos(videos, today).map(VideoItem::id)
+
+internal fun seasonWatchVideos(
+    videos: List<VideoItem>,
+    season: Int,
+    today: String = Clock.System.now().toString().take(10),
+): List<VideoItem> = videos
+    .filter { it.season == season && it.releasedOrAvailable(today) }
+    .sortedWith(compareBy<VideoItem> { it.episode ?: 0 }.thenBy(VideoItem::id))
+
+internal fun seriesWatchVideos(
+    videos: List<VideoItem>,
+    today: String = Clock.System.now().toString().take(10),
+): List<VideoItem> {
+    val eligible = videos.filter { it.releasedOrAvailable(today) }
+    val regular = eligible.filter { it.season != 0 }
+    return (regular.ifEmpty { eligible }).sortedWith(
+        compareBy<VideoItem> { it.season ?: 0 }
+            .thenBy { it.episode ?: 0 }
+            .thenBy(VideoItem::id),
+    )
+}
+
+internal fun restOfSeasonWatchVideos(
+    videos: List<VideoItem>,
+    season: Int,
+    fromVideoId: String,
+    today: String = Clock.System.now().toString().take(10),
+): List<VideoItem> {
+    val eligible = seasonWatchVideos(videos, season, today)
+    val start = eligible.indexOfFirst { it.id == fromVideoId }
+    return if (start < 0) emptyList() else eligible.drop(start)
 }
 
 private fun VideoItem.releasedOrAvailable(today: String): Boolean {

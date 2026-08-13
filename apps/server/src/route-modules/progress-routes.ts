@@ -201,7 +201,7 @@ export function registerProgressRoutes(app: FastifyInstance, context: RouteConte
           ...(watched !== undefined ? { watched } : {}),
           ...(watched === true ? { positionMs: sql`${watchProgress.durationMs}` } : {}),
           ...(watched === false ? { positionMs: 0 } : {}),
-          ...(watched === true ? { continueWatching: true } : {}),
+          ...(watched !== undefined ? { continueWatching: watched } : {}),
           ...(dismissed !== undefined ? { dismissed } : {}),
           updatedAt: new Date(),
         })
