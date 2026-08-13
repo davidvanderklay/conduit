@@ -6,10 +6,10 @@ import media.conduit.mobile.account.SessionVault
 
 enum class AppDestination(val label: String, val showInNavigation: Boolean = true) {
     Home("Home"),
-    Search("Search"),
+    Search("Discover"),
     Library("Library"),
     Calendar("Calendar", showInNavigation = false),
-    Profile("Profile"),
+    Profile("Settings"),
     History("History", showInNavigation = false),
 }
 
