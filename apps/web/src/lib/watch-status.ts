@@ -49,17 +49,6 @@ export function seriesWatchVideos(videos: Video[], now = Date.now()): Video[] {
   return regular.length > 0 ? regular : eligible
 }
 
-export function restOfSeasonWatchVideos(
-  videos: Video[],
-  season: number,
-  fromVideoId: string,
-  now = Date.now(),
-): Video[] {
-  const seasonVideos = seasonWatchVideos(videos, season, now)
-  const start = seasonVideos.findIndex((video) => video.id === fromVideoId)
-  return start < 0 ? [] : seasonVideos.slice(start)
-}
-
 export function posterWatchState(
   progress: WatchProgress[],
   item: Pick<CatalogItem, "type" | "id">,
