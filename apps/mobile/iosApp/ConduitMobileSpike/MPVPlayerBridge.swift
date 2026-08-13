@@ -83,15 +83,14 @@ final class ConduitMPVPlayerBridge: NSObject, IosPlayerBridge {
     }
     func setResizeMode(mode: Int32) { playerViewController?.setResize(Int(mode)) }
     func setImmersivePlayback(enabled: Bool) {
-        ConduitSystemChromeCoordinator.shared.setImmersivePlayback(enabled)
-        if enabled {
-            if !holdsLandscapeLock {
-                holdsLandscapeLock = true
-            }
-            ConduitOrientationCoordinator.shared.lockPlayerToLandscape()
-        } else if holdsLandscapeLock {
+        if enabled && !holdsLandscapeLock {
+            holdsLandscapeLock = true
+            ConduitSystemChromeCoordinator.shared.beginImmersivePlayback()
+            ConduitOrientationCoordinator.shared.beginLandscapeLock()
+        } else if !enabled && holdsLandscapeLock {
             holdsLandscapeLock = false
-            ConduitOrientationCoordinator.shared.restorePortrait()
+            ConduitSystemChromeCoordinator.shared.endImmersivePlayback()
+            ConduitOrientationCoordinator.shared.endLandscapeLock()
         }
     }
     func isPictureInPictureSupported() -> Bool {
@@ -204,11 +203,11 @@ final class ConduitMPVPlayerBridge: NSObject, IosPlayerBridge {
     func destroy() {
         let controller = playerViewController
         playerViewController = nil
-        ConduitSystemChromeCoordinator.shared.setImmersivePlayback(false)
         controller?.destroyPlayer()
         if holdsLandscapeLock {
             holdsLandscapeLock = false
-            ConduitOrientationCoordinator.shared.restorePortrait()
+            ConduitSystemChromeCoordinator.shared.endImmersivePlayback()
+            ConduitOrientationCoordinator.shared.endLandscapeLock()
         }
         if playbackRegistered {
             playbackRegistered = false
@@ -285,6 +284,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
     private let subtitleLock = NSLock()
     private let errorLock = NSLock()
     private var metalLayer = ConduitMetalLayer()
+    private let pictureInPicturePlaceholderLayer = CALayer()
     private var pictureInPicture: ConduitPictureInPictureCoordinator?
     private var mpv: OpaquePointer?
     private var pendingLoad: ConduitPendingLoad?
@@ -343,6 +343,9 @@ final class ConduitMPVPlayerViewController: UIViewController {
         metalLayer.position = .zero
         view.layer.addSublayer(metalLayer)
         pictureInPicture = ConduitPictureInPictureCoordinator(owner: self, metalLayer: metalLayer)
+        pictureInPicturePlaceholderLayer.backgroundColor = UIColor.black.cgColor
+        pictureInPicturePlaceholderLayer.opacity = 0
+        view.layer.addSublayer(pictureInPicturePlaceholderLayer)
 
         setupMpv()
         activateAudioSession()
@@ -365,6 +368,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
         super.viewDidLayoutSubviews()
         layoutMetalLayer()
         pictureInPicture?.layout(in: view.bounds)
+        pictureInPicturePlaceholderLayer.frame = view.bounds
         attemptStartPendingLoad()
     }
 
@@ -660,6 +664,9 @@ final class ConduitMPVPlayerViewController: UIViewController {
 
     private func enterForeground() {
         guard mpv != nil else { return }
+        if pictureInPicture?.isActive == true {
+            pictureInPicture?.stop()
+        }
         syncVideoSurfaceLayout()
         attemptStartPendingLoad()
         setStringProperty("vid", "auto")
@@ -667,6 +674,13 @@ final class ConduitMPVPlayerViewController: UIViewController {
             playPlayback()
         }
         resumeAfterForeground = false
+    }
+
+    fileprivate func setInlineVideoHiddenForPictureInPicture(_ hidden: Bool) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        pictureInPicturePlaceholderLayer.opacity = hidden ? 1 : 0
+        CATransaction.commit()
     }
 
     private func setupMpv() {
@@ -1227,6 +1241,7 @@ final class ConduitPictureInPictureCoordinator: NSObject,
     private let displayLayer = AVSampleBufferDisplayLayer()
     private let captureQueue = DispatchQueue(label: "media.conduit.pip-capture", qos: .userInitiated)
     private var controller: AVPictureInPictureController?
+    private var pictureInPicturePossibleObservation: NSKeyValueObservation?
     private var displayLink: CADisplayLink?
     private var pixelBufferPool: CVPixelBufferPool?
     private var formatDescription: CMVideoFormatDescription?
@@ -1235,6 +1250,8 @@ final class ConduitPictureInPictureCoordinator: NSObject,
     private var priming = false
     private var startRequested = false
     private var startAttempts = 0
+    private var startAttemptWorkItem: DispatchWorkItem?
+    private var enqueuedFrameCount = 0
     private var lastTimestamp = CMTime.invalid
     private var automaticEntryTimeout: DispatchWorkItem?
 
@@ -1253,6 +1270,13 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         controller.delegate = self
         controller.canStartPictureInPictureAutomaticallyFromInline = true
         self.controller = controller
+        pictureInPicturePossibleObservation = controller.observe(
+            \.isPictureInPicturePossible,
+            options: [.initial, .new]
+        ) { [weak self] _, change in
+            guard change.newValue == true else { return }
+            DispatchQueue.main.async { self?.attemptStart() }
+        }
     }
 
     var isSupported: Bool { AVPictureInPictureController.isPictureInPictureSupported() }
@@ -1301,6 +1325,8 @@ final class ConduitPictureInPictureCoordinator: NSObject,
     func invalidate() {
         automaticEntryTimeout?.cancel()
         automaticEntryTimeout = nil
+        pictureInPicturePossibleObservation?.invalidate()
+        pictureInPicturePossibleObservation = nil
         stopCapture()
         controller?.delegate = nil
         controller = nil
@@ -1311,6 +1337,11 @@ final class ConduitPictureInPictureCoordinator: NSObject,
     private func beginPriming() {
         priming = true
         startAttempts = 0
+        enqueuedFrameCount = 0
+        startAttemptWorkItem?.cancel()
+        startAttemptWorkItem = nil
+        lastTimestamp = .invalid
+        displayLayer.flush()
         if displayLink == nil {
             let link = CADisplayLink(target: self, selector: #selector(captureTick))
             link.preferredFrameRateRange = CAFrameRateRange(minimum: 10, maximum: 20, preferred: 20)
@@ -1320,6 +1351,8 @@ final class ConduitPictureInPictureCoordinator: NSObject,
     }
 
     private func stopCapture() {
+        startAttemptWorkItem?.cancel()
+        startAttemptWorkItem = nil
         displayLink?.invalidate()
         displayLink = nil
         captureInFlight = false
@@ -1327,6 +1360,7 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         formatDescription = nil
         poolSize = .zero
         lastTimestamp = .invalid
+        enqueuedFrameCount = 0
     }
 
     @objc private func captureTick() {
@@ -1368,8 +1402,15 @@ final class ConduitPictureInPictureCoordinator: NSObject,
                     sampleTiming: &timing,
                     sampleBufferOut: &sample
                 ) == noErr, let sample else { return }
+                CMSetAttachment(
+                    sample,
+                    key: kCMSampleAttachmentKey_DisplayImmediately,
+                    value: kCFBooleanTrue,
+                    attachmentMode: kCMAttachmentMode_ShouldPropagate
+                )
                 self.lastTimestamp = timestamp
                 self.displayLayer.enqueue(sample)
+                self.enqueuedFrameCount += 1
                 if self.startRequested { self.attemptStart() }
             }
         }
@@ -1411,9 +1452,28 @@ final class ConduitPictureInPictureCoordinator: NSObject,
 
     private func attemptStart() {
         guard startRequested, let controller, !controller.isPictureInPictureActive else { return }
+        guard enqueuedFrameCount >= 2 else { return }
+        guard startAttemptWorkItem == nil else { return }
         if controller.isPictureInPicturePossible {
-            startRequested = false
-            controller.startPictureInPicture()
+            let work = DispatchWorkItem { [weak self, weak controller] in
+                guard let self, let controller else { return }
+                self.startAttemptWorkItem = nil
+                guard self.startRequested,
+                      controller.isPictureInPicturePossible,
+                      !controller.isPictureInPictureActive
+                else {
+                    self.attemptStart()
+                    return
+                }
+                self.startRequested = false
+                controller.invalidatePlaybackState()
+                CATransaction.flush()
+                controller.startPictureInPicture()
+            }
+            startAttemptWorkItem = work
+            // Let the second priming frame commit before asking Pegasus to
+            // detach the display layer into its system window.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: work)
             return
         }
         guard startAttempts < 20 else {
@@ -1422,13 +1482,20 @@ final class ConduitPictureInPictureCoordinator: NSObject,
             stopCapture()
             return
         }
-        startAttempts += 1
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in self?.attemptStart() }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.startAttemptWorkItem = nil
+            self.startAttempts += 1
+            self.attemptStart()
+        }
+        startAttemptWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: work)
     }
 
     func pictureInPictureControllerWillStartPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
         automaticEntryTimeout?.cancel()
         automaticEntryTimeout = nil
+        owner?.setInlineVideoHiddenForPictureInPicture(true)
     }
 
     func pictureInPictureControllerDidStartPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
@@ -1440,12 +1507,14 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         failedToStartPictureInPictureWithError error: Error
     ) {
         print("[Conduit PiP] Failed to start: \(error)")
+        owner?.setInlineVideoHiddenForPictureInPicture(false)
         priming = false
         startRequested = false
         stopCapture()
     }
 
     func pictureInPictureControllerDidStopPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
+        owner?.setInlineVideoHiddenForPictureInPicture(false)
         priming = false
         startRequested = false
         stopCapture()

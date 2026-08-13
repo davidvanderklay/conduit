@@ -42,7 +42,18 @@ final class ConduitMetalLayer: CAMetalLayer {
             width: CVPixelBufferGetWidth(pixelBuffer),
             height: CVPixelBufferGetHeight(pixelBuffer)
         )
-        let scaledImage = image.transformed(by: CGAffineTransform(
+        // Metal textures use a lower-left origin while Core Image renders the
+        // pixel buffer with a top-left origin. Flip once during the PiP copy so
+        // the system window matches the inline MPV surface.
+        let uprightImage = image.transformed(by: CGAffineTransform(
+            a: 1,
+            b: 0,
+            c: 0,
+            d: -1,
+            tx: 0,
+            ty: image.extent.height
+        ))
+        let scaledImage = uprightImage.transformed(by: CGAffineTransform(
             scaleX: targetSize.width / image.extent.width,
             y: targetSize.height / image.extent.height
         ))

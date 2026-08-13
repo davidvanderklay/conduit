@@ -70,7 +70,11 @@ private data class IosTrack(
 actual fun PlayerOrientationLock(active: Boolean) {
     val bridge = remember(active) { if (active) IosPlayerBridgeFactory.create() else null }
     DisposableEffect(bridge) {
-        onDispose { bridge?.destroy() }
+        bridge?.setImmersivePlayback(true)
+        onDispose {
+            bridge?.setImmersivePlayback(false)
+            bridge?.destroy()
+        }
     }
 }
 
@@ -231,11 +235,14 @@ actual fun NativePlayer(
         }
     }
 
-    LaunchedEffect(bridge) {
+    LaunchedEffect(bridge, presentation) {
         // Full-screen playback owns system chrome for the whole session. Keeping
         // it hidden while controls are shown avoids a status-bar flash whenever
         // the user taps to reveal the player overlay.
-        bridge.setImmersivePlayback(presentation == PlaybackPresentation.FullScreen)
+        bridge.setImmersivePlayback(
+            presentation == PlaybackPresentation.FullScreen ||
+                presentation == PlaybackPresentation.SystemPip,
+        )
     }
 
     LaunchedEffect(presentation) {
