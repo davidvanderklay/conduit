@@ -79,6 +79,8 @@ actual fun PlayerOrientationLock(active: Boolean) {
 actual fun NativePlayer(
     url: String?,
     active: Boolean,
+    presentation: PlaybackPresentation,
+    command: SequencedPlaybackCommand?,
     startPositionMs: Long,
     requestHeaders: Map<String, String>,
     subtitles: List<SubtitleItem>,
@@ -94,12 +96,16 @@ actual fun NativePlayer(
     onEpisodes: () -> Unit,
     onControlsVisibilityChanged: (Boolean) -> Unit,
     onTemporarySpeedChanged: (Boolean) -> Unit,
+    onSystemPipChanged: (Boolean) -> Unit,
+    onSystemPipAvailabilityChanged: (Boolean) -> Unit,
     modifier: Modifier,
     onState: (PlaybackState) -> Unit,
 ) {
     val currentCallback by rememberUpdatedState(onState)
     val latestControlsCallback by rememberUpdatedState(onControlsVisibilityChanged)
     val latestTemporarySpeedCallback by rememberUpdatedState(onTemporarySpeedChanged)
+    val latestPipCallback by rememberUpdatedState(onSystemPipChanged)
+    val latestPipAvailabilityCallback by rememberUpdatedState(onSystemPipAvailabilityChanged)
     val bridge = remember { IosPlayerBridgeFactory.create() }
     val density = LocalDensity.current
     val windowSize = LocalWindowInfo.current.containerSize
@@ -167,6 +173,16 @@ actual fun NativePlayer(
         if (active) bridge.play() else bridge.pause()
     }
 
+    LaunchedEffect(bridge, command?.sequence) {
+        when (val next = command?.command) {
+            PlaybackCommand.Play -> bridge.play()
+            PlaybackCommand.Pause -> bridge.pause()
+            is PlaybackCommand.SeekTo -> bridge.seekTo(next.positionMs.coerceAtLeast(0))
+            PlaybackCommand.EnterSystemPip -> bridge.startPictureInPicture()
+            null -> Unit
+        }
+    }
+
     LaunchedEffect(bridge, resizeMode) {
         bridge.setResizeMode(resizeMode)
     }
@@ -183,7 +199,7 @@ actual fun NativePlayer(
         latestControlsCallback(controlsVisible)
     }
 
-    LaunchedEffect(bridge) {
+    LaunchedEffect(bridge, presentation) {
         while (isActive) {
             val next = PlaybackState(
                 loading = bridge.getIsLoading(),
@@ -200,6 +216,8 @@ actual fun NativePlayer(
             playbackReady = playbackReady || (!next.loading && next.durationMs > 0)
             playing = next.playing
             playbackSpeed = bridge.getPlaybackSpeed()
+            latestPipAvailabilityCallback(bridge.isPictureInPictureSupported())
+            latestPipCallback(bridge.isPictureInPictureActive())
             delay(500)
         }
     }
@@ -217,7 +235,11 @@ actual fun NativePlayer(
         // Full-screen playback owns system chrome for the whole session. Keeping
         // it hidden while controls are shown avoids a status-bar flash whenever
         // the user taps to reveal the player overlay.
-        bridge.setImmersivePlayback(true)
+        bridge.setImmersivePlayback(presentation == PlaybackPresentation.FullScreen)
+    }
+
+    LaunchedEffect(presentation) {
+        controlsVisible = presentation == PlaybackPresentation.FullScreen
     }
 
     LaunchedEffect(controlsVisible, playing, speedMenuOpen) {
@@ -304,7 +326,7 @@ actual fun NativePlayer(
             interactive = false,
         )
 
-        if (controlsVisible) {
+        if (controlsVisible && presentation == PlaybackPresentation.FullScreen) {
             Box(
                 Modifier
                     .fillMaxSize()

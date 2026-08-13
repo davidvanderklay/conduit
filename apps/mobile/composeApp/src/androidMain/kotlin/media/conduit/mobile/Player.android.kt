@@ -78,6 +78,8 @@ actual fun PlayerOrientationLock(active: Boolean) {
 actual fun NativePlayer(
     url: String?,
     active: Boolean,
+    presentation: PlaybackPresentation,
+    command: SequencedPlaybackCommand?,
     startPositionMs: Long,
     requestHeaders: Map<String, String>,
     subtitles: List<SubtitleItem>,
@@ -93,6 +95,8 @@ actual fun NativePlayer(
     onEpisodes: () -> Unit,
     onControlsVisibilityChanged: (Boolean) -> Unit,
     onTemporarySpeedChanged: (Boolean) -> Unit,
+    onSystemPipChanged: (Boolean) -> Unit,
+    onSystemPipAvailabilityChanged: (Boolean) -> Unit,
     modifier: Modifier,
     onState: (PlaybackState) -> Unit,
 ) {
@@ -106,6 +110,8 @@ actual fun NativePlayer(
     }
     val currentCallback by rememberUpdatedState(onState)
     val latestTemporarySpeedCallback by rememberUpdatedState(onTemporarySpeedChanged)
+    val latestPipCallback by rememberUpdatedState(onSystemPipChanged)
+    val latestPipAvailabilityCallback by rememberUpdatedState(onSystemPipAvailabilityChanged)
     val player = remember(url, requestHeaders, subtitles) {
         val http = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
@@ -183,17 +189,20 @@ actual fun NativePlayer(
                     initialLoadComplete = true
                     val duration = player.duration.coerceAtLeast(0)
                     if (startPositionMs > 0 && startPositionMs < duration - 5_000) player.seekTo(startPositionMs)
-                    activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
                 }
+            }
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                (activity as? MainActivity)?.updateConduitPictureInPictureParams()
+            }
+            override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
+                (activity as? MainActivity)?.updateConduitPipVideoSize(videoSize.width, videoSize.height)
             }
             override fun onRenderedFirstFrame() {
                 initialLoadComplete = true
-                activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
             }
         }
         player.addListener(listener)
         if (url != null) {
-            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
             val item = MediaItem.Builder().setUri(url).apply {
                 val lower = url.lowercase().substringBefore('#')
                 when {
@@ -216,15 +225,37 @@ actual fun NativePlayer(
         onDispose {
             player.removeListener(listener)
             player.release()
-            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
         }
+    }
+    DisposableEffect(player, activity) {
+        val mainActivity = activity as? MainActivity
+        mainActivity?.attachConduitPipPlayer(player) { latestPipCallback(it) }
+        onDispose { mainActivity?.detachConduitPipPlayer(player) }
+    }
+    LaunchedEffect(activity) {
+        latestPipAvailabilityCallback(
+            android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O &&
+                context.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_PICTURE_IN_PICTURE),
+        )
     }
     DisposableEffect(player, lifecycle) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_STOP) player.pause()
+            if (event == Lifecycle.Event.ON_STOP && activity?.isInPictureInPictureMode != true) player.pause()
         }
         lifecycle.addObserver(observer)
         onDispose { lifecycle.removeObserver(observer) }
+    }
+    LaunchedEffect(player, command?.sequence) {
+        when (val next = command?.command) {
+            PlaybackCommand.Play -> player.play()
+            PlaybackCommand.Pause -> player.pause()
+            is PlaybackCommand.SeekTo -> player.seekTo(next.positionMs.coerceAtLeast(0))
+            PlaybackCommand.EnterSystemPip -> (activity as? MainActivity)?.enterConduitPictureInPicture()
+            null -> Unit
+        }
+    }
+    LaunchedEffect(presentation) {
+        controlsVisible = presentation == PlaybackPresentation.FullScreen
     }
     LaunchedEffect(player, lifecycle) {
         lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -267,17 +298,21 @@ actual fun NativePlayer(
         )
     }) {
         AndroidView(
-            factory = { PlayerView(it).apply { this.player = player; useController = false; setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER); keepScreenOn = true } },
+            factory = { PlayerView(it).apply { this.player = player; useController = false; setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER); keepScreenOn = true; (activity as? MainActivity)?.setConduitPipSourceView(this) } },
             update = {
                 it.player = player
                 it.resizeMode = if (resizeMode == ANDROID_RESIZE_MODE_ZOOM) AspectRatioFrameLayout.RESIZE_MODE_ZOOM else resizeMode
                 val scale = if (resizeMode == ANDROID_RESIZE_MODE_ZOOM) 1.15f else 1f
                 it.scaleX = scale
                 it.scaleY = scale
+                it.subtitleView?.setFractionalTextSize(
+                    if (presentation == PlaybackPresentation.FullScreen) .0533f else .035f,
+                )
+                (activity as? MainActivity)?.setConduitPipSourceView(it)
             },
             modifier = Modifier.fillMaxSize(),
         )
-        if (controlsVisible) {
+        if (controlsVisible && presentation == PlaybackPresentation.FullScreen) {
             Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .42f)).pointerInput(player, resizeMode) { detectTransformGestures { _, _, zoom, _ ->
                 val next = when { zoom > 1.04f -> ANDROID_RESIZE_MODE_ZOOM; zoom < .96f -> AspectRatioFrameLayout.RESIZE_MODE_FIT; else -> resizeMode }
                 if (next != resizeMode) resizeMode = next
