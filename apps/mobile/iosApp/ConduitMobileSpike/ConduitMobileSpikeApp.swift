@@ -185,8 +185,15 @@ private struct ConduitRootView: View {
 
                 if bottomNavigation.visible {
                     ConduitBottomTabBar(coordinator: bottomNavigation)
-                        .frame(height: bottomNavigation.compact ? 52 : 76)
-                        .padding(.horizontal, bottomNavigation.classic ? 0 : (bottomNavigation.compact ? 64 : 24))
+                        .frame(
+                            width: bottomNavigation.classic
+                                ? geometry.size.width
+                                : min(
+                                    bottomNavigation.compact ? 720 : 820,
+                                    geometry.size.width - (bottomNavigation.compact ? 64 : 32)
+                                )
+                        )
+                        .frame(height: bottomNavigation.compact ? 60 : 76)
                         .padding(.bottom, geometry.safeAreaInsets.bottom)
                         .animation(.easeInOut(duration: 0.22), value: bottomNavigation.compact)
                 }
@@ -252,7 +259,7 @@ private struct ConduitBottomTabBar: UIViewRepresentable {
         Delegate(owner: coordinator)
     }
 
-    func makeUIView(context: Context) -> UITabBar {
+    func makeUIView(context: Context) -> ConduitTabBarContainer {
         let tabBar = UITabBar()
         tabBar.delegate = context.coordinator
         tabBar.tintColor = UIColor(red: 0.98, green: 0.75, blue: 0.14, alpha: 1)
@@ -260,11 +267,12 @@ private struct ConduitBottomTabBar: UIViewRepresentable {
         tabBar.backgroundColor = .clear
         tabBar.isOpaque = false
         tabBar.itemPositioning = .fill
-        return tabBar
+        return ConduitTabBarContainer(tabBar: tabBar)
     }
 
-    func updateUIView(_ tabBar: UITabBar, context: Context) {
+    func updateUIView(_ container: ConduitTabBarContainer, context: Context) {
         context.coordinator.owner = coordinator
+        let tabBar = container.tabBar
         let items = coordinator.labels.enumerated().map { index, label in
             UITabBarItem(
                 title: coordinator.compact ? nil : label,
@@ -302,6 +310,34 @@ private struct ConduitBottomTabBar: UIViewRepresentable {
         func tabBar(_ tabBar: UITabBar, didSelect item: UITabBarItem) {
             owner.select(item.tag)
         }
+    }
+}
+
+private final class ConduitTabBarContainer: UIView {
+    let tabBar: UITabBar
+
+    init(tabBar: UITabBar) {
+        self.tabBar = tabBar
+        super.init(frame: .zero)
+        backgroundColor = .clear
+        isOpaque = false
+        clipsToBounds = true
+        tabBar.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        addSubview(tabBar)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        // Keep UIKit's glass surface tied to the SwiftUI host bounds. Without
+        // this explicit layout, UITabBar preserves its expanded minimum height.
+        tabBar.frame = bounds
+        tabBar.setNeedsLayout()
+        tabBar.layoutIfNeeded()
     }
 }
 

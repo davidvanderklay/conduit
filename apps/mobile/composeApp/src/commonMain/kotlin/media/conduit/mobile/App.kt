@@ -886,6 +886,7 @@ private fun AppShell(
             AppDestination.Search,
             AppDestination.Library,
             AppDestination.Profile,
+            AppDestination.History,
         )
         if (topChromeVisible) {
             MainTopBar(
@@ -917,7 +918,8 @@ private fun AppShell(
             val destinations = AppDestination.entries.filter(AppDestination::showInNavigation)
             PlatformBottomNavigation(
                 destinations = destinations,
-                selected = state.destination,
+                // Keep the Home tab highlighted on contextual screens such as history.
+                selected = state.destination.takeIf { it.showInNavigation } ?: AppDestination.Home,
                 compact = compact,
                 classic = classic,
                 adaptive = preferences.navigationStyle == NavigationStyle.Adaptive,
@@ -1059,6 +1061,7 @@ private fun DestinationContent(
                 )
                 AppDestination.History -> MobileHistoryScreen(
                     snapshot = profileSync.snapshot, api = api, onMutation = onProfileMutation,
+                    onBack = { dispatch(AppAction.Navigate(AppDestination.Home)) },
                     onSelect = { onSelectMedia(it, null) }, onSelectVideo = onSelectMedia,
                     gridState = historyGridState, modifier = tabModifier,
                 )

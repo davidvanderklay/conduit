@@ -177,13 +177,14 @@ internal fun MobileHistoryScreen(
     snapshot: ProfileSnapshot?,
     api: ConduitApi,
     onMutation: suspend (ProfileMutation) -> Result<Unit>,
+    onBack: () -> Unit,
     onSelect: (CatalogItem) -> Unit,
     onSelectVideo: (CatalogItem, String?) -> Unit,
     gridState: androidx.compose.foundation.lazy.grid.LazyGridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState(),
     modifier: Modifier = Modifier,
 ) {
     var filter by remember { mutableStateOf("all") }
-    var sortNewest by remember { mutableStateOf(true) }
+    var sort by remember { mutableStateOf(LibrarySort.LastWatched) }
     var actionTarget by remember { mutableStateOf<MediaActionTarget?>(null) }
     val metadataCache = rememberWatchMetadataCache(api, snapshot?.addons.orEmpty())
     val items = snapshot?.history.orEmpty()
@@ -192,22 +193,51 @@ internal fun MobileHistoryScreen(
         .mapNotNull { entries -> entries.maxByOrNull(ProgressSummary::updatedAt) }
         .filter { filter == "all" || it.mediaType == filter }
         .let { entries ->
-            if (sortNewest) entries.sortedByDescending(ProgressSummary::updatedAt)
-            else entries.sortedBy(ProgressSummary::name)
+            when (sort) {
+                LibrarySort.LastWatched -> entries.sortedWith(
+                    compareByDescending<ProgressSummary>(ProgressSummary::updatedAt)
+                        .thenBy { it.name.lowercase() }
+                        .thenBy(ProgressSummary::mediaId),
+                )
+                LibrarySort.Name -> entries.sortedWith(
+                    compareBy<ProgressSummary> { it.name.lowercase() }
+                        .thenBy(ProgressSummary::mediaId),
+                )
+                LibrarySort.NameDescending -> entries.sortedWith(
+                    compareByDescending<ProgressSummary> { it.name.lowercase() }
+                        .thenBy(ProgressSummary::mediaId),
+                )
+                LibrarySort.Watched,
+                LibrarySort.NotWatched,
+                -> entries
+            }
         }
 
-    Column(modifier.statusBarsPadding()) {
+    PlatformBackHandler(onBack = onBack)
+    Column(modifier.fillMaxSize()) {
+        ProfileHeader("Watch history", onBack)
         Column(Modifier.padding(horizontal = 10.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Watch history", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
             Text("Everything you have viewed", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("all" to "All", "movie" to "Movies", "series" to "Series").forEach { (value, label) ->
-                    FilterChip(selected = filter == value, onClick = { filter = value }, label = { Text(label) })
-                }
-                Spacer(Modifier.weight(1f))
-                IconButton(onClick = { sortNewest = !sortNewest }) {
-                    Icon(if (sortNewest) Icons.Rounded.Schedule else Icons.Rounded.SortByAlpha, "Change sort")
-                }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                CompactFilterMenu(
+                    value = when (filter) { "movie" -> "Movies"; "series" -> "Series"; else -> "All types" },
+                    options = listOf("all" to "All types", "movie" to "Movies", "series" to "Series"),
+                    selectedKey = filter,
+                    onSelect = { filter = it },
+                    modifier = Modifier.weight(.9f),
+                )
+                CompactFilterMenu(
+                    value = sort.label,
+                    options = listOf(LibrarySort.LastWatched, LibrarySort.Name, LibrarySort.NameDescending)
+                        .map { it.name to it.label },
+                    selectedKey = sort.name,
+                    onSelect = { selected ->
+                        listOf(LibrarySort.LastWatched, LibrarySort.Name, LibrarySort.NameDescending)
+                            .firstOrNull { it.name == selected }
+                            ?.let { sort = it }
+                    },
+                    modifier = Modifier.weight(1.35f),
+                )
             }
         }
         if (snapshot == null) {
