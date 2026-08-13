@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Conduit liquid glass navigation sizing plan</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #000;
+      --surface: #151515;
+      --surface-2: #202020;
+      --line: #343434;
+      --muted: #a7a7ad;
+      --text: #f5f5f7;
+      --accent: #ffc52e;
+      --good: #8dd7ad;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 16px/1.55 -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+    }
+    main { max-width: 920px; margin: 0 auto; padding: 32px 20px 64px; }
+    h1, h2, h3 { line-height: 1.15; letter-spacing: -0.02em; }
+    h1 { font-size: clamp(30px, 6vw, 50px); margin: 0 0 14px; }
+    h2 { font-size: 25px; margin: 38px 0 12px; }
+    h3 { font-size: 18px; margin: 24px 0 8px; }
+    p { margin: 10px 0; }
+    .lede { color: var(--muted); max-width: 720px; font-size: 18px; }
+    .meta { color: var(--accent); font-size: 13px; letter-spacing: .08em; text-transform: uppercase; }
+    .callout, .section, .criteria { border-top: 1px solid var(--line); padding-top: 18px; }
+    .callout { margin-top: 26px; color: var(--good); }
+    .muted { color: var(--muted); }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+    .card { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 16px; }
+    .card strong { display: block; margin-bottom: 5px; }
+    .nav-demo { margin: 18px 0 8px; padding: 28px 12px 18px; background: #070707; border: 1px solid #202020; border-radius: 18px; }
+    .nav-label { color: var(--muted); font-size: 12px; margin-bottom: 10px; }
+    .bar { height: 72px; max-width: 690px; margin: 0 auto; padding: 7px 10px; border: 1px solid #555; border-radius: 38px; background: linear-gradient(110deg, #242424, #171717 62%, #242424); display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; }
+    .bar.compact { height: 62px; max-width: 590px; padding: 6px 9px; }
+    .tab { min-width: 0; display: flex; align-items: center; justify-content: center; gap: 6px; border-radius: 29px; color: #f2f2f2; }
+    .tab.selected { background: #0c0c0c; color: var(--accent); }
+    .symbol { width: 24px; height: 24px; display: grid; place-items: center; font-size: 23px; line-height: 1; }
+    .compact .symbol { width: 25px; height: 25px; font-size: 24px; }
+    .tab span:last-child { font-size: 14px; }
+    .compact .tab span:last-child { display: none; }
+    .legend { display: flex; gap: 16px; flex-wrap: wrap; color: var(--muted); font-size: 13px; margin-top: 10px; }
+    .legend b { color: var(--text); }
+    ol, ul { padding-left: 22px; }
+    li { margin: 7px 0; }
+    code { color: #ffe49a; font: .92em ui-monospace, SFMono-Regular, Menlo, monospace; }
+    table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+    th, td { text-align: left; vertical-align: top; border-bottom: 1px solid var(--line); padding: 11px 8px; }
+    th { color: var(--muted); font-size: 13px; font-weight: 500; }
+    @media (max-width: 640px) {
+      main { padding: 24px 14px 48px; }
+      .grid { grid-template-columns: 1fr; }
+      .bar { height: 68px; }
+      .bar.compact { height: 60px; }
+      .tab span:last-child { font-size: 12px; }
+      th:nth-child(3), td:nth-child(3) { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="meta">Conduit mobile · postplan</div>
+    <h1>Restore the pre-rewrite tab proportions</h1>
+    <p class="lede">The current bar is technically switching states, but the icons are doing too much of the visual work. The rewrite made the symbols larger and the glass shell shorter, so compact mode feels like a cramped bar with labels removed instead of the same comfortable navigation becoming compact.</p>
+    <p class="callout"><strong>Recommendation:</strong> keep the native Liquid Glass surface, but explicitly restore smaller tab symbols, a taller shell, and a stable inset around every item. Compact mode should remove labels and contract the shell, not scale the symbols up to fill the available height.</p>
+
+    <section class="section">
+      <h2>What changes</h2>
+      <div class="grid">
+        <div class="card"><strong>Smaller symbols</strong><span class="muted">Use an explicit SF Symbol configuration around 24–25pt instead of letting the native item sizing dominate the pill.</span></div>
+        <div class="card"><strong>Taller glass shell</strong><span class="muted">Return the expanded bar to roughly 76–82pt and compact mode to roughly 58–64pt, with enough vertical breathing room for the icon.</span></div>
+        <div class="card"><strong>Inset content</strong><span class="muted">Keep 8–10pt of inner padding and a selected background that sits inside the outer glass edge. Icons should never touch the shell boundary.</span></div>
+        <div class="card"><strong>One state transition</strong><span class="muted">Animate the outer width and height together. Do not independently scale the tab bar or its icons with transforms.</span></div>
+      </div>
+      <div class="nav-demo">
+        <div class="nav-label">Expanded, proposed proportions</div>
+        <div class="bar">
+          <div class="tab selected"><span class="symbol">⌂</span><span>Home</span></div>
+          <div class="tab"><span class="symbol">◈</span><span>Discover</span></div>
+          <div class="tab"><span class="symbol">▣</span><span>Library</span></div>
+          <div class="tab"><span class="symbol">⚙</span><span>Settings</span></div>
+        </div>
+        <div class="legend"><span><b>24–25pt</b> symbols</span><span><b>76–82pt</b> shell</span><span>Inset selected state</span></div>
+      </div>
+      <div class="nav-demo">
+        <div class="nav-label">Compact, proposed proportions</div>
+        <div class="bar compact">
+          <div class="tab selected"><span class="symbol">⌂</span></div>
+          <div class="tab"><span class="symbol">◈</span></div>
+          <div class="tab"><span class="symbol">▣</span></div>
+          <div class="tab"><span class="symbol">⚙</span></div>
+        </div>
+        <div class="legend"><span><b>58–64pt</b> shell</span><span>Symbols stay approximately the same size</span><span>Labels only are removed</span></div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Implementation plan</h2>
+      <ol>
+        <li><strong>Keep the platform-owned glass path.</strong> Continue using the native iOS tab bar/container so the Liquid Glass material, hit testing, and system interaction remain platform-owned.</li>
+        <li><strong>Make item sizing explicit.</strong> Build each item image with a fixed SF Symbol configuration, regular or medium weight, around 24–25pt. Preserve the existing 4-tab order and selected accent color.</li>
+        <li><strong>Restore the shell geometry.</strong> Use a taller expanded frame and a moderately shorter compact frame. Keep the responsive width distinction, but add horizontal and vertical insets so the bar has visible glass around the content.</li>
+        <li><strong>Align the native bar to the host bounds.</strong> Keep the layout container that prevents UIKit’s intrinsic height from winning, but avoid clipping away the glass edge. The container should size the tab bar cleanly rather than crop an oversized tab bar.</li>
+        <li><strong>Make compact mode label-only.</strong> Compact mode changes item titles to nil and keeps icon size, weight, selected state, and tap target stable. It should not apply a scale transform to the whole bar.</li>
+        <li><strong>Use one transition transaction.</strong> Animate width, height, and label visibility as one state change. Ignore repeated bridge updates when the state has not changed, preserving the previous choppiness fix.</li>
+      </ol>
+    </section>
+
+    <section class="section">
+      <h2>State and sizing contract</h2>
+      <table>
+        <thead><tr><th>State</th><th>Shell</th><th>Content</th><th>Expected feel</th></tr></thead>
+        <tbody>
+          <tr><td>Expanded floating</td><td>76–82pt tall, wider max width</td><td>24–25pt icons plus labels, 8–10pt inner inset</td><td>Comfortable, readable, visibly glass around tabs</td></tr>
+          <tr><td>Compact floating</td><td>58–64pt tall, narrower max width</td><td>Same icon size, no labels, unchanged tap targets</td><td>Clearly smaller footprint without looking squeezed</td></tr>
+          <tr><td>Classic</td><td>Full width, platform safe-area behavior</td><td>Same explicit icon sizing</td><td>Consistent with floating mode, without floating margins</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="section criteria">
+      <h2>Acceptance checks</h2>
+      <ul>
+        <li>At the top of Home, the expanded bar is visibly taller than compact mode and has a clear glass margin around every icon.</li>
+        <li>After scrolling down, the pill contracts as one smooth surface. The symbols do not grow, jump, or move toward the outer edge.</li>
+        <li>Scrolling back up restores the expanded shell without changing selected state or tab order.</li>
+        <li>Home, Discover, Library, and Settings remain individually tappable on iPhone and iPad, including compact mode.</li>
+        <li>Classic navigation remains full width and does not inherit floating-mode margins.</li>
+        <li>History, profile settings, and other contextual screens keep their back affordance and do not regress because of the bar resize.</li>
+        <li>Verify at least iPhone portrait, iPad portrait, and iPad landscape, with reduced motion enabled as a sanity check.</li>
+      </ul>
+    </section>
+
+    <section class="section">
+      <h2>Out of scope</h2>
+      <p class="muted">This pass does not change destinations, profile menu behavior, search, or the Liquid Glass material itself. It is a proportion and transition correction focused on restoring the earlier navigation feel.</p>
+    </section>
+  </main>
+</body>
+</html>
