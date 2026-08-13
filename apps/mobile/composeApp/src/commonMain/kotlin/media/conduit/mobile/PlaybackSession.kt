@@ -251,6 +251,7 @@ fun clampPipAspectRatio(width: Int, height: Int): Pair<Int, Int> {
 }
 
 fun playbackAspectRatio(width: Int, height: Int): Float {
+    if (width <= 0 || height <= 0) return 16f / 9f
     val (safeWidth, safeHeight) = clampPipAspectRatio(width, height)
     return safeWidth.toFloat() / safeHeight.toFloat()
 }
