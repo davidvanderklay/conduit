@@ -416,7 +416,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
 
     func setInteractiveResize(_ active: Bool) {
         runOnMain { [weak self] in
-            guard let self, self.interactiveResizeActive != active else { return }
+            guard let self, !self.destroyStarted, self.interactiveResizeActive != active else { return }
             self.interactiveResizeActive = active
             self.pendingDrawableResize?.cancel()
             self.pendingDrawableResize = nil
@@ -652,7 +652,11 @@ final class ConduitMPVPlayerViewController: UIViewController {
         pendingDrawableResize = nil
         pendingDrawableSize = nil
         pendingDrawableBounds = nil
-        metalLayer.isNuvioLiveResize = false
+        // UIKit can deliver one or more layout passes after this controller is
+        // removed. Do not let teardown shrink the drawable while MPV's render
+        // thread is still draining its previous swapchain.
+        metalLayer.isNuvioLiveResize = true
+        metalLayer.isHidden = true
         pendingLoad = nil
         shouldPlay = false
         pictureInPicture?.invalidate()
@@ -910,6 +914,8 @@ final class ConduitMPVPlayerViewController: UIViewController {
     }
 
     private func layoutMetalLayer() {
+        guard !destroyStarted else { return }
+
         // The Compose size callback is expressed through Compose density, which
         // can differ slightly from UIKit's native pixel scale. Using it for the
         // Metal drawable can therefore make MPV's render target a few pixels
@@ -1004,7 +1010,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
         size: CGSize? = nil,
         scheduleDeferredPasses: Bool
     ) {
-        guard isViewLoaded else { return }
+        guard isViewLoaded, !destroyStarted else { return }
         if let size, size.width > 1, size.height > 1 {
             externallyManagedViewSize = size
         }
