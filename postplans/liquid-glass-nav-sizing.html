@@ -3,18 +3,20 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Conduit liquid glass navigation sizing plan</title>
+  <title>Conduit iOS navigation liquid glass postplan</title>
   <style>
     :root {
       color-scheme: dark;
       --bg: #000;
-      --surface: #151515;
-      --surface-2: #202020;
+      --surface: #111;
+      --surface-2: #181818;
+      --surface-3: #242424;
       --line: #343434;
-      --muted: #a7a7ad;
+      --muted: #a6a6ad;
       --text: #f5f5f7;
       --accent: #ffc52e;
       --good: #8dd7ad;
+      --warn: #ffb86b;
     }
     * { box-sizing: border-box; }
     body {
@@ -23,125 +25,234 @@
       color: var(--text);
       font: 16px/1.55 -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
     }
-    main { max-width: 920px; margin: 0 auto; padding: 32px 20px 64px; }
+    main { max-width: 1000px; margin: 0 auto; padding: 30px 20px 64px; }
     h1, h2, h3 { line-height: 1.15; letter-spacing: -0.02em; }
-    h1 { font-size: clamp(30px, 6vw, 50px); margin: 0 0 14px; }
-    h2 { font-size: 25px; margin: 38px 0 12px; }
-    h3 { font-size: 18px; margin: 24px 0 8px; }
-    p { margin: 10px 0; }
-    .lede { color: var(--muted); max-width: 720px; font-size: 18px; }
-    .meta { color: var(--accent); font-size: 13px; letter-spacing: .08em; text-transform: uppercase; }
-    .callout, .section, .criteria { border-top: 1px solid var(--line); padding-top: 18px; }
-    .callout { margin-top: 26px; color: var(--good); }
+    h1 { max-width: 760px; font-size: clamp(30px, 6vw, 52px); margin: 0 0 14px; }
+    h2 { font-size: 25px; margin: 36px 0 12px; }
+    h3 { font-size: 18px; margin: 22px 0 7px; }
+    p { margin: 9px 0; }
+    .meta { color: var(--accent); font-size: 12px; letter-spacing: .1em; text-transform: uppercase; }
+    .lede { max-width: 780px; color: var(--muted); font-size: 18px; }
+    .recommendation { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); margin-top: 24px; padding: 16px 0; color: var(--good); }
+    .section { border-top: 1px solid var(--line); margin-top: 34px; padding-top: 18px; }
     .muted { color: var(--muted); }
-    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
-    .card { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 16px; }
-    .card strong { display: block; margin-bottom: 5px; }
-    .nav-demo { margin: 18px 0 8px; padding: 28px 12px 18px; background: #070707; border: 1px solid #202020; border-radius: 18px; }
-    .nav-label { color: var(--muted); font-size: 12px; margin-bottom: 10px; }
-    .bar { height: 72px; max-width: 690px; margin: 0 auto; padding: 7px 10px; border: 1px solid #555; border-radius: 38px; background: linear-gradient(110deg, #242424, #171717 62%, #242424); display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; }
-    .bar.compact { height: 62px; max-width: 590px; padding: 6px 9px; }
-    .tab { min-width: 0; display: flex; align-items: center; justify-content: center; gap: 6px; border-radius: 29px; color: #f2f2f2; }
-    .tab.selected { background: #0c0c0c; color: var(--accent); }
-    .symbol { width: 24px; height: 24px; display: grid; place-items: center; font-size: 23px; line-height: 1; }
-    .compact .symbol { width: 25px; height: 25px; font-size: 24px; }
-    .tab span:last-child { font-size: 14px; }
-    .compact .tab span:last-child { display: none; }
-    .legend { display: flex; gap: 16px; flex-wrap: wrap; color: var(--muted); font-size: 13px; margin-top: 10px; }
-    .legend b { color: var(--text); }
+    .small { color: var(--muted); font-size: 13px; }
+    .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+    .grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .panel { min-width: 0; background: var(--surface); border: 1px solid var(--line); padding: 15px; }
+    .panel.recommended { border-color: var(--accent); }
+    .panel strong { display: block; margin-bottom: 5px; }
+    .label { color: var(--accent); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
+    .tag { display: inline-block; color: var(--good); font-size: 12px; margin-left: 7px; }
+    .mock { background: #070707; border: 1px solid #252525; margin-top: 14px; padding: 18px 12px 14px; }
+    .mock-title { color: var(--muted); font-size: 12px; margin-bottom: 10px; }
+    .phone-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .phone { min-width: 0; min-height: 145px; background: #030303; border: 1px solid #1e1e1e; padding: 14px 8px 8px; display: flex; flex-direction: column; justify-content: flex-end; }
+    .screen-line { width: 58%; height: 5px; margin: 0 0 auto 7px; background: #191919; }
+    .screen-line.short { width: 34%; margin-top: 8px; }
+    .shell {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 3px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 6px 8px;
+      border: 1px solid #4e4e4e;
+      border-radius: 38px;
+      background: linear-gradient(105deg, #2b2b2b, #161616 52%, #292929);
+      box-shadow: 0 6px 18px rgba(255,255,255,.05) inset, 0 5px 16px rgba(0,0,0,.7);
+    }
+    .shell.expanded { height: 80px; }
+    .shell.compact { height: 60px; padding-top: 6px; padding-bottom: 6px; }
+    .tab { min-width: 0; display: flex; align-items: center; justify-content: center; gap: 5px; border-radius: 29px; color: #f2f2f2; }
+    .tab.selected { background: rgba(0,0,0,.52); color: var(--accent); }
+    .tab-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+    .compact .tab-label { display: none; }
+    .nav-icon { width: 22px; height: 22px; flex: 0 0 22px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.8; }
+    .measure { display: flex; flex-wrap: wrap; gap: 8px 14px; margin-top: 9px; color: var(--muted); font-size: 12px; }
+    .measure b { color: var(--text); font-weight: 600; }
+    .decision { margin-top: 13px; padding: 10px 12px; border-left: 2px solid var(--accent); background: #17140b; }
+    .decision p { margin: 0; }
     ol, ul { padding-left: 22px; }
     li { margin: 7px 0; }
-    code { color: #ffe49a; font: .92em ui-monospace, SFMono-Regular, Menlo, monospace; }
+    code { color: #ffe49a; font: .9em ui-monospace, SFMono-Regular, Menlo, monospace; }
+    pre { overflow-x: auto; margin: 12px 0; padding: 13px; background: #0d0d0d; border: 1px solid var(--line); color: #e8e8e8; font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
     table { width: 100%; border-collapse: collapse; margin-top: 12px; }
-    th, td { text-align: left; vertical-align: top; border-bottom: 1px solid var(--line); padding: 11px 8px; }
+    th, td { padding: 10px 8px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
     th { color: var(--muted); font-size: 13px; font-weight: 500; }
-    @media (max-width: 640px) {
+    .status { color: var(--warn); }
+    .checks li::marker { color: var(--good); }
+    @media (max-width: 760px) {
       main { padding: 24px 14px 48px; }
-      .grid { grid-template-columns: 1fr; }
-      .bar { height: 68px; }
-      .bar.compact { height: 60px; }
-      .tab span:last-child { font-size: 12px; }
+      .grid, .grid.two { grid-template-columns: 1fr; }
+      .phone-row { grid-template-columns: 1fr; }
+      .phone { min-height: 122px; }
       th:nth-child(3), td:nth-child(3) { display: none; }
     }
   </style>
 </head>
 <body>
+  <svg aria-hidden="true" width="0" height="0" style="position:absolute">
+    <symbol id="home" viewBox="0 0 24 24"><path d="m3 10.8 9-7.1 9 7.1v8.1a2 2 0 0 1-2 2h-4.2v-6.2H9.2v6.2H5a2 2 0 0 1-2-2z"/></symbol>
+    <symbol id="discover" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="m14.9 9.1-2.1 4.7-4.7 2.1 2.1-4.7z"/></symbol>
+    <symbol id="library" viewBox="0 0 24 24"><rect x="4" y="5" width="13" height="14" rx="2"/><path d="M8 3h9a3 3 0 0 1 3 3v11M8 9h5M8 13h5"/></symbol>
+    <symbol id="settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.8 1.8 0 0 0 .35 2l.05.05-1.4 1.4-.05-.05a1.8 1.8 0 0 0-2-.35 1.8 1.8 0 0 0-1.1 1.65V20h-2v-.3a1.8 1.8 0 0 0-1.1-1.65 1.8 1.8 0 0 0-2 .35l-.05.05-1.4-1.4.05-.05a1.8 1.8 0 0 0 .35-2 1.8 1.8 0 0 0-1.65-1.1H7v-2h.3a1.8 1.8 0 0 0 1.65-1.1 1.8 1.8 0 0 0-.35-2l-.05-.05 1.4-1.4.05.05a1.8 1.8 0 0 0 2 .35 1.8 1.8 0 0 0 1.1-1.65V6h2v.3a1.8 1.8 0 0 0 1.1 1.65 1.8 1.8 0 0 0 2-.35l.05-.05 1.4 1.4-.05.05a1.8 1.8 0 0 0-.35 2 1.8 1.8 0 0 0 1.65 1.1h.3v2h-.3a1.8 1.8 0 0 0-1.65 1.1z"/></symbol>
+  </svg>
+
   <main>
-    <div class="meta">Conduit mobile · postplan</div>
-    <h1>Restore the pre-rewrite tab proportions</h1>
-    <p class="lede">The current bar is technically switching states, but the icons are doing too much of the visual work. The rewrite made the symbols larger and the glass shell shorter, so compact mode feels like a cramped bar with labels removed instead of the same comfortable navigation becoming compact.</p>
-    <p class="callout"><strong>Recommendation:</strong> keep the native Liquid Glass surface, but explicitly restore smaller tab symbols, a taller shell, and a stable inset around every item. Compact mode should remove labels and contract the shell, not scale the symbols up to fill the available height.</p>
+    <div class="meta">Conduit mobile · iOS navigation · postplan</div>
+    <h1>Restore the bec226b2 proportions without faking Liquid Glass</h1>
+    <p class="lede">The visual target is the older navigation's balance: smaller-looking icons, enough air around each item, and a compact state that feels like the same bar with labels removed. The material should remain Apple-owned. The current problem is that the native bar's optical sizing and the app's compact geometry are both changing at once.</p>
+    <div class="recommendation"><strong>Recommendation:</strong> use the native UIKit tab bar path for the surface, reduce the SF Symbol optical size to roughly 21–22pt, keep compact inner breathing room stable, and let the app own only the state transition until the proportions are correct. Start with variant A.</div>
 
     <section class="section">
-      <h2>What changes</h2>
-      <div class="grid">
-        <div class="card"><strong>Smaller symbols</strong><span class="muted">Use an explicit SF Symbol configuration around 24–25pt instead of letting the native item sizing dominate the pill.</span></div>
-        <div class="card"><strong>Taller glass shell</strong><span class="muted">Return the expanded bar to roughly 76–82pt and compact mode to roughly 58–64pt, with enough vertical breathing room for the icon.</span></div>
-        <div class="card"><strong>Inset content</strong><span class="muted">Keep 8–10pt of inner padding and a selected background that sits inside the outer glass edge. Icons should never touch the shell boundary.</span></div>
-        <div class="card"><strong>One state transition</strong><span class="muted">Animate the outer width and height together. Do not independently scale the tab bar or its icons with transforms.</span></div>
-      </div>
-      <div class="nav-demo">
-        <div class="nav-label">Expanded, proposed proportions</div>
-        <div class="bar">
-          <div class="tab selected"><span class="symbol">⌂</span><span>Home</span></div>
-          <div class="tab"><span class="symbol">◈</span><span>Discover</span></div>
-          <div class="tab"><span class="symbol">▣</span><span>Library</span></div>
-          <div class="tab"><span class="symbol">⚙</span><span>Settings</span></div>
+      <h2>What the code says today</h2>
+      <div class="grid two">
+        <div class="panel">
+          <strong>The reference is Compose geometry</strong>
+          <p class="muted">In <code>bec226b2</code>, the old phone bar used a 24dp icon, a 4dp icon-to-label gap, 8dp top and 7dp bottom label padding, and 10dp top and bottom padding in compact mode. That is the proportion target, not the material to copy.</p>
         </div>
-        <div class="legend"><span><b>24–25pt</b> symbols</span><span><b>76–82pt</b> shell</span><span>Inset selected state</span></div>
-      </div>
-      <div class="nav-demo">
-        <div class="nav-label">Compact, proposed proportions</div>
-        <div class="bar compact">
-          <div class="tab selected"><span class="symbol">⌂</span></div>
-          <div class="tab"><span class="symbol">◈</span></div>
-          <div class="tab"><span class="symbol">▣</span></div>
-          <div class="tab"><span class="symbol">⚙</span></div>
+        <div class="panel">
+          <strong>The current path is UIKit geometry</strong>
+          <p class="muted">The iOS bridge now renders a native <code>UITabBar</code>. The host frame is 87pt expanded and 68pt compact, the image configuration is 24pt with medium scale, and compact vertical margins drop to 2pt. SF Symbols do not have the same optical bounds as the old Compose icons.</p>
         </div>
-        <div class="legend"><span><b>58–64pt</b> shell</span><span>Symbols stay approximately the same size</span><span>Labels only are removed</span></div>
       </div>
+      <pre>ConduitMobileSpikeApp.swift:186-195   host width, 87/68pt height, safe-area padding
+ConduitMobileSpikeApp.swift:252-303   native UITabBar, 24pt SF Symbol configuration
+ConduitMobileSpikeApp.swift:328-353   container pins the tab bar to SwiftUI bounds
+App.kt:914-928                         Compose state sent through the iOS bridge
+App.kt:1289-1306                       old 24dp Compose item proportions</pre>
+      <div class="decision"><p><strong>Diagnosis:</strong> the bar is not simply “too small.” The native surface is being clipped to an app-sized host while the symbol configuration makes the icon visually dominant. Compact mode then removes the label and removes most of the vertical inset, so the four items read as a tight row.</p></div>
     </section>
 
     <section class="section">
-      <h2>Implementation plan</h2>
+      <h2>Visual directions</h2>
+      <p class="muted">These are proportion mocks, not screenshots. All three preserve the same four destinations and selected state. The outer shell represents the native Liquid Glass surface, so the implementation should not add a second Compose glass layer behind it.</p>
+      <div class="grid">
+        <article class="panel recommended">
+          <div class="label">A · recommended <span class="tag">best balance</span></div>
+          <h3>Native balance</h3>
+          <p class="small">The closest practical match while giving UIKit enough room to render its own surface.</p>
+          <div class="mock">
+            <div class="mock-title">Expanded</div>
+            <div class="phone-row">
+              <div class="phone"><div class="screen-line"></div><div class="screen-line short"></div><div class="shell expanded">
+                <div class="tab selected"><svg class="nav-icon"><use href="#home"/></svg><span class="tab-label">Home</span></div>
+                <div class="tab"><svg class="nav-icon"><use href="#discover"/></svg><span class="tab-label">Discover</span></div>
+                <div class="tab"><svg class="nav-icon"><use href="#library"/></svg><span class="tab-label">Library</span></div>
+                <div class="tab"><svg class="nav-icon"><use href="#settings"/></svg><span class="tab-label">Settings</span></div>
+              </div></div>
+            </div>
+            <div class="mock-title" style="margin-top:12px">Compact</div>
+            <div class="phone-row">
+              <div class="phone"><div class="screen-line"></div><div class="screen-line short"></div><div class="shell compact">
+                <div class="tab selected"><svg class="nav-icon"><use href="#home"/></svg></div>
+                <div class="tab"><svg class="nav-icon"><use href="#discover"/></svg></div>
+                <div class="tab"><svg class="nav-icon"><use href="#library"/></svg></div>
+                <div class="tab"><svg class="nav-icon"><use href="#settings"/></svg></div>
+              </div></div>
+            </div>
+          </div>
+          <div class="measure"><span><b>80/60pt</b> host</span><span><b>21–22pt</b> symbols</span><span><b>6pt</b> vertical inset</span></div>
+        </article>
+
+        <article class="panel">
+          <div class="label">B · reference match</div>
+          <h3>Denser proportions</h3>
+          <p class="small">Prioritizes the old Compose footprint. Use if A still feels too tall after symbol calibration.</p>
+          <div class="mock">
+            <div class="mock-title">Expanded</div>
+            <div class="phone-row">
+              <div class="phone"><div class="screen-line"></div><div class="screen-line short"></div><div class="shell expanded" style="height:76px;padding-top:5px;padding-bottom:5px">
+                <div class="tab selected"><svg class="nav-icon" style="width:21px;height:21px;flex-basis:21px"><use href="#home"/></svg><span class="tab-label">Home</span></div>
+                <div class="tab"><svg class="nav-icon" style="width:21px;height:21px;flex-basis:21px"><use href="#discover"/></svg><span class="tab-label">Discover</span></div>
+                <div class="tab"><svg class="nav-icon" style="width:21px;height:21px;flex-basis:21px"><use href="#library"/></svg><span class="tab-label">Library</span></div>
+                <div class="tab"><svg class="nav-icon" style="width:21px;height:21px;flex-basis:21px"><use href="#settings"/></svg><span class="tab-label">Settings</span></div>
+              </div></div>
+            </div>
+            <div class="mock-title" style="margin-top:12px">Compact</div>
+            <div class="phone-row">
+              <div class="phone"><div class="screen-line"></div><div class="screen-line short"></div><div class="shell compact" style="height:56px;padding-top:5px;padding-bottom:5px">
+                <div class="tab selected"><svg class="nav-icon" style="width:21px;height:21px;flex-basis:21px"><use href="#home"/></svg></div>
+                <div class="tab"><svg class="nav-icon" style="width:21px;height:21px;flex-basis:21px"><use href="#discover"/></svg></div>
+                <div class="tab"><svg class="nav-icon" style="width:21px;height:21px;flex-basis:21px"><use href="#library"/></svg></div>
+                <div class="tab"><svg class="nav-icon" style="width:21px;height:21px;flex-basis:21px"><use href="#settings"/></svg></div>
+              </div></div>
+            </div>
+          </div>
+          <div class="measure"><span><b>76/56pt</b> host</span><span><b>21pt</b> symbols</span><span>closest to old footprint</span></div>
+        </article>
+
+        <article class="panel">
+          <div class="label">C · Apple-owned adaptive</div>
+          <h3>System minimize</h3>
+          <p class="small">Uses <code>UITabBarController</code> and its supported minimize behavior. This is the most Apple-like path, but it changes who owns adaptive state.</p>
+          <div class="mock">
+            <div class="mock-title">Expanded and compact are system states</div>
+            <div class="phone-row">
+              <div class="phone"><div class="screen-line"></div><div class="screen-line short"></div><div class="shell expanded" style="height:74px">
+                <div class="tab selected"><svg class="nav-icon"><use href="#home"/></svg><span class="tab-label">Home</span></div>
+                <div class="tab"><svg class="nav-icon"><use href="#discover"/></svg><span class="tab-label">Discover</span></div>
+                <div class="tab"><svg class="nav-icon"><use href="#library"/></svg><span class="tab-label">Library</span></div>
+                <div class="tab"><svg class="nav-icon"><use href="#settings"/></svg><span class="tab-label">Settings</span></div>
+              </div></div>
+              <div class="phone"><div class="screen-line"></div><div class="screen-line short"></div><div class="shell compact" style="height:52px">
+                <div class="tab selected"><svg class="nav-icon"><use href="#home"/></svg></div>
+                <div class="tab"><svg class="nav-icon"><use href="#discover"/></svg></div>
+                <div class="tab"><svg class="nav-icon"><use href="#library"/></svg></div>
+                <div class="tab"><svg class="nav-icon"><use href="#settings"/></svg></div>
+              </div></div>
+            </div>
+          </div>
+          <div class="measure"><span><b>system</b> owns collapse</span><span><b>native</b> animation</span><span>larger scope</span></div>
+        </article>
+      </div>
+      <div class="decision"><p><strong>Pick:</strong> A is the implementation target. B is the tuning fallback. C should be a separate experiment, because mixing Apple minimize behavior with Compose's <code>adaptiveCompact</code> state can produce two competing owners.</p></div>
+    </section>
+
+    <section class="section">
+      <h2>Implementation sequence</h2>
       <ol>
-        <li><strong>Keep the platform-owned glass path.</strong> Continue using the native iOS tab bar/container so the Liquid Glass material, hit testing, and system interaction remain platform-owned.</li>
-        <li><strong>Make item sizing explicit.</strong> Build each item image with a fixed SF Symbol configuration, regular or medium weight, around 24–25pt. Preserve the existing 4-tab order and selected accent color.</li>
-        <li><strong>Restore the shell geometry.</strong> Use a taller expanded frame and a moderately shorter compact frame. Keep the responsive width distinction, but add horizontal and vertical insets so the bar has visible glass around the content.</li>
-        <li><strong>Align the native bar to the host bounds.</strong> Keep the layout container that prevents UIKit’s intrinsic height from winning, but avoid clipping away the glass edge. The container should size the tab bar cleanly rather than crop an oversized tab bar.</li>
-        <li><strong>Make compact mode label-only.</strong> Compact mode changes item titles to nil and keeps icon size, weight, selected state, and tap target stable. It should not apply a scale transform to the whole bar.</li>
-        <li><strong>Use one transition transaction.</strong> Animate width, height, and label visibility as one state change. Ignore repeated bridge updates when the state has not changed, preserving the previous choppiness fix.</li>
+        <li><strong>Freeze the reference states.</strong> Capture the old <code>bec226b2</code> phone layout at the top of Home and after scrolling. Record the visible shell bounds, icon bounds, horizontal margins, and safe-area distance. Do not compare only the host frame.</li>
+        <li><strong>Keep the material native.</strong> Keep the iOS bar transparent and platform-owned. Do not add a Compose <code>Surface</code>, custom blur, fake refraction, or a second border behind the UIKit bar.</li>
+        <li><strong>Calibrate optical icon size first.</strong> Start at <code>UIImage.SymbolConfiguration(pointSize: 21, weight: .regular, scale: .medium)</code>. Try 22pt only if the symbols become visibly smaller than the old 24dp icons. Keep the same configuration in expanded and compact states.</li>
+        <li><strong>Make compact label-only.</strong> Toggle the title to nil, but keep the icon size and vertical inset stable. Change the shell height by about 20pt, not the item scale. Start with 80pt expanded, 60pt compact, and 6pt vertical inner margin.</li>
+        <li><strong>Preserve the reference width.</strong> Keep the compact floating inset near 64pt per side and the expanded inset near 14pt per side. Do not narrow the compact shell further to solve an icon-sizing problem.</li>
+        <li><strong>Keep one state owner.</strong> For this pass, Compose continues to decide <code>compact</code>, <code>classic</code>, and <code>adaptive</code>. If variant C is selected later, remove the manual adaptive state before enabling system minimize behavior.</li>
+        <li><strong>Test the controller path separately.</strong> If the standalone <code>UITabBar</code> still does not produce the expected Liquid Glass behavior on the target OS, prototype the same items inside a transparent <code>UITabBarController</code>. Do not add transforms to compensate for controller layout.</li>
       </ol>
     </section>
 
     <section class="section">
-      <h2>State and sizing contract</h2>
-      <table>
-        <thead><tr><th>State</th><th>Shell</th><th>Content</th><th>Expected feel</th></tr></thead>
-        <tbody>
-          <tr><td>Expanded floating</td><td>76–82pt tall, wider max width</td><td>24–25pt icons plus labels, 8–10pt inner inset</td><td>Comfortable, readable, visibly glass around tabs</td></tr>
-          <tr><td>Compact floating</td><td>58–64pt tall, narrower max width</td><td>Same icon size, no labels, unchanged tap targets</td><td>Clearly smaller footprint without looking squeezed</td></tr>
-          <tr><td>Classic</td><td>Full width, platform safe-area behavior</td><td>Same explicit icon sizing</td><td>Consistent with floating mode, without floating margins</td></tr>
-        </tbody>
-      </table>
+      <h2>Smallest likely code change</h2>
+      <p class="muted">The first pass should touch only the native iOS bar. The bridge and Compose navigation state already provide the right inputs.</p>
+      <pre>1. Use a 21–22pt regular SF Symbol configuration.
+2. Keep compact and expanded item insets close to one another.
+3. Use a measured 80/60pt host pair, then adjust by 4pt increments.
+4. Keep the existing explicit container layout that pins UIKit to SwiftUI bounds.
+5. Recheck standalone UITabBar versus UITabBarController only if the material is wrong.</pre>
+      <p class="small">Avoid changing destination order, profile behavior, scroll detection, or the Compose content padding in the sizing pass.</p>
     </section>
 
-    <section class="section criteria">
+    <section class="section">
       <h2>Acceptance checks</h2>
-      <ul>
-        <li>At the top of Home, the expanded bar is visibly taller than compact mode and has a clear glass margin around every icon.</li>
-        <li>After scrolling down, the pill contracts as one smooth surface. The symbols do not grow, jump, or move toward the outer edge.</li>
-        <li>Scrolling back up restores the expanded shell without changing selected state or tab order.</li>
-        <li>Home, Discover, Library, and Settings remain individually tappable on iPhone and iPad, including compact mode.</li>
-        <li>Classic navigation remains full width and does not inherit floating-mode margins.</li>
-        <li>History, profile settings, and other contextual screens keep their back affordance and do not regress because of the bar resize.</li>
-        <li>Verify at least iPhone portrait, iPad portrait, and iPad landscape, with reduced motion enabled as a sanity check.</li>
+      <ul class="checks">
+        <li>Expanded and compact use the same perceived icon size. Compact does not make the symbols look larger.</li>
+        <li>The selected item has visible glass separation without a second fake glass layer.</li>
+        <li>There is consistent air above and below compact icons. No icon appears pinned to the shell edge.</li>
+        <li>The compact floating width matches the old reference closely and does not make the four items feel crowded.</li>
+        <li>Scroll down and scroll up animate the shell as one surface. There is no symbol scale jump or horizontal reflow.</li>
+        <li>Classic mode remains full width and keeps safe-area behavior correct.</li>
+        <li>Home, Discover, Library, and Settings remain independently tappable in both states.</li>
+        <li>Verify iPhone portrait, iPhone landscape, iPad portrait, and iPad landscape. Also check iOS 15 fallback behavior since the project deployment target is iOS 15.</li>
+        <li>Test with Reduce Motion enabled. The final layout should remain legible without depending on the transition animation.</li>
       </ul>
     </section>
 
     <section class="section">
-      <h2>Out of scope</h2>
-      <p class="muted">This pass does not change destinations, profile menu behavior, search, or the Liquid Glass material itself. It is a proportion and transition correction focused on restoring the earlier navigation feel.</p>
+      <h2>Scope</h2>
+      <p class="muted"><span class="status">In scope:</span> iOS native bar ownership, shell proportions, SF Symbol optical size, compact spacing, safe-area placement, and the expanded-to-compact transition.</p>
+      <p class="muted"><span class="status">Out of scope:</span> destination changes, profile menus, search behavior, Android navigation, content layout, and a full rewrite around system adaptive tab-bar minimization.</p>
     </section>
   </main>
 </body>

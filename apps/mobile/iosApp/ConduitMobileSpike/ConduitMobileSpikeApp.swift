@@ -190,7 +190,7 @@ private struct ConduitRootView: View {
                                 ? geometry.size.width
                                 : geometry.size.width - (bottomNavigation.compact ? 128 : 28)
                         )
-                        .frame(height: bottomNavigation.compact ? 68 : 87)
+                        .frame(height: bottomNavigation.compact ? 60 : 80)
                         .padding(.bottom, geometry.safeAreaInsets.bottom)
                         .animation(.easeInOut(duration: 0.22), value: bottomNavigation.compact)
                 }
@@ -264,7 +264,7 @@ private struct ConduitBottomTabBar: UIViewRepresentable {
         tabBar.backgroundColor = .clear
         tabBar.isOpaque = false
         tabBar.itemPositioning = .fill
-        tabBar.layoutMargins = UIEdgeInsets(top: 4, left: 8, bottom: 4, right: 8)
+        tabBar.layoutMargins = UIEdgeInsets(top: 6, left: 8, bottom: 6, right: 8)
         return ConduitTabBarContainer(tabBar: tabBar)
     }
 
@@ -272,13 +272,13 @@ private struct ConduitBottomTabBar: UIViewRepresentable {
         context.coordinator.owner = coordinator
         let tabBar = container.tabBar
         tabBar.layoutMargins = UIEdgeInsets(
-            top: coordinator.compact ? 2 : 4,
+            top: 6,
             left: 8,
-            bottom: coordinator.compact ? 2 : 4,
+            bottom: 6,
             right: 8
         )
         let symbolConfiguration = UIImage.SymbolConfiguration(
-            pointSize: 24,
+            pointSize: 21,
             weight: .regular,
             scale: .medium
         )
