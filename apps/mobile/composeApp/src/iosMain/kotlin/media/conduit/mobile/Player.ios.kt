@@ -210,9 +210,15 @@ actual fun NativePlayer(
                 playing = bridge.getIsPlaying(),
                 positionMs = bridge.getPositionMs().coerceAtLeast(0),
                 durationMs = bridge.getDurationMs().coerceAtLeast(0),
+                videoWidth = bridge.getVideoWidth(),
+                videoHeight = bridge.getVideoHeight(),
                 ended = bridge.getIsEnded(),
                 error = bridge.getErrorMessage().ifBlank { null },
-                pipReady = !bridge.getIsLoading() && bridge.getDurationMs() > 0 && bridge.getErrorMessage().isBlank(),
+                pipReady = !bridge.getIsLoading() &&
+                    bridge.getDurationMs() > 0 &&
+                    bridge.getVideoWidth() > 0 &&
+                    bridge.getVideoHeight() > 0 &&
+                    bridge.getErrorMessage().isBlank(),
             )
             currentCallback(next)
             if (!dragging) positionMs = next.positionMs

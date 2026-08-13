@@ -74,6 +74,20 @@ class ProfileMutationTest {
     }
 
     @Test
+    fun playbackSaveReplacesProgressAcrossAllProfileViews() {
+        val saved = progress.copy(
+            positionMs = 80_000,
+            updatedAt = "2026-08-13",
+        )
+
+        val updated = snapshot.withProgressUpdate(saved)
+
+        assertEquals(saved, updated.progress.single())
+        assertEquals(saved, updated.history.single())
+        assertEquals(saved, updated.continueWatching.single())
+    }
+
+    @Test
     fun libraryMutationCanBeReversedForUndo() {
         val saved = snapshot.applyOptimistically(ProfileMutation.SetLibrary(item, true))
         assertEquals("movie", saved.library.single().id)

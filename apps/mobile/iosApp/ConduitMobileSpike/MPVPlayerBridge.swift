@@ -200,6 +200,8 @@ final class ConduitMPVPlayerBridge: NSObject, IosPlayerBridge {
     func getIsEnded() -> Bool { playerViewController?.isPlayerEnded ?? false }
     func getDurationMs() -> Int64 { playerViewController?.durationMs ?? 0 }
     func getPositionMs() -> Int64 { playerViewController?.positionMs ?? 0 }
+    func getVideoWidth() -> Int32 { Int32(playerViewController?.videoWidth ?? 0) }
+    func getVideoHeight() -> Int32 { Int32(playerViewController?.videoHeight ?? 0) }
     func getPlaybackSpeed() -> Float { playerViewController?.currentSpeed ?? 1.0 }
     func getErrorMessage() -> String { playerViewController?.currentErrorMessage ?? "" }
 
@@ -299,6 +301,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
     private var hasLoadedFile = false
     private var shouldPlay = false
     private var resumeAfterForeground = false
+    private var resumeAfterAudioInterruption = false
     private var backgroundedWithPictureInPicture = false
     private var lastDrawableSize: CGSize = .zero
     private var settledMetalBounds: CGRect = .zero
@@ -308,6 +311,9 @@ final class ConduitMPVPlayerViewController: UIViewController {
     private var pendingDrawableSize: CGSize?
     private var pendingDrawableBounds: CGRect?
     private var interactiveResizeActive = false
+    private var surfaceTransitionActive = false
+    private var pendingVideoOutputRecovery: DispatchWorkItem?
+    private var pendingBackgroundPause: DispatchWorkItem?
     private var lifecycleObservers: [NSObjectProtocol] = []
     private var recentErrors: [String] = []
     private var playbackError: String?
@@ -325,6 +331,8 @@ final class ConduitMPVPlayerViewController: UIViewController {
     var isPlayerEnded = false
     var durationMs: Int64 = 0
     var positionMs: Int64 = 0
+    var videoWidth = 0
+    var videoHeight = 0
     var currentSpeed: Float = 1.0
 
     var currentErrorMessage: String {
@@ -364,13 +372,24 @@ final class ConduitMPVPlayerViewController: UIViewController {
             queue: .main
         ) { [weak self] _ in
             self?.pictureInPicture?.prepareForAutomaticEntry()
-            self?.enterBackground()
         })
         lifecycleObservers.append(NotificationCenter.default.addObserver(
-            forName: UIApplication.didBecomeActiveNotification,
+            forName: UIApplication.didEnterBackgroundNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in self?.enterBackground() })
+        lifecycleObservers.append(NotificationCenter.default.addObserver(
+            forName: UIApplication.willEnterForegroundNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in self?.enterForeground() })
+        lifecycleObservers.append(NotificationCenter.default.addObserver(
+            forName: AVAudioSession.interruptionNotification,
+            object: AVAudioSession.sharedInstance(),
+            queue: .main
+        ) { [weak self] notification in
+            self?.handleAudioInterruption(notification)
+        })
     }
 
     override func viewDidLayoutSubviews() {
@@ -399,12 +418,15 @@ final class ConduitMPVPlayerViewController: UIViewController {
     ) {
         super.viewWillTransition(to: size, with: coordinator)
 
+        setSurfaceTransitionActive(true)
         syncVideoSurfaceLayoutNow(scheduleDeferredPasses: false)
         coordinator.animate(alongsideTransition: { [weak self] _ in
             self?.syncVideoSurfaceLayoutNow(scheduleDeferredPasses: false)
         }, completion: { [weak self] _ in
+            self?.setSurfaceTransitionActive(false)
             self?.syncVideoSurfaceLayout()
             self?.attemptStartPendingLoad()
+            self?.scheduleVideoOutputRecovery()
         })
     }
 
@@ -420,12 +442,10 @@ final class ConduitMPVPlayerViewController: UIViewController {
             self.interactiveResizeActive = active
             self.pendingDrawableResize?.cancel()
             self.pendingDrawableResize = nil
-            self.metalLayer.isNuvioLiveResize = true
+            self.updateLiveResizeState()
             if !active {
                 self.layoutMetalLayer()
-                if self.pendingDrawableResize == nil {
-                    self.metalLayer.isNuvioLiveResize = false
-                }
+                self.updateLiveResizeState()
             }
         }
     }
@@ -592,6 +612,10 @@ final class ConduitMPVPlayerViewController: UIViewController {
         let idle = getFlag("core-idle")
         let seeking = getFlag("seeking")
         let buffering = getFlag("paused-for-cache")
+        let outputWidth = getInt("video-out-params/w")
+        let outputHeight = getInt("video-out-params/h")
+        let decodedWidth = outputWidth > 0 ? outputWidth : getInt("video-params/w")
+        let decodedHeight = outputHeight > 0 ? outputHeight : getInt("video-params/h")
 
         _ = mpv
         isPlayerBuffering = hasLoadedFile
@@ -614,7 +638,13 @@ final class ConduitMPVPlayerViewController: UIViewController {
         isPlayerEnded = eofReached
         durationMs = Int64(max(duration, 0) * 1000)
         positionMs = Int64(max(position, 0) * 1000)
+        videoWidth = max(decodedWidth, 0)
+        videoHeight = max(decodedHeight, 0)
         currentSpeed = Float(speed > 0 ? speed : 1.0)
+    }
+
+    fileprivate var videoContentSize: CGSize {
+        CGSize(width: max(videoWidth, 0), height: max(videoHeight, 0))
     }
 
     var isPictureInPictureSupported: Bool {
@@ -652,6 +682,10 @@ final class ConduitMPVPlayerViewController: UIViewController {
         pendingDrawableResize = nil
         pendingDrawableSize = nil
         pendingDrawableBounds = nil
+        pendingVideoOutputRecovery?.cancel()
+        pendingVideoOutputRecovery = nil
+        pendingBackgroundPause?.cancel()
+        pendingBackgroundPause = nil
         // UIKit can deliver one or more layout passes after this controller is
         // removed. Do not let teardown shrink the drawable while MPV's render
         // thread is still draining its previous swapchain.
@@ -686,8 +720,25 @@ final class ConduitMPVPlayerViewController: UIViewController {
         if pictureInPicture?.isStartingOrActive == true {
             backgroundedWithPictureInPicture = true
             resumeAfterForeground = false
+            pendingBackgroundPause?.cancel()
+            let work = DispatchWorkItem { [weak self] in
+                guard let self,
+                      !self.destroyStarted,
+                      self.pictureInPicture?.isActive != true,
+                      UIApplication.shared.applicationState != .active
+                else { return }
+                self.pendingBackgroundPause = nil
+                self.backgroundedWithPictureInPicture = false
+                self.resumeAfterForeground = self.isPlayerPlaying || self.shouldPlay
+                self.pausePlayback()
+                self.setStringProperty("vid", "no")
+            }
+            pendingBackgroundPause = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5, execute: work)
             return
         }
+        pendingBackgroundPause?.cancel()
+        pendingBackgroundPause = nil
         backgroundedWithPictureInPicture = false
         resumeAfterForeground = isPlayerPlaying || shouldPlay
         pendingRetry?.cancel()
@@ -703,6 +754,8 @@ final class ConduitMPVPlayerViewController: UIViewController {
 
     private func enterForeground() {
         guard mpv != nil else { return }
+        pendingBackgroundPause?.cancel()
+        pendingBackgroundPause = nil
         if backgroundedWithPictureInPicture && pictureInPicture?.isActive == true {
             pictureInPicture?.stop()
         }
@@ -713,7 +766,63 @@ final class ConduitMPVPlayerViewController: UIViewController {
         if resumeAfterForeground {
             playPlayback()
         }
+        scheduleVideoOutputRecovery()
         resumeAfterForeground = false
+    }
+
+    private func handleAudioInterruption(_ notification: Notification) {
+        guard
+            let rawType = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+            let type = AVAudioSession.InterruptionType(rawValue: rawType)
+        else { return }
+
+        switch type {
+        case .began:
+            resumeAfterAudioInterruption = shouldPlay || isPlayerPlaying
+            pausePlayback()
+        case .ended:
+            let rawOptions = notification.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
+            let options = AVAudioSession.InterruptionOptions(rawValue: rawOptions)
+            if resumeAfterAudioInterruption && options.contains(.shouldResume) {
+                playPlayback()
+            }
+            resumeAfterAudioInterruption = false
+        @unknown default:
+            resumeAfterAudioInterruption = false
+        }
+    }
+
+    private func setSurfaceTransitionActive(_ active: Bool) {
+        guard !destroyStarted else { return }
+        surfaceTransitionActive = active
+        if active {
+            pendingDrawableResize?.cancel()
+            pendingDrawableResize = nil
+            pendingDrawableSize = nil
+            pendingDrawableBounds = nil
+        }
+        updateLiveResizeState()
+        if !active {
+            layoutMetalLayer()
+        }
+    }
+
+    private func updateLiveResizeState() {
+        metalLayer.isNuvioLiveResize = interactiveResizeActive || surfaceTransitionActive || pendingDrawableResize != nil
+    }
+
+    private func scheduleVideoOutputRecovery() {
+        guard hasLoadedFile, shouldPlay, pictureInPicture?.isStartingOrActive != true, !destroyStarted else { return }
+        pendingVideoOutputRecovery?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, !self.destroyStarted, self.hasLoadedFile, self.shouldPlay else { return }
+            self.setStringProperty("vid", "no")
+            self.setStringProperty("vid", "auto")
+            self.refreshPlaybackState()
+            self.pendingVideoOutputRecovery = nil
+        }
+        pendingVideoOutputRecovery = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: work)
     }
 
     fileprivate func setInlineVideoHiddenForPictureInPicture(_ hidden: Bool) {
@@ -941,19 +1050,20 @@ final class ConduitMPVPlayerViewController: UIViewController {
             pendingDrawableSize = nil
             pendingDrawableBounds = nil
             settleMetalBounds(bounds)
-            metalLayer.isNuvioLiveResize = false
+            updateLiveResizeState()
         } else if interactiveResizeActive {
             pendingDrawableResize?.cancel()
             pendingDrawableResize = nil
             pendingDrawableSize = size
             pendingDrawableBounds = bounds
             showStableSurface(in: bounds)
+            updateLiveResizeState()
         } else if size != pendingDrawableSize || pendingDrawableResize == nil {
             pendingDrawableResize?.cancel()
             pendingDrawableSize = size
             pendingDrawableBounds = bounds
             showStableSurface(in: bounds)
-            metalLayer.isNuvioLiveResize = true
+            updateLiveResizeState()
             let resize = DispatchWorkItem { [weak self] in
                 guard let self,
                       self.pendingDrawableSize == size,
@@ -963,7 +1073,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
                 self.pendingDrawableSize = nil
                 self.pendingDrawableBounds = nil
                 self.applyDrawableSize(size, bounds: bounds)
-                self.metalLayer.isNuvioLiveResize = false
+                self.updateLiveResizeState()
             }
             pendingDrawableResize = resize
             // MoltenVK must rebuild its swapchain before rendering at the new
@@ -1354,6 +1464,10 @@ final class ConduitPictureInPictureCoordinator: NSObject,
     private var enqueuedFrameCount = 0
     private var lastTimestamp = CMTime.invalid
     private var automaticEntryTimeout: DispatchWorkItem?
+    private var clockAnchorPositionMs: Int64 = 0
+    private var clockAnchorTime: CFTimeInterval = 0
+    private var clockPlaying = false
+    private var lastObservedOwnerPositionMs: Int64?
 
     init(owner: ConduitMPVPlayerViewController, metalLayer: ConduitMetalLayer) {
         self.owner = owner
@@ -1408,7 +1522,6 @@ final class ConduitPictureInPictureCoordinator: NSObject,
             guard let self, !self.isActive else { return }
             self.priming = false
             self.stopCapture()
-            self.owner?.pausePlayback()
         }
         automaticEntryTimeout = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: work)
@@ -1442,6 +1555,10 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         startAttemptWorkItem?.cancel()
         startAttemptWorkItem = nil
         lastTimestamp = .invalid
+        clockAnchorPositionMs = 0
+        clockAnchorTime = 0
+        clockPlaying = false
+        lastObservedOwnerPositionMs = nil
         displayLayer.flush()
         if displayLink == nil {
             let link = CADisplayLink(target: self, selector: #selector(captureTick))
@@ -1462,13 +1579,14 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         poolSize = .zero
         lastTimestamp = .invalid
         enqueuedFrameCount = 0
+        lastObservedOwnerPositionMs = nil
     }
 
     @objc private func captureTick() {
         if displayLayer.status == .failed { displayLayer.flush() }
         guard priming || isActive, !captureInFlight, displayLayer.isReadyForMoreMediaData else { return }
         guard let owner else { return }
-        let sourceSize = metalLayer.drawableSize
+        let sourceSize = owner.videoContentSize
         guard sourceSize.width > 1, sourceSize.height > 1 else { return }
         ensurePool(for: sourceSize)
         guard let pixelBufferPool else { return }
@@ -1478,14 +1596,13 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         else { return }
 
         captureInFlight = true
-        let requestedTimestamp = CMTime(value: max(owner.positionMs, 0), timescale: 1_000)
-        let minimumNext = lastTimestamp.isValid
-            ? CMTimeAdd(lastTimestamp, CMTime(value: 1, timescale: 20))
-            : requestedTimestamp
-        let timestamp = CMTimeCompare(requestedTimestamp, minimumNext) < 0 ? minimumNext : requestedTimestamp
+        guard let timestamp = nextSampleTimestamp(for: owner) else {
+            captureInFlight = false
+            return
+        }
         captureQueue.async { [weak self] in
             guard let self else { return }
-            let copied = self.metalLayer.copyLatestFrame(to: buffer)
+            let copied = self.metalLayer.copyLatestFrame(to: buffer, contentSize: sourceSize)
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.captureInFlight = false
@@ -1515,6 +1632,38 @@ final class ConduitPictureInPictureCoordinator: NSObject,
                 if self.startRequested { self.attemptStart() }
             }
         }
+    }
+
+    private func nextSampleTimestamp(for owner: ConduitMPVPlayerViewController) -> CMTime? {
+        let now = CACurrentMediaTime()
+        let position = max(owner.positionMs, 0)
+        let ownerStateChanged = lastObservedOwnerPositionMs == nil ||
+            abs(position - (lastObservedOwnerPositionMs ?? position)) > 250 ||
+            clockPlaying != owner.isPlayerPlaying
+        if ownerStateChanged {
+            clockAnchorPositionMs = position
+            clockAnchorTime = now
+            clockPlaying = owner.isPlayerPlaying
+            lastObservedOwnerPositionMs = position
+        }
+
+        let elapsedMs = clockPlaying ? Int64(max(0, now - clockAnchorTime) * 1_000) : 0
+        let estimatedPositionMs = clockAnchorPositionMs + elapsedMs
+        if lastTimestamp.isValid {
+            let lastPositionMs = Int64(CMTimeGetSeconds(lastTimestamp) * 1_000)
+            if estimatedPositionMs + 1_000 < lastPositionMs {
+                displayLayer.flush()
+                lastTimestamp = .invalid
+                enqueuedFrameCount = 0
+            }
+        }
+
+        let timestamp = CMTime(value: max(estimatedPositionMs, 0), timescale: 1_000)
+        guard !lastTimestamp.isValid || CMTimeCompare(timestamp, lastTimestamp) > 0 else {
+            guard priming, lastTimestamp.isValid else { return nil }
+            return CMTimeAdd(lastTimestamp, CMTime(value: 1, timescale: 20))
+        }
+        return timestamp
     }
 
     private func ensurePool(for sourceSize: CGSize) {
