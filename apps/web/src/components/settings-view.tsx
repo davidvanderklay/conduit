@@ -40,7 +40,7 @@ import { serverDisplayName as formatServerDisplayName } from "../lib/server"
 import { Button } from "./ui/button"
 import { Input } from "./ui/input"
 import type { AppSection } from "./app-sidebar"
-import { PROFILE_COLORS, ProfileAvatar } from "./profile-switcher"
+import { PROFILE_COLORS, ProfileAvatar, ProfileColorPicker } from "./profile-switcher"
 
 type SettingsPage =
   | "profile"
@@ -233,7 +233,7 @@ function ProfileEditorForm({ editing, profiles, householdId, onSelectProfile }: 
         <label className="block text-sm font-medium text-zinc-300">Profile name<Input className="mt-2 max-w-2xl" maxLength={80} value={name} onChange={(event) => setName(event.target.value)} required /></label>
         <div className="grid gap-3 xl:grid-cols-2"><ProfileOptionCard title="Kids profile" description="Use a child-friendly viewing profile." checked={isKids} onChange={setIsKids} />{canUsePrimary && <ProfileOptionCard title="Use primary add-ons" description={`Share ${primary?.name ?? "the primary profile"}'s live add-on setup.`} checked={usesPrimaryAddons} onChange={setUsesPrimaryAddons} />}</div>
         <div><p className="text-sm font-medium text-zinc-300">Avatar</p><div className="mt-2 inline-flex rounded-xl border border-zinc-800 bg-zinc-950 p-1"><button type="button" className={`rounded-lg px-3 py-2 text-sm ${avatarMode === "color" ? "bg-zinc-800 text-white" : "text-zinc-500 hover:text-white"}`} onClick={() => setAvatarMode("color")}>Profile color</button><button type="button" className={`rounded-lg px-3 py-2 text-sm ${avatarMode === "image" ? "bg-zinc-800 text-white" : "text-zinc-500 hover:text-white"}`} onClick={() => setAvatarMode("image")}>Custom image</button></div></div>
-        {avatarMode === "color" ? <div><div className="flex flex-wrap gap-3">{PROFILE_COLORS.map((color) => <button key={color} type="button" className={`size-9 rounded-full transition ${avatarColor === color ? "ring-2 ring-white ring-offset-2 ring-offset-zinc-900" : "hover:scale-110"}`} style={{ backgroundColor: color }} aria-label={`Use profile color ${color}`} onClick={() => setAvatarColor(color)} />)}</div></div> : <label className="block text-sm font-medium text-zinc-300">Custom image URL<Input className="mt-2 max-w-2xl" type="url" placeholder="https://example.com/avatar.png" value={avatarUrl} onChange={(event) => setAvatarUrl(event.target.value)} /></label>}
+        {avatarMode === "color" ? <ProfileColorPicker value={avatarColor} onChange={setAvatarColor} /> : <label className="block text-sm font-medium text-zinc-300">Custom image URL<Input className="mt-2 max-w-2xl" type="url" placeholder="https://example.com/avatar.png" value={avatarUrl} onChange={(event) => setAvatarUrl(event.target.value)} /></label>}
         {error && <p className="text-sm text-red-400">{error}</p>}
         <Button disabled={pending || !name.trim()}>{pending ? "Saving…" : editing ? "Save changes" : "Create profile"}</Button>
       </div>

@@ -940,7 +940,7 @@ private fun AppShell(
                 onSearchFocusConsumed = { focusSearchOnOpen = false },
                 onSelectProfile = { dispatch(AppAction.SelectProfile(it)) },
                 onOpenHome = { navigateMain(AppDestination.Home) },
-                onAddProfile = { openProfile(ProfileLaunchTarget.Create) },
+                onAddProfile = { openProfile(ProfileLaunchTarget.Manage) },
                 onOpenAddons = { openProfile(ProfileLaunchTarget.Addons) },
                 onOpenSettings = { openProfile(ProfileLaunchTarget.Settings) },
                 onSignOut = onSignOut,
@@ -1072,7 +1072,6 @@ private fun DestinationContent(
                 AppDestination.Home -> HomeScreen(
                     profileSync, api, onSelectMedia, onProfileMutation,
                     onOpenHistory = { dispatch(AppAction.Navigate(AppDestination.History)) },
-                    onOpenLibrary = { dispatch(AppAction.Navigate(AppDestination.Library)) },
                     onOpenDiscover = { onBrowse(MobileBrowseTarget.Discover(it)) },
                     listState = homeListState, cache = homeCache, modifier = tabModifier,
                 )
