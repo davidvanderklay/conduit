@@ -3,10 +3,12 @@ package media.conduit.mobile
 import androidx.compose.foundation.background
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -32,6 +34,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
@@ -60,7 +63,10 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.booleanOrNull
 import media.conduit.mobile.account.*
 import media.conduit.mobile.foundation.*
+import kotlin.math.abs
+import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.roundToInt
 
 private val VideoItem.displayTitle: String
     get() = title?.takeIf(String::isNotBlank)
@@ -1459,7 +1465,7 @@ private fun StreamSelectionScreen(
     }
 }
 
-internal enum class ProfileLaunchTarget { Settings, Addons, Create }
+internal enum class ProfileLaunchTarget { Settings, Addons, Manage }
 
 internal data class ProfileLaunchRequest(
     val target: ProfileLaunchTarget,
@@ -1491,7 +1497,7 @@ internal fun ProfileSettingsScreen(
     LaunchedEffect(launchRequest) {
         route = when (launchRequest?.target) {
             ProfileLaunchTarget.Addons -> ProfileRoute.Addons
-            ProfileLaunchTarget.Create -> ProfileRoute.Create
+            ProfileLaunchTarget.Manage -> ProfileRoute.Switcher
             ProfileLaunchTarget.Settings, null -> ProfileRoute.Settings
         }
     }
@@ -1962,12 +1968,97 @@ private fun ProfileEditorScreen(profile: ProfileSummary?, active: ProfileSummary
             Row(verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("Kids profile", fontWeight = FontWeight.Medium); Text("Use a child-friendly profile", color = MaterialTheme.colorScheme.onSurfaceVariant) }; Switch(kids, { kids = it }) }
             if (canUsePrimary) Row(verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("Use primary add-ons", fontWeight = FontWeight.Medium); Text("Share ${primary?.name ?: "the primary profile"}'s live add-on setup", color = MaterialTheme.colorScheme.onSurfaceVariant) }; Switch(usesPrimaryAddons, { usesPrimaryAddons = it }) }
         } } }
-        item { Card(Modifier.padding(horizontal = 10.dp).fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) { Text("Avatar", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold); Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { FilterChip(selected = avatarMode == "color", onClick = { avatarMode = "color" }, label = { Text("Profile color") }); FilterChip(selected = avatarMode == "image", onClick = { avatarMode = "image" }, label = { Text("Custom image") }) }; if (avatarMode == "color") Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { colors.forEach { option -> Surface(shape = CircleShape, color = profileColor(option), border = if (color == option) BorderStroke(3.dp, Color.White) else null, modifier = Modifier.size(36.dp).clickable { color = option }) {} } } else { Text("Enter an HTTP or HTTPS image link.", color = MaterialTheme.colorScheme.onSurfaceVariant); OutlinedTextField(url, { url = it }, placeholder = { Text("https://example.com/avatar.png") }, singleLine = true, modifier = Modifier.fillMaxWidth()) } } } }
+        item { Card(Modifier.padding(horizontal = 10.dp).fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) { Text("Avatar", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold); Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { FilterChip(selected = avatarMode == "color", onClick = { avatarMode = "color" }, label = { Text("Profile color") }); FilterChip(selected = avatarMode == "image", onClick = { avatarMode = "image" }, label = { Text("Custom image") }) }; if (avatarMode == "color") { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) { colors.forEach { option -> Surface(shape = CircleShape, color = profileColor(option), border = if (color.equals(option, ignoreCase = true)) BorderStroke(3.dp, Color.White) else null, modifier = Modifier.size(32.dp).clickable { color = option }) {} } }; CustomProfileColorPicker(color = color, onColorChange = { color = it }) } else { Text("Enter an HTTP or HTTPS image link.", color = MaterialTheme.colorScheme.onSurfaceVariant); OutlinedTextField(url, { url = it }, placeholder = { Text("https://example.com/avatar.png") }, singleLine = true, modifier = Modifier.fillMaxWidth()) } } } }
         error?.let { item { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 18.dp)) } }
         item { Button(onClick = { scope.launch { saving = true; error = null; runCatching { val endpoint = requireNotNull(state.endpoint); val cleanUrl = url.trim().ifBlank { null }.takeIf { avatarMode == "image" }; val cleanColor = color.takeIf { avatarMode == "color" }; require(cleanUrl == null || cleanUrl.startsWith("https://") || cleanUrl.startsWith("http://")) { "Avatar URL must begin with http:// or https://" }; require(avatarMode != "image" || cleanUrl != null) { "Enter a custom image URL" }; require(name.isNotBlank()) { "Enter a profile name" }; if (profile == null) { val household = account.bootstrap.households.first(); api.createProfile(endpoint.baseUrl, account.session.token, household.id, name, kids, usesPrimaryAddons, cleanColor, cleanUrl) } else api.updateProfile(endpoint.baseUrl, account.session.token, profile.id, name, kids, usesPrimaryAddons, cleanColor, cleanUrl) }.onSuccess { onSaved(it.id); onBack() }.onFailure { error = it.message ?: "Unable to save profile" }; saving = false } }, enabled = !saving, modifier = Modifier.padding(horizontal = 10.dp).fillMaxWidth().height(54.dp)) { if (saving) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp) else Text(if (profile == null) "Create profile" else "Save changes") } }
         }
     }
 }
+
+private data class ProfileHsv(val hue: Float, val saturation: Float, val value: Float)
+
+@Composable
+private fun CustomProfileColorPicker(color: String, onColorChange: (String) -> Unit) {
+    val selected = profileColor(color)
+    var hsv by remember(color) { mutableStateOf(selected.toProfileHsv()) }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Custom color", style = MaterialTheme.typography.labelLarge)
+        Canvas(
+            Modifier
+                .fillMaxWidth()
+                .height(112.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .pointerInput(hsv) {
+                    detectTapGestures { position ->
+                        val saturation = (position.x / size.width).coerceIn(0f, 1f)
+                        val value = (1f - position.y / size.height).coerceIn(0f, 1f)
+                        hsv = hsv.copy(saturation = saturation, value = value)
+                        onColorChange(hsv.toColor().toHex())
+                    }
+                },
+        ) {
+            drawRect(Brush.horizontalGradient(listOf(Color.White, hsvToColor(hsv.hue, 1f, 1f))))
+            drawRect(Brush.verticalGradient(listOf(Color.Transparent, Color.Black)))
+            val selector = Offset(size.width * hsv.saturation, size.height * (1f - hsv.value))
+            drawCircle(Color.Black, radius = 8.dp.toPx(), center = selector)
+            drawCircle(Color.White, radius = 6.dp.toPx(), center = selector, style = Stroke(width = 2.dp.toPx()))
+        }
+        Canvas(
+            Modifier
+                .fillMaxWidth()
+                .height(20.dp)
+                .clip(RoundedCornerShape(50))
+                .pointerInput(hsv) {
+                    detectTapGestures { position ->
+                        val hue = (position.x / size.width * 360f).coerceIn(0f, 360f)
+                        hsv = hsv.copy(hue = hue)
+                        onColorChange(hsv.toColor().toHex())
+                    }
+                },
+        ) {
+            drawRect(Brush.horizontalGradient(profileHueColors))
+            drawCircle(Color.White, radius = size.height / 2f, center = Offset(size.width * hsv.hue / 360f, size.height / 2f))
+            drawCircle(Color.Black, radius = size.height / 2f - 2.dp.toPx(), center = Offset(size.width * hsv.hue / 360f, size.height / 2f), style = Stroke(width = 2.dp.toPx()))
+        }
+        Text(color.uppercase(), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
+    }
+}
+
+private val profileHueColors = listOf(Color.Red, Color.Yellow, Color.Green, Color.Cyan, Color.Blue, Color.Magenta, Color.Red)
+
+private fun Color.toProfileHsv(): ProfileHsv {
+    val maxChannel = max(red, max(green, blue))
+    val minChannel = min(red, min(green, blue))
+    val delta = maxChannel - minChannel
+    val hue = when {
+        delta == 0f -> 0f
+        maxChannel == red -> 60f * (((green - blue) / delta) % 6f)
+        maxChannel == green -> 60f * ((blue - red) / delta + 2f)
+        else -> 60f * ((red - green) / delta + 4f)
+    }.let { if (it < 0f) it + 360f else it }
+    return ProfileHsv(hue, if (maxChannel == 0f) 0f else delta / maxChannel, maxChannel)
+}
+
+private fun ProfileHsv.toColor(): Color = hsvToColor(hue, saturation, value)
+
+private fun hsvToColor(hue: Float, saturation: Float, value: Float): Color {
+    val chroma = value * saturation
+    val x = chroma * (1f - abs((hue / 60f % 2f) - 1f))
+    val match = value - chroma
+    val channels = when {
+        hue < 60f -> Triple(chroma, x, 0f)
+        hue < 120f -> Triple(x, chroma, 0f)
+        hue < 180f -> Triple(0f, chroma, x)
+        hue < 240f -> Triple(0f, x, chroma)
+        hue < 300f -> Triple(x, 0f, chroma)
+        else -> Triple(chroma, 0f, x)
+    }
+    return Color(channels.first + match, channels.second + match, channels.third + match)
+}
+
+private fun Color.toHex(): String = "#${hexChannel(red)}${hexChannel(green)}${hexChannel(blue)}"
+
+private fun hexChannel(value: Float): String = (value * 255f).roundToInt().toString(16).uppercase().padStart(2, '0')
 
 internal fun normalizeManifestUrl(value: String): String = value.trim()
 

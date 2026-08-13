@@ -32,7 +32,6 @@ internal fun HomeScreen(
     onSelect: (CatalogItem, String?) -> Unit,
     onMutation: suspend (ProfileMutation) -> Result<Unit>,
     onOpenHistory: () -> Unit,
-    onOpenLibrary: () -> Unit,
     onOpenDiscover: (DiscoverSelection) -> Unit,
     listState: LazyListState = rememberLazyListState(),
     cache: HomeScreenCache = remember { HomeScreenCache() },
@@ -59,8 +58,6 @@ internal fun HomeScreen(
     LaunchedEffect(sync.snapshot?.profileId, sync.snapshot?.addons) { load() }
 
     val continueWatching = groupContinueWatching(sync.snapshot?.continueWatching.orEmpty()).take(14)
-    val library = sync.snapshot?.library.orEmpty().sortedByDescending { it.updatedAt }.take(14)
-
     LazyColumn(
         state = listState,
         modifier = modifier.fillMaxSize().statusBarsPadding(),
@@ -112,22 +109,6 @@ internal fun HomeScreen(
                 }
             }
         }
-        if (library.isNotEmpty()) {
-            item { ShelfTitle("From Your Library", onOpenLibrary) }
-            item {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items(library, key = { it.id }) { item ->
-                        val catalogItem = item.toCatalogItem()
-                        RichPosterCard(
-                            catalogItem, item.type, sync.snapshot, metadataCache,
-                            onClick = { onSelect(catalogItem, latestProgress(sync.snapshot, catalogItem)?.videoId) },
-                            onActions = { actionTarget = MediaActionTarget(catalogItem, MediaActionContext.Library, latestProgress(sync.snapshot, catalogItem)) },
-                            modifier = Modifier.width(112.dp),
-                        )
-                    }
-                }
-            }
-        }
         if (loading && result == null) {
             item { CatalogSkeleton() }
         }
@@ -169,7 +150,7 @@ internal fun HomeScreen(
                 }
             }
         }
-        if (!loading && sync.snapshot != null && continueWatching.isEmpty() && library.isEmpty() &&
+        if (!loading && sync.snapshot != null && continueWatching.isEmpty() &&
             result?.catalogs.orEmpty().all { it.items.isEmpty() }
         ) {
             item {
@@ -205,16 +186,6 @@ private fun ShelfTitle(title: String, onSeeAll: () -> Unit) {
         }
     }
 }
-
-private fun LibraryItemSummary.toCatalogItem() = CatalogItem(
-    id = id,
-    type = type,
-    name = name,
-    poster = poster,
-    background = background,
-    description = description,
-    releaseInfo = releaseInfo,
-)
 
 @Composable
 private fun StatusPill(text: String, color: Color) {
