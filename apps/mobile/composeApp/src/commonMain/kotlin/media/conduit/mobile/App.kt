@@ -7,6 +7,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -14,6 +15,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.*
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.VideoLibrary
@@ -44,24 +46,31 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.window.Dialog
 import media.conduit.mobile.foundation.*
 import media.conduit.mobile.account.ConduitApi
 import media.conduit.mobile.account.SessionVault
 import media.conduit.mobile.account.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlin.math.abs
+import kotlin.math.roundToInt
 import coil3.compose.AsyncImage
 
 @Composable
@@ -766,6 +775,13 @@ private fun AppShell(
         // discard transient state such as the selected playback stream.
         val expanded = maxWidth >= 720.dp && maxHeight >= 600.dp
         val snackbarHostState = remember { SnackbarHostState() }
+        LaunchedEffect(playbackSession.state.presentation) {
+            if (playbackSession.state.presentation == PlaybackPresentation.SystemPip) {
+                selectedMedia = null
+                selectedVideoId = null
+                dispatch(AppAction.Navigate(AppDestination.Home))
+            }
+        }
         suspend fun mutateProfile(mutation: ProfileMutation): Result<Unit> {
             val profile = activeProfile ?: return Result.failure(IllegalStateException("No active profile"))
             val result = mutationMutex.withLock {
@@ -1118,9 +1134,13 @@ private fun BoxScope.PlaybackSessionHost(
 ) {
     val session = controller.state
     val request = session.request ?: return
-    val fullScreen = session.presentation != PlaybackPresentation.Mini
+    val fullScreen = session.presentation == PlaybackPresentation.FullScreen
+    val systemPip = session.presentation == PlaybackPresentation.SystemPip
     var controlsVisible by remember(request.identity, request.url) { mutableStateOf(true) }
     var temporarySpeedActive by remember(request.identity, request.url) { mutableStateOf(false) }
+    var miniOffset by remember(request.identity, request.url) { mutableStateOf(IntOffset.Zero) }
+    var containerSize by remember { mutableStateOf(IntSize.Zero) }
+    var miniSize by remember { mutableStateOf(IntSize.Zero) }
 
     PlayerOrientationLock(active = session.presentation == PlaybackPresentation.FullScreen)
     LaunchedEffect(request.identity, request.url) {
@@ -1133,25 +1153,16 @@ private fun BoxScope.PlaybackSessionHost(
         if (session.playback.ended) controller.persist()
     }
 
-    val hostModifier = when {
-        fullScreen -> Modifier.fillMaxSize()
-        expanded -> Modifier
+    Box(Modifier.fillMaxSize().onSizeChanged { containerSize = it }) {
+        val miniBottomPadding = if (bottomNavigationVisible) 82.dp else 12.dp
+        val miniPlayerWidth = if (expanded) 320.dp else 220.dp
+        val miniLayout = Modifier
             .align(Alignment.BottomEnd)
-            .padding(end = 18.dp, bottom = 18.dp)
-            .width(320.dp)
+            .padding(end = 12.dp, bottom = miniBottomPadding)
+            .offset { miniOffset }
+            .width(miniPlayerWidth)
             .aspectRatio(16f / 9f)
-        else -> Modifier
-            .align(Alignment.BottomCenter)
-            .padding(start = 8.dp, end = 8.dp, bottom = if (bottomNavigationVisible) 82.dp else 8.dp)
-            .fillMaxWidth()
-            .height(76.dp)
-    }
-    Box(hostModifier.background(Color.Black)) {
-        val playerModifier = if (!fullScreen && !expanded) {
-            Modifier.align(Alignment.CenterStart).width(136.dp).fillMaxHeight()
-        } else {
-            Modifier.fillMaxSize()
-        }
+        val playerModifier = if (fullScreen || systemPip) Modifier.fillMaxSize() else miniLayout
         NativePlayer(
             url = request.url,
             active = true,
@@ -1178,6 +1189,12 @@ private fun BoxScope.PlaybackSessionHost(
             onState = controller::updatePlayback,
         )
 
+        if (systemPip) {
+            // PiP owns the visible video while active. Keeping the app surface
+            // black prevents a second inline copy from playing underneath it.
+            Box(Modifier.matchParentSize().background(Color.Black))
+        }
+
         if (fullScreen) {
             if (session.playback.loading && session.playback.error == null) {
                 PlayerOpeningOverlay(
@@ -1199,10 +1216,7 @@ private fun BoxScope.PlaybackSessionHost(
                         .padding(12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    IconButton(
-                        onClick = controller::minimize,
-                        modifier = Modifier.background(Color.Black.copy(.55f), androidx.compose.foundation.shape.CircleShape),
-                    ) { Icon(Icons.Rounded.KeyboardArrowDown, "Minimize player", tint = Color.White) }
+                    PlayerBackButton(controller)
                     Spacer(Modifier.width(10.dp))
                     Text(
                         request.title,
@@ -1218,10 +1232,6 @@ private fun BoxScope.PlaybackSessionHost(
                             modifier = Modifier.background(Color.Black.copy(.55f), androidx.compose.foundation.shape.CircleShape),
                         ) { Icon(Icons.Rounded.PictureInPictureAlt, "Picture in Picture", tint = Color.White) }
                     }
-                    IconButton(
-                        onClick = controller::close,
-                        modifier = Modifier.background(Color.Black.copy(.55f), androidx.compose.foundation.shape.CircleShape),
-                    ) { Icon(Icons.Rounded.Close, "Close player", tint = Color.White) }
                 }
             }
             if (temporarySpeedActive) {
@@ -1277,41 +1287,105 @@ private fun BoxScope.PlaybackSessionHost(
                     }
                 }
             }
-        } else if (expanded) {
-            Row(
-                Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(Color.Black.copy(.72f)).padding(6.dp),
-                verticalAlignment = Alignment.CenterVertically,
+        } else if (!systemPip) {
+            val horizontalLimit = (containerSize.width - miniSize.width).coerceAtLeast(0)
+            val verticalLimit = (containerSize.height - miniSize.height).coerceAtLeast(0)
+            Box(
+                miniLayout
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Color.Black)
+                    .onSizeChanged { miniSize = it }
+                    .pointerInput(containerSize, miniSize) {
+                        detectDragGestures { change, amount ->
+                            change.consume()
+                            miniOffset = IntOffset(
+                                x = (miniOffset.x + amount.x.roundToInt()).coerceIn(-horizontalLimit, 0),
+                                y = (miniOffset.y + amount.y.roundToInt()).coerceIn(-verticalLimit, 0),
+                            )
+                        }
+                    }
+                    .clickable(onClick = controller::restore),
             ) {
-                Text(request.title, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).clickable(onClick = controller::restore))
-                MiniPlayerControls(controller, session.playback.playing)
-            }
-        } else {
-            Row(
-                Modifier.fillMaxHeight().padding(start = 144.dp, end = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(request.title, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).clickable(onClick = controller::restore))
-                MiniPlayerControls(controller, session.playback.playing)
+                IconButton(
+                    onClick = {
+                        controller.send(
+                            if (session.playback.playing) PlaybackCommand.Pause else PlaybackCommand.Play,
+                        )
+                    },
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .background(Color.Black.copy(alpha = .68f), androidx.compose.foundation.shape.CircleShape),
+                ) {
+                    Icon(
+                        if (session.playback.playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                        if (session.playback.playing) "Pause" else "Play",
+                        tint = Color.White,
+                    )
+                }
+                IconButton(
+                    onClick = controller::close,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(2.dp)
+                        .background(Color.Black.copy(alpha = .68f), androidx.compose.foundation.shape.CircleShape),
+                ) {
+                    Icon(Icons.Rounded.Close, "Close player", tint = Color.White)
+                }
+                LinearProgressIndicator(
+                    progress = {
+                        if (session.playback.durationMs > 0) {
+                            (session.playback.positionMs.toFloat() / session.playback.durationMs.toFloat())
+                                .coerceIn(0f, 1f)
+                        } else {
+                            0f
+                        }
+                    },
+                    modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(3.dp),
+                    color = MaterialTheme.colorScheme.primary,
+                    trackColor = Color.White.copy(alpha = .28f),
+                    drawStopIndicator = {},
+                )
             }
         }
     }
 }
 
 @Composable
-private fun MiniPlayerControls(
-    controller: PlaybackSessionController,
-    playing: Boolean,
-) {
-    IconButton(onClick = {
-        controller.send(if (playing) PlaybackCommand.Pause else PlaybackCommand.Play)
-    }) {
-        Icon(if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, if (playing) "Pause" else "Play", tint = Color.White)
-    }
-    IconButton(onClick = controller::restore) {
-        Icon(Icons.Rounded.PictureInPictureAlt, "Restore player", tint = Color.White)
-    }
-    IconButton(onClick = controller::close) {
-        Icon(Icons.Rounded.Close, "Close player", tint = Color.White)
+private fun PlayerBackButton(controller: PlaybackSessionController) {
+    val haptics = LocalHapticFeedback.current
+    var holdActivated by remember { mutableStateOf(false) }
+    Box(
+        Modifier
+            .size(48.dp)
+            .background(Color.Black.copy(.55f), androidx.compose.foundation.shape.CircleShape)
+            .pointerInput(controller) {
+                detectTapGestures(
+                    onPress = {
+                        var longPress = false
+                        coroutineScope {
+                            val holdJob = launch {
+                                kotlinx.coroutines.delay(450)
+                                longPress = true
+                                holdActivated = true
+                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            }
+                            val released = tryAwaitRelease()
+                            holdJob.cancel()
+                            holdActivated = false
+                            if (released) {
+                                if (longPress) controller.minimize() else controller.close()
+                            }
+                        }
+                    },
+                )
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            if (holdActivated) Icons.Rounded.PictureInPictureAlt else Icons.AutoMirrored.Rounded.ArrowBack,
+            if (holdActivated) "Release to minimize player" else "Back",
+            tint = Color.White,
+        )
     }
 }
 

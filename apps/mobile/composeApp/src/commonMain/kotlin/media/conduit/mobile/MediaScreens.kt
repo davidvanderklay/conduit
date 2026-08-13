@@ -869,10 +869,14 @@ internal fun MediaDetailsScreen(
         if (requestIdentity != null && sessionCallbacks != null) playbackSession.attach(requestIdentity, sessionCallbacks)
     }
     val ownsPlayback = requestIdentity != null && playbackSession.state.request?.identity == requestIdentity
+    PlayerOrientationLock(
+        active = waitingForSavedPlayback ||
+            (ownsPlayback && playbackSession.state.presentation == PlaybackPresentation.FullScreen),
+    )
     PlatformBackHandler {
         when {
             ownsPlayback && playbackSession.state.presentation == PlaybackPresentation.FullScreen -> {
-                playbackSession.minimize()
+                playbackSession.close()
             }
             streamPageOpen -> { streamPageOpen = false; streams = null }
             else -> onBack()
