@@ -83,7 +83,11 @@ class ProfileMutationTest {
             VideoItem("s1e2", title = "Two", season = 1, episode = 2),
         )
 
-        val updated = snapshot.copy(progress = listOf(first), history = listOf(first)).applyOptimistically(
+        val updated = snapshot.copy(
+            progress = listOf(first),
+            history = listOf(first),
+            continueWatching = listOf(first),
+        ).applyOptimistically(
             ProfileMutation.SetSeriesWatched(series, videos, listOf(first), watched = false),
         )
 
