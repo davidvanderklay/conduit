@@ -40,7 +40,7 @@ class WatchStatusTest {
     @Test
     fun episodeStateAndProgressUseExplicitWatchedFlag() {
         assertEquals(EpisodeWatchState.NotStarted, episodeWatchState(null))
-        val partial = progress("partial", "show", position = 25).copy(durationMs = 100_000)
+        val partial = progress("partial", "show", position = 25_000).copy(durationMs = 100_000)
         assertEquals(EpisodeWatchState.InProgress, episodeWatchState(partial))
         assertEquals(.25f, episodeProgressFraction(partial))
         assertEquals(EpisodeWatchState.Watched, episodeWatchState(partial.copy(watched = true)))
