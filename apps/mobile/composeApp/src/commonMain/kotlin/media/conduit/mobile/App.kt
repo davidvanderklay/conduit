@@ -1146,6 +1146,8 @@ private fun BoxScope.PlaybackSessionHost(
     val request = session.request ?: return
     val fullScreen = session.presentation == PlaybackPresentation.FullScreen
     val systemPip = session.presentation == PlaybackPresentation.SystemPip
+    val pipHandoffVisible = systemPip && systemPipKeepsAppVisible
+    val pipActionReady = isSystemPipActionReady(session.systemPipAvailable, session.playback)
     var controlsVisible by remember(request.identity, request.url) { mutableStateOf(true) }
     var temporarySpeedActive by remember(request.identity, request.url) { mutableStateOf(false) }
     var miniOffset by remember(request.identity, request.url) { mutableStateOf(IntOffset.Zero) }
@@ -1218,13 +1220,7 @@ private fun BoxScope.PlaybackSessionHost(
             onState = controller::updatePlayback,
         )
 
-        if (systemPip) {
-            // PiP owns the visible video while active. Keeping the app surface
-            // black prevents a second inline copy from playing underneath it.
-            Box(Modifier.matchParentSize().background(Color.Black))
-        }
-
-        if (fullScreen) {
+        if (fullScreen || pipHandoffVisible) {
             if (session.playback.loading && session.playback.error == null) {
                 PlayerOpeningOverlay(
                     artwork = request.artwork,
@@ -1233,10 +1229,10 @@ private fun BoxScope.PlaybackSessionHost(
                     modifier = Modifier.matchParentSize(),
                 )
             }
-            if (session.playback.buffering && !session.playback.loading && session.playback.error == null) {
+            if (fullScreen && session.playback.buffering && !session.playback.loading && session.playback.error == null) {
                 PlayerBufferingOverlay(Modifier.matchParentSize())
             }
-            if (controlsVisible) {
+            if (controlsVisible || pipHandoffVisible) {
                 Row(
                     modifier = Modifier
                         .align(Alignment.TopStart)
@@ -1245,8 +1241,15 @@ private fun BoxScope.PlaybackSessionHost(
                         .padding(12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    PlayerBackButton {
-                        controller.leaveFullScreen(preferences.miniplayerOnBack)
+                    if (pipHandoffVisible) {
+                        IconButton(
+                            onClick = controller::close,
+                            modifier = Modifier.background(Color.Black.copy(.55f), androidx.compose.foundation.shape.CircleShape),
+                        ) { Icon(Icons.Rounded.Close, "Close player", tint = Color.White) }
+                    } else {
+                        PlayerBackButton {
+                            controller.leaveFullScreen(preferences.miniplayerOnBack)
+                        }
                     }
                     Spacer(Modifier.width(10.dp))
                     Text(
@@ -1257,13 +1260,16 @@ private fun BoxScope.PlaybackSessionHost(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
                     )
-                    if (session.systemPipAvailable) {
+                    if (fullScreen && pipActionReady) {
                         IconButton(
                             onClick = { controller.send(PlaybackCommand.EnterSystemPip) },
                             modifier = Modifier.background(Color.Black.copy(.55f), androidx.compose.foundation.shape.CircleShape),
                         ) { Icon(Icons.Rounded.PictureInPictureAlt, "Picture in Picture", tint = Color.White) }
                     }
                 }
+            }
+            if (pipHandoffVisible) {
+                PipHandoffIndicator(Modifier.matchParentSize())
             }
             if (temporarySpeedActive) {
                 Text(
@@ -1276,7 +1282,7 @@ private fun BoxScope.PlaybackSessionHost(
                         .padding(horizontal = 14.dp, vertical = 8.dp),
                 )
             }
-            session.playback.error?.let { message ->
+            if (fullScreen) session.playback.error?.let { message ->
                 Box(
                     Modifier.matchParentSize().background(Color.Black.copy(.72f)),
                     contentAlignment = Alignment.Center,
@@ -1288,7 +1294,7 @@ private fun BoxScope.PlaybackSessionHost(
                     }
                 }
             }
-            if (
+            if (fullScreen &&
                 request.hasNextEpisode &&
                 session.playback.durationMs > 0 &&
                 session.playback.durationMs - session.playback.positionMs in 1..30_000
@@ -1465,6 +1471,31 @@ private fun PlayerBackButton(onClick: () -> Unit) {
             .background(Color.Black.copy(.55f), androidx.compose.foundation.shape.CircleShape),
     ) {
         Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = Color.White)
+    }
+}
+
+@Composable
+private fun PipHandoffIndicator(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier.padding(bottom = 104.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(18.dp),
+        ) {
+            Icon(
+                Icons.Rounded.PictureInPictureAlt,
+                contentDescription = null,
+                tint = Color.White.copy(alpha = .48f),
+                modifier = Modifier.size(168.dp),
+            )
+            Text(
+                "This video is playing in picture in picture.",
+                color = Color.White.copy(alpha = .58f),
+                style = MaterialTheme.typography.bodyLarge,
+            )
+        }
     }
 }
 

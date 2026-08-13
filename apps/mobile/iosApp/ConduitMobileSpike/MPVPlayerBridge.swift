@@ -301,10 +301,12 @@ final class ConduitMPVPlayerViewController: UIViewController {
     private var resumeAfterForeground = false
     private var backgroundedWithPictureInPicture = false
     private var lastDrawableSize: CGSize = .zero
+    private var settledMetalBounds: CGRect = .zero
     private var externallyManagedViewSize: CGSize?
     private var pendingSurfaceLayoutWorkItems: [DispatchWorkItem] = []
     private var pendingDrawableResize: DispatchWorkItem?
     private var pendingDrawableSize: CGSize?
+    private var pendingDrawableBounds: CGRect?
     private var interactiveResizeActive = false
     private var lifecycleObservers: [NSObjectProtocol] = []
     private var recentErrors: [String] = []
@@ -414,11 +416,17 @@ final class ConduitMPVPlayerViewController: UIViewController {
 
     func setInteractiveResize(_ active: Bool) {
         runOnMain { [weak self] in
-            guard let self, self.interactiveResizeActive != active else { return }
+            guard let self, !self.destroyStarted, self.interactiveResizeActive != active else { return }
             self.interactiveResizeActive = active
             self.pendingDrawableResize?.cancel()
             self.pendingDrawableResize = nil
-            if !active { self.layoutMetalLayer() }
+            self.metalLayer.isNuvioLiveResize = true
+            if !active {
+                self.layoutMetalLayer()
+                if self.pendingDrawableResize == nil {
+                    self.metalLayer.isNuvioLiveResize = false
+                }
+            }
         }
     }
 
@@ -643,6 +651,12 @@ final class ConduitMPVPlayerViewController: UIViewController {
         pendingDrawableResize?.cancel()
         pendingDrawableResize = nil
         pendingDrawableSize = nil
+        pendingDrawableBounds = nil
+        // UIKit can deliver one or more layout passes after this controller is
+        // removed. Do not let teardown shrink the drawable while MPV's render
+        // thread is still draining its previous swapchain.
+        metalLayer.isNuvioLiveResize = true
+        metalLayer.isHidden = true
         pendingLoad = nil
         shouldPlay = false
         pictureInPicture?.invalidate()
@@ -900,6 +914,8 @@ final class ConduitMPVPlayerViewController: UIViewController {
     }
 
     private func layoutMetalLayer() {
+        guard !destroyStarted else { return }
+
         // The Compose size callback is expressed through Compose density, which
         // can differ slightly from UIKit's native pixel scale. Using it for the
         // Metal drawable can therefore make MPV's render target a few pixels
@@ -917,25 +933,37 @@ final class ConduitMPVPlayerViewController: UIViewController {
         CATransaction.setDisableActions(true)
         metalLayer.contentsScale = scale
         metalLayer.position = .zero
-        metalLayer.bounds = bounds
         if lastDrawableSize == .zero {
-            applyDrawableSize(size)
+            applyDrawableSize(size, bounds: bounds)
         } else if size == lastDrawableSize {
             pendingDrawableResize?.cancel()
             pendingDrawableResize = nil
             pendingDrawableSize = nil
+            pendingDrawableBounds = nil
+            settleMetalBounds(bounds)
+            metalLayer.isNuvioLiveResize = false
         } else if interactiveResizeActive {
             pendingDrawableResize?.cancel()
             pendingDrawableResize = nil
             pendingDrawableSize = size
+            pendingDrawableBounds = bounds
+            showStableSurface(in: bounds)
         } else if size != pendingDrawableSize || pendingDrawableResize == nil {
             pendingDrawableResize?.cancel()
             pendingDrawableSize = size
+            pendingDrawableBounds = bounds
+            showStableSurface(in: bounds)
+            metalLayer.isNuvioLiveResize = true
             let resize = DispatchWorkItem { [weak self] in
-                guard let self, self.pendingDrawableSize == size else { return }
+                guard let self,
+                      self.pendingDrawableSize == size,
+                      self.pendingDrawableBounds == bounds
+                else { return }
                 self.pendingDrawableResize = nil
                 self.pendingDrawableSize = nil
-                self.applyDrawableSize(size)
+                self.pendingDrawableBounds = nil
+                self.applyDrawableSize(size, bounds: bounds)
+                self.metalLayer.isNuvioLiveResize = false
             }
             pendingDrawableResize = resize
             // MoltenVK must rebuild its swapchain before rendering at the new
@@ -946,13 +974,28 @@ final class ConduitMPVPlayerViewController: UIViewController {
         CATransaction.commit()
     }
 
-    private func applyDrawableSize(_ size: CGSize) {
+    private func showStableSurface(in desiredBounds: CGRect) {
+        guard settledMetalBounds.width > 1, settledMetalBounds.height > 1 else { return }
+        let scaleX = desiredBounds.width / settledMetalBounds.width
+        let scaleY = desiredBounds.height / settledMetalBounds.height
+        metalLayer.bounds = settledMetalBounds
+        metalLayer.setAffineTransform(CGAffineTransform(scaleX: scaleX, y: scaleY))
+    }
+
+    private func settleMetalBounds(_ bounds: CGRect) {
+        metalLayer.setAffineTransform(.identity)
+        metalLayer.bounds = bounds
+        settledMetalBounds = bounds
+    }
+
+    private func applyDrawableSize(_ size: CGSize, bounds: CGRect) {
 #if DEBUG
         print(
-            "[Conduit MPV][surface] points=\(Int(metalLayer.bounds.width))x\(Int(metalLayer.bounds.height)) " +
+            "[Conduit MPV][surface] points=\(Int(bounds.width))x\(Int(bounds.height)) " +
             "drawable=\(Int(size.width))x\(Int(size.height))"
         )
 #endif
+        settleMetalBounds(bounds)
         metalLayer.drawableSize = size
         lastDrawableSize = size
     }
@@ -967,7 +1010,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
         size: CGSize? = nil,
         scheduleDeferredPasses: Bool
     ) {
-        guard isViewLoaded else { return }
+        guard isViewLoaded, !destroyStarted else { return }
         if let size, size.width > 1, size.height > 1 {
             externallyManagedViewSize = size
         }
@@ -1385,6 +1428,7 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         pictureInPicturePossibleObservation?.invalidate()
         pictureInPicturePossibleObservation = nil
         stopCapture()
+        controller?.stopPictureInPicture()
         controller?.delegate = nil
         controller = nil
         displayLayer.flushAndRemoveImage()
