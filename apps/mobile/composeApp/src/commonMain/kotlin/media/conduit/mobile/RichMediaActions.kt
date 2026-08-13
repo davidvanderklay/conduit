@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.*
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -423,14 +422,17 @@ internal fun MediaActionSheet(
     val seasonComplete = seasonVideos.isNotEmpty() && seasonVideos.all { video ->
         seasonProgress.any { it.videoId == video.id && it.watched }
     }
-    val restVideos = if (active.context == MediaActionContext.Episode && active.video != null) {
-        restOfSeasonWatchVideos(seriesVideos, active.video.season ?: 1, active.video.id)
+    val episodeSeasonVideos = if (active.context == MediaActionContext.Episode && active.video != null) {
+        seasonWatchVideos(seriesVideos, active.video.season ?: 1)
     } else {
         emptyList()
     }
-    val restProgress = snapshot?.progress.orEmpty()
-    val restComplete = restVideos.isNotEmpty() && restVideos.all { video ->
-        restProgress.any { it.videoId == video.id && it.watched }
+    val episodeSeasonIds = episodeSeasonVideos.mapTo(mutableSetOf(), VideoItem::id)
+    val episodeSeasonProgress = snapshot?.progress.orEmpty().filter {
+        it.mediaType == active.item.type && it.mediaId == active.item.id && it.videoId in episodeSeasonIds
+    }
+    val episodeSeasonComplete = episodeSeasonVideos.isNotEmpty() && episodeSeasonVideos.all { video ->
+        episodeSeasonProgress.any { it.videoId == video.id && it.watched }
     }
     LaunchedEffect(active.item.type, active.item.id, active.context, metadataCache) {
         if (
@@ -516,19 +518,19 @@ internal fun MediaActionSheet(
                     scope.launch { onMutation(ProfileMutation.SetWatched(active.item, watchProgress, active.video, watchProgress?.watched != true)) }
                 }
             }
-            if (active.context == MediaActionContext.Episode && restVideos.isNotEmpty()) {
+            if (active.context == MediaActionContext.Episode && episodeSeasonVideos.isNotEmpty()) {
                 ActionRow(
-                    if (restComplete) "Mark rest of season unwatched" else "Mark rest of season watched",
-                    if (restComplete) Icons.Rounded.Replay else Icons.AutoMirrored.Rounded.PlaylistAddCheck,
+                    if (episodeSeasonComplete) "Mark season unwatched" else "Mark season watched",
+                    if (episodeSeasonComplete) Icons.Rounded.Replay else Icons.Rounded.Check,
                 ) {
                     onDismiss()
                     scope.launch {
                         onMutation(
                             ProfileMutation.SetSeriesWatched(
                                 active.item,
-                                restVideos,
-                                restProgress,
-                                !restComplete,
+                                episodeSeasonVideos,
+                                episodeSeasonProgress,
+                                !episodeSeasonComplete,
                             ),
                         )
                     }

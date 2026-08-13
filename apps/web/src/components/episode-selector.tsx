@@ -4,7 +4,6 @@ import {
   Check,
   ChevronDown,
   Film,
-  ListEnd,
   LoaderCircle,
   MoreHorizontal,
   Play,
@@ -22,7 +21,7 @@ import {
 import {
   episodeProgressPercent,
   episodeWatchState,
-  restOfSeasonWatchVideos,
+  seasonWatchVideos,
 } from "../lib/watch-status"
 import type { WatchActionMedia } from "../lib/watch-actions"
 
@@ -263,14 +262,8 @@ export function EpisodeSelector({
                     <span className="mr-1.5 text-zinc-500">{video.episode ?? "–"}.</span>
                     {video.title ?? episodeLabel(video)}
                   </p>
-                  <p className={`mt-1 flex flex-wrap gap-x-2 text-[11px] ${
-                    state === "watched"
-                      ? "text-amber-300"
-                      : state === "in-progress"
-                        ? "text-zinc-300"
-                        : "text-zinc-600"
-                  }`}>
-                    <span>{status}</span>
+                  <p className="mt-1 flex flex-wrap gap-x-2 text-[11px] text-zinc-500">
+                    {state === "in-progress" && <span>{percent}%</span>}
                     {video.released && <span>{displayDate(video.released)}</span>}
                     {video.runtime && <span>{video.runtime}</span>}
                   </p>
@@ -303,16 +296,15 @@ export function EpisodeSelector({
 
   function renderContextMenu() {
     if (!contextMenu || !media || !profileId || !onWatchAction) return null
-    const rest = restOfSeasonWatchVideos(
+    const season = seasonWatchVideos(
       videos,
       contextMenu.video.season ?? 1,
-      contextMenu.video.id,
     )
     return createPortal(
       <EpisodeContextMenu
         video={contextMenu.video}
         progress={progress}
-        rest={rest}
+        season={season}
         pending={watchPending}
         style={{ left: contextMenu.x, top: contextMenu.y }}
         onPlay={() => {
@@ -320,7 +312,7 @@ export function EpisodeSelector({
           onSelect(contextMenu.video)
         }}
         onMark={(watched) => runWatchAction([contextMenu.video], watched)}
-        onMarkRest={(watched) => runWatchAction(rest, watched)}
+        onMarkSeason={(watched) => runWatchAction(season, watched)}
       />,
       document.body,
     )
@@ -336,25 +328,25 @@ interface ContextMenuState {
 function EpisodeContextMenu({
   video,
   progress,
-  rest,
+  season,
   pending,
   style,
   onPlay,
   onMark,
-  onMarkRest,
+  onMarkSeason,
 }: {
   video: Video
   progress: WatchProgress[]
-  rest: Video[]
+  season: Video[]
   pending: boolean
   style: CSSProperties
   onPlay: () => void
   onMark: (watched: boolean) => void
-  onMarkRest: (watched: boolean) => void
+  onMarkSeason: (watched: boolean) => void
 }) {
   const selectedProgress = progress.find((item) => item.videoId === video.id)
   const watched = episodeWatchState(selectedProgress) === "watched"
-  const allRestWatched = rest.length > 0 && rest.every((entry) =>
+  const allSeasonWatched = season.length > 0 && season.every((entry) =>
     progress.some((item) => item.videoId === entry.id && item.watched),
   )
   return (
@@ -373,10 +365,10 @@ function EpisodeContextMenu({
         onClick={() => onMark(!watched)}
       />
       <ContextMenuAction
-        label={allRestWatched ? "Mark rest of season as unwatched" : "Mark rest of season as watched"}
-        icon={allRestWatched ? <RotateCcw size={15} /> : <ListEnd size={15} />}
-        disabled={pending || rest.length === 0}
-        onClick={() => onMarkRest(!allRestWatched)}
+        label={allSeasonWatched ? "Mark season as unwatched" : "Mark season as watched"}
+        icon={allSeasonWatched ? <RotateCcw size={15} /> : <Check size={15} />}
+        disabled={pending || season.length === 0}
+        onClick={() => onMarkSeason(!allSeasonWatched)}
       />
     </div>
   )

@@ -5,7 +5,7 @@ import {
   episodeProgressPercent,
   episodeWatchState,
   posterWatchState,
-  restOfSeasonWatchVideos,
+  seasonWatchVideos,
   seriesWatchVideos,
 } from "./watch-status"
 
@@ -77,7 +77,7 @@ describe("episode watch state", () => {
       .toBe(0)
   })
 
-  it("selects the current and later released episodes in one season", () => {
+  it("selects every released episode in one season", () => {
     const videos = [
       { id: "s1e1", season: 1, episode: 1, released: "2026-01-01" },
       { id: "s1e2", season: 1, episode: 2, released: "2026-01-01" },
@@ -85,8 +85,8 @@ describe("episode watch state", () => {
       { id: "s2e1", season: 2, episode: 1, released: "2026-01-01" },
       { id: "unavailable", season: 1, episode: 4, available: false },
     ]
-    expect(restOfSeasonWatchVideos(videos, 1, "s1e2", Date.parse("2026-06-01")))
-      .toEqual([videos[1]])
+    expect(seasonWatchVideos(videos, 1, Date.parse("2026-06-01")))
+      .toEqual([videos[0], videos[1]])
   })
 
   it("uses regular episodes for series actions while preserving specials-only titles", () => {

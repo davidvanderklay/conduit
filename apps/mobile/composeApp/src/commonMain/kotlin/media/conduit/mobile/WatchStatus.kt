@@ -72,17 +72,6 @@ internal fun seriesWatchVideos(
     )
 }
 
-internal fun restOfSeasonWatchVideos(
-    videos: List<VideoItem>,
-    season: Int,
-    fromVideoId: String,
-    today: String = Clock.System.now().toString().take(10),
-): List<VideoItem> {
-    val eligible = seasonWatchVideos(videos, season, today)
-    val start = eligible.indexOfFirst { it.id == fromVideoId }
-    return if (start < 0) emptyList() else eligible.drop(start)
-}
-
 private fun VideoItem.releasedOrAvailable(today: String): Boolean {
     if (available == false) return false
     if (released == null) return true

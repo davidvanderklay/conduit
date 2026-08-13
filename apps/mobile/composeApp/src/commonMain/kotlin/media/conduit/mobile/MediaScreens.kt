@@ -1244,14 +1244,22 @@ internal fun MediaDetailsScreen(
                                 color = MaterialTheme.colorScheme.surfaceVariant.copy(.65f),
                             ) {
                                 Column {
-                                    Box {
-                                        AsyncImage(
-                                            video.thumbnail ?: details.background,
+                                        Box {
+                                            AsyncImage(
+                                                video.thumbnail ?: details.background,
                                             null,
                                             Modifier.fillMaxWidth().height(142.dp),
-                                            contentScale = ContentScale.Crop,
-                                        )
-                                        Surface(
+                                                contentScale = ContentScale.Crop,
+                                            )
+                                            if (episodeWatchState(progress) == EpisodeWatchState.Watched) {
+                                                Icon(
+                                                    Icons.Rounded.CheckCircle,
+                                                    null,
+                                                    tint = MaterialTheme.colorScheme.primary,
+                                                    modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
+                                                )
+                                            }
+                                            Surface(
                                             Modifier.padding(8.dp),
                                             color = Color.Black.copy(.65f),
                                             shape = RoundedCornerShape(8.dp),
@@ -1275,21 +1283,17 @@ internal fun MediaDetailsScreen(
                                                 style = MaterialTheme.typography.bodySmall,
                                             )
                                         }
-                                        when (episodeWatchState(progress)) {
-                                            EpisodeWatchState.Watched -> Text("Watched", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelSmall)
-                                            EpisodeWatchState.InProgress -> {
-                                                LinearProgressIndicator(
-                                                    { episodeProgressFraction(progress) },
-                                                    Modifier.fillMaxWidth(),
-                                                    color = MaterialTheme.colorScheme.primary,
-                                                )
-                                                Text(
-                                                    "${(episodeProgressFraction(progress) * 100).roundToInt()}% watched",
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                )
-                                            }
-                                            EpisodeWatchState.NotStarted -> Text("Not watched", color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .7f), style = MaterialTheme.typography.labelSmall)
+                                        if (episodeWatchState(progress) == EpisodeWatchState.InProgress) {
+                                            LinearProgressIndicator(
+                                                { episodeProgressFraction(progress) },
+                                                Modifier.fillMaxWidth(),
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                            Text(
+                                                "${(episodeProgressFraction(progress) * 100).roundToInt()}%",
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                style = MaterialTheme.typography.labelSmall,
+                                            )
                                         }
                                     }
                                 }
@@ -1606,19 +1610,13 @@ private fun PlayerEpisodeDrawer(
                                             color = MaterialTheme.colorScheme.primary,
                                         )
                                     }
-                                    Text(
-                                        when (episodeWatchState(progress)) {
-                                            EpisodeWatchState.Watched -> "Watched"
-                                            EpisodeWatchState.InProgress -> "${(episodeProgressFraction(progress) * 100).roundToInt()}% watched"
-                                            EpisodeWatchState.NotStarted -> "Not watched"
-                                        },
-                                        color = when (episodeWatchState(progress)) {
-                                            EpisodeWatchState.Watched -> MaterialTheme.colorScheme.primary
-                                            EpisodeWatchState.InProgress -> MaterialTheme.colorScheme.onSurfaceVariant
-                                            EpisodeWatchState.NotStarted -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .7f)
-                                        },
-                                        style = MaterialTheme.typography.labelSmall,
-                                    )
+                                    if (episodeWatchState(progress) == EpisodeWatchState.InProgress) {
+                                        Text(
+                                            "${(episodeProgressFraction(progress) * 100).roundToInt()}%",
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            style = MaterialTheme.typography.labelSmall,
+                                        )
+                                    }
                                 }
                             }
                         }

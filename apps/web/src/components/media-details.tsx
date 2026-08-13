@@ -553,6 +553,7 @@ function EpisodeSummary({
   const state = progress.find((item) => item.videoId === video.id)
   const watchState = episodeWatchState(state)
   const percent = episodeProgressPercent(state)
+  const visiblePercent = watchState === "in-progress" ? `${percent}%` : undefined
   const description = video.overview ?? video.description
   return (
     <section className="max-h-[calc(100dvh-5rem)] overflow-hidden" aria-labelledby="episode-title">
@@ -587,20 +588,14 @@ function EpisodeSummary({
       <p className="mt-[clamp(.75rem,2vh,1.35rem)] line-clamp-5 max-w-4xl text-sm leading-6 text-zinc-300">
         {description ?? "No episode overview was supplied."}
       </p>
-      <p className={`mt-3 flex items-center gap-2 text-sm ${
-        watchState === "watched"
-          ? "text-amber-300"
-          : watchState === "in-progress"
-            ? "text-zinc-200"
-            : "text-zinc-500"
-      }`}>
+      <p className="mt-3 flex items-center gap-2 text-sm text-zinc-400">
         <span className="inline-block h-1.5 w-24 overflow-hidden rounded-full bg-white/10">
           <span
             className="block h-full bg-amber-400"
             style={{ width: `${watchState === "watched" ? 100 : percent}%` }}
           />
         </span>
-        {watchState === "watched" ? "Watched" : watchState === "in-progress" ? `${percent}% watched` : "Not watched"}
+        {visiblePercent}
       </p>
       <div className="mt-[clamp(1rem,2.6vh,1.75rem)] flex items-center gap-3">
         <EpisodeWatchAction

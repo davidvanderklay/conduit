@@ -48,7 +48,7 @@ class WatchStatusTest {
     }
 
     @Test
-    fun restOfSeasonStartsAtCurrentEpisodeAndSkipsUnavailableEpisodes() {
+    fun seasonActionsIncludeEveryReleasedEpisodeAndSkipUnavailableEpisodes() {
         val videos = listOf(
             VideoItem("s1e1", season = 1, episode = 1, released = "2026-01-01"),
             VideoItem("s1e2", season = 1, episode = 2, released = "2026-01-01"),
@@ -57,8 +57,8 @@ class WatchStatusTest {
         )
 
         assertEquals(
-            listOf("s1e2"),
-            restOfSeasonWatchVideos(videos, 1, "s1e2", today = "2026-06-01").map(VideoItem::id),
+            listOf("s1e1", "s1e2"),
+            seasonWatchVideos(videos, 1, today = "2026-06-01").map(VideoItem::id),
         )
     }
 

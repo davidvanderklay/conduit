@@ -172,6 +172,12 @@ describe("next episode prompt", () => {
 
   it("opens episode actions from a desktop context-menu event", () => {
     const onWatchAction = vi.fn().mockResolvedValue(undefined)
+    const secondEpisode: Video = {
+      id: "series:3:2",
+      season: 3,
+      episode: 2,
+      title: "The next beginning",
+    }
     act(() => {
       root.render(
         <PlayerEpisodeDrawer
@@ -180,9 +186,9 @@ describe("next episode prompt", () => {
             name: "Example",
             profileId: "profile-1",
             media: { type: "series", id: "example", name: "Example" },
-            videos: [episode],
+            videos: [episode, secondEpisode],
             progress: [],
-            currentVideoId: episode.id,
+            currentVideoId: secondEpisode.id,
             onWatchAction,
           }}
           onOpenChange={vi.fn()}
@@ -192,7 +198,7 @@ describe("next episode prompt", () => {
     })
 
     const currentEpisode = host.querySelector<HTMLButtonElement>(
-      `[data-video-id="${episode.id}"]`,
+      `[data-video-id="${secondEpisode.id}"]`,
     )
     act(() => {
       currentEpisode?.dispatchEvent(new MouseEvent("contextmenu", {
@@ -203,11 +209,11 @@ describe("next episode prompt", () => {
     })
 
     expect(document.body.querySelector("[data-episode-context-menu]")).not.toBeNull()
-    const markWatched = [...document.body.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
-      .find((button) => button.textContent?.includes("Mark as watched"))
-    expect(markWatched).toBeDefined()
-    act(() => markWatched?.click())
-    expect(onWatchAction).toHaveBeenCalledWith([episode], true)
+    const markSeason = [...document.body.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+      .find((button) => button.textContent?.includes("Mark season as watched"))
+    expect(markSeason).toBeDefined()
+    act(() => markSeason?.click())
+    expect(onWatchAction).toHaveBeenCalledWith([episode, secondEpisode], true)
   })
 
   it("closes the open episode drawer when a pointer gesture starts outside it", () => {
