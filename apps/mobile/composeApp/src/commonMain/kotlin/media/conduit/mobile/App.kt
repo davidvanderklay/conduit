@@ -8,12 +8,17 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.*
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.VideoLibrary
@@ -28,11 +33,17 @@ import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Pause
+import androidx.compose.material.icons.rounded.PictureInPictureAlt
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Explore
 import androidx.compose.material.icons.rounded.Extension
 import androidx.compose.runtime.*
+import androidx.compose.animation.core.animateIntOffsetAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -41,24 +52,35 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChanged
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.window.Dialog
 import media.conduit.mobile.foundation.*
 import media.conduit.mobile.account.ConduitApi
 import media.conduit.mobile.account.SessionVault
 import media.conduit.mobile.account.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlin.math.abs
+import kotlin.math.roundToInt
+import kotlin.math.sqrt
 import coil3.compose.AsyncImage
 
 @Composable
@@ -671,6 +693,11 @@ private fun AppShell(
     val syncRepository = remember(api, secureStore) { ProfileSyncRepository(api, secureStore) }
     val mutationMutex = remember { Mutex() }
     val appScope = rememberCoroutineScope()
+    val playbackSession = remember(appScope) { PlaybackSessionController(appScope) }
+    LaunchedEffect(activeProfile?.id) {
+        val playbackProfileId = playbackSession.state.request?.identity?.profileId
+        if (playbackProfileId != null && playbackProfileId != activeProfile?.id) playbackSession.close()
+    }
     var profileSync by remember(activeProfile?.id) {
         mutableStateOf(
             ProfileSyncState(snapshot = activeProfile?.let { syncRepository.cached(it.id) }),
@@ -858,6 +885,7 @@ private fun AppShell(
                             browseQuery, { browseQuery = it }, discoverSelection, { discoverSelection = it }, openBrowse,
                             preferences, onPreferencesChanged, homeListState, searchListState, discoverGridState, libraryGridState, historyGridState, settingsListState,
                             profileLaunchRequest,
+                            playbackSession,
                             Modifier.fillMaxSize(),
                         )
                     }
@@ -872,16 +900,21 @@ private fun AppShell(
                     browseQuery, { browseQuery = it }, discoverSelection, { discoverSelection = it }, openBrowse,
                     preferences, onPreferencesChanged, homeListState, searchListState, discoverGridState, libraryGridState, historyGridState, settingsListState,
                     profileLaunchRequest,
+                    playbackSession,
                     Modifier.padding(padding),
                 )
             }
         }
-        val topChromeVisible = selectedMedia == null && state.destination in setOf(
+        val playbackAllowsAppChrome = playbackSession.state.presentation in setOf(
+            PlaybackPresentation.Closed,
+            PlaybackPresentation.Mini,
+        )
+        val topChromeVisible = playbackAllowsAppChrome && selectedMedia == null && state.destination in setOf(
             AppDestination.Home,
             AppDestination.Search,
             AppDestination.Library,
         )
-        val bottomChromeVisible = selectedMedia == null && state.destination in setOf(
+        val bottomChromeVisible = playbackAllowsAppChrome && selectedMedia == null && state.destination in setOf(
             AppDestination.Home,
             AppDestination.Search,
             AppDestination.Library,
@@ -927,6 +960,13 @@ private fun AppShell(
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
         }
+        PlaybackSessionHost(
+            controller = playbackSession,
+            preferences = preferences,
+            expanded = expanded,
+            bottomNavigationVisible = !expanded && bottomChromeVisible &&
+                (!profileFlowActive || state.destination == AppDestination.Profile),
+        )
     }
 }
 
@@ -1012,6 +1052,7 @@ private fun DestinationContent(
     historyGridState: androidx.compose.foundation.lazy.grid.LazyGridState,
     settingsListState: androidx.compose.foundation.lazy.LazyListState,
     profileLaunchRequest: ProfileLaunchRequest?,
+    playbackSession: PlaybackSessionController,
     modifier: Modifier = Modifier,
 ) {
     val homeCache = remember(activeProfile?.id) { HomeScreenCache() }
@@ -1083,9 +1124,365 @@ private fun DestinationContent(
                 onMutation = onProfileMutation,
                 onBrowse = onBrowse,
                 onBack = onCloseMedia,
+                playbackSession = playbackSession,
             )
         }
         if (profileSync.refreshing) LinearProgressIndicator(Modifier.fillMaxWidth().align(Alignment.TopCenter))
+    }
+}
+
+@Composable
+private fun BoxScope.PlaybackSessionHost(
+    controller: PlaybackSessionController,
+    preferences: DevicePreferences,
+    expanded: Boolean,
+    bottomNavigationVisible: Boolean,
+) {
+    val session = controller.state
+    val request = session.request ?: return
+    val fullScreen = session.presentation == PlaybackPresentation.FullScreen
+    val systemPip = session.presentation == PlaybackPresentation.SystemPip
+    var controlsVisible by remember(request.identity, request.url) { mutableStateOf(true) }
+    var temporarySpeedActive by remember(request.identity, request.url) { mutableStateOf(false) }
+    var miniOffset by remember(request.identity, request.url) { mutableStateOf(IntOffset.Zero) }
+    var miniWidthDp by remember(request.identity, request.url, expanded) {
+        mutableFloatStateOf(if (expanded) 320f else 220f)
+    }
+    var miniDockedLeft by remember(request.identity, request.url) { mutableStateOf(false) }
+    var miniDockedTop by remember(request.identity, request.url) { mutableStateOf(false) }
+    var miniGestureActive by remember(request.identity, request.url) { mutableStateOf(false) }
+    var containerSize by remember { mutableStateOf(IntSize.Zero) }
+    var miniSize by remember { mutableStateOf(IntSize.Zero) }
+    val density = LocalDensity.current
+    val animatedMiniOffset by animateIntOffsetAsState(
+        targetValue = miniOffset,
+        animationSpec = spring(dampingRatio = .78f, stiffness = 520f),
+        label = "mini-player-corner",
+    )
+
+    PlayerOrientationLock(active = session.presentation == PlaybackPresentation.FullScreen)
+    LaunchedEffect(request.identity, request.url) {
+        while (true) {
+            kotlinx.coroutines.delay(15_000)
+            controller.persist()
+        }
+    }
+    LaunchedEffect(session.playback.ended) {
+        if (session.playback.ended) controller.persist()
+    }
+
+    Box(Modifier.fillMaxSize().onSizeChanged { containerSize = it }) {
+        val miniBottomPadding = if (bottomNavigationVisible) 132.dp else 12.dp
+        val renderedMiniOffset = if (miniGestureActive) miniOffset else animatedMiniOffset
+        val miniLayout = Modifier
+            .align(Alignment.BottomEnd)
+            .padding(end = 12.dp, bottom = miniBottomPadding)
+            .offset { renderedMiniOffset }
+            .width(miniWidthDp.dp)
+            .aspectRatio(16f / 9f)
+        val playerModifier = if (fullScreen || systemPip) {
+            Modifier.fillMaxSize()
+        } else {
+            miniLayout.clip(RoundedCornerShape(10.dp))
+        }
+        NativePlayer(
+            url = request.url,
+            active = true,
+            presentation = session.presentation,
+            command = session.command,
+            startPositionMs = request.startPositionMs,
+            requestHeaders = request.requestHeaders,
+            subtitles = request.subtitles,
+            contentLogo = request.logo,
+            contentTitle = request.title,
+            hasNextEpisode = request.hasNextEpisode,
+            onNextEpisode = controller::playNext,
+            hasEpisodes = request.hasEpisodes,
+            onEpisodes = controller::openEpisodes,
+            touchGestures = preferences.touchGestures,
+            holdToSpeed = preferences.holdToSpeed,
+            preferredAudioLanguage = preferences.preferredAudioLanguage,
+            preferredSubtitleLanguage = preferences.preferredSubtitleLanguage,
+            onControlsVisibilityChanged = { controlsVisible = it },
+            onTemporarySpeedChanged = { temporarySpeedActive = it },
+            onSystemPipChanged = controller::systemPipChanged,
+            onSystemPipAvailabilityChanged = controller::systemPipAvailabilityChanged,
+            interactiveResize = miniGestureActive,
+            modifier = playerModifier,
+            onState = controller::updatePlayback,
+        )
+
+        if (systemPip) {
+            // PiP owns the visible video while active. Keeping the app surface
+            // black prevents a second inline copy from playing underneath it.
+            Box(Modifier.matchParentSize().background(Color.Black))
+        }
+
+        if (fullScreen) {
+            if (session.playback.loading && session.playback.error == null) {
+                PlayerOpeningOverlay(
+                    artwork = request.artwork,
+                    logo = request.logo,
+                    title = request.mediaName,
+                    modifier = Modifier.matchParentSize(),
+                )
+            }
+            if (session.playback.buffering && !session.playback.loading && session.playback.error == null) {
+                PlayerBufferingOverlay(Modifier.matchParentSize())
+            }
+            if (controlsVisible) {
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .statusBarsPadding()
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    PlayerBackButton(controller)
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        request.title,
+                        color = Color.White,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (session.systemPipAvailable) {
+                        IconButton(
+                            onClick = { controller.send(PlaybackCommand.EnterSystemPip) },
+                            modifier = Modifier.background(Color.Black.copy(.55f), androidx.compose.foundation.shape.CircleShape),
+                        ) { Icon(Icons.Rounded.PictureInPictureAlt, "Picture in Picture", tint = Color.White) }
+                    }
+                }
+            }
+            if (temporarySpeedActive) {
+                Text(
+                    "» 2×",
+                    color = Color.White,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 12.dp)
+                        .background(Color.Black.copy(.72f), RoundedCornerShape(12.dp))
+                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                )
+            }
+            session.playback.error?.let { message ->
+                Box(
+                    Modifier.matchParentSize().background(Color.Black.copy(.72f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("Playback failed", color = Color.White, fontWeight = FontWeight.Bold)
+                        Text(message, color = Color.White.copy(.7f), style = MaterialTheme.typography.bodySmall)
+                        TextButton(onClick = controller::close) { Text("Choose another stream") }
+                    }
+                }
+            }
+            if (
+                request.hasNextEpisode &&
+                session.playback.durationMs > 0 &&
+                session.playback.durationMs - session.playback.positionMs in 1..30_000
+            ) {
+                Surface(
+                    Modifier.align(Alignment.BottomEnd).padding(end = 18.dp, bottom = 112.dp)
+                        .widthIn(min = 300.dp, max = 365.dp),
+                    color = Color(0xE619191B),
+                    shape = RoundedCornerShape(20.dp),
+                    border = BorderStroke(1.dp, Color.White.copy(.16f)),
+                ) {
+                    Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        AsyncImage(
+                            request.nextEpisodeArtwork,
+                            null,
+                            Modifier.size(88.dp, 54.dp).clip(RoundedCornerShape(11.dp)),
+                            contentScale = ContentScale.Crop,
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("NEXT EPISODE", color = Color.White.copy(.6f), style = MaterialTheme.typography.labelSmall)
+                            Text(request.nextEpisodeTitle.orEmpty(), color = Color.White, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        FilledTonalIconButton(onClick = controller::playNext) {
+                            Icon(Icons.Rounded.PlayArrow, "Play next")
+                        }
+                    }
+                }
+            }
+        } else if (!systemPip) {
+            val edgePaddingPx = with(density) { 12.dp.roundToPx() }
+            val bottomPaddingPx = with(density) { miniBottomPadding.roundToPx() }
+            val topPaddingPx = WindowInsets.statusBars.getTop(density) + edgePaddingPx
+            val horizontalLimit = (containerSize.width - miniSize.width - edgePaddingPx * 2).coerceAtLeast(0)
+            val verticalLimit = (
+                containerSize.height - miniSize.height - bottomPaddingPx - topPaddingPx
+            ).coerceAtLeast(0)
+            val minimumWidthDp = if (expanded) 240f else 180f
+            val availableWidthDp = with(density) {
+                (containerSize.width - 24.dp.roundToPx()).coerceAtLeast(1).toDp().value
+            }
+            val maximumWidthDp = (if (expanded) 480f else 340f).coerceAtMost(availableWidthDp)
+                .coerceAtLeast(minimumWidthDp)
+            val currentHorizontalLimit by rememberUpdatedState(horizontalLimit)
+            val currentVerticalLimit by rememberUpdatedState(verticalLimit)
+            val currentMinimumWidthDp by rememberUpdatedState(minimumWidthDp)
+            val currentMaximumWidthDp by rememberUpdatedState(maximumWidthDp)
+            val minimumFlingSpeedPx = with(density) { 50.dp.toPx() }
+            val currentMinimumFlingSpeedPx by rememberUpdatedState(minimumFlingSpeedPx)
+            LaunchedEffect(horizontalLimit, verticalLimit, miniGestureActive) {
+                miniOffset = if (miniGestureActive) {
+                    IntOffset(
+                        miniOffset.x.coerceIn(-horizontalLimit, 0),
+                        miniOffset.y.coerceIn(-verticalLimit, 0),
+                    )
+                } else {
+                    IntOffset(
+                        x = if (miniDockedLeft) -horizontalLimit else 0,
+                        y = if (miniDockedTop) -verticalLimit else 0,
+                    )
+                }
+            }
+            Box(
+                miniLayout
+                    .clip(RoundedCornerShape(10.dp))
+                    .onSizeChanged { miniSize = it }
+                    .pointerInput(request.identity, containerSize) {
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            val velocityTracker = VelocityTracker()
+                            var trackedDrag = Offset.Zero
+                            var resizedDuringGesture = false
+                            velocityTracker.addPosition(down.uptimeMillis, trackedDrag)
+                            miniGestureActive = true
+                            do {
+                                val event = awaitPointerEvent()
+                                val pan = event.calculatePan()
+                                val zoom = event.calculateZoom()
+                                if (event.changes.count { it.pressed } > 1) {
+                                    resizedDuringGesture = true
+                                }
+                                miniWidthDp = (miniWidthDp * zoom).coerceIn(
+                                    currentMinimumWidthDp,
+                                    currentMaximumWidthDp,
+                                )
+                                miniOffset = IntOffset(
+                                    x = (miniOffset.x + pan.x.roundToInt())
+                                        .coerceIn(-currentHorizontalLimit, 0),
+                                    y = (miniOffset.y + pan.y.roundToInt())
+                                        .coerceIn(-currentVerticalLimit, 0),
+                                )
+                                trackedDrag += pan
+                                val eventTime = event.changes.maxOfOrNull { it.uptimeMillis }
+                                    ?: down.uptimeMillis
+                                velocityTracker.addPosition(eventTime, trackedDrag)
+                                event.changes.forEach { change ->
+                                    if (change.positionChanged()) change.consume()
+                                }
+                            } while (event.changes.any { it.pressed })
+                            val velocity = velocityTracker.calculateVelocity()
+                            val speed = sqrt(velocity.x * velocity.x + velocity.y * velocity.y)
+                            if (!resizedDuringGesture && speed >= currentMinimumFlingSpeedPx) {
+                                val projectedX = miniOffset.x + velocity.x * .25f
+                                val projectedY = miniOffset.y + velocity.y * .25f
+                                val horizontalDominant = abs(velocity.x) > abs(velocity.y) * 1.35f
+                                val verticalDominant = abs(velocity.y) > abs(velocity.x) * 1.35f
+                                if (!verticalDominant) {
+                                    miniDockedLeft = projectedX < -currentHorizontalLimit / 2f
+                                }
+                                if (!horizontalDominant) {
+                                    miniDockedTop = projectedY < -currentVerticalLimit / 2f
+                                }
+                            }
+                            miniGestureActive = false
+                            miniOffset = IntOffset(
+                                x = if (miniDockedLeft) -currentHorizontalLimit else 0,
+                                y = if (miniDockedTop) -currentVerticalLimit else 0,
+                            )
+                        }
+                    }
+                    .clickable(onClick = controller::restore),
+            ) {
+                IconButton(
+                    onClick = {
+                        controller.send(
+                            if (session.playback.playing) PlaybackCommand.Pause else PlaybackCommand.Play,
+                        )
+                    },
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .background(Color.Black.copy(alpha = .68f), androidx.compose.foundation.shape.CircleShape),
+                ) {
+                    Icon(
+                        if (session.playback.playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                        if (session.playback.playing) "Pause" else "Play",
+                        tint = Color.White,
+                    )
+                }
+                IconButton(
+                    onClick = controller::close,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(2.dp)
+                        .background(Color.Black.copy(alpha = .68f), androidx.compose.foundation.shape.CircleShape),
+                ) {
+                    Icon(Icons.Rounded.Close, "Close player", tint = Color.White)
+                }
+                LinearProgressIndicator(
+                    progress = {
+                        if (session.playback.durationMs > 0) {
+                            (session.playback.positionMs.toFloat() / session.playback.durationMs.toFloat())
+                                .coerceIn(0f, 1f)
+                        } else {
+                            0f
+                        }
+                    },
+                    modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(3.dp),
+                    color = MaterialTheme.colorScheme.primary,
+                    trackColor = Color.White.copy(alpha = .28f),
+                    drawStopIndicator = {},
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlayerBackButton(controller: PlaybackSessionController) {
+    val haptics = LocalHapticFeedback.current
+    var holdActivated by remember { mutableStateOf(false) }
+    Box(
+        Modifier
+            .size(48.dp)
+            .background(Color.Black.copy(.55f), androidx.compose.foundation.shape.CircleShape)
+            .pointerInput(controller) {
+                detectTapGestures(
+                    onPress = {
+                        var longPress = false
+                        coroutineScope {
+                            val holdJob = launch {
+                                kotlinx.coroutines.delay(450)
+                                longPress = true
+                                holdActivated = true
+                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            }
+                            val released = tryAwaitRelease()
+                            holdJob.cancel()
+                            holdActivated = false
+                            if (released) {
+                                if (longPress) controller.minimize() else controller.close()
+                            }
+                        }
+                    },
+                )
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            if (holdActivated) Icons.Rounded.PictureInPictureAlt else Icons.AutoMirrored.Rounded.ArrowBack,
+            if (holdActivated) "Release to minimize player" else "Back",
+            tint = Color.White,
+        )
     }
 }
 

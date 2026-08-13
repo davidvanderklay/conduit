@@ -609,6 +609,7 @@ internal fun MediaDetailsScreen(
     onMutation: suspend (ProfileMutation) -> Result<Unit>,
     onBrowse: (MobileBrowseTarget) -> Unit,
     onBack: () -> Unit,
+    playbackSession: PlaybackSessionController,
 ) {
     var meta by remember(item.id, item.type) { mutableStateOf<MetaItem?>(null) }
     var error by remember(item.id) { mutableStateOf<String?>(null) }
@@ -619,14 +620,13 @@ internal fun MediaDetailsScreen(
     var streamsError by remember(item.id) { mutableStateOf<String?>(null) }
     var selectedStreamAddonId by remember(item.id) { mutableStateOf(preferences.lastStreamAddonId) }
     var playing by remember(item.id) { mutableStateOf<StreamItem?>(null) }
-    var playback by remember(item.id) { mutableStateOf(PlaybackState()) }
     var resumePosition by remember(item.id) { mutableStateOf(0L) }
     var currentAddonId by remember(item.id) { mutableStateOf<String?>(null) }
     var episodesOpen by remember(item.id) { mutableStateOf(false) }
     var currentAddonName by remember(item.id) { mutableStateOf<String?>(null) }
     var externalSubtitles by remember(item.id) { mutableStateOf<List<SubtitleItem>>(emptyList()) }
+    var externalSubtitlesLoaded by remember(item.id) { mutableStateOf(false) }
     var selectedSeason by remember(item.id) { mutableStateOf<Int?>(null) }
-    var temporarySpeedActive by remember(item.id) { mutableStateOf(false) }
     var autoResumeAttemptedKey by remember(item.id) { mutableStateOf<String?>(null) }
     var selectedPlaybackSources by remember(item.id) { mutableStateOf<Map<String, PlaybackSource>>(emptyMap()) }
     var streamRequestVersion by remember(item.id) { mutableIntStateOf(0) }
@@ -708,7 +708,6 @@ internal fun MediaDetailsScreen(
                             val selectedSource = playbackSourceForStream(choice.addonId, choice.stream)
                             selectedPlaybackSources = selectedPlaybackSources + (videoId to selectedSource)
                             if (autoPlaySavedSource) autoResumeAttemptedKey = autoResumeAttemptKey(selectedSource)
-                            playback = PlaybackState()
                             playing = choice.stream
                         } else {
                             streamsError = if (choices.isEmpty()) {
@@ -745,7 +744,11 @@ internal fun MediaDetailsScreen(
             }
         }
     }
-    LaunchedEffect(playingVideoId, addons) { externalSubtitles = runCatching { api.loadSubtitles(addons, item.type, playingVideoId) }.getOrDefault(emptyList()) }
+    LaunchedEffect(playingVideoId, addons) {
+        externalSubtitlesLoaded = false
+        externalSubtitles = runCatching { api.loadSubtitles(addons, item.type, playingVideoId) }.getOrDefault(emptyList())
+        externalSubtitlesLoaded = true
+    }
     LaunchedEffect(playingVideoId, profile?.id) {
         resumePosition = snapshot?.progress?.firstOrNull { it.videoId == playingVideoId }?.takeUnless { it.watched }?.positionMs
             ?: profile?.let { runCatching { api.loadProgress(baseUrl, token, it.id, playingVideoId) }.getOrNull()?.takeUnless { progress -> progress.watched }?.positionMs }
@@ -769,54 +772,10 @@ internal fun MediaDetailsScreen(
         error == null && (meta == null || addons.isNotEmpty()) &&
         !streamPageOpen && playing == null &&
         (autoResumeAttemptedKey == null || streamsLoading)
-    PlayerOrientationLock(active = waitingForSavedPlayback || playing?.url != null)
     fun currentPlaybackSource(): PlaybackSource? =
         currentAddonId?.let { addonId -> playing?.let { playbackSourceForStream(addonId, it) } }
-
-    suspend fun persistProgress(
-        state: PlaybackState = playback,
-        source: PlaybackSource? = currentPlaybackSource(),
-    ) {
-        val activeProfile = profile ?: return
-        val video = selectedVideo
-        val videoId = video?.id ?: item.id
-        val existing = snapshot?.progress?.firstOrNull { it.videoId == videoId }
-        val resolved = resolveProgressState(state, existing) ?: return
-        api.saveProgress(baseUrl, token, activeProfile.id, video?.id ?: item.id, item.type, item.id,
-            meta?.name ?: item.name, meta?.poster ?: item.poster, video?.displayTitle, video?.season, video?.episode,
-            resolved.positionMs, resolved.durationMs, source, resolved.watched)
-        onProgressChanged()
-    }
-    fun playNext(video: VideoItem) {
-        val playbackSnapshot = playback
-        val source = currentPlaybackSource()
-        scope.launch { runCatching { persistProgress(playbackSnapshot, source) } }
-        playing = null
-        playback = PlaybackState()
-        selectedVideo = video
-        resumePosition = 0L
-        requestStreams(video)
-    }
-    PlatformBackHandler {
-        when {
-            playing != null -> {
-                val playbackSnapshot = playback
-                val source = currentPlaybackSource()
-                playing = null
-                scope.launch { runCatching { persistProgress(playbackSnapshot, source) } }
-            }
-            streamPageOpen -> { streamPageOpen = false; streams = null }
-            else -> onBack()
-        }
-    }
-    LaunchedEffect(playing, playingVideoId) {
-        while (playing != null) { delay(15_000); runCatching { persistProgress() } }
-    }
     val orderedVideos = meta?.videos.orEmpty().sortedWith(compareBy<VideoItem> { it.season ?: 0 }.thenBy { it.episode ?: 0 })
     val nextVideo = orderedVideos.indexOfFirst { it.id == selectedVideo?.id }.takeIf { it >= 0 }?.let { orderedVideos.getOrNull(it + 1) }
-    LaunchedEffect(playback.ended) { if (playback.ended) runCatching { persistProgress() } }
-    var openingOverlay by remember(playing?.url) { mutableStateOf(playing?.url != null) }
-    var playerControlsVisible by remember(playing?.url) { mutableStateOf(true) }
     val playerContentTitle = if (selectedVideo != null) {
         val episodeNumber = listOfNotNull(selectedVideo?.season, selectedVideo?.episode)
             .takeIf { it.size == 2 }
@@ -828,100 +787,137 @@ internal fun MediaDetailsScreen(
     } else {
         meta?.name ?: item.name
     }
-    LaunchedEffect(playing?.url) {
-        playback = PlaybackState()
+    val activeProfile = profile
+    val selectedStream = playing
+    val requestIdentity = activeProfile?.let {
+        PlaybackIdentity(it.id, item.type, item.id, selectedVideo?.id ?: item.id)
     }
-
-    if (playing?.url != null) {
-        Box(Modifier.fillMaxSize().background(Color.Black)) {
-            NativePlayer(
-                url = playing!!.url!!, active = true, startPositionMs = resumePosition,
-                requestHeaders = playing!!.behaviorHints?.proxyHeaders?.request.orEmpty().mapNotNull { (key, value) -> value.jsonPrimitive.contentOrNull?.let { key to it } }.toMap(),
-                subtitles = externalSubtitles,
-                contentLogo = meta?.logo,
-                contentTitle = playerContentTitle,
-                hasNextEpisode = nextVideo != null, onNextEpisode = { nextVideo?.let(::playNext) },
-                hasEpisodes = orderedVideos.isNotEmpty(), onEpisodes = { episodesOpen = true }, modifier = Modifier.fillMaxSize(),
-                touchGestures = preferences.touchGestures, holdToSpeed = preferences.holdToSpeed,
-                preferredAudioLanguage = preferences.preferredAudioLanguage,
-                preferredSubtitleLanguage = preferences.preferredSubtitleLanguage,
-                onControlsVisibilityChanged = { playerControlsVisible = it },
-                onTemporarySpeedChanged = { temporarySpeedActive = it },
-            ) {
-                playback = it
-                if (!it.loading || it.error != null) openingOverlay = false
-            }
-            if (openingOverlay && playback.error == null) {
-                PlayerOpeningOverlay(
-                    artwork = meta?.background ?: item.background ?: meta?.poster ?: item.poster,
-                    logo = meta?.logo,
-                    title = if (selectedVideo != null) "${meta?.name ?: item.name}  ·  ${selectedVideo?.displayTitle}" else meta?.name ?: item.name,
-                    modifier = Modifier.matchParentSize(),
-                )
-            }
-            if (playback.buffering && !openingOverlay && playback.error == null) {
-                PlayerBufferingOverlay(Modifier.matchParentSize())
-            }
-            if (playerControlsVisible) Row(
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .statusBarsPadding()
-                    .fillMaxWidth(.78f)
-                    .padding(12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                IconButton(
-                    onClick = {
-                        val playbackSnapshot = playback
-                        val source = currentPlaybackSource()
-                        playing = null
-                        scope.launch { runCatching { persistProgress(playbackSnapshot, source) } }
-                    },
-                    modifier = Modifier.background(Color.Black.copy(.55f), CircleShape),
-                ) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = Color.White) }
-                Spacer(Modifier.width(10.dp))
-                Text(
-                    playerContentTitle,
-                    color = Color.White,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            if (temporarySpeedActive) {
-                Text(
-                    "» 2×",
-                    color = Color.White,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .statusBarsPadding()
-                        .padding(top = 12.dp)
-                        .background(Color.Black.copy(.72f), RoundedCornerShape(12.dp))
-                        .padding(horizontal = 14.dp, vertical = 8.dp),
-                )
-            }
-            playback.error?.let { message -> Box(Modifier.matchParentSize().background(Color.Black.copy(.72f)).clickable(enabled = true, onClick = {}), contentAlignment = Alignment.Center) { Surface(color = Color(0xF21A1A1D), shape = RoundedCornerShape(18.dp), modifier = Modifier.padding(28.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(.45f))) { Column(Modifier.padding(22.dp), horizontalAlignment = Alignment.CenterHorizontally) { Icon(Icons.Rounded.ErrorOutline, null, tint = MaterialTheme.colorScheme.error); Spacer(Modifier.height(8.dp)); Text("Playback failed", color = Color.White, fontWeight = FontWeight.Bold); Text(message, color = Color.White.copy(.7f), style = MaterialTheme.typography.bodySmall); Spacer(Modifier.height(14.dp)); Button(onClick = { playing = null }) { Text("Choose another stream") } } } } }
-            if (!episodesOpen && nextVideo != null && playback.durationMs > 0 && playback.durationMs - playback.positionMs in 1..30_000) {
-                Surface(Modifier.align(Alignment.BottomEnd).padding(end = 18.dp, bottom = 112.dp).widthIn(min = 300.dp, max = 365.dp), color = Color(0xE619191B), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, Color.White.copy(.16f)), shadowElevation = 18.dp) {
-                    Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) { AsyncImage(nextVideo.thumbnail ?: meta?.background, null, Modifier.size(88.dp, 54.dp).clip(RoundedCornerShape(11.dp)), contentScale = ContentScale.Crop); Spacer(Modifier.width(10.dp)); Column(Modifier.weight(1f)) { Text("NEXT EPISODE", color = Color.White.copy(.6f), style = MaterialTheme.typography.labelSmall); Text("S${nextVideo.season ?: 0}E${nextVideo.episode ?: 0} · ${nextVideo.displayTitle}", color = Color.White, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis) }; FilledTonalIconButton(onClick = { playNext(nextVideo) }) { Icon(Icons.Rounded.PlayArrow, "Play next") } }
+    val sessionCallbacks = requestIdentity?.let { identity ->
+        PlaybackSessionCallbacks(
+            persist = { request, state ->
+                val existing = snapshot?.progress?.firstOrNull { it.videoId == request.identity.videoId }
+                resolveProgressState(state, existing)?.let { resolved ->
+                    api.saveProgress(
+                        baseUrl, token, request.identity.profileId, request.identity.videoId,
+                        request.identity.mediaType, request.identity.mediaId, request.mediaName,
+                        request.poster, request.episodeTitle, request.season, request.episode,
+                        resolved.positionMs, resolved.durationMs, request.source, resolved.watched,
+                    )
+                    onProgressChanged()
                 }
+            },
+            playNext = {
+                nextVideo?.let { video ->
+                    playbackSession.close(saveProgress = false)
+                    playing = null
+                    selectedVideo = video
+                    resumePosition = 0L
+                    requestStreams(video)
+                }
+            },
+            openEpisodes = {
+                episodesOpen = true
+                playbackSession.minimize(notifyOwner = false)
+            },
+            minimized = onBack,
+            closed = { playing = null },
+        )
+    }
+    LaunchedEffect(
+        selectedStream?.url,
+        requestIdentity,
+        externalSubtitlesLoaded,
+        externalSubtitles,
+        playerContentTitle,
+        nextVideo?.id,
+    ) {
+        val streamUrl = selectedStream?.url ?: return@LaunchedEffect
+        if (!externalSubtitlesLoaded) return@LaunchedEffect
+        val identity = requestIdentity ?: return@LaunchedEffect
+        val callbacks = sessionCallbacks ?: return@LaunchedEffect
+        val request = PlaybackRequest(
+            identity = identity,
+            url = streamUrl,
+            requestHeaders = selectedStream.behaviorHints?.proxyHeaders?.request.orEmpty()
+                .mapNotNull { (key, value) -> value.jsonPrimitive.contentOrNull?.let { key to it } }
+                .toMap(),
+            subtitles = externalSubtitles,
+            title = playerContentTitle,
+            mediaName = if (selectedVideo != null) {
+                "${meta?.name ?: item.name}  ·  ${selectedVideo?.displayTitle}"
+            } else {
+                meta?.name ?: item.name
+            },
+            artwork = meta?.background ?: item.background ?: meta?.poster ?: item.poster,
+            logo = meta?.logo,
+            poster = meta?.poster ?: item.poster,
+            episodeTitle = selectedVideo?.displayTitle,
+            season = selectedVideo?.season,
+            episode = selectedVideo?.episode,
+            startPositionMs = resumePosition,
+            source = currentPlaybackSource(),
+            hasNextEpisode = nextVideo != null,
+            nextEpisodeTitle = nextVideo?.let { "S${it.season ?: 0}E${it.episode ?: 0} · ${it.displayTitle}" },
+            nextEpisodeArtwork = nextVideo?.thumbnail ?: meta?.background,
+            hasEpisodes = orderedVideos.isNotEmpty(),
+        )
+        playbackSession.start(request, callbacks)
+    }
+    SideEffect {
+        if (requestIdentity != null && sessionCallbacks != null) playbackSession.attach(requestIdentity, sessionCallbacks)
+    }
+    val ownsPlayback = requestIdentity != null && playbackSession.state.request?.identity == requestIdentity
+    PlayerOrientationLock(
+        active = waitingForSavedPlayback ||
+            (playing != null && !ownsPlayback) ||
+            (ownsPlayback && playbackSession.state.presentation == PlaybackPresentation.FullScreen),
+    )
+    PlatformBackHandler {
+        when {
+            ownsPlayback && playbackSession.state.presentation == PlaybackPresentation.FullScreen -> {
+                playbackSession.close()
             }
-            if (episodesOpen) PlayerEpisodeDrawer(orderedVideos, selectedVideo, snapshot, onDismiss = { episodesOpen = false }) { video ->
+            streamPageOpen -> { streamPageOpen = false; streams = null }
+            else -> onBack()
+        }
+    }
+    if (episodesOpen) {
+        Box(Modifier.fillMaxSize()) {
+            PlayerEpisodeDrawer(
+                orderedVideos,
+                selectedVideo,
+                snapshot,
+                onDismiss = { episodesOpen = false },
+            ) { video ->
                 episodesOpen = false
-                scope.launch { runCatching { persistProgress() }; selectedVideo = video; playing = null; requestStreams(video) }
+                playbackSession.close()
+                selectedVideo = video
+                playing = null
+                resumePosition = 0L
+                requestStreams(video)
             }
         }
         return
     }
     if (waitingForSavedPlayback) {
-        PlayerOpeningOverlay(
-            artwork = meta?.background ?: item.background ?: meta?.poster ?: item.poster,
-            logo = meta?.logo,
-            title = meta?.name ?: item.name,
-            modifier = Modifier.fillMaxSize(),
-        )
+        Box(Modifier.fillMaxSize()) {
+            PlayerOpeningOverlay(
+                artwork = meta?.background ?: item.background ?: meta?.poster ?: item.poster,
+                logo = meta?.logo,
+                title = meta?.name ?: item.name,
+                modifier = Modifier.fillMaxSize(),
+            )
+            IconButton(
+                onClick = onBack,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .statusBarsPadding()
+                    .padding(12.dp)
+                    .background(Color.Black.copy(alpha = .58f), CircleShape),
+            ) {
+                Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = Color.White)
+            }
+        }
         return
     }
     if (streamPageOpen) {
@@ -955,7 +951,6 @@ internal fun MediaDetailsScreen(
                     val videoId = selectedVideo?.id ?: item.id
                     selectedPlaybackSources = selectedPlaybackSources + (videoId to selectedSource)
                     if (videoId == initialVideoId) autoResumeAttemptedKey = autoResumeAttemptKey(selectedSource)
-                    playback = PlaybackState()
                     playing = source.stream
                 }
             }
@@ -1227,7 +1222,7 @@ internal fun MediaDetailsScreen(
 }
 
 @Composable
-private fun PlayerOpeningOverlay(artwork: String?, logo: String?, title: String, modifier: Modifier = Modifier) {
+internal fun PlayerOpeningOverlay(artwork: String?, logo: String?, title: String, modifier: Modifier = Modifier) {
     val pulse = rememberInfiniteTransition(label = "player-opening")
     val indicatorScale by pulse.animateFloat(
         initialValue = .96f,
@@ -1287,7 +1282,7 @@ private fun PlayerOpeningOverlay(artwork: String?, logo: String?, title: String,
 }
 
 @Composable
-private fun PlayerBufferingOverlay(modifier: Modifier = Modifier) {
+internal fun PlayerBufferingOverlay(modifier: Modifier = Modifier) {
     Box(modifier.background(Color.Black.copy(alpha = .55f)), contentAlignment = Alignment.Center) {
         CircularProgressIndicator(
             modifier = Modifier.size(32.dp),
