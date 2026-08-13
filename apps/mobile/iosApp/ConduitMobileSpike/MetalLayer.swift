@@ -47,7 +47,7 @@ final class ConduitMetalLayer: CAMetalLayer {
 
     /// Copies the most recently requested MPV drawable into a pooled BGRA buffer.
     /// Capture is only called while PiP is priming or active.
-    func copyLatestFrame(to pixelBuffer: CVPixelBuffer) -> Bool {
+    func copyLatestFrame(to pixelBuffer: CVPixelBuffer, contentSize: CGSize) -> Bool {
         captureLock.lock()
         let texture = latestDrawable?.texture
         captureLock.unlock()
@@ -70,9 +70,35 @@ final class ConduitMetalLayer: CAMetalLayer {
             tx: 0,
             ty: image.extent.height
         ))
-        let scaledImage = uprightImage.transformed(by: CGAffineTransform(
-            scaleX: targetSize.width / image.extent.width,
-            y: targetSize.height / image.extent.height
+        let sourceExtent = uprightImage.extent
+        let contentAspect = contentSize.width > 1 && contentSize.height > 1
+            ? contentSize.width / contentSize.height
+            : sourceExtent.width / sourceExtent.height
+        let sourceAspect = sourceExtent.width / sourceExtent.height
+        let cropRect: CGRect
+        if sourceAspect > contentAspect {
+            let width = sourceExtent.height * contentAspect
+            cropRect = CGRect(
+                x: sourceExtent.midX - width / 2,
+                y: sourceExtent.minY,
+                width: width,
+                height: sourceExtent.height
+            )
+        } else {
+            let height = sourceExtent.width / contentAspect
+            cropRect = CGRect(
+                x: sourceExtent.minX,
+                y: sourceExtent.midY - height / 2,
+                width: sourceExtent.width,
+                height: height
+            )
+        }
+        let croppedImage = uprightImage
+            .cropped(to: cropRect)
+            .transformed(by: CGAffineTransform(translationX: -cropRect.minX, y: -cropRect.minY))
+        let scaledImage = croppedImage.transformed(by: CGAffineTransform(
+            scaleX: targetSize.width / cropRect.width,
+            y: targetSize.height / cropRect.height
         ))
         captureContext.render(
             scaledImage,

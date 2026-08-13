@@ -273,6 +273,8 @@ actual fun NativePlayer(
                         playing = player.isPlaying,
                         positionMs = player.currentPosition.coerceAtLeast(0),
                         durationMs = player.duration.coerceAtLeast(0),
+                        videoWidth = player.videoSize.width,
+                        videoHeight = player.videoSize.height,
                         ended = player.playbackState == Player.STATE_ENDED,
                         error = playbackError,
                         pipReady = playerPipReady,
