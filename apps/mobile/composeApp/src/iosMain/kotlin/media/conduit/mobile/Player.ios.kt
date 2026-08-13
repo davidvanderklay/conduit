@@ -5,7 +5,6 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -44,8 +43,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.cinterop.ExperimentalForeignApi
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.serialization.encodeToString
@@ -143,6 +140,7 @@ actual fun NativePlayer(
     var positionMs by remember(bridge) { mutableLongStateOf(0L) }
     var durationMs by remember(bridge) { mutableLongStateOf(0L) }
     var playing by remember(bridge) { mutableStateOf(false) }
+    var buffering by remember(bridge) { mutableStateOf(false) }
     var playbackSpeed by remember(bridge) { mutableFloatStateOf(1f) }
     var resizeMode by remember(bridge) { mutableIntStateOf(0) }
     var showRemainingTime by remember(bridge) { mutableStateOf(false) }
@@ -214,12 +212,14 @@ actual fun NativePlayer(
                 durationMs = bridge.getDurationMs().coerceAtLeast(0),
                 ended = bridge.getIsEnded(),
                 error = bridge.getErrorMessage().ifBlank { null },
+                pipReady = !bridge.getIsLoading() && bridge.getDurationMs() > 0 && bridge.getErrorMessage().isBlank(),
             )
             currentCallback(next)
             if (!dragging) positionMs = next.positionMs
             durationMs = next.durationMs
             playbackReady = playbackReady || (!next.loading && next.durationMs > 0)
             playing = next.playing
+            buffering = next.buffering
             playbackSpeed = bridge.getPlaybackSpeed()
             latestPipAvailabilityCallback(bridge.isPictureInPictureSupported())
             latestPipCallback(bridge.isPictureInPictureActive())
@@ -247,11 +247,11 @@ actual fun NativePlayer(
     }
 
     LaunchedEffect(presentation) {
-        controlsVisible = presentation == PlaybackPresentation.FullScreen
+        controlsVisible = presentation != PlaybackPresentation.Mini
     }
 
-    LaunchedEffect(controlsVisible, playing, speedMenuOpen) {
-        if (controlsVisible && playing && !speedMenuOpen) {
+    LaunchedEffect(controlsVisible, playing, speedMenuOpen, presentation) {
+        if (presentation == PlaybackPresentation.FullScreen && controlsVisible && playing && !speedMenuOpen) {
             delay(4_000)
             controlsVisible = false
         }
@@ -268,6 +268,7 @@ actual fun NativePlayer(
         bridge.setInteractiveResize(interactiveResize)
     }
 
+    val doubleTapSlopPx = with(density) { 48.dp.toPx() }
     Box(
         modifier
             .background(Color.Black)
@@ -281,45 +282,20 @@ actual fun NativePlayer(
                     if (next != resizeMode) resizeMode = next
                 }
             }
-            .pointerInput(bridge, touchGestures, holdToSpeed, playbackReady) {
-                var holdSpeedTriggered = false
-                detectTapGestures(
-                    onPress = {
-                        holdSpeedTriggered = false
-                        if (holdToSpeed && playbackReady) {
-                            coroutineScope {
-                                val release = async { tryAwaitRelease() }
-                                delay(450)
-                                if (!release.isCompleted) {
-                                    holdSpeedTriggered = true
-                                    val previousSpeed = playbackSpeed
-                                    bridge.setPlaybackSpeed(2f)
-                                    latestTemporarySpeedCallback(true)
-                                    try {
-                                        release.await()
-                                    } finally {
-                                        bridge.setPlaybackSpeed(previousSpeed)
-                                        latestTemporarySpeedCallback(false)
-                                    }
-                                }
-                            }
-                        } else {
-                            tryAwaitRelease()
-                        }
+            .pointerInput(bridge, touchGestures, holdToSpeed, playbackReady, doubleTapSlopPx) {
+                detectMovementTolerantPlayerGestures(
+                    touchGestures = touchGestures,
+                    holdToSpeed = holdToSpeed,
+                    holdToSpeedReady = playbackReady,
+                    doubleTapSlopPx = doubleTapSlopPx,
+                    currentSpeed = bridge::getPlaybackSpeed,
+                    setSpeed = bridge::setPlaybackSpeed,
+                    onTemporarySpeedChanged = latestTemporarySpeedCallback,
+                    onTap = { controlsVisible = !controlsVisible },
+                    onDoubleTap = { offset ->
+                        if (offset.x < size.width / 2f) bridge.seekBy(-10_000) else bridge.seekBy(10_000)
+                        controlsVisible = true
                     },
-                    onTap = {
-                        if (holdSpeedTriggered) {
-                            holdSpeedTriggered = false
-                        } else {
-                            controlsVisible = !controlsVisible
-                        }
-                    },
-                    onDoubleTap = if (touchGestures) {
-                        { offset ->
-                            if (offset.x < size.width / 2f) bridge.seekBy(-10_000) else bridge.seekBy(10_000)
-                            controlsVisible = true
-                        }
-                    } else null,
                 )
             },
     ) {
@@ -338,35 +314,37 @@ actual fun NativePlayer(
             interactive = false,
         )
 
-        if (controlsVisible && presentation == PlaybackPresentation.FullScreen) {
+        if (controlsVisible && presentation != PlaybackPresentation.Mini) {
             Box(
                 Modifier
                     .fillMaxSize()
                     .background(Color.Black.copy(alpha = .42f)),
             ) {
                 Box(Modifier.fillMaxSize()) {
-                    FilledIconButton(
-                        onClick = {
-                            if (playing) {
-                                bridge.pause()
-                                playing = false
-                            } else {
-                                bridge.play()
-                                playing = true
-                            }
-                            controlsVisible = true
-                        },
-                        modifier = Modifier.align(Alignment.Center).size(64.dp),
-                        colors = IconButtonDefaults.filledIconButtonColors(
-                            containerColor = Color.White,
-                            contentColor = Color.Black,
-                        ),
-                    ) {
-                        Icon(
-                            if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                            if (playing) "Pause" else "Play",
-                            modifier = Modifier.size(38.dp),
-                        )
+                    if (shouldShowCenterPlaybackControl(controlsVisible, dragging, buffering, presentation == PlaybackPresentation.SystemPip)) {
+                        FilledIconButton(
+                            onClick = {
+                                if (playing) {
+                                    bridge.pause()
+                                    playing = false
+                                } else {
+                                    bridge.play()
+                                    playing = true
+                                }
+                                controlsVisible = true
+                            },
+                            modifier = Modifier.align(Alignment.Center).size(64.dp),
+                            colors = IconButtonDefaults.filledIconButtonColors(
+                                containerColor = Color.White,
+                                contentColor = Color.Black,
+                            ),
+                        ) {
+                            Icon(
+                                if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                                if (playing) "Pause" else "Play",
+                                modifier = Modifier.size(38.dp),
+                            )
+                        }
                     }
                     if (hasNextEpisode) {
                         FilledIconButton(

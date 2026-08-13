@@ -24,6 +24,7 @@ class MainActivity : ComponentActivity() {
     private var pipPlayer: Player? = null
     private var pipSourceView = WeakReference<View>(null)
     private var pipActive = false
+    private var pipVideoReady = false
     private var videoWidth = 16
     private var videoHeight = 9
     private var onPipModeChanged: ((Boolean) -> Unit)? = null
@@ -71,6 +72,7 @@ class MainActivity : ComponentActivity() {
         pipPlayer = player
         onPipModeChanged = onModeChanged
         pipActive = true
+        pipVideoReady = false
         updateConduitPictureInPictureParams()
     }
 
@@ -80,6 +82,7 @@ class MainActivity : ComponentActivity() {
         onPipModeChanged = null
         pipSourceView.clear()
         pipActive = false
+        pipVideoReady = false
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             setPictureInPictureParams(
                 PictureInPictureParams.Builder().setAutoEnterEnabled(false).build(),
@@ -100,6 +103,12 @@ class MainActivity : ComponentActivity() {
         updateConduitPictureInPictureParams()
     }
 
+    internal fun updateConduitPipReadiness(ready: Boolean) {
+        if (pipVideoReady == ready) return
+        pipVideoReady = ready
+        updateConduitPictureInPictureParams()
+    }
+
     internal fun updateConduitPictureInPictureParams() {
         if (!pipActive || Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val sourceRect = Rect().takeIf { pipSourceView.get()?.getGlobalVisibleRect(it) == true }
@@ -108,14 +117,14 @@ class MainActivity : ComponentActivity() {
             .setActions(listOf(playPauseAction()))
         sourceRect?.let(builder::setSourceRectHint)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            builder.setAutoEnterEnabled(pipPlayer?.isPlaying == true)
+            builder.setAutoEnterEnabled(pipVideoReady && pipPlayer?.isPlaying == true)
             builder.setSeamlessResizeEnabled(true)
         }
         setPictureInPictureParams(builder.build())
     }
 
     internal fun enterConduitPictureInPicture() {
-        if (!pipActive || Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        if (!pipActive || !pipVideoReady || Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val sourceRect = Rect().takeIf { pipSourceView.get()?.getGlobalVisibleRect(it) == true }
         val builder = PictureInPictureParams.Builder()
             .setAspectRatio(clampedPipAspectRatio(videoWidth, videoHeight))

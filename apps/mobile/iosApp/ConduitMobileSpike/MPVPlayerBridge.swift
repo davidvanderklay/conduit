@@ -1385,6 +1385,7 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         pictureInPicturePossibleObservation?.invalidate()
         pictureInPicturePossibleObservation = nil
         stopCapture()
+        controller?.stopPictureInPicture()
         controller?.delegate = nil
         controller = nil
         displayLayer.flushAndRemoveImage()
