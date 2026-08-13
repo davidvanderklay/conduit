@@ -610,7 +610,6 @@ internal fun MediaDetailsScreen(
     onBrowse: (MobileBrowseTarget) -> Unit,
     onBack: () -> Unit,
     playbackSession: PlaybackSessionController,
-    onRestorePlayback: (PlaybackRequest) -> Unit = {},
 ) {
     var meta by remember(item.id, item.type) { mutableStateOf<MetaItem?>(null) }
     var error by remember(item.id) { mutableStateOf<String?>(null) }
@@ -807,7 +806,6 @@ internal fun MediaDetailsScreen(
                     onProgressChanged()
                 }
             },
-            restore = onRestorePlayback,
             playNext = {
                 nextVideo?.let { video ->
                     playbackSession.close(saveProgress = false)
@@ -901,12 +899,24 @@ internal fun MediaDetailsScreen(
         return
     }
     if (waitingForSavedPlayback) {
-        PlayerOpeningOverlay(
-            artwork = meta?.background ?: item.background ?: meta?.poster ?: item.poster,
-            logo = meta?.logo,
-            title = meta?.name ?: item.name,
-            modifier = Modifier.fillMaxSize(),
-        )
+        Box(Modifier.fillMaxSize()) {
+            PlayerOpeningOverlay(
+                artwork = meta?.background ?: item.background ?: meta?.poster ?: item.poster,
+                logo = meta?.logo,
+                title = meta?.name ?: item.name,
+                modifier = Modifier.fillMaxSize(),
+            )
+            IconButton(
+                onClick = onBack,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .statusBarsPadding()
+                    .padding(12.dp)
+                    .background(Color.Black.copy(alpha = .58f), CircleShape),
+            ) {
+                Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = Color.White)
+            }
+        }
         return
     }
     if (streamPageOpen) {
