@@ -11,9 +11,7 @@ interface IosBottomNavigationBridge {
         visible: Boolean,
         selectedIndex: Int,
         labels: List<String>,
-        compact: Boolean,
         classic: Boolean,
-        adaptive: Boolean,
         selectionHandler: IosBottomNavigationSelectionHandler?,
     )
 }

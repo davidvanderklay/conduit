@@ -85,7 +85,13 @@ import coil3.compose.AsyncImage
 fun App() {
     val services = rememberPlatformServices()
     val preferencesRepository = remember(services.settings) { DevicePreferencesRepository(services.settings) }
-    var preferences by remember { mutableStateOf(preferencesRepository.load()) }
+    val initialPreferences = remember(preferencesRepository, services.info.name) {
+        val loaded = preferencesRepository.load()
+        val normalized = loaded.normalizedForPlatform(services.info.name)
+        if (normalized != loaded) preferencesRepository.save(normalized)
+        normalized
+    }
+    var preferences by remember { mutableStateOf(initialPreferences) }
     val updatePreferences: (DevicePreferences) -> Unit = { preferences = preferencesRepository.save(it) }
     ConduitTheme(amoledBlack = preferences.amoledBlack) {
         val store = remember(services.settings, services.secure) {
@@ -727,7 +733,7 @@ private fun AppShell(
     var browseQuery by remember(activeProfile?.id) { mutableStateOf("") }
     var focusSearchOnOpen by remember(activeProfile?.id) { mutableStateOf(false) }
     var discoverSelection by remember(activeProfile?.id) { mutableStateOf(DiscoverSelection()) }
-    var adaptiveCompact by remember { mutableStateOf(false) }
+    var adaptiveScrolledDown by remember { mutableStateOf(false) }
     var profileLaunchRequest by remember { mutableStateOf<ProfileLaunchRequest?>(null) }
     var profileLaunchSequence by remember { mutableIntStateOf(0) }
     fun openProfile(target: ProfileLaunchTarget) {
@@ -758,12 +764,12 @@ private fun AppShell(
             AppDestination.History -> (historyGridState.firstVisibleItemIndex.toLong() shl 32) or historyGridState.firstVisibleItemScrollOffset.toLong()
         }
         var previous = position()
-        adaptiveCompact = previous != 0L
+        adaptiveScrolledDown = previous != 0L
         snapshotFlow { position() }
             .collect { current ->
-                if (current == 0L) adaptiveCompact = false
-                else if (current > previous) adaptiveCompact = true
-                else if (current < previous) adaptiveCompact = false
+                if (current == 0L) adaptiveScrolledDown = false
+                else if (current > previous) adaptiveScrolledDown = true
+                else if (current < previous) adaptiveScrolledDown = false
                 previous = current
             }
     }
@@ -945,7 +951,7 @@ private fun AppShell(
         if (!expanded && bottomChromeVisible && (!profileFlowActive || state.destination == AppDestination.Profile)) {
             val classic = preferences.navigationStyle == NavigationStyle.Classic
             val compact = preferences.navigationStyle == NavigationStyle.Compact ||
-                (preferences.navigationStyle == NavigationStyle.Adaptive && adaptiveCompact)
+                (preferences.navigationStyle == NavigationStyle.Adaptive && adaptiveScrolledDown)
             val destinations = AppDestination.entries.filter(AppDestination::showInNavigation)
             PlatformBottomNavigation(
                 destinations = destinations,
@@ -954,6 +960,7 @@ private fun AppShell(
                 compact = compact,
                 classic = classic,
                 adaptive = preferences.navigationStyle == NavigationStyle.Adaptive,
+                adaptiveHidden = preferences.navigationStyle == NavigationStyle.Adaptive && adaptiveScrolledDown,
                 onSelect = navigateMain,
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
@@ -1170,6 +1177,8 @@ private fun BoxScope.PlaybackSessionHost(
     }
 
     Box(Modifier.fillMaxSize().onSizeChanged { containerSize = it }) {
+        // Adaptive iOS hides the native bar, but the mini-player keeps its
+        // corner position so scrolling does not make it jump vertically.
         val miniBottomPadding = if (bottomNavigationVisible) 132.dp else 12.dp
         val renderedMiniOffset = if (miniGestureActive) miniOffset else animatedMiniOffset
         val miniLayout = Modifier

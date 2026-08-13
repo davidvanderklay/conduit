@@ -1526,7 +1526,7 @@ internal fun ProfileSettingsScreen(
         ProfileRoute.Addons -> return AddonManagerScreen(activeProfile, profileSync.snapshot?.addons.orEmpty(), api, state, account, { route = ProfileRoute.Settings }, onProfileDataChanged, modifier)
         ProfileRoute.History -> return WatchHistoryScreen(profileSync.snapshot, { route = ProfileRoute.Settings }, onSelectMedia, onProfileMutation, modifier)
         ProfileRoute.Account -> return AccountSettingsScreen(state, account, api, onSignOut, { route = ProfileRoute.Settings }, modifier)
-        ProfileRoute.Appearance -> return AppearanceSettingsScreen(preferences, onPreferencesChanged, { route = ProfileRoute.Settings }, modifier)
+        ProfileRoute.Appearance -> return AppearanceSettingsScreen(platform, preferences, onPreferencesChanged, { route = ProfileRoute.Settings }, modifier)
         ProfileRoute.Content -> return ContentSettingsScreen({ route = ProfileRoute.Settings }, { route = ProfileRoute.Addons }, modifier)
         ProfileRoute.Playback -> return PlaybackSettingsScreen(platform, preferences, onPreferencesChanged, { route = ProfileRoute.Settings }, modifier)
         ProfileRoute.Advanced -> return AdvancedSettingsScreen(preferences, onPreferencesChanged, { route = ProfileRoute.Settings }, { route = ProfileRoute.Diagnostics }, modifier)
@@ -1698,8 +1698,17 @@ private fun AccountSettingsScreen(state: AppState, account: AccountStatus.Signed
 }
 
 @Composable
-private fun AppearanceSettingsScreen(preferences: DevicePreferences, update: (DevicePreferences) -> Unit, onBack: () -> Unit, modifier: Modifier) {
+private fun AppearanceSettingsScreen(platform: PlatformInfo, preferences: DevicePreferences, update: (DevicePreferences) -> Unit, onBack: () -> Unit, modifier: Modifier) {
     var showNavigation by remember { mutableStateOf(false) }
+    val isIos = platform.name.equals("iOS", ignoreCase = true)
+    val navigationStyles = if (isIos) {
+        listOf(NavigationStyle.Adaptive, NavigationStyle.Expanded, NavigationStyle.Classic)
+    } else {
+        NavigationStyle.entries
+    }
+    val effectiveNavigationStyle = preferences.navigationStyle.takeUnless {
+        isIos && it == NavigationStyle.Compact
+    } ?: NavigationStyle.Adaptive
     SettingsPage("Appearance & layout", onBack, modifier) {
         SettingsGroup("THEME") {
             ListItem(headlineContent = { Text("Theme") }, supportingContent = { Text("conduit dark") }, leadingContent = { Icon(Icons.Rounded.DarkMode, null) }, colors = ListItemDefaults.colors(containerColor = Color.Transparent))
@@ -1709,10 +1718,10 @@ private fun AppearanceSettingsScreen(preferences: DevicePreferences, update: (De
         SettingsGroup("DISPLAY") {
             SettingsAction("App language", "System default") { }
             HorizontalDivider(color = Color.White.copy(.06f))
-            SettingsAction("Navigation style", preferences.navigationStyle.description) { showNavigation = true }
+            SettingsAction("Navigation style", effectiveNavigationStyle.description) { showNavigation = true }
         }
     }
-    if (showNavigation) AlertDialog(onDismissRequest = { showNavigation = false }, title = { Text("Navigation style") }, text = { Column { NavigationStyle.entries.forEach { style -> Row(Modifier.fillMaxWidth().clickable { update(preferences.copy(navigationStyle = style)); showNavigation = false }.padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) { RadioButton(style == preferences.navigationStyle, null); Spacer(Modifier.width(8.dp)); Column { Text(style.label); Text(style.description, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) } } } } }, confirmButton = {})
+    if (showNavigation) AlertDialog(onDismissRequest = { showNavigation = false }, title = { Text("Navigation style") }, text = { Column { navigationStyles.forEach { style -> Row(Modifier.fillMaxWidth().clickable { update(preferences.copy(navigationStyle = style)); showNavigation = false }.padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) { RadioButton(style == effectiveNavigationStyle, null); Spacer(Modifier.width(8.dp)); Column { Text(style.label); Text(style.description, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) } } } } }, confirmButton = {})
 }
 
 @Composable
