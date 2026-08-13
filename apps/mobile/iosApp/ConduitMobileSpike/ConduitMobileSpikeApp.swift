@@ -151,15 +151,22 @@ final class ConduitOrientationCoordinator {
 struct ConduitMobileSpikeApp: App {
     @UIApplicationDelegateAdaptor(ConduitAppDelegate.self) private var appDelegate
     @StateObject private var systemChrome = ConduitSystemChromeCoordinator.shared
+    @StateObject private var bottomNavigation = ConduitBottomNavigationCoordinator.shared
 
     init() {
         ConduitPlayerRegistration.register()
         ConduitPlatformRegistration.register()
+        IosBottomNavigationBridgeFactory.shared.register(
+            bridge: ConduitBottomNavigationCoordinator.shared
+        )
     }
 
     var body: some Scene {
         WindowGroup {
-            ConduitRootView(systemChrome: systemChrome)
+            ConduitRootView(
+                systemChrome: systemChrome,
+                bottomNavigation: bottomNavigation
+            )
             .preferredColorScheme(.dark)
             .onOpenURL { IosOAuthCallbacks.shared.capture(url: $0.absoluteString) }
         }
@@ -168,14 +175,181 @@ struct ConduitMobileSpikeApp: App {
 
 private struct ConduitRootView: View {
     @ObservedObject var systemChrome: ConduitSystemChromeCoordinator
+    @ObservedObject var bottomNavigation: ConduitBottomNavigationCoordinator
 
     var body: some View {
-        ZStack {
-            Color.black.ignoresSafeArea()
-            ComposeView().ignoresSafeArea()
+        GeometryReader { geometry in
+            ZStack(alignment: .bottom) {
+                Color.black.ignoresSafeArea()
+                ComposeView().ignoresSafeArea()
+
+                if bottomNavigation.visible {
+                    ConduitBottomTabBar(coordinator: bottomNavigation)
+                        .frame(
+                            width: bottomNavigation.classic
+                                ? geometry.size.width
+                                : geometry.size.width - (bottomNavigation.compact ? 128 : 28)
+                        )
+                        .frame(height: bottomNavigation.compact ? 60 : 80)
+                        .padding(.bottom, geometry.safeAreaInsets.bottom)
+                        .animation(.easeInOut(duration: 0.22), value: bottomNavigation.compact)
+                }
+            }
+            .ignoresSafeArea()
         }
         .statusBarHidden(systemChrome.immersivePlayback)
         .modifier(ConduitPersistentSystemOverlaysModifier(hidden: systemChrome.immersivePlayback))
+    }
+}
+
+final class ConduitBottomNavigationCoordinator: NSObject, ObservableObject, IosBottomNavigationBridge {
+    static let shared = ConduitBottomNavigationCoordinator()
+
+    @Published private(set) var visible = false
+    @Published private(set) var selectedIndex: Int = 0
+    @Published private(set) var labels: [String] = []
+    @Published private(set) var compact = false
+    @Published private(set) var classic = false
+    @Published private(set) var adaptive = false
+    private var selectionHandler: IosBottomNavigationSelectionHandler?
+
+    private override init() {}
+
+    func update(
+        visible: Bool,
+        selectedIndex: Int32,
+        labels: [String],
+        compact: Bool,
+        classic: Bool,
+        adaptive: Bool,
+        selectionHandler: IosBottomNavigationSelectionHandler?
+    ) {
+        let apply = { [weak self] in
+            guard let self else { return }
+            guard self.visible != visible ||
+                self.selectedIndex != Int(selectedIndex) ||
+                self.labels != labels ||
+                self.compact != compact ||
+                self.classic != classic ||
+                self.adaptive != adaptive
+            else { return }
+            self.visible = visible
+            self.selectedIndex = Int(selectedIndex)
+            self.labels = labels
+            self.compact = compact
+            self.classic = classic
+            self.adaptive = adaptive
+            self.selectionHandler = selectionHandler
+        }
+        if Thread.isMainThread { apply() } else { DispatchQueue.main.async(execute: apply) }
+    }
+
+    fileprivate func select(_ index: Int) {
+        selectionHandler?.select(index: Int32(index))
+    }
+}
+
+private struct ConduitBottomTabBar: UIViewRepresentable {
+    @ObservedObject var coordinator: ConduitBottomNavigationCoordinator
+
+    func makeCoordinator() -> Delegate {
+        Delegate(owner: coordinator)
+    }
+
+    func makeUIView(context: Context) -> ConduitTabBarContainer {
+        let tabBar = UITabBar()
+        tabBar.delegate = context.coordinator
+        tabBar.tintColor = UIColor(red: 0.98, green: 0.75, blue: 0.14, alpha: 1)
+        tabBar.unselectedItemTintColor = UIColor.white.withAlphaComponent(0.55)
+        tabBar.backgroundColor = .clear
+        tabBar.isOpaque = false
+        tabBar.itemPositioning = .fill
+        tabBar.layoutMargins = UIEdgeInsets(top: 6, left: 8, bottom: 6, right: 8)
+        return ConduitTabBarContainer(tabBar: tabBar)
+    }
+
+    func updateUIView(_ container: ConduitTabBarContainer, context: Context) {
+        context.coordinator.owner = coordinator
+        let tabBar = container.tabBar
+        tabBar.layoutMargins = UIEdgeInsets(
+            top: 6,
+            left: 8,
+            bottom: 6,
+            right: 8
+        )
+        let symbolConfiguration = UIImage.SymbolConfiguration(
+            pointSize: 21,
+            weight: .regular,
+            scale: .medium
+        )
+        let items = coordinator.labels.enumerated().map { index, label in
+            UITabBarItem(
+                title: coordinator.compact ? nil : label,
+                image: UIImage(
+                    systemName: systemImageName(for: label),
+                    withConfiguration: symbolConfiguration
+                ),
+                tag: index
+            )
+        }
+        if tabBar.items?.count != items.count || tabBar.items?.map(\.title) != items.map(\.title) {
+            tabBar.setItems(items, animated: false)
+        } else {
+            tabBar.items?.enumerated().forEach { index, item in
+                item.title = items[index].title
+            }
+        }
+        tabBar.selectedItem = tabBar.items?.first { $0.tag == coordinator.selectedIndex }
+    }
+
+    private func systemImageName(for label: String) -> String {
+        switch label {
+        case "Home": "house"
+        case "Discover": "safari"
+        case "Library": "rectangle.stack"
+        case "Settings": "gearshape"
+        default: "circle"
+        }
+    }
+
+    final class Delegate: NSObject, UITabBarDelegate {
+        var owner: ConduitBottomNavigationCoordinator
+
+        init(owner: ConduitBottomNavigationCoordinator) {
+            self.owner = owner
+        }
+
+        func tabBar(_ tabBar: UITabBar, didSelect item: UITabBarItem) {
+            owner.select(item.tag)
+        }
+    }
+}
+
+private final class ConduitTabBarContainer: UIView {
+    let tabBar: UITabBar
+
+    init(tabBar: UITabBar) {
+        self.tabBar = tabBar
+        super.init(frame: .zero)
+        backgroundColor = .clear
+        isOpaque = false
+        tabBar.backgroundColor = .clear
+        tabBar.isOpaque = false
+        tabBar.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        clipsToBounds = true
+        addSubview(tabBar)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        tabBar.frame = bounds
+        tabBar.setNeedsLayout()
+        tabBar.layoutIfNeeded()
     }
 }
 

@@ -389,6 +389,7 @@ private fun ProgressRail(progress: ProgressSummary?, modifier: Modifier = Modifi
 internal fun MediaActionSheet(
     target: MediaActionTarget?,
     snapshot: ProfileSnapshot?,
+    metadataCache: WatchMetadataCache? = null,
     onDismiss: () -> Unit,
     onPlay: (MediaActionTarget) -> Unit,
     onDetails: (CatalogItem) -> Unit,
@@ -402,6 +403,20 @@ internal fun MediaActionSheet(
     val saved = snapshot?.library.orEmpty().any { it.type == active.item.type && it.id == active.item.id }
     val progress = active.progress
     val watchProgress = progress?.takeIf { active.video == null || active.video.id == it.videoId }
+    val seriesVideos = metadataCache?.videosFor(active.item).orEmpty()
+    val releasedIds = completionEpisodeIds(seriesVideos).toSet()
+    val releasedVideos = seriesVideos.filter { it.id in releasedIds }
+    val seriesProgress = snapshot?.progress.orEmpty().filter {
+        it.mediaType == active.item.type && it.mediaId == active.item.id && it.videoId in releasedIds
+    }
+    val seriesComplete = releasedVideos.isNotEmpty() && releasedVideos.all { video ->
+        seriesProgress.any { it.videoId == video.id && it.watched }
+    }
+    LaunchedEffect(active.item.type, active.item.id, active.context, metadataCache) {
+        if (active.item.type == "series" && active.video == null && active.context == MediaActionContext.Browse) {
+            metadataCache?.load(active.item)
+        }
+    }
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Color(0xFF171719)) {
         Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = 8.dp)) {
             Text(
@@ -420,9 +435,29 @@ internal fun MediaActionSheet(
             if (active.context != MediaActionContext.Episode) {
                 ActionRow("Details", Icons.Rounded.Info) { onDismiss(); onDetails(active.item) }
             }
-            if (active.context != MediaActionContext.Browse &&
-                (watchProgress != null || active.item.type == "movie" || active.context == MediaActionContext.Episode ||
-                    (active.video != null && active.canPlay))
+            if (active.context == MediaActionContext.Browse && active.item.type == "series" && active.video == null) {
+                ActionRow(
+                    if (releasedVideos.isEmpty()) "Loading released episodes…"
+                    else if (seriesComplete) "Mark released episodes unwatched"
+                    else "Mark released episodes watched",
+                    if (seriesComplete) Icons.Rounded.Replay else Icons.Rounded.Check,
+                    enabled = releasedVideos.isNotEmpty(),
+                ) {
+                    onDismiss()
+                    scope.launch {
+                        onMutation(
+                            ProfileMutation.SetSeriesWatched(
+                                active.item,
+                                releasedVideos,
+                                seriesProgress,
+                                !seriesComplete,
+                            ),
+                        )
+                    }
+                }
+            } else if (
+                watchProgress != null || active.item.type == "movie" || active.context == MediaActionContext.Episode ||
+                (active.video != null && active.canPlay)
             ) {
                 ActionRow(
                     if (watchProgress?.watched == true) "Mark unwatched" else if (active.item.type == "series") "Mark episode watched" else "Mark watched",
@@ -466,11 +501,11 @@ internal fun MediaActionSheet(
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun ActionRow(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, destructive: Boolean = false, onClick: () -> Unit) {
+private fun ActionRow(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, destructive: Boolean = false, enabled: Boolean = true, onClick: () -> Unit) {
     ListItem(
-        headlineContent = { Text(label, color = if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface) },
-        leadingContent = { Icon(icon, null, tint = if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant) },
+        headlineContent = { Text(label, color = if (!enabled) MaterialTheme.colorScheme.onSurfaceVariant else if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface) },
+        leadingContent = { Icon(icon, null, tint = if (!enabled) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .5f) else if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant) },
         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).combinedClickable(onClick = onClick),
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).combinedClickable(enabled = enabled, onClick = onClick),
     )
 }

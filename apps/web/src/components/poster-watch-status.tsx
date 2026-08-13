@@ -89,6 +89,10 @@ export function PosterWatchStatus({
   )
 }
 
+export function usePosterProgress(item: Pick<CatalogItem, "type" | "id">): WatchProgress[] {
+  return useContext(ProgressByMediaContext).get(mediaKey(item.type, item.id)) ?? []
+}
+
 function mediaKey(type: string, id: string): string {
   return `${type}:${id}`
 }

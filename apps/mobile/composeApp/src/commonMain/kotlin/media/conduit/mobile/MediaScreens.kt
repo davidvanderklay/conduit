@@ -40,9 +40,8 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalWindowInfo
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -108,6 +107,7 @@ internal fun MobileLibraryScreen(
     }
 
     Column(modifier.statusBarsPadding()) {
+        Spacer(Modifier.height(68.dp))
         Column(Modifier.padding(horizontal = 10.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Library", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
@@ -177,13 +177,14 @@ internal fun MobileHistoryScreen(
     snapshot: ProfileSnapshot?,
     api: ConduitApi,
     onMutation: suspend (ProfileMutation) -> Result<Unit>,
+    onBack: () -> Unit,
     onSelect: (CatalogItem) -> Unit,
     onSelectVideo: (CatalogItem, String?) -> Unit,
     gridState: androidx.compose.foundation.lazy.grid.LazyGridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState(),
     modifier: Modifier = Modifier,
 ) {
     var filter by remember { mutableStateOf("all") }
-    var sortNewest by remember { mutableStateOf(true) }
+    var sort by remember { mutableStateOf(LibrarySort.LastWatched) }
     var actionTarget by remember { mutableStateOf<MediaActionTarget?>(null) }
     val metadataCache = rememberWatchMetadataCache(api, snapshot?.addons.orEmpty())
     val items = snapshot?.history.orEmpty()
@@ -192,22 +193,51 @@ internal fun MobileHistoryScreen(
         .mapNotNull { entries -> entries.maxByOrNull(ProgressSummary::updatedAt) }
         .filter { filter == "all" || it.mediaType == filter }
         .let { entries ->
-            if (sortNewest) entries.sortedByDescending(ProgressSummary::updatedAt)
-            else entries.sortedBy(ProgressSummary::name)
+            when (sort) {
+                LibrarySort.LastWatched -> entries.sortedWith(
+                    compareByDescending<ProgressSummary>(ProgressSummary::updatedAt)
+                        .thenBy { it.name.lowercase() }
+                        .thenBy(ProgressSummary::mediaId),
+                )
+                LibrarySort.Name -> entries.sortedWith(
+                    compareBy<ProgressSummary> { it.name.lowercase() }
+                        .thenBy(ProgressSummary::mediaId),
+                )
+                LibrarySort.NameDescending -> entries.sortedWith(
+                    compareByDescending<ProgressSummary> { it.name.lowercase() }
+                        .thenBy(ProgressSummary::mediaId),
+                )
+                LibrarySort.Watched,
+                LibrarySort.NotWatched,
+                -> entries
+            }
         }
 
-    Column(modifier.statusBarsPadding()) {
+    PlatformBackHandler(onBack = onBack)
+    Column(modifier.fillMaxSize()) {
+        ProfileHeader("Watch history", onBack)
         Column(Modifier.padding(horizontal = 10.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Watch history", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
             Text("Everything you have viewed", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("all" to "All", "movie" to "Movies", "series" to "Series").forEach { (value, label) ->
-                    FilterChip(selected = filter == value, onClick = { filter = value }, label = { Text(label) })
-                }
-                Spacer(Modifier.weight(1f))
-                IconButton(onClick = { sortNewest = !sortNewest }) {
-                    Icon(if (sortNewest) Icons.Rounded.Schedule else Icons.Rounded.SortByAlpha, "Change sort")
-                }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                CompactFilterMenu(
+                    value = when (filter) { "movie" -> "Movies"; "series" -> "Series"; else -> "All types" },
+                    options = listOf("all" to "All types", "movie" to "Movies", "series" to "Series"),
+                    selectedKey = filter,
+                    onSelect = { filter = it },
+                    modifier = Modifier.weight(.9f),
+                )
+                CompactFilterMenu(
+                    value = sort.label,
+                    options = listOf(LibrarySort.LastWatched, LibrarySort.Name, LibrarySort.NameDescending)
+                        .map { it.name to it.label },
+                    selectedKey = sort.name,
+                    onSelect = { selected ->
+                        listOf(LibrarySort.LastWatched, LibrarySort.Name, LibrarySort.NameDescending)
+                            .firstOrNull { it.name == selected }
+                            ?.let { sort = it }
+                    },
+                    modifier = Modifier.weight(1.35f),
+                )
             }
         }
         if (snapshot == null) {
@@ -273,8 +303,6 @@ internal fun SearchDiscoverScreen(
     onSelect: (CatalogItem, String?) -> Unit,
     listState: androidx.compose.foundation.lazy.LazyListState = rememberLazyListState(),
     gridState: androidx.compose.foundation.lazy.grid.LazyGridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState(),
-    requestFocus: Boolean = false,
-    onFocusConsumed: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val catalogs = remember(addons) { discoverCatalogs(addons) }
@@ -303,15 +331,6 @@ internal fun SearchDiscoverScreen(
     var actionTarget by remember { mutableStateOf<MediaActionTarget?>(null) }
     val metadataCache = rememberWatchMetadataCache(api, addons)
     val windowWidth = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.width.toDp() }
-    val searchFocusRequester = remember { FocusRequester() }
-
-    LaunchedEffect(requestFocus) {
-        if (requestFocus) {
-            searchFocusRequester.requestFocus()
-            onFocusConsumed()
-        }
-    }
-
     LaunchedEffect(normalizedSelection) {
         if (selection != normalizedSelection) onSelectionChange(normalizedSelection)
     }
@@ -337,19 +356,7 @@ internal fun SearchDiscoverScreen(
     }
 
     Column(modifier.fillMaxSize().statusBarsPadding()) {
-        OutlinedTextField(
-            value = query,
-            onValueChange = onQueryChange,
-            modifier = Modifier
-                .fillMaxWidth()
-                .focusRequester(searchFocusRequester)
-                .padding(horizontal = 10.dp, vertical = 8.dp),
-            placeholder = { Text("Search") },
-            leadingIcon = { Icon(Icons.Rounded.Search, null) },
-            trailingIcon = if (query.isNotBlank()) {{ IconButton(onClick = { onQueryChange("") }) { Icon(Icons.Rounded.Close, "Clear") } }} else null,
-            singleLine = true,
-            shape = RoundedCornerShape(22.dp),
-        )
+        Spacer(Modifier.height(68.dp))
         if (query.isBlank()) {
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp),
@@ -461,6 +468,7 @@ internal fun SearchDiscoverScreen(
     }
     MediaActionSheet(
         target = actionTarget, snapshot = snapshot, onDismiss = { actionTarget = null },
+        metadataCache = metadataCache,
         onPlay = { onSelect(it.item, null) }, onDetails = { onSelect(it, null) }, onMutation = onMutation,
     )
 }
@@ -475,9 +483,13 @@ private fun RowScope.CompactFilterMenu(
     enabled: Boolean = true,
 ) {
     var expanded by remember { mutableStateOf(false) }
+    val focusManager = LocalFocusManager.current
     Box(modifier) {
         Surface(
-            modifier = Modifier.fillMaxWidth().clickable(enabled && options.isNotEmpty()) { expanded = true },
+            modifier = Modifier.fillMaxWidth().clickable(enabled && options.isNotEmpty()) {
+                focusManager.clearFocus()
+                expanded = true
+            },
             shape = RoundedCornerShape(18.dp),
             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .78f),
         ) {
@@ -1436,6 +1448,13 @@ private fun StreamSelectionScreen(
     }
 }
 
+internal enum class ProfileLaunchTarget { Settings, Addons, Create }
+
+internal data class ProfileLaunchRequest(
+    val target: ProfileLaunchTarget,
+    val sequence: Int,
+)
+
 @Composable
 internal fun ProfileSettingsScreen(
     state: AppState,
@@ -1454,9 +1473,17 @@ internal fun ProfileSettingsScreen(
     preferences: DevicePreferences,
     onPreferencesChanged: (DevicePreferences) -> Unit,
     settingsListState: androidx.compose.foundation.lazy.LazyListState = rememberLazyListState(),
+    launchRequest: ProfileLaunchRequest? = null,
     modifier: Modifier = Modifier,
 ) {
     var route by remember { mutableStateOf<ProfileRoute>(ProfileRoute.Settings) }
+    LaunchedEffect(launchRequest) {
+        route = when (launchRequest?.target) {
+            ProfileLaunchTarget.Addons -> ProfileRoute.Addons
+            ProfileLaunchTarget.Create -> ProfileRoute.Create
+            ProfileLaunchTarget.Settings, null -> ProfileRoute.Settings
+        }
+    }
     LaunchedEffect(route) { onProfileFlowChanged(route != ProfileRoute.Settings) }
     DisposableEffect(Unit) { onDispose { onProfileFlowChanged(false) } }
     PlatformBackHandler(enabled = route != ProfileRoute.Settings) {
