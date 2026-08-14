@@ -622,6 +622,7 @@ internal fun MediaDetailsScreen(
     var selectedVideo by remember(item.id) { mutableStateOf<VideoItem?>(null) }
     var streams by remember(item.id) { mutableStateOf<List<StreamSource>?>(null) }
     var streamPageOpen by remember(item.id) { mutableStateOf(false) }
+    var streamEpisodesOpen by remember(item.id) { mutableStateOf(false) }
     var streamsLoading by remember(item.id) { mutableStateOf(false) }
     var streamsError by remember(item.id) { mutableStateOf<String?>(null) }
     var selectedStreamAddonId by remember(item.id) { mutableStateOf(preferences.lastStreamAddonId) }
@@ -885,6 +886,7 @@ internal fun MediaDetailsScreen(
         if (requestIdentity != null && sessionCallbacks != null) playbackSession.attach(requestIdentity, sessionCallbacks)
     }
     fun closeStreamSelection() {
+        streamEpisodesOpen = false
         streamPageOpen = false
         streams = null
         if (returnToHomeOnStreamBack) onBack()
@@ -900,6 +902,7 @@ internal fun MediaDetailsScreen(
             ownsPlayback && playbackSession.state.presentation == PlaybackPresentation.FullScreen -> {
                 playbackSession.leaveFullScreen(preferences.miniplayerOnBack)
             }
+            streamEpisodesOpen -> streamEpisodesOpen = false
             streamPageOpen -> closeStreamSelection()
             else -> onBack()
         }
@@ -957,11 +960,46 @@ internal fun MediaDetailsScreen(
                 }
             }
             MobileBackButton(
-                onClick = closeStreamPage,
+                onClick = {
+                    if (streamEpisodesOpen) streamEpisodesOpen = false else closeStreamPage()
+                },
                 modifier = Modifier.align(Alignment.TopStart),
                 background = MaterialTheme.colorScheme.background.copy(alpha = .96f),
                 safeArea = true,
             )
+            if (orderedVideos.isNotEmpty()) {
+                IconButton(
+                    onClick = { streamEpisodesOpen = true },
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .statusBarsPadding()
+                        .padding(12.dp)
+                        .background(MaterialTheme.colorScheme.background.copy(alpha = .96f), CircleShape),
+                ) {
+                    Icon(Icons.Rounded.VideoLibrary, contentDescription = "Episodes")
+                }
+            }
+            if (streamEpisodesOpen) {
+                BoxWithConstraints(Modifier.fillMaxSize()) {
+                    PlayerEpisodeDrawer(
+                        videos = orderedVideos,
+                        current = selectedVideo,
+                        snapshot = snapshot,
+                        actionItem = item,
+                        onMutation = onMutation,
+                        fullscreen = maxWidth < 600.dp,
+                        onDismiss = { streamEpisodesOpen = false },
+                        onSelect = { video ->
+                            streamEpisodesOpen = false
+                            playbackSession.close()
+                            selectedVideo = video
+                            playing = null
+                            resumePosition = 0L
+                            requestStreams(video)
+                        },
+                    )
+                }
+            }
         }
         return
     }
