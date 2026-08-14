@@ -149,11 +149,11 @@ body {
 @keyframes desktop-player-opening-indicator {
   from {
     opacity: 0.72;
-    transform: translate(-50%, -50%) scale(0.96);
+    transform: scale(0.96);
   }
   to {
     opacity: 1;
-    transform: translate(-50%, -50%) scale(1.04);
+    transform: scale(1.04);
   }
 }
 
@@ -456,7 +456,11 @@ video::cue {
 }
 
 .subtitle-outline video::cue {
-  text-shadow: -1px -1px 1px #000, 1px -1px 1px #000, -1px 1px 1px #000, 1px 1px 1px #000;
+  text-shadow:
+    -1px -1px 1px #000,
+    1px -1px 1px #000,
+    -1px 1px 1px #000,
+    1px 1px 1px #000;
 }
 
 .reduce-motion *,

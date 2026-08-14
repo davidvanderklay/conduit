@@ -15,17 +15,3 @@ export function isDesktopBuffering(
 ): boolean {
   return !error && Boolean(snapshot?.firstFrameReady && snapshot.loading)
 }
-
-export function shouldShowDesktopPlayPause(
-  snapshot: PlaybackStateSnapshot | undefined,
-  seeking: boolean,
-  error?: unknown,
-): boolean {
-  return Boolean(
-    snapshot &&
-      !error &&
-      snapshot.firstFrameReady &&
-      !snapshot.loading &&
-      !seeking,
-  )
-}
