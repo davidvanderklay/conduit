@@ -2,6 +2,7 @@
 .devenv/
 .env
 .DS_Store
+postplans/
 
 node_modules/
 dist/
