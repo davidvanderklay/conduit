@@ -132,6 +132,7 @@ export function DesktopPlayer({
   const mediaTitle = nativeMediaTitle(progressMetadata)
   const [error, setError] = useState<string>()
   const [controlsVisible, setControlsVisible] = useState(true)
+  const [showRemainingTime, setShowRemainingTime] = useState(false)
   const [activeMenu, setActiveMenu] = useState<TrackMenuName>()
   const [fullscreen, setFullscreen] = useState(false)
   const [spaciousViewport, setSpaciousViewport] = useState(isSpaciousViewport)
@@ -180,8 +181,9 @@ export function DesktopPlayer({
   const showControls = useCallback(() => {
     setControlsVisible(true)
     window.clearTimeout(hideTimer.current)
+    if (!snapshot?.firstFrameReady) return
     hideTimer.current = window.setTimeout(() => setControlsVisible(false), 2800)
-  }, [])
+  }, [snapshot?.firstFrameReady])
 
   const endHoldSpeed = useCallback(() => {
     window.clearTimeout(holdSpeedTimer.current)
@@ -240,6 +242,7 @@ export function DesktopPlayer({
     let playerStarted = false
     preferredAudioApplied.current = false
     preferredSubtitleApplied.current = false
+    setShowRemainingTime(false)
     subtitleMetadataReadyPolls.current = 0
     setAddonSubtitlesResolved(false)
     endedHandled.current = false
@@ -463,13 +466,13 @@ export function DesktopPlayer({
   }, [videoScale])
 
   useEffect(() => {
-    if (snapshot?.paused || activeMenu || error) {
+    if (!snapshot?.firstFrameReady || snapshot.paused || activeMenu || error) {
       window.clearTimeout(hideTimer.current)
       setControlsVisible(true)
     } else {
       showControls()
     }
-  }, [activeMenu, error, showControls, snapshot?.paused])
+  }, [activeMenu, error, showControls, snapshot?.firstFrameReady, snapshot?.paused])
 
   const close = () => {
     if (closing.current) return
@@ -693,6 +696,7 @@ export function DesktopPlayer({
     snapshot?.paused,
     snapshot?.position,
     snapshot?.volume,
+    showRemainingTime,
   ])
 
   return createPortal(
@@ -938,7 +942,7 @@ export function DesktopPlayer({
             <div className="flex items-center gap-3" data-native-overlay>
               <span
                 className={`player-time player-time-elapsed tabular-nums text-zinc-300 ${
-                  expandedControls ? "text-sm" : "text-xs"
+                  expandedControls ? "text-base" : "text-sm"
                 }`}
                 aria-label="Elapsed time"
               >
@@ -981,14 +985,32 @@ export function DesktopPlayer({
                 onKeyUp={commitSeek}
                 onBlur={commitSeek}
               />
-              <span
-                className={`player-time player-time-duration tabular-nums text-zinc-300 ${
-                  expandedControls ? "text-sm" : "text-xs"
+              <button
+                className={`player-time player-time-duration cursor-pointer border-0 p-0 tabular-nums text-zinc-300 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 ${
+                  expandedControls ? "text-base" : "text-sm"
                 }`}
-                aria-label="Total duration"
+                type="button"
+                aria-label={
+                  showRemainingTime
+                    ? "Time remaining. Click to show end time."
+                    : "End time. Click to show time remaining."
+                }
+                title={
+                  showRemainingTime
+                    ? "Click to show end time"
+                    : "Click to show time remaining"
+                }
+                onClick={() => {
+                  setShowRemainingTime((current) => !current)
+                  showControls()
+                }}
               >
-                {snapshot.duration > 0 ? formatTime(snapshot.duration) : "--:--:--"}
-              </span>
+                {snapshot.duration > 0
+                  ? showRemainingTime
+                    ? `-${formatTime(Math.max(0, snapshot.duration - snapshot.position))}`
+                    : formatTime(snapshot.duration)
+                  : "--:--:--"}
+              </button>
             </div>
 
             <div
