@@ -14,7 +14,7 @@ import {
   Star,
   X,
 } from "lucide-react"
-import { api, type InstalledAddon, type WatchProgress } from "../lib/api"
+import { api, type InstalledAddon, type PlayerArtwork, type WatchProgress } from "../lib/api"
 import { addonsForResource } from "../lib/addons"
 import {
   loadMeta,
@@ -45,6 +45,7 @@ import { Button } from "./ui/button"
 import { Player } from "./player"
 import { LibraryToggle } from "./library-toggle"
 import { EpisodeSelector } from "./episode-selector"
+import { DesktopPlayerOpeningOverlay } from "./desktop-player-overlays"
 
 interface ResolvedStream extends Stream {
   key: string
@@ -88,7 +89,8 @@ export function MediaDetails({
   const episodeTransition = useRef(0)
   const initialSeriesVideoResolved = useRef(false)
   const episodeRailScrollTop = useRef<number | undefined>(undefined)
-  const autoResumeAttempted = useRef(false)
+  const autoResumeAttemptedKey = useRef<string | undefined>(undefined)
+  const autoResumeRequestVersion = useRef(0)
   const seriesReturnVideoId = useRef<string | undefined>(
     initialVideoId && initialVideoId !== item.id ? initialVideoId : undefined,
   )
@@ -109,6 +111,11 @@ export function MediaDetails({
   const streamAddons = activeVideoId
     ? addonsForResource(addons, "stream", item.type, activeVideoId)
     : []
+  const savedPlaybackSource = initialProgress?.playbackSource
+  const autoResumeEligible =
+    autoSelectSavedStreams &&
+    Boolean(savedPlaybackSource) &&
+    (item.type !== "series" || Boolean(initialVideoId))
   const effectiveStreamAddonId = streamAddonId &&
       streamAddons.length > 1 &&
       streamAddons.some((addon) => addon.id === streamAddonId)
@@ -117,6 +124,18 @@ export function MediaDetails({
   const requestedStreamAddons = effectiveStreamAddonId
     ? streamAddons.filter((addon) => addon.id === effectiveStreamAddonId)
     : streamAddons
+  const autoResumeAttemptKey = [
+    item.type,
+    activeVideoId ?? item.id,
+    savedPlaybackSource?.addonId ?? "",
+    savedPlaybackSource?.sourceKey ?? "",
+    effectiveStreamAddonId ?? "all",
+  ].join(":")
+  const [waitingForSavedPlayback, setWaitingForSavedPlayback] =
+    useState(autoResumeEligible)
+  const shouldWaitForSavedPlayback =
+    autoResumeEligible &&
+    (waitingForSavedPlayback || autoResumeAttemptedKey.current !== autoResumeAttemptKey)
   const progress = useQuery({
     queryKey: ["series-progress", profileId, item.type, item.id],
     refetchOnMount: "always",
@@ -164,22 +183,53 @@ export function MediaDetails({
   }, [initialVideoId, item.type, metadata.isSuccess, progress.data, progress.isSuccess, videos])
 
   useEffect(() => {
+    const finishWithoutAutoResume = () => {
+      autoResumeAttemptedKey.current = autoResumeAttemptKey
+      setWaitingForSavedPlayback(false)
+    }
+
+    if (!autoResumeEligible) {
+      finishWithoutAutoResume()
+      return
+    }
+    if (autoResumeAttemptedKey.current === autoResumeAttemptKey) return
+    if (item.type === "series" && (metadata.isError || progress.isError)) {
+      finishWithoutAutoResume()
+      return
+    }
     if (
-      autoResumeAttempted.current ||
-      !autoSelectSavedStreams ||
-      !initialProgress?.playbackSource ||
-      !metadata.isSuccess ||
-      !progress.isSuccess ||
-      !activeVideoId ||
-      (item.type === "series" && activeVideoId !== initialProgress.videoId)
+      item.type === "series" &&
+      (!metadata.isSuccess || !progress.isSuccess)
     ) return
-    autoResumeAttempted.current = true
+    if (item.type === "series" && !activeVideoId) {
+      if (initialSeriesVideoResolved.current) finishWithoutAutoResume()
+      return
+    }
+    if (!activeVideoId) return
+    if (item.type === "series" && activeVideoId !== initialProgress?.videoId) {
+      finishWithoutAutoResume()
+      return
+    }
+    if (!savedPlaybackSource) {
+      finishWithoutAutoResume()
+      return
+    }
+    autoResumeAttemptedKey.current = autoResumeAttemptKey
+    const requestVersion = ++autoResumeRequestVersion.current
     void queryClient.fetchQuery({
-      queryKey: ["streams", item.type, activeVideoId, addonIds],
-      queryFn: () => resolveStreams(addons, item.type, activeVideoId),
+      queryKey: [
+        "streams",
+        item.type,
+        activeVideoId,
+        addonIds,
+        effectiveStreamAddonId ?? "all",
+      ],
+      queryFn: () => resolveStreams(requestedStreamAddons, item.type, activeVideoId),
       staleTime: 5 * 60 * 1000,
     }).then((resolved) => {
-      const saved = selectSavedStream(resolved, initialProgress.playbackSource)
+      if (requestVersion !== autoResumeRequestVersion.current) return
+      const saved = selectSavedStream(resolved, savedPlaybackSource)
+      setWaitingForSavedPlayback(false)
       if (saved) {
         setStreamResolutionError(undefined)
         setPlaying(saved)
@@ -187,9 +237,11 @@ export function MediaDetails({
         setStreamResolutionError("Saved source unavailable. Choose another source below.")
       }
     }).catch(() => {
+      if (requestVersion !== autoResumeRequestVersion.current) return
+      setWaitingForSavedPlayback(false)
       setStreamResolutionError("Saved source could not be loaded. Choose another source below.")
     })
-  }, [activeVideoId, addons, addonIds, autoSelectSavedStreams, initialProgress, item.type, metadata.isSuccess, progress.isSuccess, queryClient])
+  }, [activeVideoId, addonIds, autoResumeAttemptKey, autoResumeEligible, effectiveStreamAddonId, initialProgress, item.type, metadata.isError, metadata.isSuccess, progress.isError, progress.isSuccess, queryClient, requestedStreamAddons, savedPlaybackSource])
 
   useEffect(() => {
     if (selectedVideo && selectedSeason == null) {
@@ -232,8 +284,16 @@ export function MediaDetails({
     openEpisodeSources(nextEpisode)
   }
 
+  const cancelPendingAutoResume = () => {
+    autoResumeRequestVersion.current += 1
+    autoResumeAttemptedKey.current = autoResumeAttemptKey
+    setWaitingForSavedPlayback(false)
+    setStreamResolutionError(undefined)
+  }
+
   const openEpisodeSources = (video: Video) => {
     episodeTransition.current += 1
+    cancelPendingAutoResume()
     setStreamResolutionError(undefined)
     setPlaying(undefined)
     setSelectedVideoId(video.id)
@@ -335,38 +395,55 @@ export function MediaDetails({
                 episodeRailScrollTop.current = scrollTop
               }}
               onSelect={(video) => {
+                cancelPendingAutoResume()
                 seriesReturnVideoId.current = video.id
                 setSelectedVideoId(video.id)
               }}
             />
           ) : (
-            <StreamRail
-              streams={streams.data ?? []}
-              loading={streams.isFetching}
-              error={streamResolutionError}
-              videoTitle={selectedVideo?.title ?? meta.name}
-              addons={streamAddons}
-              selectedAddonId={streamAddonId}
-              onSelectAddon={selectStreamAddon}
-              onRefresh={() => {
-                setStreamResolutionError(undefined)
-                void streams.refetch()
-              }}
-              onPlay={(stream) => {
-                setStreamResolutionError(undefined)
-                setPlaying(stream)
-              }}
-              onBackToSeries={
-                !streamSelectionReturnToHome && episodeMode && selectedVideo
-                  ? () => {
-                      setSelectedSeason(selectedVideo.season ?? 1)
-                      seriesReturnVideoId.current = selectedVideo.id
-                      setSelectedVideoId(undefined)
-                    }
-                  : undefined
-              }
-              onBack={streamSelectionReturnToHome ? onClose : undefined}
-            />
+            shouldWaitForSavedPlayback ? (
+              <StreamSelectionLoading
+                artwork={{
+                  background: meta.background,
+                  logo: meta.logo,
+                  poster: meta.poster,
+                }}
+                title={selectedVideo?.title ?? meta.name}
+                onBack={() => {
+                  cancelPendingAutoResume()
+                  onClose()
+                }}
+              />
+            ) : (
+              <StreamRail
+                streams={streams.data ?? []}
+                loading={streams.isFetching}
+                error={streamResolutionError}
+                videoTitle={selectedVideo?.title ?? meta.name}
+                addons={streamAddons}
+                selectedAddonId={streamAddonId}
+                onSelectAddon={selectStreamAddon}
+                onRefresh={() => {
+                  setStreamResolutionError(undefined)
+                  void streams.refetch()
+                }}
+                onPlay={(stream) => {
+                  cancelPendingAutoResume()
+                  setStreamResolutionError(undefined)
+                  setPlaying(stream)
+                }}
+                onBackToSeries={
+                  !streamSelectionReturnToHome && episodeMode && selectedVideo
+                    ? () => {
+                        setSelectedSeason(selectedVideo.season ?? 1)
+                        seriesReturnVideoId.current = selectedVideo.id
+                        setSelectedVideoId(undefined)
+                      }
+                    : undefined
+                }
+                onBack={streamSelectionReturnToHome ? onClose : undefined}
+              />
+            )
           )}
         </main>
       </div>
@@ -743,6 +820,31 @@ function StreamRail({
         })}
       </div>
     </aside>
+  )
+}
+
+function StreamSelectionLoading({
+  artwork,
+  title,
+  onBack,
+}: {
+  artwork: PlayerArtwork
+  title: string
+  onBack: () => void
+}) {
+  return (
+    <div className="fixed inset-0 z-40 bg-black">
+      <DesktopPlayerOpeningOverlay artwork={artwork} title={title} />
+      <Button
+        className="absolute left-5 top-5 z-10 bg-black/65 text-zinc-200 hover:bg-black/85 hover:text-white"
+        variant="ghost"
+        size="icon"
+        aria-label="Back"
+        onClick={onBack}
+      >
+        <ArrowLeft size={19} />
+      </Button>
+    </div>
   )
 }
 
