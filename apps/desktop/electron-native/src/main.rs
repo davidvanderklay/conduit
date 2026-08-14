@@ -344,7 +344,7 @@ impl Player {
             loading: mpv
                 .get_property::<bool>("paused-for-cache")
                 .unwrap_or(false),
-            first_frame_ready: has_video_output(mpv),
+            first_frame_ready: has_video_frame(mpv),
             position: mpv.get_property::<f64>("time-pos").unwrap_or_default(),
             duration: mpv.get_property::<f64>("duration").unwrap_or_default(),
             buffered_duration: mpv
@@ -494,12 +494,10 @@ fn non_empty_property(mpv: &Mpv, name: &str) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
-fn has_video_output(mpv: &Mpv) -> bool {
+fn has_video_frame(mpv: &Mpv) -> bool {
     mpv.get_property::<String>("video-frame-info/picture-type")
-        .is_ok()
-        || mpv
-            .get_property::<String>("video-out-params/pixelformat")
-            .is_ok()
+        .map(|picture_type| !picture_type.is_empty())
+        .unwrap_or(false)
 }
 
 fn network_buffer_options(read_ahead_seconds: u32) -> Vec<(&'static str, String)> {

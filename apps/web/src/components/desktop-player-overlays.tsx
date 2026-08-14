@@ -66,7 +66,10 @@ export function DesktopPlayerBufferingOverlay() {
       role="status"
       aria-label="Video buffering"
     >
-      <LoaderCircle className="desktop-player-buffering-indicator text-white" aria-hidden="true" />
+      <LoaderCircle
+        className="desktop-player-buffering-indicator animate-spin text-white"
+        aria-hidden="true"
+      />
     </div>
   )
 }

@@ -177,7 +177,7 @@ export function ElectronPlayerOverlay({ initialMedia }: { initialMedia: PlayerOv
         .catch(() => undefined)
     }
     poll()
-    const timer = window.setInterval(poll, 500)
+    const timer = window.setInterval(poll, 250)
     return () => {
       cancelled = true
       window.clearInterval(timer)
