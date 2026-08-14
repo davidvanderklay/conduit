@@ -133,7 +133,7 @@ class ContinueWatchingTest {
             "Next Up",
             continueWatchingBadgeLabel(progress(), ContinueWatchingPresentation(ContinueWatchingKind.CaughtUp), metadataReady = false),
         )
-        assertEquals("Next Up", continueWatchingBadgeLabel(progress(watched = false), inProgress, metadataReady = false))
+        assertEquals("Next Up", continueWatchingBadgeLabel(unfinished, inProgress, metadataReady = false))
     }
 
     @Test
