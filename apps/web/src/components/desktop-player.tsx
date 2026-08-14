@@ -837,13 +837,9 @@ export function DesktopPlayer({
       {snapshot && !error && (
         <div
           data-player-chrome="bottom"
-          className={`absolute inset-x-0 bottom-0 z-10 ${
-            chromeVisible
-              ? "bg-gradient-to-t from-black/90 via-black/55 to-transparent"
-              : "bg-transparent"
-          } ${expandedControls ? "px-10 pb-6 pt-6" : "px-4 pb-3 pt-8 sm:px-6"} ${
-            chromeVisible ? "visible" : "pointer-events-none"
-          }`}
+          className={`absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/90 via-black/55 to-transparent ${
+            expandedControls ? "px-10 pb-6 pt-6" : "px-4 pb-3 pt-8 sm:px-6"
+          } ${chromeVisible ? "visible" : "pointer-events-none invisible"}`}
           onClick={(event) => event.stopPropagation()}
         >
           <div
@@ -939,10 +935,7 @@ export function DesktopPlayer({
               />
             )}
 
-            <div
-              className={`flex items-center gap-3 ${chromeVisible ? "" : "invisible"}`}
-              data-native-overlay
-            >
+            <div className="flex items-center gap-3" data-native-overlay>
               <span
                 className={`player-time player-time-elapsed tabular-nums text-zinc-300 ${
                   expandedControls ? "text-sm" : "text-xs"
@@ -999,7 +992,7 @@ export function DesktopPlayer({
             </div>
 
             <div
-              className={`pointer-events-auto flex items-center ${
+              className={`flex items-center ${
                 expandedControls ? "mt-5 gap-3" : "mt-3 gap-1 sm:gap-2"
               }`}
               data-native-overlay
@@ -1011,90 +1004,86 @@ export function DesktopPlayer({
               >
                 {snapshot.paused ? <Play size={22} /> : <Pause size={22} />}
               </PlayerIcon>
-              <div
-                className={chromeVisible ? "contents" : "contents invisible pointer-events-none"}
-              >
-                {onNextEpisode && (
-                  <PlayerIcon
-                    label={`Next episode${nextEpisodeLabel ? `: ${nextEpisodeLabel}` : ""}`}
-                    expanded={expandedControls}
-                    onClick={() => {
-                      if (nextTransitionRequested.current) return
-                      nextTransitionRequested.current = true
-                      resetOverlay()
-                      void onNextEpisode()
-                    }}
-                  >
-                    <SkipForward size={21} />
-                  </PlayerIcon>
-                )}
+              {onNextEpisode && (
                 <PlayerIcon
-                  label={snapshot.volume === 0 ? "Unmute" : "Mute"}
+                  label={`Next episode${nextEpisodeLabel ? `: ${nextEpisodeLabel}` : ""}`}
                   expanded={expandedControls}
                   onClick={() => {
-                    const volume = snapshot.volume === 0 ? 100 : 0
-                    void nativePlayerCommand(["set", "volume", volume])
-                    setSnapshot((current) => (current ? { ...current, volume } : current))
+                    if (nextTransitionRequested.current) return
+                    nextTransitionRequested.current = true
+                    resetOverlay()
+                    void onNextEpisode()
                   }}
                 >
-                  {snapshot.volume === 0 ? <VolumeX size={21} /> : <Volume2 size={21} />}
+                  <SkipForward size={21} />
                 </PlayerIcon>
-                <input
-                  className={`player-volume hidden sm:block ${expandedControls ? "w-32" : "w-20"}`}
-                  style={
-                    {
-                      "--player-volume": `${Math.max(0, Math.min(100, snapshot.volume))}%`,
-                    } as React.CSSProperties
-                  }
-                  type="range"
-                  min={0}
-                  max={100}
-                  value={snapshot.volume}
-                  aria-label="Volume"
-                  onChange={(event) => {
-                    const volume = Number(event.target.value)
-                    void nativePlayerCommand(["set", "volume", volume])
-                    setSnapshot((current) => (current ? { ...current, volume } : current))
-                  }}
-                />
-                <div className="flex-1" />
+              )}
+              <PlayerIcon
+                label={snapshot.volume === 0 ? "Unmute" : "Mute"}
+                expanded={expandedControls}
+                onClick={() => {
+                  const volume = snapshot.volume === 0 ? 100 : 0
+                  void nativePlayerCommand(["set", "volume", volume])
+                  setSnapshot((current) => (current ? { ...current, volume } : current))
+                }}
+              >
+                {snapshot.volume === 0 ? <VolumeX size={21} /> : <Volume2 size={21} />}
+              </PlayerIcon>
+              <input
+                className={`player-volume hidden sm:block ${expandedControls ? "w-32" : "w-20"}`}
+                style={
+                  {
+                    "--player-volume": `${Math.max(0, Math.min(100, snapshot.volume))}%`,
+                  } as React.CSSProperties
+                }
+                type="range"
+                min={0}
+                max={100}
+                value={snapshot.volume}
+                aria-label="Volume"
+                onChange={(event) => {
+                  const volume = Number(event.target.value)
+                  void nativePlayerCommand(["set", "volume", volume])
+                  setSnapshot((current) => (current ? { ...current, volume } : current))
+                }}
+              />
+              <div className="flex-1" />
 
-                <div ref={audioButton} data-track-menu-trigger>
-                  <PlayerIcon
-                    label={`Audio${selectedAudio ? `: ${trackName(selectedAudio, "Audio")}` : ""}`}
-                    active={activeMenu === "audio"}
-                    expanded={expandedControls}
-                    onClick={() => toggleTrackMenu("audio")}
-                  >
-                    <Languages size={21} />
-                  </PlayerIcon>
-                </div>
-                <div ref={subtitleButton} data-track-menu-trigger>
-                  <PlayerIcon
-                    label={`Subtitles${
-                      selectedSubtitle ? `: ${trackName(selectedSubtitle, "Subtitles")}` : ": Off"
-                    }`}
-                    active={activeMenu === "subtitles"}
-                    expanded={expandedControls}
-                    onClick={() => toggleTrackMenu("subtitles")}
-                  >
-                    <Captions size={22} />
-                  </PlayerIcon>
-                </div>
-                <VideoScaleControl
-                  value={videoScale}
+              <div ref={audioButton} data-track-menu-trigger>
+                <PlayerIcon
+                  label={`Audio${selectedAudio ? `: ${trackName(selectedAudio, "Audio")}` : ""}`}
+                  active={activeMenu === "audio"}
                   expanded={expandedControls}
-                  indicatorPlacement="above"
-                  onIndicatorHidden={resetOverlay}
-                  onChange={(scale) => {
-                    resetOverlay()
-                    setVideoScale(scale)
-                    void applyNativeVideoScale(scale).catch((cause: unknown) => {
-                      setError(cause instanceof Error ? cause.message : String(cause))
-                    })
-                  }}
-                />
+                  onClick={() => toggleTrackMenu("audio")}
+                >
+                  <Languages size={21} />
+                </PlayerIcon>
               </div>
+              <div ref={subtitleButton} data-track-menu-trigger>
+                <PlayerIcon
+                  label={`Subtitles${
+                    selectedSubtitle ? `: ${trackName(selectedSubtitle, "Subtitles")}` : ": Off"
+                  }`}
+                  active={activeMenu === "subtitles"}
+                  expanded={expandedControls}
+                  onClick={() => toggleTrackMenu("subtitles")}
+                >
+                  <Captions size={22} />
+                </PlayerIcon>
+              </div>
+              <VideoScaleControl
+                value={videoScale}
+                expanded={expandedControls}
+                indicatorPlacement="above"
+                onIndicatorHidden={resetOverlay}
+                onChange={(scale) => {
+                  resetOverlay()
+                  setVideoScale(scale)
+                  void applyNativeVideoScale(scale).catch((cause: unknown) => {
+                    setError(cause instanceof Error ? cause.message : String(cause))
+                  })
+                }}
+              />
             </div>
           </div>
         </div>
