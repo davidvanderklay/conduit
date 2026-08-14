@@ -64,6 +64,7 @@ export function ElectronPlayerOverlay({ initialMedia }: { initialMedia: PlayerOv
   const [fullscreen, setFullscreen] = useState(false)
   const [scale, setScale] = useState<VideoScale>("fit")
   const [controlsVisible, setControlsVisible] = useState(true)
+  const [showRemainingTime, setShowRemainingTime] = useState(false)
   const [holdSpeedActive, setHoldSpeedActive] = useState(false)
   const [activeTrackMenu, setActiveTrackMenu] = useState<TrackMenuName>()
   const [selectedSubtitleCode, setSelectedSubtitleCode] = useState<string>()
@@ -81,8 +82,9 @@ export function ElectronPlayerOverlay({ initialMedia }: { initialMedia: PlayerOv
   const showControls = useCallback(() => {
     setControlsVisible(true)
     window.clearTimeout(hideTimer.current)
+    if (!snapshot?.firstFrameReady) return
     hideTimer.current = window.setTimeout(() => setControlsVisible(false), 2800)
-  }, [])
+  }, [snapshot?.firstFrameReady])
 
   useEffect(() => {
     document.documentElement.classList.add("electron-player-overlay")
@@ -154,6 +156,7 @@ export function ElectronPlayerOverlay({ initialMedia }: { initialMedia: PlayerOv
     const unsubscribeMedia = electron.onPlayerOverlayMedia((media) => {
       setTitle(media.title)
       setArtwork(media)
+      setShowRemainingTime(false)
       window.clearTimeout(seekCommitTimer.current)
       seekDraft.current = undefined
     })
@@ -183,6 +186,15 @@ export function ElectronPlayerOverlay({ initialMedia }: { initialMedia: PlayerOv
       window.clearInterval(timer)
     }
   }, [])
+
+  useEffect(() => {
+    if (snapshot?.firstFrameReady) {
+      showControls()
+      return
+    }
+    window.clearTimeout(hideTimer.current)
+    setControlsVisible(true)
+  }, [showControls, snapshot?.firstFrameReady])
 
   const command = useCallback((next: unknown[]) => {
     void nativePlayerCommand(next).catch(() => undefined)
@@ -418,7 +430,9 @@ export function ElectronPlayerOverlay({ initialMedia }: { initialMedia: PlayerOv
       >
         <div className="w-full">
           <div className="flex items-center gap-4 text-base tabular-nums text-zinc-200">
-            <span className="min-w-16 text-right">{formatTime(snapshot?.position ?? 0)}</span>
+            <span className="min-w-16 text-right text-lg">
+              {formatTime(snapshot?.position ?? 0)}
+            </span>
             <input
               className="player-seek pointer-events-auto block h-2 min-w-0 flex-1 cursor-pointer"
               data-overlay-interactive
@@ -435,7 +449,28 @@ export function ElectronPlayerOverlay({ initialMedia }: { initialMedia: PlayerOv
               onKeyUp={commitSeek}
               onBlur={commitSeek}
             />
-            <span className="min-w-16">{formatTime(snapshot?.duration ?? 0)}</span>
+            <button
+              className="min-w-16 cursor-pointer border-0 bg-transparent p-0 text-left text-lg text-zinc-200 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300"
+              type="button"
+              aria-label={
+                showRemainingTime
+                  ? "Time remaining. Click to show end time."
+                  : "End time. Click to show time remaining."
+              }
+              title={
+                showRemainingTime ? "Click to show end time" : "Click to show time remaining"
+              }
+              onClick={() => {
+                setShowRemainingTime((current) => !current)
+                showControls()
+              }}
+            >
+              {showRemainingTime
+                ? `-${formatTime(
+                    Math.max(0, (snapshot?.duration ?? 0) - (snapshot?.position ?? 0)),
+                  )}`
+                : formatTime(snapshot?.duration ?? 0)}
+            </button>
           </div>
 
           <div className="pointer-events-auto relative mt-3 flex items-center gap-3">
