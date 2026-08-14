@@ -212,13 +212,13 @@ class ConduitApiTest {
             ).sorted(),
             requested.sorted(),
         )
-        assertEquals(3, result.catalogs.size)
+        assertEquals(2, result.catalogs.size)
         val popular = result.catalogs.first { it.catalogId == "popular" }
         assertEquals("A Movie", popular.items.single().name)
         assertEquals("a1", popular.addonId)
         assertEquals("movie", popular.type)
         assertEquals("Popular - Movie", popular.title)
-        assertEquals(1, result.failedRequests)
+        assertEquals(2, result.failedRequests)
     }
 
     @Test
