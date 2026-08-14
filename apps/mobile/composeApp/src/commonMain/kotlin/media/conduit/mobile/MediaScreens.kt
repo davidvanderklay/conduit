@@ -622,14 +622,12 @@ internal fun MediaDetailsScreen(
     var selectedVideo by remember(item.id) { mutableStateOf<VideoItem?>(null) }
     var streams by remember(item.id) { mutableStateOf<List<StreamSource>?>(null) }
     var streamPageOpen by remember(item.id) { mutableStateOf(false) }
-    var streamEpisodesOpen by remember(item.id) { mutableStateOf(false) }
     var streamsLoading by remember(item.id) { mutableStateOf(false) }
     var streamsError by remember(item.id) { mutableStateOf<String?>(null) }
     var selectedStreamAddonId by remember(item.id) { mutableStateOf(preferences.lastStreamAddonId) }
     var playing by remember(item.id) { mutableStateOf<StreamItem?>(null) }
     var resumePosition by remember(item.id) { mutableStateOf(0L) }
     var currentAddonId by remember(item.id) { mutableStateOf<String?>(null) }
-    var episodesOpen by remember(item.id) { mutableStateOf(false) }
     var currentAddonName by remember(item.id) { mutableStateOf<String?>(null) }
     var externalSubtitles by remember(item.id) { mutableStateOf<List<SubtitleItem>>(emptyList()) }
     var externalSubtitlesLoaded by remember(item.id) { mutableStateOf(false) }
@@ -827,9 +825,15 @@ internal fun MediaDetailsScreen(
                     requestStreams(video)
                 }
             },
-            openEpisodes = {
-                episodesOpen = true
-                playbackSession.minimize(notifyOwner = false)
+            openEpisodes = {},
+            selectEpisode = { videoId ->
+                orderedVideos.firstOrNull { it.id == videoId }?.let { video ->
+                    playbackSession.close()
+                    selectedVideo = video
+                    playing = null
+                    resumePosition = 0L
+                    requestStreams(video)
+                }
             },
             minimized = onBack,
             closed = { playing = null },
@@ -872,6 +876,8 @@ internal fun MediaDetailsScreen(
             nextEpisodeTitle = nextVideo?.let { "S${it.season ?: 0}E${it.episode ?: 0} · ${it.displayTitle}" },
             nextEpisodeArtwork = nextVideo?.thumbnail ?: meta?.background,
             hasEpisodes = orderedVideos.isNotEmpty(),
+            mediaItem = item,
+            episodes = orderedVideos,
         )
         playbackSession.start(request, callbacks)
     }
@@ -879,7 +885,6 @@ internal fun MediaDetailsScreen(
         if (requestIdentity != null && sessionCallbacks != null) playbackSession.attach(requestIdentity, sessionCallbacks)
     }
     fun closeStreamSelection() {
-        streamEpisodesOpen = false
         streamPageOpen = false
         streams = null
         if (returnToHomeOnStreamBack) onBack()
@@ -895,35 +900,9 @@ internal fun MediaDetailsScreen(
             ownsPlayback && playbackSession.state.presentation == PlaybackPresentation.FullScreen -> {
                 playbackSession.leaveFullScreen(preferences.miniplayerOnBack)
             }
-            episodesOpen -> episodesOpen = false
-            streamEpisodesOpen -> streamEpisodesOpen = false
             streamPageOpen -> closeStreamSelection()
             else -> onBack()
         }
-    }
-    if (episodesOpen) {
-        Box(Modifier.fillMaxSize()) {
-            BoxWithConstraints(Modifier.fillMaxSize()) {
-                PlayerEpisodeDrawer(
-                    orderedVideos,
-                    selectedVideo,
-                    snapshot,
-                    actionItem = item,
-                    onMutation = onMutation,
-                    fullscreen = maxWidth < 600.dp,
-                    onDismiss = { episodesOpen = false },
-                    onSelect = { video ->
-                        episodesOpen = false
-                        playbackSession.close()
-                        selectedVideo = video
-                        playing = null
-                        resumePosition = 0L
-                        requestStreams(video)
-                    },
-                )
-            }
-        }
-        return
     }
     if (waitingForSavedPlayback) {
         Box(Modifier.fillMaxSize()) {
@@ -978,46 +957,11 @@ internal fun MediaDetailsScreen(
                 }
             }
             MobileBackButton(
-                onClick = {
-                    if (streamEpisodesOpen) streamEpisodesOpen = false else closeStreamPage()
-                },
+                onClick = closeStreamPage,
                 modifier = Modifier.align(Alignment.TopStart),
                 background = MaterialTheme.colorScheme.background.copy(alpha = .96f),
                 safeArea = true,
             )
-            if (orderedVideos.isNotEmpty()) {
-                IconButton(
-                    onClick = { streamEpisodesOpen = true },
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .statusBarsPadding()
-                        .padding(12.dp)
-                        .background(MaterialTheme.colorScheme.background.copy(alpha = .96f), CircleShape),
-                ) {
-                    Icon(Icons.Rounded.VideoLibrary, contentDescription = "Episodes")
-                }
-            }
-            if (streamEpisodesOpen) {
-                BoxWithConstraints(Modifier.fillMaxSize()) {
-                    PlayerEpisodeDrawer(
-                        videos = orderedVideos,
-                        current = selectedVideo,
-                        snapshot = snapshot,
-                        actionItem = item,
-                        onMutation = onMutation,
-                        fullscreen = maxWidth < 600.dp,
-                        onDismiss = { streamEpisodesOpen = false },
-                        onSelect = { video ->
-                            streamEpisodesOpen = false
-                            playbackSession.close()
-                            selectedVideo = video
-                            playing = null
-                            resumePosition = 0L
-                            requestStreams(video)
-                        },
-                    )
-                }
-            }
         }
         return
     }
@@ -1439,7 +1383,7 @@ internal fun PlayerBufferingOverlay(modifier: Modifier = Modifier) {
 
 @Composable
 @OptIn(ExperimentalFoundationApi::class)
-private fun PlayerEpisodeDrawer(
+internal fun PlayerEpisodeDrawer(
     videos: List<VideoItem>,
     current: VideoItem?,
     snapshot: ProfileSnapshot?,

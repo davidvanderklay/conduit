@@ -1013,6 +1013,8 @@ private fun AppShell(
             expanded = expanded,
             bottomNavigationVisible = !expanded && bottomChromeVisible &&
                 (!profileFlowActive || state.destination == AppDestination.Profile),
+            snapshot = profileSync.snapshot,
+            onMutation = ::mutateProfile,
         )
     }
 }
@@ -1190,6 +1192,8 @@ private fun BoxScope.PlaybackSessionHost(
     preferences: DevicePreferences,
     expanded: Boolean,
     bottomNavigationVisible: Boolean,
+    snapshot: ProfileSnapshot?,
+    onMutation: suspend (ProfileMutation) -> Result<Unit>,
 ) {
     val session = controller.state
     val request = session.request ?: return
@@ -1228,6 +1232,11 @@ private fun BoxScope.PlaybackSessionHost(
     LaunchedEffect(session.playback.playing) {
         if (!session.playback.playing && session.playback.durationMs > 0) controller.persist()
     }
+
+    PlatformBackHandler(
+        enabled = fullScreen && session.episodePickerOpen,
+        onBack = controller::closeEpisodes,
+    )
 
     Box(Modifier.fillMaxSize().onSizeChanged { containerSize = it }) {
         // Adaptive iOS hides the native bar, but the mini-player keeps its
@@ -1379,6 +1388,18 @@ private fun BoxScope.PlaybackSessionHost(
                         }
                     }
                 }
+            }
+            if (fullScreen && session.episodePickerOpen && request.episodes.isNotEmpty() && request.mediaItem != null) {
+                PlayerEpisodeDrawer(
+                    videos = request.episodes,
+                    current = request.episodes.firstOrNull { it.id == request.identity.videoId },
+                    snapshot = snapshot,
+                    actionItem = request.mediaItem,
+                    onMutation = onMutation,
+                    onDismiss = controller::closeEpisodes,
+                    onSelect = { controller.selectEpisode(it.id) },
+                    fullscreen = false,
+                )
             }
         } else if (!systemPip) {
             val edgePaddingPx = with(density) { 12.dp.roundToPx() }
