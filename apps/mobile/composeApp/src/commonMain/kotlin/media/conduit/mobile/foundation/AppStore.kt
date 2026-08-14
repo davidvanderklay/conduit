@@ -10,7 +10,7 @@ enum class AppDestination(val label: String, val showInNavigation: Boolean = tru
     Library("Library"),
     Calendar("Calendar", showInNavigation = false),
     Profile("Settings"),
-    History("History", showInNavigation = false),
+    ContinueWatching("Continue Watching", showInNavigation = false),
 }
 
 data class AppState(

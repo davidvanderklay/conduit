@@ -33,7 +33,7 @@ internal fun HomeScreen(
     onSelectContinueWatching: (CatalogItem, String?) -> Unit,
     onSelectContinueWatchingDetails: (CatalogItem) -> Unit,
     onMutation: suspend (ProfileMutation) -> Result<Unit>,
-    onOpenHistory: () -> Unit,
+    onOpenContinueWatching: () -> Unit,
     onOpenDiscover: (DiscoverSelection) -> Unit,
     listState: LazyListState = rememberLazyListState(),
     cache: HomeScreenCache = remember { HomeScreenCache() },
@@ -59,7 +59,7 @@ internal fun HomeScreen(
     }
     LaunchedEffect(sync.snapshot?.profileId, sync.snapshot?.addons) { load() }
 
-    val continueWatching = groupContinueWatching(sync.snapshot?.continueWatching.orEmpty()).take(14)
+    val continueWatching = groupContinueWatching(sync.snapshot?.continueWatching.orEmpty())
     LazyColumn(
         state = listState,
         modifier = modifier.fillMaxSize().statusBarsPadding(),
@@ -70,7 +70,7 @@ internal fun HomeScreen(
             item { StatusPill("Offline · showing saved activity", MaterialTheme.colorScheme.tertiary) }
         }
         if (continueWatching.isNotEmpty()) {
-            item { ShelfTitle("Continue Watching", onOpenHistory) }
+            item { ShelfTitle("Continue Watching", onOpenContinueWatching) }
             item {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     items(continueWatching, key = { it.videoId }) { item ->

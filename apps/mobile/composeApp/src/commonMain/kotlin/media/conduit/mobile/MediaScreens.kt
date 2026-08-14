@@ -179,7 +179,7 @@ internal fun MobileLibraryScreen(
 }
 
 @Composable
-internal fun MobileHistoryScreen(
+internal fun MobileContinueWatchingScreen(
     snapshot: ProfileSnapshot?,
     api: ConduitApi,
     onMutation: suspend (ProfileMutation) -> Result<Unit>,
@@ -193,10 +193,7 @@ internal fun MobileHistoryScreen(
     var sort by remember { mutableStateOf(LibrarySort.LastWatched) }
     var actionTarget by remember { mutableStateOf<MediaActionTarget?>(null) }
     val metadataCache = rememberWatchMetadataCache(api, snapshot?.addons.orEmpty())
-    val items = snapshot?.history.orEmpty()
-        .groupBy { "${it.mediaType}:${it.mediaId}" }
-        .values
-        .mapNotNull { entries -> entries.maxByOrNull(ProgressSummary::updatedAt) }
+    val items = groupContinueWatching(snapshot?.continueWatching.orEmpty())
         .filter { filter == "all" || it.mediaType == filter }
         .let { entries ->
             when (sort) {
@@ -221,9 +218,9 @@ internal fun MobileHistoryScreen(
 
     PlatformBackHandler(onBack = onBack)
     Column(modifier.fillMaxSize()) {
-        ProfileHeader("Watch history", onBack)
+        ProfileHeader("Continue Watching", onBack)
         Column(Modifier.padding(horizontal = 10.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Everything you have viewed", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Movies and series currently in progress", color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 CompactFilterMenu(
                     value = when (filter) { "movie" -> "Movies"; "series" -> "Series"; else -> "All types" },
@@ -250,7 +247,7 @@ internal fun MobileHistoryScreen(
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         } else if (items.isEmpty()) {
             Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
-                Text("No watch history yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Nothing to continue watching yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         } else {
             LazyVerticalGrid(
@@ -268,7 +265,7 @@ internal fun MobileHistoryScreen(
                         snapshot = snapshot,
                         metadataCache = metadataCache,
                         onClick = { onSelectVideo(catalogItem, progress.videoId) },
-                        onActions = { actionTarget = MediaActionTarget(catalogItem, MediaActionContext.History, progress) },
+                        onActions = { actionTarget = MediaActionTarget(catalogItem, MediaActionContext.Continue, progress) },
                     )
                 }
             }

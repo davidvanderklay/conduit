@@ -195,17 +195,40 @@ export function registerProgressRoutes(app: FastifyInstance, context: RouteConte
       const { profileId, videoId } = request.params as { profileId: string; videoId: string }
       const { watched, dismissed } = request.body as { watched?: boolean; dismissed?: boolean }
       if (!(await canAccessProfile(db, user.id, profileId))) return reply.forbidden()
+      const [current] = await db
+        .select()
+        .from(watchProgress)
+        .where(and(eq(watchProgress.profileId, profileId), eq(watchProgress.videoId, videoId)))
+        .limit(1)
+      if (!current) return reply.notFound()
+
+      // Continue Watching dismissal is title-scoped; history deletion remains video-scoped.
+      const updatingTitleDismissal = dismissed !== undefined && watched === undefined
+      const values = {
+        ...(watched !== undefined
+          ? {
+              watched,
+              ...(watched === true ? { positionMs: sql`${watchProgress.durationMs}` } : {}),
+              ...(watched === false ? { positionMs: 0 } : {}),
+              continueWatching: watched,
+              ...(dismissed === undefined ? { dismissed: false } : {}),
+            }
+          : {}),
+        ...(dismissed !== undefined ? { dismissed } : {}),
+        ...(watched !== undefined ? { updatedAt: new Date() } : {}),
+      }
       const [item] = await db
         .update(watchProgress)
-        .set({
-          ...(watched !== undefined ? { watched } : {}),
-          ...(watched === true ? { positionMs: sql`${watchProgress.durationMs}` } : {}),
-          ...(watched === false ? { positionMs: 0 } : {}),
-          ...(watched !== undefined ? { continueWatching: watched } : {}),
-          ...(dismissed !== undefined ? { dismissed } : {}),
-          updatedAt: new Date(),
-        })
-        .where(and(eq(watchProgress.profileId, profileId), eq(watchProgress.videoId, videoId)))
+        .set(values)
+        .where(
+          updatingTitleDismissal
+            ? and(
+                eq(watchProgress.profileId, profileId),
+                eq(watchProgress.mediaType, current.mediaType),
+                eq(watchProgress.mediaId, current.mediaId),
+              )
+            : and(eq(watchProgress.profileId, profileId), eq(watchProgress.videoId, videoId)),
+        )
         .returning()
       if (!item) return reply.notFound()
       return { item: toProgressItem(item) }

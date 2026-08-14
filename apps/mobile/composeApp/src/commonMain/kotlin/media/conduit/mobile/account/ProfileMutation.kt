@@ -118,16 +118,22 @@ fun ProfileSnapshot.applyOptimistically(mutation: ProfileMutation): ProfileSnaps
     }
 
     is ProfileMutation.SetDismissed -> {
-        val optimistic = mutation.progress.copy(dismissed = mutation.dismissed)
+        fun sameTitle(item: ProgressSummary): Boolean =
+            item.mediaType == mutation.progress.mediaType && item.mediaId == mutation.progress.mediaId
+
         copy(
-            progress = progress.replaceProgress(optimistic),
-            history = history.replaceProgress(optimistic),
+            progress = progress.map { item ->
+                if (sameTitle(item)) item.copy(dismissed = mutation.dismissed) else item
+            },
+            history = history.map { item ->
+                if (sameTitle(item)) item.copy(dismissed = mutation.dismissed) else item
+            },
             continueWatching = if (mutation.dismissed) {
-                continueWatching.filterNot { it.videoId == optimistic.videoId }
-            } else if (optimistic.continueWatching) {
-                continueWatching.replaceProgress(optimistic)
+                continueWatching.filterNot(::sameTitle)
             } else {
-                continueWatching.filterNot { it.videoId == optimistic.videoId }
+                continueWatching.map { item ->
+                    if (sameTitle(item)) item.copy(dismissed = false) else item
+                }
             },
         )
     }
