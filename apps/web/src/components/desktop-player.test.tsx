@@ -21,6 +21,7 @@ const snapshot = {
   ended: false,
   paused: false,
   loading: false,
+  firstFrameReady: true,
   position: 10,
   duration: 100,
   bufferedDuration: 30,
@@ -75,11 +76,13 @@ describe("native playback status", () => {
   })
 
   it("reports software decoding once video metadata is known", () => {
-    expect(nativePlaybackDescription({
-      ...snapshot,
-      audioCodec: undefined,
-      hardwareDecoder: undefined,
-    })).toBe("Direct Play · MATROSKA · HEVC · Software")
+    expect(
+      nativePlaybackDescription({
+        ...snapshot,
+        audioCodec: undefined,
+        hardwareDecoder: undefined,
+      }),
+    ).toBe("Direct Play · MATROSKA · HEVC · Software")
   })
 })
 
@@ -143,6 +146,7 @@ describe("DesktopPlayer track menus", () => {
     desktop.openNativePlayer.mockResolvedValueOnce({
       ...snapshot,
       duration: 0,
+      firstFrameReady: false,
     })
     desktop.nativePlayerSnapshot.mockResolvedValueOnce(snapshot)
 
@@ -161,10 +165,15 @@ describe("DesktopPlayer track menus", () => {
       await Promise.resolve()
     })
     expect(document.querySelector('[aria-label="Video loading"]')).not.toBeNull()
+    act(() => vi.advanceTimersByTime(4000))
+    expect(document.querySelector(".native-player")?.className).toContain("cursor-default")
+    for (const region of document.querySelectorAll<HTMLElement>("[data-player-chrome]")) {
+      expect(region.classList.contains("visible")).toBe(true)
+    }
     desktop.resetNativeOverlaySurface.mockClear()
 
     await act(async () => {
-      vi.advanceTimersByTime(1000)
+      vi.advanceTimersByTime(250)
       await Promise.resolve()
     })
     act(() => vi.advanceTimersByTime(1))
@@ -180,11 +189,64 @@ describe("DesktopPlayer track menus", () => {
     })
 
     await act(async () => {
-      vi.advanceTimersByTime(1000)
+      vi.advanceTimersByTime(250)
       await Promise.resolve()
     })
 
     expect(document.querySelector('[aria-label="Video loading"]')).toBeNull()
+    expect(document.querySelector('[aria-label="Video buffering"]')).not.toBeNull()
+  })
+
+  it("uses the media artwork while the first frame is loading", async () => {
+    desktop.openNativePlayer.mockResolvedValueOnce({
+      ...snapshot,
+      duration: 0,
+      firstFrameReady: false,
+    })
+
+    await act(async () => {
+      root.render(
+        <DesktopPlayer
+          url="https://example.com/artwork-video.mp4"
+          type="movie"
+          videoId="tt-artwork"
+          profileId="00000000-0000-4000-8000-000000000001"
+          progressMetadata={{ mediaType: "movie", mediaId: "tt-artwork", name: "Artwork video" }}
+          artwork={{
+            background: "https://example.com/background.jpg",
+            logo: "https://example.com/logo.png",
+            poster: "https://example.com/poster.jpg",
+          }}
+          addons={[]}
+          onClose={() => undefined}
+        />,
+      )
+      await Promise.resolve()
+    })
+
+    expect(document.querySelector('[aria-label="Video loading"]')).not.toBeNull()
+    expect(document.querySelector('img[src="https://example.com/background.jpg"]')).not.toBeNull()
+    expect(document.querySelector('img[src="https://example.com/logo.png"]')).not.toBeNull()
+    expect(document.querySelector('[aria-label="Video buffering"]')).toBeNull()
+  })
+
+  it("keeps play/pause visible while buffering", async () => {
+    desktop.nativePlayerSnapshot.mockResolvedValueOnce({
+      ...snapshot,
+      loading: true,
+      firstFrameReady: true,
+    })
+
+    await act(async () => {
+      vi.advanceTimersByTime(250)
+      await Promise.resolve()
+    })
+
+    const playPause = button("Pause")
+    expect(playPause.parentElement?.className).not.toContain("invisible")
+    const buffering = document.querySelector('[aria-label="Video buffering"]')
+    expect(buffering).not.toBeNull()
+    expect(buffering?.querySelector("svg")?.getAttribute("class")).toContain("animate-spin")
   })
 
   it("unmounts the menu when its close button is clicked", () => {
@@ -334,24 +396,41 @@ describe("DesktopPlayer track menus", () => {
     expect(desktop.nativePlayerCommand).not.toHaveBeenCalled()
     act(() => vi.advanceTimersByTime(1))
     expect(desktop.nativePlayerCommand).toHaveBeenCalledTimes(1)
-    expect(desktop.nativePlayerCommand).toHaveBeenCalledWith([
-      "seek",
-      70,
-      "absolute+exact",
-    ])
+    expect(desktop.nativePlayerCommand).toHaveBeenCalledWith(["seek", 70, "absolute+exact"])
   })
 
   it("places separate elapsed and duration labels around the timeline", () => {
     const seek = document.querySelector<HTMLInputElement>('input[aria-label="Seek"]')
     const elapsed = document.querySelector<HTMLElement>('[aria-label="Elapsed time"]')
-    const duration = document.querySelector<HTMLElement>('[aria-label="Total duration"]')
+    const duration = document.querySelector<HTMLElement>(
+      '[aria-label="End time. Click to show time remaining."]',
+    )
 
     expect(elapsed?.textContent).toBe("0:10")
     expect(duration?.textContent).toBe("1:40")
+    expect(elapsed?.className).toContain("text-sm")
+    expect(duration?.className).toContain("text-sm")
     expect(elapsed?.parentElement).toBe(seek?.parentElement)
     expect(duration?.parentElement).toBe(seek?.parentElement)
     expect(document.querySelector('button[aria-label="Back 10 seconds"]')).toBeNull()
     expect(document.querySelector('button[aria-label="Forward 10 seconds"]')).toBeNull()
+  })
+
+  it("toggles the right playback time between duration and time remaining", () => {
+    const endTime = document.querySelector<HTMLButtonElement>(
+      '[aria-label="End time. Click to show time remaining."]',
+    )
+    expect(endTime?.textContent).toBe("1:40")
+
+    click(endTime!)
+
+    expect(endTime?.textContent).toBe("-1:30")
+    expect(endTime?.getAttribute("aria-label")).toBe(
+      "Time remaining. Click to show end time.",
+    )
+
+    click(endTime!)
+    expect(endTime?.textContent).toBe("1:40")
   })
 
   it("commits the latest timeline position immediately on pointer release", () => {
@@ -365,13 +444,25 @@ describe("DesktopPlayer track menus", () => {
     })
 
     expect(desktop.nativePlayerCommand).toHaveBeenCalledTimes(1)
-    expect(desktop.nativePlayerCommand).toHaveBeenCalledWith([
-      "seek",
-      55,
-      "absolute+exact",
-    ])
+    expect(desktop.nativePlayerCommand).toHaveBeenCalledWith(["seek", 55, "absolute+exact"])
     act(() => vi.advanceTimersByTime(500))
     expect(desktop.nativePlayerCommand).toHaveBeenCalledTimes(1)
+  })
+
+  it("keeps play/pause visible while seeking", () => {
+    const seek = document.querySelector<HTMLInputElement>('input[aria-label="Seek"]')
+    expect(seek).not.toBeNull()
+    const playPause = button("Pause")
+
+    act(() => {
+      changeRange(seek!, 55)
+    })
+    expect(playPause.parentElement?.className).not.toContain("invisible")
+
+    act(() => {
+      seek!.dispatchEvent(new Event("pointerup", { bubbles: true }))
+    })
+    expect(playPause.parentElement?.className).not.toContain("invisible")
   })
 
   it("unmounts the menu when its trigger is clicked again", () => {
@@ -468,17 +559,18 @@ describe("DesktopPlayer track menus", () => {
 
 describe("native playback completion", () => {
   it("detects mpv clearing its timeline immediately after EOF", () => {
-    expect(nativePlaybackEnded(
-      { ...snapshot, position: 99, duration: 100, ended: false },
-      { ...snapshot, position: 0, duration: 0, ended: false },
-    )).toBe(true)
+    expect(
+      nativePlaybackEnded(
+        { ...snapshot, position: 99, duration: 100, ended: false },
+        { ...snapshot, position: 0, duration: 0, ended: false },
+      ),
+    ).toBe(true)
   })
 
   it("does not treat an uninitialized timeline as EOF", () => {
-    expect(nativePlaybackEnded(
-      undefined,
-      { ...snapshot, position: 0, duration: 0, ended: false },
-    )).toBe(false)
+    expect(
+      nativePlaybackEnded(undefined, { ...snapshot, position: 0, duration: 0, ended: false }),
+    ).toBe(false)
   })
 })
 
@@ -503,10 +595,7 @@ function click(target: HTMLButtonElement): void {
 }
 
 function changeRange(target: HTMLInputElement, value: number): void {
-  const setter = Object.getOwnPropertyDescriptor(
-    HTMLInputElement.prototype,
-    "value",
-  )?.set
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set
   setter?.call(target, String(value))
   target.dispatchEvent(new Event("input", { bubbles: true }))
 }

@@ -101,6 +101,12 @@ export interface ProgressMetadata {
   episode?: number
 }
 
+export interface PlayerArtwork {
+  background?: string
+  logo?: string
+  poster?: string
+}
+
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = requestHeaders(init)
   const response = await fetch(`${API_URL}${path}`, {

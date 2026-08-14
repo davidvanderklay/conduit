@@ -241,6 +241,13 @@ type OverlayInteractiveRegion = {
   bottom: number
 }
 
+type PlayerOverlayMedia = {
+  title: string
+  background?: string
+  logo?: string
+  poster?: string
+}
+
 function refreshNativeSurface() {
   void nativePlayer?.request("player_refresh_surface").catch(() => undefined)
 }
@@ -396,11 +403,11 @@ function closePlayerOverlay() {
   if (!overlay.isDestroyed()) overlay.close()
 }
 
-async function ensurePlayerOverlay(title: string) {
+async function ensurePlayerOverlay(media: PlayerOverlayMedia) {
   if (!mainWindow) throw new Error("Main window is unavailable.")
   if (playerOverlayWindow && !playerOverlayWindow.isDestroyed()) {
     try {
-      playerOverlayWindow.webContents.send("conduit:player-overlay-title", title)
+      playerOverlayWindow.webContents.send("conduit:player-overlay-media", media)
       positionPlayerOverlay()
       return
     } catch {
@@ -464,7 +471,10 @@ async function ensurePlayerOverlay(title: string) {
 
     const query = new URLSearchParams({
       electronOverlay: "1",
-      title,
+      title: media.title,
+      ...(media.background ? { background: media.background } : {}),
+      ...(media.logo ? { logo: media.logo } : {}),
+      ...(media.poster ? { poster: media.poster } : {}),
     })
     const url = rendererIsDevelopment()
       ? "http://localhost:5173/?" + query.toString()
@@ -837,7 +847,15 @@ async function invoke(command: string, args: Record<string, unknown> = {}): Prom
       // macOS and Windows keep their native video below the main Chromium
       // surface, so the existing player portal is the controls layer.
       if (process.platform === "linux") {
-        await ensurePlayerOverlay(typeof args.title === "string" ? args.title : "")
+        const artwork = args.artwork && typeof args.artwork === "object"
+          ? args.artwork as Record<string, unknown>
+          : {}
+        await ensurePlayerOverlay({
+          title: typeof args.title === "string" ? args.title : "",
+          background: typeof artwork.background === "string" ? artwork.background : undefined,
+          logo: typeof artwork.logo === "string" ? artwork.logo : undefined,
+          poster: typeof artwork.poster === "string" ? artwork.poster : undefined,
+        })
       }
       return result
     } catch (error) {

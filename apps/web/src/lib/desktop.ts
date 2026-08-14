@@ -1,3 +1,5 @@
+import type { PlayerArtwork } from "./api"
+
 export interface NativeTrack {
   id: number
   type: "audio" | "video" | "sub"
@@ -17,6 +19,7 @@ export interface NativePlayerSnapshot {
   ended: boolean
   paused: boolean
   loading: boolean
+  firstFrameReady: boolean
   position: number
   duration: number
   bufferedDuration: number
@@ -35,7 +38,7 @@ export interface ElectronDesktopBridge {
   onFullscreenChange(listener: (fullscreen: boolean) => void): () => void
   onPlayerOverlayClose(listener: () => void): () => void
   onPlayerOverlayNext(listener: () => void): () => void
-  onPlayerOverlayTitle(listener: (title: string) => void): () => void
+  onPlayerOverlayMedia(listener: (media: PlayerOverlayMedia) => void): () => void
   setPlayerOverlayInteractiveRegions(
     regions: Array<{ left: number; top: number; right: number; bottom: number }>,
   ): void
@@ -44,6 +47,10 @@ export interface ElectronDesktopBridge {
   chooseSavePath(suggestedName: string): Promise<string | null>
   writeTextFile(path: string, contents: string): Promise<void>
   openExternal(url: string): Promise<void>
+}
+
+export type PlayerOverlayMedia = PlayerArtwork & {
+  title: string
 }
 
 declare global {
@@ -67,8 +74,15 @@ export function openNativePlayer(
   title: string,
   readAheadSeconds: number,
   hardwareAcceleration: boolean,
+  artwork?: PlayerOverlayMedia,
 ): Promise<NativePlayerSnapshot> {
-  return invoke("player_open", { url, title, readAheadSeconds, hardwareAcceleration })
+  return invoke("player_open", {
+    url,
+    title,
+    readAheadSeconds,
+    hardwareAcceleration,
+    artwork,
+  })
 }
 
 export function nativePlayerSnapshot(): Promise<NativePlayerSnapshot> {

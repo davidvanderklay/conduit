@@ -100,6 +100,7 @@ struct PlayerSnapshot {
     ended: bool,
     paused: bool,
     loading: bool,
+    first_frame_ready: bool,
     position: f64,
     duration: f64,
     buffered_duration: f64,
@@ -343,6 +344,7 @@ impl Player {
             loading: mpv
                 .get_property::<bool>("paused-for-cache")
                 .unwrap_or(false),
+            first_frame_ready: has_video_frame(mpv),
             position: mpv.get_property::<f64>("time-pos").unwrap_or_default(),
             duration: mpv.get_property::<f64>("duration").unwrap_or_default(),
             buffered_duration: mpv
@@ -490,6 +492,12 @@ fn non_empty_property(mpv: &Mpv, name: &str) -> Option<String> {
     mpv.get_property::<String>(name)
         .ok()
         .filter(|value| !value.is_empty())
+}
+
+fn has_video_frame(mpv: &Mpv) -> bool {
+    mpv.get_property::<String>("video-frame-info/picture-type")
+        .map(|picture_type| !picture_type.is_empty())
+        .unwrap_or(false)
 }
 
 fn network_buffer_options(read_ahead_seconds: u32) -> Vec<(&'static str, String)> {

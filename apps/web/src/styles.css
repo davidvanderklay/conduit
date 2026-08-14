@@ -80,6 +80,11 @@ body {
   top: 40px;
 }
 
+.electron-macos .saved-stream-loading-overlay,
+.electron-windows .saved-stream-loading-overlay {
+  bottom: 40px;
+}
+
 @media (min-width: 768px) {
   .electron-macos .app-sidebar {
     top: calc(40px + 4rem);
@@ -105,6 +110,11 @@ body {
 
 .electron-macos.electron-native-fullscreen .media-details {
   top: 0;
+}
+
+.electron-macos.electron-native-fullscreen .saved-stream-loading-overlay,
+.electron-windows.electron-native-fullscreen .saved-stream-loading-overlay {
+  bottom: 0;
 }
 
 @media (min-width: 768px) {
@@ -144,6 +154,26 @@ body {
   overflow: hidden;
   user-select: none;
   -webkit-user-select: none;
+}
+
+@keyframes desktop-player-opening-indicator {
+  from {
+    opacity: 0.72;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1.04);
+  }
+}
+
+.desktop-player-opening-indicator {
+  animation: desktop-player-opening-indicator 1.25s ease-in-out infinite alternate;
+}
+
+.desktop-player-buffering-indicator {
+  width: clamp(24px, 4vw, 36px);
+  height: clamp(24px, 4vw, 36px);
 }
 
 .native-playback #root {
@@ -436,7 +466,11 @@ video::cue {
 }
 
 .subtitle-outline video::cue {
-  text-shadow: -1px -1px 1px #000, 1px -1px 1px #000, -1px 1px 1px #000, 1px 1px 1px #000;
+  text-shadow:
+    -1px -1px 1px #000,
+    1px -1px 1px #000,
+    -1px 1px 1px #000,
+    1px 1px 1px #000;
 }
 
 .reduce-motion *,

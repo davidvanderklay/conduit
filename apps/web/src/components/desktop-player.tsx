@@ -1,11 +1,15 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react"
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from "react"
 import { createPortal } from "react-dom"
 import {
   Captions,
   Languages,
-  LoaderCircle,
-  Maximize,
-  Minimize,
   Pause,
   Play,
   SkipForward,
@@ -13,7 +17,7 @@ import {
   VolumeX,
   X,
 } from "lucide-react"
-import type { InstalledAddon, PlaybackSource, ProgressMetadata } from "../lib/api"
+import type { InstalledAddon, PlaybackSource, PlayerArtwork, ProgressMetadata } from "../lib/api"
 import { addonsForResource } from "../lib/addons"
 import { audioTrackDisplay } from "../lib/audio-track-display"
 import {
@@ -29,23 +33,26 @@ import {
   type NativePlayerSnapshot,
   type NativeTrack,
 } from "../lib/desktop"
+import { isDesktopBuffering, isDesktopInitialLoading } from "../lib/desktop-player-state"
 import { loadSubtitles, type Video } from "../lib/core"
 import { nativeMediaTitle, playerHeading, type PlayerHeading } from "../lib/player-title"
 import { readPreferences, writePreferences } from "../lib/preferences"
-import {
-  configuredTrackLanguage,
-  matchesTrackLanguage,
-} from "../lib/track-preference"
+import { configuredTrackLanguage, matchesTrackLanguage } from "../lib/track-preference"
 import { mpvVideoScaleCommands, type VideoScale } from "../lib/video-scale"
 import { usePlaybackProgress } from "../lib/progress"
 import { Card } from "./ui/card"
-import {
-  NextEpisodePrompt,
-  PlayerEpisodeDrawer,
-  type PlayerSeriesContext,
-} from "./player-series"
+import { NextEpisodePrompt, PlayerEpisodeDrawer, type PlayerSeriesContext } from "./player-series"
 import { VideoScaleControl } from "./video-scale-control"
 import { SubtitlePicker } from "./subtitle-picker"
+import {
+  DesktopPlayerBufferingOverlay,
+  DesktopPlayerOpeningOverlay,
+} from "./desktop-player-overlays"
+import {
+  DesktopPlayerChromeBottom,
+  DesktopPlayerChromeTop,
+  DesktopPlayerControl as PlayerIcon,
+} from "./desktop-player-chrome"
 
 type TrackMenuName = "audio" | "subtitles"
 
@@ -57,15 +64,14 @@ export function nativePlaybackEnded(
   previous: NativePlayerSnapshot | undefined,
   next: NativePlayerSnapshot,
 ): boolean {
-  return next.ended ||
+  return (
+    next.ended ||
     Boolean(
       previous?.duration &&
       next.duration <= 0 &&
-      (
-        previous.position / previous.duration >= 0.9 ||
-        previous.duration - previous.position <= 2
-      ),
+      (previous.position / previous.duration >= 0.9 || previous.duration - previous.position <= 2),
     )
+  )
 }
 
 export function nativePlaybackDescription(snapshot: NativePlayerSnapshot): string {
@@ -97,6 +103,7 @@ export function DesktopPlayer({
   profileId,
   playbackSource,
   progressMetadata,
+  artwork,
   addons,
   seriesContext,
   nextEpisode,
@@ -112,6 +119,7 @@ export function DesktopPlayer({
   profileId: string
   playbackSource?: PlaybackSource
   progressMetadata: ProgressMetadata
+  artwork?: PlayerArtwork
   addons: InstalledAddon[]
   seriesContext?: PlayerSeriesContext
   nextEpisode?: Video
@@ -127,6 +135,7 @@ export function DesktopPlayer({
   const mediaTitle = nativeMediaTitle(progressMetadata)
   const [error, setError] = useState<string>()
   const [controlsVisible, setControlsVisible] = useState(true)
+  const [showRemainingTime, setShowRemainingTime] = useState(false)
   const [activeMenu, setActiveMenu] = useState<TrackMenuName>()
   const [fullscreen, setFullscreen] = useState(false)
   const [spaciousViewport, setSpaciousViewport] = useState(isSpaciousViewport)
@@ -175,8 +184,9 @@ export function DesktopPlayer({
   const showControls = useCallback(() => {
     setControlsVisible(true)
     window.clearTimeout(hideTimer.current)
+    if (!snapshot?.firstFrameReady) return
     hideTimer.current = window.setTimeout(() => setControlsVisible(false), 2800)
-  }, [])
+  }, [snapshot?.firstFrameReady])
 
   const endHoldSpeed = useCallback(() => {
     window.clearTimeout(holdSpeedTimer.current)
@@ -187,29 +197,38 @@ export function DesktopPlayer({
     void nativePlayerCommand(["set", "speed", 1]).catch(() => undefined)
   }, [])
 
-  const beginHoldSpeed = useCallback((event: ReactPointerEvent) => {
-    if (
-      !snapshot || snapshot.loading || snapshot.duration <= 0 ||
-      (event.pointerType === "mouse" && event.button !== 0) ||
-      event.target instanceof Element && event.target.closest("[data-native-overlay]")
-    ) return
-    window.clearTimeout(holdSpeedTimer.current)
-    holdSpeedTriggered.current = false
-    holdSpeedTimer.current = window.setTimeout(() => {
-      holdSpeedTriggered.current = true
-      holdSpeedActiveRef.current = true
-      setHoldSpeedActive(true)
-      void nativePlayerCommand(["set", "speed", 2]).catch(() => undefined)
-    }, 450)
-  }, [snapshot])
+  const beginHoldSpeed = useCallback(
+    (event: ReactPointerEvent) => {
+      if (
+        !snapshot ||
+        snapshot.loading ||
+        snapshot.duration <= 0 ||
+        (event.pointerType === "mouse" && event.button !== 0) ||
+        (event.target instanceof Element && event.target.closest("[data-native-overlay]"))
+      )
+        return
+      window.clearTimeout(holdSpeedTimer.current)
+      holdSpeedTriggered.current = false
+      holdSpeedTimer.current = window.setTimeout(() => {
+        holdSpeedTriggered.current = true
+        holdSpeedActiveRef.current = true
+        setHoldSpeedActive(true)
+        void nativePlayerCommand(["set", "speed", 2]).catch(() => undefined)
+      }, 450)
+    },
+    [snapshot],
+  )
 
-  useEffect(() => () => {
-    window.clearTimeout(holdSpeedTimer.current)
-    if (holdSpeedActiveRef.current) {
-      holdSpeedActiveRef.current = false
-      void nativePlayerCommand(["set", "speed", 1]).catch(() => undefined)
-    }
-  }, [])
+  useEffect(
+    () => () => {
+      window.clearTimeout(holdSpeedTimer.current)
+      if (holdSpeedActiveRef.current) {
+        holdSpeedActiveRef.current = false
+        void nativePlayerCommand(["set", "speed", 1]).catch(() => undefined)
+      }
+    },
+    [],
+  )
 
   const redrawControls = useCallback(() => {
     window.requestAnimationFrame(() => void redrawNativeSurface())
@@ -226,11 +245,14 @@ export function DesktopPlayer({
     let playerStarted = false
     preferredAudioApplied.current = false
     preferredSubtitleApplied.current = false
+    setShowRemainingTime(false)
     subtitleMetadataReadyPolls.current = 0
     setAddonSubtitlesResolved(false)
     endedHandled.current = false
     nextTransitionSuppressed.current = false
     nextTransitionRequested.current = false
+    seekActive.current = false
+    seekDraft.current = undefined
     lastNativeSnapshot.current = undefined
     lastPlayback.current = { position: 0, duration: 0 }
     document.documentElement.classList.add("native-playback")
@@ -239,17 +261,14 @@ export function DesktopPlayer({
       mediaTitle,
       preferences.readAheadSeconds,
       preferences.hardwareAcceleration,
+      { title: mediaTitle, ...artwork },
     )
       .then(async (initial) => {
         if (cancelled) return
         playerStarted = true
         setSnapshot(initial)
         await nativePlayerCommand(["set", "sub-pos", preferences.subtitlePosition])
-        await nativePlayerCommand([
-          "set",
-          "sub-border-size",
-          preferences.subtitleOutline ? 3 : 0,
-        ])
+        await nativePlayerCommand(["set", "sub-border-size", preferences.subtitleOutline ? 3 : 0])
         const resolved = await resolveAddonSubtitles(addons, type, videoId)
         if (!cancelled) {
           setAddonSubtitles(resolved)
@@ -266,9 +285,7 @@ export function DesktopPlayer({
         .then((next) => {
           if (cancelled) return
           const previous = lastNativeSnapshot.current
-          const resolved = nativePlaybackEnded(previous, next)
-            ? { ...next, ended: true }
-            : next
+          const resolved = nativePlaybackEnded(previous, next) ? { ...next, ended: true } : next
           lastNativeSnapshot.current = resolved
           setSnapshot(
             seekActive.current && seekDraft.current !== undefined
@@ -277,7 +294,7 @@ export function DesktopPlayer({
           )
         })
         .catch(() => undefined)
-    }, 1000)
+    }, 250)
 
     return () => {
       cancelled = true
@@ -288,7 +305,7 @@ export function DesktopPlayer({
       document.documentElement.classList.remove("native-playback")
       if (!closing.current) void stopNativePlayer()
     }
-  }, [addons, mediaTitle, type, url, videoId])
+  }, [addons, artwork?.background, artwork?.logo, artwork?.poster, mediaTitle, type, url, videoId])
 
   useEffect(() => {
     const electron = window.__CONDUIT_ELECTRON__
@@ -304,11 +321,7 @@ export function DesktopPlayer({
   }, [onClose, onNextEpisode])
 
   useEffect(() => {
-    if (
-      preferredAudioApplied.current ||
-      !preferredAudioLanguage ||
-      !snapshot
-    ) {
+    if (preferredAudioApplied.current || !preferredAudioLanguage || !snapshot) {
       return
     }
     const audioTracks = snapshot.tracks.filter((track) => track.type === "audio")
@@ -318,20 +331,20 @@ export function DesktopPlayer({
       matchesTrackLanguage(preferredAudioLanguage, track.lang, track.title),
     )
     if (!match || match.selected) return
-    void nativePlayerCommand(["set", "aid", match.id]).then(() => {
-      setSnapshot((current) =>
-        current
-          ? {
-              ...current,
-              tracks: current.tracks.map((track) =>
-                track.type === "audio"
-                  ? { ...track, selected: track.id === match.id }
-                  : track,
-              ),
-            }
-          : current,
-      )
-    }).catch(() => undefined)
+    void nativePlayerCommand(["set", "aid", match.id])
+      .then(() => {
+        setSnapshot((current) =>
+          current
+            ? {
+                ...current,
+                tracks: current.tracks.map((track) =>
+                  track.type === "audio" ? { ...track, selected: track.id === match.id } : track,
+                ),
+              }
+            : current,
+        )
+      })
+      .catch(() => undefined)
   }, [preferredAudioLanguage, snapshot])
 
   useEffect(() => {
@@ -356,8 +369,7 @@ export function DesktopPlayer({
     }
     const embeddedMatch = subtitleTracks.find(
       (track) =>
-        !track.external &&
-        matchesTrackLanguage(preferredSubtitleLanguage, track.lang, track.title),
+        !track.external && matchesTrackLanguage(preferredSubtitleLanguage, track.lang, track.title),
     )
     preferredSubtitleApplied.current = true
     if (embeddedMatch) {
@@ -393,12 +405,7 @@ export function DesktopPlayer({
       .then(() => setSelectedAddonSubtitle(addonMatch.key))
       .catch(() => undefined)
       .finally(() => pendingAddonSubtitle.current.delete(addonMatch.key))
-  }, [
-    addonSubtitles,
-    addonSubtitlesResolved,
-    preferredSubtitleLanguage,
-    snapshot,
-  ])
+  }, [addonSubtitles, addonSubtitlesResolved, preferredSubtitleLanguage, snapshot])
 
   useEffect(() => {
     if (resumed.current || !snapshot?.duration || !progress.isSuccess) return
@@ -431,16 +438,13 @@ export function DesktopPlayer({
     if (!nextTransitionRequested.current) {
       nextTransitionRequested.current = true
       resetOverlay()
-      void Promise.resolve(
-        onEnded?.(!nextTransitionSuppressed.current),
-      ).catch((cause: unknown) => {
+      void Promise.resolve(onEnded?.(!nextTransitionSuppressed.current)).catch((cause: unknown) => {
         setError(cause instanceof Error ? cause.message : String(cause))
       })
     }
-    void saveProgress(duration, duration, true)
-      .catch((cause: unknown) => {
-        setError(cause instanceof Error ? cause.message : String(cause))
-      })
+    void saveProgress(duration, duration, true).catch((cause: unknown) => {
+      setError(cause instanceof Error ? cause.message : String(cause))
+    })
   }, [onEnded, resetOverlay, saveProgress, snapshot])
 
   useEffect(() => {
@@ -465,13 +469,13 @@ export function DesktopPlayer({
   }, [videoScale])
 
   useEffect(() => {
-    if (snapshot?.paused || activeMenu || error) {
+    if (!snapshot?.firstFrameReady || snapshot.paused || activeMenu || error) {
       window.clearTimeout(hideTimer.current)
       setControlsVisible(true)
     } else {
       showControls()
     }
-  }, [activeMenu, error, showControls, snapshot?.paused])
+  }, [activeMenu, error, showControls, snapshot?.firstFrameReady, snapshot?.paused])
 
   const close = () => {
     if (closing.current) return
@@ -500,19 +504,25 @@ export function DesktopPlayer({
     setActiveMenu((current) => (current === menu ? undefined : menu))
   }, [])
 
-  const seekRelative = useCallback((seconds: number) => {
-    if (!snapshot) return
-    void nativePlayerCommand(["seek", seconds, "relative+exact"])
-    setSnapshot((current) =>
-      current
-        ? {
-            ...current,
-            position: Math.max(0, Math.min(current.duration || Infinity, current.position + seconds)),
-          }
-        : current,
-    )
-    showControls()
-  }, [showControls, snapshot])
+  const seekRelative = useCallback(
+    (seconds: number) => {
+      if (!snapshot) return
+      void nativePlayerCommand(["seek", seconds, "relative+exact"])
+      setSnapshot((current) =>
+        current
+          ? {
+              ...current,
+              position: Math.max(
+                0,
+                Math.min(current.duration || Infinity, current.position + seconds),
+              ),
+            }
+          : current,
+      )
+      showControls()
+    },
+    [showControls, snapshot],
+  )
 
   const commitSeek = useCallback(() => {
     window.clearTimeout(seekCommitTimer.current)
@@ -524,18 +534,21 @@ export function DesktopPlayer({
     void nativePlayerCommand(["seek", position, "absolute+exact"])
   }, [])
 
-  const previewSeek = useCallback((position: number) => {
-    seekActive.current = true
-    seekDraft.current = position
-    setSnapshot((current) => (current ? { ...current, position } : current))
+  const previewSeek = useCallback(
+    (position: number) => {
+      seekActive.current = true
+      seekDraft.current = position
+      setSnapshot((current) => (current ? { ...current, position } : current))
 
-    // Range inputs emit continuously while dragged. An exact mpv seek may
-    // decode every frame from the preceding keyframe, so issuing one for each
-    // pixel of motion can queue enough decoder work to freeze the desktop.
-    // Commit once the gesture pauses; pointer/key release commits immediately.
-    window.clearTimeout(seekCommitTimer.current)
-    seekCommitTimer.current = window.setTimeout(commitSeek, 180)
-  }, [commitSeek])
+      // Range inputs emit continuously while dragged. An exact mpv seek may
+      // decode every frame from the preceding keyframe, so issuing one for each
+      // pixel of motion can queue enough decoder work to freeze the desktop.
+      // Commit once the gesture pauses; pointer/key release commits immediately.
+      window.clearTimeout(seekCommitTimer.current)
+      seekCommitTimer.current = window.setTimeout(commitSeek, 180)
+    },
+    [commitSeek],
+  )
 
   useEffect(() => {
     if (!activeMenu) return
@@ -642,11 +655,11 @@ export function DesktopPlayer({
     !snapshot
   const electronNativePlayer = window.__CONDUIT_ELECTRON__ !== undefined
   const expandedControls = fullscreen || spaciousViewport
-  const loadingOverlayVisible = !error && (!snapshot || snapshot.duration <= 0)
+  const loadingOverlayVisible = isDesktopInitialLoading(snapshot, error)
+  const bufferingOverlayVisible = isDesktopBuffering(snapshot, error)
 
   useLayoutEffect(() => {
-    const overlayHidden =
-      previousLoadingOverlayVisible.current && !loadingOverlayVisible
+    const overlayHidden = previousLoadingOverlayVisible.current && !loadingOverlayVisible
     previousLoadingOverlayVisible.current = loadingOverlayVisible
     if (!overlayHidden) return
     resetOverlay()
@@ -681,18 +694,19 @@ export function DesktopPlayer({
   }, [
     redrawControls,
     snapshot?.duration,
+    snapshot?.firstFrameReady,
+    snapshot?.loading,
     snapshot?.paused,
     snapshot?.position,
     snapshot?.volume,
+    showRemainingTime,
   ])
 
   return createPortal(
     <div
       className={`native-player fixed inset-0 z-50 select-none overflow-hidden ${
         electronNativePlayer ? "electron-native-player" : ""
-      } ${
-        chromeVisible ? "cursor-default" : "cursor-none"
-      }`}
+      } ${chromeVisible ? "cursor-default" : "cursor-none"}`}
       onMouseMove={showControls}
       onPointerDown={beginHoldSpeed}
       onPointerUp={endHoldSpeed}
@@ -712,68 +726,38 @@ export function DesktopPlayer({
         aria-hidden="true"
       />
       {holdSpeedActive && (
-        <div className="pointer-events-none absolute inset-x-0 top-6 z-20 text-center text-xl font-semibold text-white drop-shadow-[0_2px_10px_rgba(0,0,0,0.95)]" aria-live="polite">
+        <div
+          className="pointer-events-none absolute inset-x-0 top-6 z-20 text-center text-xl font-semibold text-white drop-shadow-[0_2px_10px_rgba(0,0,0,0.95)]"
+          aria-live="polite"
+        >
           » 2×
         </div>
       )}
-      <div
-        data-player-chrome="top"
-        className={`pointer-events-none absolute inset-x-0 top-0 z-10 flex items-center justify-between gap-4 bg-gradient-to-b from-black/85 via-black/45 to-transparent ${
-          expandedControls ? "px-10 pb-8 pt-5" : "px-5 pb-6 pt-3"
-        } ${
-          chromeVisible ? "visible" : "invisible"
-        }`}
-      >
-        <div className="flex min-w-0 items-center gap-3">
-          <button
-            className={`pointer-events-auto grid shrink-0 place-items-center rounded-full bg-black/60 text-zinc-200 hover:bg-white/15 ${
-              expandedControls ? "size-13 [&_svg]:size-7" : "size-10"
-            }`}
-            onClick={(event) => {
-              event.stopPropagation()
-              close()
-            }}
-            aria-label="Back to details"
-            data-native-overlay
-          >
-            <Play className="rotate-180 fill-current" size={21} />
-          </button>
-          <div className="min-w-0" data-native-overlay>
-            <PlayerHeadingText heading={heading} expanded={expandedControls} />
-            {snapshot && (
-              <p
-                className={`mt-1 truncate text-zinc-400 ${
-                  expandedControls ? "text-sm" : "text-xs"
-                }`}
-                title={nativePlaybackDescription(snapshot)}
-              >
-                {nativePlaybackDescription(snapshot)}
-              </p>
-            )}
-          </div>
-        </div>
-        <button
-          className={`pointer-events-auto grid shrink-0 place-items-center rounded-full bg-black/60 text-zinc-200 hover:bg-white/15 ${
-            expandedControls ? "size-13 [&_svg]:size-7" : "size-10"
-          }`}
-          type="button"
-          aria-label={fullscreen ? "Exit fullscreen" : "Fullscreen"}
-          title={fullscreen ? "Exit fullscreen" : "Fullscreen"}
-          data-native-overlay
-          onClick={() => {
-            void toggleNativeFullscreen().then(setFullscreen)
-          }}
-        >
-          {fullscreen ? <Minimize size={20} /> : <Maximize size={20} />}
-        </button>
-      </div>
-
+      <DesktopPlayerChromeTop
+        expandedControls={expandedControls}
+        visible={chromeVisible}
+        fullscreen={fullscreen}
+        heading={<PlayerHeadingText heading={heading} expanded={expandedControls} />}
+        description={
+          snapshot ? (
+            <p
+              className={`mt-1 truncate text-zinc-400 ${
+                expandedControls ? "text-sm" : "text-xs"
+              }`}
+              title={nativePlaybackDescription(snapshot)}
+            >
+              {nativePlaybackDescription(snapshot)}
+            </p>
+          ) : undefined
+        }
+        onBack={close}
+        onFullscreen={() => {
+          void toggleNativeFullscreen().then(setFullscreen)
+        }}
+      />
       {error ? (
         <div className="absolute inset-0 z-10 grid place-items-center p-5">
-          <Card
-            className="w-full max-w-lg border-red-950 bg-zinc-950/95 p-6"
-            data-native-overlay
-          >
+          <Card className="w-full max-w-lg border-red-950 bg-zinc-950/95 p-6" data-native-overlay>
             <p className="font-medium text-red-400">Could not start mpv</p>
             <p className="mt-2 text-sm text-zinc-400">{error}</p>
             <p className="mt-3 text-xs text-zinc-600">
@@ -782,19 +766,9 @@ export function DesktopPlayer({
           </Card>
         </div>
       ) : loadingOverlayVisible ? (
-        <div
-          className="pointer-events-none absolute inset-0 z-10 grid place-items-center bg-black/65"
-          role="status"
-          aria-label="Video loading"
-        >
-          <div
-            className="flex items-center gap-3 rounded-xl border border-white/15 bg-black/80 px-4 py-3 shadow-xl shadow-black/40"
-            data-native-overlay
-          >
-            <LoaderCircle className="animate-spin text-amber-300" size={30} />
-            <PlayerHeadingText heading={heading} expanded={false} />
-          </div>
-        </div>
+        <DesktopPlayerOpeningOverlay artwork={artwork} title={mediaTitle} />
+      ) : bufferingOverlayVisible ? (
+        <DesktopPlayerBufferingOverlay />
       ) : null}
 
       {snapshot && !error && !episodeDrawerOpen && (
@@ -840,20 +814,7 @@ export function DesktopPlayer({
       />
 
       {snapshot && !error && (
-        <div
-          data-player-chrome="bottom"
-          className={`absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/90 via-black/55 to-transparent ${
-            expandedControls ? "px-10 pb-6 pt-6" : "px-4 pb-3 pt-8 sm:px-6"
-          } ${
-            chromeVisible ? "visible" : "pointer-events-none invisible"
-          }`}
-          onClick={(event) => event.stopPropagation()}
-        >
-          <div
-            className={`native-controls-surface relative mx-auto ${
-              expandedControls ? "max-w-none" : "max-w-7xl"
-            }`}
-          >
+        <DesktopPlayerChromeBottom expandedControls={expandedControls} visible={chromeVisible}>
             {activeMenu === "audio" && (
               <TrackMenu
                 title="Audio"
@@ -945,7 +906,7 @@ export function DesktopPlayer({
             <div className="flex items-center gap-3" data-native-overlay>
               <span
                 className={`player-time player-time-elapsed tabular-nums text-zinc-300 ${
-                  expandedControls ? "text-sm" : "text-xs"
+                  expandedControls ? "text-base" : "text-sm"
                 }`}
                 aria-label="Elapsed time"
               >
@@ -966,8 +927,7 @@ export function DesktopPlayer({
                       snapshot.duration > 0
                         ? Math.min(
                             100,
-                            ((snapshot.position + snapshot.bufferedDuration) /
-                              snapshot.duration) *
+                            ((snapshot.position + snapshot.bufferedDuration) / snapshot.duration) *
                               100,
                           )
                         : 0
@@ -989,14 +949,32 @@ export function DesktopPlayer({
                 onKeyUp={commitSeek}
                 onBlur={commitSeek}
               />
-              <span
-                className={`player-time player-time-duration tabular-nums text-zinc-300 ${
-                  expandedControls ? "text-sm" : "text-xs"
+              <button
+                className={`player-time player-time-duration cursor-pointer border-0 p-0 tabular-nums text-zinc-300 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 ${
+                  expandedControls ? "text-base" : "text-sm"
                 }`}
-                aria-label="Total duration"
+                type="button"
+                aria-label={
+                  showRemainingTime
+                    ? "Time remaining. Click to show end time."
+                    : "End time. Click to show time remaining."
+                }
+                title={
+                  showRemainingTime
+                    ? "Click to show end time"
+                    : "Click to show time remaining"
+                }
+                onClick={() => {
+                  setShowRemainingTime((current) => !current)
+                  showControls()
+                }}
               >
-                {snapshot.duration > 0 ? formatTime(snapshot.duration) : "--:--:--"}
-              </span>
+                {snapshot.duration > 0
+                  ? showRemainingTime
+                    ? `-${formatTime(Math.max(0, snapshot.duration - snapshot.position))}`
+                    : formatTime(snapshot.duration)
+                  : "--:--:--"}
+              </button>
             </div>
 
             <div
@@ -1038,9 +1016,7 @@ export function DesktopPlayer({
                 {snapshot.volume === 0 ? <VolumeX size={21} /> : <Volume2 size={21} />}
               </PlayerIcon>
               <input
-                className={`player-volume hidden sm:block ${
-                  expandedControls ? "w-32" : "w-20"
-                }`}
+                className={`player-volume hidden sm:block ${expandedControls ? "w-32" : "w-20"}`}
                 style={
                   {
                     "--player-volume": `${Math.max(0, Math.min(100, snapshot.volume))}%`,
@@ -1095,8 +1071,7 @@ export function DesktopPlayer({
                 }}
               />
             </div>
-          </div>
-        </div>
+        </DesktopPlayerChromeBottom>
       )}
     </div>,
     document.body,
@@ -1112,49 +1087,10 @@ async function applyNativeVideoScale(scale: VideoScale): Promise<void> {
   }
 }
 
-function PlayerIcon({
-  label,
-  active,
-  expanded,
-  children,
-  onClick,
-}: {
-  label: string
-  active?: boolean
-  expanded?: boolean
-  children: React.ReactNode
-  onClick: () => void
-}) {
-  return (
-    <button
-      className={`relative grid place-items-center rounded-lg bg-zinc-950 text-zinc-200 shadow-sm transition hover:bg-zinc-800 hover:text-white ${
-      expanded ? "size-12 [&_svg]:size-7" : "size-10"
-      } ${
-        active ? "bg-amber-950 text-amber-300" : ""
-      }`}
-      onClick={onClick}
-      aria-label={label}
-      title={label}
-    >
-      {children}
-    </button>
-  )
-}
-
-function PlayerHeadingText({
-  heading,
-  expanded,
-}: {
-  heading: PlayerHeading
-  expanded: boolean
-}) {
+function PlayerHeadingText({ heading, expanded }: { heading: PlayerHeading; expanded: boolean }) {
   return (
     <div className="min-w-0 drop-shadow-lg">
-      <h2
-        className={`truncate font-display font-semibold ${
-          expanded ? "text-2xl" : "text-lg"
-        }`}
-      >
+      <h2 className={`truncate font-display font-semibold ${expanded ? "text-2xl" : "text-lg"}`}>
         {heading.primary}
       </h2>
       {heading.secondary && (
@@ -1276,37 +1212,37 @@ function TrackMenu({
         />
       ) : (
         <>
-      {tracks.map((track) => (
-        <AudioTrackMenuRow
-          key={track.id}
-          track={track}
-          fallback={`${title} ${track.id}`}
-          onSelect={() => onSelect(track)}
-        />
-      ))}
-      {availableAddonSubtitles.map((subtitle) => (
-        <button
-          key={subtitle.key}
-          className={`mb-1 block w-full rounded-lg px-3 py-2 text-left ${
-            selectedAddonSubtitle === subtitle.key
-              ? "bg-amber-400 text-zinc-950"
-              : "text-zinc-300 hover:bg-zinc-800"
-          }`}
-          onClick={() => onSelectAddon?.(subtitle)}
-        >
-          <span className="block text-sm font-medium">{subtitle.display}</span>
-          <span
-            className={`text-xs ${
-              selectedAddonSubtitle === subtitle.key ? "text-zinc-800" : "text-zinc-500"
-            }`}
-          >
-            Add-on subtitle
-          </span>
-        </button>
-      ))}
-      {!tracks.length && !availableAddonSubtitles.length && (
-        <p className="px-3 py-2 text-sm text-zinc-500">{empty}</p>
-      )}
+          {tracks.map((track) => (
+            <AudioTrackMenuRow
+              key={track.id}
+              track={track}
+              fallback={`${title} ${track.id}`}
+              onSelect={() => onSelect(track)}
+            />
+          ))}
+          {availableAddonSubtitles.map((subtitle) => (
+            <button
+              key={subtitle.key}
+              className={`mb-1 block w-full rounded-lg px-3 py-2 text-left ${
+                selectedAddonSubtitle === subtitle.key
+                  ? "bg-amber-400 text-zinc-950"
+                  : "text-zinc-300 hover:bg-zinc-800"
+              }`}
+              onClick={() => onSelectAddon?.(subtitle)}
+            >
+              <span className="block text-sm font-medium">{subtitle.display}</span>
+              <span
+                className={`text-xs ${
+                  selectedAddonSubtitle === subtitle.key ? "text-zinc-800" : "text-zinc-500"
+                }`}
+              >
+                Add-on subtitle
+              </span>
+            </button>
+          ))}
+          {!tracks.length && !availableAddonSubtitles.length && (
+            <p className="px-3 py-2 text-sm text-zinc-500">{empty}</p>
+          )}
         </>
       )}
     </div>,
@@ -1346,9 +1282,7 @@ export function filterAddedAddonSubtitles<
   TTrack extends { external: boolean; title?: string },
 >(subtitles: TSubtitle[], tracks: TTrack[]): TSubtitle[] {
   const installedTitles = new Set(
-    tracks
-      .filter((track) => track.external && track.title)
-      .map((track) => track.title),
+    tracks.filter((track) => track.external && track.title).map((track) => track.title),
   )
   return subtitles.filter((subtitle) => !installedTitles.has(subtitle.display))
 }
@@ -1388,27 +1322,29 @@ async function resolveAddonSubtitles(
       subtitles: await loadSubtitles(addon.manifestUrl, type, videoId),
     })),
   )
-  return dedupeAddonSubtitles(results.flatMap((result) => {
-    if (result.status === "rejected") return []
-    return result.value.subtitles.flatMap((subtitle, index) => {
-      if (!subtitle.url) return []
-      const language =
-        subtitle.lang ??
-        subtitle.language ??
-        subtitle.languageCode ??
-        subtitle.locale ??
-        subtitle.label ??
-        "und"
-      return [
-        {
-          key: `${result.value.addon.id}:${subtitle.id || index}`,
-          url: subtitle.url,
-          language,
-          display: `${languageName(language) || language} · ${result.value.addon.manifest.name}`,
-        },
-      ]
-    })
-  }))
+  return dedupeAddonSubtitles(
+    results.flatMap((result) => {
+      if (result.status === "rejected") return []
+      return result.value.subtitles.flatMap((subtitle, index) => {
+        if (!subtitle.url) return []
+        const language =
+          subtitle.lang ??
+          subtitle.language ??
+          subtitle.languageCode ??
+          subtitle.locale ??
+          subtitle.label ??
+          "und"
+        return [
+          {
+            key: `${result.value.addon.id}:${subtitle.id || index}`,
+            url: subtitle.url,
+            language,
+            display: `${languageName(language) || language} · ${result.value.addon.manifest.name}`,
+          },
+        ]
+      })
+    }),
+  )
 }
 
 function languageName(code?: string): string | undefined {
