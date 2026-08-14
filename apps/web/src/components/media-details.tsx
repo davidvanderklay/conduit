@@ -45,7 +45,10 @@ import { Button } from "./ui/button"
 import { Player } from "./player"
 import { LibraryToggle } from "./library-toggle"
 import { EpisodeSelector } from "./episode-selector"
-import { DesktopPlayerOpeningOverlay } from "./desktop-player-overlays"
+import {
+  DesktopPlayerLoadingControls,
+  DesktopPlayerOpeningOverlay,
+} from "./desktop-player-overlays"
 
 interface ResolvedStream extends Stream {
   key: string
@@ -409,6 +412,7 @@ export function MediaDetails({
                   poster: meta.poster,
                 }}
                 title={selectedVideo?.title ?? meta.name}
+                hasNextEpisode={Boolean(nextEpisode)}
                 onBack={() => {
                   cancelPendingAutoResume()
                   onClose()
@@ -826,24 +830,22 @@ function StreamRail({
 function StreamSelectionLoading({
   artwork,
   title,
+  hasNextEpisode,
   onBack,
 }: {
   artwork: PlayerArtwork
   title: string
+  hasNextEpisode: boolean
   onBack: () => void
 }) {
   return (
-    <div className="fixed inset-0 z-40 bg-black">
+    <div className="saved-stream-loading-overlay absolute inset-0 z-40 overflow-hidden bg-black">
       <DesktopPlayerOpeningOverlay artwork={artwork} title={title} />
-      <Button
-        className="absolute left-5 top-5 z-10 bg-black/65 text-zinc-200 hover:bg-black/85 hover:text-white"
-        variant="ghost"
-        size="icon"
-        aria-label="Back"
-        onClick={onBack}
-      >
-        <ArrowLeft size={19} />
-      </Button>
+      <DesktopPlayerLoadingControls
+        title={title}
+        hasNextEpisode={hasNextEpisode}
+        onBack={onBack}
+      />
     </div>
   )
 }
