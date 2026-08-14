@@ -80,6 +80,11 @@ body {
   top: 40px;
 }
 
+.electron-macos .saved-stream-loading-overlay,
+.electron-windows .saved-stream-loading-overlay {
+  bottom: 40px;
+}
+
 @media (min-width: 768px) {
   .electron-macos .app-sidebar {
     top: calc(40px + 4rem);
@@ -105,6 +110,11 @@ body {
 
 .electron-macos.electron-native-fullscreen .media-details {
   top: 0;
+}
+
+.electron-macos.electron-native-fullscreen .saved-stream-loading-overlay,
+.electron-windows.electron-native-fullscreen .saved-stream-loading-overlay {
+  bottom: 0;
 }
 
 @media (min-width: 768px) {
