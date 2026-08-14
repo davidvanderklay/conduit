@@ -3,7 +3,6 @@ import { createPortal } from "react-dom"
 import {
   Captions,
   Languages,
-  LoaderCircle,
   Maximize,
   Minimize,
   Pause,
@@ -13,7 +12,12 @@ import {
   VolumeX,
   X,
 } from "lucide-react"
-import type { InstalledAddon, PlaybackSource, ProgressMetadata } from "../lib/api"
+import type {
+  InstalledAddon,
+  PlaybackSource,
+  PlayerArtwork,
+  ProgressMetadata,
+} from "../lib/api"
 import { addonsForResource } from "../lib/addons"
 import { audioTrackDisplay } from "../lib/audio-track-display"
 import {
@@ -29,6 +33,11 @@ import {
   type NativePlayerSnapshot,
   type NativeTrack,
 } from "../lib/desktop"
+import {
+  isDesktopBuffering,
+  isDesktopInitialLoading,
+  shouldShowDesktopPlayPause,
+} from "../lib/desktop-player-state"
 import { loadSubtitles, type Video } from "../lib/core"
 import { nativeMediaTitle, playerHeading, type PlayerHeading } from "../lib/player-title"
 import { readPreferences, writePreferences } from "../lib/preferences"
@@ -46,6 +55,10 @@ import {
 } from "./player-series"
 import { VideoScaleControl } from "./video-scale-control"
 import { SubtitlePicker } from "./subtitle-picker"
+import {
+  DesktopPlayerBufferingOverlay,
+  DesktopPlayerOpeningOverlay,
+} from "./desktop-player-overlays"
 
 type TrackMenuName = "audio" | "subtitles"
 
@@ -97,6 +110,7 @@ export function DesktopPlayer({
   profileId,
   playbackSource,
   progressMetadata,
+  artwork,
   addons,
   seriesContext,
   nextEpisode,
@@ -112,6 +126,7 @@ export function DesktopPlayer({
   profileId: string
   playbackSource?: PlaybackSource
   progressMetadata: ProgressMetadata
+  artwork?: PlayerArtwork
   addons: InstalledAddon[]
   seriesContext?: PlayerSeriesContext
   nextEpisode?: Video
@@ -137,6 +152,7 @@ export function DesktopPlayer({
   const [subtitlePosition, setSubtitlePosition] = useState(preferences.subtitlePosition)
   const [episodeDrawerOpen, setEpisodeDrawerOpen] = useState(false)
   const [holdSpeedActive, setHoldSpeedActive] = useState(false)
+  const [seeking, setSeeking] = useState(false)
   const hideTimer = useRef<number | undefined>(undefined)
   const holdSpeedTimer = useRef<number | undefined>(undefined)
   const holdSpeedActiveRef = useRef(false)
@@ -231,6 +247,9 @@ export function DesktopPlayer({
     endedHandled.current = false
     nextTransitionSuppressed.current = false
     nextTransitionRequested.current = false
+    seekActive.current = false
+    seekDraft.current = undefined
+    setSeeking(false)
     lastNativeSnapshot.current = undefined
     lastPlayback.current = { position: 0, duration: 0 }
     document.documentElement.classList.add("native-playback")
@@ -239,6 +258,7 @@ export function DesktopPlayer({
       mediaTitle,
       preferences.readAheadSeconds,
       preferences.hardwareAcceleration,
+      { title: mediaTitle, ...artwork },
     )
       .then(async (initial) => {
         if (cancelled) return
@@ -288,7 +308,16 @@ export function DesktopPlayer({
       document.documentElement.classList.remove("native-playback")
       if (!closing.current) void stopNativePlayer()
     }
-  }, [addons, mediaTitle, type, url, videoId])
+  }, [
+    addons,
+    artwork?.background,
+    artwork?.logo,
+    artwork?.poster,
+    mediaTitle,
+    type,
+    url,
+    videoId,
+  ])
 
   useEffect(() => {
     const electron = window.__CONDUIT_ELECTRON__
@@ -520,12 +549,14 @@ export function DesktopPlayer({
     const position = seekDraft.current
     seekDraft.current = undefined
     seekActive.current = false
+    setSeeking(false)
     if (position === undefined) return
     void nativePlayerCommand(["seek", position, "absolute+exact"])
   }, [])
 
   const previewSeek = useCallback((position: number) => {
     seekActive.current = true
+    setSeeking(true)
     seekDraft.current = position
     setSnapshot((current) => (current ? { ...current, position } : current))
 
@@ -642,7 +673,9 @@ export function DesktopPlayer({
     !snapshot
   const electronNativePlayer = window.__CONDUIT_ELECTRON__ !== undefined
   const expandedControls = fullscreen || spaciousViewport
-  const loadingOverlayVisible = !error && (!snapshot || snapshot.duration <= 0)
+  const loadingOverlayVisible = isDesktopInitialLoading(snapshot, error)
+  const bufferingOverlayVisible = isDesktopBuffering(snapshot, error)
+  const playPauseVisible = shouldShowDesktopPlayPause(snapshot, seeking, error)
 
   useLayoutEffect(() => {
     const overlayHidden =
@@ -681,6 +714,8 @@ export function DesktopPlayer({
   }, [
     redrawControls,
     snapshot?.duration,
+    snapshot?.firstFrameReady,
+    snapshot?.loading,
     snapshot?.paused,
     snapshot?.position,
     snapshot?.volume,
@@ -782,19 +817,12 @@ export function DesktopPlayer({
           </Card>
         </div>
       ) : loadingOverlayVisible ? (
-        <div
-          className="pointer-events-none absolute inset-0 z-10 grid place-items-center bg-black/65"
-          role="status"
-          aria-label="Video loading"
-        >
-          <div
-            className="flex items-center gap-3 rounded-xl border border-white/15 bg-black/80 px-4 py-3 shadow-xl shadow-black/40"
-            data-native-overlay
-          >
-            <LoaderCircle className="animate-spin text-amber-300" size={30} />
-            <PlayerHeadingText heading={heading} expanded={false} />
-          </div>
-        </div>
+        <DesktopPlayerOpeningOverlay
+          artwork={artwork}
+          title={mediaTitle}
+        />
+      ) : bufferingOverlayVisible ? (
+        <DesktopPlayerBufferingOverlay />
       ) : null}
 
       {snapshot && !error && !episodeDrawerOpen && (
@@ -1005,13 +1033,18 @@ export function DesktopPlayer({
               }`}
               data-native-overlay
             >
-              <PlayerIcon
-                label={snapshot.paused ? "Play" : "Pause"}
-                expanded={expandedControls}
-                onClick={togglePlayback}
+              <div
+                className={playPauseVisible ? "" : "invisible pointer-events-none"}
+                aria-hidden={!playPauseVisible}
               >
-                {snapshot.paused ? <Play size={22} /> : <Pause size={22} />}
-              </PlayerIcon>
+                <PlayerIcon
+                  label={snapshot.paused ? "Play" : "Pause"}
+                  expanded={expandedControls}
+                  onClick={togglePlayback}
+                >
+                  {snapshot.paused ? <Play size={22} /> : <Pause size={22} />}
+                </PlayerIcon>
+              </div>
               {onNextEpisode && (
                 <PlayerIcon
                   label={`Next episode${nextEpisodeLabel ? `: ${nextEpisodeLabel}` : ""}`}

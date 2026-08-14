@@ -146,6 +146,26 @@ body {
   -webkit-user-select: none;
 }
 
+@keyframes desktop-player-opening-indicator {
+  from {
+    opacity: 0.72;
+    transform: translate(-50%, -50%) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1.04);
+  }
+}
+
+.desktop-player-opening-indicator {
+  animation: desktop-player-opening-indicator 1.25s ease-in-out infinite alternate;
+}
+
+.desktop-player-buffering-indicator {
+  width: clamp(24px, 4vw, 36px);
+  height: clamp(24px, 4vw, 36px);
+}
+
 .native-playback #root {
   visibility: hidden;
 }

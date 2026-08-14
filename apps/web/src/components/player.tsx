@@ -12,7 +12,12 @@ import {
   VolumeX,
 } from "lucide-react"
 import type Hls from "hls.js"
-import type { InstalledAddon, PlaybackSource, ProgressMetadata } from "../lib/api"
+import type {
+  InstalledAddon,
+  PlaybackSource,
+  PlayerArtwork,
+  ProgressMetadata,
+} from "../lib/api"
 import { addonsForResource } from "../lib/addons"
 import { loadSubtitles, type Subtitle, type Video } from "../lib/core"
 import { isDesktop } from "../lib/desktop"
@@ -52,6 +57,7 @@ export function Player({
   profileId,
   playbackSource,
   progressMetadata,
+  artwork,
   addons,
   seriesContext,
   nextEpisode,
@@ -67,6 +73,7 @@ export function Player({
   profileId: string
   playbackSource?: PlaybackSource
   progressMetadata: ProgressMetadata
+  artwork?: PlayerArtwork
   addons: InstalledAddon[]
   seriesContext?: PlayerSeriesContext
   nextEpisode?: Video
@@ -85,6 +92,7 @@ export function Player({
         profileId={profileId}
         playbackSource={playbackSource}
         progressMetadata={progressMetadata}
+        artwork={artwork}
         addons={addons}
         seriesContext={seriesContext}
         nextEpisode={nextEpisode}

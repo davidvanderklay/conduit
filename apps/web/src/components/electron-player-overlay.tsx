@@ -27,13 +27,20 @@ import {
   X,
 } from "lucide-react"
 import { audioTrackDisplay } from "../lib/audio-track-display"
+import type { PlayerArtwork } from "../lib/api"
 import {
   nativePlayerCommand,
   nativePlayerSnapshot,
   toggleNativeFullscreen,
+  type PlayerOverlayMedia,
   type NativePlayerSnapshot,
   type NativeTrack,
 } from "../lib/desktop"
+import {
+  isDesktopBuffering,
+  isDesktopInitialLoading,
+  shouldShowDesktopPlayPause,
+} from "../lib/desktop-player-state"
 import {
   VIDEO_SCALE_OPTIONS,
   mpvVideoScaleCommands,
@@ -47,15 +54,21 @@ import {
   type SubtitleLanguageGroup,
 } from "../lib/subtitle-groups"
 import { readPreferences, writePreferences } from "../lib/preferences"
+import {
+  DesktopPlayerBufferingOverlay,
+  DesktopPlayerOpeningOverlay,
+} from "./desktop-player-overlays"
 
 type TrackMenuName = "audio" | "subtitles"
 
-export function ElectronPlayerOverlay({ initialTitle }: { initialTitle: string }) {
-  const [title, setTitle] = useState(initialTitle)
+export function ElectronPlayerOverlay({ initialMedia }: { initialMedia: PlayerOverlayMedia }) {
+  const [title, setTitle] = useState(initialMedia.title)
+  const [artwork, setArtwork] = useState<PlayerArtwork>(initialMedia)
   const [snapshot, setSnapshot] = useState<NativePlayerSnapshot>()
   const [fullscreen, setFullscreen] = useState(false)
   const [scale, setScale] = useState<VideoScale>("fit")
   const [controlsVisible, setControlsVisible] = useState(true)
+  const [seeking, setSeeking] = useState(false)
   const [holdSpeedActive, setHoldSpeedActive] = useState(false)
   const [activeTrackMenu, setActiveTrackMenu] = useState<TrackMenuName>()
   const [selectedSubtitleCode, setSelectedSubtitleCode] = useState<string>()
@@ -67,6 +80,8 @@ export function ElectronPlayerOverlay({ initialTitle }: { initialTitle: string }
   const holdSpeedActiveRef = useRef(false)
   const holdSpeedTriggered = useRef(false)
   const preferredSubtitleApplied = useRef(false)
+  const seekDraft = useRef<number | undefined>(undefined)
+  const seekCommitTimer = useRef<number | undefined>(undefined)
   const audioAnchorRef = useRef<HTMLDivElement>(null)
   const subtitleAnchorRef = useRef<HTMLDivElement>(null)
 
@@ -144,13 +159,19 @@ export function ElectronPlayerOverlay({ initialTitle }: { initialTitle: string }
     const electron = window.__CONDUIT_ELECTRON__
     if (!electron) return
     const unsubscribeFullscreen = electron.onFullscreenChange(setFullscreen)
-    const unsubscribeTitle = electron.onPlayerOverlayTitle(setTitle)
+    const unsubscribeMedia = electron.onPlayerOverlayMedia((media) => {
+      setTitle(media.title)
+      setArtwork(media)
+      window.clearTimeout(seekCommitTimer.current)
+      seekDraft.current = undefined
+      setSeeking(false)
+    })
     const unsubscribeWake = electron.onPlayerOverlayWake
       ? electron.onPlayerOverlayWake(showControls)
       : undefined
     return () => {
       unsubscribeFullscreen()
-      unsubscribeTitle()
+      unsubscribeMedia()
       unsubscribeWake?.()
     }
   }, [showControls])
@@ -174,6 +195,28 @@ export function ElectronPlayerOverlay({ initialTitle }: { initialTitle: string }
 
   const command = useCallback((next: unknown[]) => {
     void nativePlayerCommand(next).catch(() => undefined)
+  }, [])
+
+  const commitSeek = useCallback(() => {
+    window.clearTimeout(seekCommitTimer.current)
+    seekCommitTimer.current = undefined
+    const position = seekDraft.current
+    seekDraft.current = undefined
+    setSeeking(false)
+    if (position === undefined) return
+    command(["seek", position, "absolute+exact"])
+  }, [command])
+
+  const previewSeek = useCallback((position: number) => {
+    setSeeking(true)
+    seekDraft.current = position
+    setSnapshot((current) => (current ? { ...current, position } : current))
+    window.clearTimeout(seekCommitTimer.current)
+    seekCommitTimer.current = window.setTimeout(commitSeek, 180)
+  }, [commitSeek])
+
+  useEffect(() => () => {
+    window.clearTimeout(seekCommitTimer.current)
   }, [])
 
   const endHoldSpeed = useCallback(() => {
@@ -262,6 +305,9 @@ export function ElectronPlayerOverlay({ initialTitle }: { initialTitle: string }
   }, [command, subtitleGroups, subtitleTracks.length])
 
   const selectedScale = VIDEO_SCALE_OPTIONS.find((option) => option.value === scale)?.label ?? scale
+  const loadingOverlayVisible = isDesktopInitialLoading(snapshot)
+  const bufferingOverlayVisible = isDesktopBuffering(snapshot)
+  const playPauseVisible = shouldShowDesktopPlayPause(snapshot, seeking)
   const rootClassName =
     "native-player electron-native-player electron-player-overlay fixed inset-0 z-50 select-none " +
     (controlsVisible ? "cursor-default" : "cursor-none")
@@ -315,6 +361,12 @@ export function ElectronPlayerOverlay({ initialTitle }: { initialTitle: string }
         if (event.target === event.currentTarget) togglePlayback()
       }}
     >
+      {loadingOverlayVisible && (
+        <DesktopPlayerOpeningOverlay artwork={artwork} title={title} />
+      )}
+      {!loadingOverlayVisible && bufferingOverlayVisible && (
+        <DesktopPlayerBufferingOverlay />
+      )}
       {/* Edge scrims keep the chrome legible without darkening the subtitle plane. */}
       <div
         className={`pointer-events-none absolute inset-x-0 top-0 h-48 bg-gradient-to-b from-black/85 via-black/55 to-transparent transition-opacity duration-300 ${controlsVisible ? "opacity-100" : "opacity-0"}`}
@@ -376,15 +428,24 @@ export function ElectronPlayerOverlay({ initialTitle }: { initialTitle: string }
               step={0.1}
               value={Math.min(snapshot?.position ?? 0, snapshot?.duration || 0)}
               aria-label="Seek"
-              onChange={(event) => command(["set", "time-pos", Number(event.target.value)])}
+              onChange={(event) => previewSeek(Number(event.target.value))}
+              onPointerUp={commitSeek}
+              onPointerCancel={commitSeek}
+              onKeyUp={commitSeek}
+              onBlur={commitSeek}
             />
             <span className="min-w-16">{formatTime(snapshot?.duration ?? 0)}</span>
           </div>
 
           <div className="pointer-events-auto relative mt-3 flex items-center gap-3">
-            <OverlayButton large label={snapshot?.paused ? "Play" : "Pause"} onClick={togglePlayback}>
-              {snapshot?.paused ? <Play size={28} /> : <Pause size={28} />}
-            </OverlayButton>
+            <div
+              className={playPauseVisible ? "" : "invisible pointer-events-none"}
+              aria-hidden={!playPauseVisible}
+            >
+              <OverlayButton large label={snapshot?.paused ? "Play" : "Pause"} onClick={togglePlayback}>
+                {snapshot?.paused ? <Play size={28} /> : <Pause size={28} />}
+              </OverlayButton>
+            </div>
             <OverlayButton large label="Next episode" onClick={nextEpisode}>
               <SkipForward size={27} />
             </OverlayButton>

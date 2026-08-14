@@ -5,7 +5,7 @@ import { createRootRoute, createRoute, createRouter, RouterProvider } from "@tan
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { App } from "./app"
 import { ElectronPlayerOverlay } from "./components/electron-player-overlay"
-import { isDesktop } from "./lib/desktop"
+import { isDesktop, type PlayerOverlayMedia } from "./lib/desktop"
 import "./styles.css"
 
 const rootRoute = createRootRoute()
@@ -45,8 +45,14 @@ declare module "@tanstack/react-router" {
   }
 }
 
-const overlayTitle = new URLSearchParams(window.location.search).get("electronOverlay")
-  ? new URLSearchParams(window.location.search).get("title") ?? ""
+const overlayParams = new URLSearchParams(window.location.search)
+const overlayMedia: PlayerOverlayMedia | undefined = overlayParams.get("electronOverlay")
+  ? {
+      title: overlayParams.get("title") ?? "",
+      background: overlayParams.get("background") ?? undefined,
+      logo: overlayParams.get("logo") ?? undefined,
+      poster: overlayParams.get("poster") ?? undefined,
+    }
   : undefined
 
 function DesktopTitleBar() {
@@ -82,8 +88,8 @@ function DesktopTitleBar() {
 }
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
-  overlayTitle !== undefined
-    ? <ElectronPlayerOverlay initialTitle={overlayTitle} />
+  overlayMedia !== undefined
+    ? <ElectronPlayerOverlay initialMedia={overlayMedia} />
     : (
       <>
         <DesktopTitleBar />
