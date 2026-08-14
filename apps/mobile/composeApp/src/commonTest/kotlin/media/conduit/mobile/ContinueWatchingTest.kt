@@ -133,7 +133,9 @@ class ContinueWatchingTest {
             "Next Up",
             continueWatchingBadgeLabel(progress(), ContinueWatchingPresentation(ContinueWatchingKind.CaughtUp), metadataReady = false),
         )
-        assertEquals("Next Up", continueWatchingBadgeLabel(unfinished, inProgress, metadataReady = false))
+        val notStarted = progress(watched = false)
+        val notStartedPresentation = continueWatchingPresentation(notStarted, emptyList())
+        assertEquals("Next Up", continueWatchingBadgeLabel(notStarted, notStartedPresentation, metadataReady = false))
     }
 
     @Test
