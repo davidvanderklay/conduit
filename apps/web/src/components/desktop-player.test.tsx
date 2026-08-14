@@ -355,19 +355,16 @@ describe("DesktopPlayer track menus", () => {
     expect(desktop.resetNativeOverlaySurface).toHaveBeenCalledTimes(2)
   })
 
-  it("hides inactive secondary controls while keeping play/pause available", () => {
+  it("hides inactive controls and cursor, then restores them on mouse movement", () => {
     const player = document.querySelector<HTMLElement>(".native-player")
-    const topChrome = document.querySelector<HTMLElement>('[data-player-chrome="top"]')
-    const bottomChrome = document.querySelector<HTMLElement>('[data-player-chrome="bottom"]')
+    const chrome = document.querySelectorAll<HTMLElement>("[data-player-chrome]")
     desktop.resetNativeOverlaySurface.mockClear()
 
     act(() => vi.advanceTimersByTime(2800))
     act(() => vi.advanceTimersByTime(1))
 
     expect(player?.className).toContain("cursor-none")
-    expect(topChrome?.classList.contains("invisible")).toBe(true)
-    expect(bottomChrome?.classList.contains("invisible")).toBe(false)
-    expect(button("Pause").parentElement?.className).not.toContain("invisible")
+    for (const region of chrome) expect(region.classList.contains("invisible")).toBe(true)
     expect(desktop.resetNativeOverlaySurface).toHaveBeenCalledOnce()
 
     act(() => {
@@ -375,8 +372,7 @@ describe("DesktopPlayer track menus", () => {
     })
 
     expect(player?.className).toContain("cursor-default")
-    expect(topChrome?.classList.contains("visible")).toBe(true)
-    expect(bottomChrome?.classList.contains("visible")).toBe(true)
+    for (const region of chrome) expect(region.classList.contains("visible")).toBe(true)
   })
 
   it("coalesces continuous timeline changes into one exact seek", () => {

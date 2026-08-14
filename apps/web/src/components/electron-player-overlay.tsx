@@ -410,13 +410,14 @@ export function ElectronPlayerOverlay({ initialMedia }: { initialMedia: PlayerOv
         </OverlayButton>
       </div>
 
-      <div className={"pointer-events-none absolute inset-x-0 bottom-0 z-10 px-5 pb-5 pt-24"}>
+      <div
+        className={
+          "pointer-events-none absolute inset-x-0 bottom-0 z-10 px-5 pb-5 pt-24 transition-opacity " +
+          (controlsVisible ? "opacity-100" : "opacity-0")
+        }
+      >
         <div className="w-full">
-          <div
-            className={`flex items-center gap-4 text-base tabular-nums text-zinc-200 ${
-              controlsVisible ? "" : "invisible"
-            }`}
-          >
+          <div className="flex items-center gap-4 text-base tabular-nums text-zinc-200">
             <span className="min-w-16 text-right">{formatTime(snapshot?.position ?? 0)}</span>
             <input
               className="player-seek pointer-events-auto block h-2 min-w-0 flex-1 cursor-pointer"
@@ -445,67 +446,67 @@ export function ElectronPlayerOverlay({ initialMedia }: { initialMedia: PlayerOv
             >
               {snapshot?.paused ? <Play size={28} /> : <Pause size={28} />}
             </OverlayButton>
-            <div
-              className={controlsVisible ? "contents" : "contents invisible pointer-events-none"}
+            <OverlayButton large label="Next episode" onClick={nextEpisode}>
+              <SkipForward size={27} />
+            </OverlayButton>
+            <OverlayButton
+              large
+              label={snapshot?.volume === 0 ? "Unmute" : "Mute"}
+              onClick={() => command(["set", "volume", snapshot?.volume === 0 ? 100 : 0])}
             >
-              <OverlayButton large label="Next episode" onClick={nextEpisode}>
-                <SkipForward size={27} />
-              </OverlayButton>
-              <OverlayButton
+              {snapshot?.volume === 0 ? <VolumeX size={27} /> : <Volume2 size={27} />}
+            </OverlayButton>
+            <input
+              className="player-volume hidden h-5 w-32 sm:block"
+              data-overlay-interactive
+              style={sliderStyle(snapshot?.volume ?? 100)}
+              type="range"
+              min={0}
+              max={100}
+              value={snapshot?.volume ?? 100}
+              aria-label="Volume"
+              onChange={(event) => command(["set", "volume", Number(event.target.value)])}
+            />
+            <div className="flex-1" />
+            <div ref={audioAnchorRef} data-track-menu-trigger>
+              <TrackSelect
                 large
-                label={snapshot?.volume === 0 ? "Unmute" : "Mute"}
-                onClick={() => command(["set", "volume", snapshot?.volume === 0 ? 100 : 0])}
-              >
-                {snapshot?.volume === 0 ? <VolumeX size={27} /> : <Volume2 size={27} />}
-              </OverlayButton>
-              <input
-                className="player-volume hidden h-5 w-32 sm:block"
-                data-overlay-interactive
-                style={sliderStyle(snapshot?.volume ?? 100)}
-                type="range"
-                min={0}
-                max={100}
-                value={snapshot?.volume ?? 100}
-                aria-label="Volume"
-                onChange={(event) => command(["set", "volume", Number(event.target.value)])}
+                ariaLabel="Audio track"
+                icon={<Languages size={27} />}
+                tracks={audioTracks}
+                empty="Audio"
+                active={activeTrackMenu === "audio"}
+                onClick={() =>
+                  setActiveTrackMenu((current) => (current === "audio" ? undefined : "audio"))
+                }
               />
-              <div className="flex-1" />
-              <div ref={audioAnchorRef} data-track-menu-trigger>
-                <TrackSelect
-                  large
-                  ariaLabel="Audio track"
-                  icon={<Languages size={27} />}
-                  tracks={audioTracks}
-                  empty="Audio"
-                  active={activeTrackMenu === "audio"}
-                  onClick={() =>
-                    setActiveTrackMenu((current) => (current === "audio" ? undefined : "audio"))
-                  }
-                />
-              </div>
-              <div ref={subtitleAnchorRef} data-track-menu-trigger>
-                <TrackSelect
-                  large
-                  ariaLabel="Subtitle track"
-                  icon={<Captions size={27} />}
-                  tracks={subtitleTracks}
-                  empty="Subtitles"
-                  allowOff
-                  active={activeTrackMenu === "subtitles"}
-                  onClick={() => {
-                    setSelectedSubtitleCode(
-                      selectedSubtitleCode ?? activeSubtitleGroup?.code ?? subtitleGroups[0]?.code,
-                    )
-                    setActiveTrackMenu((current) =>
-                      current === "subtitles" ? undefined : "subtitles",
-                    )
-                  }}
-                />
-              </div>
-              <OverlayButton large label={"Video scale: " + selectedScale} onClick={changeScale}>
-                <Scaling size={27} />
-              </OverlayButton>
             </div>
+            <div ref={subtitleAnchorRef} data-track-menu-trigger>
+              <TrackSelect
+                large
+                ariaLabel="Subtitle track"
+                icon={<Captions size={27} />}
+                tracks={subtitleTracks}
+                empty="Subtitles"
+                allowOff
+                active={activeTrackMenu === "subtitles"}
+                onClick={() => {
+                  setSelectedSubtitleCode(
+                    selectedSubtitleCode ?? activeSubtitleGroup?.code ?? subtitleGroups[0]?.code,
+                  )
+                  setActiveTrackMenu((current) =>
+                    current === "subtitles" ? undefined : "subtitles",
+                  )
+                }}
+              />
+            </div>
+            <OverlayButton
+              large
+              label={"Video scale: " + selectedScale}
+              onClick={changeScale}
+            >
+              <Scaling size={27} />
+            </OverlayButton>
           </div>
           {activeTrackMenu === "audio" && (
             <AudioTrackMenu
