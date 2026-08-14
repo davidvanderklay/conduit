@@ -73,7 +73,7 @@ export function ContinueWatching({
     <section>
       <div className="mb-4 flex items-center justify-between gap-4">
         <h2 className="font-display text-xl font-semibold">Continue Watching</h2>
-        {grouped.length > 4 && (
+        {grouped.length > 0 && (
           <button
             className="text-xs font-semibold text-zinc-500 transition hover:text-amber-300"
             onClick={onSeeMore}
