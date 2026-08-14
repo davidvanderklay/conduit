@@ -42,12 +42,14 @@ export function DesktopPlayerOpeningOverlay({
       )}
       <div className="absolute inset-0 bg-black/65" aria-hidden="true" />
       {indicator ? (
-        <img
-          className="desktop-player-opening-indicator absolute left-1/2 top-1/2 max-h-[100px] w-[28%] max-w-[240px] -translate-x-1/2 -translate-y-1/2 object-contain"
-          src={indicator}
-          alt={title}
-          onError={() => setIndicatorIndex((current) => current + 1)}
-        />
+        <div className="absolute inset-0 grid place-items-center">
+          <img
+            className="desktop-player-opening-indicator max-h-[100px] w-[28%] max-w-[240px] object-contain"
+            src={indicator}
+            alt={title}
+            onError={() => setIndicatorIndex((current) => current + 1)}
+          />
+        </div>
       ) : (
         <p className="absolute left-1/2 top-1/2 w-[min(80%,32rem)] -translate-x-1/2 -translate-y-1/2 text-center text-xl font-semibold text-white">
           {title}

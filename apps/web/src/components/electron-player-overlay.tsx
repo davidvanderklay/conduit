@@ -36,11 +36,7 @@ import {
   type NativePlayerSnapshot,
   type NativeTrack,
 } from "../lib/desktop"
-import {
-  isDesktopBuffering,
-  isDesktopInitialLoading,
-  shouldShowDesktopPlayPause,
-} from "../lib/desktop-player-state"
+import { isDesktopBuffering, isDesktopInitialLoading } from "../lib/desktop-player-state"
 import {
   VIDEO_SCALE_OPTIONS,
   mpvVideoScaleCommands,
@@ -68,13 +64,10 @@ export function ElectronPlayerOverlay({ initialMedia }: { initialMedia: PlayerOv
   const [fullscreen, setFullscreen] = useState(false)
   const [scale, setScale] = useState<VideoScale>("fit")
   const [controlsVisible, setControlsVisible] = useState(true)
-  const [seeking, setSeeking] = useState(false)
   const [holdSpeedActive, setHoldSpeedActive] = useState(false)
   const [activeTrackMenu, setActiveTrackMenu] = useState<TrackMenuName>()
   const [selectedSubtitleCode, setSelectedSubtitleCode] = useState<string>()
-  const [subtitlePosition, setSubtitlePosition] = useState(
-    () => readPreferences().subtitlePosition,
-  )
+  const [subtitlePosition, setSubtitlePosition] = useState(() => readPreferences().subtitlePosition)
   const hideTimer = useRef<number | undefined>(undefined)
   const holdSpeedTimer = useRef<number | undefined>(undefined)
   const holdSpeedActiveRef = useRef(false)
@@ -120,8 +113,9 @@ export function ElectronPlayerOverlay({ initialMedia }: { initialMedia: PlayerOv
           bottom: Math.min(1, bounds.bottom / window.innerHeight),
         }
       })
-      .filter((region): region is NonNullable<typeof region> =>
-        region !== undefined && region.right > region.left && region.bottom > region.top,
+      .filter(
+        (region): region is NonNullable<typeof region> =>
+          region !== undefined && region.right > region.left && region.bottom > region.top,
       )
     electron.setPlayerOverlayInteractiveRegions(regions)
   }, [])
@@ -132,13 +126,11 @@ export function ElectronPlayerOverlay({ initialMedia }: { initialMedia: PlayerOv
       window.cancelAnimationFrame(frame)
       frame = window.requestAnimationFrame(updateInteractiveRegions)
     }
-    const resizeObserver = typeof ResizeObserver === "undefined"
-      ? undefined
-      : new ResizeObserver(schedule)
+    const resizeObserver =
+      typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(schedule)
     resizeObserver?.observe(document.documentElement)
-    const mutationObserver = typeof MutationObserver === "undefined"
-      ? undefined
-      : new MutationObserver(schedule)
+    const mutationObserver =
+      typeof MutationObserver === "undefined" ? undefined : new MutationObserver(schedule)
     mutationObserver?.observe(document.body, {
       subtree: true,
       childList: true,
@@ -164,7 +156,6 @@ export function ElectronPlayerOverlay({ initialMedia }: { initialMedia: PlayerOv
       setArtwork(media)
       window.clearTimeout(seekCommitTimer.current)
       seekDraft.current = undefined
-      setSeeking(false)
     })
     const unsubscribeWake = electron.onPlayerOverlayWake
       ? electron.onPlayerOverlayWake(showControls)
@@ -202,22 +193,26 @@ export function ElectronPlayerOverlay({ initialMedia }: { initialMedia: PlayerOv
     seekCommitTimer.current = undefined
     const position = seekDraft.current
     seekDraft.current = undefined
-    setSeeking(false)
     if (position === undefined) return
     command(["seek", position, "absolute+exact"])
   }, [command])
 
-  const previewSeek = useCallback((position: number) => {
-    setSeeking(true)
-    seekDraft.current = position
-    setSnapshot((current) => (current ? { ...current, position } : current))
-    window.clearTimeout(seekCommitTimer.current)
-    seekCommitTimer.current = window.setTimeout(commitSeek, 180)
-  }, [commitSeek])
+  const previewSeek = useCallback(
+    (position: number) => {
+      seekDraft.current = position
+      setSnapshot((current) => (current ? { ...current, position } : current))
+      window.clearTimeout(seekCommitTimer.current)
+      seekCommitTimer.current = window.setTimeout(commitSeek, 180)
+    },
+    [commitSeek],
+  )
 
-  useEffect(() => () => {
-    window.clearTimeout(seekCommitTimer.current)
-  }, [])
+  useEffect(
+    () => () => {
+      window.clearTimeout(seekCommitTimer.current)
+    },
+    [],
+  )
 
   const endHoldSpeed = useCallback(() => {
     window.clearTimeout(holdSpeedTimer.current)
@@ -228,29 +223,38 @@ export function ElectronPlayerOverlay({ initialMedia }: { initialMedia: PlayerOv
     command(["set", "speed", 1])
   }, [command])
 
-  const beginHoldSpeed = useCallback((event: ReactPointerEvent) => {
-    if (
-      !snapshot || snapshot.loading || snapshot.duration <= 0 ||
-      (event.pointerType === "mouse" && event.button !== 0) ||
-      event.target instanceof Element && event.target.closest("[data-overlay-interactive]")
-    ) return
-    window.clearTimeout(holdSpeedTimer.current)
-    holdSpeedTriggered.current = false
-    holdSpeedTimer.current = window.setTimeout(() => {
-      holdSpeedTriggered.current = true
-      holdSpeedActiveRef.current = true
-      setHoldSpeedActive(true)
-      command(["set", "speed", 2])
-    }, 450)
-  }, [command, snapshot])
+  const beginHoldSpeed = useCallback(
+    (event: ReactPointerEvent) => {
+      if (
+        !snapshot ||
+        snapshot.loading ||
+        snapshot.duration <= 0 ||
+        (event.pointerType === "mouse" && event.button !== 0) ||
+        (event.target instanceof Element && event.target.closest("[data-overlay-interactive]"))
+      )
+        return
+      window.clearTimeout(holdSpeedTimer.current)
+      holdSpeedTriggered.current = false
+      holdSpeedTimer.current = window.setTimeout(() => {
+        holdSpeedTriggered.current = true
+        holdSpeedActiveRef.current = true
+        setHoldSpeedActive(true)
+        command(["set", "speed", 2])
+      }, 450)
+    },
+    [command, snapshot],
+  )
 
-  useEffect(() => () => {
-    window.clearTimeout(holdSpeedTimer.current)
-    if (holdSpeedActiveRef.current) {
-      holdSpeedActiveRef.current = false
-      command(["set", "speed", 1])
-    }
-  }, [command])
+  useEffect(
+    () => () => {
+      window.clearTimeout(holdSpeedTimer.current)
+      if (holdSpeedActiveRef.current) {
+        holdSpeedActiveRef.current = false
+        command(["set", "speed", 1])
+      }
+    },
+    [command],
+  )
 
   const togglePlayback = useCallback(() => {
     const paused = snapshot?.paused ?? false
@@ -259,7 +263,9 @@ export function ElectronPlayerOverlay({ initialMedia }: { initialMedia: PlayerOv
   }, [command, snapshot?.paused])
 
   const toggleFullscreen = useCallback(() => {
-    void toggleNativeFullscreen().then(setFullscreen).catch(() => undefined)
+    void toggleNativeFullscreen()
+      .then(setFullscreen)
+      .catch(() => undefined)
   }, [])
 
   const changeScale = useCallback(() => {
@@ -283,16 +289,11 @@ export function ElectronPlayerOverlay({ initialMedia }: { initialMedia: PlayerOv
 
   const audioTracks = snapshot?.tracks.filter((track) => track.type === "audio") ?? []
   const subtitleTracks = snapshot?.tracks.filter((track) => track.type === "sub") ?? []
-  const subtitleGroups = groupSubtitles(
-    subtitleTracks,
-    (track) => track.lang || track.title,
-  )
+  const subtitleGroups = groupSubtitles(subtitleTracks, (track) => track.lang || track.title)
   const activeSubtitleGroup = subtitleGroups.find((group) =>
     group.tracks.some((track) => track.selected),
   )
-  const selectedSubtitleGroup = subtitleGroups.find(
-    (group) => group.code === selectedSubtitleCode,
-  )
+  const selectedSubtitleGroup = subtitleGroups.find((group) => group.code === selectedSubtitleCode)
 
   useEffect(() => {
     if (preferredSubtitleApplied.current || !subtitleTracks.length) return
@@ -307,7 +308,6 @@ export function ElectronPlayerOverlay({ initialMedia }: { initialMedia: PlayerOv
   const selectedScale = VIDEO_SCALE_OPTIONS.find((option) => option.value === scale)?.label ?? scale
   const loadingOverlayVisible = isDesktopInitialLoading(snapshot)
   const bufferingOverlayVisible = isDesktopBuffering(snapshot)
-  const playPauseVisible = shouldShowDesktopPlayPause(snapshot, seeking)
   const rootClassName =
     "native-player electron-native-player electron-player-overlay fixed inset-0 z-50 select-none " +
     (controlsVisible ? "cursor-default" : "cursor-none")
@@ -361,19 +361,18 @@ export function ElectronPlayerOverlay({ initialMedia }: { initialMedia: PlayerOv
         if (event.target === event.currentTarget) togglePlayback()
       }}
     >
-      {loadingOverlayVisible && (
-        <DesktopPlayerOpeningOverlay artwork={artwork} title={title} />
-      )}
-      {!loadingOverlayVisible && bufferingOverlayVisible && (
-        <DesktopPlayerBufferingOverlay />
-      )}
+      {loadingOverlayVisible && <DesktopPlayerOpeningOverlay artwork={artwork} title={title} />}
+      {!loadingOverlayVisible && bufferingOverlayVisible && <DesktopPlayerBufferingOverlay />}
       {/* Edge scrims keep the chrome legible without darkening the subtitle plane. */}
       <div
         className={`pointer-events-none absolute inset-x-0 top-0 h-48 bg-gradient-to-b from-black/85 via-black/55 to-transparent transition-opacity duration-300 ${controlsVisible ? "opacity-100" : "opacity-0"}`}
         aria-hidden="true"
       />
       {holdSpeedActive && (
-        <div className="pointer-events-none absolute inset-x-0 top-6 z-20 text-center text-xl font-semibold text-white drop-shadow-[0_2px_10px_rgba(0,0,0,0.95)]" aria-live="polite">
+        <div
+          className="pointer-events-none absolute inset-x-0 top-6 z-20 text-center text-xl font-semibold text-white drop-shadow-[0_2px_10px_rgba(0,0,0,0.95)]"
+          aria-live="polite"
+        >
           » 2×
         </div>
       )}
@@ -393,7 +392,9 @@ export function ElectronPlayerOverlay({ initialMedia }: { initialMedia: PlayerOv
             <Play className="rotate-180 fill-current" size={21} />
           </OverlayButton>
           <div className="min-w-0 drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)]">
-            <h2 className="truncate font-display text-lg font-semibold text-white [text-shadow:0_1px_8px_rgba(0,0,0,0.9)]">{title}</h2>
+            <h2 className="truncate font-display text-lg font-semibold text-white [text-shadow:0_1px_8px_rgba(0,0,0,0.9)]">
+              {title}
+            </h2>
             {snapshot && (
               <p className="truncate text-xs text-zinc-300">
                 {nativePlaybackDescription(snapshot)}
@@ -409,14 +410,13 @@ export function ElectronPlayerOverlay({ initialMedia }: { initialMedia: PlayerOv
         </OverlayButton>
       </div>
 
-      <div
-        className={
-          "pointer-events-none absolute inset-x-0 bottom-0 z-10 px-5 pb-5 pt-24 transition-opacity " +
-          (controlsVisible ? "opacity-100" : "opacity-0")
-        }
-      >
+      <div className={"pointer-events-none absolute inset-x-0 bottom-0 z-10 px-5 pb-5 pt-24"}>
         <div className="w-full">
-          <div className="flex items-center gap-4 text-base tabular-nums text-zinc-200">
+          <div
+            className={`flex items-center gap-4 text-base tabular-nums text-zinc-200 ${
+              controlsVisible ? "" : "invisible"
+            }`}
+          >
             <span className="min-w-16 text-right">{formatTime(snapshot?.position ?? 0)}</span>
             <input
               className="player-seek pointer-events-auto block h-2 min-w-0 flex-1 cursor-pointer"
@@ -438,71 +438,74 @@ export function ElectronPlayerOverlay({ initialMedia }: { initialMedia: PlayerOv
           </div>
 
           <div className="pointer-events-auto relative mt-3 flex items-center gap-3">
-            <div
-              className={playPauseVisible ? "" : "invisible pointer-events-none"}
-              aria-hidden={!playPauseVisible}
+            <OverlayButton
+              large
+              label={snapshot?.paused ? "Play" : "Pause"}
+              onClick={togglePlayback}
             >
-              <OverlayButton large label={snapshot?.paused ? "Play" : "Pause"} onClick={togglePlayback}>
-                {snapshot?.paused ? <Play size={28} /> : <Pause size={28} />}
+              {snapshot?.paused ? <Play size={28} /> : <Pause size={28} />}
+            </OverlayButton>
+            <div
+              className={controlsVisible ? "contents" : "contents invisible pointer-events-none"}
+            >
+              <OverlayButton large label="Next episode" onClick={nextEpisode}>
+                <SkipForward size={27} />
+              </OverlayButton>
+              <OverlayButton
+                large
+                label={snapshot?.volume === 0 ? "Unmute" : "Mute"}
+                onClick={() => command(["set", "volume", snapshot?.volume === 0 ? 100 : 0])}
+              >
+                {snapshot?.volume === 0 ? <VolumeX size={27} /> : <Volume2 size={27} />}
+              </OverlayButton>
+              <input
+                className="player-volume hidden h-5 w-32 sm:block"
+                data-overlay-interactive
+                style={sliderStyle(snapshot?.volume ?? 100)}
+                type="range"
+                min={0}
+                max={100}
+                value={snapshot?.volume ?? 100}
+                aria-label="Volume"
+                onChange={(event) => command(["set", "volume", Number(event.target.value)])}
+              />
+              <div className="flex-1" />
+              <div ref={audioAnchorRef} data-track-menu-trigger>
+                <TrackSelect
+                  large
+                  ariaLabel="Audio track"
+                  icon={<Languages size={27} />}
+                  tracks={audioTracks}
+                  empty="Audio"
+                  active={activeTrackMenu === "audio"}
+                  onClick={() =>
+                    setActiveTrackMenu((current) => (current === "audio" ? undefined : "audio"))
+                  }
+                />
+              </div>
+              <div ref={subtitleAnchorRef} data-track-menu-trigger>
+                <TrackSelect
+                  large
+                  ariaLabel="Subtitle track"
+                  icon={<Captions size={27} />}
+                  tracks={subtitleTracks}
+                  empty="Subtitles"
+                  allowOff
+                  active={activeTrackMenu === "subtitles"}
+                  onClick={() => {
+                    setSelectedSubtitleCode(
+                      selectedSubtitleCode ?? activeSubtitleGroup?.code ?? subtitleGroups[0]?.code,
+                    )
+                    setActiveTrackMenu((current) =>
+                      current === "subtitles" ? undefined : "subtitles",
+                    )
+                  }}
+                />
+              </div>
+              <OverlayButton large label={"Video scale: " + selectedScale} onClick={changeScale}>
+                <Scaling size={27} />
               </OverlayButton>
             </div>
-            <OverlayButton large label="Next episode" onClick={nextEpisode}>
-              <SkipForward size={27} />
-            </OverlayButton>
-            <OverlayButton
-              large
-              label={snapshot?.volume === 0 ? "Unmute" : "Mute"}
-              onClick={() => command(["set", "volume", snapshot?.volume === 0 ? 100 : 0])}
-            >
-              {snapshot?.volume === 0 ? <VolumeX size={27} /> : <Volume2 size={27} />}
-            </OverlayButton>
-            <input
-              className="player-volume hidden h-5 w-32 sm:block"
-              data-overlay-interactive
-              style={sliderStyle(snapshot?.volume ?? 100)}
-              type="range"
-              min={0}
-              max={100}
-              value={snapshot?.volume ?? 100}
-              aria-label="Volume"
-              onChange={(event) => command(["set", "volume", Number(event.target.value)])}
-            />
-            <div className="flex-1" />
-            <div ref={audioAnchorRef} data-track-menu-trigger>
-              <TrackSelect
-                large
-                ariaLabel="Audio track"
-                icon={<Languages size={27} />}
-                tracks={audioTracks}
-                empty="Audio"
-                active={activeTrackMenu === "audio"}
-                onClick={() => setActiveTrackMenu((current) => current === "audio" ? undefined : "audio")}
-              />
-            </div>
-            <div ref={subtitleAnchorRef} data-track-menu-trigger>
-              <TrackSelect
-                large
-                ariaLabel="Subtitle track"
-                icon={<Captions size={27} />}
-                tracks={subtitleTracks}
-                empty="Subtitles"
-                allowOff
-                active={activeTrackMenu === "subtitles"}
-                onClick={() => {
-                  setSelectedSubtitleCode(
-                    selectedSubtitleCode ?? activeSubtitleGroup?.code ?? subtitleGroups[0]?.code,
-                  )
-                  setActiveTrackMenu((current) => current === "subtitles" ? undefined : "subtitles")
-                }}
-              />
-            </div>
-            <OverlayButton
-              large
-              label={"Video scale: " + selectedScale}
-              onClick={changeScale}
-            >
-              <Scaling size={27} />
-            </OverlayButton>
           </div>
           {activeTrackMenu === "audio" && (
             <AudioTrackMenu
@@ -532,12 +535,16 @@ export function ElectronPlayerOverlay({ initialMedia }: { initialMedia: PlayerOv
               onOff={() => {
                 setSelectedSubtitleCode(undefined)
                 command(["set", "sid", "no"])
-                setSnapshot((current) => current ? {
-                  ...current,
-                  tracks: current.tracks.map((track) =>
-                    track.type === "sub" ? { ...track, selected: false } : track,
-                  ),
-                } : current)
+                setSnapshot((current) =>
+                  current
+                    ? {
+                        ...current,
+                        tracks: current.tracks.map((track) =>
+                          track.type === "sub" ? { ...track, selected: false } : track,
+                        ),
+                      }
+                    : current,
+                )
               }}
               onSubtitlePosition={(value) => {
                 setSubtitlePosition(value)
@@ -608,10 +615,16 @@ function TrackSelect({
   large?: boolean
 }) {
   if (!tracks.length && !allowOff) {
-    return <OverlayButton large={large} label={empty} onClick={onClick} active={active}>{icon}</OverlayButton>
+    return (
+      <OverlayButton large={large} label={empty} onClick={onClick} active={active}>
+        {icon}
+      </OverlayButton>
+    )
   }
   return (
-    <OverlayButton large={large} label={ariaLabel} onClick={onClick} active={active}>{icon}</OverlayButton>
+    <OverlayButton large={large} label={ariaLabel} onClick={onClick} active={active}>
+      {icon}
+    </OverlayButton>
   )
 }
 
@@ -652,15 +665,17 @@ function AudioTrackMenu({
       role="menu"
     >
       <TrackMenuHeader title="Audio" onClose={onClose} />
-      {tracks.length ? tracks.map((track) => (
-        <TrackMenuRow
-          key={track.id}
-          track={track}
-          fallback="Audio"
-          audio
-          onClick={() => onSelect(track.id)}
-        />
-      )) : (
+      {tracks.length ? (
+        tracks.map((track) => (
+          <TrackMenuRow
+            key={track.id}
+            track={track}
+            fallback="Audio"
+            audio
+            onClick={() => onSelect(track.id)}
+          />
+        ))
+      ) : (
         <p className="px-3 py-2 text-sm text-zinc-500">No selectable audio tracks.</p>
       )}
     </div>
@@ -721,13 +736,21 @@ function SubtitleTrackMenu({
     >
       <TrackMenuHeader title="Subtitles" onClose={onClose} />
       <div className="grid grid-cols-1 gap-3 sm:h-80 sm:min-h-0 sm:grid-cols-[minmax(8rem,0.9fr)_minmax(11rem,1.1fr)_minmax(9rem,0.8fr)]">
-        <section className="max-h-48 min-h-0 overflow-y-auto overscroll-contain pr-1 sm:max-h-none" aria-label="Subtitle languages">
+        <section
+          className="max-h-48 min-h-0 overflow-y-auto overscroll-contain pr-1 sm:max-h-none"
+          aria-label="Subtitle languages"
+        >
           <TrackMenuSectionTitle>Languages</TrackMenuSectionTitle>
-          <TrackMenuChoice active={!active} onClick={onOff}>Off</TrackMenuChoice>
+          <TrackMenuChoice active={!active} onClick={onOff}>
+            Off
+          </TrackMenuChoice>
           {groups.map((group) => (
             <TrackMenuChoice
               key={group.code}
-              active={selectedCode === group.code || (!selectedCode && group.tracks.some((track) => track.selected))}
+              active={
+                selectedCode === group.code ||
+                (!selectedCode && group.tracks.some((track) => track.selected))
+              }
               detail={group.tracks.length.toString()}
               onClick={() => onSelectLanguage(group.code)}
             >
@@ -735,22 +758,35 @@ function SubtitleTrackMenu({
             </TrackMenuChoice>
           ))}
         </section>
-        <section className="max-h-48 min-h-0 overflow-y-auto overscroll-contain border-zinc-800 pr-1 sm:max-h-none sm:border-l sm:pl-3" aria-label="Subtitle variants">
+        <section
+          className="max-h-48 min-h-0 overflow-y-auto overscroll-contain border-zinc-800 pr-1 sm:max-h-none sm:border-l sm:pl-3"
+          aria-label="Subtitle variants"
+        >
           <TrackMenuSectionTitle>
-            <span className="inline-flex items-center gap-1"><ChevronLeft className="sm:hidden" size={14} />Variants</span>
+            <span className="inline-flex items-center gap-1">
+              <ChevronLeft className="sm:hidden" size={14} />
+              Variants
+            </span>
           </TrackMenuSectionTitle>
-          {selectedGroup ? selectedGroup.tracks.map((track) => (
-            <TrackMenuRow
-              key={track.id}
-              track={track}
-              fallback="Subtitles"
-              onClick={() => onSelectTrack(track)}
-            />
-          )) : (
-            <p className="px-2 py-2 text-sm text-zinc-500">Choose a language to see its variants.</p>
+          {selectedGroup ? (
+            selectedGroup.tracks.map((track) => (
+              <TrackMenuRow
+                key={track.id}
+                track={track}
+                fallback="Subtitles"
+                onClick={() => onSelectTrack(track)}
+              />
+            ))
+          ) : (
+            <p className="px-2 py-2 text-sm text-zinc-500">
+              Choose a language to see its variants.
+            </p>
           )}
         </section>
-        <section className="min-h-0 border-zinc-800 sm:border-l sm:pl-3" aria-label="Subtitle settings">
+        <section
+          className="min-h-0 border-zinc-800 sm:border-l sm:pl-3"
+          aria-label="Subtitle settings"
+        >
           <TrackMenuSectionTitle>Settings</TrackMenuSectionTitle>
           <p className="px-2 text-xs text-zinc-500">Vertical position</p>
           <div className="mt-2 flex items-center rounded-full bg-zinc-900">
@@ -795,7 +831,11 @@ function TrackMenuHeader({ title, onClose }: { title: string; onClose: () => voi
 }
 
 function TrackMenuSectionTitle({ children }: { children: ReactNode }) {
-  return <p className="sticky top-0 z-10 mb-2 bg-zinc-950 px-2 pb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">{children}</p>
+  return (
+    <p className="sticky top-0 z-10 mb-2 bg-zinc-950 px-2 pb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+      {children}
+    </p>
+  )
 }
 
 function TrackMenuChoice({
@@ -861,18 +901,26 @@ function selectSubtitleTrack(
   setSnapshot: Dispatch<SetStateAction<NativePlayerSnapshot | undefined>>,
 ) {
   command(["set", "sid", track.id])
-  setSnapshot((current) => current ? {
-    ...current,
-    tracks: current.tracks.map((candidate) =>
-      candidate.type === "sub"
-        ? { ...candidate, selected: candidate.id === track.id }
-        : candidate,
-    ),
-  } : current)
+  setSnapshot((current) =>
+    current
+      ? {
+          ...current,
+          tracks: current.tracks.map((candidate) =>
+            candidate.type === "sub"
+              ? { ...candidate, selected: candidate.id === track.id }
+              : candidate,
+          ),
+        }
+      : current,
+  )
 }
 
 function trackName(track: NativeTrack, fallback: string): string {
-  return track.title || (track.lang ? subtitleLanguageName(track.lang) : undefined) || `${fallback} ${track.id}`
+  return (
+    track.title ||
+    (track.lang ? subtitleLanguageName(track.lang) : undefined) ||
+    `${fallback} ${track.id}`
+  )
 }
 
 function trackDetails(track: NativeTrack): string {
@@ -903,7 +951,9 @@ function nativePlaybackDescription(snapshot: NativePlayerSnapshot): string {
     snapshot.container?.toUpperCase(),
     codecs,
     snapshot.hardwareDecoder ? "Hardware (" + snapshot.hardwareDecoder + ")" : "",
-  ].filter(Boolean).join(" · ")
+  ]
+    .filter(Boolean)
+    .join(" · ")
 }
 
 function formatTime(seconds: number): string {
@@ -913,6 +963,10 @@ function formatTime(seconds: number): string {
   const minutes = Math.floor((total % 3600) / 60)
   const remainder = total % 60
   return hours > 0
-    ? hours + ":" + minutes.toString().padStart(2, "0") + ":" + remainder.toString().padStart(2, "0")
+    ? hours +
+        ":" +
+        minutes.toString().padStart(2, "0") +
+        ":" +
+        remainder.toString().padStart(2, "0")
     : minutes + ":" + remainder.toString().padStart(2, "0")
 }

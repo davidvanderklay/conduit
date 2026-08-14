@@ -76,11 +76,13 @@ describe("native playback status", () => {
   })
 
   it("reports software decoding once video metadata is known", () => {
-    expect(nativePlaybackDescription({
-      ...snapshot,
-      audioCodec: undefined,
-      hardwareDecoder: undefined,
-    })).toBe("Direct Play · MATROSKA · HEVC · Software")
+    expect(
+      nativePlaybackDescription({
+        ...snapshot,
+        audioCodec: undefined,
+        hardwareDecoder: undefined,
+      }),
+    ).toBe("Direct Play · MATROSKA · HEVC · Software")
   })
 })
 
@@ -223,7 +225,7 @@ describe("DesktopPlayer track menus", () => {
     expect(document.querySelector('[aria-label="Video buffering"]')).toBeNull()
   })
 
-  it("hides play/pause while buffering without removing its layout slot", async () => {
+  it("keeps play/pause visible while buffering", async () => {
     desktop.nativePlayerSnapshot.mockResolvedValueOnce({
       ...snapshot,
       loading: true,
@@ -236,7 +238,7 @@ describe("DesktopPlayer track menus", () => {
     })
 
     const playPause = button("Pause")
-    expect(playPause.parentElement?.className).toContain("invisible")
+    expect(playPause.parentElement?.className).not.toContain("invisible")
     expect(document.querySelector('[aria-label="Video buffering"]')).not.toBeNull()
   })
 
@@ -351,16 +353,19 @@ describe("DesktopPlayer track menus", () => {
     expect(desktop.resetNativeOverlaySurface).toHaveBeenCalledTimes(2)
   })
 
-  it("hides inactive controls and cursor, then restores them on mouse movement", () => {
+  it("hides inactive secondary controls while keeping play/pause available", () => {
     const player = document.querySelector<HTMLElement>(".native-player")
-    const chrome = document.querySelectorAll<HTMLElement>("[data-player-chrome]")
+    const topChrome = document.querySelector<HTMLElement>('[data-player-chrome="top"]')
+    const bottomChrome = document.querySelector<HTMLElement>('[data-player-chrome="bottom"]')
     desktop.resetNativeOverlaySurface.mockClear()
 
     act(() => vi.advanceTimersByTime(2800))
     act(() => vi.advanceTimersByTime(1))
 
     expect(player?.className).toContain("cursor-none")
-    for (const region of chrome) expect(region.classList.contains("invisible")).toBe(true)
+    expect(topChrome?.classList.contains("invisible")).toBe(true)
+    expect(bottomChrome?.classList.contains("invisible")).toBe(false)
+    expect(button("Pause").parentElement?.className).not.toContain("invisible")
     expect(desktop.resetNativeOverlaySurface).toHaveBeenCalledOnce()
 
     act(() => {
@@ -368,7 +373,8 @@ describe("DesktopPlayer track menus", () => {
     })
 
     expect(player?.className).toContain("cursor-default")
-    for (const region of chrome) expect(region.classList.contains("visible")).toBe(true)
+    expect(topChrome?.classList.contains("visible")).toBe(true)
+    expect(bottomChrome?.classList.contains("visible")).toBe(true)
   })
 
   it("coalesces continuous timeline changes into one exact seek", () => {
@@ -387,11 +393,7 @@ describe("DesktopPlayer track menus", () => {
     expect(desktop.nativePlayerCommand).not.toHaveBeenCalled()
     act(() => vi.advanceTimersByTime(1))
     expect(desktop.nativePlayerCommand).toHaveBeenCalledTimes(1)
-    expect(desktop.nativePlayerCommand).toHaveBeenCalledWith([
-      "seek",
-      70,
-      "absolute+exact",
-    ])
+    expect(desktop.nativePlayerCommand).toHaveBeenCalledWith(["seek", 70, "absolute+exact"])
   })
 
   it("places separate elapsed and duration labels around the timeline", () => {
@@ -418,16 +420,12 @@ describe("DesktopPlayer track menus", () => {
     })
 
     expect(desktop.nativePlayerCommand).toHaveBeenCalledTimes(1)
-    expect(desktop.nativePlayerCommand).toHaveBeenCalledWith([
-      "seek",
-      55,
-      "absolute+exact",
-    ])
+    expect(desktop.nativePlayerCommand).toHaveBeenCalledWith(["seek", 55, "absolute+exact"])
     act(() => vi.advanceTimersByTime(500))
     expect(desktop.nativePlayerCommand).toHaveBeenCalledTimes(1)
   })
 
-  it("hides play/pause while seeking and restores it after commit", () => {
+  it("keeps play/pause visible while seeking", () => {
     const seek = document.querySelector<HTMLInputElement>('input[aria-label="Seek"]')
     expect(seek).not.toBeNull()
     const playPause = button("Pause")
@@ -435,7 +433,7 @@ describe("DesktopPlayer track menus", () => {
     act(() => {
       changeRange(seek!, 55)
     })
-    expect(playPause.parentElement?.className).toContain("invisible")
+    expect(playPause.parentElement?.className).not.toContain("invisible")
 
     act(() => {
       seek!.dispatchEvent(new Event("pointerup", { bubbles: true }))
@@ -537,17 +535,18 @@ describe("DesktopPlayer track menus", () => {
 
 describe("native playback completion", () => {
   it("detects mpv clearing its timeline immediately after EOF", () => {
-    expect(nativePlaybackEnded(
-      { ...snapshot, position: 99, duration: 100, ended: false },
-      { ...snapshot, position: 0, duration: 0, ended: false },
-    )).toBe(true)
+    expect(
+      nativePlaybackEnded(
+        { ...snapshot, position: 99, duration: 100, ended: false },
+        { ...snapshot, position: 0, duration: 0, ended: false },
+      ),
+    ).toBe(true)
   })
 
   it("does not treat an uninitialized timeline as EOF", () => {
-    expect(nativePlaybackEnded(
-      undefined,
-      { ...snapshot, position: 0, duration: 0, ended: false },
-    )).toBe(false)
+    expect(
+      nativePlaybackEnded(undefined, { ...snapshot, position: 0, duration: 0, ended: false }),
+    ).toBe(false)
   })
 })
 
@@ -572,10 +571,7 @@ function click(target: HTMLButtonElement): void {
 }
 
 function changeRange(target: HTMLInputElement, value: number): void {
-  const setter = Object.getOwnPropertyDescriptor(
-    HTMLInputElement.prototype,
-    "value",
-  )?.set
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set
   setter?.call(target, String(value))
   target.dispatchEvent(new Event("input", { bubbles: true }))
 }
