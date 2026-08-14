@@ -13,9 +13,9 @@ import {
 import { api, type InstalledAddon, type WatchProgress } from "../lib/api"
 import { addonsForResource } from "../lib/addons"
 import {
+  continueWatchingBadge,
   continueWatchingState,
   groupContinueWatching,
-  remainingTimeLabel,
   type ContinueWatchingState,
 } from "../lib/continue-watching"
 import { loadMeta, type CatalogItem, type MetaItem } from "../lib/core"
@@ -32,7 +32,7 @@ type Filter = "all" | "movie" | "series"
 type Sort = "recent" | "oldest" | "title-asc" | "title-desc"
 const PAGE_SIZE = 48
 
-export function useProgressList(profileId: string, view: "continue" | "history", limit = 50) {
+export function useProgressList(profileId: string, view: "continue" | "history" | "status", limit = 50) {
   return useQuery({
     queryKey: ["progress", profileId, view],
     queryFn: () =>
@@ -46,16 +46,29 @@ export function ContinueWatching({
   items,
   addons,
   profileId,
+  watchedProgress = [],
   onSelect,
   onSeeMore,
 }: {
   items: WatchProgress[]
   addons: InstalledAddon[]
   profileId: string
+  watchedProgress?: WatchProgress[]
   onSelect: (item: CatalogItem, videoId?: string, progress?: WatchProgress) => void
   onSeeMore: () => void
 }) {
   const grouped = useMemo(() => groupContinueWatching(items).slice(0, 14), [items])
+  const watchedIdsByMedia = useMemo(() => {
+    const result = new Map<string, Set<string>>()
+    for (const progress of watchedProgress) {
+      if (!progress.watched) continue
+      const key = `${progress.mediaType}:${progress.mediaId}`
+      const ids = result.get(key) ?? new Set<string>()
+      ids.add(progress.videoId)
+      result.set(key, ids)
+    }
+    return result
+  }, [watchedProgress])
   return (
     <section>
       <div className="mb-4 flex items-center justify-between gap-4">
@@ -75,6 +88,7 @@ export function ContinueWatching({
             item={item}
             addons={addons}
             profileId={profileId}
+            watchedVideoIds={watchedIdsByMedia.get(`${item.mediaType}:${item.mediaId}`)}
             onSelect={onSelect}
             key={item.mediaType === "series" ? `${item.mediaType}:${item.mediaId}` : item.videoId}
           />
@@ -88,11 +102,13 @@ function ContinueWatchingCard({
   item,
   addons,
   profileId,
+  watchedVideoIds,
   onSelect,
 }: {
   item: WatchProgress
   addons: InstalledAddon[]
   profileId: string
+  watchedVideoIds?: ReadonlySet<string>
   onSelect: (item: CatalogItem, videoId?: string, progress?: WatchProgress) => void
 }) {
   const fallback = toCatalogItem(item)
@@ -102,13 +118,11 @@ function ContinueWatchingCard({
     staleTime: 5 * 60 * 1000,
   })
   const meta = metadata.data ?? fallback
-  const state = continueWatchingState(item, metadata.data?.videos ?? [])
-  const loadingSeriesState =
-    item.mediaType === "series" && item.watched && !metadata.data?.videos?.length
+  const state = continueWatchingState(item, metadata.data?.videos ?? [], new Date(), watchedVideoIds)
   const targetVideoId =
     state.kind === "in-progress"
       ? item.videoId
-      : state.kind === "new-episode"
+      : state.kind === "new-episode" || state.kind === "next-up"
         ? state.video.id
         : undefined
   const selectedProgress = state.kind === "in-progress" ? item : undefined
@@ -120,7 +134,7 @@ function ContinueWatchingCard({
     background: meta.background,
   }
   const open = () => onSelect(catalogItem, targetVideoId, selectedProgress)
-  const badge = loadingSeriesState ? undefined : continueWatchingBadge(item, state)
+  const badge = continueWatchingBadge(item, state, metadata.isSuccess)
   const season = state.video?.season ?? item.season
   const episode = state.video?.episode ?? item.episode
   const episodeTitle =
@@ -183,8 +197,8 @@ function ContinueWatchingCard({
           profileId={profileId}
           onOpen={open}
           history={false}
-          playable={state.kind === "in-progress" || state.kind === "new-episode"}
-          showWatchAction={state.kind !== "new-episode" && state.kind !== "scheduled"}
+          playable={state.kind === "in-progress" || state.kind === "new-episode" || state.kind === "next-up"}
+          showWatchAction={state.kind !== "new-episode" && state.kind !== "next-up" && state.kind !== "scheduled"}
         />
       </div>
     </article>
@@ -438,18 +452,9 @@ function toCatalogItem(item: WatchProgress): CatalogItem {
   return { id: item.mediaId, type: item.mediaType, name: item.name, poster: item.poster }
 }
 
-function continueWatchingBadge(
-  item: WatchProgress,
-  state: ContinueWatchingState,
-): string | undefined {
-  if (state.kind === "new-episode") return "New Episode"
-  if (state.kind === "scheduled") return state.label
-  if (state.kind === "caught-up") return "Caught up"
-  return remainingTimeLabel(item)
-}
-
 function continueWatchingAriaLabel(item: WatchProgress, state: ContinueWatchingState): string {
   if (state.kind === "new-episode") return `Play the new episode of ${item.name}`
+  if (state.kind === "next-up") return `Play the next episode of ${item.name}`
   if (state.kind === "scheduled") return `View ${item.name}, next episode ${state.label}`
   if (state.kind === "caught-up") return `View ${item.name}, caught up`
   return `Resume ${item.name}`
