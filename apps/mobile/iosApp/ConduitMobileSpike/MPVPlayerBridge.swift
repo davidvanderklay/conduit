@@ -874,11 +874,6 @@ final class ConduitMPVPlayerViewController: UIViewController {
         checkError(mpv_set_option_string(mpv, "vulkan-async-compute", "no"))
         checkError(mpv_set_option_string(mpv, "vulkan-async-transfer", "no"))
         checkError(mpv_set_option_string(mpv, "vulkan-disable-interop", "yes"))
-        // Match presentation to the screen refresh rate. Oversample is MPV's
-        // inexpensive interpolation filter and avoids 3:2 judder on 60 Hz iPads.
-        checkError(mpv_set_option_string(mpv, "video-sync", "display-resample"))
-        checkError(mpv_set_option_string(mpv, "interpolation", "yes"))
-        checkError(mpv_set_option_string(mpv, "tscale", "oversample"))
         checkError(mpv_set_option_string(mpv, "video-rotate", "no"))
         checkError(mpv_set_option_string(mpv, "input-default-bindings", "no"))
         checkError(mpv_set_option_string(mpv, "input-vo-keyboard", "no"))
@@ -1497,10 +1492,12 @@ final class ConduitMPVPlayerViewController: UIViewController {
 }
 
 /// Mirrors MPV's final Metal drawable into AVKit without creating a second decoder.
-/// The copier is bounded to 20 fps and one in-flight frame; late frames are dropped.
+/// The copier is bounded to 30 fps and one in-flight frame; late frames are dropped.
 final class ConduitPictureInPictureCoordinator: NSObject,
     AVPictureInPictureControllerDelegate,
     AVPictureInPictureSampleBufferPlaybackDelegate {
+    private static let captureFramesPerSecond: CMTimeScale = 30
+
     private weak var owner: ConduitMPVPlayerViewController?
     private let metalLayer: ConduitMetalLayer
     private let displayLayer = AVSampleBufferDisplayLayer()
@@ -1617,7 +1614,7 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         displayLayer.flush()
         if displayLink == nil {
             let link = CADisplayLink(target: self, selector: #selector(captureTick))
-            link.preferredFrameRateRange = CAFrameRateRange(minimum: 10, maximum: 20, preferred: 20)
+            link.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 30, preferred: 30)
             link.add(to: .main, forMode: .common)
             displayLink = link
         }
@@ -1663,7 +1660,7 @@ final class ConduitPictureInPictureCoordinator: NSObject,
                 self.captureInFlight = false
                 guard copied, let formatDescription = self.formatDescription else { return }
                 var timing = CMSampleTimingInfo(
-                    duration: CMTime(value: 1, timescale: 20),
+                    duration: CMTime(value: 1, timescale: Self.captureFramesPerSecond),
                     presentationTimeStamp: timestamp,
                     decodeTimeStamp: .invalid
                 )
@@ -1716,7 +1713,10 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         let timestamp = CMTime(value: max(estimatedPositionMs, 0), timescale: 1_000)
         guard !lastTimestamp.isValid || CMTimeCompare(timestamp, lastTimestamp) > 0 else {
             guard priming, lastTimestamp.isValid else { return nil }
-            return CMTimeAdd(lastTimestamp, CMTime(value: 1, timescale: 20))
+            return CMTimeAdd(
+                lastTimestamp,
+                CMTime(value: 1, timescale: Self.captureFramesPerSecond)
+            )
         }
         return timestamp
     }
