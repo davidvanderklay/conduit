@@ -29,7 +29,8 @@ fun shouldShowCenterPlaybackControl(
 
 /**
  * Keeps the temporary 2x speed hold alive through pointer movement while retaining
- * single-tap and double-tap behavior.
+ * single-tap and double-tap behavior. Gestures are abandoned when a child
+ * control consumes the pointer, so transport controls keep exclusive clicks.
  */
 suspend fun PointerInputScope.detectMovementTolerantPlayerGestures(
     touchGestures: Boolean,
@@ -52,7 +53,8 @@ suspend fun PointerInputScope.detectMovementTolerantPlayerGestures(
             var holdTriggered = false
             var restoredSpeed: Float? = null
             var completedWithUp = false
-            val holdJob = if (holdToSpeed && holdToSpeedReady) {
+            var consumedByControl = down.isConsumed
+            val holdJob = if (holdToSpeed && holdToSpeedReady && !consumedByControl) {
                 launch {
                     delay(PlayerHoldToSpeedDelayMs)
                     restoredSpeed = currentSpeed()
@@ -71,6 +73,10 @@ suspend fun PointerInputScope.detectMovementTolerantPlayerGestures(
                     val event = awaitPointerEvent()
                     val change = event.changes.firstOrNull { it.id == down.id }
                     if (change == null) break
+                    if (change.isConsumed) {
+                        consumedByControl = true
+                        holdJob?.cancel()
+                    }
                     if (!change.pressed) {
                         completedWithUp = true
                         break
@@ -84,7 +90,7 @@ suspend fun PointerInputScope.detectMovementTolerantPlayerGestures(
                 }
             }
 
-            if (!completedWithUp || holdTriggered) return@awaitEachGesture
+            if (!completedWithUp || holdTriggered || consumedByControl) return@awaitEachGesture
 
             val upTime = down.uptimeMillis
             val isDoubleTap = touchGestures &&

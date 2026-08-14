@@ -428,7 +428,6 @@ final class ConduitMPVPlayerViewController: UIViewController {
             self?.setSurfaceTransitionActive(false)
             self?.syncVideoSurfaceLayout()
             self?.attemptStartPendingLoad()
-            self?.scheduleVideoOutputRecovery()
         })
     }
 
@@ -875,6 +874,11 @@ final class ConduitMPVPlayerViewController: UIViewController {
         checkError(mpv_set_option_string(mpv, "vulkan-async-compute", "no"))
         checkError(mpv_set_option_string(mpv, "vulkan-async-transfer", "no"))
         checkError(mpv_set_option_string(mpv, "vulkan-disable-interop", "yes"))
+        // Match presentation to the screen refresh rate. Oversample is MPV's
+        // inexpensive interpolation filter and avoids 3:2 judder on 60 Hz iPads.
+        checkError(mpv_set_option_string(mpv, "video-sync", "display-resample"))
+        checkError(mpv_set_option_string(mpv, "interpolation", "yes"))
+        checkError(mpv_set_option_string(mpv, "tscale", "oversample"))
         checkError(mpv_set_option_string(mpv, "video-rotate", "no"))
         checkError(mpv_set_option_string(mpv, "input-default-bindings", "no"))
         checkError(mpv_set_option_string(mpv, "input-vo-keyboard", "no"))
