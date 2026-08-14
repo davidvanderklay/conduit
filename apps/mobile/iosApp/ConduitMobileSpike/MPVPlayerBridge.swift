@@ -304,6 +304,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
     private var resumeAfterAudioInterruption = false
     private var backgroundedWithPictureInPicture = false
     private var lastDrawableSize: CGSize = .zero
+    private var videoSurfaceSize: CGSize = .zero
     private var settledMetalBounds: CGRect = .zero
     private var externallyManagedViewSize: CGSize?
     private var pendingSurfaceLayoutWorkItems: [DispatchWorkItem] = []
@@ -322,6 +323,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
     private var subtitleLoadGeneration = 0
     private var loadStartedAtUptime: TimeInterval = 0
     private var destroyStarted = false
+    private var resizeMode = 0
 
     fileprivate var audioTracks: [ConduitTrack] = []
     fileprivate var subtitleTracks: [ConduitTrack] = []
@@ -548,7 +550,9 @@ final class ConduitMPVPlayerViewController: UIViewController {
 
     func setResize(_ mode: Int) {
         runOnMain { [weak self] in
-            guard let self, self.mpv != nil else { return }
+            guard let self else { return }
+            self.resizeMode = mode
+            guard self.mpv != nil else { return }
             switch mode {
             case 1, 2:
                 self.setStringProperty("keepaspect", "yes")
@@ -567,6 +571,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
                 self.setStringProperty("video-zoom", "0.0")
             }
             self.setStringProperty("video-unscaled", "no")
+            self.updateSubtitlePosition()
         }
     }
 
@@ -616,6 +621,9 @@ final class ConduitMPVPlayerViewController: UIViewController {
         let outputHeight = getInt("video-out-params/h")
         let decodedWidth = outputWidth > 0 ? outputWidth : getInt("video-params/w")
         let decodedHeight = outputHeight > 0 ? outputHeight : getInt("video-params/h")
+        let nextVideoWidth = max(decodedWidth, 0)
+        let nextVideoHeight = max(decodedHeight, 0)
+        let videoSizeChanged = videoWidth != nextVideoWidth || videoHeight != nextVideoHeight
 
         _ = mpv
         isPlayerBuffering = hasLoadedFile
@@ -638,9 +646,10 @@ final class ConduitMPVPlayerViewController: UIViewController {
         isPlayerEnded = eofReached
         durationMs = Int64(max(duration, 0) * 1000)
         positionMs = Int64(max(position, 0) * 1000)
-        videoWidth = max(decodedWidth, 0)
-        videoHeight = max(decodedHeight, 0)
+        videoWidth = nextVideoWidth
+        videoHeight = nextVideoHeight
         currentSpeed = Float(speed > 0 ? speed : 1.0)
+        if videoSizeChanged { updateSubtitlePosition() }
     }
 
     fileprivate var videoContentSize: CGSize {
@@ -1032,6 +1041,10 @@ final class ConduitMPVPlayerViewController: UIViewController {
         // UIKit's bounds are the authoritative dimensions of the embedded view.
         let bounds = CGRect(origin: .zero, size: view.bounds.size)
         guard bounds.width > 1, bounds.height > 1 else { return }
+        if videoSurfaceSize != bounds.size {
+            videoSurfaceSize = bounds.size
+            updateSubtitlePosition()
+        }
         let scale = view.window?.screen.nativeScale ?? UIScreen.main.nativeScale
         let size = CGSize(
             width: (bounds.width * scale).rounded(),
@@ -1123,7 +1136,11 @@ final class ConduitMPVPlayerViewController: UIViewController {
         guard isViewLoaded, !destroyStarted else { return }
         if let size, size.width > 1, size.height > 1 {
             externallyManagedViewSize = size
+            videoSurfaceSize = size
+        } else if view.bounds.width > 1, view.bounds.height > 1 {
+            videoSurfaceSize = view.bounds.size
         }
+        updateSubtitlePosition()
         // Compose owns the embedded controller's view geometry. Forcing its
         // frame or an immediate UIKit layout here can recursively lay out
         // Compose's hidden input view while the app is entering the foreground.
@@ -1140,6 +1157,40 @@ final class ConduitMPVPlayerViewController: UIViewController {
             pendingSurfaceLayoutWorkItems.append(workItem)
             DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
         }
+    }
+
+    /// MPV's crop modes enlarge the video rectangle, which can move bottom
+    /// subtitles outside the visible surface. Keep the subtitle's source
+    /// position inside that cropped rectangle by translating it upward by the
+    /// amount of vertical crop. `video-zoom` is logarithmic in MPV, so mode 2
+    /// uses the corresponding power-of-two scale factor.
+    private func updateSubtitlePosition() {
+        guard mpv != nil else { return }
+        let position: CGFloat
+        guard
+            (resizeMode == 1 || resizeMode == 2),
+            videoWidth > 0,
+            videoHeight > 0,
+            videoSurfaceSize.width > 1,
+            videoSurfaceSize.height > 1
+        else {
+            position = 100
+            setStringProperty("sub-pos", "100")
+            return
+        }
+
+        let baseScale = max(
+            videoSurfaceSize.width / CGFloat(videoWidth),
+            videoSurfaceSize.height / CGFloat(videoHeight),
+        )
+        let zoomScale = resizeMode == 2 ? CGFloat(pow(2.0, 0.15)) : 1
+        let displayedHeight = CGFloat(videoHeight) * baseScale * zoomScale
+        let croppedTop = max(0, (displayedHeight - videoSurfaceSize.height) / 2)
+        position = min(
+            100,
+            max(0, (videoSurfaceSize.height + croppedTop) / displayedHeight * 100),
+        )
+        setStringProperty("sub-pos", String(format: "%.3f", Double(position)))
     }
 
     private func readEvents() {

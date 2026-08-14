@@ -25,7 +25,7 @@ import { readPreferences, writePreferences } from "../lib/preferences"
 import { playbackBufferState } from "../lib/playback-buffer"
 import { browserPlaybackError } from "../lib/playback-compatibility"
 import { playerHeading, type PlayerHeading } from "../lib/player-title"
-import { videoObjectFit, type VideoScale } from "../lib/video-scale"
+import { subtitlePositionForVideoScale, videoObjectFit, type VideoScale } from "../lib/video-scale"
 import { usePlaybackProgress } from "../lib/progress"
 import { DesktopPlayer } from "./desktop-player"
 import {
@@ -188,6 +188,37 @@ function WebPlayer({
     playbackSource,
   )
   const resumed = useRef(false)
+
+  const currentSubtitlePosition = useCallback(
+    (position: number) => {
+      const video = videoRef.current
+      const shell = shellRef.current
+      if (!video || !shell) return position
+      const bounds = shell.getBoundingClientRect()
+      return subtitlePositionForVideoScale(
+        position,
+        videoScale,
+        { width: video.videoWidth, height: video.videoHeight },
+        { width: bounds.width, height: bounds.height },
+      )
+    },
+    [videoScale],
+  )
+
+  const repositionVisibleSubtitles = useCallback(() => {
+    const video = videoRef.current
+    if (!video) return
+    const position = currentSubtitlePosition(subtitlePosition)
+    Array.from(video.textTracks)
+      .filter((track) => track.mode === "showing")
+      .forEach((track) => applyTextTrackPosition(track, position))
+  }, [currentSubtitlePosition, subtitlePosition])
+
+  useEffect(() => {
+    repositionVisibleSubtitles()
+    window.addEventListener("resize", repositionVisibleSubtitles)
+    return () => window.removeEventListener("resize", repositionVisibleSubtitles)
+  }, [repositionVisibleSubtitles])
 
   const close = () => {
     const video = videoRef.current
@@ -375,7 +406,7 @@ function WebPlayer({
       const textTrack = video.textTracks[index]
       if (textTrack) {
         textTrack.mode = "showing"
-        applyTextTrackPosition(textTrack, cuePosition)
+        applyTextTrackPosition(textTrack, currentSubtitlePosition(cuePosition))
       }
       return
     }
@@ -383,7 +414,8 @@ function WebPlayer({
       const response = await fetch(subtitle.url)
       if (!response.ok) throw new Error(`Subtitle request returned HTTP ${response.status}`)
       const body = await response.text()
-      const vtt = positionWebVtt(toWebVtt(body), cuePosition)
+      const effectivePosition = currentSubtitlePosition(cuePosition)
+      const vtt = positionWebVtt(toWebVtt(body), effectivePosition)
       const objectUrl = URL.createObjectURL(new Blob([vtt], { type: "text/vtt" }))
       subtitleObjectUrl.current = objectUrl
       const track = document.createElement("track")
@@ -394,6 +426,7 @@ function WebPlayer({
       track.default = true
       video.append(track)
       track.addEventListener("load", () => {
+        applyTextTrackPosition(track.track, effectivePosition)
         track.track.mode = "showing"
       })
     } catch (error) {
@@ -535,6 +568,7 @@ function WebPlayer({
             onDurationChange={(event) => setDuration(event.currentTarget.duration || 0)}
             onLoadedMetadata={() => {
               refreshNativeTracks()
+              repositionVisibleSubtitles()
             }}
             onVolumeChange={(event) => {
               setVolume(event.currentTarget.volume)

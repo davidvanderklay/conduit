@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest"
-import { mpvVideoScaleCommands, nextVideoScale, videoObjectFit } from "./video-scale"
+import {
+  mpvVideoScaleCommands,
+  nextVideoScale,
+  subtitlePositionForVideoScale,
+  videoObjectFit,
+} from "./video-scale"
 
 describe("video scaling", () => {
   it("maps browser scaling modes", () => {
@@ -17,6 +22,20 @@ describe("video scaling", () => {
       "video-aspect-override",
       "1920:1080",
     ])
+  })
+
+  it("raises subtitles by the amount of vertical crop", () => {
+    expect(
+      subtitlePositionForVideoScale(90, "crop", { width: 4, height: 3 }, { width: 16, height: 9 }),
+    ).toBeCloseTo(80)
+  })
+
+  it("leaves subtitle positions alone when scaling does not crop vertically", () => {
+    const video = { width: 21, height: 9 }
+    const viewport = { width: 16, height: 9 }
+    expect(subtitlePositionForVideoScale(90, "fit", video, viewport)).toBe(90)
+    expect(subtitlePositionForVideoScale(90, "stretch", video, viewport)).toBe(90)
+    expect(subtitlePositionForVideoScale(90, "crop", video, viewport)).toBe(90)
   })
 
   it("cycles through the three modes", () => {
