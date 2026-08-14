@@ -21,6 +21,7 @@ const snapshot = {
   ended: false,
   paused: false,
   loading: false,
+  firstFrameReady: true,
   position: 10,
   duration: 100,
   bufferedDuration: 30,
@@ -143,6 +144,7 @@ describe("DesktopPlayer track menus", () => {
     desktop.openNativePlayer.mockResolvedValueOnce({
       ...snapshot,
       duration: 0,
+      firstFrameReady: false,
     })
     desktop.nativePlayerSnapshot.mockResolvedValueOnce(snapshot)
 
@@ -185,6 +187,57 @@ describe("DesktopPlayer track menus", () => {
     })
 
     expect(document.querySelector('[aria-label="Video loading"]')).toBeNull()
+    expect(document.querySelector('[aria-label="Video buffering"]')).not.toBeNull()
+  })
+
+  it("uses the media artwork while the first frame is loading", async () => {
+    desktop.openNativePlayer.mockResolvedValueOnce({
+      ...snapshot,
+      duration: 0,
+      firstFrameReady: false,
+    })
+
+    await act(async () => {
+      root.render(
+        <DesktopPlayer
+          url="https://example.com/artwork-video.mp4"
+          type="movie"
+          videoId="tt-artwork"
+          profileId="00000000-0000-4000-8000-000000000001"
+          progressMetadata={{ mediaType: "movie", mediaId: "tt-artwork", name: "Artwork video" }}
+          artwork={{
+            background: "https://example.com/background.jpg",
+            logo: "https://example.com/logo.png",
+            poster: "https://example.com/poster.jpg",
+          }}
+          addons={[]}
+          onClose={() => undefined}
+        />,
+      )
+      await Promise.resolve()
+    })
+
+    expect(document.querySelector('[aria-label="Video loading"]')).not.toBeNull()
+    expect(document.querySelector('img[src="https://example.com/background.jpg"]')).not.toBeNull()
+    expect(document.querySelector('img[src="https://example.com/logo.png"]')).not.toBeNull()
+    expect(document.querySelector('[aria-label="Video buffering"]')).toBeNull()
+  })
+
+  it("hides play/pause while buffering without removing its layout slot", async () => {
+    desktop.nativePlayerSnapshot.mockResolvedValueOnce({
+      ...snapshot,
+      loading: true,
+      firstFrameReady: true,
+    })
+
+    await act(async () => {
+      vi.advanceTimersByTime(1000)
+      await Promise.resolve()
+    })
+
+    const playPause = button("Pause")
+    expect(playPause.parentElement?.className).toContain("invisible")
+    expect(document.querySelector('[aria-label="Video buffering"]')).not.toBeNull()
   })
 
   it("unmounts the menu when its close button is clicked", () => {
@@ -372,6 +425,22 @@ describe("DesktopPlayer track menus", () => {
     ])
     act(() => vi.advanceTimersByTime(500))
     expect(desktop.nativePlayerCommand).toHaveBeenCalledTimes(1)
+  })
+
+  it("hides play/pause while seeking and restores it after commit", () => {
+    const seek = document.querySelector<HTMLInputElement>('input[aria-label="Seek"]')
+    expect(seek).not.toBeNull()
+    const playPause = button("Pause")
+
+    act(() => {
+      changeRange(seek!, 55)
+    })
+    expect(playPause.parentElement?.className).toContain("invisible")
+
+    act(() => {
+      seek!.dispatchEvent(new Event("pointerup", { bubbles: true }))
+    })
+    expect(playPause.parentElement?.className).not.toContain("invisible")
   })
 
   it("unmounts the menu when its trigger is clicked again", () => {

@@ -387,6 +387,11 @@ export function MediaDetails({
             season: selectedVideo?.season,
             episode: selectedVideo?.episode,
           }}
+          artwork={{
+            background: meta.background,
+            logo: meta.logo,
+            poster: meta.poster,
+          }}
           addons={addons}
           seriesContext={
             selectedVideo
