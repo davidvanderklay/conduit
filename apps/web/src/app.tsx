@@ -1028,7 +1028,6 @@ function MediaHome({
           .flatMap((addon) =>
             addon.manifest.catalogs
               .filter((catalog) => !(catalog.extra ?? []).some((extra) => extra.isRequired))
-              .slice(0, 3)
               .map(async (catalog) => ({
                 key: `${addon.id}:${catalog.type}:${catalog.id}`,
                 addonId: addon.id,

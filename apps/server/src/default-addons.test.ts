@@ -17,4 +17,9 @@ describe("default add-ons", () => {
       installations.map((addon) => decryptSecret(addon.manifestUrlEncrypted, key)),
     ).toEqual(DEFAULT_ADDONS.map((addon) => addon.manifestUrl))
   })
+
+  it("includes selectable Cinemeta genres in the default manifest snapshot", () => {
+    expect(DEFAULT_ADDONS[0].manifest.catalogs[0].extra[0].options).toContain("Drama")
+    expect(DEFAULT_ADDONS[0].manifest.catalogs[1].extra[0].options).toContain("Reality-TV")
+  })
 })

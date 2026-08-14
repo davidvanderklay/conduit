@@ -1,5 +1,29 @@
 import { encryptSecret, stableSecretHash } from "./crypto.js"
 
+const CINEMETA_MOVIE_GENRES = [
+  "Action",
+  "Adventure",
+  "Animation",
+  "Biography",
+  "Comedy",
+  "Crime",
+  "Documentary",
+  "Drama",
+  "Family",
+  "Fantasy",
+  "History",
+  "Horror",
+  "Mystery",
+  "Romance",
+  "Sci-Fi",
+  "Sport",
+  "Thriller",
+  "War",
+  "Western",
+]
+
+const CINEMETA_SERIES_GENRES = [...CINEMETA_MOVIE_GENRES, "Reality-TV", "Talk-Show", "Game-Show"]
+
 export const DEFAULT_ADDONS = [
   {
     manifestUrl: "https://v3-cinemeta.strem.io/manifest.json",
@@ -16,28 +40,36 @@ export const DEFAULT_ADDONS = [
           type: "movie",
           id: "top",
           name: "Popular",
-          extra: [{ name: "genre" }, { name: "search" }, { name: "skip" }],
+          extra: [
+            { name: "genre", options: CINEMETA_MOVIE_GENRES },
+            { name: "search" },
+            { name: "skip" },
+          ],
           extraSupported: ["search", "genre", "skip"],
         },
         {
           type: "series",
           id: "top",
           name: "Popular",
-          extra: [{ name: "genre" }, { name: "search" }, { name: "skip" }],
+          extra: [
+            { name: "genre", options: CINEMETA_SERIES_GENRES },
+            { name: "search" },
+            { name: "skip" },
+          ],
           extraSupported: ["search", "genre", "skip"],
         },
         {
           type: "movie",
           id: "imdbRating",
           name: "Featured",
-          extra: [{ name: "genre" }, { name: "skip" }],
+          extra: [{ name: "genre", options: CINEMETA_MOVIE_GENRES }, { name: "skip" }],
           extraSupported: ["genre", "skip"],
         },
         {
           type: "series",
           id: "imdbRating",
           name: "Featured",
-          extra: [{ name: "genre" }, { name: "skip" }],
+          extra: [{ name: "genre", options: CINEMETA_SERIES_GENRES }, { name: "skip" }],
           extraSupported: ["genre", "skip"],
         },
       ],

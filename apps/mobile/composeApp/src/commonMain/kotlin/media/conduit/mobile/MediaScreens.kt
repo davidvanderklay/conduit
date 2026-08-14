@@ -390,7 +390,7 @@ internal fun SearchDiscoverScreen(
                         if (selected?.genreRequired != true) add("" to "All genres")
                         selected?.genres.orEmpty().forEach { add(it to it) }
                     },
-                    enabled = selected?.genres?.isNotEmpty() == true,
+                    enabled = selected?.supportsGenre == true,
                     onSelect = { onSelectionChange(normalizedSelection.copy(genre = it.ifBlank { null })) },
                     modifier = Modifier.weight(1.05f),
                 )

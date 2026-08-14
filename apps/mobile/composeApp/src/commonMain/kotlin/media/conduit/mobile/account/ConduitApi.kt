@@ -876,7 +876,6 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
                             (extra as? JsonObject)?.get("isRequired")?.jsonPrimitive?.booleanOrNull == true
                         }
                     }
-                    .take(3)
                     .mapNotNull { catalog ->
                         val id = catalog["id"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
                         val type = catalog["type"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
