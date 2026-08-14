@@ -6,6 +6,8 @@ import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class PlaybackSessionTest {
     @Test
@@ -67,6 +69,40 @@ class PlaybackSessionTest {
         controller.restore()
         controller.leaveFullScreen(miniplayerOnBack = false)
         assertEquals(PlaybackPresentation.Closed, controller.state.presentation)
+    }
+
+    @Test
+    fun openingEpisodePickerKeepsThePlayerFullScreen() {
+        var selectedEpisode: String? = null
+        val controller = PlaybackSessionController(TestScope())
+        val request = PlaybackRequest(
+            identity = PlaybackIdentity("profile", "series", "media", "episode-1"),
+            url = "https://example.test/episode-1.m3u8",
+            title = "Episode 1",
+            mediaName = "Series · Episode 1",
+            hasEpisodes = true,
+        )
+        controller.start(
+            request,
+            PlaybackSessionCallbacks(
+                persist = { _, _ -> },
+                playNext = {},
+                openEpisodes = {},
+                minimized = {},
+                closed = {},
+                selectEpisode = { selectedEpisode = it },
+            ),
+        )
+
+        controller.openEpisodes()
+
+        assertEquals(PlaybackPresentation.FullScreen, controller.state.presentation)
+        assertTrue(controller.state.episodePickerOpen)
+
+        controller.selectEpisode("episode-2")
+
+        assertFalse(controller.state.episodePickerOpen)
+        assertEquals("episode-2", selectedEpisode)
     }
 
     @Test

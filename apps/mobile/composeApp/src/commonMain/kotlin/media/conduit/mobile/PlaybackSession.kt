@@ -7,8 +7,10 @@ import androidx.compose.runtime.setValue
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import media.conduit.mobile.account.CatalogItem
 import media.conduit.mobile.account.PlaybackSource
 import media.conduit.mobile.account.SubtitleItem
+import media.conduit.mobile.account.VideoItem
 
 enum class PlaybackPresentation {
     FullScreen,
@@ -44,6 +46,8 @@ data class PlaybackRequest(
     val nextEpisodeTitle: String? = null,
     val nextEpisodeArtwork: String? = null,
     val hasEpisodes: Boolean = false,
+    val mediaItem: CatalogItem? = null,
+    val episodes: List<VideoItem> = emptyList(),
 )
 
 sealed interface PlaybackCommand {
@@ -67,6 +71,7 @@ data class PlaybackSessionState(
     val resizeMode: Int = 0,
     val systemPipAvailable: Boolean = false,
     val command: SequencedPlaybackCommand? = null,
+    val episodePickerOpen: Boolean = false,
 )
 
 class PlaybackSessionCallbacks(
@@ -75,6 +80,7 @@ class PlaybackSessionCallbacks(
     val openEpisodes: () -> Unit,
     val minimized: () -> Unit,
     val closed: () -> Unit,
+    val selectEpisode: (String) -> Unit = {},
 )
 
 @Stable
@@ -129,7 +135,10 @@ class PlaybackSessionController(
     fun minimize(notifyOwner: Boolean = true) {
         if (state.request == null) return
         persist()
-        state = state.copy(presentation = PlaybackPresentation.Mini)
+        state = state.copy(
+            presentation = PlaybackPresentation.Mini,
+            episodePickerOpen = false,
+        )
         if (notifyOwner) callbacks?.minimized?.invoke()
     }
 
@@ -204,7 +213,20 @@ class PlaybackSessionController(
     }
 
     fun openEpisodes() {
+        if (state.request == null) return
+        state = state.copy(episodePickerOpen = true)
         callbacks?.openEpisodes?.invoke()
+    }
+
+    fun closeEpisodes() {
+        if (state.episodePickerOpen) state = state.copy(episodePickerOpen = false)
+    }
+
+    fun selectEpisode(videoId: String) {
+        if (state.request == null) return
+        closeEpisodes()
+        persist()
+        callbacks?.selectEpisode?.invoke(videoId)
     }
 
     fun send(command: PlaybackCommand) {

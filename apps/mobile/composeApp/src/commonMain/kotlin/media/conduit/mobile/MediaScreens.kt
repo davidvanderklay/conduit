@@ -629,7 +629,6 @@ internal fun MediaDetailsScreen(
     var playing by remember(item.id) { mutableStateOf<StreamItem?>(null) }
     var resumePosition by remember(item.id) { mutableStateOf(0L) }
     var currentAddonId by remember(item.id) { mutableStateOf<String?>(null) }
-    var episodesOpen by remember(item.id) { mutableStateOf(false) }
     var currentAddonName by remember(item.id) { mutableStateOf<String?>(null) }
     var externalSubtitles by remember(item.id) { mutableStateOf<List<SubtitleItem>>(emptyList()) }
     var externalSubtitlesLoaded by remember(item.id) { mutableStateOf(false) }
@@ -827,9 +826,15 @@ internal fun MediaDetailsScreen(
                     requestStreams(video)
                 }
             },
-            openEpisodes = {
-                episodesOpen = true
-                playbackSession.minimize(notifyOwner = false)
+            openEpisodes = {},
+            selectEpisode = { videoId ->
+                orderedVideos.firstOrNull { it.id == videoId }?.let { video ->
+                    playbackSession.close()
+                    selectedVideo = video
+                    playing = null
+                    resumePosition = 0L
+                    requestStreams(video)
+                }
             },
             minimized = onBack,
             closed = { playing = null },
@@ -872,6 +877,8 @@ internal fun MediaDetailsScreen(
             nextEpisodeTitle = nextVideo?.let { "S${it.season ?: 0}E${it.episode ?: 0} · ${it.displayTitle}" },
             nextEpisodeArtwork = nextVideo?.thumbnail ?: meta?.background,
             hasEpisodes = orderedVideos.isNotEmpty(),
+            mediaItem = item,
+            episodes = orderedVideos,
         )
         playbackSession.start(request, callbacks)
     }
@@ -895,35 +902,10 @@ internal fun MediaDetailsScreen(
             ownsPlayback && playbackSession.state.presentation == PlaybackPresentation.FullScreen -> {
                 playbackSession.leaveFullScreen(preferences.miniplayerOnBack)
             }
-            episodesOpen -> episodesOpen = false
             streamEpisodesOpen -> streamEpisodesOpen = false
             streamPageOpen -> closeStreamSelection()
             else -> onBack()
         }
-    }
-    if (episodesOpen) {
-        Box(Modifier.fillMaxSize()) {
-            BoxWithConstraints(Modifier.fillMaxSize()) {
-                PlayerEpisodeDrawer(
-                    orderedVideos,
-                    selectedVideo,
-                    snapshot,
-                    actionItem = item,
-                    onMutation = onMutation,
-                    fullscreen = maxWidth < 600.dp,
-                    onDismiss = { episodesOpen = false },
-                    onSelect = { video ->
-                        episodesOpen = false
-                        playbackSession.close()
-                        selectedVideo = video
-                        playing = null
-                        resumePosition = 0L
-                        requestStreams(video)
-                    },
-                )
-            }
-        }
-        return
     }
     if (waitingForSavedPlayback) {
         Box(Modifier.fillMaxSize()) {
@@ -1439,7 +1421,7 @@ internal fun PlayerBufferingOverlay(modifier: Modifier = Modifier) {
 
 @Composable
 @OptIn(ExperimentalFoundationApi::class)
-private fun PlayerEpisodeDrawer(
+internal fun PlayerEpisodeDrawer(
     videos: List<VideoItem>,
     current: VideoItem?,
     snapshot: ProfileSnapshot?,
