@@ -102,11 +102,16 @@ internal fun ContinueWatchingCard(
     item: CatalogItem,
     metadata: MetaItem?,
     metadataReady: Boolean,
+    watchedVideoIds: Set<String> = emptySet(),
     onClick: () -> Unit,
     onActions: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val presentation = continueWatchingPresentation(progress, metadata?.videos.orEmpty())
+    val presentation = continueWatchingPresentation(
+        progress = progress,
+        videos = metadata?.videos.orEmpty(),
+        watchedVideoIds = watchedVideoIds,
+    )
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val cardScale by animateFloatAsState(if (pressed) .98f else 1f, label = "continue-card-press")
@@ -120,14 +125,7 @@ internal fun ContinueWatchingCard(
     ).distinct()
     var artworkIndex by remember(artworkSources) { mutableIntStateOf(0) }
     val artwork = artworkSources.getOrNull(artworkIndex)
-    val badge = if (!metadataReady && progress.mediaType == "series" && progress.watched) {
-        null
-    } else when (presentation.kind) {
-        ContinueWatchingKind.InProgress -> remainingTimeLabel(progress)
-        ContinueWatchingKind.NewEpisode -> "New Episode"
-        ContinueWatchingKind.Scheduled -> presentation.label
-        ContinueWatchingKind.CaughtUp -> "Caught up"
-    }
+    val badge = continueWatchingBadgeLabel(progress, presentation, metadataReady)
     val season = video?.season ?: progress.season
     val episode = video?.episode ?: progress.episode
     val episodeTitle = video?.title ?: video?.name ?: progress.videoTitle
@@ -141,6 +139,7 @@ internal fun ContinueWatchingCard(
                 onClickLabel = when (presentation.kind) {
                     ContinueWatchingKind.InProgress -> "Resume ${progress.name}"
                     ContinueWatchingKind.NewEpisode -> "Play the new episode of ${progress.name}"
+                    ContinueWatchingKind.NextUp -> "Play the next episode of ${progress.name}"
                     ContinueWatchingKind.Scheduled -> "View ${progress.name}, next episode ${presentation.label}"
                     ContinueWatchingKind.CaughtUp -> "View ${progress.name}, caught up"
                 },
@@ -183,25 +182,23 @@ internal fun ContinueWatchingCard(
                 ),
             ),
         )
-        badge?.let { label ->
-            Surface(
-                modifier = Modifier.align(Alignment.TopEnd).padding(7.dp),
-                shape = RoundedCornerShape(6.dp),
-                color = if (presentation.kind == ContinueWatchingKind.NewEpisode) {
-                    Color(0xFF1D5DDD)
-                } else {
-                    Color.Black.copy(alpha = .82f)
-                },
-                contentColor = Color.White,
-                shadowElevation = 5.dp,
-            ) {
-                Text(
-                    label,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Bold,
-                )
-            }
+        Surface(
+            modifier = Modifier.align(Alignment.TopEnd).padding(7.dp),
+            shape = RoundedCornerShape(6.dp),
+            color = if (presentation.kind == ContinueWatchingKind.NewEpisode) {
+                Color(0xFF1D5DDD)
+            } else {
+                Color.Black.copy(alpha = .82f)
+            },
+            contentColor = Color.White,
+            shadowElevation = 5.dp,
+        ) {
+            Text(
+                badge,
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+            )
         }
         Column(
             modifier = Modifier.align(Alignment.BottomStart).padding(start = 10.dp, end = 10.dp, bottom = 9.dp),

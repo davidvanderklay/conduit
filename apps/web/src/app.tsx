@@ -1017,6 +1017,7 @@ function MediaHome({
   const [selectedProgress, setSelectedProgress] = useState<WatchProgress>()
   const [returnHomeFromStreamSelection, setReturnHomeFromStreamSelection] = useState(false)
   const continueWatching = useProgressList(profile.id, "continue", 50)
+  const watchedProgress = useProgressList(profile.id, "status", 1000)
   const catalogs = useQuery({
     queryKey: ["catalogs", profile.id, addons.map((addon) => [addon.id, addon.enabled])],
     enabled: addons.length > 0,
@@ -1081,6 +1082,7 @@ function MediaHome({
                 items={feedItem.items}
                 addons={addons}
                 profileId={profile.id}
+                watchedProgress={watchedProgress.data ?? []}
                 onSeeMore={onHistory}
                 onSelect={(item, videoId, progress) => {
                   setReturnHomeFromStreamSelection(true)

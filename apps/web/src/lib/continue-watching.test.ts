@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import type { WatchProgress } from "./api"
 import type { Video } from "./core"
 import {
+  continueWatchingBadge,
   continueWatchingState,
   groupContinueWatching,
   releaseDateLabel,
@@ -21,7 +22,7 @@ function progress(overrides: Partial<WatchProgress> = {}): WatchProgress {
     positionMs: 0,
     durationMs: 24 * 60_000,
     watched: true,
-    updatedAt: "2026-08-12T12:00:00Z",
+    updatedAt: "2026-08-10T12:00:00Z",
     ...overrides,
   }
 }
@@ -67,15 +68,31 @@ describe("Continue Watching state", () => {
     expect(state).toEqual({ kind: "scheduled", video: videos[3], label: "Tomorrow" })
   })
 
-  it("keeps a date-only episode scheduled for Today until availability is known", () => {
+  it("treats a date-only episode as aired and can flag it as new", () => {
     const today = { id: "s1e3", season: 1, episode: 3, released: "2026-08-12" }
     expect(continueWatchingState(progress(), [videos[1]!, today], NOW)).toEqual({
-      kind: "scheduled",
+      kind: "new-episode",
       video: today,
-      label: "Today",
     })
     expect(continueWatchingState(progress(), [videos[1]!, { ...today, available: true }], NOW).kind)
       .toBe("new-episode")
+  })
+
+  it("only shows a new badge for a recent release after the watched seed", () => {
+    const release = { id: "s1e3", season: 1, episode: 3, released: "2026-08-12T09:00:00Z" }
+    expect(
+      continueWatchingState(progress({ updatedAt: "2026-08-11T12:00:00Z" }), [videos[1]!, release], NOW).kind,
+    ).toBe("new-episode")
+    expect(
+      continueWatchingState(progress({ updatedAt: "2026-08-12T10:00:00Z" }), [videos[1]!, release], NOW).kind,
+    ).toBe("next-up")
+    expect(
+      continueWatchingState(
+        progress({ updatedAt: "2026-06-01T12:00:00Z" }),
+        [videos[1]!, release],
+        new Date(2026, 9, 20, 12),
+      ).kind,
+    ).toBe("next-up")
   })
 
   it("falls back to caught up when no later episode is known", () => {
@@ -95,5 +112,12 @@ describe("Continue Watching state", () => {
     expect(releaseDateLabel("2026-08-12", NOW)).toBe("Today")
     expect(releaseDateLabel("2026-08-13", NOW)).toBe("Tomorrow")
     expect(releaseDateLabel("2026-08-19", NOW)).toMatch(/Aug 19/)
+  })
+
+  it("always provides a continue watching badge", () => {
+    const unfinished = progress({ watched: false, positionMs: 30_000, durationMs: 60_000 })
+    expect(continueWatchingBadge(unfinished, continueWatchingState(unfinished, [], NOW))).toBe("1 min left")
+    expect(continueWatchingBadge(progress({ watched: false, durationMs: 0 }), { kind: "in-progress" })).toBe("Next Up")
+    expect(continueWatchingBadge(progress(), { kind: "caught-up" }, false)).toBe("Next Up")
   })
 })

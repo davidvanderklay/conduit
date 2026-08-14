@@ -4,6 +4,7 @@ import type { Video } from "./core"
 export type ContinueWatchingState =
   | { kind: "in-progress"; video?: Video }
   | { kind: "new-episode"; video: Video }
+  | { kind: "next-up"; video: Video }
   | { kind: "scheduled"; video: Video; label: string }
   | { kind: "caught-up"; video?: Video }
 
@@ -26,13 +27,15 @@ export function continueWatchingState(
   progress: WatchProgress,
   videos: Video[],
   now = new Date(),
+  watchedVideoIds: ReadonlySet<string> = new Set(),
 ): ContinueWatchingState {
   const regular = videos
     .filter(
       (video) =>
         video.season != null &&
         video.season > 0 &&
-        video.episode != null,
+        video.episode != null &&
+        video.available !== false,
     )
     .sort(compareEpisodes)
   const anchor =
@@ -44,19 +47,37 @@ export function continueWatchingState(
   }
 
   if (!anchor) return { kind: "caught-up" }
-  const later = regular.filter((video) => compareEpisodes(video, anchor) > 0)
-  const released = later.find((video) => episodeHasReleased(video, now))
-  if (released) return { kind: "new-episode", video: released }
-
-  const scheduled = later.find((video) => calendarDay(video.released) != null)
-  if (scheduled) {
-    return {
-      kind: "scheduled",
-      video: scheduled,
-      label: releaseDateLabel(scheduled.released!, now),
+  const next = regular.find(
+    (video) => compareEpisodes(video, anchor) > 0 && !watchedVideoIds.has(video.id),
+  )
+  if (next) {
+    if (episodeHasReleased(next, now) && isReleaseAlert(progress, next, now)) {
+      return { kind: "new-episode", video: next }
+    }
+    if (episodeHasReleased(next, now)) return { kind: "next-up", video: next }
+    if (calendarDay(next.released) != null) {
+      return {
+        kind: "scheduled",
+        video: next,
+        label: releaseDateLabel(next.released!, now),
+      }
     }
   }
   return { kind: "caught-up", video: anchor }
+}
+
+export function continueWatchingBadge(
+  item: WatchProgress,
+  state: ContinueWatchingState,
+  metadataReady = true,
+): string {
+  if (!metadataReady && item.mediaType === "series" && item.watched) return "Next Up"
+  if (state.kind === "new-episode") return "New Episode"
+  if (state.kind === "next-up") return "Next Up"
+  if (state.kind === "scheduled") return state.label
+  if (state.kind === "caught-up") return "Caught up"
+  return remainingTimeLabel(item) ?? progressPercentLabel(item) ??
+    (item.mediaType === "series" ? "Next Up" : item.watched ? "Watched" : "Resume")
 }
 
 export function remainingTimeLabel(
@@ -90,14 +111,24 @@ function compareEpisodes(a: Video, b: Video): number {
 }
 
 function episodeHasReleased(video: Video, now: Date): boolean {
-  if (video.available === true) return true
-  const day = calendarDay(video.released)
-  if (!day) return video.available !== false
-  const today = localDay(now)
-  if (day !== today) return day < today
-  if (!video.released?.includes("T")) return false
-  const instant = Date.parse(video.released)
-  return !Number.isNaN(instant) && instant <= now.getTime()
+  if (video.available === false) return false
+  const instant = parseReleaseInstant(video.released)
+  if (instant != null) return instant <= now.getTime()
+  return true
+}
+
+function isReleaseAlert(progress: WatchProgress, video: Video, now: Date): boolean {
+  const releaseTimestamp = parseReleaseInstant(video.released)
+  const watchedTimestamp = Date.parse(progress.updatedAt)
+  if (releaseTimestamp == null || Number.isNaN(watchedTimestamp)) return false
+  return releaseTimestamp > watchedTimestamp &&
+    now.getTime() - releaseTimestamp < 60 * 24 * 60 * 60 * 1000
+}
+
+function parseReleaseInstant(value: string | undefined): number | undefined {
+  if (!value) return undefined
+  const timestamp = Date.parse(value)
+  return Number.isNaN(timestamp) ? undefined : timestamp
 }
 
 function calendarDay(value: string | undefined): string | undefined {
@@ -113,4 +144,12 @@ function localDay(date: Date): string {
   const month = String(date.getMonth() + 1).padStart(2, "0")
   const day = String(date.getDate()).padStart(2, "0")
   return `${year}-${month}-${day}`
+}
+
+function progressPercentLabel(
+  progress: Pick<WatchProgress, "positionMs" | "durationMs" | "watched">,
+): string | undefined {
+  if (progress.watched || progress.positionMs <= 0 || progress.durationMs <= 0) return undefined
+  const percent = Math.min(99, Math.max(1, Math.floor((progress.positionMs / progress.durationMs) * 100)))
+  return `${percent}% watched`
 }

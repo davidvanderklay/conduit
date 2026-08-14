@@ -2,10 +2,12 @@ package media.conduit.mobile
 
 import kotlin.math.ceil
 import kotlin.time.Clock
+import kotlin.time.Duration.Companion.days
+import kotlin.time.Instant
 import media.conduit.mobile.account.ProgressSummary
 import media.conduit.mobile.account.VideoItem
 
-internal enum class ContinueWatchingKind { InProgress, NewEpisode, Scheduled, CaughtUp }
+internal enum class ContinueWatchingKind { InProgress, NewEpisode, NextUp, Scheduled, CaughtUp }
 
 internal data class ContinueWatchingPresentation(
     val kind: ContinueWatchingKind,
@@ -31,9 +33,11 @@ internal fun continueWatchingPresentation(
     progress: ProgressSummary,
     videos: List<VideoItem>,
     today: String = Clock.System.now().toString().take(10),
+    now: Instant = Clock.System.now(),
+    watchedVideoIds: Set<String> = emptySet(),
 ): ContinueWatchingPresentation {
     val regular = videos
-        .filter { (it.season ?: 0) > 0 && it.episode != null }
+        .filter { (it.season ?: 0) > 0 && it.episode != null && it.available != false }
         .sortedWith(compareBy<VideoItem>({ it.season }, { it.episode }, { it.id }))
     val anchor = regular.firstOrNull { it.id == progress.videoId }
         ?: regular.firstOrNull { it.season == progress.season && it.episode == progress.episode }
@@ -43,12 +47,36 @@ internal fun continueWatchingPresentation(
     }
     if (anchor == null) return ContinueWatchingPresentation(ContinueWatchingKind.CaughtUp)
 
-    val later = regular.filter { compareEpisodes(it, anchor) > 0 }
-    later.firstOrNull { it.hasReleased(today) }
-        ?.let { return ContinueWatchingPresentation(ContinueWatchingKind.NewEpisode, it) }
-    later.firstOrNull { releaseDay(it.released) != null }
-        ?.let { return ContinueWatchingPresentation(ContinueWatchingKind.Scheduled, it, releaseDateLabel(it.released!!, today)) }
+    val later = regular.filter { compareEpisodes(it, anchor) > 0 && it.id !in watchedVideoIds }
+    later.firstOrNull()?.let { next ->
+        when {
+            next.hasAired(today, now) && next.isReleaseAlert(progress, now) ->
+                return ContinueWatchingPresentation(ContinueWatchingKind.NewEpisode, next)
+            next.hasAired(today, now) ->
+                return ContinueWatchingPresentation(ContinueWatchingKind.NextUp, next)
+            releaseDay(next.released) != null ->
+                return ContinueWatchingPresentation(ContinueWatchingKind.Scheduled, next, releaseDateLabel(next.released!!, today))
+        }
+    }
     return ContinueWatchingPresentation(ContinueWatchingKind.CaughtUp, anchor)
+}
+
+internal fun continueWatchingBadgeLabel(
+    progress: ProgressSummary,
+    presentation: ContinueWatchingPresentation,
+    metadataReady: Boolean,
+): String {
+    if (!metadataReady && progress.mediaType == "series" && progress.watched) return "Next Up"
+
+    return when (presentation.kind) {
+        ContinueWatchingKind.InProgress -> remainingTimeLabel(progress)
+            ?: progressPercentLabel(progress)
+            ?: if (progress.mediaType == "series") "Next Up" else if (progress.watched) "Watched" else "Resume"
+        ContinueWatchingKind.NewEpisode -> "New Episode"
+        ContinueWatchingKind.NextUp -> "Next Up"
+        ContinueWatchingKind.Scheduled -> presentation.label ?: "Upcoming"
+        ContinueWatchingKind.CaughtUp -> "Caught up"
+    }
 }
 
 internal fun remainingTimeLabel(progress: ProgressSummary): String? {
@@ -58,6 +86,12 @@ internal fun remainingTimeLabel(progress: ProgressSummary): String? {
     val hours = minutes / 60
     val remainder = minutes % 60
     return if (remainder == 0) "${hours}h left" else "${hours}h ${remainder}m left"
+}
+
+private fun progressPercentLabel(progress: ProgressSummary): String? {
+    if (progress.watched || progress.positionMs <= 0L || progress.durationMs <= 0L) return null
+    val percent = ((progress.positionMs.toDouble() / progress.durationMs) * 100).toInt().coerceIn(1, 99)
+    return "$percent% watched"
 }
 
 internal fun releaseDateLabel(released: String, today: String): String {
@@ -77,10 +111,48 @@ private fun compareEpisodes(a: VideoItem, b: VideoItem): Int =
 private fun releaseDay(value: String?): String? =
     value?.take(10)?.takeIf { isoDayPattern.matches(it) }
 
-private fun VideoItem.hasReleased(today: String): Boolean {
+private fun VideoItem.hasAired(today: String, now: Instant): Boolean {
+    releaseInstant()?.let { return it <= now }
     if (available == true) return true
     val day = releaseDay(released) ?: return available != false
-    return day < today
+    return day <= today
+}
+
+private fun VideoItem.isReleaseAlert(progress: ProgressSummary, now: Instant): Boolean {
+    val releaseTimestamp = releaseInstant() ?: return false
+    val watchedTimestamp = parseInstant(progress.updatedAt) ?: return false
+    return releaseTimestamp > watchedTimestamp && now - releaseTimestamp < 60.days
+}
+
+private fun VideoItem.releaseInstant(): Instant? = released?.let(::parseInstant)
+
+private fun parseInstant(value: String): Instant? {
+    val trimmed = value.trim()
+    return runCatching { Instant.parse(trimmed) }.getOrNull()
+        ?: releaseDay(trimmed)?.let { day ->
+            runCatching { Instant.parse("${day}T00:00:00Z") }.getOrNull()
+        }
+}
+
+internal fun nextEpisodeAfter(
+    progress: ProgressSummary?,
+    videos: List<VideoItem>,
+    watchedVideoIds: Set<String> = emptySet(),
+    today: String = Clock.System.now().toString().take(10),
+    now: Instant = Clock.System.now(),
+): VideoItem? {
+    if (progress == null) return null
+    val regular = videos
+        .filter { (it.season ?: 0) > 0 && it.episode != null && it.available != false }
+        .sortedWith(compareBy<VideoItem>({ it.season }, { it.episode }, { it.id }))
+    val anchor = regular.firstOrNull { it.id == progress.videoId }
+        ?: regular.firstOrNull { it.season == progress.season && it.episode == progress.episode }
+        ?: return null
+    return regular.firstOrNull {
+        compareEpisodes(it, anchor) > 0 &&
+            it.id !in watchedVideoIds &&
+            it.hasAired(today, now)
+    }
 }
 
 private fun nextIsoDay(day: String): String {

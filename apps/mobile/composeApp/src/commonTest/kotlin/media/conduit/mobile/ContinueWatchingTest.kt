@@ -2,6 +2,7 @@ package media.conduit.mobile
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.time.Instant
 import media.conduit.mobile.account.ProgressSummary
 import media.conduit.mobile.account.VideoItem
 
@@ -9,8 +10,8 @@ class ContinueWatchingTest {
     private val videos = listOf(
         VideoItem("special", season = 0, episode = 1),
         VideoItem("s1e2", season = 1, episode = 2, thumbnail = "episode-2.jpg"),
-        VideoItem("s1e3", season = 1, episode = 3, released = "2026-08-11"),
-        VideoItem("s1e4", season = 1, episode = 4, released = "2026-08-13"),
+        VideoItem("s1e3", season = 1, episode = 3, released = "2026-08-11T10:00:00Z"),
+        VideoItem("s1e4", season = 1, episode = 4, released = "2026-08-13T10:00:00Z"),
     )
 
     @Test
@@ -35,7 +36,12 @@ class ContinueWatchingTest {
     fun completedAnchorPromotesTheFirstReleasedEpisodeAfterIt() {
         assertEquals(
             ContinueWatchingPresentation(ContinueWatchingKind.NewEpisode, videos[2]),
-            continueWatchingPresentation(progress(), videos, "2026-08-12"),
+            continueWatchingPresentation(
+                progress(),
+                videos,
+                today = "2026-08-12",
+                now = Instant.parse("2026-08-12T12:00:00Z"),
+            ),
         )
     }
 
@@ -44,7 +50,12 @@ class ContinueWatchingTest {
         val withGap = listOf(VideoItem("s1e1", season = 1, episode = 1)) + videos
         assertEquals(
             ContinueWatchingKind.NewEpisode,
-            continueWatchingPresentation(progress(), withGap, "2026-08-12").kind,
+            continueWatchingPresentation(
+                progress(),
+                withGap,
+                today = "2026-08-12",
+                now = Instant.parse("2026-08-12T12:00:00Z"),
+            ).kind,
         )
     }
 
@@ -52,7 +63,12 @@ class ContinueWatchingTest {
     fun knownFutureEpisodeUsesRelativeDateThenCaughtUpFallback() {
         assertEquals(
             ContinueWatchingPresentation(ContinueWatchingKind.Scheduled, videos[3], "Tomorrow"),
-            continueWatchingPresentation(progress(videoId = "s1e3", episode = 3), videos, "2026-08-12"),
+            continueWatchingPresentation(
+                progress(videoId = "s1e3", episode = 3),
+                videos,
+                today = "2026-08-12",
+                now = Instant.parse("2026-08-12T12:00:00Z"),
+            ),
         )
         assertEquals(
             ContinueWatchingPresentation(ContinueWatchingKind.CaughtUp, videos[3]),
@@ -61,16 +77,65 @@ class ContinueWatchingTest {
     }
 
     @Test
-    fun dateOnlyEpisodeStaysScheduledForTodayUntilAvailabilityIsKnown() {
+    fun dateOnlyEpisodeCanTriggerNewEpisodeAlertAfterTheWatchedSeed() {
         val today = VideoItem("s1e3", season = 1, episode = 3, released = "2026-08-12")
         assertEquals(
-            ContinueWatchingPresentation(ContinueWatchingKind.Scheduled, today, "Today"),
-            continueWatchingPresentation(progress(), listOf(videos[1], today), "2026-08-12"),
+            ContinueWatchingPresentation(ContinueWatchingKind.NewEpisode, today),
+            continueWatchingPresentation(
+                progress(),
+                listOf(videos[1], today),
+                today = "2026-08-12",
+                now = Instant.parse("2026-08-12T12:00:00Z"),
+            ),
         )
         assertEquals(
             ContinueWatchingKind.NewEpisode,
-            continueWatchingPresentation(progress(), listOf(videos[1], today.copy(available = true)), "2026-08-12").kind,
+            continueWatchingPresentation(
+                progress(),
+                listOf(videos[1], today.copy(available = true)),
+                today = "2026-08-12",
+                now = Instant.parse("2026-08-12T12:00:00Z"),
+            ).kind,
         )
+    }
+
+    @Test
+    fun newEpisodeRequiresAiredReleaseAfterTheWatchedSeedWithinSixtyDays() {
+        val release = VideoItem("s1e3", season = 1, episode = 3, released = "2026-08-12T09:00:00Z")
+        val episodes = listOf(videos[1], release)
+        val now = Instant.parse("2026-08-12T12:00:00Z")
+
+        assertEquals(
+            ContinueWatchingKind.NewEpisode,
+            continueWatchingPresentation(progress(updatedAt = "2026-08-11T12:00:00Z"), episodes, "2026-08-12", now).kind,
+        )
+        assertEquals(
+            ContinueWatchingKind.NextUp,
+            continueWatchingPresentation(progress(updatedAt = "2026-08-12T10:00:00Z"), episodes, "2026-08-12", now).kind,
+        )
+        assertEquals(
+            ContinueWatchingKind.NextUp,
+            continueWatchingPresentation(
+                progress(updatedAt = "2026-06-01T12:00:00Z"),
+                episodes,
+                today = "2026-08-12",
+                now = Instant.parse("2026-10-20T12:00:00Z"),
+            ).kind,
+        )
+    }
+
+    @Test
+    fun continueWatchingBadgeAlwaysHasUsefulFallbackText() {
+        val unfinished = progress(watched = false, positionMs = 30_000, durationMs = 60_000)
+        val inProgress = continueWatchingPresentation(unfinished, emptyList())
+        assertEquals("1 min left", continueWatchingBadgeLabel(unfinished, inProgress, metadataReady = false))
+        assertEquals(
+            "Next Up",
+            continueWatchingBadgeLabel(progress(), ContinueWatchingPresentation(ContinueWatchingKind.CaughtUp), metadataReady = false),
+        )
+        val notStarted = progress(watched = false, durationMs = 0)
+        val notStartedPresentation = continueWatchingPresentation(notStarted, emptyList())
+        assertEquals("Next Up", continueWatchingBadgeLabel(notStarted, notStartedPresentation, metadataReady = false))
     }
 
     @Test
@@ -90,7 +155,7 @@ class ContinueWatchingTest {
         watched: Boolean = true,
         positionMs: Long = 0,
         durationMs: Long = 24 * 60_000,
-        updatedAt: String = "2026-08-12",
+        updatedAt: String = "2026-08-10T12:00:00Z",
     ) = ProgressSummary(
         videoId = videoId,
         mediaType = mediaType,

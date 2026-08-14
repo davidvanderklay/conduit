@@ -1027,9 +1027,10 @@ internal fun MediaDetailsScreen(
 
     val details = meta
     val actionItem = details?.asCatalogItem() ?: item
-    val unfinishedProgress = latestUnfinishedProgress(snapshot?.progress.orEmpty(), actionItem)
-    val resumeVideo = details?.videos?.firstOrNull { it.id == unfinishedProgress?.videoId }
-    LaunchedEffect(details?.id, resumeVideo?.season) { if (selectedSeason == null) selectedSeason = resumeVideo?.season ?: details?.videos?.firstOrNull()?.season }
+    val playTarget = detailsPlayTarget(actionItem, snapshot?.progress.orEmpty(), details?.videos.orEmpty())
+    LaunchedEffect(details?.id, playTarget.video?.season) {
+        if (selectedSeason == null) selectedSeason = playTarget.video?.season ?: details?.videos?.firstOrNull()?.season
+    }
     val heroPullDp = with(LocalDensity.current) { heroPull.floatValue.toDp() }
     val heroScale = 1f + (heroPull.floatValue / maxHeroPullPx) * HeroMotion.expansionScale
     val heroHeight = if (item.type == "movie") 390.dp else 350.dp
@@ -1129,8 +1130,8 @@ internal fun MediaDetailsScreen(
             Column(Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 if (details == null && error == null) CircularProgressIndicator()
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                Button(onClick = { val target = resumeVideo ?: selectedVideo; selectedVideo = target; requestStreams(target) }, modifier = Modifier.fillMaxWidth().height(54.dp)) {
-                    Icon(Icons.Rounded.PlayArrow, null); Spacer(Modifier.width(8.dp)); Text(detailsPlayLabel(actionItem, unfinishedProgress, resumeVideo))
+                Button(onClick = { val target = playTarget.video ?: selectedVideo; selectedVideo = target; requestStreams(target) }, modifier = Modifier.fillMaxWidth().height(54.dp)) {
+                    Icon(Icons.Rounded.PlayArrow, null); Spacer(Modifier.width(8.dp)); Text(playTarget.label)
                 }
                 val movieProgress = snapshot?.progress.orEmpty().firstOrNull { it.videoId == actionItem.id }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
