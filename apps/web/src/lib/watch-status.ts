@@ -17,6 +17,19 @@ export function episodeProgressPercent(progress?: WatchProgress): number {
   return Math.min(100, Math.max(0, Math.round((progress.positionMs / progress.durationMs) * 100)))
 }
 
+export function resumePositionLabel(
+  progress?: Pick<WatchProgress, "positionMs" | "watched">,
+): string | undefined {
+  if (!progress || progress.watched || progress.positionMs <= 0) return undefined
+  const totalSeconds = Math.floor(progress.positionMs / 1000)
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  return hours
+    ? `${hours}:${(minutes % 60).toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`
+    : `${minutes}:${seconds.toString().padStart(2, "0")}`
+}
+
 export function isReleasedEpisode(video: Video, now = Date.now()): boolean {
   if (video.available === false) return false
   if (!video.released) return true
