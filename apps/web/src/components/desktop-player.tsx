@@ -10,8 +10,6 @@ import { createPortal } from "react-dom"
 import {
   Captions,
   Languages,
-  Maximize,
-  Minimize,
   Pause,
   Play,
   SkipForward,
@@ -50,6 +48,11 @@ import {
   DesktopPlayerBufferingOverlay,
   DesktopPlayerOpeningOverlay,
 } from "./desktop-player-overlays"
+import {
+  DesktopPlayerChromeBottom,
+  DesktopPlayerChromeTop,
+  DesktopPlayerControl as PlayerIcon,
+} from "./desktop-player-chrome"
 
 type TrackMenuName = "audio" | "subtitles"
 
@@ -730,56 +733,28 @@ export function DesktopPlayer({
           » 2×
         </div>
       )}
-      <div
-        data-player-chrome="top"
-        className={`pointer-events-none absolute inset-x-0 top-0 z-10 flex items-center justify-between gap-4 bg-gradient-to-b from-black/85 via-black/45 to-transparent ${
-          expandedControls ? "px-10 pb-8 pt-5" : "px-5 pb-6 pt-3"
-        } ${chromeVisible ? "visible" : "invisible"}`}
-      >
-        <div className="flex min-w-0 items-center gap-3">
-          <button
-            className={`pointer-events-auto grid shrink-0 place-items-center rounded-full bg-black/60 text-zinc-200 hover:bg-white/15 ${
-              expandedControls ? "size-13 [&_svg]:size-7" : "size-10"
-            }`}
-            onClick={(event) => {
-              event.stopPropagation()
-              close()
-            }}
-            aria-label="Back to details"
-            data-native-overlay
-          >
-            <Play className="rotate-180 fill-current" size={21} />
-          </button>
-          <div className="min-w-0" data-native-overlay>
-            <PlayerHeadingText heading={heading} expanded={expandedControls} />
-            {snapshot && (
-              <p
-                className={`mt-1 truncate text-zinc-400 ${
-                  expandedControls ? "text-sm" : "text-xs"
-                }`}
-                title={nativePlaybackDescription(snapshot)}
-              >
-                {nativePlaybackDescription(snapshot)}
-              </p>
-            )}
-          </div>
-        </div>
-        <button
-          className={`pointer-events-auto grid shrink-0 place-items-center rounded-full bg-black/60 text-zinc-200 hover:bg-white/15 ${
-            expandedControls ? "size-13 [&_svg]:size-7" : "size-10"
-          }`}
-          type="button"
-          aria-label={fullscreen ? "Exit fullscreen" : "Fullscreen"}
-          title={fullscreen ? "Exit fullscreen" : "Fullscreen"}
-          data-native-overlay
-          onClick={() => {
-            void toggleNativeFullscreen().then(setFullscreen)
-          }}
-        >
-          {fullscreen ? <Minimize size={20} /> : <Maximize size={20} />}
-        </button>
-      </div>
-
+      <DesktopPlayerChromeTop
+        expandedControls={expandedControls}
+        visible={chromeVisible}
+        fullscreen={fullscreen}
+        heading={<PlayerHeadingText heading={heading} expanded={expandedControls} />}
+        description={
+          snapshot ? (
+            <p
+              className={`mt-1 truncate text-zinc-400 ${
+                expandedControls ? "text-sm" : "text-xs"
+              }`}
+              title={nativePlaybackDescription(snapshot)}
+            >
+              {nativePlaybackDescription(snapshot)}
+            </p>
+          ) : undefined
+        }
+        onBack={close}
+        onFullscreen={() => {
+          void toggleNativeFullscreen().then(setFullscreen)
+        }}
+      />
       {error ? (
         <div className="absolute inset-0 z-10 grid place-items-center p-5">
           <Card className="w-full max-w-lg border-red-950 bg-zinc-950/95 p-6" data-native-overlay>
@@ -839,18 +814,7 @@ export function DesktopPlayer({
       />
 
       {snapshot && !error && (
-        <div
-          data-player-chrome="bottom"
-          className={`absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/90 via-black/55 to-transparent ${
-            expandedControls ? "px-10 pb-6 pt-6" : "px-4 pb-3 pt-8 sm:px-6"
-          } ${chromeVisible ? "visible" : "pointer-events-none invisible"}`}
-          onClick={(event) => event.stopPropagation()}
-        >
-          <div
-            className={`native-controls-surface relative mx-auto ${
-              expandedControls ? "max-w-none" : "max-w-7xl"
-            }`}
-          >
+        <DesktopPlayerChromeBottom expandedControls={expandedControls} visible={chromeVisible}>
             {activeMenu === "audio" && (
               <TrackMenu
                 title="Audio"
@@ -1107,8 +1071,7 @@ export function DesktopPlayer({
                 }}
               />
             </div>
-          </div>
-        </div>
+        </DesktopPlayerChromeBottom>
       )}
     </div>,
     document.body,
@@ -1122,33 +1085,6 @@ async function applyNativeVideoScale(scale: VideoScale): Promise<void> {
   })) {
     await nativePlayerCommand(command)
   }
-}
-
-function PlayerIcon({
-  label,
-  active,
-  expanded,
-  children,
-  onClick,
-}: {
-  label: string
-  active?: boolean
-  expanded?: boolean
-  children: React.ReactNode
-  onClick: () => void
-}) {
-  return (
-    <button
-      className={`relative grid place-items-center rounded-lg bg-zinc-950 text-zinc-200 shadow-sm transition hover:bg-zinc-800 hover:text-white ${
-        expanded ? "size-12 [&_svg]:size-7" : "size-10"
-      } ${active ? "bg-amber-950 text-amber-300" : ""}`}
-      onClick={onClick}
-      aria-label={label}
-      title={label}
-    >
-      {children}
-    </button>
-  )
 }
 
 function PlayerHeadingText({ heading, expanded }: { heading: PlayerHeading; expanded: boolean }) {

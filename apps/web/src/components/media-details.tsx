@@ -1,17 +1,23 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState, type CSSProperties } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   ArrowLeft,
   Calendar,
   Check,
+  Captions,
   CirclePlay,
   Clock3,
   ExternalLink,
+  Languages,
   LoaderCircle,
+  Pause,
   Play,
   RefreshCw,
   RotateCcw,
+  Scaling,
+  SkipForward,
   Star,
+  Volume2,
   X,
 } from "lucide-react"
 import { api, type InstalledAddon, type PlayerArtwork, type WatchProgress } from "../lib/api"
@@ -35,20 +41,17 @@ import {
   trailerUrl,
 } from "../lib/metadata"
 import { readPreferences, writePreferences } from "../lib/preferences"
-import {
-  playbackSourceForStream,
-  selectSavedStream,
-} from "../lib/stream-selection"
+import { playbackSourceForStream, selectSavedStream } from "../lib/stream-selection"
+import { nativeFullscreen, onNativeFullscreenChange } from "../lib/desktop"
 import { mediaForWatchActions, setEpisodeWatched, setVideosWatched } from "../lib/watch-actions"
 import { episodeProgressPercent, episodeWatchState } from "../lib/watch-status"
 import { Button } from "./ui/button"
 import { Player } from "./player"
 import { LibraryToggle } from "./library-toggle"
 import { EpisodeSelector } from "./episode-selector"
-import {
-  DesktopPlayerLoadingControls,
-  DesktopPlayerOpeningOverlay,
-} from "./desktop-player-overlays"
+import { usesExpandedPlayerControls } from "./desktop-player"
+import { DesktopPlayerChrome, DesktopPlayerControl } from "./desktop-player-chrome"
+import { DesktopPlayerOpeningOverlay } from "./desktop-player-overlays"
 
 interface ResolvedStream extends Stream {
   key: string
@@ -105,9 +108,7 @@ export function MediaDetails({
   const autoSelectSavedStreams = readPreferences().autoSelectSavedStreams
   const videos = meta.videos ?? []
   const selectedVideo = videos.find((video) => video.id === selectedVideoId)
-  const nextEpisode = selectedVideo
-    ? adjacentSeriesVideo(videos, selectedVideo.id, 1)
-    : undefined
+  const nextEpisode = selectedVideo ? adjacentSeriesVideo(videos, selectedVideo.id, 1) : undefined
   const episodeMode = item.type === "series" && Boolean(selectedVideo)
   const activeVideoId = episodeMode ? selectedVideoId : item.id
   const addonIds = addons.map((addon) => addon.id)
@@ -119,11 +120,12 @@ export function MediaDetails({
     autoSelectSavedStreams &&
     Boolean(savedPlaybackSource) &&
     (item.type !== "series" || Boolean(initialVideoId))
-  const effectiveStreamAddonId = streamAddonId &&
-      streamAddons.length > 1 &&
-      streamAddons.some((addon) => addon.id === streamAddonId)
-    ? streamAddonId
-    : undefined
+  const effectiveStreamAddonId =
+    streamAddonId &&
+    streamAddons.length > 1 &&
+    streamAddons.some((addon) => addon.id === streamAddonId)
+      ? streamAddonId
+      : undefined
   const requestedStreamAddons = effectiveStreamAddonId
     ? streamAddons.filter((addon) => addon.id === effectiveStreamAddonId)
     : streamAddons
@@ -134,8 +136,7 @@ export function MediaDetails({
     savedPlaybackSource?.sourceKey ?? "",
     effectiveStreamAddonId ?? "all",
   ].join(":")
-  const [waitingForSavedPlayback, setWaitingForSavedPlayback] =
-    useState(autoResumeEligible)
+  const [waitingForSavedPlayback, setWaitingForSavedPlayback] = useState(autoResumeEligible)
   const shouldWaitForSavedPlayback =
     autoResumeEligible &&
     (waitingForSavedPlayback || autoResumeAttemptedKey.current !== autoResumeAttemptKey)
@@ -163,9 +164,10 @@ export function MediaDetails({
   useEffect(() => {
     if (streamAddonId && streamAddons.some((addon) => addon.id === streamAddonId)) return
     const rememberedAddonId = readPreferences().lastStreamAddonId
-    const nextAddonId = rememberedAddonId && streamAddons.some((addon) => addon.id === rememberedAddonId)
-      ? rememberedAddonId
-      : undefined
+    const nextAddonId =
+      rememberedAddonId && streamAddons.some((addon) => addon.id === rememberedAddonId)
+        ? rememberedAddonId
+        : undefined
     if (streamAddonId !== nextAddonId) setStreamAddonId(nextAddonId)
   }, [activeVideoId, streamAddonId, streamAddons])
 
@@ -178,7 +180,8 @@ export function MediaDetails({
       !metadata.isSuccess ||
       !progress.isSuccess ||
       !videos.length
-    ) return
+    )
+      return
     initialSeriesVideoResolved.current = true
     const target = selectSeriesVideo(videos, progress.data ?? [], initialVideoId)
     setSelectedVideoId(target?.id)
@@ -200,10 +203,7 @@ export function MediaDetails({
       finishWithoutAutoResume()
       return
     }
-    if (
-      item.type === "series" &&
-      (!metadata.isSuccess || !progress.isSuccess)
-    ) return
+    if (item.type === "series" && (!metadata.isSuccess || !progress.isSuccess)) return
     if (item.type === "series" && !activeVideoId) {
       if (initialSeriesVideoResolved.current) finishWithoutAutoResume()
       return
@@ -219,32 +219,44 @@ export function MediaDetails({
     }
     autoResumeAttemptedKey.current = autoResumeAttemptKey
     const requestVersion = ++autoResumeRequestVersion.current
-    void queryClient.fetchQuery({
-      queryKey: [
-        "streams",
-        item.type,
-        activeVideoId,
-        addonIds,
-        effectiveStreamAddonId ?? "all",
-      ],
-      queryFn: () => resolveStreams(requestedStreamAddons, item.type, activeVideoId),
-      staleTime: 5 * 60 * 1000,
-    }).then((resolved) => {
-      if (requestVersion !== autoResumeRequestVersion.current) return
-      const saved = selectSavedStream(resolved, savedPlaybackSource)
-      setWaitingForSavedPlayback(false)
-      if (saved) {
-        setStreamResolutionError(undefined)
-        setPlaying(saved)
-      } else {
-        setStreamResolutionError("Saved source unavailable. Choose another source below.")
-      }
-    }).catch(() => {
-      if (requestVersion !== autoResumeRequestVersion.current) return
-      setWaitingForSavedPlayback(false)
-      setStreamResolutionError("Saved source could not be loaded. Choose another source below.")
-    })
-  }, [activeVideoId, addonIds, autoResumeAttemptKey, autoResumeEligible, effectiveStreamAddonId, initialProgress, item.type, metadata.isError, metadata.isSuccess, progress.isError, progress.isSuccess, queryClient, requestedStreamAddons, savedPlaybackSource])
+    void queryClient
+      .fetchQuery({
+        queryKey: ["streams", item.type, activeVideoId, addonIds, effectiveStreamAddonId ?? "all"],
+        queryFn: () => resolveStreams(requestedStreamAddons, item.type, activeVideoId),
+        staleTime: 5 * 60 * 1000,
+      })
+      .then((resolved) => {
+        if (requestVersion !== autoResumeRequestVersion.current) return
+        const saved = selectSavedStream(resolved, savedPlaybackSource)
+        setWaitingForSavedPlayback(false)
+        if (saved) {
+          setStreamResolutionError(undefined)
+          setPlaying(saved)
+        } else {
+          setStreamResolutionError("Saved source unavailable. Choose another source below.")
+        }
+      })
+      .catch(() => {
+        if (requestVersion !== autoResumeRequestVersion.current) return
+        setWaitingForSavedPlayback(false)
+        setStreamResolutionError("Saved source could not be loaded. Choose another source below.")
+      })
+  }, [
+    activeVideoId,
+    addonIds,
+    autoResumeAttemptKey,
+    autoResumeEligible,
+    effectiveStreamAddonId,
+    initialProgress,
+    item.type,
+    metadata.isError,
+    metadata.isSuccess,
+    progress.isError,
+    progress.isSuccess,
+    queryClient,
+    requestedStreamAddons,
+    savedPlaybackSource,
+  ])
 
   useEffect(() => {
     if (selectedVideo && selectedSeason == null) {
@@ -403,51 +415,49 @@ export function MediaDetails({
                 setSelectedVideoId(video.id)
               }}
             />
+          ) : shouldWaitForSavedPlayback ? (
+            <StreamSelectionLoading
+              artwork={{
+                background: meta.background,
+                logo: meta.logo,
+                poster: meta.poster,
+              }}
+              title={selectedVideo?.title ?? meta.name}
+              hasNextEpisode={Boolean(nextEpisode)}
+              onBack={() => {
+                cancelPendingAutoResume()
+                onClose()
+              }}
+            />
           ) : (
-            shouldWaitForSavedPlayback ? (
-              <StreamSelectionLoading
-                artwork={{
-                  background: meta.background,
-                  logo: meta.logo,
-                  poster: meta.poster,
-                }}
-                title={selectedVideo?.title ?? meta.name}
-                hasNextEpisode={Boolean(nextEpisode)}
-                onBack={() => {
-                  cancelPendingAutoResume()
-                  onClose()
-                }}
-              />
-            ) : (
-              <StreamRail
-                streams={streams.data ?? []}
-                loading={streams.isFetching}
-                error={streamResolutionError}
-                videoTitle={selectedVideo?.title ?? meta.name}
-                addons={streamAddons}
-                selectedAddonId={streamAddonId}
-                onSelectAddon={selectStreamAddon}
-                onRefresh={() => {
-                  setStreamResolutionError(undefined)
-                  void streams.refetch()
-                }}
-                onPlay={(stream) => {
-                  cancelPendingAutoResume()
-                  setStreamResolutionError(undefined)
-                  setPlaying(stream)
-                }}
-                onBackToSeries={
-                  !streamSelectionReturnToHome && episodeMode && selectedVideo
-                    ? () => {
-                        setSelectedSeason(selectedVideo.season ?? 1)
-                        seriesReturnVideoId.current = selectedVideo.id
-                        setSelectedVideoId(undefined)
-                      }
-                    : undefined
-                }
-                onBack={streamSelectionReturnToHome ? onClose : undefined}
-              />
-            )
+            <StreamRail
+              streams={streams.data ?? []}
+              loading={streams.isFetching}
+              error={streamResolutionError}
+              videoTitle={selectedVideo?.title ?? meta.name}
+              addons={streamAddons}
+              selectedAddonId={streamAddonId}
+              onSelectAddon={selectStreamAddon}
+              onRefresh={() => {
+                setStreamResolutionError(undefined)
+                void streams.refetch()
+              }}
+              onPlay={(stream) => {
+                cancelPendingAutoResume()
+                setStreamResolutionError(undefined)
+                setPlaying(stream)
+              }}
+              onBackToSeries={
+                !streamSelectionReturnToHome && episodeMode && selectedVideo
+                  ? () => {
+                      setSelectedSeason(selectedVideo.season ?? 1)
+                      seriesReturnVideoId.current = selectedVideo.id
+                      setSelectedVideoId(undefined)
+                    }
+                  : undefined
+              }
+              onBack={streamSelectionReturnToHome ? onClose : undefined}
+            />
           )}
         </main>
       </div>
@@ -505,9 +515,7 @@ export function MediaDetails({
           nextEpisode={nextEpisode}
           nextEpisodeLabel={nextEpisode ? episodeLabel(nextEpisode) : undefined}
           onSelectEpisode={openEpisodeSources}
-          onNextEpisode={
-            nextEpisode ? () => openEpisodeSources(nextEpisode) : undefined
-          }
+          onNextEpisode={nextEpisode ? () => openEpisodeSources(nextEpisode) : undefined}
           onEnded={autoplayNextEpisode}
           onClose={() => {
             episodeTransition.current += 1
@@ -531,11 +539,9 @@ function MediaSummary({
   const trailer = trailerUrl(meta)
   const description = meta.description?.trim()
   const awards = meta.awards?.trim()
-  const facts = [
-    meta.runtime,
-    meta.releaseInfo ?? displayDate(meta.released),
-    meta.contentRating,
-  ].map((fact) => fact?.trim()).filter((fact): fact is string => Boolean(fact))
+  const facts = [meta.runtime, meta.releaseInfo ?? displayDate(meta.released), meta.contentRating]
+    .map((fact) => fact?.trim())
+    .filter((fact): fact is string => Boolean(fact))
   const imdbRating = meta.imdbRating?.trim()
   return (
     <section className="max-h-[calc(100dvh-5rem)] overflow-hidden" aria-labelledby="media-title">
@@ -568,10 +574,16 @@ function MediaSummary({
           </h1>
         </button>
       )}
-      {meta.logo && <h1 id="media-title" className="sr-only">{meta.name}</h1>}
+      {meta.logo && (
+        <h1 id="media-title" className="sr-only">
+          {meta.name}
+        </h1>
+      )}
 
       <div className="mt-[clamp(.75rem,2.3vh,1.5rem)] flex flex-wrap items-center gap-x-4 gap-y-1.5 text-sm font-medium text-zinc-200">
-        {facts.map((fact) => <span key={fact}>{fact}</span>)}
+        {facts.map((fact) => (
+          <span key={fact}>{fact}</span>
+        ))}
         {imdbRating && (
           <span className="flex items-center gap-1.5">
             <Star className="fill-amber-400 text-amber-400" size={14} />
@@ -587,9 +599,7 @@ function MediaSummary({
         label="Genres"
         values={meta.genres}
         onSelect={
-          onBrowse
-            ? (value) => onBrowse({ kind: "genre", value, mediaType: meta.type })
-            : undefined
+          onBrowse ? (value) => onBrowse({ kind: "genre", value, mediaType: meta.type }) : undefined
         }
       />
       {description ? (
@@ -602,12 +612,8 @@ function MediaSummary({
       <Credits label="Directors" values={meta.director} onSelect={onBrowse} />
       <Credits label="Cast" values={meta.cast} onSelect={onBrowse} />
       <Credits label="Writers" values={meta.writer} onSelect={onBrowse} />
-      {meta.country && (
-        <Credits label="Country" values={[meta.country]} onSelect={onBrowse} />
-      )}
-      {awards && (
-        <p className="mt-2 line-clamp-1 text-xs text-zinc-500">{awards}</p>
-      )}
+      {meta.country && <Credits label="Country" values={[meta.country]} onSelect={onBrowse} />}
+      {awards && <p className="mt-2 line-clamp-1 text-xs text-zinc-500">{awards}</p>}
 
       <div className="mt-[clamp(1rem,2.6vh,1.75rem)] flex items-center gap-3">
         {trailer && (
@@ -777,7 +783,10 @@ function StreamRail({
         ))}
       </div>
       {error && (
-        <p role="alert" className="m-2 rounded-xl border border-amber-400/25 bg-amber-400/8 p-3 text-xs leading-5 text-amber-100">
+        <p
+          role="alert"
+          className="m-2 rounded-xl border border-amber-400/25 bg-amber-400/8 p-3 text-xs leading-5 text-amber-100"
+        >
           {error}
         </p>
       )}
@@ -795,17 +804,27 @@ function StreamRail({
       <div className="space-y-2 px-2 pb-2">
         {streams.map((stream) => {
           const title = stream.name ?? stream.title ?? stream.addonName
-          const description = stream.description ?? stream.title ?? `Provided by ${stream.addonName}`
+          const description =
+            stream.description ?? stream.title ?? `Provided by ${stream.addonName}`
           return (
-            <div className="rounded-xl border border-white/8 bg-white/[0.035] p-3.5 transition hover:border-white/20 hover:bg-white/[0.065]" key={stream.key}>
+            <div
+              className="rounded-xl border border-white/8 bg-white/[0.035] p-3.5 transition hover:border-white/20 hover:bg-white/[0.065]"
+              key={stream.key}
+            >
               <div className="flex items-start gap-3">
                 <div className="min-w-0 flex-1">
-                  <p className="whitespace-pre-wrap text-sm font-semibold [overflow-wrap:anywhere]">{title}</p>
-                  <p className="mt-1 whitespace-pre-wrap text-xs leading-5 text-zinc-400 [overflow-wrap:anywhere]">{description}</p>
+                  <p className="whitespace-pre-wrap text-sm font-semibold [overflow-wrap:anywhere]">
+                    {title}
+                  </p>
+                  <p className="mt-1 whitespace-pre-wrap text-xs leading-5 text-zinc-400 [overflow-wrap:anywhere]">
+                    {description}
+                  </p>
                   <p className="mt-1.5 text-[10px] font-medium text-zinc-600">{stream.addonName}</p>
                 </div>
                 {stream.url ? (
-                  <Button size="icon" aria-label={`Play ${title}`} onClick={() => onPlay(stream)}><Play size={16} /></Button>
+                  <Button size="icon" aria-label={`Play ${title}`} onClick={() => onPlay(stream)}>
+                    <Play size={16} />
+                  </Button>
                 ) : stream.externalUrl ? (
                   <Button
                     size="icon"
@@ -816,7 +835,9 @@ function StreamRail({
                     <ExternalLink size={16} />
                   </Button>
                 ) : (
-                  <span className="mt-2 text-[10px] text-zinc-600" title="Native playback required">Native</span>
+                  <span className="mt-2 text-[10px] text-zinc-600" title="Native playback required">
+                    Native
+                  </span>
                 )}
               </div>
             </div>
@@ -838,13 +859,147 @@ function StreamSelectionLoading({
   hasNextEpisode: boolean
   onBack: () => void
 }) {
+  const [fullscreen, setFullscreen] = useState(false)
+  const [spaciousViewport, setSpaciousViewport] = useState(() =>
+    usesExpandedPlayerControls(window.innerWidth, window.innerHeight),
+  )
+  const expandedControls = fullscreen || spaciousViewport
+
+  useEffect(() => {
+    let cancelled = false
+    let unsubscribe: (() => void) | undefined
+
+    const syncLayout = () => {
+      setSpaciousViewport(usesExpandedPlayerControls(window.innerWidth, window.innerHeight))
+      void nativeFullscreen()
+        .then((value) => {
+          if (!cancelled) setFullscreen(value)
+        })
+        .catch(() => undefined)
+    }
+
+    syncLayout()
+    window.addEventListener("resize", syncLayout)
+    if (window.__CONDUIT_ELECTRON__) {
+      void onNativeFullscreenChange((value) => {
+        if (!cancelled) setFullscreen(value)
+      })
+        .then((removeListener) => {
+          if (cancelled) removeListener()
+          else unsubscribe = removeListener
+        })
+        .catch(() => undefined)
+    }
+
+    return () => {
+      cancelled = true
+      window.removeEventListener("resize", syncLayout)
+      unsubscribe?.()
+    }
+  }, [])
+
   return (
     <div className="saved-stream-loading-overlay absolute inset-0 z-40 overflow-hidden bg-black">
       <DesktopPlayerOpeningOverlay artwork={artwork} title={title} />
-      <DesktopPlayerLoadingControls
-        title={title}
-        hasNextEpisode={hasNextEpisode}
+      <DesktopPlayerChrome
+        expandedControls={expandedControls}
+        visible
+        fullscreen={fullscreen}
+        fullscreenDisabled
+        heading={
+          <div className="min-w-0 drop-shadow-lg">
+            <h2
+              className={`truncate font-display font-semibold ${
+                expandedControls ? "text-2xl" : "text-lg"
+              }`}
+            >
+              {title}
+            </h2>
+          </div>
+        }
+        description={
+          <p className={`mt-1 truncate text-zinc-400 ${expandedControls ? "text-sm" : "text-xs"}`}>
+            Loading saved stream…
+          </p>
+        }
         onBack={onBack}
+        bottom={
+          <>
+            <div className="flex items-center gap-3" data-native-overlay>
+              <span
+                className={`player-time player-time-elapsed tabular-nums text-zinc-300 ${
+                  expandedControls ? "text-base" : "text-sm"
+                }`}
+                aria-label="Elapsed time"
+              >
+                --:--:--
+              </span>
+              <input
+                className={`player-seek block min-w-0 flex-1 cursor-pointer ${
+                  expandedControls ? "h-2" : "h-1.5"
+                }`}
+                style={{ "--player-progress": "0%", "--player-buffered": "0%" } as CSSProperties}
+                type="range"
+                min={0}
+                max={0}
+                step={0.1}
+                value={0}
+                aria-label="Seek"
+                disabled
+              />
+              <button
+                className={`player-time player-time-duration cursor-pointer border-0 p-0 tabular-nums text-zinc-300 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 ${
+                  expandedControls ? "text-base" : "text-sm"
+                }`}
+                type="button"
+                aria-label="End time. Click to show time remaining."
+                title="Click to show time remaining"
+                disabled
+              >
+                --:--:--
+              </button>
+            </div>
+
+            <div
+              className={`flex items-center ${
+                expandedControls ? "mt-5 gap-3" : "mt-3 gap-1 sm:gap-2"
+              }`}
+              data-native-overlay
+            >
+              <DesktopPlayerControl label="Pause" expanded={expandedControls} disabled>
+                <Pause size={22} />
+              </DesktopPlayerControl>
+              {hasNextEpisode && (
+                <DesktopPlayerControl label="Next episode" expanded={expandedControls} disabled>
+                  <SkipForward size={21} />
+                </DesktopPlayerControl>
+              )}
+              <DesktopPlayerControl label="Mute" expanded={expandedControls} disabled>
+                <Volume2 size={21} />
+              </DesktopPlayerControl>
+              <input
+                className={`player-volume hidden sm:block ${expandedControls ? "w-32" : "w-20"}`}
+                style={{ "--player-volume": "0%" } as CSSProperties}
+                type="range"
+                min={0}
+                max={100}
+                value={0}
+                aria-label="Volume"
+                disabled
+              />
+              <div className="flex-1" />
+              <DesktopPlayerControl label="Audio" expanded={expandedControls} disabled>
+                <Languages size={21} />
+              </DesktopPlayerControl>
+              <DesktopPlayerControl label="Subtitles" expanded={expandedControls} disabled>
+                <Captions size={22} />
+              </DesktopPlayerControl>
+              <DesktopPlayerControl label="Video scale" expanded={expandedControls} disabled>
+                <Scaling size={21} />
+              </DesktopPlayerControl>
+            </div>
+          </>
+        }
       />
     </div>
   )
@@ -892,7 +1047,9 @@ function MetadataChips({
   if (!visibleValues.length) return null
   return (
     <div className="mt-[clamp(.65rem,1.8vh,1.15rem)]">
-      <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">{label}</p>
+      <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+        {label}
+      </p>
       <div className="flex flex-wrap gap-1.5">
         {visibleValues.map((value) =>
           onSelect ? (
@@ -905,7 +1062,9 @@ function MetadataChips({
               {value}
             </button>
           ) : (
-            <span key={value} className="rounded-full bg-white/8 px-3 py-1 text-xs text-zinc-200">{value}</span>
+            <span key={value} className="rounded-full bg-white/8 px-3 py-1 text-xs text-zinc-200">
+              {value}
+            </span>
           ),
         )}
       </div>
@@ -940,7 +1099,9 @@ function Credits({
               >
                 {value}
               </button>
-            ) : <span className="rounded-full bg-white/8 px-2.5 py-1 text-zinc-300">{value}</span>}
+            ) : (
+              <span className="rounded-full bg-white/8 px-2.5 py-1 text-zinc-300">{value}</span>
+            )}
           </span>
         ))}
       </div>
