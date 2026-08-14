@@ -3,6 +3,7 @@ import { and, asc, eq, sql } from "drizzle-orm"
 import type { FastifyInstance } from "fastify"
 import { decryptSecret, encryptSecret, stableSecretHash } from "../crypto.js"
 import { addonInstallations } from "../db/schema.js"
+import { enrichDefaultManifest } from "../default-addons.js"
 import type { RouteContext } from "./context.js"
 import { canAccessProfile, normalizeManifestUrl, requireUser, resolveAddonProfileId } from "./helpers.js"
 
@@ -36,7 +37,7 @@ export function registerAddonRoutes(app: FastifyInstance, context: RouteContext)
           id: addon.id,
           manifestId: addon.manifestId,
           manifestUrl: decryptSecret(addon.manifestUrlEncrypted, config.addonEncryptionKey),
-          manifest: addon.manifest,
+          manifest: enrichDefaultManifest(addon.manifest),
           position: addon.position,
           enabled: addon.enabled,
         })),

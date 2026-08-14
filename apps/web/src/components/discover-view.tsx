@@ -3,6 +3,7 @@ import { useInfiniteQuery } from "@tanstack/react-query"
 import { ChevronDown, Film, LoaderCircle } from "lucide-react"
 import type { InstalledAddon } from "../lib/api"
 import { loadCatalog, type CatalogItem } from "../lib/core"
+import { genreFilterOptions } from "../lib/discover"
 import { posterCoverClass, posterTitleClass } from "../lib/poster-layout"
 import { Card } from "./ui/card"
 import { BrowsePosterMenu } from "./browse-poster-menu"
@@ -156,7 +157,7 @@ export function DiscoverView({
         <FilterSelect
           label="Genre"
           value={genre ?? ""}
-          disabled={genres.length === 0}
+          disabled={!genreExtra}
           onChange={(nextGenre) =>
             onChange({
               type,
@@ -165,12 +166,7 @@ export function DiscoverView({
               genre: nextGenre || undefined,
             })
           }
-          options={[
-            ...(!genreExtra?.isRequired
-              ? [["", genres.length ? "All genres" : "Not available"]]
-              : []),
-            ...genres.map((value) => [value, value]),
-          ]}
+          options={genreFilterOptions(genreExtra)}
         />
       </div>
 

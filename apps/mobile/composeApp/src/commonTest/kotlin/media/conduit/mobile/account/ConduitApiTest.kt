@@ -195,7 +195,7 @@ class ConduitApiTest {
             manifestId = "fixture",
             manifestUrl = "https://addon.example/configured/manifest.json?secret=removed",
             manifest = kotlinx.serialization.json.Json.parseToJsonElement(
-                """{"name":"Fixture","catalogs":[{"id":"popular","type":"movie","name":"Popular"},{"id":"popular","type":"series","name":"Series"}]}""",
+                """{"name":"Fixture","catalogs":[{"id":"popular","type":"movie","name":"Popular"},{"id":"popular","type":"series","name":"Series"},{"id":"featured","type":"movie","name":"Featured"},{"id":"featured","type":"series","name":"Featured Series"},{"id":"required","type":"movie","name":"Required","extra":[{"name":"search","isRequired":true}]}]}""",
             ).jsonObject,
             position = 0,
             enabled = true,
@@ -204,15 +204,21 @@ class ConduitApiTest {
         val result = api.loadHomeCatalogs(listOf(addon))
 
         assertEquals(
-            listOf("/configured/catalog/movie/popular.json", "/configured/catalog/series/popular.json").sorted(),
+            listOf(
+                "/configured/catalog/movie/popular.json",
+                "/configured/catalog/series/popular.json",
+                "/configured/catalog/movie/featured.json",
+                "/configured/catalog/series/featured.json",
+            ).sorted(),
             requested.sorted(),
         )
-        assertEquals("A Movie", result.catalogs.single().items.single().name)
-        assertEquals("a1", result.catalogs.single().addonId)
-        assertEquals("movie", result.catalogs.single().type)
-        assertEquals("popular", result.catalogs.single().catalogId)
-        assertEquals("Popular - Movie", result.catalogs.single().title)
-        assertEquals(1, result.failedRequests)
+        assertEquals(2, result.catalogs.size)
+        val popular = result.catalogs.first { it.catalogId == "popular" }
+        assertEquals("A Movie", popular.items.single().name)
+        assertEquals("a1", popular.addonId)
+        assertEquals("movie", popular.type)
+        assertEquals("Popular - Movie", popular.title)
+        assertEquals(2, result.failedRequests)
     }
 
     @Test
