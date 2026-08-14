@@ -428,7 +428,6 @@ final class ConduitMPVPlayerViewController: UIViewController {
             self?.setSurfaceTransitionActive(false)
             self?.syncVideoSurfaceLayout()
             self?.attemptStartPendingLoad()
-            self?.scheduleVideoOutputRecovery()
         })
     }
 
@@ -1493,10 +1492,12 @@ final class ConduitMPVPlayerViewController: UIViewController {
 }
 
 /// Mirrors MPV's final Metal drawable into AVKit without creating a second decoder.
-/// The copier is bounded to 20 fps and one in-flight frame; late frames are dropped.
+/// The copier is bounded to 30 fps and one in-flight frame; late frames are dropped.
 final class ConduitPictureInPictureCoordinator: NSObject,
     AVPictureInPictureControllerDelegate,
     AVPictureInPictureSampleBufferPlaybackDelegate {
+    private static let captureFramesPerSecond: CMTimeScale = 30
+
     private weak var owner: ConduitMPVPlayerViewController?
     private let metalLayer: ConduitMetalLayer
     private let displayLayer = AVSampleBufferDisplayLayer()
@@ -1613,7 +1614,7 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         displayLayer.flush()
         if displayLink == nil {
             let link = CADisplayLink(target: self, selector: #selector(captureTick))
-            link.preferredFrameRateRange = CAFrameRateRange(minimum: 10, maximum: 20, preferred: 20)
+            link.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 30, preferred: 30)
             link.add(to: .main, forMode: .common)
             displayLink = link
         }
@@ -1659,7 +1660,7 @@ final class ConduitPictureInPictureCoordinator: NSObject,
                 self.captureInFlight = false
                 guard copied, let formatDescription = self.formatDescription else { return }
                 var timing = CMSampleTimingInfo(
-                    duration: CMTime(value: 1, timescale: 20),
+                    duration: CMTime(value: 1, timescale: Self.captureFramesPerSecond),
                     presentationTimeStamp: timestamp,
                     decodeTimeStamp: .invalid
                 )
@@ -1712,7 +1713,10 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         let timestamp = CMTime(value: max(estimatedPositionMs, 0), timescale: 1_000)
         guard !lastTimestamp.isValid || CMTimeCompare(timestamp, lastTimestamp) > 0 else {
             guard priming, lastTimestamp.isValid else { return nil }
-            return CMTimeAdd(lastTimestamp, CMTime(value: 1, timescale: 20))
+            return CMTimeAdd(
+                lastTimestamp,
+                CMTime(value: 1, timescale: Self.captureFramesPerSecond)
+            )
         }
         return timestamp
     }
