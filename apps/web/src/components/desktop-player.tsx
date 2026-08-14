@@ -288,7 +288,7 @@ export function DesktopPlayer({
           )
         })
         .catch(() => undefined)
-    }, 1000)
+    }, 250)
 
     return () => {
       cancelled = true

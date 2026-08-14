@@ -168,7 +168,7 @@ describe("DesktopPlayer track menus", () => {
     desktop.resetNativeOverlaySurface.mockClear()
 
     await act(async () => {
-      vi.advanceTimersByTime(1000)
+      vi.advanceTimersByTime(250)
       await Promise.resolve()
     })
     act(() => vi.advanceTimersByTime(1))
@@ -184,7 +184,7 @@ describe("DesktopPlayer track menus", () => {
     })
 
     await act(async () => {
-      vi.advanceTimersByTime(1000)
+      vi.advanceTimersByTime(250)
       await Promise.resolve()
     })
 
@@ -233,13 +233,15 @@ describe("DesktopPlayer track menus", () => {
     })
 
     await act(async () => {
-      vi.advanceTimersByTime(1000)
+      vi.advanceTimersByTime(250)
       await Promise.resolve()
     })
 
     const playPause = button("Pause")
     expect(playPause.parentElement?.className).not.toContain("invisible")
-    expect(document.querySelector('[aria-label="Video buffering"]')).not.toBeNull()
+    const buffering = document.querySelector('[aria-label="Video buffering"]')
+    expect(buffering).not.toBeNull()
+    expect(buffering?.querySelector("svg")?.getAttribute("class")).toContain("animate-spin")
   })
 
   it("unmounts the menu when its close button is clicked", () => {
