@@ -79,14 +79,21 @@ internal fun HomeScreen(
                             metadataCache.load(catalogItem, includeMovies = true)
                         }
                         val metadata = metadataCache.metadataFor(catalogItem)
-                        val presentation = continueWatchingPresentation(item, metadata?.videos.orEmpty())
+                        val watchedVideoIds = sync.snapshot?.progress.orEmpty()
+                            .filter { it.mediaType == item.mediaType && it.mediaId == item.mediaId && it.watched }
+                            .mapTo(mutableSetOf(), ProgressSummary::videoId)
+                        val presentation = continueWatchingPresentation(
+                            progress = item,
+                            videos = metadata?.videos.orEmpty(),
+                            watchedVideoIds = watchedVideoIds,
+                        )
                         val displayItem = catalogItem.copy(
                             poster = metadata?.poster ?: catalogItem.poster,
                             background = metadata?.background,
                         )
                         val targetVideoId = when (presentation.kind) {
                             ContinueWatchingKind.InProgress -> item.videoId
-                            ContinueWatchingKind.NewEpisode -> presentation.video?.id
+                            ContinueWatchingKind.NewEpisode, ContinueWatchingKind.NextUp -> presentation.video?.id
                             ContinueWatchingKind.Scheduled, ContinueWatchingKind.CaughtUp -> null
                         }
                         ContinueWatchingCard(
@@ -94,6 +101,7 @@ internal fun HomeScreen(
                             item = displayItem,
                             metadata = metadata,
                             metadataReady = item.mediaType != "series" || metadata != null,
+                            watchedVideoIds = watchedVideoIds,
                             onClick = { onSelectContinueWatching(displayItem, targetVideoId) },
                             onActions = {
                                 actionTarget = MediaActionTarget(
@@ -102,7 +110,8 @@ internal fun HomeScreen(
                                     item,
                                     presentation.video,
                                     presentation.kind == ContinueWatchingKind.InProgress ||
-                                        presentation.kind == ContinueWatchingKind.NewEpisode,
+                                        presentation.kind == ContinueWatchingKind.NewEpisode ||
+                                        presentation.kind == ContinueWatchingKind.NextUp,
                                 )
                             },
                             modifier = Modifier.width(220.dp),

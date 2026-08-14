@@ -95,6 +95,22 @@ internal fun latestUnfinishedProgress(
     }
     .maxByOrNull(ProgressSummary::updatedAt)
 
+internal fun latestCompletedProgress(
+    progress: List<ProgressSummary>,
+    item: CatalogItem,
+): ProgressSummary? = progress
+    .filter {
+        it.mediaType == item.type && it.mediaId == item.id &&
+            it.watched && it.season != null && it.episode != null &&
+            !it.videoId.startsWith(LegacyCompletionMarkerPrefix)
+    }
+    .maxWithOrNull(
+        compareBy<ProgressSummary> { it.updatedAt }
+            .thenBy { it.season }
+            .thenBy { it.episode }
+            .thenBy { it.videoId },
+    )
+
 internal fun effectiveResumeVideoId(
     explicitVideoId: String?,
     progress: List<ProgressSummary>,
@@ -113,4 +129,43 @@ internal fun detailsPlayLabel(
     val season = resumeVideo.season
     val episode = resumeVideo.episode
     return if (season != null && episode != null) "Resume S${season}E$episode" else "Resume"
+}
+
+internal data class DetailsPlayTarget(
+    val video: VideoItem?,
+    val label: String,
+)
+
+internal fun detailsPlayTarget(
+    item: CatalogItem,
+    progress: List<ProgressSummary>,
+    videos: List<VideoItem>,
+): DetailsPlayTarget {
+    val unfinished = latestUnfinishedProgress(progress, item)
+    val resumeVideo = videos.firstOrNull { it.id == unfinished?.videoId }
+    if (unfinished != null && (item.type != "series" || resumeVideo != null)) {
+        return DetailsPlayTarget(
+            video = resumeVideo,
+            label = detailsPlayLabel(item, unfinished, resumeVideo),
+        )
+    }
+
+    if (item.type == "series") {
+        val watchedVideoIds = progress
+            .filter { it.mediaType == item.type && it.mediaId == item.id && it.watched }
+            .mapTo(mutableSetOf(), ProgressSummary::videoId)
+        val next = nextEpisodeAfter(
+            progress = latestCompletedProgress(progress, item),
+            videos = videos,
+            watchedVideoIds = watchedVideoIds,
+        )
+        if (next != null) {
+            val season = next.season
+            val episode = next.episode
+            val label = if (season != null && episode != null) "Next Up S${season}E$episode" else "Next Up"
+            return DetailsPlayTarget(next, label)
+        }
+    }
+
+    return DetailsPlayTarget(video = null, label = "Play")
 }

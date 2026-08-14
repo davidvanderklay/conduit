@@ -84,6 +84,18 @@ class WatchStatusTest {
     }
 
     @Test
+    fun detailsUseNextUpAfterTheLastFinishedEpisode() {
+        val series = CatalogItem("show", "series", "Show")
+        val completed = progress("s1e2", "show", watched = true).copy(updatedAt = "2026-08-12T12:00:00Z")
+        val next = VideoItem("s1e3", season = 1, episode = 3)
+
+        assertEquals(
+            DetailsPlayTarget(next, "Next Up S1E3"),
+            detailsPlayTarget(series, listOf(completed), listOf(VideoItem("s1e2", season = 1, episode = 2), next)),
+        )
+    }
+
+    @Test
     fun zeroProgressDoesNotOfferResume() {
         val movie = CatalogItem("movie", "movie", "Movie")
         val notStarted = progress("movie", "movie", position = 0, type = "movie")
