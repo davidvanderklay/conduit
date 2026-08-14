@@ -8,7 +8,7 @@ import {
   type LucideIcon,
 } from "lucide-react"
 
-export type AppSection = "home" | "discover" | "library" | "history" | "calendar" | "addons" | "settings"
+export type AppSection = "home" | "discover" | "library" | "continue" | "calendar" | "addons" | "settings"
 
 const items: Array<{ id: AppSection; label: string; icon: LucideIcon; primary?: boolean }> = [
   { id: "home", label: "Home", icon: Home, primary: true },

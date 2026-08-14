@@ -728,7 +728,7 @@ private fun AppShell(
     val searchListState = rememberLazyListState()
     val discoverGridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
     val libraryGridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
-    val historyGridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
+    val continueWatchingGridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
     val settingsListState = rememberLazyListState()
     var browseQuery by remember(activeProfile?.id) { mutableStateOf("") }
     var focusSearchOnOpen by remember(activeProfile?.id) { mutableStateOf(false) }
@@ -748,7 +748,7 @@ private fun AppShell(
         searchListState,
         discoverGridState,
         libraryGridState,
-        historyGridState,
+        continueWatchingGridState,
         settingsListState,
     ) {
         fun position(): Long = when (state.destination) {
@@ -761,7 +761,7 @@ private fun AppShell(
             AppDestination.Library -> (libraryGridState.firstVisibleItemIndex.toLong() shl 32) or libraryGridState.firstVisibleItemScrollOffset.toLong()
             AppDestination.Calendar -> 0L
             AppDestination.Profile -> (settingsListState.firstVisibleItemIndex.toLong() shl 32) or settingsListState.firstVisibleItemScrollOffset.toLong()
-            AppDestination.History -> (historyGridState.firstVisibleItemIndex.toLong() shl 32) or historyGridState.firstVisibleItemScrollOffset.toLong()
+            AppDestination.ContinueWatching -> (continueWatchingGridState.firstVisibleItemIndex.toLong() shl 32) or continueWatchingGridState.firstVisibleItemScrollOffset.toLong()
         }
         var previous = position()
         adaptiveScrolledDown = previous != 0L
@@ -926,7 +926,7 @@ private fun AppShell(
                             onPlaybackProgressChanged,
                             ::mutateProfile,
                             browseQuery, { browseQuery = it }, discoverSelection, { discoverSelection = it }, openBrowse,
-                            preferences, onPreferencesChanged, homeListState, searchListState, discoverGridState, libraryGridState, historyGridState, settingsListState,
+                            preferences, onPreferencesChanged, homeListState, searchListState, discoverGridState, libraryGridState, continueWatchingGridState, settingsListState,
                             profileLaunchRequest,
                             playbackSession,
                             Modifier.fillMaxSize(),
@@ -944,7 +944,7 @@ private fun AppShell(
                     onPlaybackProgressChanged,
                     ::mutateProfile,
                     browseQuery, { browseQuery = it }, discoverSelection, { discoverSelection = it }, openBrowse,
-                    preferences, onPreferencesChanged, homeListState, searchListState, discoverGridState, libraryGridState, historyGridState, settingsListState,
+                    preferences, onPreferencesChanged, homeListState, searchListState, discoverGridState, libraryGridState, continueWatchingGridState, settingsListState,
                     profileLaunchRequest,
                     playbackSession,
                     Modifier.padding(padding),
@@ -965,7 +965,7 @@ private fun AppShell(
             AppDestination.Search,
             AppDestination.Library,
             AppDestination.Profile,
-            AppDestination.History,
+            AppDestination.ContinueWatching,
         )
         if (topChromeVisible) {
             MainTopBar(
@@ -1101,7 +1101,7 @@ private fun DestinationContent(
     searchListState: androidx.compose.foundation.lazy.LazyListState,
     discoverGridState: androidx.compose.foundation.lazy.grid.LazyGridState,
     libraryGridState: androidx.compose.foundation.lazy.grid.LazyGridState,
-    historyGridState: androidx.compose.foundation.lazy.grid.LazyGridState,
+    continueWatchingGridState: androidx.compose.foundation.lazy.grid.LazyGridState,
     settingsListState: androidx.compose.foundation.lazy.LazyListState,
     profileLaunchRequest: ProfileLaunchRequest?,
     playbackSession: PlaybackSessionController,
@@ -1118,7 +1118,7 @@ private fun DestinationContent(
             when (destination) {
                 AppDestination.Home -> HomeScreen(
                     profileSync, api, onSelectMedia, onSelectContinueWatching, onSelectContinueWatchingDetails, onProfileMutation,
-                    onOpenHistory = { dispatch(AppAction.Navigate(AppDestination.History)) },
+                    onOpenContinueWatching = { dispatch(AppAction.Navigate(AppDestination.ContinueWatching)) },
                     onOpenDiscover = { onBrowse(MobileBrowseTarget.Discover(it)) },
                     listState = homeListState, cache = homeCache, modifier = tabModifier,
                 )
@@ -1151,11 +1151,11 @@ private fun DestinationContent(
                     preferences, onPreferencesChanged, settingsListState = settingsListState,
                     launchRequest = profileLaunchRequest, modifier = tabModifier,
                 )
-                AppDestination.History -> MobileHistoryScreen(
+                AppDestination.ContinueWatching -> MobileContinueWatchingScreen(
                     snapshot = profileSync.snapshot, api = api, onMutation = onProfileMutation,
                     onBack = { dispatch(AppAction.Navigate(AppDestination.Home)) },
-                    onSelect = { onSelectMedia(it, null) }, onSelectVideo = onSelectMedia,
-                    gridState = historyGridState, modifier = tabModifier,
+                    onSelect = onSelectContinueWatchingDetails, onSelectVideo = onSelectContinueWatching,
+                    gridState = continueWatchingGridState, modifier = tabModifier,
                 )
             }
         }
@@ -1748,7 +1748,7 @@ private val AppDestination.icon: ImageVector
         AppDestination.Library -> Icons.Rounded.VideoLibrary
         AppDestination.Calendar -> Icons.Rounded.CalendarMonth
         AppDestination.Profile -> Icons.Rounded.Settings
-        AppDestination.History -> Icons.Rounded.History
+        AppDestination.ContinueWatching -> Icons.Rounded.History
     }
 
 @Composable

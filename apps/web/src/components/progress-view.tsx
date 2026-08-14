@@ -29,7 +29,7 @@ import { PosterResumeButton } from "./poster-resume-button"
 import { VirtualPosterGrid } from "./virtual-poster-grid"
 
 type Filter = "all" | "movie" | "series"
-type Sort = "recent" | "oldest" | "title-asc" | "title-desc"
+type Sort = "recent" | "title-asc" | "title-desc"
 const PAGE_SIZE = 48
 
 export function useProgressList(profileId: string, view: "continue" | "history" | "status", limit = 50) {
@@ -57,7 +57,7 @@ export function ContinueWatching({
   onSelect: (item: CatalogItem, videoId?: string, progress?: WatchProgress) => void
   onSeeMore: () => void
 }) {
-  const grouped = useMemo(() => groupContinueWatching(items).slice(0, 14), [items])
+  const grouped = useMemo(() => groupContinueWatching(items), [items])
   const watchedIdsByMedia = useMemo(() => {
     const result = new Map<string, Set<string>>()
     for (const progress of watchedProgress) {
@@ -205,31 +205,25 @@ function ContinueWatchingCard({
   )
 }
 
-export function HistoryView({
+export function ContinueWatchingView({
   profileId,
   onSelect,
 }: {
   profileId: string
   onSelect: (item: CatalogItem, videoId: string, progress: WatchProgress) => void
 }) {
-  const progress = useProgressList(profileId, "history", 1000)
+  const progress = useProgressList(profileId, "continue", 50)
   const [filter, setFilter] = useState<Filter>("all")
   const [sort, setSort] = useState<Sort>("recent")
   const [page, setPage] = useState(0)
   const grouped = useMemo(() => {
-    const latest = new Map<string, WatchProgress>()
-    for (const item of progress.data ?? []) {
-      const key = `${item.mediaType}:${item.mediaId}`
-      const current = latest.get(key)
-      if (!current || Date.parse(item.updatedAt) > Date.parse(current.updatedAt)) latest.set(key, item)
-    }
-    return [...latest.values()]
+    return groupContinueWatching(progress.data ?? [])
       .filter((item) => filter === "all" || item.mediaType === filter)
       .sort((a, b) => {
         if (sort === "title-asc") return a.name.localeCompare(b.name)
         if (sort === "title-desc") return b.name.localeCompare(a.name)
         const delta = Date.parse(b.updatedAt) - Date.parse(a.updatedAt)
-        return sort === "oldest" ? -delta : delta
+        return delta
       })
   }, [filter, progress.data, sort])
   const pageItems = grouped.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
@@ -238,25 +232,24 @@ export function HistoryView({
   return (
     <main className="mx-auto max-w-[2200px] 2xl:max-w-none px-4 py-9 sm:px-6 lg:px-6 xl:px-6 2xl:px-8">
       <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-400">
-        Your activity
+        Pick up where you left off
       </p>
-      <h1 className="mt-2 font-display text-3xl font-semibold">Watch history</h1>
-      <p className="mt-2 text-zinc-500">Titles you have watched, whether or not they are saved.</p>
+      <h1 className="mt-2 font-display text-3xl font-semibold">Continue Watching</h1>
+      <p className="mt-2 text-zinc-500">Movies and series currently in progress.</p>
       <div className="mt-7 flex flex-wrap gap-3">
-        <HistorySelect
+        <ProgressSelect
           label="Media type"
           value={filter}
-          options={[["all", "Movies & series"], ["movie", "Movies"], ["series", "Series"]]}
+          options={[["all", "All types"], ["movie", "Movies"], ["series", "Series"]]}
           onChange={(value) => setFilter(value as Filter)}
         />
-        <HistorySelect
-          label="Sort history"
+        <ProgressSelect
+          label="Sort titles"
           value={sort}
           options={[
-            ["recent", "Recently watched"],
-            ["oldest", "Oldest watched"],
-            ["title-asc", "Title A–Z"],
-            ["title-desc", "Title Z–A"],
+            ["recent", "By last watched"],
+            ["title-asc", "By name"],
+            ["title-desc", "By name descending"],
           ]}
           onChange={(value) => setSort(value as Sort)}
         />
@@ -267,7 +260,7 @@ export function HistoryView({
             items={pageItems}
             itemKey={(item) => `${item.mediaType}:${item.mediaId}`}
             renderItem={(item) => (
-              <ProgressCard item={item} profileId={profileId} onSelect={onSelect} history />
+              <ProgressCard item={item} profileId={profileId} onSelect={onSelect} />
             )}
           />
         </div>
@@ -275,7 +268,7 @@ export function HistoryView({
         <Card className="mt-8 grid min-h-64 place-items-center border-dashed text-zinc-500">
           <div className="text-center">
             <History className="mx-auto mb-3 text-zinc-700" />
-            {progress.isLoading ? "Loading watch history…" : "No watch history yet."}
+            {progress.isLoading ? "Loading Continue Watching…" : "Nothing to continue watching yet."}
           </div>
         </Card>
       )}
@@ -412,7 +405,7 @@ function ProgressMenu({
     })
   } else {
     actions.push({
-      label: "Dismiss",
+      label: "Remove from Continue Watching",
       icon: <EyeOff size={16} />,
       onSelect: () => patch.mutate({ dismissed: true }),
       disabled: patch.isPending,
@@ -421,7 +414,7 @@ function ProgressMenu({
   return <PosterActionMenu title={item.name} actions={actions} />
 }
 
-function HistorySelect({
+function ProgressSelect({
   label,
   value,
   options,

@@ -32,7 +32,7 @@ import { SettingsView } from "./components/settings-view"
 import { LibraryView } from "./components/library-view"
 import { CalendarView } from "./components/calendar-view"
 import { PosterWatchStatus, PosterWatchStatusProvider } from "./components/poster-watch-status"
-import { ContinueWatching, HistoryView, useProgressList } from "./components/progress-view"
+import { ContinueWatching, ContinueWatchingView, useProgressList } from "./components/progress-view"
 import { applyPreferences, readPreferences } from "./lib/preferences"
 import { isDesktop } from "./lib/desktop"
 import {
@@ -886,7 +886,7 @@ function ProfileApp({
         <MediaHome
           profile={profile}
           addons={addons.data?.addons ?? []}
-          onHistory={() => onNavigate("history")}
+          onContinueWatching={() => onNavigate("continue")}
           onDiscover={(selection) => {
             onDiscoverSelection(selection)
             onNavigate("discover")
@@ -918,8 +918,8 @@ function ProfileApp({
           }}
         />
       )}
-      {!searchInput && section === "history" && (
-        <HistoryView
+      {!searchInput && section === "continue" && (
+        <ContinueWatchingView
           profileId={profile.id}
           onSelect={(item, videoId, progress) => {
             setSelectedItem(item)
@@ -1002,13 +1002,13 @@ type HomeFeedItem =
 function MediaHome({
   profile,
   addons,
-  onHistory,
+  onContinueWatching,
   onDiscover,
   onMetadataBrowse,
 }: {
   profile: Profile
   addons: InstalledAddon[]
-  onHistory: () => void
+  onContinueWatching: () => void
   onDiscover: (selection: DiscoverSelection) => void
   onMetadataBrowse: (target: MetadataBrowseTarget) => void
 }) {
@@ -1083,7 +1083,7 @@ function MediaHome({
                 addons={addons}
                 profileId={profile.id}
                 watchedProgress={watchedProgress.data ?? []}
-                onSeeMore={onHistory}
+                onSeeMore={onContinueWatching}
                 onSelect={(item, videoId, progress) => {
                   setReturnHomeFromStreamSelection(true)
                   setSelectedItem(item)

@@ -534,7 +534,7 @@ internal fun MediaActionSheet(
                 }
             }
             if (active.context == MediaActionContext.Continue && progress != null) {
-                ActionRow("Dismiss", Icons.Rounded.VisibilityOff) {
+                ActionRow("Remove from Continue Watching", Icons.Rounded.VisibilityOff) {
                     onDismiss(); scope.launch { onMutation(ProfileMutation.SetDismissed(progress, true)) }
                 }
             }

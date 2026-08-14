@@ -105,6 +105,28 @@ class ProfileMutationTest {
     }
 
     @Test
+    fun dismissingASeriesRemovesEveryEpisodeFromContinueWatching() {
+        val first = progress.copy(
+            videoId = "s1e1",
+            mediaType = "series",
+            mediaId = "show",
+            name = "Show",
+        )
+        val second = first.copy(videoId = "s1e2", episode = 2)
+        val base = snapshot.copy(
+            progress = listOf(first, second),
+            history = listOf(first, second),
+            continueWatching = listOf(second),
+        )
+
+        val updated = base.applyOptimistically(ProfileMutation.SetDismissed(second, true))
+
+        assertTrue(updated.progress.all { it.dismissed })
+        assertTrue(updated.history.all { it.dismissed })
+        assertTrue(updated.continueWatching.isEmpty())
+    }
+
+    @Test
     fun playbackSaveReplacesProgressAcrossAllProfileViews() {
         val saved = progress.copy(
             positionMs = 80_000,
