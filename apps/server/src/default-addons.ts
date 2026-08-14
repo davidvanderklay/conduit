@@ -24,6 +24,10 @@ const CINEMETA_MOVIE_GENRES = [
 
 const CINEMETA_SERIES_GENRES = [...CINEMETA_MOVIE_GENRES, "Reality-TV", "Talk-Show", "Game-Show"]
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
 export const DEFAULT_ADDONS = [
   {
     manifestUrl: "https://v3-cinemeta.strem.io/manifest.json",
@@ -91,6 +95,43 @@ export const DEFAULT_ADDONS = [
     },
   },
 ] as const
+
+/**
+ * Default add-ons are stored as manifest snapshots. Backfill fields added to
+ * the built-in snapshot so profiles created before that change get the same
+ * catalog filters as new profiles without rewriting their database rows.
+ */
+export function enrichDefaultManifest(manifest: Record<string, unknown>): Record<string, unknown> {
+  if (manifest.id !== DEFAULT_ADDONS[0].manifest.id || !Array.isArray(manifest.catalogs)) {
+    return manifest
+  }
+
+  let changed = false
+  const catalogs = manifest.catalogs.map((rawCatalog) => {
+    if (!isRecord(rawCatalog)) return rawCatalog
+    const id = typeof rawCatalog.id === "string" ? rawCatalog.id : ""
+    const type = typeof rawCatalog.type === "string" ? rawCatalog.type : ""
+    const isBuiltInCatalog = DEFAULT_ADDONS[0].manifest.catalogs.some(
+      (catalog) => catalog.id === id && catalog.type === type,
+    )
+    if (!isBuiltInCatalog || !Array.isArray(rawCatalog.extra)) return rawCatalog
+
+    const options = type === "series" ? CINEMETA_SERIES_GENRES : CINEMETA_MOVIE_GENRES
+    let catalogChanged = false
+    const extra = rawCatalog.extra.map((rawExtra) => {
+      if (!isRecord(rawExtra) || rawExtra.name !== "genre") return rawExtra
+      if (Array.isArray(rawExtra.options) && rawExtra.options.length > 0) return rawExtra
+      catalogChanged = true
+      return { ...rawExtra, options }
+    })
+    if (!catalogChanged) return rawCatalog
+
+    changed = true
+    return { ...rawCatalog, extra }
+  })
+
+  return changed ? { ...manifest, catalogs } : manifest
+}
 
 export function defaultAddonInstallations(profileId: string, encryptionKey: Buffer) {
   return DEFAULT_ADDONS.map((addon, position) => ({
