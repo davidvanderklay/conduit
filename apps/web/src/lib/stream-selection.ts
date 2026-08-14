@@ -28,16 +28,10 @@ export interface AutoSelectableStream {
   }
 }
 
-export function playbackSourceForStream(
-  stream: AutoSelectableStream,
-): PlaybackSource | undefined {
+export function playbackSourceForStream(stream: AutoSelectableStream): PlaybackSource | undefined {
   if (!stream.addonId) return undefined
   const filename = stream.behaviorHints?.filename
-  const kind: PlaybackSourceKind = stream.infoHash
-    ? "torrent"
-    : stream.url
-      ? "url"
-      : "other"
+  const kind: PlaybackSourceKind = stream.infoHash ? "torrent" : stream.url ? "url" : "other"
   return {
     addonId: stream.addonId,
     sourceKey: streamSourceKey(stream),
@@ -47,9 +41,7 @@ export function playbackSourceForStream(
     ...(stream.name ? { name: stream.name } : {}),
     ...(stream.title ? { title: stream.title } : {}),
     ...(filename ? { filename } : {}),
-    ...(stream.behaviorHints?.bingeGroup
-      ? { bingeGroup: stream.behaviorHints.bingeGroup }
-      : {}),
+    ...(stream.behaviorHints?.bingeGroup ? { bingeGroup: stream.behaviorHints.bingeGroup } : {}),
   }
 }
 
@@ -58,9 +50,25 @@ export function selectSavedStream<T extends AutoSelectableStream>(
   source: PlaybackSource | undefined,
 ): T | undefined {
   if (!source) return undefined
-  return streams
-    .filter((stream) => stream.addonId === source.addonId && isPlayableStreamUrl(stream.url))
-    .find((stream) => streamSourceKey(stream) === source.sourceKey)
+  const candidates = streams.filter(
+    (stream) => stream.addonId === source.addonId && isPlayableStreamUrl(stream.url),
+  )
+  const exactMatch = candidates.find((stream) => streamSourceKey(stream) === source.sourceKey)
+  if (exactMatch) return exactMatch
+
+  // Some add-ons put a fresh signed token in the URL path on every resolve.
+  // The release filename is the stable identity in that case.
+  const savedFilename = normalizeSourceText([source.filename])
+  if (!savedFilename) return undefined
+  const filenameMatches = candidates.filter(
+    (stream) => normalizeSourceText([stream.behaviorHints?.filename]) === savedFilename,
+  )
+  if (!filenameMatches.length) return undefined
+
+  return [...filenameMatches].sort(
+    (left, right) =>
+      streamMetadataMatchScore(right, source) - streamMetadataMatchScore(left, source),
+  )[0]
 }
 
 export function isPlayableStreamUrl(value: string | undefined): value is string {
@@ -98,4 +106,18 @@ function normalizedStreamUrl(value: string): string {
 
 function normalizeSourceText(values: Array<string | undefined>): string {
   return values.filter(Boolean).join("|").trim().toLocaleLowerCase().replace(/\s+/g, " ")
+}
+
+function streamMetadataMatchScore(stream: AutoSelectableStream, source: PlaybackSource): number {
+  let score = 0
+  if (source.bingeGroup && source.bingeGroup === stream.behaviorHints?.bingeGroup) {
+    score += 4
+  }
+  if (source.name && normalizeSourceText([source.name]) === normalizeSourceText([stream.name])) {
+    score += 2
+  }
+  if (source.title && normalizeSourceText([source.title]) === normalizeSourceText([stream.title])) {
+    score += 2
+  }
+  return score
 }
