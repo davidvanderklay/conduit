@@ -1,5 +1,6 @@
 import CoreGraphics
 import CoreMedia
+import CoreVideo
 import XCTest
 @testable import conduit
 
@@ -389,5 +390,83 @@ final class VideoOutputRecoveryPolicyTests: XCTestCase {
             accuracy: 0.001
         )
         XCTAssertTrue(estimator.didDetectTimelineDiscontinuity)
+    }
+
+    func testPictureInPictureTimestampEstimatorDoesNotAdvanceWhilePaused() {
+        var estimator = ConduitPipTimestampEstimator()
+        let pausedClock = ConduitPipPlaybackClockSnapshot(
+            positionMs: 10_000,
+            durationMs: 60_000,
+            isPlaying: false,
+            playbackRate: 1,
+            videoFrameRate: 24,
+            generation: 1
+        )
+
+        _ = estimator.timestamp(for: pausedClock, at: 10)
+        XCTAssertEqual(
+            CMTimeGetSeconds(estimator.timestamp(for: pausedClock, at: 20)),
+            10.001,
+            accuracy: 0.001
+        )
+        XCTAssertFalse(estimator.didDetectTimelineDiscontinuity)
+    }
+
+    func testPictureInPictureSetupAllocationFailuresAreNotBackpressureDrops() {
+        XCTAssertEqual(
+            ConduitPipAllocationPolicy.disposition(
+                for: kCVReturnAllocationFailed,
+                duringSetup: true
+            ),
+            .fail
+        )
+        XCTAssertEqual(
+            ConduitPipAllocationPolicy.disposition(
+                for: kCVReturnAllocationFailed,
+                duringSetup: false
+            ),
+            .drop
+        )
+    }
+
+    func testPictureInPictureRecoveryAllowsOneAttemptForActiveCapture() {
+        var policy = ConduitPipCaptureRecoveryPolicy()
+
+        XCTAssertEqual(
+            policy.action(for: .rePrime, isActive: true),
+            .rePrime(active: true)
+        )
+        XCTAssertEqual(
+            policy.action(for: .rePrime, isActive: true),
+            .fail
+        )
+
+        policy.reset()
+        XCTAssertEqual(
+            policy.action(for: .rePrime, isActive: false),
+            .rePrime(active: false)
+        )
+        XCTAssertEqual(
+            policy.action(for: .fatal, isActive: false),
+            .fail
+        )
+    }
+
+    func testPictureInPictureMetricsTrackDropsFailuresAndReprimeAttempts() {
+        let metrics = ConduitPipCaptureMetrics()
+        metrics.recordEnqueuedFrame()
+        metrics.recordDrop()
+        metrics.recordFailure()
+        metrics.recordReprimeAttempt()
+
+        XCTAssertEqual(
+            metrics.snapshot(),
+            ConduitPipCaptureMetricsSnapshot(
+                enqueuedFrames: 1,
+                droppedFrames: 1,
+                failures: 1,
+                reprimeAttempts: 1
+            )
+        )
     }
 }

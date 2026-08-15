@@ -1,6 +1,7 @@
 import AVFoundation
 import CoreMedia
 import Metal
+import os
 
 struct ConduitPipPlaybackClockSnapshot: Equatable {
     let positionMs: Int64
@@ -122,9 +123,10 @@ struct ConduitPipTimestampEstimator {
         at uptime: TimeInterval
     ) -> CMTime {
         didDetectTimelineDiscontinuity = false
-        let predictedPositionMs = anchorPositionMs + Int64(
-            max(0, uptime - anchorUptime) * 1_000 * anchorRate
-        )
+        let predictedElapsedMs = anchorIsPlaying
+            ? max(0, uptime - anchorUptime) * 1_000 * anchorRate
+            : 0
+        let predictedPositionMs = anchorPositionMs + Int64(predictedElapsedMs)
         let generationChanged = generation != nil && generation != clock.generation
         let materialBackwardJump = anchorUptime > 0 &&
             clock.positionMs + 750 < predictedPositionMs
@@ -168,6 +170,119 @@ enum ConduitPipCaptureFailureKind: Equatable {
     case rePrime
 }
 
+enum ConduitPipCaptureRecoveryAction: Equatable {
+    case rePrime(active: Bool)
+    case fail
+}
+
+struct ConduitPipCaptureRecoveryPolicy {
+    private(set) var attempts = 0
+    private let maximumAttempts = 1
+
+    mutating func reset() {
+        attempts = 0
+    }
+
+    mutating func action(
+        for failureKind: ConduitPipCaptureFailureKind,
+        isActive: Bool
+    ) -> ConduitPipCaptureRecoveryAction {
+        guard failureKind == .rePrime, attempts < maximumAttempts else {
+            return .fail
+        }
+        attempts += 1
+        return .rePrime(active: isActive)
+    }
+}
+
+struct ConduitPipCaptureMetricsSnapshot: Equatable {
+    let enqueuedFrames: UInt64
+    let droppedFrames: UInt64
+    let failures: UInt64
+    let reprimeAttempts: UInt64
+}
+
+final class ConduitPipCaptureMetrics {
+    private let lock = NSLock()
+    private var enqueuedFrames: UInt64 = 0
+    private var droppedFrames: UInt64 = 0
+    private var failures: UInt64 = 0
+    private var reprimeAttempts: UInt64 = 0
+
+    func reset() {
+        lock.lock()
+        enqueuedFrames = 0
+        droppedFrames = 0
+        failures = 0
+        reprimeAttempts = 0
+        lock.unlock()
+    }
+
+    func recordEnqueuedFrame() {
+        lock.lock()
+        enqueuedFrames &+= 1
+        lock.unlock()
+    }
+
+    func recordDrop() {
+        lock.lock()
+        droppedFrames &+= 1
+        lock.unlock()
+    }
+
+    func recordFailure() {
+        lock.lock()
+        failures &+= 1
+        lock.unlock()
+    }
+
+    func recordReprimeAttempt() {
+        lock.lock()
+        reprimeAttempts &+= 1
+        lock.unlock()
+    }
+
+    func snapshot() -> ConduitPipCaptureMetricsSnapshot {
+        lock.lock()
+        defer { lock.unlock() }
+        return ConduitPipCaptureMetricsSnapshot(
+            enqueuedFrames: enqueuedFrames,
+            droppedFrames: droppedFrames,
+            failures: failures,
+            reprimeAttempts: reprimeAttempts
+        )
+    }
+}
+
+enum ConduitPipAllocationDisposition: Equatable {
+    case drop
+    case fail
+}
+
+enum ConduitPipAllocationPolicy {
+    static func disposition(
+        for status: CVReturn,
+        duringSetup: Bool
+    ) -> ConduitPipAllocationDisposition {
+        guard !duringSetup else { return .fail }
+        return isBackpressure(status) ? .drop : .fail
+    }
+
+    static func isBackpressure(_ status: CVReturn) -> Bool {
+        status == kCVReturnAllocationFailed
+            || status == kCVReturnWouldExceedAllocationThreshold
+            || status == kCVReturnPoolAllocationFailed
+    }
+}
+
+enum ConduitPipInstrumentation {
+    static let log = OSLog(subsystem: "media.conduit.mobile", category: "PiP")
+
+    static func event(_ name: StaticString, reason: String) {
+        os_signpost(.event, log: log, name: name, "%{public}s", reason)
+    }
+}
+
 final class ConduitPictureInPictureFrameCapture {
     typealias ClockProvider = () -> ConduitPipPlaybackClockSnapshot
     typealias FrameEnqueuedHandler = () -> Void
@@ -176,6 +291,7 @@ final class ConduitPictureInPictureFrameCapture {
     private let metalLayer: ConduitMetalLayer
     private weak var displayLayer: AVSampleBufferDisplayLayer?
     private let clockProvider: ClockProvider
+    private let metrics: ConduitPipCaptureMetrics
     private var onFrameEnqueued: FrameEnqueuedHandler
     private let captureQueue = DispatchQueue(
         label: "media.conduit.pip-frame-capture",
@@ -205,14 +321,18 @@ final class ConduitPictureInPictureFrameCapture {
         displayLayer: AVSampleBufferDisplayLayer,
         clockProvider: @escaping ClockProvider,
         onFrameEnqueued: @escaping FrameEnqueuedHandler,
+        metrics: ConduitPipCaptureMetrics = ConduitPipCaptureMetrics(),
         onCaptureFailure: @escaping CaptureFailureHandler = { _, _ in }
     ) {
         self.metalLayer = metalLayer
         self.displayLayer = displayLayer
         self.clockProvider = clockProvider
+        self.metrics = metrics
         self.onFrameEnqueued = onFrameEnqueued
         self.onCaptureFailure = onCaptureFailure
     }
+
+    var metricsSnapshot: ConduitPipCaptureMetricsSnapshot { metrics.snapshot() }
 
     func setOnFrameEnqueued(_ handler: @escaping FrameEnqueuedHandler) {
         onFrameEnqueued = handler
@@ -345,12 +465,6 @@ final class ConduitPictureInPictureFrameCapture {
         switch ensureMetalResources() {
         case .ready:
             break
-        case .drop(let reason):
-            recordDrop(for: generation, reason: reason)
-            return
-        case .rePrime(let reason):
-            failCapture(for: generation, reason: reason, kind: .rePrime)
-            return
         case .failure(let reason):
             failCapture(for: generation, reason: reason)
             return
@@ -362,9 +476,6 @@ final class ConduitPictureInPictureFrameCapture {
         ) {
         case .ready:
             break
-        case .drop(let reason):
-            recordDrop(for: generation, reason: reason)
-            return
         case .failure(let reason):
             failCapture(for: generation, reason: reason)
             return
@@ -389,7 +500,10 @@ final class ConduitPictureInPictureFrameCapture {
             &pixelBuffer
         )
         guard pixelBufferStatus == kCVReturnSuccess, let pixelBuffer else {
-            if Self.isAllocationBackpressure(pixelBufferStatus) {
+            if ConduitPipAllocationPolicy.disposition(
+                for: pixelBufferStatus,
+                duringSetup: false
+            ) == .drop {
                 recordDrop(
                     for: generation,
                     reason: "pixel buffer allocation returned CVReturn \(pixelBufferStatus)"
@@ -416,7 +530,10 @@ final class ConduitPictureInPictureFrameCapture {
             &destinationTexture
         )
         guard textureStatus == kCVReturnSuccess else {
-            if Self.isAllocationBackpressure(textureStatus) {
+            if ConduitPipAllocationPolicy.disposition(
+                for: textureStatus,
+                duringSetup: false
+            ) == .drop {
                 recordDrop(
                     for: generation,
                     reason: "Metal texture allocation returned CVReturn \(textureStatus)"
@@ -544,6 +661,7 @@ final class ConduitPictureInPictureFrameCapture {
                     )
                     return
                 }
+                self.metrics.recordEnqueuedFrame()
                 self.onFrameEnqueued()
                 self.finishCapture(for: generation)
             }
@@ -553,7 +671,6 @@ final class ConduitPictureInPictureFrameCapture {
 
     private enum PoolPreparationResult {
         case ready
-        case drop(String)
         case failure(String)
     }
 
@@ -587,18 +704,12 @@ final class ConduitPictureInPictureFrameCapture {
             &pool
         )
         guard poolStatus == kCVReturnSuccess, let pool else {
-            if Self.isAllocationBackpressure(poolStatus) {
-                return .drop("pixel buffer pool allocation returned CVReturn \(poolStatus)")
-            }
             return .failure("Unable to create a PiP pixel-buffer pool (CVReturn \(poolStatus))")
         }
 
         var buffer: CVPixelBuffer?
         let bufferStatus = CVPixelBufferPoolCreatePixelBuffer(nil, pool, &buffer)
         guard bufferStatus == kCVReturnSuccess, let buffer else {
-            if Self.isAllocationBackpressure(bufferStatus) {
-                return .drop("initial pixel buffer allocation returned CVReturn \(bufferStatus)")
-            }
             return .failure("Unable to allocate the PiP pool's format buffer (CVReturn \(bufferStatus))")
         }
 
@@ -630,8 +741,6 @@ final class ConduitPictureInPictureFrameCapture {
 
     private enum MetalResourcePreparationResult {
         case ready
-        case drop(String)
-        case rePrime(String)
         case failure(String)
     }
 
@@ -644,15 +753,12 @@ final class ConduitPictureInPictureFrameCapture {
             commandQueue = device.makeCommandQueue()
         }
         guard commandQueue != nil else {
-            return .rePrime("Unable to create a Metal command queue for PiP capture")
+            return .failure("Unable to create a Metal command queue for PiP capture")
         }
         if textureCache == nil {
             var cache: CVMetalTextureCache?
             let status = CVMetalTextureCacheCreate(nil, nil, device, nil, &cache)
             guard status == kCVReturnSuccess else {
-                if Self.isAllocationBackpressure(status) {
-                    return .drop("Metal texture-cache allocation returned CVReturn \(status)")
-                }
                 return .failure("Unable to create a Metal texture cache (CVReturn \(status))")
             }
             textureCache = cache
@@ -686,6 +792,8 @@ final class ConduitPictureInPictureFrameCapture {
         stateLock.unlock()
 
         finishCapture(for: candidate)
+        metrics.recordFailure()
+        ConduitPipInstrumentation.event("CaptureFailure", reason: reason)
         onCaptureFailure(reason, kind)
     }
 
@@ -696,9 +804,11 @@ final class ConduitPictureInPictureFrameCapture {
         }
 
         droppedFrameCount &+= 1
+        metrics.recordDrop()
         let now = ProcessInfo.processInfo.systemUptime
         if droppedFrameCount == 1 || now - lastDropLogUptime >= 1 {
             lastDropLogUptime = now
+            ConduitPipInstrumentation.event("FrameDrop", reason: reason)
             print("[Conduit PiP] Dropped capture frame (\(reason)); total=\(droppedFrameCount)")
         }
         finishCapture(for: candidate)
@@ -736,9 +846,4 @@ final class ConduitPictureInPictureFrameCapture {
         }
     }
 
-    private static func isAllocationBackpressure(_ status: CVReturn) -> Bool {
-        status == kCVReturnAllocationFailed
-            || status == kCVReturnWouldExceedAllocationThreshold
-            || status == kCVReturnPoolAllocationFailed
-    }
 }

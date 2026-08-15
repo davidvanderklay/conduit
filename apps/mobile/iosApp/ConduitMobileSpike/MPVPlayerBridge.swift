@@ -1949,7 +1949,10 @@ final class ConduitPictureInPictureCoordinator: NSObject,
     private var primingStartHopScheduled = false
     private let primingStateLock = NSLock()
     private var primingTimeout: DispatchWorkItem?
-    private var captureReprimeAttempts = 0
+    private var activeCaptureReprimeTimeout: DispatchWorkItem?
+    private var activeCaptureReprimePending = false
+    private var captureRecoveryPolicy = ConduitPipCaptureRecoveryPolicy()
+    private let captureMetrics = ConduitPipCaptureMetrics()
 
     init(owner: ConduitMPVPlayerViewController, metalLayer: ConduitMetalLayer) {
         self.owner = owner
@@ -1972,7 +1975,8 @@ final class ConduitPictureInPictureCoordinator: NSObject,
             clockProvider: { [weak owner] in
                 owner?.pictureInPictureClock.snapshot() ?? .empty
             },
-            onFrameEnqueued: {}
+            onFrameEnqueued: {},
+            metrics: captureMetrics
         )
         frameCapture.setOnFrameEnqueued { [weak self] in
             self?.frameWasEnqueued()
@@ -2007,7 +2011,8 @@ final class ConduitPictureInPictureCoordinator: NSObject,
 
     func start() {
         guard isSupported, !isActive, !priming else { return }
-        captureReprimeAttempts = 0
+        captureRecoveryPolicy.reset()
+        captureMetrics.reset()
         setStartRequested(true)
         beginPriming()
         attemptStart()
@@ -2015,7 +2020,8 @@ final class ConduitPictureInPictureCoordinator: NSObject,
 
     func prepareForAutomaticEntry() {
         guard isSupported, owner?.isPlayerPlaying == true, !isActive, !priming else { return }
-        captureReprimeAttempts = 0
+        captureRecoveryPolicy.reset()
+        captureMetrics.reset()
         setStartRequested(false)
         beginPriming(capturesWithoutPresentation: true)
     }
@@ -2032,7 +2038,8 @@ final class ConduitPictureInPictureCoordinator: NSObject,
     }
 
     func stopForNewLoad() {
-        captureReprimeAttempts = 0
+        captureRecoveryPolicy.reset()
+        captureMetrics.reset()
         priming = false
         setStartRequested(false)
         stopCapture()
@@ -2080,9 +2087,24 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         schedulePrimingTimeout()
     }
 
+    private func beginActiveCaptureReprime() {
+        guard isActive else { return }
+        priming = false
+        stopCapture()
+        displayLayer.flush()
+        setActiveCaptureReprimePending(true)
+        metalLayer.capturesWithoutPresentation = true
+        metalLayer.isDrawableCaptureArmed = true
+        frameCapture.start()
+        scheduleActiveCaptureReprimeTimeout()
+    }
+
     private func stopCapture() {
         primingTimeout?.cancel()
         primingTimeout = nil
+        activeCaptureReprimeTimeout?.cancel()
+        activeCaptureReprimeTimeout = nil
+        setActiveCaptureReprimePending(false)
         startAttemptWorkItem?.cancel()
         startAttemptWorkItem = nil
         resetPrimingFrameState()
@@ -2091,11 +2113,52 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         frameCapture.stop()
     }
 
+    private func scheduleActiveCaptureReprimeTimeout() {
+        activeCaptureReprimeTimeout?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self,
+                  self.consumeActiveCaptureReprimeFrame(),
+                  self.isActive
+            else { return }
+            print("[Conduit PiP] Timed out waiting for active capture re-prime")
+            self.captureMetrics.recordFailure()
+            ConduitPipInstrumentation.event("ReprimeTimeout", reason: "no frames")
+            self.activeCaptureReprimeTimeout = nil
+            self.stopCapture()
+            self.controller?.stopPictureInPicture()
+            self.owner?.resumeVideoOutputWatchdogAfterPictureInPicture()
+        }
+        activeCaptureReprimeTimeout = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: work)
+    }
+
+    private func completeActiveCaptureReprime() {
+        guard isActive else { return }
+        activeCaptureReprimeTimeout?.cancel()
+        activeCaptureReprimeTimeout = nil
+    }
+
+    private func setActiveCaptureReprimePending(_ pending: Bool) {
+        primingStateLock.lock()
+        activeCaptureReprimePending = pending
+        primingStateLock.unlock()
+    }
+
+    private func consumeActiveCaptureReprimeFrame() -> Bool {
+        primingStateLock.lock()
+        defer { primingStateLock.unlock() }
+        guard activeCaptureReprimePending else { return false }
+        activeCaptureReprimePending = false
+        return true
+    }
+
     private func schedulePrimingTimeout() {
         primingTimeout?.cancel()
         let work = DispatchWorkItem { [weak self] in
             guard let self, self.priming, !self.isActive else { return }
             print("[Conduit PiP] Timed out waiting for priming frames")
+            self.captureMetrics.recordFailure()
+            ConduitPipInstrumentation.event("PrimingTimeout", reason: "no frames")
             self.priming = false
             self.setStartRequested(false)
             self.stopCapture()
@@ -2112,14 +2175,20 @@ final class ConduitPictureInPictureCoordinator: NSObject,
             print("[Conduit PiP] Frame capture failed: \(reason)")
             let wasActive = self.isActive
 
-            if kind == .rePrime,
-               !wasActive,
-               self.captureReprimeAttempts < 1 {
-                self.captureReprimeAttempts += 1
-                let capturesWithoutPresentation = self.metalLayer.capturesWithoutPresentation
-                self.priming = false
-                self.stopCapture()
-                self.beginPriming(capturesWithoutPresentation: capturesWithoutPresentation)
+            if case .rePrime(let active) = self.captureRecoveryPolicy.action(
+                for: kind,
+                isActive: wasActive
+            ) {
+                self.captureMetrics.recordReprimeAttempt()
+                ConduitPipInstrumentation.event("CaptureReprime", reason: reason)
+                if active {
+                    self.beginActiveCaptureReprime()
+                } else {
+                    let capturesWithoutPresentation = self.metalLayer.capturesWithoutPresentation
+                    self.priming = false
+                    self.stopCapture()
+                    self.beginPriming(capturesWithoutPresentation: capturesWithoutPresentation)
+                }
                 return
             }
 
@@ -2143,6 +2212,12 @@ final class ConduitPictureInPictureCoordinator: NSObject,
     }
 
     private func frameWasEnqueued() {
+        if consumeActiveCaptureReprimeFrame() {
+            DispatchQueue.main.async { [weak self] in
+                self?.completeActiveCaptureReprime()
+            }
+            return
+        }
         guard shouldSchedulePrimingStart() else { return }
         // AVKit start requests must run on main, but this hop happens only
         // once when the second priming frame arrives, never for active PiP
@@ -2249,6 +2324,7 @@ final class ConduitPictureInPictureCoordinator: NSObject,
 
     func pictureInPictureControllerDidStartPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
         priming = false
+        captureRecoveryPolicy.reset()
     }
 
     func pictureInPictureController(
