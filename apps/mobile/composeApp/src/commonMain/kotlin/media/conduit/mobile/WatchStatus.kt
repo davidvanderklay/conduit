@@ -130,6 +130,30 @@ internal fun effectiveResumeVideoId(
     item: CatalogItem,
 ): String? = explicitVideoId ?: latestUnfinishedProgress(progress, item)?.videoId
 
+internal fun resolveRequestedVideo(
+    videos: List<VideoItem>,
+    requestedVideoId: String?,
+): VideoItem? = requestedVideoId
+    ?.let { videoId -> videos.firstOrNull { it.id == videoId } }
+    ?: videos.firstOrNull()
+
+internal data class RequestedVideoSelection(
+    val video: VideoItem?,
+    val shouldResetPlayback: Boolean,
+)
+
+internal fun reconcileRequestedVideo(
+    current: VideoItem?,
+    videos: List<VideoItem>,
+    requestedVideoId: String?,
+): RequestedVideoSelection {
+    val requested = resolveRequestedVideo(videos, requestedVideoId)
+    return RequestedVideoSelection(
+        video = requested,
+        shouldResetPlayback = current != null && current.id != requested?.id,
+    )
+}
+
 internal fun detailsPlayLabel(
     item: CatalogItem,
     progress: ProgressSummary?,

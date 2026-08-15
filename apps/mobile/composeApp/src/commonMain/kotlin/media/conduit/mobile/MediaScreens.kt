@@ -661,13 +661,36 @@ internal fun MediaDetailsScreen(
     val uriHandler = LocalUriHandler.current
     val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
     var actionTarget by remember(item.id) { mutableStateOf<MediaActionTarget?>(null) }
+
+    fun resetPlaybackForVideoChange() {
+        playbackSession.close()
+        streamRequestVersion += 1
+        streams = null
+        streamPageOpen = false
+        streamEpisodesOpen = false
+        streamsLoading = false
+        streamsError = null
+        playing = null
+        resumePosition = 0L
+        currentAddonId = null
+        currentAddonName = null
+        externalSubtitles = emptyList()
+        externalSubtitlesLoaded = false
+        autoResumeAttemptedKey = null
+    }
+
     LaunchedEffect(item.id, item.type, addons) {
         runCatching { api.loadMeta(addons, item.type, item.id) }
             .onSuccess {
                 meta = it
-                selectedVideo = it.videos.firstOrNull { video -> video.id == effectiveInitialVideoId }
-                    ?: it.videos.firstOrNull()
             }.onFailure { error = it.message }
+    }
+    LaunchedEffect(item.id, effectiveInitialVideoId, meta?.videos) {
+        val selection = reconcileRequestedVideo(selectedVideo, meta?.videos.orEmpty(), effectiveInitialVideoId)
+        val requestedVideo = selection.video ?: return@LaunchedEffect
+        if (selectedVideo?.id == requestedVideo.id) return@LaunchedEffect
+        if (selection.shouldResetPlayback) resetPlaybackForVideoChange()
+        selectedVideo = requestedVideo
     }
     suspend fun loadStreamsWithRetry(
         videoId: String,
@@ -690,7 +713,7 @@ internal fun MediaDetailsScreen(
         "$addonSignature:${source.addonId}:${source.sourceKey}:${preferences.autoSelectSavedStreams}"
 
     fun requestStreams(
-        video: VideoItem? = selectedVideo,
+        video: VideoItem?,
         autoPlaySavedSource: Boolean = false,
         addonId: String? = selectedStreamAddonId,
     ) {
@@ -739,6 +762,13 @@ internal fun MediaDetailsScreen(
             streamsLoading = false
         }
     }
+
+    fun selectVideo(video: VideoItem?, autoPlaySavedSource: Boolean = false) {
+        if (selectedVideo?.id != video?.id) resetPlaybackForVideoChange()
+        selectedVideo = video
+        requestStreams(video, autoPlaySavedSource = autoPlaySavedSource)
+    }
+
     val playingVideoId = selectedVideo?.id ?: item.id
     val streamAddonChoices = remember(addons, item.type, playingVideoId) {
         addons
@@ -830,20 +860,13 @@ internal fun MediaDetailsScreen(
             playNext = {
                 nextVideo?.let { video ->
                     playbackSession.close(saveProgress = false)
-                    playing = null
-                    selectedVideo = video
-                    resumePosition = 0L
-                    requestStreams(video)
+                    selectVideo(video)
                 }
             },
             openEpisodes = {},
             selectEpisode = { videoId ->
                 orderedVideos.firstOrNull { it.id == videoId }?.let { video ->
-                    playbackSession.close()
-                    selectedVideo = video
-                    playing = null
-                    resumePosition = 0L
-                    requestStreams(video)
+                    selectVideo(video)
                 }
             },
             minimized = onBack,
@@ -1002,11 +1025,7 @@ internal fun MediaDetailsScreen(
                         onDismiss = { streamEpisodesOpen = false },
                         onSelect = { video ->
                             streamEpisodesOpen = false
-                            playbackSession.close()
-                            selectedVideo = video
-                            playing = null
-                            resumePosition = 0L
-                            requestStreams(video)
+                            selectVideo(video)
                         },
                     )
                 }
@@ -1120,7 +1139,7 @@ internal fun MediaDetailsScreen(
             Column(Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 if (details == null && error == null) CircularProgressIndicator()
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                Button(onClick = { val target = playTarget.video ?: selectedVideo; selectedVideo = target; requestStreams(target) }, modifier = Modifier.fillMaxWidth().height(54.dp)) {
+                Button(onClick = { val target = playTarget.video ?: selectedVideo; selectVideo(target) }, modifier = Modifier.fillMaxWidth().height(54.dp)) {
                     Icon(Icons.Rounded.PlayArrow, null); Spacer(Modifier.width(8.dp)); Text(playTarget.label)
                 }
                 val movieProgress = snapshot?.progress.orEmpty().firstOrNull { it.videoId == actionItem.id }
@@ -1225,7 +1244,7 @@ internal fun MediaDetailsScreen(
                                 modifier = Modifier.width(260.dp).combinedClickable(
                                     onClickLabel = "Play ${video.displayTitle}",
                                     onLongClickLabel = "More actions for ${video.displayTitle}",
-                                    onClick = { selectedVideo = video; requestStreams(video) },
+                                    onClick = { selectVideo(video) },
                                     onLongClick = {
                                         haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
                                         actionTarget = MediaActionTarget(actionItem, MediaActionContext.Episode, progress, video, videos = videos)
@@ -1350,8 +1369,7 @@ internal fun MediaDetailsScreen(
         snapshot = snapshot,
         onDismiss = { actionTarget = null },
         onPlay = { target ->
-            selectedVideo = target.video
-            requestStreams(target.video)
+            selectVideo(target.video)
         },
         onDetails = {},
         onMutation = onMutation,
