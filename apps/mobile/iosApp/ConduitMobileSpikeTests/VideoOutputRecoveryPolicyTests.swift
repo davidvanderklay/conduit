@@ -458,6 +458,15 @@ final class VideoOutputRecoveryPolicyTests: XCTestCase {
         metrics.recordDrop()
         metrics.recordFailure()
         metrics.recordReprimeAttempt()
+        metrics.recordCaptureContext(
+            sourceFrameRate: 24,
+            effectiveCaptureInterval: 1.0 / 24.0,
+            drawableWidth: 1_920,
+            drawableHeight: 1_080,
+            bufferWidth: 1_920,
+            bufferHeight: 1_080,
+            clockGeneration: 7
+        )
 
         XCTAssertEqual(
             metrics.snapshot(),
@@ -465,7 +474,14 @@ final class VideoOutputRecoveryPolicyTests: XCTestCase {
                 enqueuedFrames: 1,
                 droppedFrames: 1,
                 failures: 1,
-                reprimeAttempts: 1
+                reprimeAttempts: 1,
+                sourceFrameRate: 24,
+                effectiveCaptureInterval: 1.0 / 24.0,
+                drawableWidth: 1_920,
+                drawableHeight: 1_080,
+                bufferWidth: 1_920,
+                bufferHeight: 1_080,
+                clockGeneration: 7
             )
         )
     }

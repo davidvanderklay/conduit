@@ -84,10 +84,7 @@ struct ConduitPipFrameScheduler {
     ) -> Bool {
         guard presentationID != lastPresentationID else { return false }
 
-        let frameRate = min(max(clock.videoFrameRate > 0 ? clock.videoFrameRate : 30, 1), 60)
-        let playbackRate = min(max(clock.playbackRate > 0 ? clock.playbackRate : 1, 0.25), 4)
-        let effectiveFrameRate = min(frameRate * playbackRate, 60)
-        let minimumInterval = 1 / effectiveFrameRate
+        let minimumInterval = Self.effectiveCaptureInterval(for: clock)
         guard lastCaptureUptime == 0 || uptime - lastCaptureUptime >= minimumInterval else {
             return false
         }
@@ -95,6 +92,12 @@ struct ConduitPipFrameScheduler {
         lastCaptureUptime = uptime
         lastPresentationID = presentationID
         return true
+    }
+
+    static func effectiveCaptureInterval(for clock: ConduitPipPlaybackClockSnapshot) -> TimeInterval {
+        let frameRate = min(max(clock.videoFrameRate > 0 ? clock.videoFrameRate : 30, 1), 60)
+        let playbackRate = min(max(clock.playbackRate > 0 ? clock.playbackRate : 1, 0.25), 4)
+        return 1 / min(frameRate * playbackRate, 60)
     }
 }
 
@@ -200,6 +203,13 @@ struct ConduitPipCaptureMetricsSnapshot: Equatable {
     let droppedFrames: UInt64
     let failures: UInt64
     let reprimeAttempts: UInt64
+    let sourceFrameRate: Double
+    let effectiveCaptureInterval: TimeInterval
+    let drawableWidth: Int
+    let drawableHeight: Int
+    let bufferWidth: Int
+    let bufferHeight: Int
+    let clockGeneration: UInt64
 }
 
 final class ConduitPipCaptureMetrics {
@@ -208,6 +218,13 @@ final class ConduitPipCaptureMetrics {
     private var droppedFrames: UInt64 = 0
     private var failures: UInt64 = 0
     private var reprimeAttempts: UInt64 = 0
+    private var sourceFrameRate = 0.0
+    private var effectiveCaptureInterval = 0.0
+    private var drawableWidth = 0
+    private var drawableHeight = 0
+    private var bufferWidth = 0
+    private var bufferHeight = 0
+    private var clockGeneration: UInt64 = 0
 
     func reset() {
         lock.lock()
@@ -215,6 +232,13 @@ final class ConduitPipCaptureMetrics {
         droppedFrames = 0
         failures = 0
         reprimeAttempts = 0
+        sourceFrameRate = 0
+        effectiveCaptureInterval = 0
+        drawableWidth = 0
+        drawableHeight = 0
+        bufferWidth = 0
+        bufferHeight = 0
+        clockGeneration = 0
         lock.unlock()
     }
 
@@ -242,6 +266,26 @@ final class ConduitPipCaptureMetrics {
         lock.unlock()
     }
 
+    func recordCaptureContext(
+        sourceFrameRate: Double,
+        effectiveCaptureInterval: TimeInterval,
+        drawableWidth: Int,
+        drawableHeight: Int,
+        bufferWidth: Int,
+        bufferHeight: Int,
+        clockGeneration: UInt64
+    ) {
+        lock.lock()
+        self.sourceFrameRate = sourceFrameRate
+        self.effectiveCaptureInterval = effectiveCaptureInterval
+        self.drawableWidth = drawableWidth
+        self.drawableHeight = drawableHeight
+        self.bufferWidth = bufferWidth
+        self.bufferHeight = bufferHeight
+        self.clockGeneration = clockGeneration
+        lock.unlock()
+    }
+
     func snapshot() -> ConduitPipCaptureMetricsSnapshot {
         lock.lock()
         defer { lock.unlock() }
@@ -249,7 +293,14 @@ final class ConduitPipCaptureMetrics {
             enqueuedFrames: enqueuedFrames,
             droppedFrames: droppedFrames,
             failures: failures,
-            reprimeAttempts: reprimeAttempts
+            reprimeAttempts: reprimeAttempts,
+            sourceFrameRate: sourceFrameRate,
+            effectiveCaptureInterval: effectiveCaptureInterval,
+            drawableWidth: drawableWidth,
+            drawableHeight: drawableHeight,
+            bufferWidth: bufferWidth,
+            bufferHeight: bufferHeight,
+            clockGeneration: clockGeneration
         )
     }
 }
@@ -297,6 +348,8 @@ final class ConduitPictureInPictureFrameCapture {
         label: "media.conduit.pip-frame-capture",
         qos: .userInitiated
     )
+    private let captureQueueKey = DispatchSpecificKey<Void>()
+    private let captureIdleGroup = DispatchGroup()
     private var commandQueue: MTLCommandQueue?
     private var textureCache: CVMetalTextureCache?
     private let stateLock = NSLock()
@@ -330,6 +383,7 @@ final class ConduitPictureInPictureFrameCapture {
         self.metrics = metrics
         self.onFrameEnqueued = onFrameEnqueued
         self.onCaptureFailure = onCaptureFailure
+        captureQueue.setSpecific(key: captureQueueKey, value: ())
     }
 
     var metricsSnapshot: ConduitPipCaptureMetricsSnapshot { metrics.snapshot() }
@@ -351,9 +405,7 @@ final class ConduitPictureInPictureFrameCapture {
 
         captureQueue.async { [weak self] in
             guard let self else { return }
-            self.scheduler.reset()
-            self.timestampEstimator.reset()
-            self.clearPool()
+            self.resetCaptureResources()
             self.droppedFrameCount = 0
             self.lastDropLogUptime = 0
         }
@@ -365,11 +417,14 @@ final class ConduitPictureInPictureFrameCapture {
         isArmed = false
         stateLock.unlock()
 
-        captureQueue.async { [weak self] in
-            guard let self else { return }
-            self.scheduler.reset()
-            self.timestampEstimator.reset()
-            self.clearPool()
+        let reset = { [weak self] in
+            self?.resetCaptureResources()
+        }
+        if DispatchQueue.getSpecific(key: captureQueueKey) == nil {
+            captureIdleGroup.wait()
+            captureQueue.sync(execute: reset)
+        } else {
+            reset()
         }
     }
 
@@ -403,6 +458,7 @@ final class ConduitPictureInPictureFrameCapture {
         }
         let captureGeneration = generation
         inFlightGeneration = captureGeneration
+        captureIdleGroup.enter()
         stateLock.unlock()
 
         captureQueue.async { [weak self] in
@@ -569,6 +625,15 @@ final class ConduitPictureInPictureFrameCapture {
             )
             return
         }
+        metrics.recordCaptureContext(
+            sourceFrameRate: clock.videoFrameRate,
+            effectiveCaptureInterval: ConduitPipFrameScheduler.effectiveCaptureInterval(for: clock),
+            drawableWidth: sourceTexture.width,
+            drawableHeight: sourceTexture.height,
+            bufferWidth: texture.width,
+            bufferHeight: texture.height,
+            clockGeneration: clock.generation
+        )
         guard let commandBuffer = commandQueue.makeCommandBuffer() else {
             ConduitPipInstrumentation.event("blitFailed", reason: "command buffer")
             failCapture(
@@ -678,6 +743,7 @@ final class ConduitPictureInPictureFrameCapture {
                     )
                     return
                 }
+                ConduitPipInstrumentation.event("enqueued", reason: "sample buffer")
                 self.metrics.recordEnqueuedFrame()
                 self.onFrameEnqueued()
                 self.finishCapture(for: generation)
@@ -791,8 +857,15 @@ final class ConduitPictureInPictureFrameCapture {
         stateLock.lock()
         if inFlightGeneration == candidate {
             inFlightGeneration = nil
+            captureIdleGroup.leave()
         }
         stateLock.unlock()
+    }
+
+    private func resetCaptureResources() {
+        scheduler.reset()
+        timestampEstimator.reset()
+        clearPool()
     }
 
     private func failCapture(

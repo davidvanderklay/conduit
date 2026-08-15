@@ -2038,6 +2038,8 @@ final class ConduitPictureInPictureCoordinator: NSObject,
     }
 
     func stopForNewLoad() {
+        let wasActive = isActive
+        let wasPriming = priming
         captureRecoveryPolicy.reset()
         captureMetrics.reset()
         priming = false
@@ -2045,6 +2047,11 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         stopCapture()
         displayLayer.flushAndRemoveImage()
         controller?.stopPictureInPicture()
+        if wasPriming && !wasActive {
+            owner?.setInlineVideoHiddenForPictureInPicture(false)
+            owner?.restoreVideoAfterPictureInPictureStopIfNeeded()
+            owner?.resumeVideoOutputWatchdogAfterPictureInPicture()
+        }
     }
 
     func playbackStateChanged() {
