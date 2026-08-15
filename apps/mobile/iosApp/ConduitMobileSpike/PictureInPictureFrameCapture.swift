@@ -367,8 +367,12 @@ final class ConduitPipCaptureShutdownFence {
             lock.unlock()
             return false
         }
-        action()
         lock.unlock()
+
+        // The capture lifetime group keeps teardown deferred for an operation
+        // admitted here. Keep this lock out of the potentially blocking AVKit
+        // call so disarm remains bounded.
+        action()
         return true
     }
 }
@@ -496,21 +500,35 @@ final class ConduitPictureInPictureFrameCapture {
         }
     }
 
-    func resetTimeline() {
+    func resetTimeline(completion: (() -> Void)? = nil) {
         shutdownFence.disarm()
         stateLock.lock()
         generation &+= 1
         let captureGeneration = generation
         let shouldRearm = isArmed
+        isArmed = false
+        failedGeneration = nil
         stateLock.unlock()
-        if shouldRearm {
-            shutdownFence.arm(for: captureGeneration)
-        }
 
-        captureQueue.async { [weak self] in
-            guard let self else { return }
+        captureLifetimeGroup.notify(queue: captureQueue) { [self] in
+            self.stateLock.lock()
+            let isCurrentTimeline = self.generation == captureGeneration
+            self.stateLock.unlock()
+            guard isCurrentTimeline else { return }
+
             self.scheduler.reset()
             self.timestampEstimator.reset()
+            completion?()
+
+            guard shouldRearm else { return }
+            self.stateLock.lock()
+            guard self.generation == captureGeneration, !self.isArmed else {
+                self.stateLock.unlock()
+                return
+            }
+            self.isArmed = true
+            self.stateLock.unlock()
+            self.shutdownFence.arm(for: captureGeneration)
         }
     }
 

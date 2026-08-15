@@ -516,12 +516,6 @@ final class VideoOutputRecoveryPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             disarmCompleted.wait(timeout: .now() + .milliseconds(50)),
-            .timedOut
-        )
-
-        releaseEnqueue.signal()
-        XCTAssertEqual(
-            enqueueCompleted.wait(timeout: .now() + 1),
             .success
         )
 
@@ -530,9 +524,12 @@ final class VideoOutputRecoveryPolicyTests: XCTestCase {
                 XCTFail("late completion crossed the shutdown fence")
             }
         )
+        releaseEnqueue.signal()
         XCTAssertEqual(
-            disarmCompleted.wait(timeout: .now() + 1),
+            enqueueCompleted.wait(timeout: .now() + 1),
             .success
         )
+
+        XCTAssertFalse(fence.withPermission(for: 41) {})
     }
 }
