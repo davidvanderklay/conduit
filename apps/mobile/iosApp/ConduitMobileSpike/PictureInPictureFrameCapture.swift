@@ -326,6 +326,53 @@ enum ConduitPipAllocationPolicy {
     }
 }
 
+final class ConduitPipCaptureShutdownFence {
+    private let lock = NSLock()
+    private var generation: UInt64 = 0
+    private var isArmed = false
+    private var failedGeneration: UInt64?
+
+    func arm(for generation: UInt64) {
+        lock.lock()
+        self.generation = generation
+        isArmed = true
+        failedGeneration = nil
+        lock.unlock()
+    }
+
+    func disarm() {
+        lock.lock()
+        isArmed = false
+        lock.unlock()
+    }
+
+    func fail(for generation: UInt64) {
+        lock.lock()
+        if self.generation == generation {
+            failedGeneration = generation
+        }
+        lock.unlock()
+    }
+
+    @discardableResult
+    func withPermission(
+        for generation: UInt64,
+        _ action: () -> Void
+    ) -> Bool {
+        lock.lock()
+        guard isArmed,
+              self.generation == generation,
+              failedGeneration != generation
+        else {
+            lock.unlock()
+            return false
+        }
+        action()
+        lock.unlock()
+        return true
+    }
+}
+
 enum ConduitPipInstrumentation {
     static let log = OSLog(subsystem: "media.conduit.mobile", category: "PiP")
 
@@ -352,6 +399,8 @@ final class ConduitPictureInPictureFrameCapture {
     )
     private let captureQueueKey = DispatchSpecificKey<Void>()
     private let captureIdleGroup = DispatchGroup()
+    private let captureLifetimeGroup = DispatchGroup()
+    private let shutdownFence = ConduitPipCaptureShutdownFence()
     private var commandQueue: MTLCommandQueue?
     private var textureCache: CVMetalTextureCache?
     private let stateLock = NSLock()
@@ -403,51 +452,65 @@ final class ConduitPictureInPictureFrameCapture {
         generation &+= 1
         isArmed = true
         failedGeneration = nil
+        let captureGeneration = generation
         stateLock.unlock()
-
-        captureQueue.async { [weak self] in
-            guard let self else { return }
-            self.resetCaptureResources()
-            self.droppedFrameCount = 0
-            self.lastDropLogUptime = 0
-        }
-    }
-
-    func stop() {
-        stateLock.lock()
-        generation &+= 1
-        isArmed = false
-        stateLock.unlock()
-
-        let reset = { [weak self] in
-            self?.resetCaptureResources()
-        }
-        if DispatchQueue.getSpecific(key: captureQueueKey) == nil {
-            let deadline = DispatchTime.now() + Self.captureShutdownTimeout
-            if captureIdleGroup.wait(timeout: deadline) == .success {
-                captureQueue.sync(execute: reset)
-            } else {
-                detachTimedOutCapture()
-                ConduitPipInstrumentation.event("shutdownDeferred", reason: "capture completion timeout")
-                captureQueue.async { [self] in
-                    self.resetCaptureResources()
-                }
-            }
-        } else {
-            reset()
-        }
-    }
-
-    func resetTimeline() {
-        stateLock.lock()
-        generation &+= 1
-        stateLock.unlock()
+        shutdownFence.arm(for: captureGeneration)
 
         captureQueue.async { [weak self] in
             guard let self else { return }
             self.scheduler.reset()
             self.timestampEstimator.reset()
-            self.clearPool()
+            self.droppedFrameCount = 0
+            self.lastDropLogUptime = 0
+        }
+    }
+
+    func stop(completion: (() -> Void)? = nil) {
+        shutdownFence.disarm()
+        stateLock.lock()
+        generation &+= 1
+        isArmed = false
+        let stoppedGeneration = generation
+        stateLock.unlock()
+
+        if DispatchQueue.getSpecific(key: captureQueueKey) == nil {
+            let deadline = DispatchTime.now() + Self.captureShutdownTimeout
+            if captureIdleGroup.wait(timeout: deadline) == .success {
+                scheduleResetWhenCaptureLifetimeIsIdle(
+                    stoppedGeneration: stoppedGeneration,
+                    completion: completion
+                )
+            } else {
+                detachTimedOutCapture()
+                ConduitPipInstrumentation.event("shutdownDeferred", reason: "capture completion timeout")
+                scheduleResetWhenCaptureLifetimeIsIdle(
+                    stoppedGeneration: stoppedGeneration,
+                    completion: completion
+                )
+            }
+        } else {
+            scheduleResetWhenCaptureLifetimeIsIdle(
+                stoppedGeneration: stoppedGeneration,
+                completion: completion
+            )
+        }
+    }
+
+    func resetTimeline() {
+        shutdownFence.disarm()
+        stateLock.lock()
+        generation &+= 1
+        let captureGeneration = generation
+        let shouldRearm = isArmed
+        stateLock.unlock()
+        if shouldRearm {
+            shutdownFence.arm(for: captureGeneration)
+        }
+
+        captureQueue.async { [weak self] in
+            guard let self else { return }
+            self.scheduler.reset()
+            self.timestampEstimator.reset()
         }
     }
 
@@ -469,10 +532,11 @@ final class ConduitPictureInPictureFrameCapture {
         let captureGeneration = generation
         inFlightGeneration = captureGeneration
         captureIdleGroup.enter()
+        captureLifetimeGroup.enter()
         stateLock.unlock()
 
-        captureQueue.async { [weak self] in
-            guard let self else { return }
+        captureQueue.async { [self] in
+            defer { self.captureLifetimeGroup.leave() }
             guard self.isCurrentGeneration(captureGeneration) else {
                 self.finishCapture(for: captureGeneration)
                 return
@@ -690,9 +754,10 @@ final class ConduitPictureInPictureFrameCapture {
             preferredTimescale: 600
         )
 
-        commandBuffer.addCompletedHandler { [weak self] commandBuffer in
-            guard let self else { return }
+        captureLifetimeGroup.enter()
+        commandBuffer.addCompletedHandler { [self] commandBuffer in
             self.captureQueue.async {
+                defer { self.captureLifetimeGroup.leave() }
                 guard self.isCurrentGeneration(generation),
                       let displayLayer = self.displayLayer
                 else {
@@ -744,7 +809,12 @@ final class ConduitPictureInPictureFrameCapture {
                     return
                 }
 
-                displayLayer.enqueue(sample)
+                guard self.shutdownFence.withPermission(for: generation, {
+                    displayLayer.enqueue(sample)
+                }) else {
+                    self.finishCapture(for: generation)
+                    return
+                }
                 guard displayLayer.status != .failed else {
                     self.failCapture(
                         for: generation,
@@ -878,6 +948,21 @@ final class ConduitPictureInPictureFrameCapture {
         clearPool()
     }
 
+    private func scheduleResetWhenCaptureLifetimeIsIdle(
+        stoppedGeneration: UInt64,
+        completion: (() -> Void)?
+    ) {
+        captureLifetimeGroup.notify(queue: captureQueue) { [self] in
+            self.stateLock.lock()
+            let canReset = !self.isArmed && self.generation == stoppedGeneration
+            self.stateLock.unlock()
+            if canReset {
+                self.resetCaptureResources()
+            }
+            completion?()
+        }
+    }
+
     private func detachTimedOutCapture() {
         stateLock.lock()
         if inFlightGeneration != nil {
@@ -892,6 +977,7 @@ final class ConduitPictureInPictureFrameCapture {
         reason: String,
         kind: ConduitPipCaptureFailureKind = .fatal
     ) {
+        shutdownFence.fail(for: candidate)
         stateLock.lock()
         guard isArmed, generation == candidate, failedGeneration != candidate else {
             stateLock.unlock()

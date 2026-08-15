@@ -1,6 +1,7 @@
 import CoreGraphics
 import CoreMedia
 import CoreVideo
+import Dispatch
 import XCTest
 @testable import conduit
 
@@ -483,6 +484,55 @@ final class VideoOutputRecoveryPolicyTests: XCTestCase {
                 bufferHeight: 1_080,
                 clockGeneration: 7
             )
+        )
+    }
+
+    func testPictureInPictureShutdownFenceRejectsLateCompletionAfterDisarm() {
+        let fence = ConduitPipCaptureShutdownFence()
+        fence.arm(for: 41)
+
+        let enqueueEntered = DispatchSemaphore(value: 0)
+        let releaseEnqueue = DispatchSemaphore(value: 0)
+        let enqueueCompleted = DispatchSemaphore(value: 0)
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            _ = fence.withPermission(for: 41) {
+                enqueueEntered.signal()
+                _ = releaseEnqueue.wait(timeout: .now() + 1)
+            }
+            enqueueCompleted.signal()
+        }
+
+        XCTAssertEqual(
+            enqueueEntered.wait(timeout: .now() + 1),
+            .success
+        )
+
+        let disarmCompleted = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .userInitiated).async {
+            fence.disarm()
+            disarmCompleted.signal()
+        }
+
+        XCTAssertEqual(
+            disarmCompleted.wait(timeout: .now() + .milliseconds(50)),
+            .timedOut
+        )
+
+        releaseEnqueue.signal()
+        XCTAssertEqual(
+            enqueueCompleted.wait(timeout: .now() + 1),
+            .success
+        )
+
+        XCTAssertFalse(
+            fence.withPermission(for: 41) {
+                XCTFail("late completion crossed the shutdown fence")
+            }
+        )
+        XCTAssertEqual(
+            disarmCompleted.wait(timeout: .now() + 1),
+            .success
         )
     }
 }

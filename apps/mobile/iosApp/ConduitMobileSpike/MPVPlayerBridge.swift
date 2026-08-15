@@ -821,22 +821,37 @@ final class ConduitMPVPlayerViewController: UIViewController {
         metalLayer.isHidden = true
         pendingLoad = nil
         shouldPlay = false
-        pictureInPicture?.invalidate()
-        pictureInPicture = nil
+        let pictureInPictureCoordinator = pictureInPicture
         deactivateAudioSession()
 
-        guard let context = mpv else { return }
+        guard let context = mpv else {
+            pictureInPictureCoordinator?.invalidate()
+            pictureInPicture = nil
+            return
+        }
         mpv = nil
         invalidateExternalSubtitleLoads()
 
-        // All wakeup callbacks enqueue work on these queues. Drain them before
-        // terminating libmpv, but keep both the wait and MoltenVK teardown off
-        // the main thread so leaving the player can update the UI immediately.
-        DispatchQueue.global(qos: .userInitiated).async { [self] in
-            subtitleQueue.sync {}
-            eventQueue.sync {}
-            mpv_terminate_destroy(context)
+        let terminateMpv = { [self] in
+            // All wakeup callbacks enqueue work on these queues. Drain them
+            // before terminating libmpv, but keep both the wait and MoltenVK
+            // teardown off the main thread so leaving the player can update
+            // the UI immediately.
+            DispatchQueue.global(qos: .userInitiated).async { [self] in
+                subtitleQueue.sync {}
+                eventQueue.sync {}
+                mpv_terminate_destroy(context)
+            }
         }
+        // The capture coordinator owns the last references to MPV drawables.
+        // Do not tear down the libmpv/MoltenVK context until any capture that
+        // entered before shutdown has exited its final enqueue fence.
+        if let pictureInPictureCoordinator {
+            pictureInPictureCoordinator.invalidate(completion: terminateMpv)
+        } else {
+            terminateMpv()
+        }
+        pictureInPicture = nil
     }
 
     deinit {
@@ -2064,10 +2079,10 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         frameCapture.resetTimeline()
     }
 
-    func invalidate() {
+    func invalidate(completion: (() -> Void)? = nil) {
         pictureInPicturePossibleObservation?.invalidate()
         pictureInPicturePossibleObservation = nil
-        stopCapture()
+        stopCapture(completion: completion)
         metalLayer.onDrawablePresented = nil
         controller?.stopPictureInPicture()
         controller?.delegate = nil
@@ -2106,7 +2121,7 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         scheduleActiveCaptureReprimeTimeout()
     }
 
-    private func stopCapture() {
+    private func stopCapture(completion: (() -> Void)? = nil) {
         primingTimeout?.cancel()
         primingTimeout = nil
         activeCaptureReprimeTimeout?.cancel()
@@ -2117,7 +2132,7 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         resetPrimingFrameState()
         metalLayer.isDrawableCaptureArmed = false
         metalLayer.capturesWithoutPresentation = false
-        frameCapture.stop()
+        frameCapture.stop(completion: completion)
     }
 
     private func scheduleActiveCaptureReprimeTimeout() {
