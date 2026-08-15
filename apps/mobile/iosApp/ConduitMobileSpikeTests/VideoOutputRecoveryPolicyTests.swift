@@ -362,4 +362,32 @@ final class VideoOutputRecoveryPolicyTests: XCTestCase {
             accuracy: 0.001
         )
     }
+
+    func testPictureInPictureTimestampEstimatorResetsOnMaterialBackwardClockJump() {
+        var estimator = ConduitPipTimestampEstimator()
+        let clock = ConduitPipPlaybackClockSnapshot(
+            positionMs: 10_000,
+            durationMs: 60_000,
+            isPlaying: true,
+            playbackRate: 1,
+            videoFrameRate: 24,
+            generation: 1
+        )
+        let correctedClock = ConduitPipPlaybackClockSnapshot(
+            positionMs: 2_000,
+            durationMs: 60_000,
+            isPlaying: true,
+            playbackRate: 1,
+            videoFrameRate: 24,
+            generation: 1
+        )
+
+        _ = estimator.timestamp(for: clock, at: 10)
+        XCTAssertEqual(
+            CMTimeGetSeconds(estimator.timestamp(for: correctedClock, at: 11)),
+            2,
+            accuracy: 0.001
+        )
+        XCTAssertTrue(estimator.didDetectTimelineDiscontinuity)
+    }
 }
