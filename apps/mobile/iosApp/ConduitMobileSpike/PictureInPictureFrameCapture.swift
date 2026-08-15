@@ -386,6 +386,23 @@ final class ConduitPipCaptureLifetimeTracker {
     }
 }
 
+final class ConduitPipCaptureTimeoutState {
+    private let lock = NSLock()
+    private var didTimeout = false
+
+    func markTimedOut() {
+        lock.lock()
+        didTimeout = true
+        lock.unlock()
+    }
+
+    var timedOut: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return didTimeout
+    }
+}
+
 final class ConduitPipCaptureShutdownFence {
     private let lock = NSLock()
     private let activeOperationGroup = DispatchGroup()
@@ -588,8 +605,27 @@ final class ConduitPictureInPictureFrameCapture {
         failedGeneration = nil
         stateLock.unlock()
 
+        let timeoutState = ConduitPipCaptureTimeoutState()
+        let timeoutWork = DispatchWorkItem { [weak self, timeoutState] in
+            guard let self else { return }
+            self.stateLock.lock()
+            let isCurrentTimeline = self.generation == captureGeneration && !self.isArmed
+            self.stateLock.unlock()
+            guard isCurrentTimeline else { return }
+            timeoutState.markTimedOut()
+            self.captureLifetimeTracker.forceReleaseAll()
+            ConduitPipInstrumentation.event(
+                "seekResetForced",
+                reason: "capture completion timeout"
+            )
+        }
+        DispatchQueue.global(qos: .utility).asyncAfter(
+            deadline: .now() + Self.captureShutdownTimeout,
+            execute: timeoutWork
+        )
         captureLifetimeTracker.notify(queue: captureQueue) { [self] in
             self.shutdownFence.notifyOperationsIdle(queue: self.captureQueue) {
+                timeoutWork.cancel()
                 self.stateLock.lock()
                 let isCurrentTimeline = self.generation == captureGeneration
                 self.stateLock.unlock()
@@ -598,6 +634,10 @@ final class ConduitPictureInPictureFrameCapture {
                 self.scheduler.reset()
                 self.timestampEstimator.reset()
                 completion?()
+
+                if timeoutState.timedOut {
+                    self.abandonCaptureResources()
+                }
 
                 guard shouldRearm else { return }
                 self.stateLock.lock()
