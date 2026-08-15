@@ -335,6 +335,8 @@ enum ConduitPipInstrumentation {
 }
 
 final class ConduitPictureInPictureFrameCapture {
+    private static let captureShutdownTimeout: DispatchTimeInterval = .milliseconds(250)
+
     typealias ClockProvider = () -> ConduitPipPlaybackClockSnapshot
     typealias FrameEnqueuedHandler = () -> Void
     typealias CaptureFailureHandler = (_ reason: String, _ kind: ConduitPipCaptureFailureKind) -> Void
@@ -421,8 +423,16 @@ final class ConduitPictureInPictureFrameCapture {
             self?.resetCaptureResources()
         }
         if DispatchQueue.getSpecific(key: captureQueueKey) == nil {
-            captureIdleGroup.wait()
-            captureQueue.sync(execute: reset)
+            let deadline = DispatchTime.now() + Self.captureShutdownTimeout
+            if captureIdleGroup.wait(timeout: deadline) == .success {
+                captureQueue.sync(execute: reset)
+            } else {
+                detachTimedOutCapture()
+                ConduitPipInstrumentation.event("shutdownDeferred", reason: "capture completion timeout")
+                captureQueue.async { [self] in
+                    self.resetCaptureResources()
+                }
+            }
         } else {
             reset()
         }
@@ -866,6 +876,15 @@ final class ConduitPictureInPictureFrameCapture {
         scheduler.reset()
         timestampEstimator.reset()
         clearPool()
+    }
+
+    private func detachTimedOutCapture() {
+        stateLock.lock()
+        if inFlightGeneration != nil {
+            inFlightGeneration = nil
+            captureIdleGroup.leave()
+        }
+        stateLock.unlock()
     }
 
     private func failCapture(
