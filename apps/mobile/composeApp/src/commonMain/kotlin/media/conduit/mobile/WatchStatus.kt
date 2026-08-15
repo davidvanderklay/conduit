@@ -130,6 +130,13 @@ internal fun effectiveResumeVideoId(
     item: CatalogItem,
 ): String? = explicitVideoId ?: latestUnfinishedProgress(progress, item)?.videoId
 
+internal fun resolveRequestedVideo(
+    videos: List<VideoItem>,
+    requestedVideoId: String?,
+): VideoItem? = requestedVideoId
+    ?.let { videoId -> videos.firstOrNull { it.id == videoId } }
+    ?: videos.firstOrNull()
+
 internal fun detailsPlayLabel(
     item: CatalogItem,
     progress: ProgressSummary?,

@@ -2,6 +2,7 @@ package media.conduit.mobile
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotEquals
 import media.conduit.mobile.account.CatalogItem
 import media.conduit.mobile.account.ProgressSummary
 import media.conduit.mobile.account.VideoItem
@@ -119,6 +120,20 @@ class WatchStatusTest {
 
         assertEquals("s1e3", effectiveResumeVideoId("s1e3", listOf(unfinished), series))
         assertEquals("s1e2", effectiveResumeVideoId(null, listOf(unfinished), series))
+    }
+
+    @Test
+    fun requestedEpisodeReplacesPreviouslySelectedEpisode() {
+        val episodes = listOf(
+            VideoItem("s3e4", season = 3, episode = 4),
+            VideoItem("s3e10", season = 3, episode = 10),
+        )
+
+        val previouslySelected = episodes.first()
+        val resolved = resolveRequestedVideo(episodes, requestedVideoId = "s3e10")
+
+        assertEquals("s3e10", resolved?.id)
+        assertNotEquals(previouslySelected.id, resolved?.id)
     }
 
     private fun progress(videoId: String, mediaId: String, watched: Boolean = false, position: Long = 0, type: String = "series") =
