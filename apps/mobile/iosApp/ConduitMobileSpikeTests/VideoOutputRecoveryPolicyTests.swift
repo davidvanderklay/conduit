@@ -1,4 +1,5 @@
 import CoreGraphics
+import CoreMedia
 import XCTest
 @testable import conduit
 
@@ -260,6 +261,105 @@ final class VideoOutputRecoveryPolicyTests: XCTestCase {
                 recoveryTimeout: 1.5,
             ),
             .pause,
+        )
+    }
+
+    func testPictureInPictureSchedulerFollowsSourceCadence() {
+        var scheduler = ConduitPipFrameScheduler()
+        let clock = ConduitPipPlaybackClockSnapshot(
+            positionMs: 0,
+            durationMs: 60_000,
+            isPlaying: true,
+            playbackRate: 1,
+            videoFrameRate: 24,
+            generation: 1
+        )
+
+        XCTAssertTrue(scheduler.shouldCapture(at: 10, presentationID: 1, clock: clock))
+        XCTAssertFalse(scheduler.shouldCapture(at: 10.02, presentationID: 2, clock: clock))
+        XCTAssertTrue(scheduler.shouldCapture(at: 10.05, presentationID: 3, clock: clock))
+        XCTAssertFalse(scheduler.shouldCapture(at: 10.05, presentationID: 3, clock: clock))
+    }
+
+    func testPictureInPictureSchedulerScalesPlaybackRateAndCapsAtSixtyHertz() {
+        var scheduler = ConduitPipFrameScheduler()
+        let clock = ConduitPipPlaybackClockSnapshot(
+            positionMs: 0,
+            durationMs: 60_000,
+            isPlaying: true,
+            playbackRate: 2,
+            videoFrameRate: 30,
+            generation: 1
+        )
+
+        XCTAssertTrue(scheduler.shouldCapture(at: 10, presentationID: 1, clock: clock))
+        XCTAssertFalse(scheduler.shouldCapture(at: 10.015, presentationID: 2, clock: clock))
+        XCTAssertTrue(scheduler.shouldCapture(at: 10.017, presentationID: 3, clock: clock))
+    }
+
+    func testPictureInPictureSchedulerFallsBackForInvalidFrameRate() {
+        var scheduler = ConduitPipFrameScheduler()
+        let clock = ConduitPipPlaybackClockSnapshot(
+            positionMs: 0,
+            durationMs: 60_000,
+            isPlaying: true,
+            playbackRate: 1,
+            videoFrameRate: 0,
+            generation: 1
+        )
+
+        XCTAssertTrue(scheduler.shouldCapture(at: 10, presentationID: 1, clock: clock))
+        XCTAssertFalse(scheduler.shouldCapture(at: 10.02, presentationID: 2, clock: clock))
+        XCTAssertTrue(scheduler.shouldCapture(at: 10.04, presentationID: 3, clock: clock))
+    }
+
+    func testPictureInPictureTimestampEstimatorUsesPlaybackRate() {
+        var estimator = ConduitPipTimestampEstimator()
+        let clock = ConduitPipPlaybackClockSnapshot(
+            positionMs: 1_000,
+            durationMs: 60_000,
+            isPlaying: true,
+            playbackRate: 2,
+            videoFrameRate: 24,
+            generation: 1
+        )
+
+        XCTAssertEqual(
+            CMTimeGetSeconds(estimator.timestamp(for: clock, at: 10)),
+            1,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            CMTimeGetSeconds(estimator.timestamp(for: clock, at: 10.25)),
+            1.5,
+            accuracy: 0.001
+        )
+    }
+
+    func testPictureInPictureTimestampEstimatorResetsOnClockGeneration() {
+        var estimator = ConduitPipTimestampEstimator()
+        let firstClock = ConduitPipPlaybackClockSnapshot(
+            positionMs: 10_000,
+            durationMs: 60_000,
+            isPlaying: true,
+            playbackRate: 1,
+            videoFrameRate: 24,
+            generation: 1
+        )
+        let seekedClock = ConduitPipPlaybackClockSnapshot(
+            positionMs: 2_000,
+            durationMs: 60_000,
+            isPlaying: true,
+            playbackRate: 1,
+            videoFrameRate: 24,
+            generation: 2
+        )
+
+        _ = estimator.timestamp(for: firstClock, at: 10)
+        XCTAssertEqual(
+            CMTimeGetSeconds(estimator.timestamp(for: seekedClock, at: 11)),
+            2,
+            accuracy: 0.001
         )
     }
 }

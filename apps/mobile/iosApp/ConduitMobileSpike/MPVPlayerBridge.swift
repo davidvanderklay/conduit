@@ -295,6 +295,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
     private let subtitleQueue = DispatchQueue(label: "media.conduit.mpv-subtitles", qos: .utility)
     private let subtitleLock = NSLock()
     private let errorLock = NSLock()
+    fileprivate let pictureInPictureClock = ConduitPipPlaybackClock()
     private var metalLayer = ConduitMetalLayer()
     private let pictureInPicturePlaceholderLayer = CALayer()
     private var pictureInPicture: ConduitPictureInPictureCoordinator?
@@ -340,6 +341,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
     private var destroyStarted = false
     private var resizeMode = 0
     private var lastDebugPlaybackSnapshot: String?
+    private var videoFrameRate = 30.0
 
     fileprivate var audioTracks: [ConduitTrack] = []
     fileprivate var subtitleTracks: [ConduitTrack] = []
@@ -539,6 +541,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
         runOnMain { [weak self] in
             guard let self, self.mpv != nil else { return }
             self.resetMediaClockObservation()
+            self.pictureInPictureClock.reset(positionMs: milliseconds)
             self.command("seek", args: [String(format: "%.3f", Double(milliseconds) / 1000.0), "absolute"])
             self.pictureInPicture?.playbackStateChanged()
         }
@@ -548,6 +551,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
         runOnMain { [weak self] in
             guard let self, self.mpv != nil else { return }
             self.resetMediaClockObservation()
+            self.pictureInPictureClock.reset(positionMs: self.positionMs + milliseconds)
             self.command("seek", args: [String(format: "%.3f", Double(milliseconds) / 1000.0), "relative"])
             self.pictureInPicture?.playbackStateChanged()
         }
@@ -678,6 +682,8 @@ final class ConduitMPVPlayerViewController: UIViewController {
         let videoCodec = getString("video-codec")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let outputWidth = getInt("video-out-params/w")
         let outputHeight = getInt("video-out-params/h")
+        let activeFrameRate = getDouble("video-params/fps")
+        let containerFrameRate = getDouble("container-fps")
         let decodedWidth = outputWidth > 0 ? outputWidth : getInt("video-params/w")
         let decodedHeight = outputHeight > 0 ? outputHeight : getInt("video-params/h")
         let nextVideoWidth = max(decodedWidth, 0)
@@ -715,6 +721,16 @@ final class ConduitMPVPlayerViewController: UIViewController {
         videoWidth = nextVideoWidth
         videoHeight = nextVideoHeight
         currentSpeed = Float(speed > 0 ? speed : 1.0)
+        videoFrameRate = activeFrameRate > 0 ? activeFrameRate : (
+            containerFrameRate > 0 ? containerFrameRate : 30
+        )
+        pictureInPictureClock.update(
+            positionMs: positionMs,
+            durationMs: durationMs,
+            isPlaying: isPlayerPlaying,
+            playbackRate: Double(currentSpeed),
+            videoFrameRate: videoFrameRate
+        )
         if videoSizeChanged { updateSubtitlePosition() }
 #if DEBUG
         debugPlaybackState(
@@ -1281,6 +1297,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
     private func startLoad(_ request: ConduitPendingLoad) {
         guard mpv != nil else { return }
         layoutMetalLayer()
+        pictureInPictureClock.reset(positionMs: request.initialPositionMs)
         clearError()
         activeHeaders = sanitizeHeaders(request.headers)
         applyRequestHeaders(activeHeaders)
@@ -1884,34 +1901,22 @@ final class ConduitMPVPlayerViewController: UIViewController {
 }
 
 /// Mirrors MPV's final Metal drawable into AVKit without creating a second decoder.
-/// The copier is bounded to 30 fps and one in-flight frame; late frames are dropped.
+/// Frame copying and cadence scheduling live in ConduitPictureInPictureFrameCapture.
 final class ConduitPictureInPictureCoordinator: NSObject,
     AVPictureInPictureControllerDelegate,
     AVPictureInPictureSampleBufferPlaybackDelegate {
-    private static let captureFramesPerSecond: CMTimeScale = 30
-
     private weak var owner: ConduitMPVPlayerViewController?
     private let metalLayer: ConduitMetalLayer
     private let displayLayer = AVSampleBufferDisplayLayer()
-    private let captureQueue = DispatchQueue(label: "media.conduit.pip-capture", qos: .userInitiated)
+    private var frameCapture: ConduitPictureInPictureFrameCapture!
     private var controller: AVPictureInPictureController?
     private var pictureInPicturePossibleObservation: NSKeyValueObservation?
-    private var displayLink: CADisplayLink?
-    private var pixelBufferPool: CVPixelBufferPool?
-    private var formatDescription: CMVideoFormatDescription?
-    private var poolSize = CGSize.zero
-    private var captureInFlight = false
     private var priming = false
     private var startRequested = false
     private var startAttempts = 0
     private var startAttemptWorkItem: DispatchWorkItem?
     private var enqueuedFrameCount = 0
-    private var lastTimestamp = CMTime.invalid
     private var automaticEntryTimeout: DispatchWorkItem?
-    private var clockAnchorPositionMs: Int64 = 0
-    private var clockAnchorTime: CFTimeInterval = 0
-    private var clockPlaying = false
-    private var lastObservedOwnerPositionMs: Int64?
 
     init(owner: ConduitMPVPlayerViewController, metalLayer: ConduitMetalLayer) {
         self.owner = owner
@@ -1928,6 +1933,20 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         controller.delegate = self
         controller.canStartPictureInPictureAutomaticallyFromInline = true
         self.controller = controller
+        frameCapture = ConduitPictureInPictureFrameCapture(
+            metalLayer: metalLayer,
+            displayLayer: displayLayer,
+            clockProvider: { [weak owner] in
+                owner?.pictureInPictureClock.snapshot() ?? .empty
+            },
+            onFrameEnqueued: {}
+        )
+        frameCapture.setOnFrameEnqueued { [weak self] in
+            self?.frameWasEnqueued()
+        }
+        metalLayer.onDrawablePresented = { [weak self] drawable, presentationID in
+            self?.frameCapture.handlePresentedDrawable(drawable, presentationID: presentationID)
+        }
         pictureInPicturePossibleObservation = controller.observe(
             \.isPictureInPicturePossible,
             options: [.initial, .new]
@@ -1960,7 +1979,7 @@ final class ConduitPictureInPictureCoordinator: NSObject,
     func prepareForAutomaticEntry() {
         guard isSupported, owner?.isPlayerPlaying == true, !isActive else { return }
         startRequested = false
-        beginPriming()
+        beginPriming(capturesWithoutPresentation: true)
         automaticEntryTimeout?.cancel()
         let work = DispatchWorkItem { [weak self] in
             guard let self, !self.isActive else { return }
@@ -1994,6 +2013,7 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         pictureInPicturePossibleObservation?.invalidate()
         pictureInPicturePossibleObservation = nil
         stopCapture()
+        metalLayer.onDrawablePresented = nil
         controller?.stopPictureInPicture()
         controller?.delegate = nil
         controller = nil
@@ -2001,160 +2021,34 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         displayLayer.removeFromSuperlayer()
     }
 
-    private func beginPriming() {
+    private func beginPriming(capturesWithoutPresentation: Bool = false) {
         owner?.suspendVideoOutputWatchdogForPictureInPicture()
         priming = true
         startAttempts = 0
         enqueuedFrameCount = 0
         startAttemptWorkItem?.cancel()
         startAttemptWorkItem = nil
-        lastTimestamp = .invalid
-        clockAnchorPositionMs = 0
-        clockAnchorTime = 0
-        clockPlaying = false
-        lastObservedOwnerPositionMs = nil
         displayLayer.flush()
-        if displayLink == nil {
-            let link = CADisplayLink(target: self, selector: #selector(captureTick))
-            link.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 30, preferred: 30)
-            link.add(to: .main, forMode: .common)
-            displayLink = link
-        }
+        metalLayer.capturesWithoutPresentation = capturesWithoutPresentation
+        metalLayer.isDrawableCaptureArmed = true
+        frameCapture.start()
     }
 
     private func stopCapture() {
         startAttemptWorkItem?.cancel()
         startAttemptWorkItem = nil
-        displayLink?.invalidate()
-        displayLink = nil
-        captureInFlight = false
-        pixelBufferPool = nil
-        formatDescription = nil
-        poolSize = .zero
-        lastTimestamp = .invalid
         enqueuedFrameCount = 0
-        lastObservedOwnerPositionMs = nil
+        metalLayer.isDrawableCaptureArmed = false
+        metalLayer.capturesWithoutPresentation = false
+        frameCapture.stop()
     }
 
-    @objc private func captureTick() {
-        if displayLayer.status == .failed { displayLayer.flush() }
-        guard priming || isActive, !captureInFlight, displayLayer.isReadyForMoreMediaData else { return }
-        guard let owner else { return }
-        let sourceSize = owner.videoContentSize
-        guard sourceSize.width > 1, sourceSize.height > 1 else { return }
-        ensurePool(for: sourceSize)
-        guard let pixelBufferPool else { return }
-        var buffer: CVPixelBuffer?
-        guard CVPixelBufferPoolCreatePixelBuffer(nil, pixelBufferPool, &buffer) == kCVReturnSuccess,
-              let buffer
-        else { return }
-
-        captureInFlight = true
-        guard let timestamp = nextSampleTimestamp(for: owner) else {
-            captureInFlight = false
-            return
-        }
-        captureQueue.async { [weak self] in
+    private func frameWasEnqueued() {
+        DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            let copied = self.metalLayer.copyLatestFrame(to: buffer, contentSize: sourceSize)
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                self.captureInFlight = false
-                guard copied, let formatDescription = self.formatDescription else { return }
-                var timing = CMSampleTimingInfo(
-                    duration: CMTime(value: 1, timescale: Self.captureFramesPerSecond),
-                    presentationTimeStamp: timestamp,
-                    decodeTimeStamp: .invalid
-                )
-                var sample: CMSampleBuffer?
-                guard CMSampleBufferCreateReadyWithImageBuffer(
-                    allocator: kCFAllocatorDefault,
-                    imageBuffer: buffer,
-                    formatDescription: formatDescription,
-                    sampleTiming: &timing,
-                    sampleBufferOut: &sample
-                ) == noErr, let sample else { return }
-                CMSetAttachment(
-                    sample,
-                    key: kCMSampleAttachmentKey_DisplayImmediately,
-                    value: kCFBooleanTrue,
-                    attachmentMode: kCMAttachmentMode_ShouldPropagate
-                )
-                self.lastTimestamp = timestamp
-                self.displayLayer.enqueue(sample)
-                self.enqueuedFrameCount += 1
-                if self.startRequested { self.attemptStart() }
-            }
+            self.enqueuedFrameCount += 1
+            if self.startRequested { self.attemptStart() }
         }
-    }
-
-    private func nextSampleTimestamp(for owner: ConduitMPVPlayerViewController) -> CMTime? {
-        let now = CACurrentMediaTime()
-        let position = max(owner.positionMs, 0)
-        let ownerStateChanged = lastObservedOwnerPositionMs == nil ||
-            abs(position - (lastObservedOwnerPositionMs ?? position)) > 250 ||
-            clockPlaying != owner.isPlayerPlaying
-        if ownerStateChanged {
-            clockAnchorPositionMs = position
-            clockAnchorTime = now
-            clockPlaying = owner.isPlayerPlaying
-            lastObservedOwnerPositionMs = position
-        }
-
-        let elapsedMs = clockPlaying ? Int64(max(0, now - clockAnchorTime) * 1_000) : 0
-        let estimatedPositionMs = clockAnchorPositionMs + elapsedMs
-        if lastTimestamp.isValid {
-            let lastPositionMs = Int64(CMTimeGetSeconds(lastTimestamp) * 1_000)
-            if estimatedPositionMs + 1_000 < lastPositionMs {
-                displayLayer.flush()
-                lastTimestamp = .invalid
-                enqueuedFrameCount = 0
-            }
-        }
-
-        let timestamp = CMTime(value: max(estimatedPositionMs, 0), timescale: 1_000)
-        guard !lastTimestamp.isValid || CMTimeCompare(timestamp, lastTimestamp) > 0 else {
-            guard priming, lastTimestamp.isValid else { return nil }
-            return CMTimeAdd(
-                lastTimestamp,
-                CMTime(value: 1, timescale: Self.captureFramesPerSecond)
-            )
-        }
-        return timestamp
-    }
-
-    private func ensurePool(for sourceSize: CGSize) {
-        let scale = min(1, 1280 / sourceSize.width, 720 / sourceSize.height)
-        let width = max(2, Int((sourceSize.width * scale).rounded()) & ~1)
-        let height = max(2, Int((sourceSize.height * scale).rounded()) & ~1)
-        let size = CGSize(width: width, height: height)
-        guard size != poolSize else { return }
-
-        var pool: CVPixelBufferPool?
-        let attributes: [CFString: Any] = [
-            kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_32BGRA,
-            kCVPixelBufferWidthKey: width,
-            kCVPixelBufferHeightKey: height,
-            kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary,
-            kCVPixelBufferMetalCompatibilityKey: true,
-        ]
-        guard CVPixelBufferPoolCreate(nil, nil, attributes as CFDictionary, &pool) == kCVReturnSuccess,
-              let pool
-        else { return }
-        var buffer: CVPixelBuffer?
-        guard CVPixelBufferPoolCreatePixelBuffer(nil, pool, &buffer) == kCVReturnSuccess,
-              let buffer
-        else { return }
-        var description: CMVideoFormatDescription?
-        guard CMVideoFormatDescriptionCreateForImageBuffer(
-            allocator: kCFAllocatorDefault,
-            imageBuffer: buffer,
-            formatDescriptionOut: &description
-        ) == noErr else { return }
-        pixelBufferPool = pool
-        formatDescription = description
-        poolSize = size
-        displayLayer.flush()
     }
 
     private func attemptStart() {
@@ -2203,6 +2097,7 @@ final class ConduitPictureInPictureCoordinator: NSObject,
     func pictureInPictureControllerWillStartPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
         automaticEntryTimeout?.cancel()
         automaticEntryTimeout = nil
+        metalLayer.capturesWithoutPresentation = true
         owner?.setInlineVideoHiddenForPictureInPicture(true)
     }
 
