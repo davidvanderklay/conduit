@@ -198,6 +198,31 @@ struct ConduitPipCaptureRecoveryPolicy {
     }
 }
 
+/// Owns the single capture admitted for a presentation generation. Detaching
+/// is idempotent so a timeout can release the gate before a late completion.
+struct ConduitPipCaptureInFlightState {
+    private(set) var generation: UInt64?
+
+    mutating func claim(_ candidate: UInt64) -> Bool {
+        guard generation == nil else { return false }
+        generation = candidate
+        return true
+    }
+
+    @discardableResult
+    mutating func finish(_ candidate: UInt64) -> Bool {
+        guard generation == candidate else { return false }
+        generation = nil
+        return true
+    }
+
+    @discardableResult
+    mutating func detach() -> UInt64? {
+        defer { generation = nil }
+        return generation
+    }
+}
+
 struct ConduitPipCaptureMetricsSnapshot: Equatable {
     let enqueuedFrames: UInt64
     let droppedFrames: UInt64
@@ -496,7 +521,7 @@ final class ConduitPictureInPictureFrameCapture {
 
     private var isArmed = false
     private var generation: UInt64 = 0
-    private var inFlightGeneration: UInt64?
+    private var inFlightState = ConduitPipCaptureInFlightState()
     private var failedGeneration: UInt64?
 
     private var scheduler = ConduitPipFrameScheduler()
@@ -613,6 +638,7 @@ final class ConduitPictureInPictureFrameCapture {
             self.stateLock.unlock()
             guard isCurrentTimeline else { return }
             timeoutState.markTimedOut()
+            self.detachTimedOutCapture()
             self.captureLifetimeTracker.forceReleaseAll()
             ConduitPipInstrumentation.event(
                 "seekResetForced",
@@ -661,14 +687,13 @@ final class ConduitPictureInPictureFrameCapture {
             return
         }
         ConduitPipInstrumentation.event("presented", reason: "drawable")
-        guard inFlightGeneration == nil else {
+        let captureGeneration = generation
+        guard inFlightState.claim(captureGeneration) else {
             metrics.recordDrop()
             ConduitPipInstrumentation.event("inFlightDrop", reason: "copy already in flight")
             stateLock.unlock()
             return
         }
-        let captureGeneration = generation
-        inFlightGeneration = captureGeneration
         captureIdleGroup.enter()
         let captureLifetime = captureLifetimeTracker.begin()
         stateLock.unlock()
@@ -1073,8 +1098,7 @@ final class ConduitPictureInPictureFrameCapture {
 
     private func finishCapture(for candidate: UInt64) {
         stateLock.lock()
-        if inFlightGeneration == candidate {
-            inFlightGeneration = nil
+        if inFlightState.finish(candidate) {
             captureIdleGroup.leave()
         }
         stateLock.unlock()
@@ -1121,8 +1145,7 @@ final class ConduitPictureInPictureFrameCapture {
 
     private func detachTimedOutCapture() {
         stateLock.lock()
-        if inFlightGeneration != nil {
-            inFlightGeneration = nil
+        if inFlightState.detach() != nil {
             captureIdleGroup.leave()
         }
         stateLock.unlock()

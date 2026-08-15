@@ -453,6 +453,22 @@ final class VideoOutputRecoveryPolicyTests: XCTestCase {
         )
     }
 
+    func testPictureInPictureSeekTimeoutDetachesStaleInFlightGeneration() {
+        var inFlight = ConduitPipCaptureInFlightState()
+
+        XCTAssertTrue(inFlight.claim(41))
+        XCTAssertFalse(inFlight.claim(42))
+
+        XCTAssertEqual(inFlight.detach(), 41)
+        XCTAssertNil(inFlight.detach())
+
+        // A re-armed generation can claim a frame even if the old GPU
+        // completion never arrives.
+        XCTAssertTrue(inFlight.claim(42))
+        XCTAssertTrue(inFlight.finish(42))
+        XCTAssertFalse(inFlight.finish(42))
+    }
+
     func testPictureInPictureMetricsTrackDropsFailuresAndReprimeAttempts() {
         let metrics = ConduitPipCaptureMetrics()
         metrics.recordEnqueuedFrame()
