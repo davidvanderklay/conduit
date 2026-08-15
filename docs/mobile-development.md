@@ -41,7 +41,11 @@ synchronizes account and profile data but does not proxy video.
 The following are deliberately outside the current mobile release scope:
 
 - media downloads or durable offline playback;
-- picture-in-picture, casting, and remote-control integrations;
+- casting and remote-control integrations;
+- picture-in-picture as a release feature. The iOS host contains an
+  experimental PiP implementation for development and device validation, but
+  it is not release-supported: background PiP still requires a patched MPVKit
+  revision and real-device validation;
 - P2P playback;
 - third-party integrations such as Trakt, debrid providers, Jellyfin, or Plex;
 - push notifications and background catalog refresh; and

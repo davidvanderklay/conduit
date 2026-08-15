@@ -1,4 +1,3 @@
-import CoreImage
 import Metal
 import UIKit
 
@@ -11,11 +10,56 @@ final class ConduitMetalLayer: CAMetalLayer {
     private let captureLock = NSLock()
     private let heartbeatLock = NSLock()
     private let resizeLock = NSLock()
-    private var latestDrawable: CAMetalDrawable?
     private var drawableHeartbeat: UInt64 = 0
     private var lastDrawableUptime: TimeInterval = 0
     private var liveResize = false
-    private lazy var captureContext = device.map(CIContext.init(mtlDevice:))
+    private var drawableCaptureArmed = false
+    private var captureWithoutPresentation = false
+    private var presentationID: UInt64 = 0
+
+    var onDrawablePresented: ((CAMetalDrawable, UInt64) -> Void)? {
+        get {
+            captureLock.lock()
+            defer { captureLock.unlock() }
+            return drawablePresentationHandler
+        }
+        set {
+            captureLock.lock()
+            drawablePresentationHandler = newValue
+            captureLock.unlock()
+        }
+    }
+
+    private var drawablePresentationHandler: ((CAMetalDrawable, UInt64) -> Void)?
+
+    @objc dynamic var isDrawableCaptureArmed: Bool {
+        get {
+            captureLock.lock()
+            defer { captureLock.unlock() }
+            return drawableCaptureArmed
+        }
+        set {
+            captureLock.lock()
+            drawableCaptureArmed = newValue
+            captureLock.unlock()
+        }
+    }
+
+    /// Consumed by an MPVKit build that explicitly supports background
+    /// rendering without a normal layer presentation. The pinned MPVKit
+    /// revision does not read this selector yet.
+    @objc dynamic var capturesWithoutPresentation: Bool {
+        get {
+            captureLock.lock()
+            defer { captureLock.unlock() }
+            return captureWithoutPresentation
+        }
+        set {
+            captureLock.lock()
+            captureWithoutPresentation = newValue
+            captureLock.unlock()
+        }
+    }
 
     /// MPVKit's MoltenVK bridge checks this selector before rebuilding its
     /// swapchain. Keep it thread-safe because MPV reads it off the main queue.
@@ -40,6 +84,14 @@ final class ConduitMetalLayer: CAMetalLayer {
         }
     }
 
+    /// PiP reads the final drawable as a blit source. MPVKit's MoltenVK setup
+    /// enables framebufferOnly for normal presentation, which would make that
+    /// texture unavailable to the capture path. Keep it shader/blit-readable.
+    override var framebufferOnly: Bool {
+        get { super.framebufferOnly }
+        set { super.framebufferOnly = false }
+    }
+
     override func nextDrawable() -> CAMetalDrawable? {
         let drawable = super.nextDrawable()
         if drawable != nil {
@@ -49,8 +101,29 @@ final class ConduitMetalLayer: CAMetalLayer {
             heartbeatLock.unlock()
         }
         captureLock.lock()
-        latestDrawable = drawable
+        let shouldCapture = drawableCaptureArmed && drawable != nil
+        if shouldCapture {
+            presentationID &+= 1
+        }
+        let currentPresentationID = presentationID
+        let handler = drawablePresentationHandler
         captureLock.unlock()
+
+        // MTLDrawable's presented handler runs after MPV's command buffer has
+        // presented the texture. This avoids copying while MoltenVK is still
+        // rendering into the drawable returned by nextDrawable().
+        if shouldCapture, let drawable, let handler {
+            let registered = ConduitAddMetalDrawablePresentedHandler(drawable) { presentedDrawable in
+                guard let drawable = presentedDrawable as? CAMetalDrawable else { return }
+                handler(drawable, currentPresentationID)
+            }
+            if !registered {
+                // The iOS simulator SDK currently omits the presentation
+                // handler requirement even though device Metal supports it.
+                // Keep simulator playback usable with a bounded fallback.
+                handler(drawable, currentPresentationID)
+            }
+        }
         return drawable
     }
 
@@ -60,70 +133,6 @@ final class ConduitMetalLayer: CAMetalLayer {
         heartbeatLock.lock()
         defer { heartbeatLock.unlock() }
         return (drawableHeartbeat, lastDrawableUptime)
-    }
-
-    /// Copies the most recently requested MPV drawable into a pooled BGRA buffer.
-    /// Capture is only called while PiP is priming or active.
-    func copyLatestFrame(to pixelBuffer: CVPixelBuffer, contentSize: CGSize) -> Bool {
-        captureLock.lock()
-        let texture = latestDrawable?.texture
-        captureLock.unlock()
-        guard let texture, let captureContext,
-              let image = CIImage(mtlTexture: texture, options: [.colorSpace: CGColorSpaceCreateDeviceRGB()])
-        else { return false }
-
-        let targetSize = CGSize(
-            width: CVPixelBufferGetWidth(pixelBuffer),
-            height: CVPixelBufferGetHeight(pixelBuffer)
-        )
-        // Metal textures use a lower-left origin while Core Image renders the
-        // pixel buffer with a top-left origin. Flip once during the PiP copy so
-        // the system window matches the inline MPV surface.
-        let uprightImage = image.transformed(by: CGAffineTransform(
-            a: 1,
-            b: 0,
-            c: 0,
-            d: -1,
-            tx: 0,
-            ty: image.extent.height
-        ))
-        let sourceExtent = uprightImage.extent
-        let contentAspect = contentSize.width > 1 && contentSize.height > 1
-            ? contentSize.width / contentSize.height
-            : sourceExtent.width / sourceExtent.height
-        let sourceAspect = sourceExtent.width / sourceExtent.height
-        let cropRect: CGRect
-        if sourceAspect > contentAspect {
-            let width = sourceExtent.height * contentAspect
-            cropRect = CGRect(
-                x: sourceExtent.midX - width / 2,
-                y: sourceExtent.minY,
-                width: width,
-                height: sourceExtent.height
-            )
-        } else {
-            let height = sourceExtent.width / contentAspect
-            cropRect = CGRect(
-                x: sourceExtent.minX,
-                y: sourceExtent.midY - height / 2,
-                width: sourceExtent.width,
-                height: height
-            )
-        }
-        let croppedImage = uprightImage
-            .cropped(to: cropRect)
-            .transformed(by: CGAffineTransform(translationX: -cropRect.minX, y: -cropRect.minY))
-        let scaledImage = croppedImage.transformed(by: CGAffineTransform(
-            scaleX: targetSize.width / cropRect.width,
-            y: targetSize.height / cropRect.height
-        ))
-        captureContext.render(
-            scaledImage,
-            to: pixelBuffer,
-            bounds: CGRect(origin: .zero, size: targetSize),
-            colorSpace: CGColorSpaceCreateDeviceRGB()
-        )
-        return true
     }
 
     @available(iOS 16.0, *)
