@@ -49,4 +49,60 @@ class StreamSelectionTest {
 
         assertNull(selectSavedStream(listOf(otherAddOn), saved))
     }
+
+    @Test
+    fun continuesWithAMatchingBingeGroupFromAnotherAddOn() {
+        val saved = PlaybackSource(
+            addonId = "addon-1",
+            sourceKey = "url:https://old.example/movie.mp4",
+            kind = "url",
+            bingeGroup = "series-1080p",
+        )
+        val otherAddOn = StreamSource(
+            addonId = "addon-2",
+            addonName = "Other provider",
+            stream = StreamItem(
+                url = "https://new.example/movie.mp4",
+                behaviorHints = StreamBehaviorHints(bingeGroup = "series-1080p"),
+            ),
+        )
+
+        assertEquals(otherAddOn, selectSavedStream(listOf(otherAddOn), saved, allowAddonFallback = true))
+    }
+
+    @Test
+    fun rejectsADifferentBingeGroupDuringAddonFallback() {
+        val saved = PlaybackSource(
+            addonId = "addon-1",
+            sourceKey = "url:https://old.example/movie.mp4",
+            kind = "url",
+            bingeGroup = "series-1080p",
+        )
+        val differentStream = StreamSource(
+            addonId = "addon-1",
+            addonName = "Provider",
+            stream = StreamItem(
+                url = "https://new.example/movie.mp4",
+                name = "same filename metadata",
+                behaviorHints = StreamBehaviorHints(bingeGroup = "series-4k"),
+            ),
+        )
+
+        assertNull(selectSavedStream(listOf(differentStream), saved, allowAddonFallback = true))
+    }
+
+    @Test
+    fun continuesOnTheSameAddonWhenBothBingeGroupsAreAbsent() {
+        val saved = playbackSourceForStream(
+            "addon-1",
+            StreamItem(url = "https://old.example/movie.mp4"),
+        )
+        val refreshed = StreamSource(
+            addonId = "addon-1",
+            addonName = "Provider",
+            stream = StreamItem(url = "https://new.example/movie.mp4", name = "movie"),
+        )
+
+        assertEquals(refreshed, selectSavedStream(listOf(refreshed), saved, allowAddonFallback = true))
+    }
 }

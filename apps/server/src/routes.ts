@@ -10,6 +10,7 @@ import {
   filterContinueWatching,
   isPlaybackComplete,
   registerProgressRoutes,
+  shouldPersistProgressUpdate,
   shouldKeepContinueWatching,
 } from "./route-modules/progress-routes.js"
 
@@ -33,4 +34,9 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
   registerProgressRoutes(app, context)
 }
 
-export { filterContinueWatching, isPlaybackComplete, shouldKeepContinueWatching }
+export {
+  filterContinueWatching,
+  isPlaybackComplete,
+  shouldPersistProgressUpdate,
+  shouldKeepContinueWatching,
+}
