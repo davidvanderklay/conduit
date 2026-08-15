@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { API_URL } from "./auth"
 import { api, type PlaybackSource, type ProgressMetadata, type WatchProgress } from "./api"
 
 const SAVE_INTERVAL_MS = 15_000
 const CONTINUE_WATCHING_POSITION_MS = 30_000
-export const PROGRESS_OUTBOX_STORAGE_KEY = "conduit.progress.outbox.v1"
+const PROGRESS_OUTBOX_STORAGE_PREFIX = "conduit.progress.outbox.v1"
 
 type PendingProgressCheckpoint = ProgressMetadata & {
   profileId: string
@@ -17,7 +18,7 @@ type PendingProgressCheckpoint = ProgressMetadata & {
   checkpointUpdatedAt: string
 }
 
-let flushPromise: Promise<void> | undefined
+const flushPromises = new Map<string, Promise<void>>()
 
 export function progressPath(profileId: string, videoId: string) {
   return `/v1/profiles/${profileId}/progress/${encodeURIComponent(videoId)}`
@@ -28,14 +29,15 @@ export function usePlaybackProgress(
   videoId: string,
   metadata: ProgressMetadata,
   playbackSource?: PlaybackSource,
+  accountId = profileId,
 ) {
   const queryClient = useQueryClient()
-  const progressKey = ["progress", profileId, videoId] as const
+  const progressKey = ["progress", profileId, videoId, accountId] as const
   const progress = useQuery({
     queryKey: progressKey,
     queryFn: () =>
       api<{ item: WatchProgress | null }>(progressPath(profileId, videoId)).then(
-        (result) => withPendingProgress(result.item, readPendingCheckpoint(profileId, videoId)),
+        (result) => withPendingProgress(result.item, readPendingCheckpoint(accountId, profileId, videoId)),
       ),
   })
   const latest = useRef({ position: 0, duration: 0 })
@@ -66,20 +68,20 @@ export function usePlaybackProgress(
         checkpointSequence: ++sequence.current,
         checkpointUpdatedAt: new Date().toISOString(),
       }
-      enqueuePendingCheckpoint(checkpoint)
+      enqueuePendingCheckpoint(accountId, checkpoint)
       queryClient.setQueryData<WatchProgress | null>(progressKey, (current) =>
         withPendingProgress(current ?? null, checkpoint),
       )
 
-      await flushProgressOutbox()
+      await flushProgressOutbox(accountId)
       await queryClient.invalidateQueries({ queryKey: ["progress", profileId] })
     },
-    [profileId, queryClient, videoId],
+    [accountId, profileId, queryClient, videoId],
   )
 
   useEffect(() => {
     const refreshAfterFlush = () => {
-      void flushProgressOutbox().then(() =>
+      void flushProgressOutbox(accountId).then(() =>
         queryClient.invalidateQueries({ queryKey: ["progress", profileId] }),
       )
     }
@@ -104,17 +106,18 @@ export function usePlaybackProgress(
       const current = latest.current
       void save(current.position, current.duration, true)
     }
-  }, [profileId, queryClient, save])
+  }, [accountId, profileId, queryClient, save])
 
   return { progress, save }
 }
 
 /** Flushes every durable web checkpoint in insertion order. Failed rows stay queued. */
-export function flushProgressOutbox(): Promise<void> {
-  if (flushPromise) return flushPromise
-  flushPromise = (async () => {
+export function flushProgressOutbox(accountId: string): Promise<void> {
+  const current = flushPromises.get(accountId)
+  if (current) return current
+  const promise = (async () => {
     while (true) {
-      const next = readPendingCheckpoints()[0]
+      const next = readPendingCheckpoints(accountId)[0]
       if (!next) return
       try {
         await api<{ item: WatchProgress }>(progressPath(next.profileId, next.videoId), {
@@ -136,25 +139,48 @@ export function flushProgressOutbox(): Promise<void> {
           }),
           keepalive: true,
         })
-        removePendingCheckpoint(next)
+        removePendingCheckpoint(accountId, next)
       } catch {
         return
       }
     }
   })().finally(() => {
-    flushPromise = undefined
+    if (flushPromises.get(accountId) === promise) flushPromises.delete(accountId)
   })
-  return flushPromise
+  flushPromises.set(accountId, promise)
+  return promise
+}
+
+export function clearProgressOutbox(accountId: string) {
+  if (typeof window === "undefined") return
+  try {
+    window.localStorage.removeItem(progressOutboxStorageKey(accountId))
+  } catch {
+    // Storage can be unavailable in private browsing.
+  }
+}
+
+export function clearLegacyProgressOutbox() {
+  if (typeof window === "undefined") return
+  try {
+    window.localStorage.removeItem(PROGRESS_OUTBOX_STORAGE_PREFIX)
+  } catch {
+    // Storage can be unavailable in private browsing.
+  }
+}
+
+export function progressOutboxStorageKey(accountId: string) {
+  return `${PROGRESS_OUTBOX_STORAGE_PREFIX}.${encodeURIComponent(API_URL)}.${encodeURIComponent(accountId)}`
 }
 
 function createSessionId() {
   return `web-${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
 
-function readPendingCheckpoints(): PendingProgressCheckpoint[] {
+function readPendingCheckpoints(accountId: string): PendingProgressCheckpoint[] {
   if (typeof window === "undefined") return []
   try {
-    const value: unknown = JSON.parse(window.localStorage.getItem(PROGRESS_OUTBOX_STORAGE_KEY) ?? "[]")
+    const value: unknown = JSON.parse(window.localStorage.getItem(progressOutboxStorageKey(accountId)) ?? "[]")
     if (!Array.isArray(value)) return []
     return value.filter(isPendingProgressCheckpoint)
   } catch {
@@ -162,25 +188,26 @@ function readPendingCheckpoints(): PendingProgressCheckpoint[] {
   }
 }
 
-function readPendingCheckpoint(profileId: string, videoId: string) {
-  return readPendingCheckpoints().find(
+function readPendingCheckpoint(accountId: string, profileId: string, videoId: string) {
+  return readPendingCheckpoints(accountId).find(
     (checkpoint) => checkpoint.profileId === profileId && checkpoint.videoId === videoId,
   )
 }
 
-function enqueuePendingCheckpoint(checkpoint: PendingProgressCheckpoint) {
-  const checkpoints = readPendingCheckpoints()
+function enqueuePendingCheckpoint(accountId: string, checkpoint: PendingProgressCheckpoint) {
+  const checkpoints = readPendingCheckpoints(accountId)
   const index = checkpoints.findIndex(
     (current) => current.profileId === checkpoint.profileId && current.videoId === checkpoint.videoId,
   )
   if (index === -1) checkpoints.push(checkpoint)
   else if (checkpoints[index].checkpointUpdatedAt <= checkpoint.checkpointUpdatedAt) checkpoints[index] = checkpoint
-  writePendingCheckpoints(checkpoints)
+  writePendingCheckpoints(accountId, checkpoints)
 }
 
-function removePendingCheckpoint(checkpoint: PendingProgressCheckpoint) {
+function removePendingCheckpoint(accountId: string, checkpoint: PendingProgressCheckpoint) {
   writePendingCheckpoints(
-    readPendingCheckpoints().filter(
+    accountId,
+    readPendingCheckpoints(accountId).filter(
       (current) =>
         current.profileId !== checkpoint.profileId ||
         current.videoId !== checkpoint.videoId ||
@@ -190,11 +217,12 @@ function removePendingCheckpoint(checkpoint: PendingProgressCheckpoint) {
   )
 }
 
-function writePendingCheckpoints(checkpoints: PendingProgressCheckpoint[]) {
+function writePendingCheckpoints(accountId: string, checkpoints: PendingProgressCheckpoint[]) {
   if (typeof window === "undefined") return
   try {
-    if (checkpoints.length === 0) window.localStorage.removeItem(PROGRESS_OUTBOX_STORAGE_KEY)
-    else window.localStorage.setItem(PROGRESS_OUTBOX_STORAGE_KEY, JSON.stringify(checkpoints))
+    const key = progressOutboxStorageKey(accountId)
+    if (checkpoints.length === 0) window.localStorage.removeItem(key)
+    else window.localStorage.setItem(key, JSON.stringify(checkpoints))
   } catch {
     // Storage can be unavailable in private browsing. The network attempt below
     // still runs, while normal sessions retain the retry checkpoint.
@@ -253,14 +281,4 @@ function isPlaybackComplete(positionMs: number, durationMs: number) {
     return false
   }
   return positionMs / durationMs >= 0.9 || (durationMs >= 600_000 && durationMs - positionMs <= 120_000)
-}
-
-if (typeof window !== "undefined") {
-  const flush = () => void flushProgressOutbox()
-  void flushProgressOutbox()
-  window.addEventListener("online", flush)
-  window.addEventListener("focus", flush)
-  document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") flush()
-  })
 }

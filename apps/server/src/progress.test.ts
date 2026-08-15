@@ -89,4 +89,22 @@ describe("checkpoint ordering", () => {
       ),
     ).toBe(false)
   })
+
+  it("uses the sequence as the tie-breaker within one millisecond", () => {
+    expect(
+      isStaleCheckpoint(
+        {
+          mediaType: "movie",
+          mediaId: "movie",
+          name: "Movie",
+          positionMs: 30_000,
+          durationMs: 100_000,
+          checkpointSessionId: "mobile-session",
+          checkpointSequence: 5,
+          checkpointUpdatedAt: "2026-08-14T12:00:10.000Z",
+        },
+        existing,
+      ),
+    ).toBe(false)
+  })
 })

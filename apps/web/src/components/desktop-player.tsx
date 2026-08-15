@@ -101,6 +101,7 @@ export function DesktopPlayer({
   type,
   videoId,
   profileId,
+  accountId = profileId,
   playbackSource,
   progressMetadata,
   artwork,
@@ -113,6 +114,7 @@ export function DesktopPlayer({
   onEnded,
   onClose,
 }: {
+  accountId?: string
   url: string
   type: string
   videoId: string
@@ -179,6 +181,7 @@ export function DesktopPlayer({
     videoId,
     progressMetadata,
     playbackSource,
+    accountId,
   )
 
   const showControls = useCallback(() => {

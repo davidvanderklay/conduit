@@ -43,6 +43,7 @@ class PlaybackProgressOutboxTest {
         val result = outbox.enqueue(
             baseUrl = "https://conduit.example",
             token = "token",
+            accountId = "account-1",
             request = request,
             playback = PlaybackState(loading = false, positionMs = 10_000, durationMs = 100_000),
             identity = PlaybackCheckpointIdentity("session-1", 1),
@@ -50,13 +51,15 @@ class PlaybackProgressOutboxTest {
         )
 
         assertFalse(result.synced)
-        assertEquals(10_000L, outbox.pendingSummaries("profile-1").single().positionMs)
+        assertEquals(10_000L, outbox.pendingSummaries("https://conduit.example", "account-1", "profile-1").single().positionMs)
+        assertTrue(outbox.pendingSummaries("https://conduit.example", "account-2", "profile-1").isEmpty())
+        assertEquals(10_000L, outbox.pendingSummaries("https://conduit.example", "account-1", "profile-1").single().positionMs)
 
         online = true
-        val flushed = outbox.flush("https://conduit.example", "token")
+        val flushed = outbox.flush("https://conduit.example", "new-token", "account-1")
 
         assertEquals(1, flushed.size)
-        assertTrue(outbox.pendingSummaries("profile-1").isEmpty())
+        assertTrue(outbox.pendingSummaries("https://conduit.example", "account-1", "profile-1").isEmpty())
     }
 
     @Test
@@ -72,16 +75,16 @@ class PlaybackProgressOutboxTest {
         )
 
         outbox.enqueue(
-            "https://conduit.example", "token", request,
+            "https://conduit.example", "token", "account-1", request,
             PlaybackState(loading = false, positionMs = 10_000, durationMs = 100_000),
             PlaybackCheckpointIdentity("session-1", 1), null,
         )
         outbox.enqueue(
-            "https://conduit.example", "token", request,
+            "https://conduit.example", "token", "account-1", request,
             PlaybackState(loading = false, positionMs = 20_000, durationMs = 100_000),
             PlaybackCheckpointIdentity("session-1", 2), null,
         )
 
-        assertEquals(20_000L, outbox.pendingSummaries("profile-1").single().positionMs)
+        assertEquals(20_000L, outbox.pendingSummaries("https://conduit.example", "account-1", "profile-1").single().positionMs)
     }
 }

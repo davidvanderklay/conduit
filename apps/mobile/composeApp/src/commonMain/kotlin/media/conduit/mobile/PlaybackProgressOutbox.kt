@@ -12,7 +12,7 @@ import media.conduit.mobile.account.PlaybackSource
 import media.conduit.mobile.account.ProgressSummary
 import media.conduit.mobile.foundation.SecureStore
 
-private const val ProgressOutboxKey = "playback.progress.outbox.v1"
+private const val ProgressOutboxKeyPrefix = "playback.progress.outbox.v1"
 private const val ContinueWatchingEntryPositionMs = 30_000L
 
 internal data class ProgressWriteOutcome(
@@ -62,11 +62,13 @@ internal class PlaybackProgressOutbox(
     private val stateMutex = Mutex()
     private val drainMutex = Mutex()
     private val pending = linkedMapOf<String, PersistedProgressCheckpoint>()
-    private var loaded = false
+    private var loadedKey: String? = null
+    private var legacyKeyCleared = false
 
     suspend fun enqueue(
         baseUrl: String,
         token: String,
+        accountId: String,
         request: PlaybackRequest,
         playback: PlaybackState,
         identity: PlaybackCheckpointIdentity,
@@ -75,23 +77,25 @@ internal class PlaybackProgressOutbox(
     ): ProgressWriteOutcome {
         val checkpoint = checkpoint(request, playback, identity, watchedOverride)
         val local = checkpoint.toSummary(existing)
+        val storageKey = storageKey(baseUrl, accountId)
         stateMutex.withLock {
-            loadLocked()
+            loadLocked(storageKey)
             pending[checkpoint.key()] = checkpoint
-            persistLocked()
+            persistLocked(storageKey)
         }
 
-        val flushed = flush(baseUrl, token)
+        val flushed = flush(baseUrl, token, accountId)
         val synced = flushed.firstOrNull { it.identity == identity && it.progress.videoId == request.identity.videoId }
         return ProgressWriteOutcome(synced?.progress ?: local, synced != null)
     }
 
-    suspend fun flush(baseUrl: String, token: String): List<FlushedProgress> =
+    suspend fun flush(baseUrl: String, token: String, accountId: String): List<FlushedProgress> =
         drainMutex.withLock {
+            val storageKey = storageKey(baseUrl, accountId)
             val flushed = mutableListOf<FlushedProgress>()
             while (true) {
                 val next = stateMutex.withLock {
-                    loadLocked()
+                    loadLocked(storageKey)
                     pending.values.firstOrNull()
                 } ?: break
 
@@ -124,11 +128,11 @@ internal class PlaybackProgressOutbox(
                 }
 
                 stateMutex.withLock {
-                    loadLocked()
+                    loadLocked(storageKey)
                     val current = pending[next.key()]
                     if (current?.identity() == next.identity()) {
                         pending.remove(next.key())
-                        persistLocked()
+                        persistLocked(storageKey)
                     }
                 }
                 flushed += FlushedProgress(next.identity(), saved)
@@ -136,17 +140,18 @@ internal class PlaybackProgressOutbox(
             flushed
         }
 
-    suspend fun pendingSummaries(profileId: String): List<ProgressSummary> = stateMutex.withLock {
-        loadLocked()
+    suspend fun pendingSummaries(baseUrl: String, accountId: String, profileId: String): List<ProgressSummary> = stateMutex.withLock {
+        loadLocked(storageKey(baseUrl, accountId))
         pending.values
             .filter { it.profileId == profileId }
             .map { it.toSummary(existing = null) }
     }
 
-    suspend fun clear() = stateMutex.withLock {
+    suspend fun clear(baseUrl: String, accountId: String) = stateMutex.withLock {
+        val storageKey = storageKey(baseUrl, accountId)
+        loadLocked(storageKey)
         pending.clear()
-        loaded = true
-        secureStore.remove(ProgressOutboxKey)
+        persistLocked(storageKey)
     }
 
     private fun checkpoint(
@@ -196,23 +201,35 @@ internal class PlaybackProgressOutbox(
         )
     }
 
-    private fun loadLocked() {
-        if (loaded) return
-        loaded = true
-        val restored = secureStore.get(ProgressOutboxKey)
+    private fun loadLocked(storageKey: String) {
+        if (loadedKey == storageKey) return
+        pending.clear()
+        loadedKey = storageKey
+        if (!legacyKeyCleared) {
+            // The pre-scoped queue could belong to another account. Never
+            // replay it after upgrading into the scoped storage format.
+            secureStore.remove(ProgressOutboxKeyPrefix)
+            legacyKeyCleared = true
+        }
+        val restored = secureStore.get(storageKey)
             ?.let { runCatching { json.decodeFromString<List<PersistedProgressCheckpoint>>(it) }.getOrNull() }
             .orEmpty()
         restored.forEach { pending[it.key()] = it }
     }
 
-    private fun persistLocked() {
+    private fun persistLocked(storageKey: String) {
         if (pending.isEmpty()) {
-            secureStore.remove(ProgressOutboxKey)
+            secureStore.remove(storageKey)
         } else {
-            secureStore.put(ProgressOutboxKey, json.encodeToString(pending.values.toList()))
+            secureStore.put(storageKey, json.encodeToString(pending.values.toList()))
         }
     }
+
+    private fun storageKey(baseUrl: String, accountId: String): String =
+        "$ProgressOutboxKeyPrefix.${scopePart(baseUrl)}.${scopePart(accountId)}"
 }
+
+private fun scopePart(value: String): String = value.hashCode().toUInt().toString(16)
 
 private fun PersistedProgressCheckpoint.key(): String = "$profileId\u0000$videoId"
 

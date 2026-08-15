@@ -1,8 +1,12 @@
 package media.conduit.mobile.foundation
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import platform.Foundation.NSUserDefaults
+import platform.Foundation.NSNotificationCenter
+import platform.UIKit.UIApplicationDidBecomeActiveNotification
 import platform.UIKit.UIDevice
 
 private class AppleSettingsStore(private val defaults: NSUserDefaults) : SettingsStore {
@@ -43,4 +47,20 @@ actual fun rememberPlatformServices(): PlatformServices = remember {
             device = device.model,
         ),
     )
+}
+
+@Composable
+actual fun rememberAppLifecycleEvents(
+    onForeground: () -> Unit,
+    onConnectivityRecovered: () -> Unit,
+) {
+    val latestForeground = rememberUpdatedState(onForeground)
+    DisposableEffect(Unit) {
+        val observer = NSNotificationCenter.defaultCenter.addObserverForName(
+            name = UIApplicationDidBecomeActiveNotification,
+            `object` = null,
+            queue = null,
+        ) { _ -> latestForeground.value() }
+        onDispose { NSNotificationCenter.defaultCenter.removeObserver(observer) }
+    }
 }

@@ -141,6 +141,19 @@ class ProfileMutationTest {
     }
 
     @Test
+    fun staleSyncProgressCannotReplaceAnewerLocalCheckpoint() {
+        val stale = progress.copy(
+            positionMs = 5_000,
+            updatedAt = "2025-12-31",
+        )
+
+        val updated = snapshot.withProgressUpdate(stale)
+
+        assertEquals(progress, updated.progress.single())
+        assertEquals(progress, updated.continueWatching.single())
+    }
+
+    @Test
     fun libraryMutationCanBeReversedForUndo() {
         val saved = snapshot.applyOptimistically(ProfileMutation.SetLibrary(item, true))
         assertEquals("movie", saved.library.single().id)

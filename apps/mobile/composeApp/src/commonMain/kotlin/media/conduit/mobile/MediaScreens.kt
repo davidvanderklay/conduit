@@ -608,6 +608,7 @@ internal fun MediaDetailsScreen(
     snapshot: ProfileSnapshot?,
     baseUrl: String,
     token: String,
+    accountId: String,
     preferences: DevicePreferences,
     onPreferencesChanged: (DevicePreferences) -> Unit,
     onProgressChanged: (ProgressSummary) -> Unit,
@@ -813,6 +814,7 @@ internal fun MediaDetailsScreen(
                     val outcome = progressOutbox.enqueue(
                         baseUrl = baseUrl,
                         token = token,
+                        accountId = accountId,
                         request = request,
                         playback = state.copy(
                             positionMs = resolved.positionMs,

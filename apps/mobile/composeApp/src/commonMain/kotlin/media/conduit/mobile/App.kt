@@ -118,6 +118,7 @@ private fun AccountGate(
     val api = remember(endpoint.baseUrl) { ConduitApi() }
     val sessionVault = remember(services.secure) { SessionVault(services.secure) }
     val repository = remember(api, sessionVault) { AccountRepository(api, sessionVault) }
+    val progressOutbox = remember(api, services.secure) { PlaybackProgressOutbox(api, services.secure) }
     val authenticationCache = remember(services.settings) { AuthenticationConfigurationCache(services.settings) }
     val cachedAuthentication = remember(endpoint.baseUrl) { authenticationCache.load(endpoint.baseUrl) }
     val hasStoredSession = remember(endpoint.baseUrl) { repository.hasStoredSession(endpoint.baseUrl) }
@@ -301,6 +302,7 @@ private fun AccountGate(
                     dispatch = dispatch,
                     onSignOut = {
                         accountScope.launch {
+                            progressOutbox.clear(endpoint.baseUrl, current.bootstrap.user?.email ?: current.session.token)
                             account = repository.signOut(endpoint, current.session)
                             (account as? AccountStatus.SignedOut)?.authentication?.let { configuration ->
                                 authenticationCache.save(endpoint.baseUrl, configuration)
@@ -702,22 +704,40 @@ private fun AppShell(
         val playbackProfileId = playbackSession.state.request?.identity?.profileId
         if (playbackProfileId != null && playbackProfileId != activeProfile?.id) playbackSession.close()
     }
-    var profileSync by remember(activeProfile?.id) {
+    var profileSync by remember(activeProfile?.id, account.session.token) {
         mutableStateOf(
             ProfileSyncState(snapshot = activeProfile?.let { syncRepository.cached(it.id) }),
         )
+    }
+    var acknowledgedProgress by remember(activeProfile?.id, account.session.token) {
+        mutableStateOf<Map<String, ProgressSummary>>(emptyMap())
+    }
+    val endpoint = checkNotNull(state.endpoint)
+    val accountId = account.bootstrap.user?.email ?: account.session.token
+    suspend fun synchronizeProfileData(profileId: String): ProfileSyncState {
+        progressOutbox.flush(endpoint.baseUrl, account.session.token, accountId)
+        val preserved = progressOutbox.pendingSummaries(endpoint.baseUrl, accountId, profileId) +
+            acknowledgedProgress.values
+        val result = syncRepository.synchronize(
+            endpoint.baseUrl,
+            account.session.token,
+            profileId,
+            preserved,
+        )
+        val latestSnapshot = result.snapshot?.withProgressUpdates(
+            acknowledgedProgress.values +
+                progressOutbox.pendingSummaries(endpoint.baseUrl, accountId, profileId),
+        )
+        if (latestSnapshot != null && latestSnapshot != result.snapshot) {
+            syncRepository.save(latestSnapshot)
+        }
+        return result.copy(snapshot = latestSnapshot)
     }
     LaunchedEffect(activeProfile?.id, account.session.token) {
         val profile = activeProfile ?: return@LaunchedEffect
         profileSync = profileSync.copy(refreshing = true)
         profileSyncMutex.withLock {
-            progressOutbox.flush(state.endpoint!!.baseUrl, account.session.token)
-            profileSync = syncRepository.synchronize(
-                state.endpoint!!.baseUrl,
-                account.session.token,
-                profile.id,
-                progressOutbox.pendingSummaries(profile.id),
-            )
+            profileSync = synchronizeProfileData(profile.id)
         }
     }
     LaunchedEffect(activeProfile?.id, state.activeProfileId) {
@@ -747,6 +767,16 @@ private fun AppShell(
         profileLaunchRequest = ProfileLaunchRequest(target, profileLaunchSequence)
         dispatch(AppAction.Navigate(AppDestination.Profile))
     }
+    val refreshProfileData: () -> Unit = {
+        activeProfile?.let { profile ->
+            appScope.launch {
+                profileSyncMutex.withLock {
+                    profileSync = synchronizeProfileData(profile.id)
+                }
+            }
+        }
+    }
+    rememberAppRecoveryTriggers(refreshProfileData)
     LaunchedEffect(
         state.destination,
         browseQuery,
@@ -803,12 +833,7 @@ private fun AppShell(
                 runCatching {
                     api.executeMutation(state.endpoint!!.baseUrl, account.session.token, profile.id, mutation)
                     profileSyncMutex.withLock {
-                        profileSync = syncRepository.synchronize(
-                            state.endpoint.baseUrl,
-                            account.session.token,
-                            profile.id,
-                            progressOutbox.pendingSummaries(profile.id),
-                        )
+                        profileSync = synchronizeProfileData(profile.id)
                     }
                 }.onFailure {
                     profileSync = profileSync.copy(snapshot = before, error = it.message)
@@ -828,22 +853,8 @@ private fun AppShell(
             }
             return result
         }
-        fun refreshProfileData() {
-            activeProfile?.let { profile ->
-                appScope.launch {
-                    profileSyncMutex.withLock {
-                        progressOutbox.flush(state.endpoint!!.baseUrl, account.session.token)
-                        profileSync = syncRepository.synchronize(
-                            state.endpoint!!.baseUrl,
-                            account.session.token,
-                            profile.id,
-                            progressOutbox.pendingSummaries(profile.id),
-                        )
-                    }
-                }
-            }
-        }
         val onPlaybackProgressChanged: (ProgressSummary) -> Unit = { saved ->
+            acknowledgedProgress = acknowledgedProgress + (saved.videoId to saved)
             val current = profileSync.snapshot
             if (current != null) {
                 val updated = current.withProgressUpdate(saved)
@@ -937,7 +948,7 @@ private fun AppShell(
                             openMedia, openContinueWatching, openContinueWatchingDetails,
                             { selectedMedia = null; selectedMediaFromContinueWatching = false; selectedMediaAutoResume = true }, dispatch, onSignOut, onProfilesChanged,
                             { profileFlowActive = it },
-                            ::refreshProfileData,
+                            refreshProfileData,
                             progressOutbox,
                             onPlaybackProgressChanged,
                             ::mutateProfile,
@@ -956,7 +967,7 @@ private fun AppShell(
                             openMedia, openContinueWatching, openContinueWatchingDetails,
                             { selectedMedia = null; selectedMediaFromContinueWatching = false; selectedMediaAutoResume = true }, dispatch, onSignOut, onProfilesChanged,
                             { profileFlowActive = it },
-                            ::refreshProfileData,
+                            refreshProfileData,
                             progressOutbox,
                             onPlaybackProgressChanged,
                     ::mutateProfile,
@@ -1195,6 +1206,7 @@ private fun DestinationContent(
                 snapshot = profileSync.snapshot,
                 baseUrl = state.endpoint!!.baseUrl,
                 token = account.session.token,
+                accountId = account.bootstrap.user?.email ?: account.session.token,
                 preferences = preferences,
                 onPreferencesChanged = onPreferencesChanged,
                 onProgressChanged = onPlaybackProgressChanged,

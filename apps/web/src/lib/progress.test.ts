@@ -5,7 +5,7 @@ import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import {
-  PROGRESS_OUTBOX_STORAGE_KEY,
+  progressOutboxStorageKey,
   usePlaybackProgress,
 } from "./progress"
 
@@ -38,6 +38,8 @@ describe("playback progress outbox", () => {
         "00000000-0000-4000-8000-000000000001",
         "episode-1",
         { mediaType: "series", mediaId: "show", name: "Show", videoTitle: "Episode 1" },
+        undefined,
+        "user-1",
       ).save
       return null
     }
@@ -64,7 +66,7 @@ describe("playback progress outbox", () => {
       await save?.(10, 100, true)
     })
 
-    const queued = JSON.parse(window.localStorage.getItem(PROGRESS_OUTBOX_STORAGE_KEY) ?? "[]")
+    const queued = JSON.parse(window.localStorage.getItem(progressOutboxStorageKey("user-1")) ?? "[]")
     expect(queued).toHaveLength(1)
     expect(queued[0].positionMs).toBe(10_000)
 
@@ -72,7 +74,7 @@ describe("playback progress outbox", () => {
       await save?.(20, 100, true)
     })
 
-    expect(window.localStorage.getItem(PROGRESS_OUTBOX_STORAGE_KEY)).toBeNull()
+    expect(window.localStorage.getItem(progressOutboxStorageKey("user-1"))).toBeNull()
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining("/v1/profiles/00000000-0000-4000-8000-000000000001/progress/episode-1"),
       expect.objectContaining({ method: "PUT" }),

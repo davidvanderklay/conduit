@@ -348,7 +348,13 @@ export function isStaleCheckpoint(
   const existingUpdatedAt = existing.checkpointUpdatedAt?.getTime() ?? Number.NaN
   if (Number.isFinite(incomingUpdatedAt) && Number.isFinite(existingUpdatedAt)) {
     if (incomingUpdatedAt < existingUpdatedAt) return true
-    if (incomingUpdatedAt === existingUpdatedAt) return true
+    if (
+      incomingUpdatedAt === existingUpdatedAt &&
+      body.checkpointSessionId === existing.checkpointSessionId &&
+      body.checkpointSequence !== undefined &&
+      existing.checkpointSequence !== null &&
+      body.checkpointSequence <= existing.checkpointSequence
+    ) return true
   }
   return (
     body.checkpointSessionId !== undefined &&
