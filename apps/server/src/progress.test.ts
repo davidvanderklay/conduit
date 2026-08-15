@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest"
 import { watchProgress } from "./db/schema.js"
-import { filterContinueWatching, isPlaybackComplete, shouldKeepContinueWatching } from "./routes.js"
+import {
+  filterContinueWatching,
+  isPlaybackComplete,
+  shouldKeepContinueWatching,
+  shouldPersistProgressUpdate,
+} from "./routes.js"
 import { isStaleCheckpoint } from "./route-modules/progress-routes.js"
 
 describe("watch completion", () => {
@@ -9,9 +14,9 @@ describe("watch completion", () => {
     expect(isPlaybackComplete(89_999, 1_000_000)).toBe(false)
   })
 
-  it("completes near the credits", () => {
-    expect(isPlaybackComplete(480_000, 600_000)).toBe(true)
-    expect(isPlaybackComplete(479_999, 600_000)).toBe(false)
+  it("does not use a separate near-credits shortcut", () => {
+    expect(isPlaybackComplete(540_000, 600_000)).toBe(true)
+    expect(isPlaybackComplete(539_999, 600_000)).toBe(false)
   })
 
   it("does not complete media without a known duration", () => {
@@ -40,10 +45,76 @@ describe("continue watching", () => {
   })
 
   it("adds membership at the first meaningful progress or watched state", () => {
-    expect(shouldKeepContinueWatching(false, false, 29_999)).toBe(false)
-    expect(shouldKeepContinueWatching(false, false, 30_000)).toBe(true)
+    expect(shouldKeepContinueWatching(false, false, 999)).toBe(false)
+    expect(shouldKeepContinueWatching(false, false, 1_000)).toBe(true)
     expect(shouldKeepContinueWatching(false, true, 0)).toBe(true)
     expect(shouldKeepContinueWatching(true, false, 0)).toBe(true)
+  })
+})
+
+describe("progress write coalescing", () => {
+  const existing = {
+    positionMs: 10_000,
+    durationMs: 100_000,
+    watched: false,
+    continueWatching: true,
+    dismissed: false,
+    checkpointUpdatedAt: new Date("2026-08-15T12:00:00.000Z"),
+    updatedAt: new Date("2026-08-15T12:00:00.000Z"),
+  } as Pick<
+    typeof watchProgress.$inferSelect,
+    | "positionMs"
+    | "durationMs"
+    | "watched"
+    | "continueWatching"
+    | "dismissed"
+    | "checkpointUpdatedAt"
+    | "updatedAt"
+  >
+
+  it("persists a fifteen-second position delta", () => {
+    expect(shouldPersistProgressUpdate(existing, {
+      positionMs: 24_999,
+      durationMs: 100_000,
+      watched: false,
+      continueWatching: true,
+      dismissed: false,
+    }, existing.updatedAt.getTime() + 29_999)).toBe(false)
+    expect(shouldPersistProgressUpdate(existing, {
+      positionMs: 25_000,
+      durationMs: 100_000,
+      watched: false,
+      continueWatching: true,
+      dismissed: false,
+    }, existing.updatedAt.getTime() + 29_999)).toBe(true)
+  })
+
+  it("persists after thirty seconds even without a large position delta", () => {
+    expect(shouldPersistProgressUpdate(existing, {
+      positionMs: 10_001,
+      durationMs: 100_000,
+      watched: false,
+      continueWatching: true,
+      dismissed: false,
+    }, existing.updatedAt.getTime() + 29_999)).toBe(false)
+    expect(shouldPersistProgressUpdate(existing, {
+      positionMs: 10_001,
+      durationMs: 100_000,
+      watched: false,
+      continueWatching: true,
+      dismissed: false,
+    }, existing.updatedAt.getTime() + 30_000)).toBe(true)
+  })
+
+  it("persists membership and completion state transitions immediately", () => {
+    expect(shouldPersistProgressUpdate(
+      { ...existing, continueWatching: false },
+      { positionMs: 1_000, durationMs: 100_000, watched: false, continueWatching: true, dismissed: false },
+    )).toBe(true)
+    expect(shouldPersistProgressUpdate(
+      existing,
+      { positionMs: 90_000, durationMs: 100_000, watched: true, continueWatching: true, dismissed: false },
+    )).toBe(true)
   })
 })
 

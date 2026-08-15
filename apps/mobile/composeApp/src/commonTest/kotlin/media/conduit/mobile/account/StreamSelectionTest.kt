@@ -49,4 +49,24 @@ class StreamSelectionTest {
 
         assertNull(selectSavedStream(listOf(otherAddOn), saved))
     }
+
+    @Test
+    fun continuesWithAMatchingBingeGroupFromAnotherAddOn() {
+        val saved = PlaybackSource(
+            addonId = "addon-1",
+            sourceKey = "url:https://old.example/movie.mp4",
+            kind = "url",
+            bingeGroup = "series-1080p",
+        )
+        val otherAddOn = StreamSource(
+            addonId = "addon-2",
+            addonName = "Other provider",
+            stream = StreamItem(
+                url = "https://new.example/movie.mp4",
+                behaviorHints = StreamBehaviorHints(bingeGroup = "series-1080p"),
+            ),
+        )
+
+        assertEquals(otherAddOn, selectSavedStream(listOf(otherAddOn), saved, allowAddonFallback = true))
+    }
 }

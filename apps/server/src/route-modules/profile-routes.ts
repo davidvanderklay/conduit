@@ -21,6 +21,7 @@ import {
 } from "../portable-data.js"
 import type { RouteContext } from "./context.js"
 import { canAccessProfile, normalizeManifestUrl, requireUser, toProgressItem } from "./helpers.js"
+import { CONTINUE_WATCHING_ENTRY_POSITION_MS } from "./progress-routes.js"
 
 export function registerProfileRoutes(app: FastifyInstance, context: RouteContext) {
   const { auth, config, db } = context
@@ -360,7 +361,9 @@ export function registerProfileRoutes(app: FastifyInstance, context: RouteContex
             durationMs: item.durationMs,
             watched: item.watched,
             dismissed: item.dismissed ?? false,
-            continueWatching: item.continueWatching ?? (item.watched || item.positionMs >= 30_000),
+            continueWatching: item.continueWatching ?? (
+              item.watched || item.positionMs >= CONTINUE_WATCHING_ENTRY_POSITION_MS
+            ),
             playbackSource: item.playbackSource,
             updatedAt: new Date(item.updatedAt),
           }

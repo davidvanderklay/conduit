@@ -149,6 +149,22 @@ export function registerProgressRoutes(app: FastifyInstance, context: RouteConte
         watched,
         body.positionMs,
       )
+      const dismissed = body.dismissed ?? existing?.dismissed ?? false
+      if (
+        existing &&
+        !shouldPersistProgressUpdate(existing, {
+          positionMs: body.positionMs,
+          durationMs: body.durationMs,
+          watched,
+          continueWatching,
+          dismissed,
+          checkpointUpdatedAt: body.checkpointUpdatedAt,
+          playbackSourceChanged: body.playbackSource !== undefined &&
+            JSON.stringify(body.playbackSource) !== JSON.stringify(existing.playbackSource),
+        })
+      ) {
+        return { item: toProgressItem(existing) }
+      }
       const checkpointValues =
         body.checkpointSessionId !== undefined ||
         body.checkpointSequence !== undefined ||
@@ -174,7 +190,7 @@ export function registerProgressRoutes(app: FastifyInstance, context: RouteConte
         positionMs: watched ? body.durationMs || body.positionMs : body.positionMs,
         durationMs: body.durationMs,
         watched,
-        dismissed: body.dismissed ?? false,
+        dismissed,
         continueWatching,
         ...(body.playbackSource !== undefined
           ? { playbackSource: body.playbackSource }
@@ -376,16 +392,51 @@ export function isPlaybackComplete(positionMs: number, durationMs: number): bool
     positionMs < 0 ||
     durationMs <= 0
   ) return false
-  return (
-    positionMs / durationMs >= 0.9 ||
-    (durationMs >= 600_000 && durationMs - positionMs <= 120_000)
-  )
+  return positionMs / durationMs >= 0.9
 }
 
-export const CONTINUE_WATCHING_ENTRY_POSITION_MS = 30_000
+export const CONTINUE_WATCHING_ENTRY_POSITION_MS = 1_000
+export const PROGRESS_POSITION_UPDATE_DELTA_MS = 15_000
+export const PROGRESS_UPDATE_INTERVAL_MS = 30_000
 
 export function shouldKeepContinueWatching(existing: boolean, watched: boolean, positionMs: number): boolean {
   return existing || watched || positionMs >= CONTINUE_WATCHING_ENTRY_POSITION_MS
+}
+
+export function shouldPersistProgressUpdate(
+  existing: Pick<
+    typeof watchProgress.$inferSelect,
+    | "positionMs"
+    | "durationMs"
+    | "watched"
+    | "continueWatching"
+    | "dismissed"
+    | "checkpointUpdatedAt"
+    | "updatedAt"
+  >,
+  incoming: {
+    positionMs: number
+    durationMs: number
+    watched: boolean
+    continueWatching: boolean
+    dismissed: boolean
+    checkpointUpdatedAt?: string
+    playbackSourceChanged?: boolean
+  },
+  nowEpochMs = Date.now(),
+): boolean {
+  if (incoming.watched !== existing.watched) return true
+  if (incoming.continueWatching !== existing.continueWatching) return true
+  if (incoming.dismissed !== existing.dismissed) return true
+  if (incoming.durationMs !== existing.durationMs) return true
+  if (incoming.playbackSourceChanged) return true
+  if (Math.abs(incoming.positionMs - existing.positionMs) >= PROGRESS_POSITION_UPDATE_DELTA_MS) return true
+
+  const incomingTime = incoming.checkpointUpdatedAt
+    ? Date.parse(incoming.checkpointUpdatedAt)
+    : nowEpochMs
+  const existingTime = (existing.checkpointUpdatedAt ?? existing.updatedAt).getTime()
+  return Number.isFinite(incomingTime) && incomingTime - existingTime >= PROGRESS_UPDATE_INTERVAL_MS
 }
 
 export function filterContinueWatching<

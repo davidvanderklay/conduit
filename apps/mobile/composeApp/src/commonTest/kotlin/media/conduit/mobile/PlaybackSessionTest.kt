@@ -188,6 +188,41 @@ class PlaybackSessionTest {
     }
 
     @Test
+    fun repeatedNextEpisodeTransitionsReplaceTheCurrentRequest() {
+        val controller = PlaybackSessionController(TestScope())
+        val requests = (1..3).map { episode ->
+            PlaybackRequest(
+                identity = PlaybackIdentity("profile", "series", "show", "episode-$episode"),
+                url = "https://example.test/episode-$episode.m3u8",
+                title = "Episode $episode",
+                mediaName = "Show · Episode $episode",
+            )
+        }
+        var currentIndex = 0
+        lateinit var callbacks: PlaybackSessionCallbacks
+        callbacks = PlaybackSessionCallbacks(
+            persist = { _, _ -> },
+            playNext = {
+                requests.getOrNull(currentIndex + 1)?.let { next ->
+                    currentIndex += 1
+                    controller.close(saveProgress = false)
+                    controller.start(next, callbacks)
+                }
+            },
+            openEpisodes = {},
+            minimized = {},
+            closed = {},
+        )
+
+        controller.start(requests.first(), callbacks)
+        controller.playNext()
+        controller.playNext()
+
+        assertEquals("episode-3", controller.state.request?.identity?.videoId)
+        assertEquals(PlaybackPresentation.FullScreen, controller.state.presentation)
+    }
+
+    @Test
     fun reopeningTheSameStreamRestoresAMinimizedPlayerWithoutResettingPlayback() {
         val controller = PlaybackSessionController(TestScope())
         val request = PlaybackRequest(

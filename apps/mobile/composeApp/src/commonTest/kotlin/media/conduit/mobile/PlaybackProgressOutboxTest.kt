@@ -12,6 +12,7 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import media.conduit.mobile.account.ConduitApi
 import media.conduit.mobile.foundation.MemorySecureStore
@@ -25,7 +26,7 @@ class PlaybackProgressOutboxTest {
                 respond("offline", HttpStatusCode.ServiceUnavailable)
             } else {
                 respond(
-                    """{"item":{"videoId":"video-1","mediaType":"movie","mediaId":"movie-1","name":"Movie","positionMs":10000,"durationMs":100000,"watched":false,"dismissed":false,"continueWatching":false,"updatedAt":"2026-08-14T12:00:00Z"}}""",
+                    """{"item":{"videoId":"video-1","mediaType":"movie","mediaId":"movie-1","name":"Movie","positionMs":10000,"durationMs":100000,"watched":false,"dismissed":false,"continueWatching":true,"updatedAt":"2026-08-14T12:00:00Z"}}""",
                     HttpStatusCode.OK,
                     headersOf("Content-Type", ContentType.Application.Json.toString()),
                 )
@@ -48,7 +49,7 @@ class PlaybackProgressOutboxTest {
             playback = PlaybackState(loading = false, positionMs = 10_000, durationMs = 100_000),
             identity = PlaybackCheckpointIdentity("session-1", 1),
             existing = null,
-        )
+        ) ?: error("a valid checkpoint should be queued")
 
         assertFalse(result.synced)
         assertEquals(10_000L, outbox.pendingSummaries("https://conduit.example", "account-1", "profile-1").single().positionMs)
@@ -60,6 +61,35 @@ class PlaybackProgressOutboxTest {
 
         assertEquals(1, flushed.size)
         assertTrue(outbox.pendingSummaries("https://conduit.example", "account-1", "profile-1").isEmpty())
+    }
+
+    @Test
+    fun ignoresSubSecondProgressButStoresTheFirstOneSecondCheckpoint() = runTest {
+        val engine = MockEngine { respond("offline", HttpStatusCode.ServiceUnavailable) }
+        val api = ConduitApi(HttpClient(engine) { install(ContentNegotiation) { json() } })
+        val outbox = PlaybackProgressOutbox(api, MemorySecureStore())
+        val request = PlaybackRequest(
+            identity = PlaybackIdentity("profile-1", "movie", "movie-1", "video-1"),
+            url = "https://example.test/movie.mp4",
+            title = "Movie",
+            mediaName = "Movie",
+        )
+
+        assertNull(outbox.enqueue(
+            "https://conduit.example", "token", "account-1", request,
+            PlaybackState(loading = false, positionMs = 999, durationMs = 100_000),
+            PlaybackCheckpointIdentity("session-1", 1), null,
+        ))
+        assertTrue(outbox.pendingSummaries("https://conduit.example", "account-1", "profile-1").isEmpty())
+
+        val result = outbox.enqueue(
+            "https://conduit.example", "token", "account-1", request,
+            PlaybackState(loading = false, positionMs = 1_000, durationMs = 100_000),
+            PlaybackCheckpointIdentity("session-1", 2), null,
+        )
+        val saved = result ?: error("the one-second checkpoint should be queued")
+        assertTrue(saved.progress.continueWatching)
+        assertEquals(1_000L, outbox.pendingSummaries("https://conduit.example", "account-1", "profile-1").single().positionMs)
     }
 
     @Test

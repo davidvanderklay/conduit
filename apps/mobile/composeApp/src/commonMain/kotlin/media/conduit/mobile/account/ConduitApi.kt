@@ -265,10 +265,16 @@ fun playbackSourceForStream(addonId: String, stream: StreamItem): PlaybackSource
     bingeGroup = stream.behaviorHints?.bingeGroup,
 )
 
-fun selectSavedStream(streams: List<StreamSource>, source: PlaybackSource?): StreamSource? {
+fun selectSavedStream(
+    streams: List<StreamSource>,
+    source: PlaybackSource?,
+    allowAddonFallback: Boolean = false,
+): StreamSource? {
     val saved = source ?: return null
     val candidates = streams.filter { candidate ->
-        candidate.addonId == saved.addonId && isPlayableStreamUrl(candidate.stream.url)
+        isPlayableStreamUrl(candidate.stream.url) &&
+            (candidate.addonId == saved.addonId ||
+                (allowAddonFallback && sameSourceText(candidate.stream.behaviorHints?.bingeGroup, saved.bingeGroup)))
     }
     candidates.firstOrNull { candidate -> streamSourceKey(candidate.stream) == saved.sourceKey }?.let { return it }
 
@@ -285,7 +291,7 @@ fun selectSavedStream(streams: List<StreamSource>, source: PlaybackSource?): Str
     }
 
     return candidates
-        .map { candidate -> candidate to streamMatchScore(candidate.stream, saved) }
+        .map { candidate -> candidate to streamMatchScore(candidate, saved, allowAddonFallback) }
         .maxByOrNull { it.second }
         ?.takeIf { it.second > 0 }
         ?.first
@@ -296,8 +302,15 @@ private fun isPlayableStreamUrl(value: String?): Boolean {
     return protocol == "http" || protocol == "https"
 }
 
-private fun streamMatchScore(stream: StreamItem, saved: PlaybackSource): Int {
+private fun streamMatchScore(
+    candidate: StreamSource,
+    saved: PlaybackSource,
+    allowAddonFallback: Boolean,
+): Int {
+    val stream = candidate.stream
     var score = 0
+    if (allowAddonFallback && sameSourceText(stream.behaviorHints?.bingeGroup, saved.bingeGroup)) score += 1_000
+    if (candidate.addonId == saved.addonId) score += 50
     if (sameSourceText(stream.behaviorHints?.filename, saved.filename)) score += 100
     if (sameSourceText(stream.title, saved.title)) score += 20
     if (sameSourceText(stream.name, saved.name)) score += 10

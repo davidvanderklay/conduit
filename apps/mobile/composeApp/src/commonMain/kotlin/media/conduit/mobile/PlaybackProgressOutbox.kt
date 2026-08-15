@@ -13,7 +13,7 @@ import media.conduit.mobile.account.ProgressSummary
 import media.conduit.mobile.foundation.SecureStore
 
 private const val ProgressOutboxKeyPrefix = "playback.progress.outbox.v1"
-private const val ContinueWatchingEntryPositionMs = 30_000L
+private const val ProgressStoreThresholdPositionMs = 1_000L
 
 internal data class ProgressWriteOutcome(
     val progress: ProgressSummary,
@@ -74,9 +74,10 @@ internal class PlaybackProgressOutbox(
         identity: PlaybackCheckpointIdentity,
         existing: ProgressSummary?,
         watchedOverride: Boolean? = null,
-    ): ProgressWriteOutcome {
+    ): ProgressWriteOutcome? {
         val checkpoint = checkpoint(request, playback, identity, watchedOverride)
         val local = checkpoint.toSummary(existing)
+        if (!local.watched && checkpoint.positionMs < ProgressStoreThresholdPositionMs) return null
         val storageKey = storageKey(baseUrl, accountId)
         stateMutex.withLock {
             loadLocked(storageKey)
@@ -86,7 +87,10 @@ internal class PlaybackProgressOutbox(
 
         val flushed = flush(baseUrl, token, accountId)
         val synced = flushed.firstOrNull { it.identity == identity && it.progress.videoId == request.identity.videoId }
-        return ProgressWriteOutcome(synced?.progress ?: local, synced != null)
+        return ProgressWriteOutcome(
+            progress = synced?.let { preserveNewerLocalProgress(local, it.progress) } ?: local,
+            synced = synced != null,
+        )
     }
 
     suspend fun flush(baseUrl: String, token: String, accountId: String): List<FlushedProgress> =
@@ -124,6 +128,13 @@ internal class PlaybackProgressOutbox(
                     if (cause is CancellationException) throw cause
                     // Leave the checkpoint in place. The next foreground or
                     // playback checkpoint will retry it without user action.
+                    break
+                }
+
+                if (!isProgressCheckpointAccepted(next.toSummary(existing = null), saved)) {
+                    // A successful HTTP response can still be the existing row
+                    // when the server coalesces a small update. Keep the newer
+                    // checkpoint queued so a later checkpoint can retry it.
                     break
                 }
 
@@ -195,7 +206,7 @@ internal class PlaybackProgressOutbox(
             dismissed = false,
             continueWatching = existing?.continueWatching == true ||
                 completed ||
-                positionMs >= ContinueWatchingEntryPositionMs,
+                positionMs >= ProgressStoreThresholdPositionMs,
             playbackSource = playbackSource,
             updatedAt = updatedAt,
         )
@@ -238,6 +249,24 @@ private fun PersistedProgressCheckpoint.identity(): PlaybackCheckpointIdentity =
 
 private fun isPlaybackComplete(positionMs: Long, durationMs: Long): Boolean {
     if (positionMs < 0 || durationMs <= 0) return false
-    return positionMs.toDouble() / durationMs >= 0.9 ||
-        (durationMs >= 600_000 && durationMs - positionMs <= 120_000)
+    return positionMs.toDouble() / durationMs >= 0.9
 }
+
+internal fun preserveNewerLocalProgress(
+    local: ProgressSummary,
+    server: ProgressSummary,
+): ProgressSummary = when {
+    local.watched && !server.watched -> local
+    local.positionMs > server.positionMs -> local
+    local.continueWatching && !server.continueWatching -> local
+    else -> server
+}
+
+internal fun isProgressCheckpointAccepted(
+    checkpoint: ProgressSummary,
+    server: ProgressSummary,
+): Boolean =
+    server.positionMs >= checkpoint.positionMs &&
+        (!checkpoint.watched || server.watched) &&
+        (!checkpoint.continueWatching || server.continueWatching) &&
+        (checkpoint.playbackSource == null || checkpoint.playbackSource == server.playbackSource)

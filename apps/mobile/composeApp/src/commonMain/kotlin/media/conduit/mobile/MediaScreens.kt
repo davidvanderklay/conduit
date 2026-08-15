@@ -637,6 +637,7 @@ internal fun MediaDetailsScreen(
     var selectedSeason by remember(item.id) { mutableStateOf<Int?>(null) }
     var autoResumeAttemptedKey by remember(item.id) { mutableStateOf<String?>(null) }
     var selectedPlaybackSources by remember(item.id) { mutableStateOf<Map<String, PlaybackSource>>(emptyMap()) }
+    var streamSelectionReturnsHome by remember(item.id) { mutableStateOf(returnToHomeOnStreamBack) }
     var streamRequestVersion by remember(item.id) { mutableIntStateOf(0) }
     val effectiveInitialVideoId = effectiveResumeVideoId(
         initialVideoId,
@@ -662,8 +663,8 @@ internal fun MediaDetailsScreen(
     val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
     var actionTarget by remember(item.id) { mutableStateOf<MediaActionTarget?>(null) }
 
-    fun resetPlaybackForVideoChange() {
-        playbackSession.close()
+    fun resetPlaybackForVideoChange(saveProgress: Boolean = true) {
+        playbackSession.close(saveProgress = saveProgress)
         streamRequestVersion += 1
         streams = null
         streamPageOpen = false
@@ -715,9 +716,12 @@ internal fun MediaDetailsScreen(
     fun requestStreams(
         video: VideoItem?,
         autoPlaySavedSource: Boolean = false,
-        addonId: String? = selectedStreamAddonId,
+        addonId: String? = null,
+        preferredSource: PlaybackSource? = null,
+        streamBackToHome: Boolean? = null,
     ) {
         if (!autoPlaySavedSource) streamPageOpen = true
+        streamBackToHome?.let { streamSelectionReturnsHome = it }
         streamsLoading = true
         streamsError = null
         val videoId = video?.id ?: item.id
@@ -725,7 +729,13 @@ internal fun MediaDetailsScreen(
         streams = null
         scope.launch {
             val compatibleAddons = addons.filter { it.enabled && it.supportsResource("stream", item.type, videoId) }
-            val effectiveAddonId = addonId?.takeIf { selectedId ->
+            val autoSource = preferredSource ?: savedPlaybackSourceFor(videoId)
+            val requestedAddonId = addonId ?: if (preferredSource == null) {
+                autoSource?.addonId ?: selectedStreamAddonId
+            } else {
+                null
+            }
+            val effectiveAddonId = requestedAddonId?.takeIf { selectedId ->
                 compatibleAddons.size > 1 && compatibleAddons.any { it.id == selectedId }
             }
             val requestedAddons = effectiveAddonId?.let { selectedId -> compatibleAddons.filter { it.id == selectedId } }
@@ -737,7 +747,14 @@ internal fun MediaDetailsScreen(
                     streams = choices
                     if (autoPlaySavedSource) {
                         val saved = savedPlaybackSourceFor(videoId)
-                        val choice = selectSavedStream(choices, saved)
+                        val choice = listOfNotNull(
+                            preferredSource?.let { it to true },
+                            saved?.let { it to false },
+                        ).asSequence()
+                            .mapNotNull { (source, allowAddonFallback) ->
+                                selectSavedStream(choices, source, allowAddonFallback)
+                            }
+                            .firstOrNull()
                         if (choice != null) {
                             currentAddonId = choice.addonId
                             currentAddonName = choice.addonName
@@ -763,10 +780,26 @@ internal fun MediaDetailsScreen(
         }
     }
 
-    fun selectVideo(video: VideoItem?, autoPlaySavedSource: Boolean = false) {
-        if (selectedVideo?.id != video?.id) resetPlaybackForVideoChange()
+    fun selectVideo(
+        video: VideoItem?,
+        autoPlaySavedSource: Boolean? = null,
+        preferredSource: PlaybackSource? = null,
+        streamBackToHome: Boolean? = null,
+        closePlaybackWithoutSaving: Boolean = false,
+    ) {
+        val shouldAutoPlay = autoPlaySavedSource ?: preferences.autoSelectSavedStreams
+        if (streamBackToHome != null) streamSelectionReturnsHome = streamBackToHome
+        if (selectedVideo?.id != video?.id) {
+            resetPlaybackForVideoChange(saveProgress = !closePlaybackWithoutSaving)
+        }
         selectedVideo = video
-        requestStreams(video, autoPlaySavedSource = autoPlaySavedSource)
+        requestStreams(
+            video,
+            autoPlaySavedSource = shouldAutoPlay,
+            addonId = if (shouldAutoPlay) null else selectedStreamAddonId,
+            preferredSource = preferredSource,
+            streamBackToHome = streamBackToHome,
+        )
     }
 
     val playingVideoId = selectedVideo?.id ?: item.id
@@ -841,7 +874,7 @@ internal fun MediaDetailsScreen(
             persistCheckpoint = { request, state, checkpointIdentity ->
                 val existing = snapshot?.progress?.firstOrNull { it.videoId == request.identity.videoId }
                 resolveProgressState(state, existing)?.let { resolved ->
-                    val outcome = progressOutbox.enqueue(
+                    progressOutbox.enqueue(
                         baseUrl = baseUrl,
                         token = token,
                         accountId = accountId,
@@ -853,20 +886,30 @@ internal fun MediaDetailsScreen(
                         identity = checkpointIdentity,
                         existing = existing,
                         watchedOverride = resolved.watched,
-                    )
-                    onProgressChanged(outcome.progress)
+                    )?.let { outcome -> onProgressChanged(outcome.progress) }
                 }
             },
             playNext = {
                 nextVideo?.let { video ->
-                    playbackSession.close(saveProgress = false)
-                    selectVideo(video)
+                    val currentSource = currentPlaybackSource()
+                    selectVideo(
+                        video,
+                        preferredSource = currentSource,
+                        streamBackToHome = false,
+                        closePlaybackWithoutSaving = true,
+                    )
                 }
             },
             openEpisodes = {},
             selectEpisode = { videoId ->
                 orderedVideos.firstOrNull { it.id == videoId }?.let { video ->
-                    selectVideo(video)
+                    val currentSource = currentPlaybackSource()
+                    selectVideo(
+                        video,
+                        preferredSource = currentSource,
+                        streamBackToHome = false,
+                        closePlaybackWithoutSaving = true,
+                    )
                 }
             },
             minimized = onBack,
@@ -922,7 +965,7 @@ internal fun MediaDetailsScreen(
         streamEpisodesOpen = false
         streamPageOpen = false
         streams = null
-        if (returnToHomeOnStreamBack) onBack()
+        if (streamSelectionReturnsHome) onBack()
     }
     val ownsPlayback = requestIdentity != null && playbackSession.state.request?.identity == requestIdentity
     PlayerOrientationLock(
@@ -981,7 +1024,7 @@ internal fun MediaDetailsScreen(
                     onPreferencesChanged(preferences.copy(lastStreamAddonId = addonId))
                     if (currentEffective != nextEffective) requestStreams(selectedVideo, addonId = addonId)
                 },
-                onRetry = { requestStreams(selectedVideo) },
+                onRetry = { requestStreams(selectedVideo, addonId = selectedStreamAddonId) },
             ) { source ->
                 if (source.stream.url != null) {
                     currentAddonId = source.addonId
@@ -1025,7 +1068,7 @@ internal fun MediaDetailsScreen(
                         onDismiss = { streamEpisodesOpen = false },
                         onSelect = { video ->
                             streamEpisodesOpen = false
-                            selectVideo(video)
+                            selectVideo(video, streamBackToHome = false)
                         },
                     )
                 }
