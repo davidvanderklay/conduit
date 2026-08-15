@@ -2100,10 +2100,11 @@ final class ConduitPictureInPictureCoordinator: NSObject,
     func invalidate(completion: (() -> Void)? = nil) {
         pictureInPicturePossibleObservation?.invalidate()
         pictureInPicturePossibleObservation = nil
-        stopCapture { [weak self] in
+        let displayLayer = self.displayLayer
+        stopCapture { [displayLayer] in
             let cleanup = {
-                self?.displayLayer.flushAndRemoveImage()
-                self?.displayLayer.removeFromSuperlayer()
+                displayLayer.flushAndRemoveImage()
+                displayLayer.removeFromSuperlayer()
                 completion?()
             }
             if Thread.isMainThread {

@@ -326,8 +326,69 @@ enum ConduitPipAllocationPolicy {
     }
 }
 
+final class ConduitPipCaptureLifetimeToken {
+    private let lock = NSLock()
+    private var isReleased = false
+    private let onRelease: () -> Void
+
+    init(onRelease: @escaping () -> Void) {
+        self.onRelease = onRelease
+    }
+
+    func release() {
+        lock.lock()
+        guard !isReleased else {
+            lock.unlock()
+            return
+        }
+        isReleased = true
+        lock.unlock()
+        onRelease()
+    }
+}
+
+final class ConduitPipCaptureLifetimeTracker {
+    private let lock = NSLock()
+    private let group = DispatchGroup()
+    private var tokens: [UUID: ConduitPipCaptureLifetimeToken] = [:]
+
+    func begin() -> ConduitPipCaptureLifetimeToken {
+        let id = UUID()
+        let token = ConduitPipCaptureLifetimeToken { [weak self] in
+            self?.release(id: id)
+        }
+        lock.lock()
+        tokens[id] = token
+        group.enter()
+        lock.unlock()
+        return token
+    }
+
+    func notify(queue: DispatchQueue, execute: @escaping () -> Void) {
+        group.notify(queue: queue, execute: execute)
+    }
+
+    func forceReleaseAll() {
+        lock.lock()
+        let activeTokens = Array(tokens.values)
+        lock.unlock()
+        activeTokens.forEach { $0.release() }
+    }
+
+    private func release(id: UUID) {
+        lock.lock()
+        guard tokens.removeValue(forKey: id) != nil else {
+            lock.unlock()
+            return
+        }
+        lock.unlock()
+        group.leave()
+    }
+}
+
 final class ConduitPipCaptureShutdownFence {
     private let lock = NSLock()
+    private let activeOperationGroup = DispatchGroup()
     private var generation: UInt64 = 0
     private var isArmed = false
     private var failedGeneration: UInt64?
@@ -367,13 +428,19 @@ final class ConduitPipCaptureShutdownFence {
             lock.unlock()
             return false
         }
+        activeOperationGroup.enter()
         lock.unlock()
 
         // The capture lifetime group keeps teardown deferred for an operation
         // admitted here. Keep this lock out of the potentially blocking AVKit
         // call so disarm remains bounded.
+        defer { activeOperationGroup.leave() }
         action()
         return true
+    }
+
+    func notifyOperationsIdle(queue: DispatchQueue, execute: @escaping () -> Void) {
+        activeOperationGroup.notify(queue: queue, execute: execute)
     }
 }
 
@@ -403,7 +470,7 @@ final class ConduitPictureInPictureFrameCapture {
     )
     private let captureQueueKey = DispatchSpecificKey<Void>()
     private let captureIdleGroup = DispatchGroup()
-    private let captureLifetimeGroup = DispatchGroup()
+    private let captureLifetimeTracker = ConduitPipCaptureLifetimeTracker()
     private let shutdownFence = ConduitPipCaptureShutdownFence()
     private var commandQueue: MTLCommandQueue?
     private var textureCache: CVMetalTextureCache?
@@ -452,20 +519,29 @@ final class ConduitPictureInPictureFrameCapture {
     }
 
     func start() {
+        shutdownFence.disarm()
         stateLock.lock()
         generation &+= 1
-        isArmed = true
+        isArmed = false
         failedGeneration = nil
         let captureGeneration = generation
         stateLock.unlock()
-        shutdownFence.arm(for: captureGeneration)
 
-        captureQueue.async { [weak self] in
-            guard let self else { return }
-            self.scheduler.reset()
-            self.timestampEstimator.reset()
-            self.droppedFrameCount = 0
-            self.lastDropLogUptime = 0
+        captureLifetimeTracker.notify(queue: captureQueue) { [self] in
+            self.shutdownFence.notifyOperationsIdle(queue: self.captureQueue) {
+                self.stateLock.lock()
+                guard self.generation == captureGeneration, !self.isArmed else {
+                    self.stateLock.unlock()
+                    return
+                }
+                self.scheduler.reset()
+                self.timestampEstimator.reset()
+                self.droppedFrameCount = 0
+                self.lastDropLogUptime = 0
+                self.isArmed = true
+                self.stateLock.unlock()
+                self.shutdownFence.arm(for: captureGeneration)
+            }
         }
     }
 
@@ -486,10 +562,12 @@ final class ConduitPictureInPictureFrameCapture {
                 )
             } else {
                 detachTimedOutCapture()
+                captureLifetimeTracker.forceReleaseAll()
                 ConduitPipInstrumentation.event("shutdownDeferred", reason: "capture completion timeout")
                 scheduleResetWhenCaptureLifetimeIsIdle(
                     stoppedGeneration: stoppedGeneration,
-                    completion: completion
+                    completion: completion,
+                    abandonMetalResources: true
                 )
             }
         } else {
@@ -510,25 +588,27 @@ final class ConduitPictureInPictureFrameCapture {
         failedGeneration = nil
         stateLock.unlock()
 
-        captureLifetimeGroup.notify(queue: captureQueue) { [self] in
-            self.stateLock.lock()
-            let isCurrentTimeline = self.generation == captureGeneration
-            self.stateLock.unlock()
-            guard isCurrentTimeline else { return }
-
-            self.scheduler.reset()
-            self.timestampEstimator.reset()
-            completion?()
-
-            guard shouldRearm else { return }
-            self.stateLock.lock()
-            guard self.generation == captureGeneration, !self.isArmed else {
+        captureLifetimeTracker.notify(queue: captureQueue) { [self] in
+            self.shutdownFence.notifyOperationsIdle(queue: self.captureQueue) {
+                self.stateLock.lock()
+                let isCurrentTimeline = self.generation == captureGeneration
                 self.stateLock.unlock()
-                return
+                guard isCurrentTimeline else { return }
+
+                self.scheduler.reset()
+                self.timestampEstimator.reset()
+                completion?()
+
+                guard shouldRearm else { return }
+                self.stateLock.lock()
+                guard self.generation == captureGeneration, !self.isArmed else {
+                    self.stateLock.unlock()
+                    return
+                }
+                self.isArmed = true
+                self.stateLock.unlock()
+                self.shutdownFence.arm(for: captureGeneration)
             }
-            self.isArmed = true
-            self.stateLock.unlock()
-            self.shutdownFence.arm(for: captureGeneration)
         }
     }
 
@@ -550,11 +630,11 @@ final class ConduitPictureInPictureFrameCapture {
         let captureGeneration = generation
         inFlightGeneration = captureGeneration
         captureIdleGroup.enter()
-        captureLifetimeGroup.enter()
+        let captureLifetime = captureLifetimeTracker.begin()
         stateLock.unlock()
 
-        captureQueue.async { [self] in
-            defer { self.captureLifetimeGroup.leave() }
+        captureQueue.async { [self, captureLifetime] in
+            defer { captureLifetime.release() }
             guard self.isCurrentGeneration(captureGeneration) else {
                 self.finishCapture(for: captureGeneration)
                 return
@@ -772,10 +852,10 @@ final class ConduitPictureInPictureFrameCapture {
             preferredTimescale: 600
         )
 
-        captureLifetimeGroup.enter()
-        commandBuffer.addCompletedHandler { [self] commandBuffer in
+        let completionLifetime = captureLifetimeTracker.begin()
+        commandBuffer.addCompletedHandler { [self, completionLifetime] commandBuffer in
             self.captureQueue.async {
-                defer { self.captureLifetimeGroup.leave() }
+                defer { completionLifetime.release() }
                 guard self.isCurrentGeneration(generation),
                       let displayLayer = self.displayLayer
                 else {
@@ -966,18 +1046,36 @@ final class ConduitPictureInPictureFrameCapture {
         clearPool()
     }
 
+    private func abandonCaptureResources() {
+        scheduler.reset()
+        timestampEstimator.reset()
+        pixelBufferPool = nil
+        formatDescription = nil
+        poolSize = .zero
+        destinationPixelFormat = .bgra8Unorm
+        commandQueue = nil
+        textureCache = nil
+    }
+
     private func scheduleResetWhenCaptureLifetimeIsIdle(
         stoppedGeneration: UInt64,
-        completion: (() -> Void)?
+        completion: (() -> Void)?,
+        abandonMetalResources: Bool = false
     ) {
-        captureLifetimeGroup.notify(queue: captureQueue) { [self] in
-            self.stateLock.lock()
-            let canReset = !self.isArmed && self.generation == stoppedGeneration
-            self.stateLock.unlock()
-            if canReset {
-                self.resetCaptureResources()
+        captureLifetimeTracker.notify(queue: captureQueue) { [self] in
+            self.shutdownFence.notifyOperationsIdle(queue: self.captureQueue) {
+                self.stateLock.lock()
+                let canReset = !self.isArmed && self.generation == stoppedGeneration
+                self.stateLock.unlock()
+                if canReset {
+                    if abandonMetalResources {
+                        self.abandonCaptureResources()
+                    } else {
+                        self.resetCaptureResources()
+                    }
+                }
+                completion?()
             }
-            completion?()
         }
     }
 

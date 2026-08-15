@@ -532,4 +532,23 @@ final class VideoOutputRecoveryPolicyTests: XCTestCase {
 
         XCTAssertFalse(fence.withPermission(for: 41) {})
     }
+
+    func testPictureInPictureLifetimeTrackerForceReleasesStuckCompletion() {
+        let tracker = ConduitPipCaptureLifetimeTracker()
+        let stuckCompletion = tracker.begin()
+        let cleanupScheduled = DispatchSemaphore(value: 0)
+
+        tracker.notify(queue: .global(qos: .userInitiated)) {
+            cleanupScheduled.signal()
+        }
+        tracker.forceReleaseAll()
+
+        XCTAssertEqual(
+            cleanupScheduled.wait(timeout: .now() + 1),
+            .success
+        )
+
+        // A late command completion must not over-release the lifetime group.
+        stuckCompletion.release()
+    }
 }
