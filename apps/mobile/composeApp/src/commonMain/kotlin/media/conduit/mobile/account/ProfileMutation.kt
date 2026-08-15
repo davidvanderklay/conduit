@@ -29,6 +29,28 @@ sealed interface ProfileMutation {
     data class RemoveProgress(val progress: ProgressSummary) : ProfileMutation
 }
 
+/** Removes playback acknowledgements invalidated by a successful profile mutation. */
+internal fun acknowledgedProgressAfterMutation(
+    acknowledged: Map<String, ProgressSummary>,
+    mutation: ProfileMutation,
+): Map<String, ProgressSummary> = when (mutation) {
+    is ProfileMutation.SetLibrary -> acknowledged
+    is ProfileMutation.SetWatched -> {
+        val videoId = mutation.progress?.videoId ?: mutation.video?.id ?: mutation.item.id
+        acknowledged - videoId
+    }
+    is ProfileMutation.SetSeriesWatched -> {
+        val videoIds = mutation.videos
+            .filter { video -> mutation.watched || mutation.progress.any { it.videoId == video.id } }
+            .mapTo(mutableSetOf(), VideoItem::id)
+        acknowledged.filterKeys { it !in videoIds }
+    }
+    is ProfileMutation.SetDismissed -> acknowledged.filterValues { progress ->
+        progress.mediaType != mutation.progress.mediaType || progress.mediaId != mutation.progress.mediaId
+    }
+    is ProfileMutation.RemoveProgress -> acknowledged - mutation.progress.videoId
+}
+
 fun ProfileSnapshot.applyOptimistically(mutation: ProfileMutation): ProfileSnapshot = when (mutation) {
     is ProfileMutation.SetLibrary -> copy(
         library = if (mutation.saved) {

@@ -258,9 +258,13 @@ export function registerProgressRoutes(app: FastifyInstance, context: RouteConte
           : {}),
         ...(dismissed !== undefined ? { dismissed } : {}),
         ...(watched !== undefined || dismissed !== undefined
-          ? { checkpointSessionId: null, checkpointSequence: null, checkpointUpdatedAt: new Date() }
+          ? {
+              checkpointSessionId: null,
+              checkpointSequence: null,
+              checkpointUpdatedAt: new Date(),
+              updatedAt: new Date(),
+            }
           : {}),
-        ...(watched !== undefined ? { updatedAt: new Date() } : {}),
       }
       const [item] = await db
         .update(watchProgress)

@@ -38,6 +38,7 @@ describe("progress routes", () => {
       progressRow("s1e2", "2026-08-12T12:00:00Z", 2),
       progressRow("other-show", "2026-08-11T12:00:00Z", 1, "other-show"),
     ]
+    const previousUpdatedAt = rows.filter((row) => row.mediaId === "show").map((row) => row.updatedAt.getTime())
     const database = fakeDatabase(rows)
     const app = Fastify()
     registerProgressRoutes(
@@ -56,6 +57,7 @@ describe("progress routes", () => {
     expect(response.statusCode).toBe(200)
     expect(rows.filter((row) => row.mediaId === "show").every((row) => row.dismissed)).toBe(true)
     expect(rows.find((row) => row.mediaId === "other-show")?.dismissed).toBe(false)
+    expect(rows.filter((row) => row.mediaId === "show").every((row, index) => row.updatedAt.getTime() > previousUpdatedAt[index]!)).toBe(true)
   })
 })
 

@@ -832,8 +832,18 @@ private fun AppShell(
                 syncRepository.save(optimistic)
                 runCatching {
                     api.executeMutation(state.endpoint!!.baseUrl, account.session.token, profile.id, mutation)
+                    acknowledgedProgress = acknowledgedProgressAfterMutation(acknowledgedProgress, mutation)
                     profileSyncMutex.withLock {
-                        profileSync = synchronizeProfileData(profile.id)
+                        val synchronized = synchronizeProfileData(profile.id)
+                        val postMutation = synchronized.snapshot?.let { snapshot ->
+                            when (mutation) {
+                                is ProfileMutation.SetDismissed,
+                                is ProfileMutation.RemoveProgress -> snapshot.applyOptimistically(mutation)
+                                else -> snapshot
+                            }
+                        }
+                        if (postMutation != null) syncRepository.save(postMutation)
+                        profileSync = synchronized.copy(snapshot = postMutation)
                     }
                 }.onFailure {
                     profileSync = profileSync.copy(snapshot = before, error = it.message)
