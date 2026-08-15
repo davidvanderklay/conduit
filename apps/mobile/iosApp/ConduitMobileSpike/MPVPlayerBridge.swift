@@ -473,6 +473,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
             if !active {
                 self.layoutMetalLayer()
                 self.updateLiveResizeState()
+                self.resetVideoOutputObservations()
                 self.scheduleVideoOutputWatchdog()
             }
         }
@@ -912,6 +913,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
             if !applyPendingDrawableResizeIfSettled() {
                 layoutMetalLayer()
             }
+            resetVideoOutputObservations()
             scheduleVideoOutputWatchdog()
         }
     }
@@ -927,6 +929,9 @@ final class ConduitMPVPlayerViewController: UIViewController {
         guard !destroyStarted, !interactiveResizeActive, !coordinatorSurfaceTransitionActive else { return }
         if !surfaceTransitionActive {
             surfaceTransitionActive = true
+            ConduitSurfaceTransitionPolicy.beginGeometryTransition(
+                recoveryState: &videoOutputRecoveryState
+            )
             updateLiveResizeState()
         }
         pendingSurfaceTransitionEnd?.cancel()
@@ -938,6 +943,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
             if !self.applyPendingDrawableResizeIfSettled() {
                 self.layoutMetalLayer()
             }
+            self.resetVideoOutputObservations()
             self.scheduleVideoOutputWatchdog()
             self.debugLog("surface transition settled")
         }
@@ -2383,6 +2389,12 @@ enum ConduitVideoOutputWatchdogPolicy {
 }
 
 enum ConduitSurfaceTransitionPolicy {
+    static func beginGeometryTransition(
+        recoveryState: inout ConduitVideoOutputRecoveryState
+    ) {
+        recoveryState.cancel(resetAttempts: true)
+    }
+
     static func shouldScheduleDrawableResize(
         size: CGSize,
         pendingSize: CGSize?,
