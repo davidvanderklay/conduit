@@ -307,4 +307,28 @@ class PlaybackSessionTest {
         assertEquals("episode-2", controller.state.request?.identity?.videoId)
         assertEquals(0L, controller.state.playback.positionMs)
     }
+
+    @Test
+    fun videoOutputRetryStaysOnTheCurrentPlaybackSession() {
+        val controller = PlaybackSessionController(TestScope())
+        val request = PlaybackRequest(
+            identity = PlaybackIdentity("profile", "movie", "media", "video"),
+            url = "https://example.test/video.mp4",
+            title = "Movie",
+            mediaName = "Movie",
+        )
+        val callbacks = PlaybackSessionCallbacks(
+            persist = { _, _ -> },
+            playNext = {},
+            openEpisodes = {},
+            minimized = {},
+            closed = {},
+        )
+
+        controller.start(request, callbacks)
+        controller.send(PlaybackCommand.RetryVideoOutput)
+
+        assertEquals(request, controller.state.request)
+        assertEquals(PlaybackCommand.RetryVideoOutput, controller.state.command?.command)
+    }
 }

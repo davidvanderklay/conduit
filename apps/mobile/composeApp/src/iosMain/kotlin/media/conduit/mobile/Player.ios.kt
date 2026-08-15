@@ -182,6 +182,7 @@ actual fun NativePlayer(
             PlaybackCommand.Pause -> bridge.pause()
             is PlaybackCommand.SeekTo -> bridge.seekTo(next.positionMs.coerceAtLeast(0))
             PlaybackCommand.EnterSystemPip -> bridge.startPictureInPicture()
+            PlaybackCommand.RetryVideoOutput -> bridge.retryVideoOutput()
             null -> Unit
         }
     }

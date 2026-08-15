@@ -9,8 +9,11 @@ import UIKit
 /// leaking rendering concerns into the Compose player contract.
 final class ConduitMetalLayer: CAMetalLayer {
     private let captureLock = NSLock()
+    private let heartbeatLock = NSLock()
     private let resizeLock = NSLock()
     private var latestDrawable: CAMetalDrawable?
+    private var drawableHeartbeat: UInt64 = 0
+    private var lastDrawableUptime: TimeInterval = 0
     private var liveResize = false
     private lazy var captureContext = device.map(CIContext.init(mtlDevice:))
 
@@ -39,10 +42,24 @@ final class ConduitMetalLayer: CAMetalLayer {
 
     override func nextDrawable() -> CAMetalDrawable? {
         let drawable = super.nextDrawable()
+        if drawable != nil {
+            heartbeatLock.lock()
+            drawableHeartbeat &+= 1
+            lastDrawableUptime = ProcessInfo.processInfo.systemUptime
+            heartbeatLock.unlock()
+        }
         captureLock.lock()
         latestDrawable = drawable
         captureLock.unlock()
         return drawable
+    }
+
+    /// Returns the last successful drawable acquisition without exposing the
+    /// drawable itself to the player watchdog.
+    func drawableHeartbeatSnapshot() -> (count: UInt64, uptime: TimeInterval) {
+        heartbeatLock.lock()
+        defer { heartbeatLock.unlock() }
+        return (drawableHeartbeat, lastDrawableUptime)
     }
 
     /// Copies the most recently requested MPV drawable into a pooled BGRA buffer.

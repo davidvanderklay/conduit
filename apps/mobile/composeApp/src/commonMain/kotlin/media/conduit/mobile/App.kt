@@ -1405,6 +1405,9 @@ private fun BoxScope.PlaybackSessionHost(
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("Playback failed", color = Color.White, fontWeight = FontWeight.Bold)
                         Text(message, color = Color.White.copy(.7f), style = MaterialTheme.typography.bodySmall)
+                        TextButton(onClick = { controller.send(PlaybackCommand.RetryVideoOutput) }) {
+                            Text("Retry video")
+                        }
                         TextButton(onClick = controller::close) { Text("Choose another stream") }
                     }
                 }

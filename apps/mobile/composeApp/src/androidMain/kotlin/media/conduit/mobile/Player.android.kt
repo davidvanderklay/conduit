@@ -251,6 +251,7 @@ actual fun NativePlayer(
             PlaybackCommand.Pause -> player.pause()
             is PlaybackCommand.SeekTo -> player.seekTo(next.positionMs.coerceAtLeast(0))
             PlaybackCommand.EnterSystemPip -> (activity as? MainActivity)?.enterConduitPictureInPicture()
+            PlaybackCommand.RetryVideoOutput -> player.play()
             null -> Unit
         }
     }
