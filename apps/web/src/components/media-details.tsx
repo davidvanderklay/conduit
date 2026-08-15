@@ -44,7 +44,7 @@ import { readPreferences, writePreferences } from "../lib/preferences"
 import { playbackSourceForStream, selectSavedStream } from "../lib/stream-selection"
 import { nativeFullscreen, onNativeFullscreenChange } from "../lib/desktop"
 import { mediaForWatchActions, setEpisodeWatched, setVideosWatched } from "../lib/watch-actions"
-import { episodeProgressPercent, episodeWatchState } from "../lib/watch-status"
+import { episodeProgressPercent, episodeWatchState, resumePositionLabel } from "../lib/watch-status"
 import { Button } from "./ui/button"
 import { Player } from "./player"
 import { LibraryToggle } from "./library-toggle"
@@ -72,6 +72,7 @@ export function MediaDetails({
   onBrowse,
   onClose,
   streamSelectionReturnToHome = false,
+  autoResumeOnOpen = true,
 }: {
   item: CatalogItem
   addons: InstalledAddon[]
@@ -81,6 +82,7 @@ export function MediaDetails({
   onBrowse?: (target: MetadataBrowseTarget) => void
   onClose: () => void
   streamSelectionReturnToHome?: boolean
+  autoResumeOnOpen?: boolean
 }) {
   const [selectedVideoId, setSelectedVideoId] = useState<string | undefined>(
     initialVideoId && initialVideoId !== item.id ? initialVideoId : undefined,
@@ -117,6 +119,7 @@ export function MediaDetails({
     : []
   const savedPlaybackSource = initialProgress?.playbackSource
   const autoResumeEligible =
+    autoResumeOnOpen &&
     autoSelectSavedStreams &&
     Boolean(savedPlaybackSource) &&
     (item.type !== "series" || Boolean(initialVideoId))
@@ -148,6 +151,12 @@ export function MediaDetails({
         `/v1/profiles/${profileId}/progress?view=status&limit=1000`,
       ).then((result) => result.items),
   })
+  const activeProgress = activeVideoId
+    ? (initialProgress?.videoId === activeVideoId
+        ? initialProgress
+        : progress.data?.find((entry) => entry.videoId === activeVideoId))
+    : undefined
+  const resumeFrom = resumePositionLabel(activeProgress)
   const streams = useQuery({
     queryKey: ["streams", item.type, activeVideoId, addonIds, effectiveStreamAddonId ?? "all"],
     enabled: item.type !== "series" || episodeMode,
@@ -246,6 +255,7 @@ export function MediaDetails({
     addonIds,
     autoResumeAttemptKey,
     autoResumeEligible,
+    autoResumeOnOpen,
     effectiveStreamAddonId,
     initialProgress,
     item.type,
@@ -435,6 +445,7 @@ export function MediaDetails({
               loading={streams.isFetching}
               error={streamResolutionError}
               videoTitle={selectedVideo?.title ?? meta.name}
+              resumeFrom={resumeFrom}
               addons={streamAddons}
               selectedAddonId={streamAddonId}
               onSelectAddon={selectStreamAddon}
@@ -707,6 +718,7 @@ function StreamRail({
   loading,
   error,
   videoTitle,
+  resumeFrom,
   addons,
   selectedAddonId,
   onSelectAddon,
@@ -719,6 +731,7 @@ function StreamRail({
   loading: boolean
   error?: string
   videoTitle: string
+  resumeFrom?: string
   addons: InstalledAddon[]
   selectedAddonId?: string
   onSelectAddon: (addonId?: string) => void
@@ -749,6 +762,14 @@ function StreamRail({
           <h2 className="mt-0.5 line-clamp-1 font-display text-lg font-semibold">{videoTitle}</h2>
         </div>
       </div>
+      {resumeFrom && (
+        <p
+          aria-label={`Resume from ${resumeFrom}`}
+          className="mx-2 mt-3 mb-2 w-fit max-w-[calc(100%-1rem)] rounded-full bg-zinc-800 px-4 py-2.5 text-sm font-semibold text-zinc-100"
+        >
+          Resume from <span className="tabular-nums">{resumeFrom}</span>
+        </p>
+      )}
       <div className="flex gap-2 overflow-x-auto px-2 pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         <Button
           size="icon"

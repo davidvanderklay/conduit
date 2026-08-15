@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react"
 import { MoreVertical } from "lucide-react"
+import { createPortal } from "react-dom"
 
 export interface PosterAction {
   label: string
@@ -17,12 +18,15 @@ export function PosterActionMenu({
   actions: PosterAction[]
 }) {
   const [open, setOpen] = useState(false)
+  const [menuPosition, setMenuPosition] = useState({ top: 8, left: 8 })
   const root = useRef<HTMLDivElement>(null)
+  const menu = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (!open) return
     const dismiss = (event: PointerEvent) => {
-      if (!root.current?.contains(event.target as Node)) setOpen(false)
+      const target = event.target as Node
+      if (!root.current?.contains(target) && !menu.current?.contains(target)) setOpen(false)
     }
     const dismissKeyboard = (event: KeyboardEvent) => {
       if (event.key === "Escape") setOpen(false)
@@ -35,6 +39,37 @@ export function PosterActionMenu({
     }
   }, [open])
 
+  useEffect(() => {
+    if (!open) return
+    const reposition = () => {
+      const rootRect = root.current?.getBoundingClientRect()
+      const menuWidth = menu.current?.offsetWidth
+      const menuHeight = menu.current?.offsetHeight
+      if (!rootRect || !menuWidth || !menuHeight) return
+      const gap = 8
+      const roomAbove = rootRect.top - gap
+      const roomBelow = window.innerHeight - rootRect.bottom - gap
+      const above = roomAbove >= menuHeight || roomAbove >= roomBelow
+      const preferredTop = above
+        ? rootRect.top - menuHeight - gap
+        : rootRect.bottom + gap
+      const maxTop = Math.max(gap, window.innerHeight - menuHeight - gap)
+      const top = Math.min(Math.max(gap, preferredTop), maxTop)
+      const left = Math.min(
+        Math.max(gap, rootRect.right - menuWidth),
+        Math.max(gap, window.innerWidth - menuWidth - gap),
+      )
+      setMenuPosition({ top, left })
+    }
+    reposition()
+    window.addEventListener("resize", reposition)
+    window.addEventListener("scroll", reposition, true)
+    return () => {
+      window.removeEventListener("resize", reposition)
+      window.removeEventListener("scroll", reposition, true)
+    }
+  }, [actions.length, open])
+
   return (
     <div ref={root} className="relative">
       <button
@@ -45,15 +80,21 @@ export function PosterActionMenu({
         className="grid size-8 place-items-center rounded-lg text-zinc-500 transition hover:bg-zinc-800 hover:text-zinc-100 focus-visible:bg-zinc-800 focus-visible:text-zinc-100"
         onClick={(event) => {
           event.stopPropagation()
+          if (!open) {
+            const rect = root.current?.getBoundingClientRect()
+            if (rect) setMenuPosition({ top: rect.bottom + 8, left: rect.right - 208 })
+          }
           setOpen((current) => !current)
         }}
       >
         <MoreVertical size={17} />
       </button>
-      {open && (
+      {open && createPortal(
         <div
+          ref={menu}
           role="menu"
-          className="absolute bottom-10 right-0 z-40 w-52 overflow-hidden rounded-xl border border-zinc-700 bg-zinc-950 p-1.5 shadow-2xl shadow-black/60"
+          style={{ top: menuPosition.top, left: menuPosition.left }}
+          className="fixed z-50 max-h-[min(70vh,18rem)] w-52 overflow-y-auto overflow-x-hidden rounded-xl border border-zinc-700 bg-zinc-950 p-1.5 shadow-2xl shadow-black/60"
         >
           {actions.map((action) => (
             <button
@@ -76,7 +117,8 @@ export function PosterActionMenu({
               {action.label}
             </button>
           ))}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   )

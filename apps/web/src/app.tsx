@@ -870,6 +870,7 @@ function ProfileApp({
   const [selectedItem, setSelectedItem] = useState<CatalogItem>()
   const [selectedVideoId, setSelectedVideoId] = useState<string>()
   const [selectedProgress, setSelectedProgress] = useState<WatchProgress>()
+  const [autoResumeOnOpen, setAutoResumeOnOpen] = useState(true)
   const addons = useQuery({
     queryKey: ["addons", profile.id],
     queryFn: () => api<{ addons: InstalledAddon[] }>(`/v1/profiles/${profile.id}/addons`),
@@ -878,6 +879,7 @@ function ProfileApp({
   useEffect(() => {
     setSelectedItem(undefined)
     setSelectedProgress(undefined)
+    setAutoResumeOnOpen(true)
   }, [profile.id])
 
   return (
@@ -903,6 +905,7 @@ function ProfileApp({
           onSelect={(item) => {
             setSelectedVideoId(undefined)
             setSelectedProgress(undefined)
+            setAutoResumeOnOpen(true)
             setSelectedItem(item)
           }}
         />
@@ -914,6 +917,7 @@ function ProfileApp({
           onSelect={(item) => {
             setSelectedVideoId(undefined)
             setSelectedProgress(undefined)
+            setAutoResumeOnOpen(true)
             setSelectedItem(item)
           }}
         />
@@ -921,10 +925,11 @@ function ProfileApp({
       {!searchInput && section === "continue" && (
         <ContinueWatchingView
           profileId={profile.id}
-          onSelect={(item, videoId, progress) => {
+          onSelect={(item, videoId, progress, mode) => {
             setSelectedItem(item)
             setSelectedVideoId(videoId)
             setSelectedProgress(progress)
+            setAutoResumeOnOpen(mode !== "details")
           }}
         />
       )}
@@ -936,6 +941,7 @@ function ProfileApp({
             setSelectedItem(item)
             setSelectedVideoId(videoId)
             setSelectedProgress(undefined)
+            setAutoResumeOnOpen(true)
           }}
         />
       )}
@@ -963,6 +969,7 @@ function ProfileApp({
           onSelect={(item) => {
             setSelectedVideoId(undefined)
             setSelectedProgress(undefined)
+            setAutoResumeOnOpen(true)
             setSelectedItem(item)
           }}
         />
@@ -974,10 +981,12 @@ function ProfileApp({
           profileId={profile.id}
           initialVideoId={selectedVideoId}
           initialProgress={selectedProgress}
+          autoResumeOnOpen={autoResumeOnOpen}
           onBrowse={onMetadataBrowse}
           onClose={() => {
             setSelectedItem(undefined)
             setSelectedProgress(undefined)
+            setAutoResumeOnOpen(true)
           }}
         />
       )}
@@ -1015,6 +1024,7 @@ function MediaHome({
   const [selectedItem, setSelectedItem] = useState<CatalogItem>()
   const [selectedVideoId, setSelectedVideoId] = useState<string>()
   const [selectedProgress, setSelectedProgress] = useState<WatchProgress>()
+  const [autoResumeOnOpen, setAutoResumeOnOpen] = useState(true)
   const [returnHomeFromStreamSelection, setReturnHomeFromStreamSelection] = useState(false)
   const continueWatching = useProgressList(profile.id, "continue", 50)
   const watchedProgress = useProgressList(profile.id, "status", 1000)
@@ -1083,11 +1093,12 @@ function MediaHome({
                 profileId={profile.id}
                 watchedProgress={watchedProgress.data ?? []}
                 onSeeMore={onContinueWatching}
-                onSelect={(item, videoId, progress) => {
+                onSelect={(item, videoId, progress, mode) => {
                   setReturnHomeFromStreamSelection(true)
                   setSelectedItem(item)
                   setSelectedVideoId(videoId)
                   setSelectedProgress(progress)
+                  setAutoResumeOnOpen(mode !== "details")
                 }}
               />
             )
@@ -1113,6 +1124,7 @@ function MediaHome({
                 setReturnHomeFromStreamSelection(false)
                 setSelectedVideoId(undefined)
                 setSelectedProgress(undefined)
+                setAutoResumeOnOpen(true)
                 setSelectedItem(item)
               }}
               onSeeMore={() =>
@@ -1134,11 +1146,13 @@ function MediaHome({
           profileId={profile.id}
           initialVideoId={selectedVideoId}
           initialProgress={selectedProgress}
+          autoResumeOnOpen={autoResumeOnOpen}
           streamSelectionReturnToHome={returnHomeFromStreamSelection}
           onBrowse={onMetadataBrowse}
           onClose={() => {
             setSelectedItem(undefined)
             setSelectedProgress(undefined)
+            setAutoResumeOnOpen(true)
             setReturnHomeFromStreamSelection(false)
           }}
         />

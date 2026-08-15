@@ -5,6 +5,7 @@ import {
   episodeProgressPercent,
   episodeWatchState,
   posterWatchState,
+  resumePositionLabel,
   seasonWatchVideos,
   seriesWatchVideos,
 } from "./watch-status"
@@ -75,6 +76,15 @@ describe("episode watch state", () => {
     expect(episodeWatchState(progress({ videoId: "complete", watched: true }))).toBe("watched")
     expect(episodeProgressPercent(progress({ videoId: "complete", watched: true, positionMs: 1, durationMs: 2 })))
       .toBe(0)
+  })
+
+  it("formats an unfinished position for resume prompts", () => {
+    expect(resumePositionLabel(progress({ videoId: "short", positionMs: 6_900 }))).toBe("0:06")
+    expect(resumePositionLabel(progress({ videoId: "long", positionMs: 65_000 }))).toBe("1:05")
+    expect(resumePositionLabel(progress({ videoId: "hour-long", positionMs: 3_908_000 }))).toBe("1:05:08")
+    expect(resumePositionLabel()).toBeUndefined()
+    expect(resumePositionLabel(progress({ videoId: "watched", positionMs: 6_000, watched: true })))
+      .toBeUndefined()
   })
 
   it("selects every released episode in one season", () => {

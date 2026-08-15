@@ -31,6 +31,7 @@ import { VirtualPosterGrid } from "./virtual-poster-grid"
 type Filter = "all" | "movie" | "series"
 type Sort = "recent" | "title-asc" | "title-desc"
 const PAGE_SIZE = 48
+type ContinueWatchingOpenMode = "resume" | "details"
 
 export function useProgressList(profileId: string, view: "continue" | "history" | "status", limit = 50) {
   return useQuery({
@@ -54,7 +55,12 @@ export function ContinueWatching({
   addons: InstalledAddon[]
   profileId: string
   watchedProgress?: WatchProgress[]
-  onSelect: (item: CatalogItem, videoId?: string, progress?: WatchProgress) => void
+  onSelect: (
+    item: CatalogItem,
+    videoId?: string,
+    progress?: WatchProgress,
+    mode?: ContinueWatchingOpenMode,
+  ) => void
   onSeeMore: () => void
 }) {
   const grouped = useMemo(() => groupContinueWatching(items), [items])
@@ -109,7 +115,12 @@ function ContinueWatchingCard({
   addons: InstalledAddon[]
   profileId: string
   watchedVideoIds?: ReadonlySet<string>
-  onSelect: (item: CatalogItem, videoId?: string, progress?: WatchProgress) => void
+  onSelect: (
+    item: CatalogItem,
+    videoId?: string,
+    progress?: WatchProgress,
+    mode?: ContinueWatchingOpenMode,
+  ) => void
 }) {
   const fallback = toCatalogItem(item)
   const metadata = useQuery({
@@ -133,7 +144,8 @@ function ContinueWatchingCard({
     poster: meta.poster ?? item.poster,
     background: meta.background,
   }
-  const open = () => onSelect(catalogItem, targetVideoId, selectedProgress)
+  const open = (mode: ContinueWatchingOpenMode = "resume") =>
+    onSelect(catalogItem, targetVideoId, selectedProgress, mode)
   const badge = continueWatchingBadge(item, state, metadata.isSuccess)
   const season = state.video?.season ?? item.season
   const episode = state.video?.episode ?? item.episode
@@ -150,7 +162,7 @@ function ContinueWatchingCard({
         type="button"
         className="relative block aspect-video w-full overflow-hidden rounded-2xl border border-white/10 bg-zinc-900 text-left shadow-lg shadow-black/20 outline-none transition duration-200 hover:border-white/25 focus-visible:ring-2 focus-visible:ring-amber-300"
         aria-label={continueWatchingAriaLabel(item, state)}
-        onClick={open}
+        onClick={() => open("resume")}
       >
         <PreviewImage
           sources={[
@@ -195,7 +207,8 @@ function ContinueWatchingCard({
         <ProgressMenu
           item={item}
           profileId={profileId}
-          onOpen={open}
+          onOpen={() => open("resume")}
+          onDetails={() => open("details")}
           history={false}
           playable={state.kind === "in-progress" || state.kind === "new-episode" || state.kind === "next-up"}
           showWatchAction={state.kind !== "new-episode" && state.kind !== "next-up" && state.kind !== "scheduled"}
@@ -210,7 +223,12 @@ export function ContinueWatchingView({
   onSelect,
 }: {
   profileId: string
-  onSelect: (item: CatalogItem, videoId: string, progress: WatchProgress) => void
+  onSelect: (
+    item: CatalogItem,
+    videoId: string,
+    progress: WatchProgress,
+    mode?: ContinueWatchingOpenMode,
+  ) => void
 }) {
   const progress = useProgressList(profileId, "continue", 50)
   const [filter, setFilter] = useState<Filter>("all")
@@ -285,20 +303,25 @@ function ProgressCard({
 }: {
   item: WatchProgress
   profileId: string
-  onSelect: (item: CatalogItem, videoId: string, progress: WatchProgress) => void
+  onSelect: (
+    item: CatalogItem,
+    videoId: string,
+    progress: WatchProgress,
+    mode?: ContinueWatchingOpenMode,
+  ) => void
   history?: boolean
 }) {
   const catalogItem = toCatalogItem(item)
   const percent = item.durationMs ? Math.min(100, (item.positionMs / item.durationMs) * 100) : 0
-  const open = () =>
-    onSelect(catalogItem, item.videoId, item)
+  const open = (mode: ContinueWatchingOpenMode = "resume") =>
+    onSelect(catalogItem, item.videoId, item, mode)
   return (
     <div>
       <div className={`relative ${posterCoverClass}`}>
         <button
           className="absolute inset-0 w-full text-left"
           aria-label={`View ${item.name}`}
-          onClick={open}
+          onClick={() => open("resume")}
         >
           {item.poster ? (
             <img className="h-full w-full object-cover" src={item.poster} alt="" loading="lazy" />
@@ -311,14 +334,20 @@ function ProgressCard({
             <span className="block h-full bg-amber-400" style={{ width: `${percent}%` }} />
           </span>
         )}
-        <PosterResumeButton title={item.name} progress={item} onResume={open} />
+        <PosterResumeButton title={item.name} progress={item} onResume={() => open("resume")} />
       </div>
       <div className="mt-2 flex items-start gap-1">
-        <button className="min-w-0 flex-1 text-left" onClick={open}>
+        <button className="min-w-0 flex-1 text-left" onClick={() => open("resume")}>
           <p className={posterTitleSlotClass}>{item.name}</p>
           <p className="line-clamp-1 text-xs text-zinc-500">{episodeLabel(item)}</p>
         </button>
-        <ProgressMenu item={item} profileId={profileId} onOpen={open} history={history} />
+        <ProgressMenu
+          item={item}
+          profileId={profileId}
+          onOpen={() => open("resume")}
+          onDetails={() => open("details")}
+          history={history}
+        />
       </div>
     </div>
   )
@@ -328,6 +357,7 @@ function ProgressMenu({
   item,
   profileId,
   onOpen,
+  onDetails,
   history,
   playable = true,
   showWatchAction = true,
@@ -335,6 +365,7 @@ function ProgressMenu({
   item: WatchProgress
   profileId: string
   onOpen: () => void
+  onDetails?: () => void
   history: boolean
   playable?: boolean
   showWatchAction?: boolean
@@ -370,7 +401,7 @@ function ProgressMenu({
           },
         ]
       : []),
-    { label: "Details", icon: <Info size={16} />, onSelect: onOpen },
+    { label: "Details", icon: <Info size={16} />, onSelect: onDetails ?? onOpen },
     ...(showWatchAction
       ? [
           {
