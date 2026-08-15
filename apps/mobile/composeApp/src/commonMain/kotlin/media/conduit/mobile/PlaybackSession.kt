@@ -55,6 +55,7 @@ sealed interface PlaybackCommand {
     data object Pause : PlaybackCommand
     data class SeekTo(val positionMs: Long) : PlaybackCommand
     data object EnterSystemPip : PlaybackCommand
+    data object RetryVideoOutput : PlaybackCommand
 }
 
 data class SequencedPlaybackCommand(
