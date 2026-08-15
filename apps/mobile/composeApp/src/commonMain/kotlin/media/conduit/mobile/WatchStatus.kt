@@ -20,6 +20,19 @@ internal fun episodeProgressFraction(progress: ProgressSummary?): Float =
     if (progress == null || progress.watched || progress.durationMs <= 0L) 0f
     else (progress.positionMs.toFloat() / progress.durationMs).coerceIn(0f, 1f)
 
+internal fun resumePositionLabel(positionMs: Long): String? {
+    if (positionMs <= 0L) return null
+    val totalSeconds = positionMs / 1_000L
+    val hours = totalSeconds / 3_600L
+    val minutes = (totalSeconds / 60L) % 60L
+    val seconds = totalSeconds % 60L
+    return if (hours > 0L) {
+        "$hours:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}"
+    } else {
+        "${totalSeconds / 60L}:${seconds.toString().padStart(2, '0')}"
+    }
+}
+
 internal fun posterWatchState(
     progress: List<ProgressSummary>,
     item: CatalogItem,

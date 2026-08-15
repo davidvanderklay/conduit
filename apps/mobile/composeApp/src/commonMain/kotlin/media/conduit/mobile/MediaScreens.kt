@@ -938,6 +938,7 @@ internal fun MediaDetailsScreen(
                 streams = streams.orEmpty(),
                 addonChoices = streamAddonChoices,
                 selectedAddonId = selectedStreamAddonId,
+                resumeFrom = resumePositionLabel(resumePosition),
                 loading = streamsLoading,
                 error = streamsError,
                 onSelectAddon = { addonId ->
@@ -1659,6 +1660,7 @@ private fun StreamSelectionScreen(
     streams: List<StreamSource>,
     addonChoices: List<StreamAddonChoice>,
     selectedAddonId: String?,
+    resumeFrom: String?,
     loading: Boolean,
     error: String?,
     onSelectAddon: (String?) -> Unit,
@@ -1710,6 +1712,23 @@ private fun StreamSelectionScreen(
                     Spacer(Modifier.width(48.dp))
                     Column(Modifier.weight(1f)) { Text("Choose a stream", style = if (collapsed) MaterialTheme.typography.titleMedium else MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold); if (!collapsed) Text(listOfNotNull(title, episode?.let { "S${it.season ?: 0}E${it.episode ?: 0} · ${it.displayTitle}" }).joinToString(" · "), color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                     Spacer(Modifier.width(48.dp))
+                }
+            }
+        }
+        resumeFrom?.let { position ->
+            item(key = "resume") {
+                Surface(
+                    modifier = Modifier.padding(start = 16.dp),
+                    shape = RoundedCornerShape(50),
+                    color = Color(0xFF1B1B1D),
+                    contentColor = Color.White,
+                ) {
+                    Text(
+                        "Resume from $position",
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.SemiBold,
+                    )
                 }
             }
         }

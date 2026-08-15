@@ -72,6 +72,7 @@ export function MediaDetails({
   onBrowse,
   onClose,
   streamSelectionReturnToHome = false,
+  autoResumeOnOpen = true,
 }: {
   item: CatalogItem
   addons: InstalledAddon[]
@@ -81,6 +82,7 @@ export function MediaDetails({
   onBrowse?: (target: MetadataBrowseTarget) => void
   onClose: () => void
   streamSelectionReturnToHome?: boolean
+  autoResumeOnOpen?: boolean
 }) {
   const [selectedVideoId, setSelectedVideoId] = useState<string | undefined>(
     initialVideoId && initialVideoId !== item.id ? initialVideoId : undefined,
@@ -117,6 +119,7 @@ export function MediaDetails({
     : []
   const savedPlaybackSource = initialProgress?.playbackSource
   const autoResumeEligible =
+    autoResumeOnOpen &&
     autoSelectSavedStreams &&
     Boolean(savedPlaybackSource) &&
     (item.type !== "series" || Boolean(initialVideoId))
@@ -252,6 +255,7 @@ export function MediaDetails({
     addonIds,
     autoResumeAttemptKey,
     autoResumeEligible,
+    autoResumeOnOpen,
     effectiveStreamAddonId,
     initialProgress,
     item.type,

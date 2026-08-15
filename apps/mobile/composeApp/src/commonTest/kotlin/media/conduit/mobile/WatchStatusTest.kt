@@ -48,6 +48,14 @@ class WatchStatusTest {
     }
 
     @Test
+    fun resumePositionUsesNuvioTimeFormat() {
+        assertEquals("0:06", resumePositionLabel(6_900))
+        assertEquals("1:05", resumePositionLabel(65_000))
+        assertEquals("1:05:08", resumePositionLabel(3_908_000))
+        assertEquals(null, resumePositionLabel(0))
+    }
+
+    @Test
     fun seasonActionsIncludeEveryReleasedEpisodeAndSkipUnavailableEpisodes() {
         val videos = listOf(
             VideoItem("s1e1", season = 1, episode = 1, released = "2026-01-01"),
