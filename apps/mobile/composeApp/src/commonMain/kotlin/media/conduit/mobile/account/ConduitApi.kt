@@ -273,8 +273,11 @@ fun selectSavedStream(
     val saved = source ?: return null
     val candidates = streams.filter { candidate ->
         isPlayableStreamUrl(candidate.stream.url) &&
-            (candidate.addonId == saved.addonId ||
-                (allowAddonFallback && sameSourceText(candidate.stream.behaviorHints?.bingeGroup, saved.bingeGroup)))
+            if (allowAddonFallback) {
+                sameSourceText(candidate.stream.behaviorHints?.bingeGroup, saved.bingeGroup)
+            } else {
+                candidate.addonId == saved.addonId
+            }
     }
     candidates.firstOrNull { candidate -> streamSourceKey(candidate.stream) == saved.sourceKey }?.let { return it }
 

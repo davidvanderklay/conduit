@@ -69,4 +69,25 @@ class StreamSelectionTest {
 
         assertEquals(otherAddOn, selectSavedStream(listOf(otherAddOn), saved, allowAddonFallback = true))
     }
+
+    @Test
+    fun rejectsADifferentBingeGroupDuringAddonFallback() {
+        val saved = PlaybackSource(
+            addonId = "addon-1",
+            sourceKey = "url:https://old.example/movie.mp4",
+            kind = "url",
+            bingeGroup = "series-1080p",
+        )
+        val differentStream = StreamSource(
+            addonId = "addon-1",
+            addonName = "Provider",
+            stream = StreamItem(
+                url = "https://new.example/movie.mp4",
+                name = "same filename metadata",
+                behaviorHints = StreamBehaviorHints(bingeGroup = "series-4k"),
+            ),
+        )
+
+        assertNull(selectSavedStream(listOf(differentStream), saved, allowAddonFallback = true))
+    }
 }

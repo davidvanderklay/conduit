@@ -36,9 +36,7 @@ internal fun continueWatchingPresentation(
     now: Instant = Clock.System.now(),
     watchedVideoIds: Set<String> = emptySet(),
 ): ContinueWatchingPresentation {
-    val regular = videos
-        .filter { (it.season ?: 0) > 0 && it.episode != null && it.available != false }
-        .sortedWith(compareBy<VideoItem>({ it.season }, { it.episode }, { it.id }))
+    val regular = orderedContinueWatchingEpisodes(videos)
     val anchor = regular.firstOrNull { it.id == progress.videoId }
         ?: regular.firstOrNull { it.season == progress.season && it.episode == progress.episode }
 
@@ -142,18 +140,26 @@ internal fun nextEpisodeAfter(
     now: Instant = Clock.System.now(),
 ): VideoItem? {
     if (progress == null) return null
-    val regular = videos
-        .filter { (it.season ?: 0) > 0 && it.episode != null && it.available != false }
-        .sortedWith(compareBy<VideoItem>({ it.season }, { it.episode }, { it.id }))
+    val regular = orderedPlayableEpisodes(videos, today, now)
     val anchor = regular.firstOrNull { it.id == progress.videoId }
         ?: regular.firstOrNull { it.season == progress.season && it.episode == progress.episode }
         ?: return null
     return regular.firstOrNull {
         compareEpisodes(it, anchor) > 0 &&
-            it.id !in watchedVideoIds &&
-            it.hasAired(today, now)
+            it.id !in watchedVideoIds
     }
 }
+
+internal fun orderedContinueWatchingEpisodes(videos: List<VideoItem>): List<VideoItem> = videos
+    .filter { (it.season ?: 0) > 0 && it.episode != null && it.available != false }
+    .sortedWith(compareBy<VideoItem>({ it.season }, { it.episode }, { it.id }))
+
+internal fun orderedPlayableEpisodes(
+    videos: List<VideoItem>,
+    today: String = Clock.System.now().toString().take(10),
+    now: Instant = Clock.System.now(),
+): List<VideoItem> = orderedContinueWatchingEpisodes(videos)
+    .filter { it.hasAired(today, now) }
 
 private fun nextIsoDay(day: String): String {
     val year = day.substring(0, 4).toInt()

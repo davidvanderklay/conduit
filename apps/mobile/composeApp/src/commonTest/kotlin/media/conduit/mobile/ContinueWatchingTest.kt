@@ -77,6 +77,27 @@ class ContinueWatchingTest {
     }
 
     @Test
+    fun nextEpisodeSkipsSpecialUnavailableAndFutureEpisodes() {
+        val candidates = listOf(
+            VideoItem("special", season = 0, episode = 1),
+            videos[1],
+            VideoItem("unavailable", season = 1, episode = 3, available = false, released = "2026-08-11"),
+            VideoItem("future", season = 1, episode = 4, released = "2027-01-01"),
+            VideoItem("s1e5", season = 1, episode = 5, released = "2026-08-11"),
+        )
+
+        assertEquals(
+            "s1e5",
+            nextEpisodeAfter(
+                progress(videoId = "s1e2"),
+                candidates,
+                today = "2026-08-12",
+                now = Instant.parse("2026-08-12T12:00:00Z"),
+            )?.id,
+        )
+    }
+
+    @Test
     fun dateOnlyEpisodeCanTriggerNewEpisodeAlertAfterTheWatchedSeed() {
         val today = VideoItem("s1e3", season = 1, episode = 3, released = "2026-08-12")
         assertEquals(
