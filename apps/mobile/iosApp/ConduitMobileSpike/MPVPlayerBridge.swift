@@ -1940,7 +1940,7 @@ final class ConduitPictureInPictureCoordinator: NSObject,
     private var enqueuedFrameCount = 0
     private var primingStartHopScheduled = false
     private let primingStateLock = NSLock()
-    private var automaticEntryTimeout: DispatchWorkItem?
+    private var primingTimeout: DispatchWorkItem?
 
     init(owner: ConduitMPVPlayerViewController, metalLayer: ConduitMetalLayer) {
         self.owner = owner
@@ -1968,6 +1968,9 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         frameCapture.setOnFrameEnqueued { [weak self] in
             self?.frameWasEnqueued()
         }
+        frameCapture.setOnCaptureFailure { [weak self] reason in
+            self?.frameCaptureFailed(reason)
+        }
         metalLayer.onDrawablePresented = { [weak self] drawable, presentationID in
             self?.frameCapture.handlePresentedDrawable(drawable, presentationID: presentationID)
         }
@@ -1994,30 +1997,19 @@ final class ConduitPictureInPictureCoordinator: NSObject,
     }
 
     func start() {
-        guard isSupported, !isActive else { return }
+        guard isSupported, !isActive, !priming else { return }
         setStartRequested(true)
         beginPriming()
         attemptStart()
     }
 
     func prepareForAutomaticEntry() {
-        guard isSupported, owner?.isPlayerPlaying == true, !isActive else { return }
+        guard isSupported, owner?.isPlayerPlaying == true, !isActive, !priming else { return }
         setStartRequested(false)
         beginPriming(capturesWithoutPresentation: true)
-        automaticEntryTimeout?.cancel()
-        let work = DispatchWorkItem { [weak self] in
-            guard let self, !self.isActive else { return }
-            self.priming = false
-            self.stopCapture()
-            self.owner?.resumeVideoOutputWatchdogAfterPictureInPicture()
-        }
-        automaticEntryTimeout = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: work)
     }
 
     func stop() {
-        automaticEntryTimeout?.cancel()
-        automaticEntryTimeout = nil
         if priming && !isActive {
             priming = false
             setStartRequested(false)
@@ -2039,8 +2031,6 @@ final class ConduitPictureInPictureCoordinator: NSObject,
     }
 
     func invalidate() {
-        automaticEntryTimeout?.cancel()
-        automaticEntryTimeout = nil
         pictureInPicturePossibleObservation?.invalidate()
         pictureInPicturePossibleObservation = nil
         stopCapture()
@@ -2053,6 +2043,7 @@ final class ConduitPictureInPictureCoordinator: NSObject,
     }
 
     private func beginPriming(capturesWithoutPresentation: Bool = false) {
+        guard !priming else { return }
         owner?.suspendVideoOutputWatchdogForPictureInPicture()
         priming = true
         startAttempts = 0
@@ -2066,15 +2057,54 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         metalLayer.capturesWithoutPresentation = capturesWithoutPresentation
         metalLayer.isDrawableCaptureArmed = true
         frameCapture.start()
+        schedulePrimingTimeout()
     }
 
     private func stopCapture() {
+        primingTimeout?.cancel()
+        primingTimeout = nil
         startAttemptWorkItem?.cancel()
         startAttemptWorkItem = nil
         resetPrimingFrameState()
         metalLayer.isDrawableCaptureArmed = false
         metalLayer.capturesWithoutPresentation = false
         frameCapture.stop()
+    }
+
+    private func schedulePrimingTimeout() {
+        primingTimeout?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.priming, !self.isActive else { return }
+            print("[Conduit PiP] Timed out waiting for priming frames")
+            self.priming = false
+            self.setStartRequested(false)
+            self.stopCapture()
+            self.owner?.resumeVideoOutputWatchdogAfterPictureInPicture()
+            self.owner?.restoreVideoAfterPictureInPictureStopIfNeeded()
+        }
+        primingTimeout = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: work)
+    }
+
+    private func frameCaptureFailed(_ reason: String) {
+        let work = { [weak self] in
+            guard let self, self.priming || self.isActive else { return }
+            print("[Conduit PiP] Frame capture failed: \(reason)")
+            let wasActive = self.isActive
+            self.priming = false
+            self.setStartRequested(false)
+            self.stopCapture()
+            self.owner?.setInlineVideoHiddenForPictureInPicture(false)
+            self.owner?.resumeVideoOutputWatchdogAfterPictureInPicture()
+            if wasActive {
+                self.controller?.stopPictureInPicture()
+            }
+        }
+        if Thread.isMainThread {
+            work()
+        } else {
+            DispatchQueue.main.async(execute: work)
+        }
     }
 
     private func frameWasEnqueued() {
@@ -2176,8 +2206,8 @@ final class ConduitPictureInPictureCoordinator: NSObject,
     }
 
     func pictureInPictureControllerWillStartPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
-        automaticEntryTimeout?.cancel()
-        automaticEntryTimeout = nil
+        primingTimeout?.cancel()
+        primingTimeout = nil
         metalLayer.capturesWithoutPresentation = true
         owner?.setInlineVideoHiddenForPictureInPicture(true)
     }

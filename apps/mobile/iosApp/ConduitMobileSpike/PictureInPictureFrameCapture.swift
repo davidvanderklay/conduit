@@ -160,6 +160,7 @@ struct ConduitPipTimestampEstimator {
 final class ConduitPictureInPictureFrameCapture {
     typealias ClockProvider = () -> ConduitPipPlaybackClockSnapshot
     typealias FrameEnqueuedHandler = () -> Void
+    typealias CaptureFailureHandler = (_ reason: String) -> Void
 
     private let metalLayer: ConduitMetalLayer
     private weak var displayLayer: AVSampleBufferDisplayLayer?
@@ -172,10 +173,12 @@ final class ConduitPictureInPictureFrameCapture {
     private var commandQueue: MTLCommandQueue?
     private var textureCache: CVMetalTextureCache?
     private let stateLock = NSLock()
+    private var onCaptureFailure: CaptureFailureHandler
 
     private var isArmed = false
     private var generation: UInt64 = 0
     private var inFlightGeneration: UInt64?
+    private var failedGeneration: UInt64?
 
     private var scheduler = ConduitPipFrameScheduler()
     private var timestampEstimator = ConduitPipTimestampEstimator()
@@ -188,22 +191,29 @@ final class ConduitPictureInPictureFrameCapture {
         metalLayer: ConduitMetalLayer,
         displayLayer: AVSampleBufferDisplayLayer,
         clockProvider: @escaping ClockProvider,
-        onFrameEnqueued: @escaping FrameEnqueuedHandler
+        onFrameEnqueued: @escaping FrameEnqueuedHandler,
+        onCaptureFailure: @escaping CaptureFailureHandler = { _ in }
     ) {
         self.metalLayer = metalLayer
         self.displayLayer = displayLayer
         self.clockProvider = clockProvider
         self.onFrameEnqueued = onFrameEnqueued
+        self.onCaptureFailure = onCaptureFailure
     }
 
     func setOnFrameEnqueued(_ handler: @escaping FrameEnqueuedHandler) {
         onFrameEnqueued = handler
     }
 
+    func setOnCaptureFailure(_ handler: @escaping CaptureFailureHandler) {
+        onCaptureFailure = handler
+    }
+
     func start() {
         stateLock.lock()
         generation &+= 1
         isArmed = true
+        failedGeneration = nil
         stateLock.unlock()
 
         captureQueue.async { [weak self] in
@@ -274,11 +284,18 @@ final class ConduitPictureInPictureFrameCapture {
         clock: ConduitPipPlaybackClockSnapshot,
         generation: UInt64
     ) {
-        guard isCurrentGeneration(generation), let displayLayer else {
+        guard isCurrentGeneration(generation) else {
             finishCapture(for: generation)
             return
         }
-        if displayLayer.status == .failed { displayLayer.flush() }
+        guard let displayLayer else {
+            failCapture(for: generation, reason: "PiP display layer is unavailable")
+            return
+        }
+        guard displayLayer.status != .failed else {
+            failCapture(for: generation, reason: "AVSampleBufferDisplayLayer is in a failed state")
+            return
+        }
         guard displayLayer.isReadyForMoreMediaData,
               scheduler.shouldCapture(
                   at: ProcessInfo.processInfo.systemUptime,
@@ -291,21 +308,40 @@ final class ConduitPictureInPictureFrameCapture {
         }
 
         let sourceTexture = drawable.texture
+        guard sourceTexture.width > 1, sourceTexture.height > 1 else {
+            failCapture(for: generation, reason: "MPV produced an invalid PiP drawable size")
+            return
+        }
         guard let destinationFormat = Self.destinationFormat(for: sourceTexture.pixelFormat),
-              sourceTexture.width > 1,
-              sourceTexture.height > 1,
-              ensureMetalResources(),
-              ensurePool(
-                  width: sourceTexture.width,
-                  height: sourceTexture.height,
-                  pixelFormat: destinationFormat
-              ),
-              let pixelBufferPool,
+              Self.pixelBufferFormat(for: destinationFormat) != nil
+        else {
+            failCapture(
+                for: generation,
+                reason: "Unsupported MPV PiP drawable format \(sourceTexture.pixelFormat.rawValue)"
+            )
+            return
+        }
+        guard ensureMetalResources() else {
+            failCapture(for: generation, reason: "Metal resources are unavailable for PiP capture")
+            return
+        }
+        guard ensurePool(
+            width: sourceTexture.width,
+            height: sourceTexture.height,
+            pixelFormat: destinationFormat
+        ) else {
+            failCapture(
+                for: generation,
+                reason: "Unable to create a compatible PiP pixel-buffer pool for \(destinationFormat)"
+            )
+            return
+        }
+        guard let pixelBufferPool,
               let textureCache,
               let commandQueue,
               let formatDescription
         else {
-            finishCapture(for: generation)
+            failCapture(for: generation, reason: "PiP capture resources were not initialized")
             return
         }
 
@@ -313,20 +349,22 @@ final class ConduitPictureInPictureFrameCapture {
         let allocationAttributes: CFDictionary = [
             kCVPixelBufferPoolAllocationThresholdKey: 4,
         ] as CFDictionary
-        guard CVPixelBufferPoolCreatePixelBufferWithAuxAttributes(
+        let pixelBufferStatus = CVPixelBufferPoolCreatePixelBufferWithAuxAttributes(
             nil,
             pixelBufferPool,
             allocationAttributes,
             &pixelBuffer
-        ) == kCVReturnSuccess,
-              let pixelBuffer
-        else {
-            finishCapture(for: generation)
+        )
+        guard pixelBufferStatus == kCVReturnSuccess, let pixelBuffer else {
+            failCapture(
+                for: generation,
+                reason: "Unable to allocate a PiP pixel buffer (CVReturn \(pixelBufferStatus))"
+            )
             return
         }
 
         var destinationTexture: CVMetalTexture?
-        guard CVMetalTextureCacheCreateTextureFromImage(
+        let textureStatus = CVMetalTextureCacheCreateTextureFromImage(
             nil,
             textureCache,
             pixelBuffer,
@@ -336,15 +374,25 @@ final class ConduitPictureInPictureFrameCapture {
             sourceTexture.height,
             0,
             &destinationTexture
-        ) == kCVReturnSuccess,
+        )
+        guard textureStatus == kCVReturnSuccess,
               let destinationTexture,
               let texture = CVMetalTextureGetTexture(destinationTexture),
               texture.width == sourceTexture.width,
-              texture.height == sourceTexture.height,
-              let commandBuffer = commandQueue.makeCommandBuffer(),
-              let blit = commandBuffer.makeBlitCommandEncoder()
+              texture.height == sourceTexture.height
         else {
-            finishCapture(for: generation)
+            failCapture(
+                for: generation,
+                reason: "Unable to create a Metal texture for the PiP pixel buffer (CVReturn \(textureStatus))"
+            )
+            return
+        }
+        guard let commandBuffer = commandQueue.makeCommandBuffer() else {
+            failCapture(for: generation, reason: "Unable to create a Metal command buffer for PiP capture")
+            return
+        }
+        guard let blit = commandBuffer.makeBlitCommandEncoder() else {
+            failCapture(for: generation, reason: "Unable to create a Metal blit encoder for PiP capture")
             return
         }
 
@@ -374,10 +422,16 @@ final class ConduitPictureInPictureFrameCapture {
             guard let self else { return }
             self.captureQueue.async {
                 guard self.isCurrentGeneration(generation),
-                      commandBuffer.status == .completed,
                       let displayLayer = self.displayLayer
                 else {
                     self.finishCapture(for: generation)
+                    return
+                }
+                guard commandBuffer.status == .completed else {
+                    self.failCapture(
+                        for: generation,
+                        reason: "Metal PiP capture command ended with status \(commandBuffer.status.rawValue)"
+                    )
                     return
                 }
 
@@ -387,21 +441,27 @@ final class ConduitPictureInPictureFrameCapture {
                     decodeTimeStamp: .invalid
                 )
                 var sample: CMSampleBuffer?
-                guard CMSampleBufferCreateReadyWithImageBuffer(
+                let sampleStatus = CMSampleBufferCreateReadyWithImageBuffer(
                     allocator: kCFAllocatorDefault,
                     imageBuffer: pixelBuffer,
                     formatDescription: formatDescription,
                     sampleTiming: &timing,
                     sampleBufferOut: &sample
-                ) == noErr,
-                let sample
-                else {
-                    self.finishCapture(for: generation)
+                )
+                guard sampleStatus == noErr, let sample else {
+                    self.failCapture(
+                        for: generation,
+                        reason: "Unable to create the PiP sample buffer (OSStatus \(sampleStatus))"
+                    )
                     return
                 }
 
-                if displayLayer.status == .failed {
-                    displayLayer.flush()
+                guard displayLayer.status != .failed else {
+                    self.failCapture(
+                        for: generation,
+                        reason: "AVSampleBufferDisplayLayer rejected the PiP sample format"
+                    )
+                    return
                 }
                 guard displayLayer.isReadyForMoreMediaData else {
                     self.finishCapture(for: generation)
@@ -409,6 +469,13 @@ final class ConduitPictureInPictureFrameCapture {
                 }
 
                 displayLayer.enqueue(sample)
+                guard displayLayer.status != .failed else {
+                    self.failCapture(
+                        for: generation,
+                        reason: "AVSampleBufferDisplayLayer rejected the enqueued PiP sample"
+                    )
+                    return
+                }
                 self.onFrameEnqueued()
                 self.finishCapture(for: generation)
             }
@@ -495,13 +562,31 @@ final class ConduitPictureInPictureFrameCapture {
         stateLock.unlock()
     }
 
+    private func failCapture(for candidate: UInt64, reason: String) {
+        stateLock.lock()
+        guard isArmed, generation == candidate, failedGeneration != candidate else {
+            stateLock.unlock()
+            finishCapture(for: candidate)
+            return
+        }
+        failedGeneration = candidate
+        stateLock.unlock()
+
+        finishCapture(for: candidate)
+        onCaptureFailure(reason)
+    }
+
     private func isCurrentGeneration(_ candidate: UInt64) -> Bool {
         stateLock.lock()
         defer { stateLock.unlock() }
-        return isArmed && generation == candidate
+        return isArmed && generation == candidate && failedGeneration != candidate
     }
 
     private static func destinationFormat(for sourceFormat: MTLPixelFormat) -> MTLPixelFormat? {
+        // The pinned MPVKit renderer exposes RGBA16Float. It cannot be
+        // reinterpreted as BGRA8 with a blit, so retain a matching HDR buffer
+        // format and validate the Core Video/Metal allocation below. BGRA
+        // renderers still use the spec's 32BGRA direct-copy path.
         switch sourceFormat {
         case .rgba16Float:
             return .rgba16Float
