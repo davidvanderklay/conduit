@@ -284,6 +284,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
     private static let surfaceSettleDelay: TimeInterval = 0.22
     private static let videoOutputWatchdogInterval: TimeInterval = 0.5
     private static let videoOutputRecoveryDelay: TimeInterval = 0.4
+    private static let mediaClockStallTimeout: TimeInterval = 1.5
     private static let maxVideoOutputRecoveryAttempts = 2
     // Audio route changes can block. Serialize them across player instances
     // without making the Compose/UIKit thread wait for the system audio route.
@@ -324,6 +325,11 @@ final class ConduitMPVPlayerViewController: UIViewController {
     private var pendingVideoOutputWatchdog: DispatchWorkItem?
     private var videoOutputRecoveryAttempts = 0
     private var lastObservedDrawableHeartbeat: UInt64 = 0
+    private var lastWatchedMediaPositionMs: Int64?
+    private var lastMediaClockProgressUptime: TimeInterval = 0
+    private var hasVideoStream = false
+    private var videoOutputRecoveryStartedAtUptime: TimeInterval?
+    private var lastVideoOutputRecoveryResult = "none"
     private var videoOutputRecoveryFailed = false
     private var pendingBackgroundPause: DispatchWorkItem?
     private var lifecycleObservers: [NSObjectProtocol] = []
@@ -503,6 +509,10 @@ final class ConduitMPVPlayerViewController: UIViewController {
             guard let self else { return }
             self.shouldPlay = true
             guard self.mpv != nil, !self.waitingForInitialVideoFrame else { return }
+            if self.videoOutputRecoveryFailed {
+                self.retryVideoOutputOnMain()
+                return
+            }
             self.setFlag("pause", false)
             self.isPlayerPlaying = true
             self.refreshPlaybackState()
@@ -515,6 +525,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
         runOnMain { [weak self] in
             guard let self else { return }
             self.shouldPlay = false
+            self.resetMediaClockObservation()
             self.cancelVideoOutputWatchdog()
             self.cancelVideoOutputRecovery(resetAttempts: true)
             guard self.mpv != nil else { return }
@@ -528,6 +539,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
     func seekToMs(_ milliseconds: Int64) {
         runOnMain { [weak self] in
             guard let self, self.mpv != nil else { return }
+            self.resetMediaClockObservation()
             self.command("seek", args: [String(format: "%.3f", Double(milliseconds) / 1000.0), "absolute"])
             self.pictureInPicture?.playbackStateChanged()
         }
@@ -536,6 +548,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
     func seekByMs(_ milliseconds: Int64) {
         runOnMain { [weak self] in
             guard let self, self.mpv != nil else { return }
+            self.resetMediaClockObservation()
             self.command("seek", args: [String(format: "%.3f", Double(milliseconds) / 1000.0), "relative"])
             self.pictureInPicture?.playbackStateChanged()
         }
@@ -603,18 +616,23 @@ final class ConduitMPVPlayerViewController: UIViewController {
 
     func retryVideoOutput() {
         runOnMain { [weak self] in
-            guard let self, self.mpv != nil, self.hasLoadedFile else { return }
-            self.videoOutputRecoveryFailed = false
-            self.videoOutputRecoveryAttempts = 0
-            self.lastObservedDrawableHeartbeat = self.metalLayer.drawableHeartbeatSnapshot().count
-            self.clearError()
-            self.shouldPlay = true
-            self.setStringProperty("vid", "no")
-            self.setStringProperty("vid", "auto")
-            self.setFlag("pause", false)
-            self.refreshPlaybackState()
-            self.scheduleVideoOutputWatchdog()
+            self?.retryVideoOutputOnMain()
         }
+    }
+
+    private func retryVideoOutputOnMain() {
+        guard mpv != nil, hasLoadedFile else { return }
+        videoOutputRecoveryFailed = false
+        videoOutputRecoveryAttempts = 0
+        lastVideoOutputRecoveryResult = "retrying"
+        resetVideoOutputObservations()
+        clearError()
+        shouldPlay = true
+        setStringProperty("vid", "no")
+        setStringProperty("vid", "auto")
+        setFlag("pause", false)
+        refreshPlaybackState()
+        scheduleVideoOutputWatchdog()
     }
 
     func selectAudio(_ trackId: Int) {
@@ -660,6 +678,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
         let idle = getFlag("core-idle")
         let seeking = getFlag("seeking")
         let buffering = getFlag("paused-for-cache")
+        let videoCodec = getString("video-codec")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let outputWidth = getInt("video-out-params/w")
         let outputHeight = getInt("video-out-params/h")
         let decodedWidth = outputWidth > 0 ? outputWidth : getInt("video-params/w")
@@ -667,6 +686,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
         let nextVideoWidth = max(decodedWidth, 0)
         let nextVideoHeight = max(decodedHeight, 0)
         let videoSizeChanged = videoWidth != nextVideoWidth || videoHeight != nextVideoHeight
+        if !videoCodec.isEmpty { hasVideoStream = true }
 
         _ = mpv
         // A surface transition can make MPV briefly idle while the Metal
@@ -729,6 +749,19 @@ final class ConduitMPVPlayerViewController: UIViewController {
 
     func stopPictureInPicture() {
         pictureInPicture?.stop()
+    }
+
+    fileprivate func suspendVideoOutputWatchdogForPictureInPicture() {
+        cancelVideoOutputWatchdog()
+        cancelVideoOutputRecovery(resetAttempts: true)
+        debugLog("video output watchdog suspended for PiP")
+    }
+
+    fileprivate func resumeVideoOutputWatchdogAfterPictureInPicture() {
+        guard !destroyStarted else { return }
+        resetVideoOutputObservations()
+        debugLog("video output watchdog resumed after PiP")
+        scheduleVideoOutputWatchdog()
     }
 
     func destroyPlayer() {
@@ -880,7 +913,9 @@ final class ConduitMPVPlayerViewController: UIViewController {
         }
         updateLiveResizeState()
         if !active {
-            layoutMetalLayer()
+            if !applyPendingDrawableResizeIfSettled() {
+                layoutMetalLayer()
+            }
             scheduleVideoOutputWatchdog()
         }
     }
@@ -904,7 +939,9 @@ final class ConduitMPVPlayerViewController: UIViewController {
             self.pendingSurfaceTransitionEnd = nil
             self.surfaceTransitionActive = false
             self.updateLiveResizeState()
-            self.layoutMetalLayer()
+            if !self.applyPendingDrawableResizeIfSettled() {
+                self.layoutMetalLayer()
+            }
             self.scheduleVideoOutputWatchdog()
             self.debugLog("surface transition settled")
         }
@@ -916,6 +953,31 @@ final class ConduitMPVPlayerViewController: UIViewController {
     private func updateLiveResizeState() {
         let active = isSurfaceTransitionInProgress
         metalLayer.isNuvioLiveResize = active
+    }
+
+    /// Applies the coalesced drawable only after every transition owner has
+    /// released the surface. The delayed work item may fire while a UIKit
+    /// transition is still active, so the transition end path must own the
+    /// final application as well.
+    @discardableResult
+    private func applyPendingDrawableResizeIfSettled() -> Bool {
+        guard !destroyStarted,
+              ConduitSurfaceTransitionPolicy.canApplyDrawable(
+                  interactiveResizeActive: interactiveResizeActive,
+                  surfaceTransitionActive: surfaceTransitionActive,
+                  coordinatorSurfaceTransitionActive: coordinatorSurfaceTransitionActive
+              ),
+              let size = pendingDrawableSize,
+              let bounds = pendingDrawableBounds
+        else { return false }
+
+        pendingDrawableResize?.cancel()
+        pendingDrawableResize = nil
+        pendingDrawableSize = nil
+        pendingDrawableBounds = nil
+        applyDrawableSize(size, bounds: bounds)
+        updateLiveResizeState()
+        return true
     }
 
     private func scheduleVideoOutputWatchdog() {
@@ -937,12 +999,15 @@ final class ConduitMPVPlayerViewController: UIViewController {
     }
 
     private var shouldWatchVideoOutput: Bool {
-        hasLoadedFile &&
-            shouldPlay &&
-            !waitingForInitialVideoFrame &&
-            !videoOutputRecoveryFailed &&
-            pictureInPicture?.isStartingOrActive != true &&
-            !destroyStarted
+        ConduitVideoOutputWatchdogPolicy.shouldWatch(
+            hasLoadedFile: hasLoadedFile,
+            hasVideoStream: hasVideoStream,
+            shouldPlay: shouldPlay,
+            waitingForInitialVideoFrame: waitingForInitialVideoFrame,
+            recoveryFailed: videoOutputRecoveryFailed,
+            pictureInPictureActive: pictureInPicture?.isStartingOrActive == true,
+            destroyStarted: destroyStarted,
+        )
     }
 
     private func checkVideoOutputHeartbeat() {
@@ -951,10 +1016,6 @@ final class ConduitMPVPlayerViewController: UIViewController {
 
         refreshPlaybackState()
         guard shouldWatchVideoOutput else { return }
-        guard !isSurfaceTransitionInProgress else {
-            scheduleVideoOutputWatchdog()
-            return
-        }
 
         // A genuine cache wait or seek is owned by MPV. Rebinding the video
         // output while the demuxer is waiting would only add more churn.
@@ -971,20 +1032,67 @@ final class ConduitMPVPlayerViewController: UIViewController {
         let heartbeat = metalLayer.drawableHeartbeatSnapshot()
         let heartbeatIsFresh = heartbeat.uptime > 0 &&
             ProcessInfo.processInfo.systemUptime - heartbeat.uptime < Self.videoOutputWatchdogInterval * 1.5
-        if heartbeat.count != lastObservedDrawableHeartbeat || heartbeatIsFresh {
+        switch ConduitVideoOutputWatchdogPolicy.decision(
+            surfaceTransitionInProgress: isSurfaceTransitionInProgress,
+            mediaClockAdvancing: mediaClockIsAdvancing(),
+            heartbeatFresh: heartbeatIsFresh,
+            heartbeatChanged: heartbeat.count != lastObservedDrawableHeartbeat,
+            recoveryAttempts: videoOutputRecoveryAttempts,
+            maxRecoveryAttempts: Self.maxVideoOutputRecoveryAttempts,
+        ) {
+        case .wait:
+            scheduleVideoOutputWatchdog()
+        case .healthy:
             lastObservedDrawableHeartbeat = heartbeat.count
+            if let started = videoOutputRecoveryStartedAtUptime {
+                debugLog(
+                    "video output rebind succeeded after " +
+                        String(format: "%.2f", ProcessInfo.processInfo.systemUptime - started) +
+                        "s"
+                )
+            }
+            lastVideoOutputRecoveryResult = "succeeded"
             cancelVideoOutputRecovery(resetAttempts: true)
-        } else {
+            scheduleVideoOutputWatchdog()
+        case .recover:
             debugLog("video output heartbeat stale count=\(heartbeat.count) age=\(String(format: "%.2f", ProcessInfo.processInfo.systemUptime - heartbeat.uptime))s")
             scheduleVideoOutputRecovery()
+            scheduleVideoOutputWatchdog()
+        case .pause:
+            pauseForVideoOutputFailure()
         }
-        scheduleVideoOutputWatchdog()
     }
 
     private func cancelVideoOutputRecovery(resetAttempts: Bool) {
         pendingVideoOutputRecovery?.cancel()
         pendingVideoOutputRecovery = nil
-        if resetAttempts { videoOutputRecoveryAttempts = 0 }
+        if resetAttempts {
+            videoOutputRecoveryAttempts = 0
+            videoOutputRecoveryStartedAtUptime = nil
+        }
+    }
+
+    private func resetMediaClockObservation() {
+        lastWatchedMediaPositionMs = nil
+        lastMediaClockProgressUptime = 0
+    }
+
+    private func resetVideoOutputObservations() {
+        lastObservedDrawableHeartbeat = metalLayer.drawableHeartbeatSnapshot().count
+        resetMediaClockObservation()
+        videoOutputRecoveryStartedAtUptime = nil
+    }
+
+    private func mediaClockIsAdvancing() -> Bool {
+        let now = ProcessInfo.processInfo.systemUptime
+        let position = positionMs
+        if let lastPosition = lastWatchedMediaPositionMs,
+           position > lastPosition + 50 {
+            lastMediaClockProgressUptime = now
+        }
+        lastWatchedMediaPositionMs = position
+        return lastMediaClockProgressUptime > 0 &&
+            now - lastMediaClockProgressUptime < Self.mediaClockStallTimeout
     }
 
     private func scheduleVideoOutputRecovery() {
@@ -999,7 +1107,12 @@ final class ConduitMPVPlayerViewController: UIViewController {
         }
 
         let work = DispatchWorkItem { [weak self] in
-            guard let self, !self.destroyStarted, self.hasLoadedFile, self.shouldPlay else { return }
+            guard let self,
+                  !self.destroyStarted,
+                  self.hasLoadedFile,
+                  self.shouldPlay,
+                  self.pictureInPicture?.isStartingOrActive != true
+            else { return }
             self.pendingVideoOutputRecovery = nil
             guard !self.isSurfaceTransitionInProgress else {
                 self.videoOutputRecoveryAttempts = 0
@@ -1010,10 +1123,15 @@ final class ConduitMPVPlayerViewController: UIViewController {
             self.debugLog("video output recovery attempt \(self.videoOutputRecoveryAttempts)")
             self.setStringProperty("vid", "no")
             self.setStringProperty("vid", "auto")
+            self.debugLog("video output rebind requested")
             self.refreshPlaybackState()
             self.scheduleVideoOutputWatchdog()
         }
         pendingVideoOutputRecovery = work
+        if videoOutputRecoveryStartedAtUptime == nil {
+            videoOutputRecoveryStartedAtUptime = ProcessInfo.processInfo.systemUptime
+        }
+        lastVideoOutputRecoveryResult = "scheduled"
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.videoOutputRecoveryDelay, execute: work)
     }
 
@@ -1021,13 +1139,22 @@ final class ConduitMPVPlayerViewController: UIViewController {
         guard !videoOutputRecoveryFailed, !destroyStarted else { return }
         videoOutputRecoveryFailed = true
         shouldPlay = false
+        lastVideoOutputRecoveryResult = "failed"
+        resetMediaClockObservation()
+        let elapsed = videoOutputRecoveryStartedAtUptime.map {
+            ProcessInfo.processInfo.systemUptime - $0
+        }
         cancelVideoOutputWatchdog()
         cancelVideoOutputRecovery(resetAttempts: false)
         setFlag("pause", true)
         isPlayerPlaying = false
-        refreshPlaybackState()
         recordError("Video output stopped responding. Retry playback to reconnect the picture.")
-        debugLog("video output recovery failed; paused audio and video")
+        refreshPlaybackState()
+        if let elapsed {
+            debugLog("video output recovery failed after \(String(format: "%.2f", elapsed))s; paused audio and video")
+        } else {
+            debugLog("video output recovery failed; paused audio and video")
+        }
     }
 
     fileprivate func setInlineVideoHiddenForPictureInPicture(_ hidden: Bool) {
@@ -1155,8 +1282,10 @@ final class ConduitMPVPlayerViewController: UIViewController {
         cancelVideoOutputWatchdog()
         cancelVideoOutputRecovery(resetAttempts: true)
         videoOutputRecoveryFailed = false
-        lastObservedDrawableHeartbeat = metalLayer.drawableHeartbeatSnapshot().count
+        lastVideoOutputRecoveryResult = "none"
+        resetVideoOutputObservations()
         hasLoadedFile = false
+        hasVideoStream = false
         isPlayerLoading = true
         isPlayerEnded = false
         waitingForInitialVideoFrame = true
@@ -1285,11 +1414,9 @@ final class ConduitMPVPlayerViewController: UIViewController {
                       self.pendingDrawableSize == size,
                       self.pendingDrawableBounds == bounds
                 else { return }
-                self.pendingDrawableResize = nil
-                self.pendingDrawableSize = nil
-                self.pendingDrawableBounds = nil
-                self.applyDrawableSize(size, bounds: bounds)
-                self.updateLiveResizeState()
+                // Transition ownership, rather than this timer, decides when
+                // the new drawable may be handed to MoltenVK.
+                _ = self.applyPendingDrawableResizeIfSettled()
             }
             pendingDrawableResize = resize
             // MoltenVK must rebuild its swapchain before rendering at the new
@@ -1428,7 +1555,9 @@ final class ConduitMPVPlayerViewController: UIViewController {
 #endif
                         self.refreshPlaybackState()
                         self.refreshTracks()
-                        if self.getString("video-codec") == nil {
+                        let videoCodec = self.getString("video-codec")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                        self.hasVideoStream = !videoCodec.isEmpty
+                        if videoCodec.isEmpty {
                             self.waitingForInitialVideoFrame = false
                             if self.shouldPlay { self.setFlag("pause", false) }
                         }
@@ -1663,6 +1792,14 @@ final class ConduitMPVPlayerViewController: UIViewController {
             "seeking=\(seeking)",
             "transition=\(isSurfaceTransitionInProgress)",
             "drawable=\(drawable.count)",
+            "playingIntent=\(shouldPlay)",
+            "video=\(videoWidth)x\(videoHeight)",
+            "errorPresent=\(!currentErrorMessage.isEmpty)",
+            "settled=\(Int(settledMetalBounds.width))x\(Int(settledMetalBounds.height))",
+            "scale=\(String(format: "%.2f", Double(metalLayer.contentsScale)))",
+            "rebind=\(lastVideoOutputRecoveryResult)",
+            "recoveryAttempts=\(videoOutputRecoveryAttempts)",
+            "recoveryElapsed=\(recoveryElapsedDescription)",
         ].joined(separator: " ")
         guard snapshot != lastDebugPlaybackSnapshot else { return }
         lastDebugPlaybackSnapshot = snapshot
@@ -1675,6 +1812,11 @@ final class ConduitMPVPlayerViewController: UIViewController {
 #else
         _ = message
 #endif
+    }
+
+    private var recoveryElapsedDescription: String {
+        guard let started = videoOutputRecoveryStartedAtUptime else { return "none" }
+        return String(format: "%.2f", ProcessInfo.processInfo.systemUptime - started)
     }
 
     private func runOnMain(_ action: @escaping () -> Void) {
@@ -1816,12 +1958,21 @@ final class ConduitPictureInPictureCoordinator: NSObject,
             guard let self, !self.isActive else { return }
             self.priming = false
             self.stopCapture()
+            self.owner?.resumeVideoOutputWatchdogAfterPictureInPicture()
         }
         automaticEntryTimeout = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: work)
     }
 
     func stop() {
+        automaticEntryTimeout?.cancel()
+        automaticEntryTimeout = nil
+        if priming && !isActive {
+            priming = false
+            startRequested = false
+            stopCapture()
+            owner?.resumeVideoOutputWatchdogAfterPictureInPicture()
+        }
         controller?.stopPictureInPicture()
     }
 
@@ -1843,6 +1994,7 @@ final class ConduitPictureInPictureCoordinator: NSObject,
     }
 
     private func beginPriming() {
+        owner?.suspendVideoOutputWatchdogForPictureInPicture()
         priming = true
         startAttempts = 0
         enqueuedFrameCount = 0
@@ -2027,6 +2179,7 @@ final class ConduitPictureInPictureCoordinator: NSObject,
             startRequested = false
             priming = false
             stopCapture()
+            owner?.resumeVideoOutputWatchdogAfterPictureInPicture()
             return
         }
         let work = DispatchWorkItem { [weak self] in
@@ -2058,6 +2211,7 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         priming = false
         startRequested = false
         stopCapture()
+        owner?.resumeVideoOutputWatchdogAfterPictureInPicture()
     }
 
     func pictureInPictureControllerDidStopPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
@@ -2065,6 +2219,7 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         priming = false
         startRequested = false
         stopCapture()
+        owner?.resumeVideoOutputWatchdogAfterPictureInPicture()
     }
 
     func pictureInPictureController(
@@ -2106,6 +2261,59 @@ final class ConduitPictureInPictureCoordinator: NSObject,
     ) {
         owner?.seekByMs(Int64(CMTimeGetSeconds(skipInterval) * 1_000))
         completionHandler()
+    }
+}
+
+enum ConduitVideoOutputWatchdogDecision: Equatable {
+    case wait
+    case healthy
+    case recover
+    case pause
+}
+
+enum ConduitVideoOutputWatchdogPolicy {
+    static func shouldWatch(
+        hasLoadedFile: Bool,
+        hasVideoStream: Bool,
+        shouldPlay: Bool,
+        waitingForInitialVideoFrame: Bool,
+        recoveryFailed: Bool,
+        pictureInPictureActive: Bool,
+        destroyStarted: Bool
+    ) -> Bool {
+        hasLoadedFile &&
+            hasVideoStream &&
+            shouldPlay &&
+            !waitingForInitialVideoFrame &&
+            !recoveryFailed &&
+            !pictureInPictureActive &&
+            !destroyStarted
+    }
+
+    static func decision(
+        surfaceTransitionInProgress: Bool,
+        mediaClockAdvancing: Bool,
+        heartbeatFresh: Bool,
+        heartbeatChanged: Bool,
+        recoveryAttempts: Int,
+        maxRecoveryAttempts: Int
+    ) -> ConduitVideoOutputWatchdogDecision {
+        guard !surfaceTransitionInProgress, mediaClockAdvancing else { return .wait }
+        if heartbeatFresh || heartbeatChanged { return .healthy }
+        if recoveryAttempts >= maxRecoveryAttempts { return .pause }
+        return .recover
+    }
+}
+
+enum ConduitSurfaceTransitionPolicy {
+    static func canApplyDrawable(
+        interactiveResizeActive: Bool,
+        surfaceTransitionActive: Bool,
+        coordinatorSurfaceTransitionActive: Bool
+    ) -> Bool {
+        !interactiveResizeActive &&
+            !surfaceTransitionActive &&
+            !coordinatorSurfaceTransitionActive
     }
 }
 

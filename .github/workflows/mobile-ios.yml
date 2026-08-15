@@ -46,6 +46,18 @@ jobs:
           workspaces: .
       - name: Build iOS Rust libraries
         run: apps/mobile/scripts/build-rust-ios.sh
+      - name: Install XcodeGen
+        run: brew install xcodegen
       - name: Run iOS unit tests
         working-directory: apps/mobile
         run: ./gradlew --no-daemon :composeApp:iosSimulatorArm64Test
+      - name: Run iOS bridge policy tests
+        working-directory: apps/mobile/iosApp
+        run: |
+          xcodegen generate
+          xcodebuild test \
+            -project ConduitMobileSpike.xcodeproj \
+            -scheme ConduitMobileSpike \
+            -destination 'platform=iOS Simulator,name=iPad (10th generation),OS=latest' \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO

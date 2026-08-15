@@ -5,6 +5,14 @@ packages:
   MPVKit:
     url: https://github.com/NuvioMedia/MPVKit.git
     revision: d5cf091c80368bbbc1bbf2d195fbc55d926df888
+schemes:
+  ConduitMobileSpike:
+    build:
+      targets:
+        ConduitMobileSpike: all
+    test:
+      targets:
+        - ConduitMobileSpikeTests
 settings:
   base:
     IPHONEOS_DEPLOYMENT_TARGET: "15.0"
@@ -33,3 +41,14 @@ targets:
           cd "$SRCROOT/.."
           ./gradlew :composeApp:embedAndSignAppleFrameworkForXcode
         basedOnDependencyAnalysis: false
+  ConduitMobileSpikeTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [ConduitMobileSpikeTests]
+    dependencies:
+      - target: ConduitMobileSpike
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: media.conduit.mobile.tests
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/conduit.app/conduit"
+        BUNDLE_LOADER: "$(TEST_HOST)"
