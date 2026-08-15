@@ -1,6 +1,6 @@
 import CoreGraphics
 import XCTest
-@testable import ConduitMobileSpike
+@testable import conduit
 
 final class VideoOutputRecoveryPolicyTests: XCTestCase {
     func testDrawableWaitsForEveryTransitionOwnerToSettle() {
