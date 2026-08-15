@@ -2,7 +2,8 @@ package media.conduit.mobile
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertNotEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 import media.conduit.mobile.account.CatalogItem
 import media.conduit.mobile.account.ProgressSummary
 import media.conduit.mobile.account.VideoItem
@@ -129,11 +130,45 @@ class WatchStatusTest {
             VideoItem("s3e10", season = 3, episode = 10),
         )
 
-        val previouslySelected = episodes.first()
-        val resolved = resolveRequestedVideo(episodes, requestedVideoId = "s3e10")
+        val transition = reconcileRequestedVideo(
+            current = episodes.first(),
+            videos = episodes,
+            requestedVideoId = "s3e10",
+        )
 
-        assertEquals("s3e10", resolved?.id)
-        assertNotEquals(previouslySelected.id, resolved?.id)
+        assertEquals("s3e10", transition.video?.id)
+        assertTrue(transition.shouldResetPlayback)
+    }
+
+    @Test
+    fun resolvingInitialEpisodeDoesNotResetUnselectedDetailsPlayback() {
+        val transition = reconcileRequestedVideo(
+            current = null,
+            videos = listOf(VideoItem("s3e10", season = 3, episode = 10)),
+            requestedVideoId = "s3e10",
+        )
+
+        assertEquals("s3e10", transition.video?.id)
+        assertFalse(transition.shouldResetPlayback)
+    }
+
+    @Test
+    fun effectiveProgressEpisodeReplacesExistingSelection() {
+        val series = CatalogItem("show", "series", "Show")
+        val episodes = listOf(
+            VideoItem("s3e4", season = 3, episode = 4),
+            VideoItem("s3e10", season = 3, episode = 10),
+        )
+        val latestProgress = progress("s3e10", "show", position = 30_000)
+
+        val transition = reconcileRequestedVideo(
+            current = episodes.first(),
+            videos = episodes,
+            requestedVideoId = effectiveResumeVideoId(null, listOf(latestProgress), series),
+        )
+
+        assertEquals("s3e10", transition.video?.id)
+        assertTrue(transition.shouldResetPlayback)
     }
 
     private fun progress(videoId: String, mediaId: String, watched: Boolean = false, position: Long = 0, type: String = "series") =

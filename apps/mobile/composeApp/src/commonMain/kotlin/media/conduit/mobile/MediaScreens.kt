@@ -679,21 +679,18 @@ internal fun MediaDetailsScreen(
         autoResumeAttemptedKey = null
     }
 
-    LaunchedEffect(item.id, initialVideoId) {
-        if (selectedVideo != null && selectedVideo?.id != initialVideoId) {
-            resetPlaybackForVideoChange()
-            selectedVideo = null
-        }
-    }
-
-    LaunchedEffect(item.id, item.type, addons, initialVideoId) {
+    LaunchedEffect(item.id, item.type, addons) {
         runCatching { api.loadMeta(addons, item.type, item.id) }
             .onSuccess {
                 meta = it
-                val requestedVideo = resolveRequestedVideo(it.videos, effectiveInitialVideoId)
-                if (selectedVideo?.id != requestedVideo?.id) resetPlaybackForVideoChange()
-                selectedVideo = requestedVideo
             }.onFailure { error = it.message }
+    }
+    LaunchedEffect(item.id, effectiveInitialVideoId, meta?.videos) {
+        val selection = reconcileRequestedVideo(selectedVideo, meta?.videos.orEmpty(), effectiveInitialVideoId)
+        val requestedVideo = selection.video ?: return@LaunchedEffect
+        if (selectedVideo?.id == requestedVideo.id) return@LaunchedEffect
+        if (selection.shouldResetPlayback) resetPlaybackForVideoChange()
+        selectedVideo = requestedVideo
     }
     suspend fun loadStreamsWithRetry(
         videoId: String,
