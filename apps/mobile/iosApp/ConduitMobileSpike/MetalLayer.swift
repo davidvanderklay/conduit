@@ -45,6 +45,9 @@ final class ConduitMetalLayer: CAMetalLayer {
         }
     }
 
+    /// Consumed by an MPVKit build that explicitly supports background
+    /// rendering without a normal layer presentation. The pinned MPVKit
+    /// revision does not read this selector yet.
     @objc dynamic var capturesWithoutPresentation: Bool {
         get {
             captureLock.lock()
@@ -81,6 +84,14 @@ final class ConduitMetalLayer: CAMetalLayer {
         }
     }
 
+    /// PiP reads the final drawable as a blit source. MPVKit's MoltenVK setup
+    /// enables framebufferOnly for normal presentation, which would make that
+    /// texture unavailable to the capture path. Keep it shader/blit-readable.
+    override var framebufferOnly: Bool {
+        get { super.framebufferOnly }
+        set { super.framebufferOnly = false }
+    }
+
     override func nextDrawable() -> CAMetalDrawable? {
         let drawable = super.nextDrawable()
         if drawable != nil {
@@ -96,30 +107,21 @@ final class ConduitMetalLayer: CAMetalLayer {
         }
         let currentPresentationID = presentationID
         let handler = drawablePresentationHandler
-        let captureWithoutPresentation = self.captureWithoutPresentation
         captureLock.unlock()
 
         // MTLDrawable's presented handler runs after MPV's command buffer has
         // presented the texture. This avoids copying while MoltenVK is still
         // rendering into the drawable returned by nextDrawable().
         if shouldCapture, let drawable, let handler {
-            if captureWithoutPresentation {
-                // When the app is backgrounded there may be no presentation
-                // callback. The capture queue still enforces one in-flight
-                // copy, so this remains a bounded fallback.
+            let registered = ConduitAddMetalDrawablePresentedHandler(drawable) { presentedDrawable in
+                guard let drawable = presentedDrawable as? CAMetalDrawable else { return }
                 handler(drawable, currentPresentationID)
-            } else {
-                let registered = ConduitAddMetalDrawablePresentedHandler(drawable) { presentedDrawable in
-                    guard let drawable = presentedDrawable as? CAMetalDrawable else { return }
-                    handler(drawable, currentPresentationID)
-                }
-                if !registered {
-                    // The iOS simulator SDK currently omits the presentation
-                    // handler requirement even though device Metal supports
-                    // it. Keep simulator playback usable with the bounded
-                    // acquisition fallback.
-                    handler(drawable, currentPresentationID)
-                }
+            }
+            if !registered {
+                // The iOS simulator SDK currently omits the presentation
+                // handler requirement even though device Metal supports it.
+                // Keep simulator playback usable with a bounded fallback.
+                handler(drawable, currentPresentationID)
             }
         }
         return drawable

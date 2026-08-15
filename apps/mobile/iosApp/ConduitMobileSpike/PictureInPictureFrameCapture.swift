@@ -122,6 +122,7 @@ struct ConduitPipTimestampEstimator {
         let predictedPositionMs = anchorPositionMs + Int64(
             max(0, uptime - anchorUptime) * 1_000 * anchorRate
         )
+        let generationChanged = generation != clock.generation
         let needsNewAnchor = generation != clock.generation
             || anchorUptime == 0
             || anchorIsPlaying != clock.isPlaying
@@ -129,6 +130,9 @@ struct ConduitPipTimestampEstimator {
             || abs(clock.positionMs - predictedPositionMs) > 750
 
         if needsNewAnchor {
+            if generationChanged {
+                lastTimestamp = .invalid
+            }
             generation = clock.generation
             anchorPositionMs = max(clock.positionMs, 0)
             anchorUptime = uptime
@@ -165,13 +169,13 @@ final class ConduitPictureInPictureFrameCapture {
         label: "media.conduit.pip-frame-capture",
         qos: .userInitiated
     )
-    private let commandQueue: MTLCommandQueue?
-    private let textureCache: CVMetalTextureCache?
+    private var commandQueue: MTLCommandQueue?
+    private var textureCache: CVMetalTextureCache?
     private let stateLock = NSLock()
 
     private var isArmed = false
     private var generation: UInt64 = 0
-    private var captureInFlight = false
+    private var inFlightGeneration: UInt64?
 
     private var scheduler = ConduitPipFrameScheduler()
     private var timestampEstimator = ConduitPipTimestampEstimator()
@@ -190,15 +194,6 @@ final class ConduitPictureInPictureFrameCapture {
         self.displayLayer = displayLayer
         self.clockProvider = clockProvider
         self.onFrameEnqueued = onFrameEnqueued
-        commandQueue = metalLayer.device?.makeCommandQueue()
-
-        if let device = metalLayer.device {
-            var cache: CVMetalTextureCache?
-            CVMetalTextureCacheCreate(nil, nil, device, nil, &cache)
-            textureCache = cache
-        } else {
-            textureCache = nil
-        }
     }
 
     func setOnFrameEnqueued(_ handler: @escaping FrameEnqueuedHandler) {
@@ -209,7 +204,6 @@ final class ConduitPictureInPictureFrameCapture {
         stateLock.lock()
         generation &+= 1
         isArmed = true
-        captureInFlight = false
         stateLock.unlock()
 
         captureQueue.async { [weak self] in
@@ -234,22 +228,35 @@ final class ConduitPictureInPictureFrameCapture {
         }
     }
 
+    func resetTimeline() {
+        stateLock.lock()
+        generation &+= 1
+        stateLock.unlock()
+
+        captureQueue.async { [weak self] in
+            guard let self else { return }
+            self.scheduler.reset()
+            self.timestampEstimator.reset()
+            self.clearPool()
+        }
+    }
+
     func handlePresentedDrawable(_ drawable: CAMetalDrawable, presentationID: UInt64) {
         let clock = clockProvider()
 
         stateLock.lock()
-        guard isArmed, !captureInFlight else {
+        guard isArmed, inFlightGeneration == nil else {
             stateLock.unlock()
             return
         }
-        captureInFlight = true
         let captureGeneration = generation
+        inFlightGeneration = captureGeneration
         stateLock.unlock()
 
         captureQueue.async { [weak self] in
             guard let self else { return }
             guard self.isCurrentGeneration(captureGeneration) else {
-                self.finishCapture()
+                self.finishCapture(for: captureGeneration)
                 return
             }
             self.capture(
@@ -268,7 +275,7 @@ final class ConduitPictureInPictureFrameCapture {
         generation: UInt64
     ) {
         guard isCurrentGeneration(generation), let displayLayer else {
-            finishCapture()
+            finishCapture(for: generation)
             return
         }
         if displayLayer.status == .failed { displayLayer.flush() }
@@ -279,7 +286,7 @@ final class ConduitPictureInPictureFrameCapture {
                   clock: clock
               )
         else {
-            finishCapture()
+            finishCapture(for: generation)
             return
         }
 
@@ -287,6 +294,7 @@ final class ConduitPictureInPictureFrameCapture {
         guard let destinationFormat = Self.destinationFormat(for: sourceTexture.pixelFormat),
               sourceTexture.width > 1,
               sourceTexture.height > 1,
+              ensureMetalResources(),
               ensurePool(
                   width: sourceTexture.width,
                   height: sourceTexture.height,
@@ -297,7 +305,7 @@ final class ConduitPictureInPictureFrameCapture {
               let commandQueue,
               let formatDescription
         else {
-            finishCapture()
+            finishCapture(for: generation)
             return
         }
 
@@ -313,7 +321,7 @@ final class ConduitPictureInPictureFrameCapture {
         ) == kCVReturnSuccess,
               let pixelBuffer
         else {
-            finishCapture()
+            finishCapture(for: generation)
             return
         }
 
@@ -336,7 +344,7 @@ final class ConduitPictureInPictureFrameCapture {
               let commandBuffer = commandQueue.makeCommandBuffer(),
               let blit = commandBuffer.makeBlitCommandEncoder()
         else {
-            finishCapture()
+            finishCapture(for: generation)
             return
         }
 
@@ -369,7 +377,7 @@ final class ConduitPictureInPictureFrameCapture {
                       commandBuffer.status == .completed,
                       let displayLayer = self.displayLayer
                 else {
-                    self.finishCapture()
+                    self.finishCapture(for: generation)
                     return
                 }
 
@@ -388,7 +396,7 @@ final class ConduitPictureInPictureFrameCapture {
                 ) == noErr,
                 let sample
                 else {
-                    self.finishCapture()
+                    self.finishCapture(for: generation)
                     return
                 }
 
@@ -396,13 +404,13 @@ final class ConduitPictureInPictureFrameCapture {
                     displayLayer.flush()
                 }
                 guard displayLayer.isReadyForMoreMediaData else {
-                    self.finishCapture()
+                    self.finishCapture(for: generation)
                     return
                 }
 
                 displayLayer.enqueue(sample)
                 self.onFrameEnqueued()
-                self.finishCapture()
+                self.finishCapture(for: generation)
             }
         }
         commandBuffer.commit()
@@ -411,13 +419,13 @@ final class ConduitPictureInPictureFrameCapture {
     private func ensurePool(width: Int, height: Int, pixelFormat: MTLPixelFormat) -> Bool {
         let size = CGSize(width: width, height: height)
         guard poolSize != size || destinationPixelFormat != pixelFormat else { return true }
-        guard let _ = metalLayer.device else { return false }
+        guard let pixelFormatType = Self.pixelBufferFormat(for: pixelFormat) else { return false }
 
         let poolAttributes: [CFString: Any] = [
             kCVPixelBufferPoolMinimumBufferCountKey: 4,
         ]
         let pixelBufferAttributes: [CFString: Any] = [
-            kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_32BGRA,
+            kCVPixelBufferPixelFormatTypeKey: pixelFormatType,
             kCVPixelBufferWidthKey: width,
             kCVPixelBufferHeightKey: height,
             kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary,
@@ -465,9 +473,25 @@ final class ConduitPictureInPictureFrameCapture {
         if let textureCache { CVMetalTextureCacheFlush(textureCache, 0) }
     }
 
-    private func finishCapture() {
+    private func ensureMetalResources() -> Bool {
+        guard let device = metalLayer.device else { return false }
+
+        if commandQueue == nil {
+            commandQueue = device.makeCommandQueue()
+        }
+        if textureCache == nil {
+            var cache: CVMetalTextureCache?
+            CVMetalTextureCacheCreate(nil, nil, device, nil, &cache)
+            textureCache = cache
+        }
+        return commandQueue != nil && textureCache != nil
+    }
+
+    private func finishCapture(for candidate: UInt64) {
         stateLock.lock()
-        captureInFlight = false
+        if inFlightGeneration == candidate {
+            inFlightGeneration = nil
+        }
         stateLock.unlock()
     }
 
@@ -479,8 +503,21 @@ final class ConduitPictureInPictureFrameCapture {
 
     private static func destinationFormat(for sourceFormat: MTLPixelFormat) -> MTLPixelFormat? {
         switch sourceFormat {
+        case .rgba16Float:
+            return .rgba16Float
         case .bgra8Unorm, .bgra8Unorm_srgb:
             return sourceFormat
+        default:
+            return nil
+        }
+    }
+
+    private static func pixelBufferFormat(for metalFormat: MTLPixelFormat) -> OSType? {
+        switch metalFormat {
+        case .rgba16Float:
+            return kCVPixelFormatType_64RGBAHalf
+        case .bgra8Unorm, .bgra8Unorm_srgb:
+            return kCVPixelFormatType_32BGRA
         default:
             return nil
         }
