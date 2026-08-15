@@ -274,7 +274,12 @@ fun selectSavedStream(
     val candidates = streams.filter { candidate ->
         isPlayableStreamUrl(candidate.stream.url) &&
             if (allowAddonFallback) {
-                sameSourceText(candidate.stream.behaviorHints?.bingeGroup, saved.bingeGroup)
+                val sameAddon = candidate.addonId == saved.addonId
+                val candidateGroup = candidate.stream.behaviorHints?.bingeGroup
+                val savedGroup = saved.bingeGroup
+                val compatibleGroup = candidateGroup.isNullOrBlank() || savedGroup.isNullOrBlank() ||
+                    sameSourceText(candidateGroup, savedGroup)
+                sameAddon && compatibleGroup || sameSourceText(candidateGroup, savedGroup)
             } else {
                 candidate.addonId == saved.addonId
             }

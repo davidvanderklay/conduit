@@ -90,4 +90,19 @@ class StreamSelectionTest {
 
         assertNull(selectSavedStream(listOf(differentStream), saved, allowAddonFallback = true))
     }
+
+    @Test
+    fun continuesOnTheSameAddonWhenBothBingeGroupsAreAbsent() {
+        val saved = playbackSourceForStream(
+            "addon-1",
+            StreamItem(url = "https://old.example/movie.mp4"),
+        )
+        val refreshed = StreamSource(
+            addonId = "addon-1",
+            addonName = "Provider",
+            stream = StreamItem(url = "https://new.example/movie.mp4", name = "movie"),
+        )
+
+        assertEquals(refreshed, selectSavedStream(listOf(refreshed), saved, allowAddonFallback = true))
+    }
 }

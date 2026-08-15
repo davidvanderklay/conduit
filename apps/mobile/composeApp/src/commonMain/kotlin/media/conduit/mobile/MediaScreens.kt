@@ -850,11 +850,10 @@ internal fun MediaDetailsScreen(
         (autoResumeAttemptedKey == null || streamsLoading)
     fun currentPlaybackSource(): PlaybackSource? =
         currentAddonId?.let { addonId -> playing?.let { playbackSourceForStream(addonId, it) } }
-    val orderedVideos = meta?.videos.orEmpty().sortedWith(compareBy<VideoItem> { it.season ?: 0 }.thenBy { it.episode ?: 0 })
-    val orderedPlayableVideos = orderedPlayableEpisodes(meta?.videos.orEmpty())
-    val nextVideo = orderedPlayableVideos.indexOfFirst { it.id == selectedVideo?.id }
+    val orderedVideos = orderedPlayableEpisodes(meta?.videos.orEmpty())
+    val nextVideo = orderedVideos.indexOfFirst { it.id == selectedVideo?.id }
         .takeIf { it >= 0 }
-        ?.let { orderedPlayableVideos.getOrNull(it + 1) }
+        ?.let { orderedVideos.getOrNull(it + 1) }
     val playerContentTitle = if (selectedVideo != null) {
         val episodeNumber = listOfNotNull(selectedVideo?.season, selectedVideo?.episode)
             .takeIf { it.size == 2 }
@@ -1071,7 +1070,11 @@ internal fun MediaDetailsScreen(
                         onDismiss = { streamEpisodesOpen = false },
                         onSelect = { video ->
                             streamEpisodesOpen = false
-                            selectVideo(video, streamBackToHome = false)
+                            selectVideo(
+                                video,
+                                preferredSource = currentPlaybackSource(),
+                                streamBackToHome = false,
+                            )
                         },
                     )
                 }
@@ -1290,7 +1293,13 @@ internal fun MediaDetailsScreen(
                                 modifier = Modifier.width(260.dp).combinedClickable(
                                     onClickLabel = "Play ${video.displayTitle}",
                                     onLongClickLabel = "More actions for ${video.displayTitle}",
-                                    onClick = { selectVideo(video, streamBackToHome = false) },
+                                    onClick = {
+                                        selectVideo(
+                                            video,
+                                            preferredSource = currentPlaybackSource(),
+                                            streamBackToHome = false,
+                                        )
+                                    },
                                     onLongClick = {
                                         haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
                                         actionTarget = MediaActionTarget(actionItem, MediaActionContext.Episode, progress, video, videos = videos)
@@ -1415,7 +1424,11 @@ internal fun MediaDetailsScreen(
         snapshot = snapshot,
         onDismiss = { actionTarget = null },
         onPlay = { target ->
-            selectVideo(target.video, streamBackToHome = false)
+            selectVideo(
+                target.video,
+                preferredSource = currentPlaybackSource(),
+                streamBackToHome = false,
+            )
         },
         onDetails = {},
         onMutation = onMutation,
