@@ -141,6 +141,44 @@ class ProfileMutationTest {
     }
 
     @Test
+    fun staleSyncProgressCannotReplaceAnewerLocalCheckpoint() {
+        val stale = progress.copy(
+            positionMs = 5_000,
+            updatedAt = "2025-12-31",
+        )
+
+        val updated = snapshot.withProgressUpdate(stale)
+
+        assertEquals(progress, updated.progress.single())
+        assertEquals(progress, updated.continueWatching.single())
+    }
+
+    @Test
+    fun successfulDismissalAndDeletionClearAcknowledgedProgress() {
+        val seriesProgress = progress.copy(
+            videoId = "episode-1",
+            mediaType = "series",
+            mediaId = "show",
+        )
+        val acknowledged = mapOf(
+            progress.videoId to progress,
+            seriesProgress.videoId to seriesProgress,
+        )
+
+        val afterDismissal = acknowledgedProgressAfterMutation(
+            acknowledged,
+            ProfileMutation.SetDismissed(seriesProgress, dismissed = true),
+        )
+        assertEquals(mapOf(progress.videoId to progress), afterDismissal)
+
+        val afterDeletion = acknowledgedProgressAfterMutation(
+            acknowledged,
+            ProfileMutation.RemoveProgress(seriesProgress),
+        )
+        assertEquals(mapOf(progress.videoId to progress), afterDeletion)
+    }
+
+    @Test
     fun libraryMutationCanBeReversedForUndo() {
         val saved = snapshot.applyOptimistically(ProfileMutation.SetLibrary(item, true))
         assertEquals("movie", saved.library.single().id)

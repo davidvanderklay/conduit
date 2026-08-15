@@ -55,6 +55,7 @@ export function Player({
   type,
   videoId,
   profileId,
+  accountId = profileId,
   playbackSource,
   progressMetadata,
   artwork,
@@ -67,6 +68,7 @@ export function Player({
   onEnded,
   onClose,
 }: {
+  accountId?: string
   url: string
   type: string
   videoId: string
@@ -86,6 +88,7 @@ export function Player({
   if (isDesktop()) {
     return (
       <DesktopPlayer
+        accountId={accountId}
         url={url}
         type={type}
         videoId={videoId}
@@ -106,6 +109,7 @@ export function Player({
   }
   return (
     <WebPlayer
+      accountId={accountId}
       url={url}
       type={type}
       videoId={videoId}
@@ -129,6 +133,7 @@ function WebPlayer({
   type,
   videoId,
   profileId,
+  accountId = profileId,
   playbackSource,
   progressMetadata,
   addons,
@@ -140,6 +145,7 @@ function WebPlayer({
   onEnded,
   onClose,
 }: {
+  accountId?: string
   url: string
   type: string
   videoId: string
@@ -186,6 +192,7 @@ function WebPlayer({
     videoId,
     progressMetadata,
     playbackSource,
+    accountId,
   )
   const resumed = useRef(false)
 

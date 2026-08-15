@@ -603,13 +603,15 @@ internal fun MediaDetailsScreen(
     initialVideoId: String?,
     addons: List<InstalledAddonSummary>,
     api: ConduitApi,
+    progressOutbox: PlaybackProgressOutbox,
     profile: ProfileSummary?,
     snapshot: ProfileSnapshot?,
     baseUrl: String,
     token: String,
+    accountId: String,
     preferences: DevicePreferences,
     onPreferencesChanged: (DevicePreferences) -> Unit,
-    onProgressChanged: (ProgressSummary?) -> Unit,
+    onProgressChanged: (ProgressSummary) -> Unit,
     onMutation: suspend (ProfileMutation) -> Result<Unit>,
     onBrowse: (MobileBrowseTarget) -> Unit,
     onBack: () -> Unit,
@@ -805,16 +807,24 @@ internal fun MediaDetailsScreen(
     }
     val sessionCallbacks = requestIdentity?.let { identity ->
         PlaybackSessionCallbacks(
-            persist = { request, state ->
+            persist = { _, _ -> },
+            persistCheckpoint = { request, state, checkpointIdentity ->
                 val existing = snapshot?.progress?.firstOrNull { it.videoId == request.identity.videoId }
                 resolveProgressState(state, existing)?.let { resolved ->
-                    val saved = api.saveProgress(
-                        baseUrl, token, request.identity.profileId, request.identity.videoId,
-                        request.identity.mediaType, request.identity.mediaId, request.mediaName,
-                        request.poster, request.episodeTitle, request.season, request.episode,
-                        resolved.positionMs, resolved.durationMs, request.source, resolved.watched,
+                    val outcome = progressOutbox.enqueue(
+                        baseUrl = baseUrl,
+                        token = token,
+                        accountId = accountId,
+                        request = request,
+                        playback = state.copy(
+                            positionMs = resolved.positionMs,
+                            durationMs = resolved.durationMs,
+                        ),
+                        identity = checkpointIdentity,
+                        existing = existing,
+                        watchedOverride = resolved.watched,
                     )
-                    onProgressChanged(saved)
+                    onProgressChanged(outcome.progress)
                 }
             },
             playNext = {

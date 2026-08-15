@@ -246,6 +246,9 @@ export const watchProgress = pgTable(
     dismissed: boolean("dismissed").notNull().default(false),
     continueWatching: boolean("continue_watching").notNull().default(false),
     playbackSource: jsonb("playback_source").$type<PlaybackSource>(),
+    checkpointSessionId: text("checkpoint_session_id"),
+    checkpointSequence: integer("checkpoint_sequence"),
+    checkpointUpdatedAt: timestamp("checkpoint_updated_at", { withTimezone: true }),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [

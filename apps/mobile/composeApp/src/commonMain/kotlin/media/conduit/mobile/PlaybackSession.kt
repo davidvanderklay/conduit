@@ -64,6 +64,7 @@ data class SequencedPlaybackCommand(
 
 data class PlaybackSessionState(
     val request: PlaybackRequest? = null,
+    val sessionId: String = "",
     val presentation: PlaybackPresentation = PlaybackPresentation.Closed,
     val playback: PlaybackState = PlaybackState(),
     val selectedAudioTrackId: String? = null,
@@ -76,11 +77,18 @@ data class PlaybackSessionState(
 
 class PlaybackSessionCallbacks(
     val persist: suspend (PlaybackRequest, PlaybackState) -> Unit,
+    val persistCheckpoint: suspend (PlaybackRequest, PlaybackState, PlaybackCheckpointIdentity) -> Unit =
+        { request, playback, _ -> persist(request, playback) },
     val playNext: () -> Unit,
     val openEpisodes: () -> Unit,
     val minimized: () -> Unit,
     val closed: () -> Unit,
     val selectEpisode: (String) -> Unit = {},
+)
+
+data class PlaybackCheckpointIdentity(
+    val sessionId: String,
+    val sequence: Long,
 )
 
 @Stable
@@ -90,7 +98,8 @@ class PlaybackSessionController(
     private data class PendingPersistence(
         val request: PlaybackRequest,
         val playback: PlaybackState,
-        val callback: suspend (PlaybackRequest, PlaybackState) -> Unit,
+        val identity: PlaybackCheckpointIdentity,
+        val callback: suspend (PlaybackRequest, PlaybackState, PlaybackCheckpointIdentity) -> Unit,
     )
 
     var state by mutableStateOf(PlaybackSessionState())
@@ -98,7 +107,9 @@ class PlaybackSessionController(
 
     private var callbacks: PlaybackSessionCallbacks? = null
     private var commandSequence = 0L
-    private var pendingPersistence: PendingPersistence? = null
+    private var sessionSequence = 0L
+    private var checkpointSequence = 0L
+    private val pendingPersistence = linkedMapOf<String, PendingPersistence>()
     private var persistenceJob: Job? = null
 
     fun start(request: PlaybackRequest, callbacks: PlaybackSessionCallbacks) {
@@ -119,9 +130,11 @@ class PlaybackSessionController(
             // the old miniplayer.
             PlaybackSessionState(
                 request = request,
+                sessionId = "playback-${++sessionSequence}",
                 presentation = PlaybackPresentation.FullScreen,
             )
         }
+        if (!sameStream) checkpointSequence = 0L
     }
 
     fun attach(identity: PlaybackIdentity, callbacks: PlaybackSessionCallbacks) {
@@ -130,6 +143,13 @@ class PlaybackSessionController(
 
     fun updatePlayback(playback: PlaybackState) {
         if (state.request != null) state = state.copy(playback = playback)
+    }
+
+    fun updatePlayback(sessionId: String, streamKey: String, playback: PlaybackState) {
+        val request = state.request ?: return
+        if (state.sessionId == sessionId && request.streamKeyForPlayback() == streamKey) {
+            state = state.copy(playback = playback)
+        }
     }
 
     fun minimize(notifyOwner: Boolean = true) {
@@ -184,8 +204,9 @@ class PlaybackSessionController(
     fun persist() {
         val request = state.request ?: return
         val playback = state.playback
-        val callback = callbacks?.persist ?: return
-        pendingPersistence = PendingPersistence(request, playback, callback)
+        val callbacks = callbacks ?: return
+        val identity = PlaybackCheckpointIdentity(state.sessionId, ++checkpointSequence)
+        pendingPersistence[request.persistenceKey()] = PendingPersistence(request, playback, identity, callbacks.persistCheckpoint)
         if (persistenceJob?.isActive != true) {
             persistenceJob = scope.launch { drainPersistence() }
         }
@@ -198,12 +219,16 @@ class PlaybackSessionController(
 
     private suspend fun drainPersistence() {
         while (true) {
-            val next = pendingPersistence ?: break
-            pendingPersistence = null
-            runCatching { next.callback(next.request, next.playback) }
+            val next = pendingPersistence.entries.firstOrNull()?.let { (key, value) ->
+                pendingPersistence.remove(key)
+                value
+            } ?: break
+            runCatching { next.callback(next.request, next.playback, next.identity) }
         }
         persistenceJob = null
-        if (pendingPersistence != null) persist()
+        if (pendingPersistence.isNotEmpty() && persistenceJob?.isActive != true) {
+            persistenceJob = scope.launch { drainPersistence() }
+        }
     }
 
     fun playNext() {
@@ -241,6 +266,26 @@ private fun PlaybackRequest.isSameStream(other: PlaybackRequest): Boolean =
         url == other.url &&
         requestHeaders == other.requestHeaders &&
         subtitles == other.subtitles
+
+internal fun PlaybackRequest.streamKeyForPlayback(): String =
+    buildString {
+        append(identity.profileId)
+        append(':')
+        append(identity.mediaType)
+        append(':')
+        append(identity.mediaId)
+        append(':')
+        append(identity.videoId)
+        append('|')
+        append(url)
+        append('|')
+        append(requestHeaders)
+        append('|')
+        append(subtitles)
+    }
+
+private fun PlaybackRequest.persistenceKey(): String =
+    "${identity.profileId}\u0000${identity.videoId}"
 
 fun transitionPlaybackPresentation(
     current: PlaybackPresentation,

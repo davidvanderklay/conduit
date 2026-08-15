@@ -122,6 +122,9 @@ export function registerProgressRoutes(app: FastifyInstance, context: RouteConte
           durationMs: Type.Integer({ minimum: 0 }),
           watched: Type.Optional(Type.Boolean()),
           dismissed: Type.Optional(Type.Boolean()),
+          checkpointSessionId: Type.Optional(Type.String({ minLength: 1, maxLength: 200 })),
+          checkpointSequence: Type.Optional(Type.Integer({ minimum: 1 })),
+          checkpointUpdatedAt: Type.Optional(Type.String({ format: "date-time" })),
           playbackSource: playbackSourceSchema,
         }),
       },
@@ -134,15 +137,30 @@ export function registerProgressRoutes(app: FastifyInstance, context: RouteConte
       const body = request.body as ProgressBody
       const watched = body.watched ?? isPlaybackComplete(body.positionMs, body.durationMs)
       const [existing] = await db
-        .select({ continueWatching: watchProgress.continueWatching })
+        .select()
         .from(watchProgress)
         .where(and(eq(watchProgress.profileId, profileId), eq(watchProgress.videoId, videoId)))
         .limit(1)
+      if (existing && isStaleCheckpoint(body, existing)) {
+        return { item: toProgressItem(existing) }
+      }
       const continueWatching = shouldKeepContinueWatching(
         existing?.continueWatching === true,
         watched,
         body.positionMs,
       )
+      const checkpointValues =
+        body.checkpointSessionId !== undefined ||
+        body.checkpointSequence !== undefined ||
+        body.checkpointUpdatedAt !== undefined
+          ? {
+              checkpointSessionId: body.checkpointSessionId ?? null,
+              checkpointSequence: body.checkpointSequence ?? null,
+              checkpointUpdatedAt: body.checkpointUpdatedAt
+                ? new Date(body.checkpointUpdatedAt)
+                : null,
+            }
+          : {}
       const values = {
         profileId,
         videoId,
@@ -161,17 +179,41 @@ export function registerProgressRoutes(app: FastifyInstance, context: RouteConte
         ...(body.playbackSource !== undefined
           ? { playbackSource: body.playbackSource }
           : {}),
+        ...checkpointValues,
         updatedAt: new Date(),
       }
+      const checkpointOrderWhere = body.checkpointUpdatedAt
+        ? sql`
+            ${watchProgress.checkpointUpdatedAt} IS NULL
+            OR excluded.checkpoint_updated_at > ${watchProgress.checkpointUpdatedAt}
+            OR (
+              excluded.checkpoint_updated_at = ${watchProgress.checkpointUpdatedAt}
+              AND (
+                ${watchProgress.checkpointSequence} IS NULL
+                OR excluded.checkpoint_sequence > ${watchProgress.checkpointSequence}
+              )
+            )
+          `
+        : undefined
       const [item] = await db
         .insert(watchProgress)
         .values(values)
         .onConflictDoUpdate({
           target: [watchProgress.profileId, watchProgress.videoId],
           set: values,
+          ...(checkpointOrderWhere ? { setWhere: checkpointOrderWhere } : {}),
         })
         .returning()
-      return { item: toProgressItem(item!) }
+      if (!item) {
+        const [current] = await db
+          .select()
+          .from(watchProgress)
+          .where(and(eq(watchProgress.profileId, profileId), eq(watchProgress.videoId, videoId)))
+          .limit(1)
+        if (!current) return reply.notFound()
+        return { item: toProgressItem(current) }
+      }
+      return { item: toProgressItem(item) }
     },
   )
 
@@ -215,7 +257,14 @@ export function registerProgressRoutes(app: FastifyInstance, context: RouteConte
             }
           : {}),
         ...(dismissed !== undefined ? { dismissed } : {}),
-        ...(watched !== undefined ? { updatedAt: new Date() } : {}),
+        ...(watched !== undefined || dismissed !== undefined
+          ? {
+              checkpointSessionId: null,
+              checkpointSequence: null,
+              checkpointUpdatedAt: new Date(),
+              updatedAt: new Date(),
+            }
+          : {}),
       }
       const [item] = await db
         .update(watchProgress)
@@ -273,6 +322,9 @@ interface ProgressBody {
   watched?: boolean
   dismissed?: boolean
   playbackSource?: PlaybackSource
+  checkpointSessionId?: string
+  checkpointSequence?: number
+  checkpointUpdatedAt?: string
 }
 
 const playbackSourceSchema = Type.Optional(
@@ -291,6 +343,31 @@ const playbackSourceSchema = Type.Optional(
     { additionalProperties: false },
   ),
 )
+
+export function isStaleCheckpoint(
+  body: ProgressBody,
+  existing: typeof watchProgress.$inferSelect,
+): boolean {
+  const incomingUpdatedAt = body.checkpointUpdatedAt ? Date.parse(body.checkpointUpdatedAt) : Number.NaN
+  const existingUpdatedAt = existing.checkpointUpdatedAt?.getTime() ?? Number.NaN
+  if (Number.isFinite(incomingUpdatedAt) && Number.isFinite(existingUpdatedAt)) {
+    if (incomingUpdatedAt < existingUpdatedAt) return true
+    if (
+      incomingUpdatedAt === existingUpdatedAt &&
+      body.checkpointSessionId === existing.checkpointSessionId &&
+      body.checkpointSequence !== undefined &&
+      existing.checkpointSequence !== null &&
+      body.checkpointSequence <= existing.checkpointSequence
+    ) return true
+  }
+  return (
+    body.checkpointSessionId !== undefined &&
+    body.checkpointSessionId === existing.checkpointSessionId &&
+    body.checkpointSequence !== undefined &&
+    existing.checkpointSequence !== null &&
+    body.checkpointSequence <= existing.checkpointSequence
+  )
+}
 
 export function isPlaybackComplete(positionMs: number, durationMs: number): boolean {
   if (

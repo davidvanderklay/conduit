@@ -1,6 +1,10 @@
 package media.conduit.mobile.foundation
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberUpdatedState
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 
 interface SettingsStore {
     fun get(key: String): String?
@@ -29,6 +33,31 @@ data class PlatformServices(
 
 @Composable
 expect fun rememberPlatformServices(): PlatformServices
+
+@Composable
+expect fun rememberAppLifecycleEvents(
+    onForeground: () -> Unit,
+    onConnectivityRecovered: () -> Unit,
+)
+
+/**
+ * Refreshes playback state when the app becomes active and periodically while
+ * visible, covering connectivity recovery on platforms without a network callback.
+ */
+@Composable
+fun rememberAppRecoveryTriggers(onRecovery: () -> Unit) {
+    val latestRecovery = rememberUpdatedState(onRecovery)
+    rememberAppLifecycleEvents(
+        onForeground = { latestRecovery.value() },
+        onConnectivityRecovered = { latestRecovery.value() },
+    )
+    LaunchedEffect(Unit) {
+        while (isActive) {
+            delay(30_000)
+            latestRecovery.value()
+        }
+    }
+}
 
 class MemorySettingsStore : SettingsStore {
     private val values = mutableMapOf<String, String>()

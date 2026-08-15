@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest"
+import { watchProgress } from "./db/schema.js"
 import { filterContinueWatching, isPlaybackComplete, shouldKeepContinueWatching } from "./routes.js"
+import { isStaleCheckpoint } from "./route-modules/progress-routes.js"
 
 describe("watch completion", () => {
   it("completes at ninety percent", () => {
@@ -42,5 +44,67 @@ describe("continue watching", () => {
     expect(shouldKeepContinueWatching(false, false, 30_000)).toBe(true)
     expect(shouldKeepContinueWatching(false, true, 0)).toBe(true)
     expect(shouldKeepContinueWatching(true, false, 0)).toBe(true)
+  })
+})
+
+describe("checkpoint ordering", () => {
+  const existing = {
+    checkpointSessionId: "mobile-session",
+    checkpointSequence: 4,
+    checkpointUpdatedAt: new Date("2026-08-14T12:00:10.000Z"),
+  } as typeof watchProgress.$inferSelect
+
+  it("rejects an older delayed checkpoint", () => {
+    expect(
+      isStaleCheckpoint(
+        {
+          mediaType: "movie",
+          mediaId: "movie",
+          name: "Movie",
+          positionMs: 10_000,
+          durationMs: 100_000,
+          checkpointSessionId: "mobile-session",
+          checkpointSequence: 3,
+          checkpointUpdatedAt: "2026-08-14T12:00:09.000Z",
+        },
+        existing,
+      ),
+    ).toBe(true)
+  })
+
+  it("accepts a newer checkpoint from a reopened session", () => {
+    expect(
+      isStaleCheckpoint(
+        {
+          mediaType: "movie",
+          mediaId: "movie",
+          name: "Movie",
+          positionMs: 20_000,
+          durationMs: 100_000,
+          checkpointSessionId: "new-mobile-session",
+          checkpointSequence: 1,
+          checkpointUpdatedAt: "2026-08-14T12:00:11.000Z",
+        },
+        existing,
+      ),
+    ).toBe(false)
+  })
+
+  it("uses the sequence as the tie-breaker within one millisecond", () => {
+    expect(
+      isStaleCheckpoint(
+        {
+          mediaType: "movie",
+          mediaId: "movie",
+          name: "Movie",
+          positionMs: 30_000,
+          durationMs: 100_000,
+          checkpointSessionId: "mobile-session",
+          checkpointSequence: 5,
+          checkpointUpdatedAt: "2026-08-14T12:00:10.000Z",
+        },
+        existing,
+      ),
+    ).toBe(false)
   })
 })

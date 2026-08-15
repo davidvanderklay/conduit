@@ -47,6 +47,7 @@ import { VirtualVerticalList } from "./components/virtual-vertical-list"
 import { FullscreenToggle } from "./components/fullscreen-toggle"
 import { BrowsePosterMenu } from "./components/browse-poster-menu"
 import { ConduitMark } from "./components/conduit-mark"
+import { clearLegacyProgressOutbox, clearProgressOutbox, flushProgressOutbox } from "./lib/progress"
 
 export function App() {
   const session = authClient.useSession()
@@ -631,6 +632,23 @@ function AuthenticatedApp({
   }, [activeProfileId])
 
   useEffect(() => {
+    const flush = () => void flushProgressOutbox(userId)
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") flush()
+    }
+    clearLegacyProgressOutbox()
+    flush()
+    window.addEventListener("online", flush)
+    window.addEventListener("focus", flush)
+    document.addEventListener("visibilitychange", onVisibilityChange)
+    return () => {
+      window.removeEventListener("online", flush)
+      window.removeEventListener("focus", flush)
+      document.removeEventListener("visibilitychange", onVisibilityChange)
+    }
+  }, [userId])
+
+  useEffect(() => {
     if (
       readPreferences().rememberLastProfile &&
       activeProfileId &&
@@ -679,6 +697,11 @@ function AuthenticatedApp({
   const activeHousehold = bootstrap.data!.households.find((household) =>
     household.profiles.some((profile) => profile.id === activeProfile.id),
   )!
+  const handleSignedOut = () => {
+    clearDesktopSessionToken()
+    clearProgressOutbox(userId)
+    queryClient.clear()
+  }
   const navigate = (nextSection: AppSection) => {
     setSection(nextSection)
     setSearchInput("")
@@ -744,10 +767,7 @@ function AuthenticatedApp({
               onNavigate={navigate}
               onSignOut={async () => {
                 const result = await authClient.signOut()
-                if (!result.error) {
-                  clearDesktopSessionToken()
-                  queryClient.clear()
-                }
+                if (!result.error) handleSignedOut()
               }}
             />
             {isOwner && (
@@ -769,12 +789,14 @@ function AuthenticatedApp({
         className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-24 md:ml-16 md:pb-0"
       >
         <ProfileApp
+          accountId={userId}
           profile={activeProfile}
           profiles={activeHousehold.profiles}
           householdId={activeHousehold.id}
           section={section}
           onNavigate={navigate}
           onSelectProfile={setActiveProfileId}
+          onSignedOut={handleSignedOut}
           searchInput={searchInput}
           query={query}
           discoverSelection={discoverSelection}
@@ -843,24 +865,28 @@ function HouseholdSetup() {
 }
 
 function ProfileApp({
+  accountId,
   profile,
   profiles,
   householdId,
   section,
   onNavigate,
   onSelectProfile,
+  onSignedOut,
   searchInput,
   query,
   discoverSelection,
   onDiscoverSelection,
   onMetadataBrowse,
 }: {
+  accountId: string
   profile: Profile
   profiles: Profile[]
   householdId: string
   section: AppSection
   onNavigate: (section: AppSection) => void
   onSelectProfile: (profileId: string) => void
+  onSignedOut: () => void
   searchInput: string
   query: string
   discoverSelection: DiscoverSelection
@@ -886,6 +912,7 @@ function ProfileApp({
     <PosterWatchStatusProvider profileId={profile.id}>
       {!searchInput && section === "home" && (
         <MediaHome
+          accountId={accountId}
           profile={profile}
           addons={addons.data?.addons ?? []}
           onContinueWatching={() => onNavigate("continue")}
@@ -959,6 +986,7 @@ function ProfileApp({
           householdId={householdId}
           onSelectProfile={onSelectProfile}
           onNavigate={onNavigate}
+          onSignedOut={onSignedOut}
         />
       )}
       {searchInput && (
@@ -976,6 +1004,7 @@ function ProfileApp({
       )}
       {selectedItem && addons.data && (
         <MediaDetails
+          accountId={accountId}
           item={selectedItem}
           addons={addons.data.addons}
           profileId={profile.id}
@@ -1009,12 +1038,14 @@ type HomeFeedItem =
   | { key: string; kind: "catalog"; catalog: HomeCatalog }
 
 function MediaHome({
+  accountId,
   profile,
   addons,
   onContinueWatching,
   onDiscover,
   onMetadataBrowse,
 }: {
+  accountId: string
   profile: Profile
   addons: InstalledAddon[]
   onContinueWatching: () => void
@@ -1141,6 +1172,7 @@ function MediaHome({
 
       {selectedItem && (
         <MediaDetails
+          accountId={accountId}
           item={selectedItem}
           addons={addons}
           profileId={profile.id}

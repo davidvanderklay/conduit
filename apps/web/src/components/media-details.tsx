@@ -64,6 +64,7 @@ export type MetadataBrowseTarget =
   | { kind: "search"; value: string }
 
 export function MediaDetails({
+  accountId,
   item,
   addons,
   profileId,
@@ -74,6 +75,7 @@ export function MediaDetails({
   streamSelectionReturnToHome = false,
   autoResumeOnOpen = true,
 }: {
+  accountId?: string
   item: CatalogItem
   addons: InstalledAddon[]
   profileId: string
@@ -475,6 +477,7 @@ export function MediaDetails({
 
       {playing?.url && (
         <Player
+          accountId={accountId}
           url={playing.url}
           type={item.type}
           videoId={activeVideoId!}
