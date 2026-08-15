@@ -151,6 +151,42 @@ class PlaybackSessionTest {
         assertEquals(listOf(45_000L), positions)
     }
 
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun switchingStreamsKeepsBothProgressCheckpoints() = runTest {
+        val videos = mutableListOf<String>()
+        val controller = PlaybackSessionController(this)
+        val first = PlaybackRequest(
+            identity = PlaybackIdentity("profile", "series", "show", "episode-1"),
+            url = "https://example.test/episode-1.m3u8",
+            title = "Episode 1",
+            mediaName = "Show · Episode 1",
+        )
+        val second = first.copy(
+            identity = first.identity.copy(videoId = "episode-2"),
+            url = "https://example.test/episode-2.m3u8",
+            title = "Episode 2",
+        )
+        val callbacks = PlaybackSessionCallbacks(
+            persist = { _, _ -> },
+            persistCheckpoint = { request, _, _ -> videos += request.identity.videoId },
+            playNext = {},
+            openEpisodes = {},
+            minimized = {},
+            closed = {},
+        )
+
+        controller.start(first, callbacks)
+        controller.updatePlayback(PlaybackState(playing = true, positionMs = 15_000, durationMs = 100_000))
+        controller.persist()
+        controller.start(second, callbacks)
+        controller.updatePlayback(PlaybackState(playing = true, positionMs = 25_000, durationMs = 100_000))
+        controller.persist()
+        advanceUntilIdle()
+
+        assertEquals(listOf("episode-1", "episode-2"), videos)
+    }
+
     @Test
     fun reopeningTheSameStreamRestoresAMinimizedPlayerWithoutResettingPlayback() {
         val controller = PlaybackSessionController(TestScope())
@@ -233,5 +269,42 @@ class PlaybackSessionTest {
         assertEquals(PlaybackPresentation.FullScreen, controller.state.presentation)
         assertEquals(request, controller.state.request)
         assertEquals(playback, controller.state.playback)
+    }
+
+    @Test
+    fun staleNativeCallbacksCannotReplaceTheCurrentStream() {
+        val controller = PlaybackSessionController(TestScope())
+        val first = PlaybackRequest(
+            identity = PlaybackIdentity("profile", "series", "show", "episode-1"),
+            url = "https://example.test/episode-1.m3u8",
+            title = "Episode 1",
+            mediaName = "Show · Episode 1",
+        )
+        val second = first.copy(
+            identity = first.identity.copy(videoId = "episode-2"),
+            url = "https://example.test/episode-2.m3u8",
+            title = "Episode 2",
+        )
+        val callbacks = PlaybackSessionCallbacks(
+            persist = { _, _ -> },
+            playNext = {},
+            openEpisodes = {},
+            minimized = {},
+            closed = {},
+        )
+
+        controller.start(first, callbacks)
+        val firstSessionId = controller.state.sessionId
+        val firstStreamKey = first.streamKeyForPlayback()
+        controller.start(second, callbacks)
+
+        controller.updatePlayback(
+            firstSessionId,
+            firstStreamKey,
+            PlaybackState(playing = true, positionMs = 90_000, durationMs = 120_000),
+        )
+
+        assertEquals("episode-2", controller.state.request?.identity?.videoId)
+        assertEquals(0L, controller.state.playback.positionMs)
     }
 }

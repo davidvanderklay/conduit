@@ -693,7 +693,9 @@ private fun AppShell(
     val profiles = account.bootstrap.households.flatMap { it.profiles }
     val activeProfile = profiles.firstOrNull { it.id == state.activeProfileId } ?: profiles.firstOrNull()
     val syncRepository = remember(api, secureStore) { ProfileSyncRepository(api, secureStore) }
+    val progressOutbox = remember(api, secureStore) { PlaybackProgressOutbox(api, secureStore) }
     val mutationMutex = remember { Mutex() }
+    val profileSyncMutex = remember { Mutex() }
     val appScope = rememberCoroutineScope()
     val playbackSession = remember(appScope) { PlaybackSessionController(appScope) }
     LaunchedEffect(activeProfile?.id) {
@@ -708,11 +710,15 @@ private fun AppShell(
     LaunchedEffect(activeProfile?.id, account.session.token) {
         val profile = activeProfile ?: return@LaunchedEffect
         profileSync = profileSync.copy(refreshing = true)
-        profileSync = syncRepository.synchronize(
-            state.endpoint!!.baseUrl,
-            account.session.token,
-            profile.id,
-        )
+        profileSyncMutex.withLock {
+            progressOutbox.flush(state.endpoint!!.baseUrl, account.session.token)
+            profileSync = syncRepository.synchronize(
+                state.endpoint!!.baseUrl,
+                account.session.token,
+                profile.id,
+                progressOutbox.pendingSummaries(profile.id),
+            )
+        }
     }
     LaunchedEffect(activeProfile?.id, state.activeProfileId) {
         if (activeProfile != null && activeProfile.id != state.activeProfileId) {
@@ -796,7 +802,14 @@ private fun AppShell(
                 syncRepository.save(optimistic)
                 runCatching {
                     api.executeMutation(state.endpoint!!.baseUrl, account.session.token, profile.id, mutation)
-                    profileSync = syncRepository.synchronize(state.endpoint.baseUrl, account.session.token, profile.id)
+                    profileSyncMutex.withLock {
+                        profileSync = syncRepository.synchronize(
+                            state.endpoint.baseUrl,
+                            account.session.token,
+                            profile.id,
+                            progressOutbox.pendingSummaries(profile.id),
+                        )
+                    }
                 }.onFailure {
                     profileSync = profileSync.copy(snapshot = before, error = it.message)
                     syncRepository.save(before)
@@ -818,19 +831,21 @@ private fun AppShell(
         fun refreshProfileData() {
             activeProfile?.let { profile ->
                 appScope.launch {
-                    profileSync = syncRepository.synchronize(
-                        state.endpoint!!.baseUrl,
-                        account.session.token,
-                        profile.id,
-                    )
+                    profileSyncMutex.withLock {
+                        progressOutbox.flush(state.endpoint!!.baseUrl, account.session.token)
+                        profileSync = syncRepository.synchronize(
+                            state.endpoint!!.baseUrl,
+                            account.session.token,
+                            profile.id,
+                            progressOutbox.pendingSummaries(profile.id),
+                        )
+                    }
                 }
             }
         }
-        val onPlaybackProgressChanged: (ProgressSummary?) -> Unit = { saved ->
+        val onPlaybackProgressChanged: (ProgressSummary) -> Unit = { saved ->
             val current = profileSync.snapshot
-            if (saved == null || current == null) {
-                refreshProfileData()
-            } else {
+            if (current != null) {
                 val updated = current.withProgressUpdate(saved)
                 profileSync = profileSync.copy(snapshot = updated, offline = false, error = null)
                 syncRepository.save(updated)
@@ -922,7 +937,8 @@ private fun AppShell(
                             openMedia, openContinueWatching, openContinueWatchingDetails,
                             { selectedMedia = null; selectedMediaFromContinueWatching = false; selectedMediaAutoResume = true }, dispatch, onSignOut, onProfilesChanged,
                             { profileFlowActive = it },
-                            { activeProfile?.let { profile -> appScope.launch { profileSync = syncRepository.synchronize(state.endpoint!!.baseUrl, account.session.token, profile.id) } } },
+                            ::refreshProfileData,
+                            progressOutbox,
                             onPlaybackProgressChanged,
                             ::mutateProfile,
                             browseQuery, { browseQuery = it }, discoverSelection, { discoverSelection = it }, openBrowse,
@@ -937,11 +953,12 @@ private fun AppShell(
                 DestinationContent(
                     state, platform, account, activeProfile, profileSync, api, selectedMedia,
                     selectedVideoId, selectedMediaFromContinueWatching, selectedMediaAutoResume,
-                    openMedia, openContinueWatching, openContinueWatchingDetails,
-                    { selectedMedia = null; selectedMediaFromContinueWatching = false; selectedMediaAutoResume = true }, dispatch, onSignOut, onProfilesChanged,
-                    { profileFlowActive = it },
-                    { activeProfile?.let { profile -> appScope.launch { profileSync = syncRepository.synchronize(state.endpoint!!.baseUrl, account.session.token, profile.id) } } },
-                    onPlaybackProgressChanged,
+                            openMedia, openContinueWatching, openContinueWatchingDetails,
+                            { selectedMedia = null; selectedMediaFromContinueWatching = false; selectedMediaAutoResume = true }, dispatch, onSignOut, onProfilesChanged,
+                            { profileFlowActive = it },
+                            ::refreshProfileData,
+                            progressOutbox,
+                            onPlaybackProgressChanged,
                     ::mutateProfile,
                     browseQuery, { browseQuery = it }, discoverSelection, { discoverSelection = it }, openBrowse,
                     preferences, onPreferencesChanged, homeListState, searchListState, discoverGridState, libraryGridState, continueWatchingGridState, settingsListState,
@@ -1090,7 +1107,8 @@ private fun DestinationContent(
     onProfilesChanged: (String?) -> Unit,
     onProfileFlowChanged: (Boolean) -> Unit,
     onProfileDataChanged: () -> Unit,
-    onPlaybackProgressChanged: (ProgressSummary?) -> Unit,
+    progressOutbox: PlaybackProgressOutbox,
+    onPlaybackProgressChanged: (ProgressSummary) -> Unit,
     onProfileMutation: suspend (ProfileMutation) -> Result<Unit>,
     browseQuery: String,
     onBrowseQueryChange: (String) -> Unit,
@@ -1112,6 +1130,9 @@ private fun DestinationContent(
     val homeCache = remember(activeProfile?.id) { HomeScreenCache() }
     LaunchedEffect(state.destination) {
         if (state.destination != AppDestination.Profile) onProfileFlowChanged(false)
+        if (state.destination == AppDestination.Home || state.destination == AppDestination.ContinueWatching) {
+            onProfileDataChanged()
+        }
     }
     Box(modifier.fillMaxSize()) {
         AppDestination.entries.forEach { destination ->
@@ -1169,6 +1190,7 @@ private fun DestinationContent(
                 autoResumeOnOpen = selectedMediaAutoResume,
                 addons = profileSync.snapshot?.addons.orEmpty(),
                 api = api,
+                progressOutbox = progressOutbox,
                 profile = activeProfile,
                 snapshot = profileSync.snapshot,
                 baseUrl = state.endpoint!!.baseUrl,
@@ -1282,7 +1304,13 @@ private fun BoxScope.PlaybackSessionHost(
             onSystemPipAvailabilityChanged = controller::systemPipAvailabilityChanged,
             interactiveResize = miniGestureActive,
             modifier = playerModifier,
-            onState = controller::updatePlayback,
+            onState = { playback ->
+                controller.updatePlayback(
+                    session.sessionId,
+                    request.streamKeyForPlayback(),
+                    playback,
+                )
+            },
         )
 
         if (fullScreen || pipHandoffVisible) {

@@ -81,6 +81,9 @@ function progressRow(
     dismissed: false,
     continueWatching: true,
     playbackSource: null,
+    checkpointSessionId: null,
+    checkpointSequence: null,
+    checkpointUpdatedAt: null,
     updatedAt: new Date(updatedAt),
   }
 }

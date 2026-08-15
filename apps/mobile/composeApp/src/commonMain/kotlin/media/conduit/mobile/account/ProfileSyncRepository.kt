@@ -11,19 +11,26 @@ data class ProfileSyncState(
     val error: String? = null,
 )
 
-internal fun ProfileSnapshot.withProgressUpdate(update: ProgressSummary): ProfileSnapshot {
-    fun merge(items: List<ProgressSummary>): List<ProgressSummary> =
-        (listOf(update) + items.filterNot { it.videoId == update.videoId })
-            .sortedByDescending(ProgressSummary::updatedAt)
+internal fun ProfileSnapshot.withProgressUpdate(update: ProgressSummary): ProfileSnapshot =
+    withProgressUpdates(listOf(update))
+
+internal fun ProfileSnapshot.withProgressUpdates(updates: Collection<ProgressSummary>): ProfileSnapshot {
+    if (updates.isEmpty()) return this
+
+    fun merge(items: List<ProgressSummary>): List<ProgressSummary> {
+        val merged = linkedMapOf<String, ProgressSummary>()
+        (items + updates).forEach { item ->
+            val current = merged[item.videoId]
+            if (current == null || item.updatedAt >= current.updatedAt) merged[item.videoId] = item
+        }
+        return merged.values.sortedByDescending(ProgressSummary::updatedAt)
+    }
 
     return copy(
-        progress = merge(this.progress),
+        progress = merge(progress),
         history = merge(history),
-        continueWatching = if (update.continueWatching && !update.dismissed) {
-            merge(continueWatching)
-        } else {
-            continueWatching.filterNot { it.videoId == update.videoId }
-        },
+        continueWatching = merge(continueWatching)
+            .filter { it.continueWatching && !it.dismissed },
     )
 }
 
@@ -40,15 +47,21 @@ class ProfileSyncRepository(
             if (snapshot.history.isEmpty() && snapshot.progress.isNotEmpty()) snapshot.copy(history = snapshot.progress) else snapshot
         }
 
-    suspend fun synchronize(baseUrl: String, token: String, profileId: String): ProfileSyncState {
+    suspend fun synchronize(
+        baseUrl: String,
+        token: String,
+        profileId: String,
+        preservedProgress: Collection<ProgressSummary> = emptyList(),
+    ): ProfileSyncState {
         val cached = cached(profileId)
         return try {
             val snapshot = api.synchronizeProfile(baseUrl, token, profileId)
+                .withProgressUpdates(preservedProgress)
             secureStore.put(cacheKey(profileId), json.encodeToString(snapshot))
             ProfileSyncState(snapshot = snapshot)
         } catch (cause: Exception) {
             ProfileSyncState(
-                snapshot = cached,
+                snapshot = cached?.withProgressUpdates(preservedProgress),
                 offline = cached != null,
                 error = cause.message ?: "Unable to synchronize this profile",
             )

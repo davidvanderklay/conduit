@@ -848,6 +848,9 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
         videoTitle: String?, season: Int?, episode: Int?, positionMs: Long, durationMs: Long,
         playbackSource: PlaybackSource? = null,
         watched: Boolean? = null,
+        checkpointSessionId: String? = null,
+        checkpointSequence: Long? = null,
+        checkpointUpdatedAt: String? = null,
     ): ProgressSummary? {
         if (durationMs < 0) return null
         val response = client.put("$baseUrl/v1/profiles/$profileId/progress/${videoId.encodeURLPathPart()}") {
@@ -857,6 +860,9 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
                 season?.let { put("season", it) }; episode?.let { put("episode", it) }
                 playbackSource?.let { put("playbackSource", addonJson.encodeToJsonElement(it)) }
                 watched?.let { put("watched", it) }
+                checkpointSessionId?.let { put("checkpointSessionId", it) }
+                checkpointSequence?.let { put("checkpointSequence", it) }
+                checkpointUpdatedAt?.let { put("checkpointUpdatedAt", it) }
                 put("positionMs", positionMs.coerceAtLeast(0)); put("durationMs", durationMs.coerceAtLeast(0))
             })
         }
