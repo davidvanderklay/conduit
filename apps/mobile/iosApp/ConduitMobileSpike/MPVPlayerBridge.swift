@@ -929,9 +929,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
         guard !destroyStarted, !interactiveResizeActive, !coordinatorSurfaceTransitionActive else { return }
         if !surfaceTransitionActive {
             surfaceTransitionActive = true
-            ConduitSurfaceTransitionPolicy.beginGeometryTransition(
-                recoveryState: &videoOutputRecoveryState
-            )
+            cancelVideoOutputRecovery(resetAttempts: true)
             updateLiveResizeState()
         }
         pendingSurfaceTransitionEnd?.cancel()
@@ -1111,8 +1109,12 @@ final class ConduitMPVPlayerViewController: UIViewController {
             return
         }
 
+        let recoveryGeneration = videoOutputRecoveryState.schedule(
+            at: ProcessInfo.processInfo.systemUptime
+        )
         let work = DispatchWorkItem { [weak self] in
             guard let self,
+                  self.videoOutputRecoveryState.isCurrent(recoveryGeneration),
                   !self.destroyStarted,
                   self.hasLoadedFile,
                   self.shouldPlay,
@@ -1136,7 +1138,6 @@ final class ConduitMPVPlayerViewController: UIViewController {
             self.scheduleVideoOutputWatchdog()
         }
         pendingVideoOutputRecovery = work
-        videoOutputRecoveryState.schedule(at: ProcessInfo.processInfo.systemUptime)
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.videoOutputRecoveryDelay, execute: work)
     }
 
@@ -2285,21 +2286,26 @@ struct ConduitVideoOutputRecoveryState: Equatable {
     private(set) var startedAt: TimeInterval?
     private(set) var result: ConduitVideoOutputRecoveryResult = .none
     private(set) var failed = false
+    private(set) var generation: UInt64 = 0
 
     var isActive: Bool {
         startedAt != nil || attempts > 0 || result == .retrying || result == .scheduled
     }
 
     mutating func beginRetry(at now: TimeInterval) {
+        generation &+= 1
         attempts = 0
         startedAt = now
         result = .retrying
         failed = false
     }
 
-    mutating func schedule(at now: TimeInterval) {
+    @discardableResult
+    mutating func schedule(at now: TimeInterval) -> UInt64 {
+        generation &+= 1
         if startedAt == nil { startedAt = now }
         result = .scheduled
+        return generation
     }
 
     @discardableResult
@@ -2311,6 +2317,7 @@ struct ConduitVideoOutputRecoveryState: Equatable {
     }
 
     mutating func deferAfterTransition() {
+        generation &+= 1
         attempts = 0
         startedAt = nil
         result = .none
@@ -2318,6 +2325,7 @@ struct ConduitVideoOutputRecoveryState: Equatable {
 
     mutating func cancel(resetAttempts: Bool) {
         guard resetAttempts else { return }
+        generation &+= 1
         if isActive { result = .cancelled }
         attempts = 0
         startedAt = nil
@@ -2333,6 +2341,10 @@ struct ConduitVideoOutputRecoveryState: Equatable {
     mutating func fail() {
         failed = true
         result = .failed
+    }
+
+    func isCurrent(_ expectedGeneration: UInt64) -> Bool {
+        generation == expectedGeneration
     }
 }
 
@@ -2389,12 +2401,6 @@ enum ConduitVideoOutputWatchdogPolicy {
 }
 
 enum ConduitSurfaceTransitionPolicy {
-    static func beginGeometryTransition(
-        recoveryState: inout ConduitVideoOutputRecoveryState
-    ) {
-        recoveryState.cancel(resetAttempts: true)
-    }
-
     static func shouldScheduleDrawableResize(
         size: CGSize,
         pendingSize: CGSize?,

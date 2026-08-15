@@ -63,14 +63,15 @@ final class VideoOutputRecoveryPolicyTests: XCTestCase {
 
     func testSplitViewGeometryStartCancelsStaleRecoveryBudget() {
         var state = ConduitVideoOutputRecoveryState()
-        state.schedule(at: 10)
+        let queuedGeneration = state.schedule(at: 10)
         XCTAssertTrue(state.markAttempt(maxAttempts: 2))
 
-        ConduitSurfaceTransitionPolicy.beginGeometryTransition(recoveryState: &state)
+        state.cancel(resetAttempts: true)
 
         XCTAssertEqual(state.attempts, 0)
         XCTAssertNil(state.startedAt)
         XCTAssertEqual(state.result, .cancelled)
+        XCTAssertFalse(state.isCurrent(queuedGeneration))
     }
 
     func testRecoveryCancellationClearsBudgetForEveryLifecycleExit() {
