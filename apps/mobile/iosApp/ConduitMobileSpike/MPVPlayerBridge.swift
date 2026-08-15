@@ -2126,7 +2126,6 @@ final class ConduitPictureInPictureCoordinator: NSObject,
             self.activeCaptureReprimeTimeout = nil
             self.stopCapture()
             self.controller?.stopPictureInPicture()
-            self.owner?.resumeVideoOutputWatchdogAfterPictureInPicture()
         }
         activeCaptureReprimeTimeout = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: work)
@@ -2198,7 +2197,6 @@ final class ConduitPictureInPictureCoordinator: NSObject,
             self.owner?.setInlineVideoHiddenForPictureInPicture(false)
             if wasActive {
                 self.controller?.stopPictureInPicture()
-                self.owner?.resumeVideoOutputWatchdogAfterPictureInPicture()
             } else {
                 self.owner?.restoreVideoAfterPictureInPictureStopIfNeeded()
                 self.owner?.resumeVideoOutputWatchdogAfterPictureInPicture()

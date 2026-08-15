@@ -390,7 +390,14 @@ final class ConduitPictureInPictureFrameCapture {
         let clock = clockProvider()
 
         stateLock.lock()
-        guard isArmed, inFlightGeneration == nil else {
+        guard isArmed else {
+            stateLock.unlock()
+            return
+        }
+        ConduitPipInstrumentation.event("presented", reason: "drawable")
+        guard inFlightGeneration == nil else {
+            metrics.recordDrop()
+            ConduitPipInstrumentation.event("inFlightDrop", reason: "copy already in flight")
             stateLock.unlock()
             return
         }
@@ -436,6 +443,7 @@ final class ConduitPictureInPictureFrameCapture {
             return
         }
         guard displayLayer.isReadyForMoreMediaData else {
+            ConduitPipInstrumentation.event("displayNotReady", reason: "before copy")
             recordDrop(for: generation, reason: "display layer is not ready for more media")
             return
         }
@@ -444,9 +452,11 @@ final class ConduitPictureInPictureFrameCapture {
             presentationID: presentationID,
             clock: clock
         ) else {
+            ConduitPipInstrumentation.event("throttled", reason: "source cadence")
             finishCapture(for: generation)
             return
         }
+        ConduitPipInstrumentation.event("due", reason: "source cadence")
 
         let sourceTexture = drawable.texture
         guard sourceTexture.width > 1, sourceTexture.height > 1 else {
@@ -504,6 +514,7 @@ final class ConduitPictureInPictureFrameCapture {
                 for: pixelBufferStatus,
                 duringSetup: false
             ) == .drop {
+                ConduitPipInstrumentation.event("poolDrop", reason: "pixel buffer allocation")
                 recordDrop(
                     for: generation,
                     reason: "pixel buffer allocation returned CVReturn \(pixelBufferStatus)"
@@ -534,6 +545,7 @@ final class ConduitPictureInPictureFrameCapture {
                 for: textureStatus,
                 duringSetup: false
             ) == .drop {
+                ConduitPipInstrumentation.event("poolDrop", reason: "Metal texture allocation")
                 recordDrop(
                     for: generation,
                     reason: "Metal texture allocation returned CVReturn \(textureStatus)"
@@ -558,6 +570,7 @@ final class ConduitPictureInPictureFrameCapture {
             return
         }
         guard let commandBuffer = commandQueue.makeCommandBuffer() else {
+            ConduitPipInstrumentation.event("blitFailed", reason: "command buffer")
             failCapture(
                 for: generation,
                 reason: "Unable to create a Metal command buffer for PiP capture",
@@ -566,6 +579,7 @@ final class ConduitPictureInPictureFrameCapture {
             return
         }
         guard let blit = commandBuffer.makeBlitCommandEncoder() else {
+            ConduitPipInstrumentation.event("blitFailed", reason: "blit encoder")
             failCapture(
                 for: generation,
                 reason: "Unable to create a Metal blit encoder for PiP capture",
@@ -592,6 +606,7 @@ final class ConduitPictureInPictureFrameCapture {
             at: ProcessInfo.processInfo.systemUptime
         )
         if timestampEstimator.didDetectTimelineDiscontinuity {
+            ConduitPipInstrumentation.event("timestampReset", reason: "timeline discontinuity")
             displayLayer.flush()
             scheduler.reset()
         }
@@ -610,6 +625,7 @@ final class ConduitPictureInPictureFrameCapture {
                     return
                 }
                 guard commandBuffer.status == .completed else {
+                    ConduitPipInstrumentation.event("blitFailed", reason: "command completion")
                     self.failCapture(
                         for: generation,
                         reason: "Metal PiP capture command ended with status \(commandBuffer.status.rawValue)",
@@ -648,6 +664,7 @@ final class ConduitPictureInPictureFrameCapture {
                     return
                 }
                 guard displayLayer.isReadyForMoreMediaData else {
+                    ConduitPipInstrumentation.event("displayNotReady", reason: "before enqueue")
                     self.recordDrop(for: generation, reason: "display layer stopped accepting media")
                     return
                 }
@@ -666,6 +683,7 @@ final class ConduitPictureInPictureFrameCapture {
                 self.finishCapture(for: generation)
             }
         }
+        ConduitPipInstrumentation.event("blitSubmitted", reason: "drawable copy")
         commandBuffer.commit()
     }
 
