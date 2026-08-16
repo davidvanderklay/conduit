@@ -401,6 +401,8 @@ actual fun NativePlayer(
             preferredSubtitleLanguage = preferredSubtitleLanguage,
             playbackSpeed = fallbackPlaybackSpeed,
             selectedSubtitleId = selectedSubtitleId,
+            selectedSubtitleLanguage = selectedSubtitleLanguage,
+            selectedSubtitleLabel = selectedSubtitleLabel,
             subtitlesEnabled = subtitlesEnabled,
         )
     }
@@ -501,7 +503,7 @@ actual fun NativePlayer(
         activeEngine = NativePlaybackEngine.Media3
     }
 
-    LaunchedEffect(player, command?.sequence, activeEngine) {
+    LaunchedEffect(command?.sequence) {
         when (val next = command?.command) {
             PlaybackCommand.Play -> if (activeEngine == NativePlaybackEngine.Media3) player.play() else mpvView?.setPaused(false)
             PlaybackCommand.Pause -> if (activeEngine == NativePlaybackEngine.Media3) player.pause() else mpvView?.setPaused(true)
@@ -512,14 +514,23 @@ actual fun NativePlayer(
                 initialLoadComplete = false
                 firstFrameRendered = false
                 if (activeEngine == NativePlaybackEngine.Media3) {
-                    player.prepare()
-                    if (fallbackPlayWhenReady) player.play() else player.pause()
+                    media3StartPositionMs = fallbackPositionMs(player.currentPosition, media3StartPositionMs)
+                    fallbackPlaybackSpeed = player.playbackParameters.speed
+                    fallbackPlayWhenReady = player.playWhenReady
+                    trackFallback = null
+                    releaseMedia3Player()
+                    player = createMedia3Player()
                 } else {
                     val session = PlaybackEngineSession(androidPlaybackEngine, activeEngine, fallbackAttempted, fallbackReason)
                     if (retryPlaybackEngine(session).activeEngine == NativePlaybackEngine.Media3) {
                         retryAutomaticFromLibmpv()
                     } else {
-                        mpvView?.retry(selectedSubtitleId, subtitlesEnabled)
+                        mpvView?.retry(
+                            selectedSubtitleId = selectedSubtitleId,
+                            selectedSubtitleLanguage = selectedSubtitleLanguage,
+                            selectedSubtitleLabel = selectedSubtitleLabel,
+                            subtitlesEnabled = subtitlesEnabled,
+                        )
                     }
                 }
             }
