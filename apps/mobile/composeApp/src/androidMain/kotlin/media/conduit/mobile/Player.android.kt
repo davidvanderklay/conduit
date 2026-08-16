@@ -153,8 +153,8 @@ actual fun NativePlayer(
     var trackPanel by remember { mutableStateOf<Int?>(null) }
     var tracksRevision by remember { mutableIntStateOf(0) }
     var trackFallback by remember(player) { mutableStateOf<androidx.media3.common.TrackSelectionParameters?>(null) }
-    var selectedSubtitleId by remember(player) { mutableStateOf<String?>(null) }
-    var subtitlesEnabled by remember(player) { mutableStateOf(true) }
+    var selectedSubtitleId by remember(url, requestHeaders, subtitles) { mutableStateOf<String?>(null) }
+    var subtitlesEnabled by remember(url, requestHeaders, subtitles) { mutableStateOf(true) }
     var lastTrackChangeAt by remember(player) { mutableLongStateOf(0L) }
     var autoAudioSelection by remember(player) { mutableStateOf<String?>(null) }
     var resizeMode by remember(player) { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
@@ -226,17 +226,39 @@ actual fun NativePlayer(
             }
             override fun onTracksChanged(tracks: Tracks) {
                 tracksRevision++
-                tracks.groups
-                    .filter { it.type == C.TRACK_TYPE_TEXT }
-                    .flatMap { group -> (0 until group.length).map { index -> group.getTrackFormat(index) to group.isTrackSelected(index) } }
-                    .firstOrNull { (_, selected) -> selected }
-                    ?.first
-                    ?.id
-                    ?.takeIf { id -> subtitles.any { subtitleSelectionKey(it) == id } }
-                    ?.let { id ->
-                        selectedSubtitleId = id
-                        subtitlesEnabled = true
+                val textGroups = tracks.groups.filter { it.type == C.TRACK_TYPE_TEXT }
+                val selectedText = textGroups
+                    .flatMap { group -> (0 until group.length).map { index -> group to index } }
+                    .firstOrNull { (group, index) -> group.isTrackSelected(index) }
+                val requestedText = selectedSubtitleId?.let { id ->
+                    textGroups
+                        .flatMap { group -> (0 until group.length).map { index -> group to index } }
+                        .firstOrNull { (group, index) ->
+                            group.isTrackSupported(index) && group.getTrackFormat(index).id == id
+                        }
+                }
+                if (!subtitlesEnabled) {
+                    if (C.TRACK_TYPE_TEXT !in player.trackSelectionParameters.disabledTrackTypes) {
+                        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+                            .clearOverridesOfType(C.TRACK_TYPE_TEXT)
+                            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+                            .build()
                     }
+                } else if (requestedText != null && !requestedText.first.isTrackSelected(requestedText.second)) {
+                    player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+                        .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                        .clearOverridesOfType(C.TRACK_TYPE_TEXT)
+                        .addOverride(TrackSelectionOverride(requestedText.first.mediaTrackGroup, requestedText.second))
+                        .build()
+                } else {
+                    selectedText
+                        ?.let { (group, index) -> group.getTrackFormat(index).id }
+                        ?.takeIf { id -> subtitles.any { subtitleSelectionKey(it) == id } }
+                        ?.let { id ->
+                            selectedSubtitleId = id
+                            subtitlesEnabled = true
+                        }
+                }
                 val audio = tracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
                 if (audio.isNotEmpty() && audio.none { group -> (0 until group.length).any(group::isTrackSupported) }) {
                     fallbackToLibmpv("Media3 could not decode any audio track in this stream.")
@@ -443,11 +465,11 @@ actual fun NativePlayer(
             PlaybackEngineSession(androidPlaybackEngine, activeEngine, fallbackAttempted, fallbackReason),
         )
         if (transition.activeEngine != NativePlaybackEngine.Media3) return
-        val snapshot = view.snapshot()
-        media3StartPositionMs = snapshot.positionMs
-        fallbackStartPositionMs = snapshot.positionMs
+        val retryPositionMs = view.resumePositionMs()
+        media3StartPositionMs = retryPositionMs
+        fallbackStartPositionMs = retryPositionMs
         fallbackPlaybackSpeed = view.playbackSpeed()
-        fallbackPlayWhenReady = true
+        fallbackPlayWhenReady = view.playWhenReady()
         fallbackAttempted = transition.fallbackAttempted
         fallbackReason = transition.fallbackReason
         playbackError = null
@@ -475,7 +497,7 @@ actual fun NativePlayer(
                     if (retryPlaybackEngine(session).activeEngine == NativePlaybackEngine.Media3) {
                         retryAutomaticFromLibmpv()
                     } else {
-                        mpvView?.retry()
+                        mpvView?.retry(selectedSubtitleId, subtitlesEnabled)
                     }
                 }
             }
@@ -686,7 +708,18 @@ actual fun NativePlayer(
         }
         trackPanel?.let { type ->
             if (activeEngine == NativePlaybackEngine.Libmpv) {
-                mpvView?.let { MpvTrackPanel(it, type, mpvTrackRevision, onDismiss = { trackPanel = null }) }
+                mpvView?.let {
+                    MpvTrackPanel(
+                        view = it,
+                        type = type,
+                        revision = mpvTrackRevision,
+                        onSubtitleSelectionChanged = { id, enabled ->
+                            selectedSubtitleId = id
+                            subtitlesEnabled = enabled
+                        },
+                        onDismiss = { trackPanel = null },
+                    )
+                }
             } else {
                 @Suppress("UNUSED_EXPRESSION") tracksRevision
                 PlayerTrackPanel(

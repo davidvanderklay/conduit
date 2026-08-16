@@ -29,6 +29,7 @@ internal data class MpvTrack(
     val type: String,
     val label: String,
     val language: String?,
+    val selectionKey: String?,
     val selected: Boolean,
     val forced: Boolean,
 )
@@ -52,6 +53,8 @@ internal class ConduitMpvView(
     private var currentPreferredAudio = "System default"
     private var currentPreferredSubtitle = "English"
     private var currentPlaybackSpeed = 1f
+    private var currentStartPositionMs = 0L
+    private var currentPlayWhenReady = true
     private var currentSelectedSubtitleId: String? = null
     private var currentSubtitlesEnabled = true
 
@@ -161,6 +164,8 @@ internal class ConduitMpvView(
         currentPreferredAudio = preferredAudioLanguage
         currentPreferredSubtitle = preferredSubtitleLanguage
         currentPlaybackSpeed = playbackSpeed.coerceIn(0.25f, 4f)
+        currentStartPositionMs = startPositionMs.coerceAtLeast(0L)
+        currentPlayWhenReady = playWhenReady
         currentSelectedSubtitleId = selectedSubtitleId
         currentSubtitlesEnabled = subtitlesEnabled
         loaded = false
@@ -188,30 +193,46 @@ internal class ConduitMpvView(
             null
         }
         subtitles.forEachIndexed { index, subtitle ->
-            mpv.command("sub-add", subtitle.url, if (index == selectedSubtitleIndex) "select" else "cached")
+            mpv.command(
+                "sub-add",
+                subtitle.url,
+                if (index == selectedSubtitleIndex) "select" else "cached",
+                subtitle.addonName.orEmpty(),
+                subtitle.lang.orEmpty(),
+            )
         }
         if (!subtitlesEnabled) mpv.setPropertyString("sid", "no")
         setPaused(!playWhenReady)
     }
 
-    fun retry() {
+    fun retry(
+        selectedSubtitleId: String? = currentSelectedSubtitleId,
+        subtitlesEnabled: Boolean = currentSubtitlesEnabled,
+    ) {
+        currentSelectedSubtitleId = selectedSubtitleId
+        currentSubtitlesEnabled = subtitlesEnabled
         currentUrl?.let {
             loadSource(
                 url = it,
                 requestHeaders = currentHeaders,
                 subtitles = currentSubtitles,
-                startPositionMs = snapshot().positionMs,
-                playWhenReady = true,
+                startPositionMs = resumePositionMs(),
+                playWhenReady = currentPlayWhenReady,
                 preferredAudioLanguage = currentPreferredAudio,
                 preferredSubtitleLanguage = currentPreferredSubtitle,
                 playbackSpeed = playbackSpeed(),
-                selectedSubtitleId = currentSelectedSubtitleId,
-                subtitlesEnabled = currentSubtitlesEnabled,
+                selectedSubtitleId = selectedSubtitleId,
+                subtitlesEnabled = subtitlesEnabled,
             )
         }
     }
 
+    fun resumePositionMs(): Long = fallbackPositionMs(snapshot().positionMs, currentStartPositionMs)
+
+    fun playWhenReady(): Boolean = currentPlayWhenReady
+
     fun setPaused(paused: Boolean) {
+        currentPlayWhenReady = !paused
         if (!mpv.isInitialized()) return
         runCatching { mpv.setPropertyBoolean("pause", paused) }
     }
@@ -257,8 +278,9 @@ internal class ConduitMpvView(
             ?.mapNotNull { node ->
                 if (node.nodeString("type") != type) return@mapNotNull null
                 val id = node.nodeInt("id") ?: return@mapNotNull null
+                val externalFilename = node.nodeString("external-filename")
                 val label = node.nodeString("title")
-                    ?: node.nodeString("external-filename")?.substringAfterLast('/')
+                    ?: externalFilename?.substringAfterLast('/')
                     ?: node.nodeString("codec")
                     ?: "Track $id"
                 MpvTrack(
@@ -266,6 +288,14 @@ internal class ConduitMpvView(
                     type = type,
                     label = label,
                     language = node.nodeString("lang") ?: languageFromLabel(label),
+                    selectionKey = externalFilename
+                        ?.let { filename ->
+                            currentSubtitles.firstOrNull { subtitle ->
+                                subtitle.url == filename ||
+                                    subtitle.url.substringBefore('#') == filename.substringBefore('#')
+                            }
+                        }
+                        ?.let(::subtitleSelectionKey),
                     selected = node.nodeBoolean("selected") ?: false,
                     forced = node.nodeBoolean("forced") ?: false,
                 )
@@ -312,6 +342,8 @@ internal class ConduitMpvView(
         val height = mpv.getPropertyInt("video-out-params/dh")
             ?: mpv.getPropertyInt("video-params/dh")
             ?: 0
+        // The pinned mpv-android AAR does not expose a rendered-frame callback;
+        // dimensions after video reconfiguration are the available conservative proxy.
         val rendered = loaded && width > 0 && height > 0
         val buffering = loaded && !rendered && (pausedForCache || cacheState?.let { it in 0 until 100 } == true)
         return MpvPlaybackSnapshot(

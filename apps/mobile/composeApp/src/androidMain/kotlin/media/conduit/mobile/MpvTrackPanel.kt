@@ -32,6 +32,7 @@ internal fun BoxScope.MpvTrackPanel(
     view: ConduitMpvView,
     type: Int,
     revision: Int,
+    onSubtitleSelectionChanged: (String?, Boolean) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val tracks = remember(view, type, revision) {
@@ -65,6 +66,7 @@ internal fun BoxScope.MpvTrackPanel(
                     item {
                         MpvTrackRow("Off", tracks.none { it.selected }) {
                             view.selectSubtitle(null)
+                            onSubtitleSelectionChanged(null, false)
                             onDismiss()
                         }
                     }
@@ -78,7 +80,12 @@ internal fun BoxScope.MpvTrackPanel(
                         ).joinToString(" · "),
                         selected = track.selected,
                     ) {
-                        if (type == C.TRACK_TYPE_AUDIO) view.selectAudio(track.id) else view.selectSubtitle(track.id)
+                        if (type == C.TRACK_TYPE_AUDIO) {
+                            view.selectAudio(track.id)
+                        } else {
+                            view.selectSubtitle(track.id)
+                            onSubtitleSelectionChanged(track.selectionKey, true)
+                        }
                         onDismiss()
                     }
                 }
