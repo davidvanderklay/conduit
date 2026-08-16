@@ -501,9 +501,14 @@ internal class ConduitMpvView(
                     trackCacheRefreshRequested = true
                 }
             } else {
-                mpv.setPropertyInt("sid", trackId)
+                selectSingleSubtitleNative(trackId)
             }
         }
+    }
+
+    private fun selectSingleSubtitleNative(trackId: Int) {
+        mpv.setPropertyString("sid", "no")
+        mpv.setPropertyInt("sid", trackId)
     }
 
     private fun applyPendingSubtitleSelectionNative() {
@@ -527,8 +532,8 @@ internal class ConduitMpvView(
                 sameSubtitleLanguage(track.language, currentSelectedSubtitleLanguage)
             }
             ?: return
-        if (!selectedTrack.selected) {
-            runCatching { mpv.setPropertyInt("sid", selectedTrack.id) }
+        if (!selectedTrack.selected || subtitleTracks.count(MpvTrack::selected) != 1) {
+            runCatching { selectSingleSubtitleNative(selectedTrack.id) }
         }
     }
 
@@ -548,8 +553,8 @@ internal class ConduitMpvView(
             ?: matchingTracks.firstOrNull()
             ?: return
         preferredSubtitleApplied = true
-        if (!selectedTrack.selected) {
-            runCatching { mpv.setPropertyInt("sid", selectedTrack.id) }
+        if (!selectedTrack.selected || cachedTracks["sub"].orEmpty().count(MpvTrack::selected) != 1) {
+            runCatching { selectSingleSubtitleNative(selectedTrack.id) }
         }
     }
 
@@ -573,7 +578,7 @@ internal class ConduitMpvView(
         fileLoadStarted = false
         initialVideoOutputReady = false
         applyRequestHeaders(request.requestHeaders)
-        setPreferredLanguages(request.preferredAudioLanguage, request.preferredSubtitleLanguage)
+        setPreferredAudioLanguage(request.preferredAudioLanguage)
         setPlaybackSpeedNative(request.playbackSpeed)
         // Keep both audio and video paused until the first video output is
         // available. Without this, mpv can start audio while MediaCodec is
@@ -588,7 +593,9 @@ internal class ConduitMpvView(
             if (request.startPositionMs > 0) add("start=${request.startPositionMs / 1000.0}")
         }.joinToString(",")
         mpv.command("loadfile", request.url, "replace", "-1", fileOptions)
-        if (!request.subtitlesEnabled) mpv.setPropertyString("sid", "no")
+        // Keep mpv's automatic subtitle selection from racing the explicit
+        // embedded-first choice made after track-list becomes available.
+        mpv.setPropertyString("sid", "no")
         trackCacheRefreshRequested = true
         applyPendingSubtitleSelectionNative()
     }
@@ -820,9 +827,8 @@ internal class ConduitMpvView(
         }
     }
 
-    private fun setPreferredLanguages(audio: String, subtitles: String) {
+    private fun setPreferredAudioLanguage(audio: String) {
         mpvLanguageCode(audio)?.let { mpv.setPropertyString("alang", it) }
-        mpvLanguageCode(subtitles)?.let { mpv.setPropertyString("slang", it) }
     }
 
     private fun applyRequestHeaders(headers: Map<String, String>) {
