@@ -183,8 +183,7 @@ internal fun HomeScreen(
         metadataCache = metadataCache,
         onDismiss = { actionTarget = null },
         onPlay = { target ->
-            val select = if (target.context == MediaActionContext.Continue) onSelectContinueWatching else onSelect
-            select(target.item, target.video?.id ?: target.progress?.videoId)
+            onSelect(target.item, target.video?.id ?: target.progress?.videoId)
         },
         onDetails = { target ->
             if (target.context == MediaActionContext.Continue) {
