@@ -94,7 +94,7 @@ internal class ConduitMpvView(
     }
 
     fun installObservers(onChanged: () -> Unit) {
-        if (!mpv.isInitialized()) return
+        if (!mpv.isInitialized) return
         mpv.addObserver(object : MPV.EventObserver {
             override fun eventProperty(property: String) {
                 if (property == "track-list") {
@@ -170,7 +170,7 @@ internal class ConduitMpvView(
         selectedSubtitleLabel: String? = currentSelectedSubtitleLabel,
         subtitlesEnabled: Boolean = currentSubtitlesEnabled,
     ) {
-        if (!mpv.isInitialized()) {
+        if (!mpv.isInitialized) {
             errorMessage = "libmpv could not be initialized on this device."
             return
         }
@@ -266,33 +266,33 @@ internal class ConduitMpvView(
 
     fun setPaused(paused: Boolean) {
         currentPlayWhenReady = !paused
-        if (!mpv.isInitialized()) return
+        if (!mpv.isInitialized) return
         runCatching { mpv.setPropertyBoolean("pause", paused) }
     }
 
     fun seekTo(positionMs: Long) {
-        if (!mpv.isInitialized()) return
+        if (!mpv.isInitialized) return
         runCatching { mpv.command("seek", (positionMs.coerceAtLeast(0) / 1000.0).toString(), "absolute") }
     }
 
     fun seekBy(offsetMs: Long) {
-        if (!mpv.isInitialized()) return
+        if (!mpv.isInitialized) return
         runCatching { mpv.command("seek", (offsetMs / 1000.0).toString(), "relative") }
     }
 
     fun setPlaybackSpeed(speed: Float) {
-        if (!mpv.isInitialized()) return
+        if (!mpv.isInitialized) return
         runCatching { mpv.setPropertyDouble("speed", speed.coerceIn(0.25f, 4f).toDouble()) }
     }
 
-    fun playbackSpeed(): Float = if (mpv.isInitialized()) {
+    fun playbackSpeed(): Float = if (mpv.isInitialized) {
         mpv.getPropertyDouble("speed")?.toFloat()?.takeIf { it.isFinite() } ?: 1f
     } else {
         1f
     }
 
     fun applyResizeMode(mode: Int) {
-        if (!mpv.isInitialized()) return
+        if (!mpv.isInitialized) return
         val panscan = when (mode) {
             ANDROID_RESIZE_MODE_ZOOM -> 0.5
             androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> 1.0
@@ -305,7 +305,7 @@ internal class ConduitMpvView(
     }
 
     fun tracks(type: String): List<MpvTrack> {
-        if (!mpv.isInitialized()) return emptyList()
+        if (!mpv.isInitialized) return emptyList()
         return mpv.getPropertyNode("track-list")
             ?.asArray()
             ?.mapNotNull { node ->
@@ -347,19 +347,19 @@ internal class ConduitMpvView(
     }
 
     fun selectAudio(trackId: Int?) {
-        if (!mpv.isInitialized()) return
+        if (!mpv.isInitialized) return
         if (trackId == null) mpv.setPropertyString("aid", "no") else mpv.setPropertyInt("aid", trackId)
     }
 
     fun selectSubtitle(trackId: Int?, selectionKey: String?, subtitlesEnabled: Boolean) {
         currentSelectedSubtitleId = selectionKey
         currentSubtitlesEnabled = subtitlesEnabled
-        if (!mpv.isInitialized()) return
+        if (!mpv.isInitialized) return
         if (trackId == null) mpv.setPropertyString("sid", "no") else mpv.setPropertyInt("sid", trackId)
     }
 
     private fun applyPendingSubtitleSelection() {
-        if (!mpv.isInitialized()) return
+        if (!mpv.isInitialized) return
         if (!currentSubtitlesEnabled) {
             if (tracks("sub").any { it.selected }) {
                 runCatching { mpv.setPropertyString("sid", "no") }
@@ -386,7 +386,7 @@ internal class ConduitMpvView(
     }
 
     fun snapshot(): MpvPlaybackSnapshot {
-        if (!mpv.isInitialized()) {
+        if (!mpv.isInitialized) {
             return MpvPlaybackSnapshot(
                 loading = false,
                 buffering = false,

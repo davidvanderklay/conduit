@@ -117,7 +117,7 @@ actual fun NativePlayer(
             .setUserAgent("conduit Mobile")
             .setDefaultRequestProperties(requestHeaders)
         val renderers = DefaultRenderersFactory(context).setEnableDecoderFallback(true)
-        ExoPlayer.Builder(context, renderers).setMediaSourceFactory(DefaultMediaSourceFactory(http)).build()
+        return ExoPlayer.Builder(context, renderers).setMediaSourceFactory(DefaultMediaSourceFactory(http)).build()
     }
     var player by remember(url, requestHeaders, subtitles) { mutableStateOf(createMedia3Player()) }
     var activeEngine by remember(url, requestHeaders, subtitles, androidPlaybackEngine) {
