@@ -702,7 +702,10 @@ internal class ConduitMpvView(
                     mpv.command(
                         "sub-add",
                         subtitle.url,
-                        if (index == selectedIndex) "select" else "cached",
+                        // mpv's `cached` flag selects the added subtitle. Use
+                        // `auto` for alternatives so loading them cannot
+                        // replace the user's current subtitle.
+                        if (index == selectedIndex) "select" else "auto",
                         subtitle.addonName.orEmpty(),
                         subtitle.lang.orEmpty(),
                     )
