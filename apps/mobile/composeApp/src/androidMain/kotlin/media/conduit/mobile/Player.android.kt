@@ -647,7 +647,8 @@ actual fun NativePlayer(
                     },
                 )
             }) {
-                val loadingOrPortrait = !landscape || durationMs <= 0
+                val portraitLayout = !landscape
+                val timelineAvailable = durationMs > 0
                 Box(Modifier.fillMaxSize()) {
                     if (shouldShowCenterPlaybackControl(controlsVisible, dragging, buffering)) {
                         FilledIconButton(onClick = { togglePlayback(); controlsVisible = true }, modifier = Modifier.align(Alignment.Center).size(64.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color.White, contentColor = Color.Black)) {
@@ -664,8 +665,9 @@ actual fun NativePlayer(
                         }
                     }
                 }
-                Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(start = 18.dp, end = 18.dp, top = 6.dp, bottom = if (loadingOrPortrait) 66.dp else 14.dp), verticalArrangement = Arrangement.spacedBy(0.dp)) {
+                Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(start = 18.dp, end = 18.dp, top = 6.dp, bottom = if (portraitLayout) 66.dp else 14.dp), verticalArrangement = Arrangement.spacedBy(0.dp)) {
                     Slider(
+                        enabled = timelineAvailable,
                         value = if (dragging) draggedPosition else positionMs.toFloat(),
                         onValueChange = { dragging = true; draggedPosition = it },
                         onValueChangeFinished = { seekTo(draggedPosition.toLong()); dragging = false; controlsVisible = true },
@@ -692,7 +694,7 @@ actual fun NativePlayer(
                             },
                         )
                     }
-                    if (!loadingOrPortrait) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceEvenly) {
+                    if (!portraitLayout) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceEvenly) {
                         val haptics = LocalHapticFeedback.current
                         val speeds = listOf(.5f, .75f, 1f, 1.25f, 1.5f, 2f)
                         Box {
@@ -752,7 +754,7 @@ actual fun NativePlayer(
                         if (hasEpisodes) PlayerBottomAction(Icons.Rounded.PlaylistPlay, "Episodes", landscape, onClick = onEpisodes)
                     }
                 }
-                if (loadingOrPortrait && hasEpisodes) IconButton(onClick = onEpisodes, modifier = Modifier.align(Alignment.BottomEnd).padding(end = 14.dp, bottom = 8.dp).background(Color.Black.copy(.58f), CircleShape)) { Icon(Icons.Rounded.PlaylistPlay, "Episodes", tint = Color.White) }
+                if (portraitLayout && hasEpisodes) IconButton(onClick = onEpisodes, modifier = Modifier.align(Alignment.BottomEnd).padding(end = 14.dp, bottom = 8.dp).background(Color.Black.copy(.58f), CircleShape)) { Icon(Icons.Rounded.PlaylistPlay, "Episodes", tint = Color.White) }
             }
         }
         trackPanel?.let { type ->
