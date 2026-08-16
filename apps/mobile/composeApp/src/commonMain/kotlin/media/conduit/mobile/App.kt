@@ -1285,8 +1285,11 @@ private fun BoxScope.PlaybackSessionHost(
     }
 
     PlatformBackHandler(
-        enabled = fullScreen && session.episodePickerOpen,
-        onBack = controller::closeEpisodes,
+        enabled = fullScreen && (session.episodePickerOpen || session.streamPicker != null),
+        onBack = {
+            if (session.streamPicker != null) controller.closeStreamPicker()
+            else controller.closeEpisodes()
+        },
     )
 
     Box(Modifier.fillMaxSize().onSizeChanged { containerSize = it }) {
@@ -1465,6 +1468,24 @@ private fun BoxScope.PlaybackSessionHost(
                     onSelect = { controller.selectEpisode(it.id) },
                     fullscreen = false,
                 )
+            }
+            if (fullScreen) {
+                session.streamPicker?.let { picker ->
+                    PlayerStreamDrawer(
+                        episode = picker.episode,
+                        streams = picker.streams,
+                        addonChoices = picker.addonChoices,
+                        selectedAddonId = picker.selectedAddonId,
+                        resumeFrom = picker.resumeFrom,
+                        loading = picker.loading,
+                        error = picker.error,
+                        onBack = controller::backToEpisodes,
+                        onDismiss = controller::closeStreamPicker,
+                        onSelectAddon = controller::selectStreamAddon,
+                        onRetry = controller::retryStreams,
+                        onSelect = controller::selectStream,
+                    )
+                }
             }
         } else if (!systemPip) {
             val edgePaddingPx = with(density) { 12.dp.roundToPx() }

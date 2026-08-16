@@ -10,6 +10,7 @@ import kotlinx.coroutines.launch
 import media.conduit.mobile.account.CatalogItem
 import media.conduit.mobile.account.PlaybackSource
 import media.conduit.mobile.account.SubtitleItem
+import media.conduit.mobile.account.StreamSource
 import media.conduit.mobile.account.VideoItem
 
 enum class PlaybackPresentation {
@@ -74,6 +75,7 @@ data class PlaybackSessionState(
     val systemPipAvailable: Boolean = false,
     val command: SequencedPlaybackCommand? = null,
     val episodePickerOpen: Boolean = false,
+    val streamPicker: PlaybackStreamPickerState? = null,
 )
 
 class PlaybackSessionCallbacks(
@@ -85,6 +87,11 @@ class PlaybackSessionCallbacks(
     val minimized: () -> Unit,
     val closed: () -> Unit,
     val selectEpisode: (String) -> Unit = {},
+    val closeStreamPicker: () -> Unit = {},
+    val backToEpisodes: () -> Unit = {},
+    val selectStreamAddon: (String?) -> Unit = {},
+    val retryStreams: () -> Unit = {},
+    val selectStream: (StreamSource) -> Unit = {},
 )
 
 data class PlaybackCheckpointIdentity(
@@ -155,11 +162,14 @@ class PlaybackSessionController(
 
     fun minimize(notifyOwner: Boolean = true) {
         if (state.request == null) return
+        val hadStreamPicker = state.streamPicker != null
         persist()
         state = state.copy(
             presentation = PlaybackPresentation.Mini,
             episodePickerOpen = false,
+            streamPicker = null,
         )
+        if (hadStreamPicker) callbacks?.closeStreamPicker?.invoke()
         if (notifyOwner) callbacks?.minimized?.invoke()
     }
 
@@ -246,6 +256,50 @@ class PlaybackSessionController(
 
     fun closeEpisodes() {
         if (state.episodePickerOpen) state = state.copy(episodePickerOpen = false)
+    }
+
+    fun showStreamPicker(picker: PlaybackStreamPickerState) {
+        if (state.request == null) return
+        state = state.copy(
+            episodePickerOpen = false,
+            streamPicker = picker,
+        )
+    }
+
+    fun updateStreamPicker(picker: PlaybackStreamPickerState) {
+        if (state.request == null || state.streamPicker == null) return
+        state = state.copy(streamPicker = picker)
+    }
+
+    fun closeStreamPicker() {
+        if (state.streamPicker == null) return
+        state = state.copy(streamPicker = null)
+        callbacks?.closeStreamPicker?.invoke()
+    }
+
+    fun backToEpisodes() {
+        if (state.streamPicker == null) return
+        state = state.copy(
+            streamPicker = null,
+            episodePickerOpen = true,
+        )
+        callbacks?.backToEpisodes?.invoke()
+    }
+
+    fun selectStreamAddon(addonId: String?) {
+        if (state.streamPicker == null) return
+        callbacks?.selectStreamAddon?.invoke(addonId)
+    }
+
+    fun retryStreams() {
+        if (state.streamPicker == null) return
+        callbacks?.retryStreams?.invoke()
+    }
+
+    fun selectStream(source: StreamSource) {
+        if (state.streamPicker == null) return
+        state = state.copy(streamPicker = null)
+        callbacks?.selectStream?.invoke(source)
     }
 
     fun selectEpisode(videoId: String) {
