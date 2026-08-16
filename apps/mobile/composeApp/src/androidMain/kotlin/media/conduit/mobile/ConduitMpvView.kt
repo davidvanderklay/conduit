@@ -86,6 +86,7 @@ internal class ConduitMpvView(
     @Volatile private var destroyed = false
     private var surfaceReady = false
     private var pendingLoadRequest: MpvLoadRequest? = null
+    private var snapshotRefreshQueued = false
     @Volatile private var cachedTracks: Map<String, List<MpvTrack>> = emptyMap()
     @Volatile private var cachedSnapshot = MpvPlaybackSnapshot(
         loading = true,
@@ -280,7 +281,14 @@ internal class ConduitMpvView(
 
     fun setPaused(paused: Boolean) {
         currentPlayWhenReady = !paused
-        enqueueNative { setPausedNative(paused) }
+        if (cachedSnapshot.firstFrameRendered) {
+            cachedSnapshot = cachedSnapshot.copy(playing = !paused, buffering = false)
+        }
+        Log.d("ConduitMpv", "queue pause=$paused")
+        enqueueNative {
+            Log.d("ConduitMpv", "apply pause=$paused")
+            setPausedNative(paused)
+        }
     }
 
     fun seekTo(positionMs: Long) {
@@ -295,7 +303,12 @@ internal class ConduitMpvView(
 
     fun setPlaybackSpeed(speed: Float) {
         currentPlaybackSpeed = speed.coerceIn(0.25f, 4f)
-        enqueueNative { setPlaybackSpeedNative(currentPlaybackSpeed) }
+        cachedSnapshot = cachedSnapshot.copy(playbackSpeed = currentPlaybackSpeed)
+        Log.d("ConduitMpv", "queue speed=$currentPlaybackSpeed")
+        enqueueNative {
+            Log.d("ConduitMpv", "apply speed=$currentPlaybackSpeed")
+            setPlaybackSpeedNative(currentPlaybackSpeed)
+        }
     }
 
     fun playbackSpeed(): Float = currentPlaybackSpeed
@@ -453,9 +466,33 @@ internal class ConduitMpvView(
     /** Returns the last background-refreshed state without touching JNI. */
     fun snapshot(): MpvPlaybackSnapshot = cachedSnapshot
 
-    /** Reads libmpv state off the UI thread and publishes it for Compose/PiP. */
+    /** Schedules a non-blocking state refresh and returns the latest cached snapshot. */
     fun refreshSnapshot(): MpvPlaybackSnapshot {
-        val snapshot = withNative {
+        val shouldQueueRefresh = synchronized(nativeLock) {
+            if (destroyed || !mpv.isInitialized || snapshotRefreshQueued) {
+                false
+            } else {
+                snapshotRefreshQueued = true
+                true
+            }
+        }
+        if (shouldQueueRefresh) {
+            nativeScope.launch {
+                synchronized(nativeLock) {
+                    try {
+                        if (destroyed || !mpv.isInitialized) return@synchronized
+                        refreshSnapshotNative()
+                    } finally {
+                        snapshotRefreshQueued = false
+                    }
+                }
+            }
+        }
+        return cachedSnapshot
+    }
+
+    private fun refreshSnapshotNative() {
+        val snapshot = runCatching {
             if (trackCacheRefreshRequested) refreshTrackCacheNative()
             applyPendingSubtitleSelectionNative()
 
@@ -492,13 +529,14 @@ internal class ConduitMpvView(
                 trackRevision = trackRevision,
                 playbackSpeed = speed,
             )
-        } ?: cachedSnapshot.copy(
-            error = errorMessage ?: "libmpv could not be initialized on this device.",
-            trackRevision = trackRevision,
-            playbackSpeed = currentPlaybackSpeed,
-        )
+        }.getOrElse {
+            cachedSnapshot.copy(
+                error = errorMessage ?: "libmpv could not be initialized on this device.",
+                trackRevision = trackRevision,
+                playbackSpeed = currentPlaybackSpeed,
+            )
+        }
         cachedSnapshot = snapshot
-        return snapshot
     }
 
     private fun setPausedNative(paused: Boolean) {
@@ -515,11 +553,6 @@ internal class ConduitMpvView(
                 if (!destroyed && mpv.isInitialized) runCatching(block)
             }
         }
-    }
-
-    private fun <T> withNative(block: () -> T): T? = synchronized(nativeLock) {
-        if (destroyed || !mpv.isInitialized) return@synchronized null
-        runCatching(block).getOrNull()
     }
 
     fun destroySafely() {

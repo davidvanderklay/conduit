@@ -570,25 +570,35 @@ actual fun NativePlayer(
     val setPlaybackSpeed: (Float) -> Unit = { speed -> if (activeEngine == NativePlaybackEngine.Media3) player.setPlaybackSpeed(speed) else mpvView?.setPlaybackSpeed(speed) }
     val seekTo: (Long) -> Unit = { position -> if (activeEngine == NativePlaybackEngine.Media3) player.seekTo(position) else mpvView?.seekTo(position) }
     val seekBy: (Long) -> Unit = { offset -> if (activeEngine == NativePlaybackEngine.Media3) player.seekTo((player.currentPosition + offset).coerceAtLeast(0L)) else mpvView?.seekBy(offset) }
-    val togglePlayback: () -> Unit = { if (playing) { if (activeEngine == NativePlaybackEngine.Media3) player.pause() else mpvView?.setPaused(true) } else { if (activeEngine == NativePlaybackEngine.Media3) player.play() else mpvView?.setPaused(false) } }
+    val togglePlayback: () -> Unit = {
+        if (activeEngine == NativePlaybackEngine.Media3) {
+            if (playing) player.pause() else player.play()
+        } else {
+            val nextPlaying = !playing
+            mpvView?.setPaused(!nextPlaying)
+            playing = nextPlaying
+        }
+    }
     Box(modifier.background(Color.Black).pointerInput(player, activeEngine, resizeMode) { detectTransformGestures { _, _, zoom, _ ->
         val next = when { zoom > 1.04f -> ANDROID_RESIZE_MODE_ZOOM; zoom < .96f -> AspectRatioFrameLayout.RESIZE_MODE_FIT; else -> resizeMode }
         if (next != resizeMode) resizeMode = next
     } }.pointerInput(player, activeEngine, touchGestures, holdToSpeed, holdToSpeedReady, controlsVisible) {
-        detectMovementTolerantPlayerGestures(
-            touchGestures = touchGestures,
-            holdToSpeed = holdToSpeed,
-            holdToSpeedReady = holdToSpeedReady,
-            doubleTapSlopPx = doubleTapSlopPx,
-            currentSpeed = currentSpeed,
-            setSpeed = setPlaybackSpeed,
-            onTemporarySpeedChanged = latestTemporarySpeedCallback,
-            onTap = { controlsVisible = true },
-            onDoubleTap = { offset ->
-                seekBy(if (offset.x < size.width / 2f) -10_000L else 10_000L)
-                controlsVisible = true
-            },
-        )
+        if (!controlsVisible) {
+            detectMovementTolerantPlayerGestures(
+                touchGestures = touchGestures,
+                holdToSpeed = holdToSpeed,
+                holdToSpeedReady = holdToSpeedReady,
+                doubleTapSlopPx = doubleTapSlopPx,
+                currentSpeed = currentSpeed,
+                setSpeed = setPlaybackSpeed,
+                onTemporarySpeedChanged = latestTemporarySpeedCallback,
+                onTap = { controlsVisible = true },
+                onDoubleTap = { offset ->
+                    seekBy(if (offset.x < size.width / 2f) -10_000L else 10_000L)
+                    controlsVisible = true
+                },
+            )
+        }
     }) {
         if (activeEngine == NativePlaybackEngine.Libmpv) {
             AndroidView(
