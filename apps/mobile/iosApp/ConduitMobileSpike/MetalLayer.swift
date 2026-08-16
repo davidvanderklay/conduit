@@ -16,6 +16,7 @@ final class ConduitMetalLayer: CAMetalLayer {
     private var drawableCaptureArmed = false
     private var captureWithoutPresentation = false
     private var presentationID: UInt64 = 0
+    private var latestDrawableTexture: (texture: MTLTexture, presentationID: UInt64)?
 
     var onDrawablePresented: ((CAMetalDrawable, UInt64) -> Void)? {
         get {
@@ -101,10 +102,11 @@ final class ConduitMetalLayer: CAMetalLayer {
             heartbeatLock.unlock()
         }
         captureLock.lock()
-        let shouldCapture = drawableCaptureArmed && drawable != nil
-        if shouldCapture {
+        if let drawable {
             presentationID &+= 1
+            latestDrawableTexture = (drawable.texture, presentationID)
         }
+        let shouldCapture = drawableCaptureArmed && drawable != nil
         let currentPresentationID = presentationID
         let handler = drawablePresentationHandler
         captureLock.unlock()
@@ -125,6 +127,24 @@ final class ConduitMetalLayer: CAMetalLayer {
             }
         }
         return drawable
+    }
+
+    /// PiP priming can begin between two MPV presents. Keep one presented
+    /// texture around until the capture coordinator has had a chance to
+    /// consume it. Retaining the texture does not hold a CAMetalDrawable in
+    /// the swapchain, so normal playback can continue without extra backpressure.
+    func latestDrawableTextureSnapshot() -> (texture: MTLTexture, presentationID: UInt64)? {
+        captureLock.lock()
+        defer { captureLock.unlock() }
+        return latestDrawableTexture
+    }
+
+    func discardLatestDrawableTexture(upTo presentationID: UInt64) {
+        captureLock.lock()
+        if latestDrawableTexture?.presentationID ?? 0 <= presentationID {
+            latestDrawableTexture = nil
+        }
+        captureLock.unlock()
     }
 
     /// Returns the last successful drawable acquisition without exposing the

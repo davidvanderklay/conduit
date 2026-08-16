@@ -2006,7 +2006,10 @@ final class ConduitPictureInPictureCoordinator: NSObject,
             self?.frameCaptureFailed(reason, kind: kind)
         }
         metalLayer.onDrawablePresented = { [weak self] drawable, presentationID in
-            self?.frameCapture.handlePresentedDrawable(drawable, presentationID: presentationID)
+            guard let self else { return }
+            if self.frameCapture.handlePresentedDrawable(drawable, presentationID: presentationID) {
+                self.metalLayer.discardLatestDrawableTexture(upTo: presentationID)
+            }
         }
         pictureInPicturePossibleObservation = controller.observe(
             \.isPictureInPicturePossible,
@@ -2133,8 +2136,27 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         // automatic background entry cannot be considered fully supported.
         metalLayer.capturesWithoutPresentation = capturesWithoutPresentation
         metalLayer.isDrawableCaptureArmed = true
-        frameCapture.start()
+        frameCapture.start { [weak self] in
+            DispatchQueue.main.async {
+                self?.primeLatestDrawableTexture()
+            }
+        }
         schedulePrimingTimeout()
+    }
+
+    /// If startup races a presentation, the callback may be delivered before
+    /// the capture generation finishes arming. Re-submit that already-presented
+    /// texture so PiP does not wait for a second render that may never happen.
+    private func primeLatestDrawableTexture() {
+        guard priming || isActive,
+              let latest = metalLayer.latestDrawableTextureSnapshot()
+        else { return }
+        if frameCapture.handlePresentedTexture(
+            latest.texture,
+            presentationID: latest.presentationID
+        ) {
+            metalLayer.discardLatestDrawableTexture(upTo: latest.presentationID)
+        }
     }
 
     private func beginActiveCaptureReprime() {
@@ -2169,6 +2191,7 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         resetPrimingFrameState()
         metalLayer.isDrawableCaptureArmed = false
         metalLayer.capturesWithoutPresentation = false
+        metalLayer.discardLatestDrawableTexture(upTo: UInt64.max)
         guard let completion else {
             frameCapture.stop()
             return
