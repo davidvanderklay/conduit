@@ -8,8 +8,25 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import media.conduit.mobile.account.VideoItem
 
 class PlaybackSessionTest {
+    @Test
+    fun savedStreamStartupRequiresPlaybackProgress() {
+        val request = PlaybackRequest(
+            identity = PlaybackIdentity("profile", "series", "show", "s1e1"),
+            url = "https://example.com/episode.mp4",
+            title = "Episode 1",
+            mediaName = "Show",
+            startPositionMs = 30_000,
+            autoSelectedSavedSource = true,
+        )
+
+        assertTrue(savedStreamStartupStalled(request, PlaybackState(positionMs = 30_000)))
+        assertFalse(savedStreamStartupStalled(request, PlaybackState(positionMs = 30_001)))
+        assertFalse(savedStreamStartupStalled(request.copy(autoSelectedSavedSource = false), PlaybackState()))
+    }
+
     @Test
     fun presentationTransitionsKeepClosedSessionsClosed() {
         PlaybackPresentationCommand.entries
@@ -103,6 +120,42 @@ class PlaybackSessionTest {
 
         assertFalse(controller.state.episodePickerOpen)
         assertEquals("episode-2", selectedEpisode)
+    }
+
+    @Test
+    fun streamPickerKeepsTheCurrentRequestUntilAStreamIsChosen() {
+        val controller = PlaybackSessionController(TestScope())
+        val request = PlaybackRequest(
+            identity = PlaybackIdentity("profile", "series", "media", "episode-1"),
+            url = "https://example.test/episode-1.m3u8",
+            title = "Episode 1",
+            mediaName = "Series · Episode 1",
+            hasEpisodes = true,
+        )
+        controller.start(
+            request,
+            PlaybackSessionCallbacks(
+                persist = { _, _ -> },
+                playNext = {},
+                openEpisodes = {},
+                minimized = {},
+                closed = {},
+                selectEpisode = {
+                    controller.showStreamPicker(
+                        PlaybackStreamPickerState(
+                            episode = VideoItem("episode-2", title = "Episode 2"),
+                        ),
+                    )
+                },
+            ),
+        )
+
+        controller.openEpisodes()
+        controller.selectEpisode("episode-2")
+
+        assertFalse(controller.state.episodePickerOpen)
+        assertEquals(request, controller.state.request)
+        assertEquals("episode-2", controller.state.streamPicker?.episode?.id)
     }
 
     @Test

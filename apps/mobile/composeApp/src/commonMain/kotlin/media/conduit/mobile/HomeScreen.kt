@@ -75,7 +75,7 @@ internal fun HomeScreen(
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     items(continueWatching, key = { it.videoId }) { item ->
                         val catalogItem = CatalogItem(item.mediaId, item.mediaType, item.name, poster = item.poster)
-                        LaunchedEffect(catalogItem.type, catalogItem.id) {
+                        LaunchedEffect(catalogItem.type, catalogItem.id, sync.offline) {
                             metadataCache.load(catalogItem, includeMovies = true)
                         }
                         val metadata = metadataCache.metadataFor(catalogItem)

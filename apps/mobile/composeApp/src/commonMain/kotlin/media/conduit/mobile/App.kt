@@ -1261,6 +1261,7 @@ private fun BoxScope.PlaybackSessionHost(
     var miniDockedLeft by remember(request.identity, request.url) { mutableStateOf(false) }
     var miniDockedTop by remember(request.identity, request.url) { mutableStateOf(false) }
     var miniGestureActive by remember(request.identity, request.url) { mutableStateOf(false) }
+    var startupRecoveryRequested by remember(session.sessionId) { mutableStateOf(false) }
     var containerSize by remember { mutableStateOf(IntSize.Zero) }
     var miniSize by remember { mutableStateOf(IntSize.Zero) }
     val density = LocalDensity.current
@@ -1283,10 +1284,44 @@ private fun BoxScope.PlaybackSessionHost(
     LaunchedEffect(session.playback.playing) {
         if (!session.playback.playing && session.playback.durationMs > 0) controller.persist()
     }
+    LaunchedEffect(session.sessionId, request.url, request.autoSelectedSavedSource) {
+        if (!request.autoSelectedSavedSource) return@LaunchedEffect
+        kotlinx.coroutines.delay(10_000)
+        val current = controller.state
+        val playback = current.playback
+        if (
+            current.sessionId == session.sessionId &&
+            current.request?.streamKeyForPlayback() == request.streamKeyForPlayback() &&
+            savedStreamStartupStalled(request, playback) &&
+            !startupRecoveryRequested
+        ) {
+            startupRecoveryRequested = true
+            controller.savedStreamStartupFailed(
+                session.sessionId,
+                "Saved stream failed to start. Choose another stream.",
+            )
+        }
+    }
+    LaunchedEffect(session.playback.error) {
+        if (
+            session.playback.error != null &&
+            savedStreamStartupStalled(request, session.playback) &&
+            !startupRecoveryRequested
+        ) {
+            startupRecoveryRequested = true
+            controller.savedStreamStartupFailed(
+                session.sessionId,
+                "Saved stream failed to start. Choose another stream.",
+            )
+        }
+    }
 
     PlatformBackHandler(
-        enabled = fullScreen && session.episodePickerOpen,
-        onBack = controller::closeEpisodes,
+        enabled = fullScreen && (session.episodePickerOpen || session.streamPicker != null),
+        onBack = {
+            if (session.streamPicker != null) controller.closeStreamPicker()
+            else controller.closeEpisodes()
+        },
     )
 
     Box(Modifier.fillMaxSize().onSizeChanged { containerSize = it }) {
@@ -1465,6 +1500,24 @@ private fun BoxScope.PlaybackSessionHost(
                     onSelect = { controller.selectEpisode(it.id) },
                     fullscreen = false,
                 )
+            }
+            if (fullScreen) {
+                session.streamPicker?.let { picker ->
+                    PlayerStreamDrawer(
+                        episode = picker.episode,
+                        streams = picker.streams,
+                        addonChoices = picker.addonChoices,
+                        selectedAddonId = picker.selectedAddonId,
+                        resumeFrom = picker.resumeFrom,
+                        loading = picker.loading,
+                        error = picker.error,
+                        onBack = controller::backToEpisodes,
+                        onDismiss = controller::closeStreamPicker,
+                        onSelectAddon = controller::selectStreamAddon,
+                        onRetry = controller::retryStreams,
+                        onSelect = controller::selectStream,
+                    )
+                }
             }
         } else if (!systemPip) {
             val edgePaddingPx = with(density) { 12.dp.roundToPx() }

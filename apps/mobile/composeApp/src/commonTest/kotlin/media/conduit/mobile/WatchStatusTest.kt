@@ -91,7 +91,7 @@ class WatchStatusTest {
 
         assertEquals(unfinished, latestUnfinishedProgress(listOf(unfinished), series))
         assertEquals("Resume S1E2", detailsPlayLabel(series, unfinished, episode))
-        assertEquals("Play", detailsPlayLabel(series, unfinished, VideoItem("s1e3", season = 1, episode = 3)))
+        assertEquals("Play S1E3", detailsPlayLabel(series, unfinished, VideoItem("s1e3", season = 1, episode = 3)))
     }
 
     @Test
@@ -111,6 +111,14 @@ class WatchStatusTest {
                 ),
             ).video?.id,
         )
+        assertEquals(
+            "Resume S2E4",
+            detailsPlayTarget(
+                series,
+                listOf(unfinished),
+                listOf(VideoItem("new-id", season = 2, episode = 4)),
+            ).label,
+        )
     }
 
     @Test
@@ -120,7 +128,7 @@ class WatchStatusTest {
         val next = VideoItem("s1e3", season = 1, episode = 3)
 
         assertEquals(
-            DetailsPlayTarget(next, "Next Up S1E3"),
+            DetailsPlayTarget(next, "Next Up • S1E3"),
             detailsPlayTarget(series, listOf(completed), listOf(VideoItem("s1e2", season = 1, episode = 2), next)),
         )
     }
@@ -133,7 +141,7 @@ class WatchStatusTest {
         val next = VideoItem("s1e4", season = 1, episode = 4)
 
         assertEquals(
-            DetailsPlayTarget(next, "Next Up S1E4"),
+            DetailsPlayTarget(next, "Next Up • S1E4"),
             detailsPlayTarget(
                 series,
                 listOf(first, furthest),
@@ -173,10 +181,7 @@ class WatchStatusTest {
         )
         val watched = videos.map { progress(it.id, episode = it.episode ?: 1, watched = true) }
 
-        assertEquals(
-            "s1e1",
-            detailsPlayTarget(series, watched, videos, defaultVideoId = "s1e2").video?.id,
-        )
+        assertEquals(DetailsPlayTarget(null, "Play"), detailsPlayTarget(series, watched, videos, defaultVideoId = "s1e2"))
     }
 
     @Test
@@ -205,13 +210,25 @@ class WatchStatusTest {
         val default = VideoItem("s1e5", season = 1, episode = 5)
 
         assertEquals(
-            default,
+            DetailsPlayTarget(default, "Play S1E5"),
             detailsPlayTarget(
                 series,
                 emptyList(),
                 listOf(VideoItem("s1e1", season = 1, episode = 1), default),
                 defaultVideoId = default.id,
-            ).video,
+            ),
+        )
+    }
+
+    @Test
+    fun oneSecondOfSeriesProgressOffersResume() {
+        val series = CatalogItem("show", "series", "Show")
+        val episode = VideoItem("s1e1", season = 1, episode = 1)
+        val unfinished = progress(episode.id, position = 1_000)
+
+        assertEquals(
+            DetailsPlayTarget(episode, "Resume S1E1"),
+            detailsPlayTarget(series, listOf(unfinished), listOf(episode)),
         )
     }
 
@@ -235,6 +252,35 @@ class WatchStatusTest {
         assertEquals(null, savedAutoResumeSource(listOf(saved.copy(positionMs = 0)), movie, "movie"))
         assertEquals(null, savedAutoResumeSource(listOf(saved), CatalogItem("other", "movie", "Other"), "movie"))
         assertEquals(null, savedAutoResumeSource(listOf(saved), movie, "other"))
+    }
+
+    @Test
+    fun savedAutoResumeSourceMatchesCanonicalEpisodeCoordinates() {
+        val series = CatalogItem("show", "series", "Show")
+        val source = PlaybackSource("addon-1", "url:https://example.com/episode.mp4", "url")
+        val saved = progress("legacy-id", "show", position = 30_000)
+            .copy(season = 2, episode = 4, playbackSource = source)
+        val canonical = VideoItem("canonical-id", season = 2, episode = 4)
+
+        assertEquals(source, savedAutoResumeSource(listOf(saved), series, canonical.id, canonical))
+    }
+
+    @Test
+    fun savedPlaybackSourceCarriesForwardFromTheNearestEarlierEpisode() {
+        val series = CatalogItem("show", "series", "Show")
+        val oldSource = PlaybackSource("addon-1", "url:https://example.com/s1e1.mp4", "url", bingeGroup = "release-1080p")
+        val recentSource = PlaybackSource("addon-1", "url:https://example.com/s1e2.mp4", "url", bingeGroup = "release-1080p")
+        val videos = listOf(
+            VideoItem("s1e1", season = 1, episode = 1),
+            VideoItem("s1e2", season = 1, episode = 2),
+            VideoItem("s1e3", season = 1, episode = 3),
+        )
+        val progress = listOf(
+            progress("s1e1", watched = true).copy(playbackSource = oldSource),
+            progress("s1e2", episode = 2, watched = true).copy(playbackSource = recentSource),
+        )
+
+        assertEquals(recentSource, savedPlaybackSourceForVideo(progress, series, videos, "s1e3"))
     }
 
     @Test

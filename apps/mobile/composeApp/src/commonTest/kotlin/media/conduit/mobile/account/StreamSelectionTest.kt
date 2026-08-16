@@ -51,7 +51,7 @@ class StreamSelectionTest {
     }
 
     @Test
-    fun continuesWithAMatchingBingeGroupFromAnotherAddOn() {
+    fun continuesWithAMatchingBingeGroupFromTheSameAddOn() {
         val saved = PlaybackSource(
             addonId = "addon-1",
             sourceKey = "url:https://old.example/movie.mp4",
@@ -59,15 +59,15 @@ class StreamSelectionTest {
             bingeGroup = "series-1080p",
         )
         val otherAddOn = StreamSource(
-            addonId = "addon-2",
-            addonName = "Other provider",
+            addonId = "addon-1",
+            addonName = "Provider",
             stream = StreamItem(
                 url = "https://new.example/movie.mp4",
                 behaviorHints = StreamBehaviorHints(bingeGroup = "series-1080p"),
             ),
         )
 
-        assertEquals(otherAddOn, selectSavedStream(listOf(otherAddOn), saved, allowAddonFallback = true))
+        assertEquals(otherAddOn, selectSavedStream(listOf(otherAddOn), saved))
     }
 
     @Test
@@ -88,11 +88,11 @@ class StreamSelectionTest {
             ),
         )
 
-        assertNull(selectSavedStream(listOf(differentStream), saved, allowAddonFallback = true))
+        assertNull(selectSavedStream(listOf(differentStream), saved))
     }
 
     @Test
-    fun continuesOnTheSameAddonWhenBothBingeGroupsAreAbsent() {
+    fun rejectsAChangedStreamWhenBothBingeGroupsAreAbsent() {
         val saved = playbackSourceForStream(
             "addon-1",
             StreamItem(url = "https://old.example/movie.mp4"),
@@ -103,7 +103,7 @@ class StreamSelectionTest {
             stream = StreamItem(url = "https://new.example/movie.mp4", name = "movie"),
         )
 
-        assertEquals(refreshed, selectSavedStream(listOf(refreshed), saved, allowAddonFallback = true))
+        assertNull(selectSavedStream(listOf(refreshed), saved))
     }
 
     @Test
@@ -118,11 +118,11 @@ class StreamSelectionTest {
             StreamSource("addon-1", "Provider", StreamItem(url = "https://new.example/720p.mp4")),
         )
 
-        assertNull(selectSavedStream(candidates, saved, allowAddonFallback = true))
+        assertNull(selectSavedStream(candidates, saved))
     }
 
     @Test
-    fun choosesTheSameAddonFallbackWhenFilenameMatches() {
+    fun doesNotFuzzyMatchWhenOnlyTheFilenameMatches() {
         val saved = PlaybackSource(
             addonId = "addon-1",
             sourceKey = "url:https://old.example/movie.mp4",
@@ -143,6 +143,6 @@ class StreamSelectionTest {
             StreamItem(url = "https://new.example/720p.mp4", behaviorHints = StreamBehaviorHints(filename = "movie-720p.mp4")),
         )
 
-        assertEquals(matching, selectSavedStream(listOf(other, matching), saved, allowAddonFallback = true))
+        assertNull(selectSavedStream(listOf(other, matching), saved))
     }
 }

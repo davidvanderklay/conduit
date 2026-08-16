@@ -10,6 +10,7 @@ import kotlinx.coroutines.launch
 import media.conduit.mobile.account.CatalogItem
 import media.conduit.mobile.account.PlaybackSource
 import media.conduit.mobile.account.SubtitleItem
+import media.conduit.mobile.account.StreamSource
 import media.conduit.mobile.account.VideoItem
 
 enum class PlaybackPresentation {
@@ -42,6 +43,7 @@ data class PlaybackRequest(
     val episode: Int? = null,
     val startPositionMs: Long = 0,
     val source: PlaybackSource? = null,
+    val autoSelectedSavedSource: Boolean = false,
     val hasNextEpisode: Boolean = false,
     val nextEpisodeTitle: String? = null,
     val nextEpisodeArtwork: String? = null,
@@ -74,6 +76,7 @@ data class PlaybackSessionState(
     val systemPipAvailable: Boolean = false,
     val command: SequencedPlaybackCommand? = null,
     val episodePickerOpen: Boolean = false,
+    val streamPicker: PlaybackStreamPickerState? = null,
 )
 
 class PlaybackSessionCallbacks(
@@ -85,6 +88,12 @@ class PlaybackSessionCallbacks(
     val minimized: () -> Unit,
     val closed: () -> Unit,
     val selectEpisode: (String) -> Unit = {},
+    val closeStreamPicker: () -> Unit = {},
+    val backToEpisodes: () -> Unit = {},
+    val selectStreamAddon: (String?) -> Unit = {},
+    val retryStreams: () -> Unit = {},
+    val selectStream: (StreamSource) -> Unit = {},
+    val savedStreamStartupFailed: (String) -> Unit = {},
 )
 
 data class PlaybackCheckpointIdentity(
@@ -155,11 +164,14 @@ class PlaybackSessionController(
 
     fun minimize(notifyOwner: Boolean = true) {
         if (state.request == null) return
+        val hadStreamPicker = state.streamPicker != null
         persist()
         state = state.copy(
             presentation = PlaybackPresentation.Mini,
             episodePickerOpen = false,
+            streamPicker = null,
         )
+        if (hadStreamPicker) callbacks?.closeStreamPicker?.invoke()
         if (notifyOwner) callbacks?.minimized?.invoke()
     }
 
@@ -248,6 +260,56 @@ class PlaybackSessionController(
         if (state.episodePickerOpen) state = state.copy(episodePickerOpen = false)
     }
 
+    fun showStreamPicker(picker: PlaybackStreamPickerState) {
+        if (state.request == null) return
+        state = state.copy(
+            episodePickerOpen = false,
+            streamPicker = picker,
+        )
+    }
+
+    fun updateStreamPicker(picker: PlaybackStreamPickerState) {
+        if (state.request == null || state.streamPicker == null) return
+        state = state.copy(streamPicker = picker)
+    }
+
+    fun closeStreamPicker() {
+        if (state.streamPicker == null) return
+        state = state.copy(streamPicker = null)
+        callbacks?.closeStreamPicker?.invoke()
+    }
+
+    fun backToEpisodes() {
+        if (state.streamPicker == null) return
+        state = state.copy(
+            streamPicker = null,
+            episodePickerOpen = true,
+        )
+        callbacks?.backToEpisodes?.invoke()
+    }
+
+    fun selectStreamAddon(addonId: String?) {
+        if (state.streamPicker == null) return
+        callbacks?.selectStreamAddon?.invoke(addonId)
+    }
+
+    fun retryStreams() {
+        if (state.streamPicker == null) return
+        callbacks?.retryStreams?.invoke()
+    }
+
+    fun selectStream(source: StreamSource) {
+        if (state.streamPicker == null) return
+        state = state.copy(streamPicker = null)
+        callbacks?.selectStream?.invoke(source)
+    }
+
+    fun savedStreamStartupFailed(sessionId: String, message: String) {
+        if (state.sessionId == sessionId && state.request?.autoSelectedSavedSource == true) {
+            callbacks?.savedStreamStartupFailed?.invoke(message)
+        }
+    }
+
     fun selectEpisode(videoId: String) {
         if (state.request == null) return
         closeEpisodes()
@@ -284,6 +346,13 @@ internal fun PlaybackRequest.streamKeyForPlayback(): String =
         append('|')
         append(subtitles)
     }
+
+internal fun savedStreamStartupStalled(
+    request: PlaybackRequest,
+    playback: PlaybackState,
+): Boolean = request.autoSelectedSavedSource &&
+    playback.positionMs <= request.startPositionMs &&
+    !playback.ended
 
 private fun PlaybackRequest.persistenceKey(): String =
     "${identity.profileId}\u0000${identity.videoId}"

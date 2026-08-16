@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import media.conduit.mobile.account.*
 
@@ -76,8 +77,14 @@ internal class WatchMetadataCache(
         if ((item.type != "series" && !includeMovies) || metadata.containsKey(key) || !loading.add(key)) return
         try {
             requests.withPermit {
-                runCatching { api.loadMeta(addons, item.type, item.id) }
-                    .onSuccess { metadata[key] = it }
+                repeat(3) { attempt ->
+                    val loaded = runCatching { api.loadMeta(addons, item.type, item.id) }.getOrNull()
+                    if (loaded != null) {
+                        metadata[key] = loaded
+                        return@withPermit
+                    }
+                    if (attempt < 2) delay(400L * (attempt + 1))
+                }
             }
         } finally {
             loading.remove(key)

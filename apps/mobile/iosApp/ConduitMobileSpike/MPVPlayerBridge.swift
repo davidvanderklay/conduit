@@ -340,6 +340,8 @@ final class ConduitMPVPlayerViewController: UIViewController {
     private var subtitleLoadGeneration = 0
     private var loadStartedAtUptime: TimeInterval = 0
     private var destroyStarted = false
+    private var audioSessionActivationRequested = false
+    private var didPrewarmPictureInPictureResources = false
     private var resizeMode = 0
     private var lastDebugPlaybackSnapshot: String?
     private var videoFrameRate = 30.0
@@ -387,7 +389,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
         view.layer.addSublayer(pictureInPicturePlaceholderLayer)
 
         setupMpv()
-        activateAudioSession()
+        configureAudioSession()
         lifecycleObservers.append(NotificationCenter.default.addObserver(
             forName: UIApplication.willResignActiveNotification,
             object: nil,
@@ -411,6 +413,13 @@ final class ConduitMPVPlayerViewController: UIViewController {
             queue: .main
         ) { [weak self] notification in
             self?.handleAudioInterruption(notification)
+        })
+        lifecycleObservers.append(NotificationCenter.default.addObserver(
+            forName: AVAudioSession.routeChangeNotification,
+            object: AVAudioSession.sharedInstance(),
+            queue: .main
+        ) { [weak self] notification in
+            self?.handleAudioRouteChange(notification)
         })
     }
 
@@ -522,12 +531,14 @@ final class ConduitMPVPlayerViewController: UIViewController {
     private func playPlayback(scheduleWatchdog: Bool) {
         runOnMain { [weak self] in
             guard let self else { return }
+            self.debugLog("playback command=play source=app-or-pip")
             self.shouldPlay = true
             guard self.mpv != nil, !self.waitingForInitialVideoFrame else { return }
             if self.videoOutputRecoveryState.failed {
                 self.retryVideoOutputOnMain()
                 return
             }
+            self.activateAudioSession()
             self.setFlag("pause", false)
             self.isPlayerPlaying = true
             self.refreshPlaybackState()
@@ -541,6 +552,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
     func pausePlayback() {
         runOnMain { [weak self] in
             guard let self else { return }
+            self.debugLog("playback command=pause source=app-or-pip")
             self.shouldPlay = false
             self.resetMediaClockObservation()
             self.cancelVideoOutputWatchdog()
@@ -686,6 +698,10 @@ final class ConduitMPVPlayerViewController: UIViewController {
             print(String(format: "[Conduit MPV][startup] first video frame in %.2fs", elapsed))
 #endif
             loadPendingExternalSubtitles()
+            if !didPrewarmPictureInPictureResources {
+                didPrewarmPictureInPictureResources = true
+                pictureInPicture?.prewarmCaptureResources()
+            }
             if shouldPlay { setFlag("pause", false) }
             scheduleVideoOutputWatchdog()
         }
@@ -946,8 +962,13 @@ final class ConduitMPVPlayerViewController: UIViewController {
             let type = AVAudioSession.InterruptionType(rawValue: rawType)
         else { return }
 
+        debugLog(
+            "audio interruption type=\(type.rawValue) \(Self.audioSessionDescription(AVAudioSession.sharedInstance()))"
+        )
+
         switch type {
         case .began:
+            audioSessionActivationRequested = false
             resumeAfterAudioInterruption = shouldPlay || isPlayerPlaying
             pausePlayback()
         case .ended:
@@ -960,6 +981,14 @@ final class ConduitMPVPlayerViewController: UIViewController {
         @unknown default:
             resumeAfterAudioInterruption = false
         }
+    }
+
+    private func handleAudioRouteChange(_ notification: Notification) {
+        let rawReason = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt ?? 0
+        let reason = AVAudioSession.RouteChangeReason(rawValue: rawReason)?.rawValue ?? rawReason
+        debugLog(
+            "audio route changed reason=\(reason) \(Self.audioSessionDescription(AVAudioSession.sharedInstance()))"
+        )
     }
 
     private func setSurfaceTransitionActive(_ active: Bool) {
@@ -1361,6 +1390,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
         isPlayerLoading = true
         isPlayerEnded = false
         waitingForInitialVideoFrame = true
+        didPrewarmPictureInPictureResources = false
         preferredSubtitleApplied = false
         pendingExternalSubtitles = request.subtitles
         invalidateExternalSubtitleLoads(clearPending: false)
@@ -1899,14 +1929,35 @@ final class ConduitMPVPlayerViewController: UIViewController {
         if Thread.isMainThread { action() } else { DispatchQueue.main.async(execute: action) }
     }
 
-    private func activateAudioSession() {
+    private func configureAudioSession() {
         let session = AVAudioSession.sharedInstance()
         Self.audioSessionQueue.async {
             do {
                 try session.setCategory(.playback, mode: .moviePlayback)
+                #if DEBUG
+                print("[Conduit Audio][diagnostic] configured \(Self.audioSessionDescription(session))")
+                #endif
+            } catch {
+                print("[Conduit MPV] Failed to configure audio session: \(error)")
+            }
+        }
+    }
+
+    private func activateAudioSession() {
+        guard !audioSessionActivationRequested else { return }
+        audioSessionActivationRequested = true
+        let session = AVAudioSession.sharedInstance()
+        Self.audioSessionQueue.async { [weak self] in
+            do {
                 try session.setActive(true)
+                #if DEBUG
+                print("[Conduit Audio][diagnostic] activated \(Self.audioSessionDescription(session))")
+                #endif
             } catch {
                 print("[Conduit MPV] Failed to activate audio session: \(error)")
+                DispatchQueue.main.async {
+                    self?.audioSessionActivationRequested = false
+                }
             }
         }
     }
@@ -1920,6 +1971,20 @@ final class ConduitMPVPlayerViewController: UIViewController {
                 print("[Conduit MPV] Failed to deactivate audio session: \(error)")
             }
         }
+    }
+
+    private static func audioSessionDescription(_ session: AVAudioSession) -> String {
+        let inputs = session.currentRoute.inputs.map { "\($0.portType.rawValue):\($0.portName)" }
+        let outputs = session.currentRoute.outputs.map { "\($0.portType.rawValue):\($0.portName)" }
+        return String(
+            format: "category=%@ mode=%@ rate=%.0f buffer=%.4fs inputs=%@ outputs=%@",
+            session.category.rawValue,
+            session.mode.rawValue,
+            session.sampleRate,
+            session.ioBufferDuration,
+            inputs.joined(separator: ","),
+            outputs.joined(separator: ",")
+        )
     }
 
     private func clearError() {
@@ -1972,6 +2037,7 @@ final class ConduitPictureInPictureCoordinator: NSObject,
     private var primingTimeout: DispatchWorkItem?
     private var activeCaptureReprimeTimeout: DispatchWorkItem?
     private var activeCaptureReprimePending = false
+    private var initialPlaybackPauseSuppression: DispatchWorkItem?
     private var captureRecoveryPolicy = ConduitPipCaptureRecoveryPolicy()
     private let captureMetrics = ConduitPipCaptureMetrics()
 
@@ -2005,9 +2071,13 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         frameCapture.setOnCaptureFailure { [weak self] reason, kind in
             self?.frameCaptureFailed(reason, kind: kind)
         }
-        metalLayer.onDrawablePresented = { [weak self] drawable, presentationID in
+        metalLayer.onDrawablePresented = { [weak self] sourceTexture, presentationID, sourceLifetime in
             guard let self else { return }
-            if self.frameCapture.handlePresentedDrawable(drawable, presentationID: presentationID) {
+            if self.frameCapture.handlePresentedTexture(
+                sourceTexture,
+                presentationID: presentationID,
+                sourceLifetime: sourceLifetime
+            ) {
                 self.metalLayer.discardLatestDrawableTexture(upTo: presentationID)
             }
         }
@@ -2035,6 +2105,16 @@ final class ConduitPictureInPictureCoordinator: NSObject,
 
     func start() {
         guard isSupported, !isActive, !priming else { return }
+        debugLog("start requested")
+        initialPlaybackPauseSuppression?.cancel()
+        initialPlaybackPauseSuppression = nil
+        if owner?.isPlayerPlaying == true {
+            let clearSuppression = DispatchWorkItem { [weak self] in
+                self?.initialPlaybackPauseSuppression = nil
+            }
+            initialPlaybackPauseSuppression = clearSuppression
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1, execute: clearSuppression)
+        }
         captureRecoveryPolicy.reset()
         captureMetrics.reset()
         setStartRequested(true)
@@ -2051,6 +2131,8 @@ final class ConduitPictureInPictureCoordinator: NSObject,
     }
 
     func stop() {
+        initialPlaybackPauseSuppression?.cancel()
+        initialPlaybackPauseSuppression = nil
         if priming && !isActive {
             priming = false
             setStartRequested(false)
@@ -2065,6 +2147,8 @@ final class ConduitPictureInPictureCoordinator: NSObject,
     }
 
     func stopForNewLoad(completion: @escaping () -> Void = {}) {
+        initialPlaybackPauseSuppression?.cancel()
+        initialPlaybackPauseSuppression = nil
         let wasActive = isActive
         let wasPriming = priming
         captureRecoveryPolicy.reset()
@@ -2091,6 +2175,10 @@ final class ConduitPictureInPictureCoordinator: NSObject,
 
     func playbackStateChanged() {
         controller?.invalidatePlaybackState()
+    }
+
+    func prewarmCaptureResources() {
+        frameCapture.prewarmResources()
     }
 
     func timelineDidSeek() {
@@ -2383,6 +2471,7 @@ final class ConduitPictureInPictureCoordinator: NSObject,
                     return
                 }
                 self.setStartRequested(false)
+                self.debugLog("invalidating PiP playback state before start")
                 controller.invalidatePlaybackState()
                 CATransaction.flush()
                 controller.startPictureInPicture()
@@ -2412,6 +2501,7 @@ final class ConduitPictureInPictureCoordinator: NSObject,
     }
 
     func pictureInPictureControllerWillStartPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
+        debugLog("will start")
         primingTimeout?.cancel()
         primingTimeout = nil
         metalLayer.capturesWithoutPresentation = true
@@ -2419,6 +2509,7 @@ final class ConduitPictureInPictureCoordinator: NSObject,
     }
 
     func pictureInPictureControllerDidStartPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
+        debugLog("did start")
         priming = false
         captureRecoveryPolicy.reset()
     }
@@ -2428,6 +2519,7 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         failedToStartPictureInPictureWithError error: Error
     ) {
         print("[Conduit PiP] Failed to start: \(error)")
+        debugLog("start failed")
         priming = false
         setStartRequested(false)
         stopCapture { [weak self] in
@@ -2438,6 +2530,9 @@ final class ConduitPictureInPictureCoordinator: NSObject,
     }
 
     func pictureInPictureControllerDidStopPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
+        initialPlaybackPauseSuppression?.cancel()
+        initialPlaybackPauseSuppression = nil
+        debugLog("did stop")
         priming = false
         setStartRequested(false)
         stopCapture { [weak self] in
@@ -2458,6 +2553,18 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         _ pictureInPictureController: AVPictureInPictureController,
         setPlaying playing: Bool
     ) {
+        debugLog(
+            "AVKit setPlaying=\(playing) priming=\(priming) active=\(isActive) " +
+                "ownerPlaying=\(owner?.isPlayerPlaying == true)"
+        )
+        if !playing, initialPlaybackPauseSuppression != nil {
+            debugLog("ignored transient PiP pause during startup")
+            initialPlaybackPauseSuppression?.cancel()
+            initialPlaybackPauseSuppression = nil
+            return
+        }
+        initialPlaybackPauseSuppression?.cancel()
+        initialPlaybackPauseSuppression = nil
         playing ? owner?.playPlayback() : owner?.pausePlayback()
     }
 
@@ -2474,6 +2581,12 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         owner?.isPlayerPlaying != true
     }
 
+    func pictureInPictureControllerShouldProhibitBackgroundAudioPlayback(
+        _ pictureInPictureController: AVPictureInPictureController
+    ) -> Bool {
+        false
+    }
+
     func pictureInPictureController(
         _ pictureInPictureController: AVPictureInPictureController,
         didTransitionToRenderSize newRenderSize: CMVideoDimensions
@@ -2486,6 +2599,14 @@ final class ConduitPictureInPictureCoordinator: NSObject,
     ) {
         owner?.seekByMs(Int64(CMTimeGetSeconds(skipInterval) * 1_000))
         completionHandler()
+    }
+
+    private func debugLog(_ message: String) {
+#if DEBUG
+        print("[Conduit PiP][diagnostic] \(message)")
+#else
+        _ = message
+#endif
     }
 }
 

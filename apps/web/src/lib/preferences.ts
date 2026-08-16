@@ -29,7 +29,7 @@ export const defaultPreferences: DevicePreferences = {
   subtitleSize: 100,
   subtitlePosition: 90,
   readAheadSeconds: 30,
-  autoSelectSavedStreams: true,
+  autoSelectSavedStreams: false,
   autoplay: true,
   volume: 100,
   hardwareAcceleration: true,
@@ -76,8 +76,14 @@ export function writePreferences(
 }
 
 export function applyPreferences(preferences: DevicePreferences): void {
-  document.documentElement.style.setProperty("--subtitle-scale", `${preferences.subtitleSize / 100}`)
-  document.documentElement.style.setProperty("--subtitle-position", `${preferences.subtitlePosition}%`)
+  document.documentElement.style.setProperty(
+    "--subtitle-scale",
+    `${preferences.subtitleSize / 100}`,
+  )
+  document.documentElement.style.setProperty(
+    "--subtitle-position",
+    `${preferences.subtitlePosition}%`,
+  )
   document.documentElement.classList.toggle("reduce-motion", preferences.reducedMotion)
   document.documentElement.classList.toggle("amoled-black", preferences.amoledBlack)
   document.documentElement.classList.toggle("subtitle-outline", preferences.subtitleOutline)

@@ -5,10 +5,10 @@ import kotlin.test.assertEquals
 
 class DevicePreferencesTest {
     @Test
-    fun savedStreamSelectionDefaultsToEnabled() {
+    fun savedStreamSelectionDefaultsToDisabled() {
         val preferences = DevicePreferencesRepository(MemorySettingsStore()).load()
 
-        assertEquals(true, preferences.autoSelectSavedStreams)
+        assertEquals(false, preferences.autoSelectSavedStreams)
     }
 
     @Test
@@ -33,9 +33,9 @@ class DevicePreferencesTest {
         val store = MemorySettingsStore()
         val repository = DevicePreferencesRepository(store)
 
-        repository.save(repository.load().copy(autoSelectSavedStreams = false))
+        repository.save(repository.load().copy(autoSelectSavedStreams = true))
 
-        assertEquals(false, repository.load().autoSelectSavedStreams)
+        assertEquals(true, repository.load().autoSelectSavedStreams)
     }
 
     @Test

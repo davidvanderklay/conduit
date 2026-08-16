@@ -16,7 +16,7 @@ describe("device preferences", () => {
   it("defaults audio and subtitles to English", () => {
     expect(defaultPreferences.audioLanguage).toBe("en")
     expect(defaultPreferences.subtitleLanguage).toBe("en")
-    expect(defaultPreferences.autoSelectSavedStreams).toBe(true)
+    expect(defaultPreferences.autoSelectSavedStreams).toBe(false)
   })
 
   it("uses safe defaults for missing or invalid data", () => {
@@ -25,12 +25,16 @@ describe("device preferences", () => {
   })
 
   it("validates numeric ranges", () => {
-    const value = readPreferences(storage(JSON.stringify({
-      volume: 900,
-      subtitleSize: 2,
-      subtitlePosition: 900,
-      readAheadSeconds: 900,
-    })))
+    const value = readPreferences(
+      storage(
+        JSON.stringify({
+          volume: 900,
+          subtitleSize: 2,
+          subtitlePosition: 900,
+          readAheadSeconds: 900,
+        }),
+      ),
+    )
     expect(value.volume).toBe(100)
     expect(value.subtitleSize).toBe(75)
     expect(value.subtitlePosition).toBe(100)
@@ -42,7 +46,7 @@ describe("device preferences", () => {
     expect(value).toMatchObject({
       volume: 42,
       autoplay: false,
-      autoSelectSavedStreams: true,
+      autoSelectSavedStreams: false,
       amoledBlack: false,
       subtitleOutline: true,
       rememberLastProfile: true,
@@ -51,13 +55,17 @@ describe("device preferences", () => {
   })
 
   it("preserves an explicit saved-stream selection preference", () => {
-    expect(readPreferences(storage(JSON.stringify({ autoSelectSavedStreams: false })))).toMatchObject({
-      autoSelectSavedStreams: false,
+    expect(
+      readPreferences(storage(JSON.stringify({ autoSelectSavedStreams: true }))),
+    ).toMatchObject({
+      autoSelectSavedStreams: true,
     })
   })
 
   it("restores the last selected stream addon", () => {
-    expect(readPreferences(storage(JSON.stringify({ lastStreamAddonId: "torrentio" })))).toMatchObject({
+    expect(
+      readPreferences(storage(JSON.stringify({ lastStreamAddonId: "torrentio" }))),
+    ).toMatchObject({
       lastStreamAddonId: "torrentio",
     })
   })
