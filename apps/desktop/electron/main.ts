@@ -246,6 +246,12 @@ type PlayerOverlayMedia = {
   background?: string
   logo?: string
   poster?: string
+  series?: {
+    name: string
+    videos: unknown[]
+    progress: unknown[]
+    currentVideoId: string
+  }
 }
 
 function refreshNativeSurface() {
@@ -475,6 +481,7 @@ async function ensurePlayerOverlay(media: PlayerOverlayMedia) {
       ...(media.background ? { background: media.background } : {}),
       ...(media.logo ? { logo: media.logo } : {}),
       ...(media.poster ? { poster: media.poster } : {}),
+      ...(media.series ? { series: JSON.stringify(media.series) } : {}),
     })
     const url = rendererIsDevelopment()
       ? "http://localhost:5173/?" + query.toString()
@@ -802,6 +809,12 @@ async function invoke(command: string, args: Record<string, unknown> = {}): Prom
     mainWindow?.webContents.send("conduit:player-overlay-next")
     return null
   }
+  if (command === "player_overlay_episode") {
+    if (typeof args.videoId === "string") {
+      mainWindow?.webContents.send("conduit:player-overlay-episode", args.videoId)
+    }
+    return null
+  }
   if (command === "player_toggle_fullscreen") {
     if (!mainWindow) throw new Error("Main window is unavailable.")
     const fullscreen = !mainWindowFullscreen
@@ -855,6 +868,7 @@ async function invoke(command: string, args: Record<string, unknown> = {}): Prom
           background: typeof artwork.background === "string" ? artwork.background : undefined,
           logo: typeof artwork.logo === "string" ? artwork.logo : undefined,
           poster: typeof artwork.poster === "string" ? artwork.poster : undefined,
+          series: artwork.series as PlayerOverlayMedia["series"],
         })
       }
       return result

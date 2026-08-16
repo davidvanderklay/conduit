@@ -46,12 +46,22 @@ declare module "@tanstack/react-router" {
 }
 
 const overlayParams = new URLSearchParams(window.location.search)
+function overlaySeriesFromParams(value: string | null): PlayerOverlayMedia["series"] {
+  if (!value) return undefined
+  try {
+    return JSON.parse(value) as PlayerOverlayMedia["series"]
+  } catch {
+    return undefined
+  }
+}
+
 const overlayMedia: PlayerOverlayMedia | undefined = overlayParams.get("electronOverlay")
   ? {
       title: overlayParams.get("title") ?? "",
       background: overlayParams.get("background") ?? undefined,
       logo: overlayParams.get("logo") ?? undefined,
       poster: overlayParams.get("poster") ?? undefined,
+      series: overlaySeriesFromParams(overlayParams.get("series")),
     }
   : undefined
 

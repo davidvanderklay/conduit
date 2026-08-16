@@ -1,4 +1,5 @@
-import type { PlayerArtwork } from "./api"
+import type { PlayerArtwork, WatchProgress } from "./api"
+import type { Video } from "./core"
 
 export interface NativeTrack {
   id: number
@@ -38,6 +39,7 @@ export interface ElectronDesktopBridge {
   onFullscreenChange(listener: (fullscreen: boolean) => void): () => void
   onPlayerOverlayClose(listener: () => void): () => void
   onPlayerOverlayNext(listener: () => void): () => void
+  onPlayerOverlayEpisode(listener: (videoId: string) => void): () => void
   onPlayerOverlayMedia(listener: (media: PlayerOverlayMedia) => void): () => void
   setPlayerOverlayInteractiveRegions(
     regions: Array<{ left: number; top: number; right: number; bottom: number }>,
@@ -51,6 +53,14 @@ export interface ElectronDesktopBridge {
 
 export type PlayerOverlayMedia = PlayerArtwork & {
   title: string
+  series?: PlayerOverlaySeries
+}
+
+export interface PlayerOverlaySeries {
+  name: string
+  videos: Video[]
+  progress: WatchProgress[]
+  currentVideoId: string
 }
 
 declare global {

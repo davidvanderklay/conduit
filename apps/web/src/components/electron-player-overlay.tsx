@@ -28,6 +28,7 @@ import {
 } from "lucide-react"
 import { audioTrackDisplay } from "../lib/audio-track-display"
 import type { PlayerArtwork } from "../lib/api"
+import type { Video } from "../lib/core"
 import {
   nativePlayerCommand,
   nativePlayerSnapshot,
@@ -54,12 +55,14 @@ import {
   DesktopPlayerBufferingOverlay,
   DesktopPlayerOpeningOverlay,
 } from "./desktop-player-overlays"
+import { PlayerEpisodeDrawer } from "./player-series"
 
 type TrackMenuName = "audio" | "subtitles"
 
 export function ElectronPlayerOverlay({ initialMedia }: { initialMedia: PlayerOverlayMedia }) {
   const [title, setTitle] = useState(initialMedia.title)
   const [artwork, setArtwork] = useState<PlayerArtwork>(initialMedia)
+  const [series, setSeries] = useState(initialMedia.series)
   const [snapshot, setSnapshot] = useState<NativePlayerSnapshot>()
   const [fullscreen, setFullscreen] = useState(false)
   const [scale, setScale] = useState<VideoScale>("fit")
@@ -67,6 +70,7 @@ export function ElectronPlayerOverlay({ initialMedia }: { initialMedia: PlayerOv
   const [showRemainingTime, setShowRemainingTime] = useState(false)
   const [holdSpeedActive, setHoldSpeedActive] = useState(false)
   const [activeTrackMenu, setActiveTrackMenu] = useState<TrackMenuName>()
+  const [episodeDrawerOpen, setEpisodeDrawerOpen] = useState(false)
   const [selectedSubtitleCode, setSelectedSubtitleCode] = useState<string>()
   const [subtitlePosition, setSubtitlePosition] = useState(() => readPreferences().subtitlePosition)
   const hideTimer = useRef<number | undefined>(undefined)
@@ -147,7 +151,7 @@ export function ElectronPlayerOverlay({ initialMedia }: { initialMedia: PlayerOv
       mutationObserver?.disconnect()
       window.removeEventListener("resize", schedule)
     }
-  }, [activeTrackMenu, controlsVisible, selectedSubtitleCode, updateInteractiveRegions])
+  }, [activeTrackMenu, controlsVisible, episodeDrawerOpen, selectedSubtitleCode, updateInteractiveRegions])
 
   useEffect(() => {
     const electron = window.__CONDUIT_ELECTRON__
@@ -156,6 +160,7 @@ export function ElectronPlayerOverlay({ initialMedia }: { initialMedia: PlayerOv
     const unsubscribeMedia = electron.onPlayerOverlayMedia((media) => {
       setTitle(media.title)
       setArtwork(media)
+      setSeries(media.series)
       setShowRemainingTime(false)
       window.clearTimeout(seekCommitTimer.current)
       seekDraft.current = undefined
@@ -299,6 +304,13 @@ export function ElectronPlayerOverlay({ initialMedia }: { initialMedia: PlayerOv
     void window.__CONDUIT_ELECTRON__?.invoke("player_overlay_next")
   }, [])
 
+  const selectEpisode = useCallback((video: Video) => {
+    setEpisodeDrawerOpen(false)
+    void window.__CONDUIT_ELECTRON__?.invoke("player_overlay_episode", {
+      videoId: video.id,
+    })
+  }, [])
+
   const audioTracks = snapshot?.tracks.filter((track) => track.type === "audio") ?? []
   const subtitleTracks = snapshot?.tracks.filter((track) => track.type === "sub") ?? []
   const subtitleGroups = groupSubtitles(subtitleTracks, (track) => track.lang || track.title)
@@ -320,9 +332,14 @@ export function ElectronPlayerOverlay({ initialMedia }: { initialMedia: PlayerOv
   const selectedScale = VIDEO_SCALE_OPTIONS.find((option) => option.value === scale)?.label ?? scale
   const loadingOverlayVisible = isDesktopInitialLoading(snapshot)
   const bufferingOverlayVisible = isDesktopBuffering(snapshot)
+  const chromeVisible =
+    controlsVisible ||
+    episodeDrawerOpen ||
+    Boolean(snapshot?.paused) ||
+    !snapshot
   const rootClassName =
     "native-player electron-native-player electron-player-overlay fixed inset-0 z-50 select-none " +
-    (controlsVisible ? "cursor-default" : "cursor-none")
+    (chromeVisible ? "cursor-default" : "cursor-none")
 
   // Close track menus on any background click or Escape, matching Tauri behavior
   useEffect(() => {
@@ -377,7 +394,7 @@ export function ElectronPlayerOverlay({ initialMedia }: { initialMedia: PlayerOv
       {!loadingOverlayVisible && bufferingOverlayVisible && <DesktopPlayerBufferingOverlay />}
       {/* Edge scrims keep the chrome legible without darkening the subtitle plane. */}
       <div
-        className={`pointer-events-none absolute inset-x-0 top-0 h-48 bg-gradient-to-b from-black/85 via-black/55 to-transparent transition-opacity duration-300 ${controlsVisible ? "opacity-100" : "opacity-0"}`}
+        className={`pointer-events-none absolute inset-x-0 top-0 h-48 bg-gradient-to-b from-black/85 via-black/55 to-transparent transition-opacity duration-300 ${chromeVisible ? "opacity-100" : "opacity-0"}`}
         aria-hidden="true"
       />
       {holdSpeedActive && (
@@ -389,14 +406,14 @@ export function ElectronPlayerOverlay({ initialMedia }: { initialMedia: PlayerOv
         </div>
       )}
       <div
-        className={`pointer-events-none absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-black via-black/70 to-transparent transition-opacity duration-300 ${controlsVisible ? "opacity-100" : "opacity-0"}`}
+        className={`pointer-events-none absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-black via-black/70 to-transparent transition-opacity duration-300 ${chromeVisible ? "opacity-100" : "opacity-0"}`}
         aria-hidden="true"
       />
       <div
         className={
           "pointer-events-none absolute inset-x-0 top-0 z-10 flex items-start justify-between gap-4 " +
           "px-5 pb-12 pt-4 transition-opacity " +
-          (controlsVisible ? "opacity-100" : "opacity-0")
+          (chromeVisible ? "opacity-100" : "opacity-0")
         }
       >
         <div className="flex min-w-0 items-center gap-3">
@@ -422,10 +439,23 @@ export function ElectronPlayerOverlay({ initialMedia }: { initialMedia: PlayerOv
         </OverlayButton>
       </div>
 
+      <PlayerEpisodeDrawer
+        open={episodeDrawerOpen}
+        handleVisible={chromeVisible}
+        context={series ? {
+          name: series.name,
+          videos: series.videos,
+          progress: series.progress,
+          currentVideoId: series.currentVideoId,
+        } : undefined}
+        onOpenChange={setEpisodeDrawerOpen}
+        onSelect={selectEpisode}
+      />
+
       <div
         className={
           "pointer-events-none absolute inset-x-0 bottom-0 z-10 px-5 pb-5 pt-24 transition-opacity " +
-          (controlsVisible ? "opacity-100" : "opacity-0")
+          (chromeVisible ? "opacity-100" : "opacity-0")
         }
       >
         <div className="w-full">
