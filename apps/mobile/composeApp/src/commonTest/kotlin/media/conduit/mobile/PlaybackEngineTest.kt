@@ -69,6 +69,18 @@ class PlaybackEngineTest {
     }
 
     @Test
+    fun playbackErrorsRedactUrlsAndSignedParameters() {
+        assertEquals(
+            "failed for [redacted URL]",
+            sanitizePlaybackError("failed for https://example.test/video.m3u8?token=secret"),
+        )
+        assertEquals(
+            "failed?token=[redacted]",
+            sanitizePlaybackError("failed?token=secret"),
+        )
+    }
+
+    @Test
     fun startupTimeoutOnlyFallsBackWhenTheAttemptIsStillWaitingForAFrame() {
         assertFalse(shouldFallbackAfterStartup(9_999L, false, false))
         assertTrue(shouldFallbackAfterStartup(10_000L, false, false))

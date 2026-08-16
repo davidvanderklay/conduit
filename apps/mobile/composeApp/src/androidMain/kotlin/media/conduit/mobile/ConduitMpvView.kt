@@ -34,6 +34,8 @@ internal data class MpvTrack(
     val forced: Boolean,
 )
 
+private const val EmbeddedSubtitleSelectionPrefix = "embedded:"
+
 /**
  * Small conduit-owned wrapper around the pinned mpv-android AAR. The view owns
  * the libmpv handle and exposes only the operations needed by the Compose
@@ -93,7 +95,10 @@ internal class ConduitMpvView(
         if (!mpv.isInitialized()) return
         mpv.addObserver(object : MPV.EventObserver {
             override fun eventProperty(property: String) {
-                if (property == "track-list") trackRevision++
+                if (property == "track-list") {
+                    trackRevision++
+                    applyPendingSubtitleSelection()
+                }
                 onChanged()
             }
 
@@ -109,7 +114,10 @@ internal class ConduitMpvView(
             override fun eventProperty(property: String, value: Double) = onChanged()
 
             override fun eventProperty(property: String, value: MPVNode) {
-                if (property == "track-list") trackRevision++
+                if (property == "track-list") {
+                    trackRevision++
+                    applyPendingSubtitleSelection()
+                }
                 onChanged()
             }
 
@@ -123,17 +131,21 @@ internal class ConduitMpvView(
                     MPV.mpvEvent.MPV_EVENT_FILE_LOADED -> {
                         loaded = true
                         errorMessage = null
+                        applyPendingSubtitleSelection()
                     }
                     MPV.mpvEvent.MPV_EVENT_VIDEO_RECONFIG,
                     MPV.mpvEvent.MPV_EVENT_PLAYBACK_RESTART,
                     -> {
                         loaded = true
                         errorMessage = null
+                        applyPendingSubtitleSelection()
                     }
                     MPV.mpvEvent.MPV_EVENT_END_FILE -> {
                         val reason = data.nodeString("reason")
                         if (reason == "error" || reason == "unknown") {
-                            errorMessage = data.nodeString("error") ?: "libmpv could not play this stream"
+                            errorMessage = sanitizePlaybackError(
+                                data.nodeString("error") ?: "libmpv could not play this stream",
+                            )
                         }
                     }
                 }
@@ -185,10 +197,14 @@ internal class ConduitMpvView(
         val selectedSubtitleIndex = if (subtitlesEnabled) {
             subtitles.indexOfFirst { subtitle ->
                 subtitleSelectionKey(subtitle) == selectedSubtitleId
-            }.takeIf { it >= 0 } ?: subtitles.indexOfFirst { subtitle ->
-                preferredSubtitleCode != null &&
-                    subtitle.lang?.substringBefore('-')?.substringBefore('_') == preferredSubtitleCode
-            }.takeIf { it >= 0 } ?: subtitles.indices.firstOrNull()
+            }.takeIf { it >= 0 } ?: if (selectedSubtitleId?.startsWith(EmbeddedSubtitleSelectionPrefix) == true) {
+                null
+            } else {
+                subtitles.indexOfFirst { subtitle ->
+                    preferredSubtitleCode != null &&
+                        subtitle.lang?.substringBefore('-')?.substringBefore('_') == preferredSubtitleCode
+                }.takeIf { it >= 0 } ?: subtitles.indices.firstOrNull()
+            }
         } else {
             null
         }
@@ -283,11 +299,13 @@ internal class ConduitMpvView(
                     ?: externalFilename?.substringAfterLast('/')
                     ?: node.nodeString("codec")
                     ?: "Track $id"
+                val language = node.nodeString("lang") ?: languageFromLabel(label)
+                val forced = node.nodeBoolean("forced") ?: false
                 MpvTrack(
                     id = id,
                     type = type,
                     label = label,
-                    language = node.nodeString("lang") ?: languageFromLabel(label),
+                    language = language,
                     selectionKey = externalFilename
                         ?.let { filename ->
                             currentSubtitles.firstOrNull { subtitle ->
@@ -295,9 +313,17 @@ internal class ConduitMpvView(
                                     subtitle.url.substringBefore('#') == filename.substringBefore('#')
                             }
                         }
-                        ?.let(::subtitleSelectionKey),
+                        ?.let(::subtitleSelectionKey)
+                        ?: embeddedSubtitleSelectionKey(
+                            id = id,
+                            sourceId = node.nodeInt("src-id"),
+                            language = language,
+                            label = label,
+                            codec = node.nodeString("codec"),
+                            forced = forced,
+                        ),
                     selected = node.nodeBoolean("selected") ?: false,
-                    forced = node.nodeBoolean("forced") ?: false,
+                    forced = forced,
                 )
             }
             .orEmpty()
@@ -308,9 +334,26 @@ internal class ConduitMpvView(
         if (trackId == null) mpv.setPropertyString("aid", "no") else mpv.setPropertyInt("aid", trackId)
     }
 
-    fun selectSubtitle(trackId: Int?) {
+    fun selectSubtitle(trackId: Int?, selectionKey: String?, subtitlesEnabled: Boolean) {
+        currentSelectedSubtitleId = selectionKey
+        currentSubtitlesEnabled = subtitlesEnabled
         if (!mpv.isInitialized()) return
         if (trackId == null) mpv.setPropertyString("sid", "no") else mpv.setPropertyInt("sid", trackId)
+    }
+
+    private fun applyPendingSubtitleSelection() {
+        if (!mpv.isInitialized()) return
+        if (!currentSubtitlesEnabled) {
+            if (tracks("sub").any { it.selected }) {
+                runCatching { mpv.setPropertyString("sid", "no") }
+            }
+            return
+        }
+        val selectionKey = currentSelectedSubtitleId ?: return
+        val selectedTrack = tracks("sub").firstOrNull { it.selectionKey == selectionKey } ?: return
+        if (!selectedTrack.selected) {
+            runCatching { mpv.setPropertyInt("sid", selectedTrack.id) }
+        }
     }
 
     fun snapshot(): MpvPlaybackSnapshot {
@@ -417,5 +460,21 @@ private fun mpvLanguageCode(preference: String): String? = when (preference) {
     "Korean" -> "ko"
     else -> null
 }
+
+private fun embeddedSubtitleSelectionKey(
+    id: Int,
+    sourceId: Int?,
+    language: String?,
+    label: String,
+    codec: String?,
+    forced: Boolean,
+): String = listOf(
+    EmbeddedSubtitleSelectionPrefix,
+    sourceId ?: id,
+    language.orEmpty(),
+    label,
+    codec.orEmpty(),
+    forced,
+).joinToString("|")
 
 internal fun subtitleSelectionKey(subtitle: SubtitleItem): String = subtitle.id ?: subtitle.url

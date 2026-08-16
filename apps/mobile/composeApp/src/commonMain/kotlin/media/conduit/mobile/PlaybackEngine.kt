@@ -33,7 +33,7 @@ internal fun beginLibmpvFallback(
     return session.copy(
         activeEngine = NativePlaybackEngine.Libmpv,
         fallbackAttempted = true,
-        fallbackReason = reason.take(240),
+        fallbackReason = sanitizePlaybackError(reason),
     )
 }
 
@@ -52,8 +52,8 @@ internal fun retryPlaybackEngine(session: PlaybackEngineSession): PlaybackEngine
     }
 
 internal fun combinedPlaybackError(fallbackReason: String?, libmpvError: String): String =
-    if (fallbackReason == null) libmpvError
-    else "Media3 failed: $fallbackReason\nlibmpv failed: $libmpvError"
+    if (fallbackReason == null) sanitizePlaybackError(libmpvError)
+    else "Media3 failed: ${sanitizePlaybackError(fallbackReason)}\nlibmpv failed: ${sanitizePlaybackError(libmpvError)}"
 
 internal fun shouldFallbackAfterStartup(
     elapsedMs: Long,
@@ -73,3 +73,14 @@ internal fun canFallbackToLibmpv(
 
 internal fun fallbackPositionMs(currentPositionMs: Long, requestedPositionMs: Long): Long =
     maxOf(currentPositionMs, requestedPositionMs).coerceAtLeast(0L)
+
+private val playbackUrlPattern = Regex("""(?i)\b(?:https?|rtmp|rtsp|file)://[^\s\"'<>]+""")
+private val sensitiveParameterPattern = Regex(
+    """(?i)([?&](?:access_token|auth|authorization|expires|hdnea|hdnts|key|sig|signature|token)=)[^&\s]+""",
+)
+
+internal fun sanitizePlaybackError(message: String): String = message
+    .replace(playbackUrlPattern, "[redacted URL]")
+    .replace(sensitiveParameterPattern, "$1[redacted]")
+    .trim()
+    .take(240)

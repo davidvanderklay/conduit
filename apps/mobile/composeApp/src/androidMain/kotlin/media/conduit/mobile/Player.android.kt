@@ -154,6 +154,8 @@ actual fun NativePlayer(
     var tracksRevision by remember { mutableIntStateOf(0) }
     var trackFallback by remember(player) { mutableStateOf<androidx.media3.common.TrackSelectionParameters?>(null) }
     var selectedSubtitleId by remember(url, requestHeaders, subtitles) { mutableStateOf<String?>(null) }
+    var selectedSubtitleLanguage by remember(url, requestHeaders, subtitles) { mutableStateOf<String?>(null) }
+    var selectedSubtitleLabel by remember(url, requestHeaders, subtitles) { mutableStateOf<String?>(null) }
     var subtitlesEnabled by remember(url, requestHeaders, subtitles) { mutableStateOf(true) }
     var lastTrackChangeAt by remember(player) { mutableLongStateOf(0L) }
     var autoAudioSelection by remember(player) { mutableStateOf<String?>(null) }
@@ -182,7 +184,7 @@ actual fun NativePlayer(
         )
         if (transition == null) {
             player.pause()
-            playbackError = reason
+            playbackError = sanitizePlaybackError(reason)
             return
         }
         fallbackAttempted = transition.fallbackAttempted
@@ -220,7 +222,9 @@ actual fun NativePlayer(
                     androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FAILED,
                     androidx.media3.common.PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
                     -> "This device cannot decode this stream's video format. Try a 1080p H.264/AVC stream or a physical device with HEVC support."
-                    else -> error.cause?.message ?: error.message ?: "Media3 could not play this stream."
+                    else -> sanitizePlaybackError(
+                        error.cause?.message ?: error.message ?: "Media3 could not play this stream.",
+                    )
                 }
                 fallbackToLibmpv(message)
             }
@@ -230,13 +234,28 @@ actual fun NativePlayer(
                 val selectedText = textGroups
                     .flatMap { group -> (0 until group.length).map { index -> group to index } }
                     .firstOrNull { (group, index) -> group.isTrackSelected(index) }
+                val languageMatches = selectedSubtitleLanguage?.let { language ->
+                    textGroups
+                        .flatMap { group -> (0 until group.length).map { index -> group to index } }
+                        .filter { (group, index) ->
+                            group.isTrackSupported(index) &&
+                                sameSubtitleLanguage(group.getTrackFormat(index).language, language)
+                        }
+                } ?: emptyList()
+                val labelMatches = selectedSubtitleLabel?.let { label ->
+                    textGroups
+                        .flatMap { group -> (0 until group.length).map { index -> group to index } }
+                        .filter { (group, index) ->
+                            group.isTrackSupported(index) && group.getTrackFormat(index).label == label
+                        }
+                } ?: emptyList()
                 val requestedText = selectedSubtitleId?.let { id ->
                     textGroups
                         .flatMap { group -> (0 until group.length).map { index -> group to index } }
                         .firstOrNull { (group, index) ->
                             group.isTrackSupported(index) && group.getTrackFormat(index).id == id
                         }
-                }
+                } ?: labelMatches.firstOrNull() ?: languageMatches.firstOrNull()
                 if (!subtitlesEnabled) {
                     if (C.TRACK_TYPE_TEXT !in player.trackSelectionParameters.disabledTrackTypes) {
                         player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
@@ -252,10 +271,13 @@ actual fun NativePlayer(
                         .build()
                 } else {
                     selectedText
-                        ?.let { (group, index) -> group.getTrackFormat(index).id }
-                        ?.takeIf { id -> subtitles.any { subtitleSelectionKey(it) == id } }
-                        ?.let { id ->
-                            selectedSubtitleId = id
+                        ?.let { (group, index) -> group.getTrackFormat(index) }
+                        ?.let { format ->
+                            format.id
+                                ?.takeIf { id -> subtitles.any { subtitleSelectionKey(it) == id } }
+                                ?.let { id -> selectedSubtitleId = id }
+                            selectedSubtitleLanguage = format.language ?: selectedSubtitleLanguage
+                            selectedSubtitleLabel = format.label ?: selectedSubtitleLabel
                             subtitlesEnabled = true
                         }
                 }
@@ -713,8 +735,10 @@ actual fun NativePlayer(
                         view = it,
                         type = type,
                         revision = mpvTrackRevision,
-                        onSubtitleSelectionChanged = { id, enabled ->
+                        onSubtitleSelectionChanged = { id, language, label, enabled ->
                             selectedSubtitleId = id
+                            selectedSubtitleLanguage = language
+                            selectedSubtitleLabel = label
                             subtitlesEnabled = enabled
                         },
                         onDismiss = { trackPanel = null },
@@ -726,8 +750,10 @@ actual fun NativePlayer(
                     player = player,
                     type = type,
                     onBeforeSelection = { trackFallback = player.trackSelectionParameters; lastTrackChangeAt = SystemClock.elapsedRealtime() },
-                    onSubtitleSelectionChanged = { id, enabled ->
+                    onSubtitleSelectionChanged = { id, language, enabled ->
                         selectedSubtitleId = id
+                        selectedSubtitleLanguage = language
+                        selectedSubtitleLabel = null
                         subtitlesEnabled = enabled
                     },
                     onDismiss = { trackPanel = null },
@@ -746,6 +772,17 @@ private fun audioLanguageCode(preference: String): String? = when (preference) {
     "Japanese" -> "ja"
     "Korean" -> "ko"
     else -> null
+}
+
+private fun sameSubtitleLanguage(first: String?, second: String?): Boolean {
+    val normalize = { language: String? ->
+        language
+            ?.replace('_', '-')
+            ?.substringBefore('-')
+            ?.lowercase()
+            ?.takeIf(String::isNotBlank)
+    }
+    return normalize(first) != null && normalize(first) == normalize(second)
 }
 
 private fun audioTrackScore(format: androidx.media3.common.Format, preferredLanguage: String?): Int {
@@ -817,7 +854,7 @@ private fun BoxScope.PlayerTrackPanel(
     player: ExoPlayer,
     type: Int,
     onBeforeSelection: () -> Unit,
-    onSubtitleSelectionChanged: (String?, Boolean) -> Unit,
+    onSubtitleSelectionChanged: (String?, String?, Boolean) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val groups = player.currentTracks.groups.filter { it.type == type }
@@ -828,7 +865,7 @@ private fun BoxScope.PlayerTrackPanel(
     var chosenLanguage by remember(selectedOption?.languageKey) { mutableStateOf(selectedOption?.languageKey ?: options.firstOrNull { it.supported }?.languageKey) }
     fun select(option: PlayerTrackOption, close: Boolean) {
         onBeforeSelection()
-        if (type == C.TRACK_TYPE_TEXT) onSubtitleSelectionChanged(option.trackId, true)
+        if (type == C.TRACK_TYPE_TEXT) onSubtitleSelectionChanged(option.trackId, option.languageKey, true)
         player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().setTrackTypeDisabled(type, false).clearOverridesOfType(type).addOverride(TrackSelectionOverride(option.group.mediaTrackGroup, option.index)).build()
         chosenLanguage = option.languageKey
         if (close) onDismiss() else subtitlePage = "overview"
@@ -848,7 +885,7 @@ private fun BoxScope.PlayerTrackPanel(
             Spacer(Modifier.height(14.dp))
             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (type == C.TRACK_TYPE_TEXT && subtitlePage == "overview") {
-                    item { PlayerTrackRow("Off", selectedOption == null) { player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().clearOverridesOfType(type).setTrackTypeDisabled(type, true).build(); onDismiss() } }
+                    item { PlayerTrackRow("Off", selectedOption == null) { player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().clearOverridesOfType(type).setTrackTypeDisabled(type, true).build(); onSubtitleSelectionChanged(null, null, false); onDismiss() } }
                     item { PlayerTrackRow("Language  ·  ${selectedOption?.languageName ?: "Choose"}", false) { subtitlePage = "language" } }
                     item { PlayerTrackRow("Variant  ·  ${selectedOption?.variantName ?: "Automatic"}", false, selectedOption != null) { subtitlePage = "variant" } }
                     item { PlayerTrackRow("Subtitle settings  ·  Managed by Android", false) { Toast.makeText(context, "Subtitle appearance follows your Android caption preferences.", Toast.LENGTH_LONG).show() } }
@@ -893,13 +930,13 @@ private fun BoxScope.FullscreenSubtitlePanel(
     options: List<PlayerTrackOption>,
     selected: PlayerTrackOption?,
     onBeforeSelection: () -> Unit,
-    onSubtitleSelectionChanged: (String?, Boolean) -> Unit,
+    onSubtitleSelectionChanged: (String?, String?, Boolean) -> Unit,
     onDismiss: () -> Unit,
 ) {
     var language by remember(selected?.languageKey) { mutableStateOf(selected?.languageKey ?: options.firstOrNull { it.supported }?.languageKey) }
     var selectedTrackKey by remember { mutableStateOf(selected?.key) }
     LaunchedEffect(selected?.key) { selectedTrackKey = selected?.key }
-    fun choose(option: PlayerTrackOption) { onBeforeSelection(); onSubtitleSelectionChanged(option.trackId, true); language = option.languageKey; selectedTrackKey = option.key; player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false).clearOverridesOfType(C.TRACK_TYPE_TEXT).addOverride(TrackSelectionOverride(option.group.mediaTrackGroup, option.index)).build() }
+    fun choose(option: PlayerTrackOption) { onBeforeSelection(); onSubtitleSelectionChanged(option.trackId, option.languageKey, true); language = option.languageKey; selectedTrackKey = option.key; player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false).clearOverridesOfType(C.TRACK_TYPE_TEXT).addOverride(TrackSelectionOverride(option.group.mediaTrackGroup, option.index)).build() }
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val expanded = maxWidth >= 700.dp && maxHeight >= 500.dp
         if (expanded) Box(Modifier.fillMaxSize().background(Color.Black.copy(.52f)).clickable(onClick = onDismiss))
@@ -914,7 +951,7 @@ private fun BoxScope.FullscreenSubtitlePanel(
         ) {
           Box {
             Row(Modifier.fillMaxSize().padding(horizontal = 30.dp, vertical = 28.dp), horizontalArrangement = Arrangement.spacedBy(30.dp)) {
-                Column(Modifier.weight(1f)) { Text("Subtitle Languages", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold); Spacer(Modifier.height(18.dp)); LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) { item { PlayerTrackRow("Disabled", selectedTrackKey == null) { selectedTrackKey = null; onSubtitleSelectionChanged(null, false); player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().clearOverridesOfType(C.TRACK_TYPE_TEXT).setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build() } }; options.distinctBy(PlayerTrackOption::languageKey).forEach { option -> item(option.languageKey) { PlayerTrackRow(option.languageName, selectedTrackKey != null && language == option.languageKey, option.supported) { val best = options.firstOrNull { it.languageKey == option.languageKey && it.supported } ?: option; choose(best) } } } } }
+                Column(Modifier.weight(1f)) { Text("Subtitle Languages", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold); Spacer(Modifier.height(18.dp)); LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) { item { PlayerTrackRow("Disabled", selectedTrackKey == null) { selectedTrackKey = null; onSubtitleSelectionChanged(null, null, false); player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().clearOverridesOfType(C.TRACK_TYPE_TEXT).setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build() } }; options.distinctBy(PlayerTrackOption::languageKey).forEach { option -> item(option.languageKey) { PlayerTrackRow(option.languageName, selectedTrackKey != null && language == option.languageKey, option.supported) { val best = options.firstOrNull { it.languageKey == option.languageKey && it.supported } ?: option; choose(best) } } } } }
                 Column(Modifier.weight(1f)) { Text("Subtitle Variants", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold); Spacer(Modifier.height(18.dp)); LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) { options.filter { it.languageKey == language }.forEach { option -> item(option.key) { PlayerTrackRow(option.variantName, option.key == selectedTrackKey, option.supported) { choose(option) } } } } }
                 Column(Modifier.weight(1f)) { Text("Subtitle Settings", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold); Spacer(Modifier.weight(1f)); Text("Subtitle appearance follows Android system settings. Change it under Accessibility → Caption preferences for consistent styling across apps.", color = Color.White.copy(.72f), style = MaterialTheme.typography.bodyLarge); Spacer(Modifier.weight(1f)) }
             }
