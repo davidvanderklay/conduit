@@ -1472,12 +1472,13 @@ internal fun MediaDetailsScreen(
                     ) {
                         items(seasonVideos, key = VideoItem::id) { video ->
                             val progress = progressForVideo(snapshot?.progress.orEmpty(), actionItem, video)
+                            val watchState = episodeWatchState(progress)
                             val episodeNumber = listOfNotNull(
                                 video.season?.let { "S$it" },
                                 video.episode?.let { "E$it" },
                             ).joinToString(" ")
                             Surface(
-                                modifier = Modifier.width(260.dp).combinedClickable(
+                                modifier = Modifier.width(320.dp).height(180.dp).combinedClickable(
                                     onClickLabel = "Play ${video.displayTitle}",
                                     onLongClickLabel = "More actions for ${video.displayTitle}",
                                     onClick = {
@@ -1496,7 +1497,7 @@ internal fun MediaDetailsScreen(
                                 color = MaterialTheme.colorScheme.surfaceVariant.copy(.65f),
                             ) {
                                 Column {
-                                    Box(Modifier.fillMaxWidth().height(142.dp)) {
+                                    Box(Modifier.fillMaxSize()) {
                                         AsyncImage(
                                             video.thumbnail ?: details.background,
                                             null,
@@ -1510,7 +1511,7 @@ internal fun MediaDetailsScreen(
                                                 ),
                                             ),
                                         )
-                                        if (episodeWatchState(progress) == EpisodeWatchState.Watched) {
+                                        if (watchState == EpisodeWatchState.Watched) {
                                             Icon(
                                                 Icons.Rounded.CheckCircle,
                                                 null,
@@ -1536,7 +1537,7 @@ internal fun MediaDetailsScreen(
                                             Modifier
                                                 .align(Alignment.BottomStart)
                                                 .fillMaxWidth()
-                                                .padding(start = 12.dp, end = 104.dp, bottom = 10.dp),
+                                                .padding(start = 12.dp, end = 12.dp, bottom = 14.dp),
                                             verticalArrangement = Arrangement.spacedBy(3.dp),
                                         ) {
                                             Text(
@@ -1545,37 +1546,41 @@ internal fun MediaDetailsScreen(
                                                 fontWeight = FontWeight.Bold,
                                                 maxLines = 1,
                                                 overflow = TextOverflow.Ellipsis,
+                                                modifier = Modifier.fillMaxWidth().height(22.dp),
                                             )
-                                            (video.overview ?: video.description)?.let {
-                                                Text(
-                                                    it,
-                                                    color = Color.White.copy(.78f),
-                                                    maxLines = 2,
-                                                    overflow = TextOverflow.Ellipsis,
-                                                    style = MaterialTheme.typography.bodySmall,
-                                                )
+                                            Box(Modifier.fillMaxWidth().height(34.dp)) {
+                                                (video.overview ?: video.description)?.let {
+                                                    Text(
+                                                        it,
+                                                        color = Color.White.copy(.78f),
+                                                        maxLines = 2,
+                                                        overflow = TextOverflow.Ellipsis,
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                    )
+                                                }
                                             }
-                                            if (episodeWatchState(progress) == EpisodeWatchState.InProgress) {
-                                                LinearProgressIndicator(
-                                                    { episodeProgressFraction(progress) },
-                                                    Modifier.fillMaxWidth(),
-                                                    color = MaterialTheme.colorScheme.primary,
-                                                )
-                                                Text(
-                                                    "${(episodeProgressFraction(progress) * 100).roundToInt()}%",
-                                                    color = Color.White.copy(.78f),
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                )
+                                            Box(
+                                                Modifier.fillMaxWidth().height(18.dp),
+                                                contentAlignment = Alignment.CenterEnd,
+                                            ) {
+                                                video.released?.let { released ->
+                                                    Text(
+                                                        episodeReleaseDateLabel(released) ?: released,
+                                                        color = Color.White,
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                    )
+                                                }
                                             }
                                         }
-                                        video.released?.let { released ->
-                                            Text(
-                                                episodeReleaseDateLabel(released) ?: released,
-                                                color = Color.White,
-                                                style = MaterialTheme.typography.labelSmall,
-                                                modifier = Modifier.align(Alignment.BottomEnd).padding(10.dp),
-                                            )
-                                        }
+                                        LinearProgressIndicator(
+                                            {
+                                                if (watchState == EpisodeWatchState.Watched) 1f
+                                                else episodeProgressFraction(progress)
+                                            },
+                                            Modifier.align(Alignment.BottomStart).fillMaxWidth().height(4.dp),
+                                            color = MaterialTheme.colorScheme.primary,
+                                            trackColor = Color.White.copy(.22f),
+                                        )
                                     }
                                 }
                             }
@@ -1874,6 +1879,7 @@ internal fun PlayerEpisodeDrawer(
                         .sortedWith(compareBy<VideoItem> { it.episode ?: 0 })
                     items(seasonVideos, key = VideoItem::id) { video ->
                         val progress = progressForVideo(snapshot?.progress.orEmpty(), actionItem, video)
+                        val watchState = episodeWatchState(progress)
                         val episodeNumber = listOfNotNull(
                             video.season?.let { "S$it" },
                             video.episode?.let { "E$it" },
@@ -1898,89 +1904,96 @@ internal fun PlayerEpisodeDrawer(
                             shape = RoundedCornerShape(16.dp),
                             border = if (video.id == current?.id) BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null,
                         ) {
-                            Row(
-                                Modifier.padding(if (fullscreen) 12.dp else 10.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Box(
+                            Column(Modifier.fillMaxWidth()) {
+                                Row(
                                     Modifier
-                                        .width(if (fullscreen) 128.dp else 120.dp)
-                                        .aspectRatio(16f / 9f)
-                                        .clip(RoundedCornerShape(10.dp)),
+                                        .fillMaxWidth()
+                                        .padding(if (fullscreen) 12.dp else 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
                                 ) {
-                                    AsyncImage(video.thumbnail, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                                     Box(
-                                        Modifier.fillMaxSize().background(
-                                            Brush.verticalGradient(
-                                                listOf(Color.Transparent, Color.Black.copy(.82f)),
+                                        Modifier
+                                            .width(if (fullscreen) 128.dp else 120.dp)
+                                            .aspectRatio(16f / 9f)
+                                            .clip(RoundedCornerShape(10.dp)),
+                                    ) {
+                                        AsyncImage(video.thumbnail, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                                        Box(
+                                            Modifier.fillMaxSize().background(
+                                                Brush.verticalGradient(
+                                                    listOf(Color.Transparent, Color.Black.copy(.82f)),
+                                                ),
                                             ),
-                                        ),
-                                    )
-                                    if (episodeWatchState(progress) == EpisodeWatchState.Watched) {
-                                        Icon(
-                                            Icons.Rounded.CheckCircle,
-                                            null,
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.align(Alignment.TopEnd).padding(5.dp),
                                         )
-                                    }
-                                    if (episodeNumber.isNotBlank()) {
-                                        Surface(
-                                            Modifier.align(Alignment.BottomStart).padding(5.dp),
-                                            color = Color.Black.copy(.7f),
-                                            shape = RoundedCornerShape(5.dp),
-                                        ) {
-                                            Text(
-                                                episodeNumber,
-                                                color = Color.White,
-                                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
-                                                style = MaterialTheme.typography.labelSmall,
+                                        if (watchState == EpisodeWatchState.Watched) {
+                                            Icon(
+                                                Icons.Rounded.CheckCircle,
+                                                null,
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.align(Alignment.TopEnd).padding(5.dp),
                                             )
+                                        }
+                                        if (episodeNumber.isNotBlank()) {
+                                            Surface(
+                                                Modifier.align(Alignment.BottomStart).padding(5.dp),
+                                                color = Color.Black.copy(.7f),
+                                                shape = RoundedCornerShape(5.dp),
+                                            ) {
+                                                Text(
+                                                    episodeNumber,
+                                                    color = Color.White,
+                                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                )
+                                            }
+                                        }
+                                    }
+                                    Spacer(Modifier.width(12.dp))
+                                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                        Text(
+                                            video.displayTitle,
+                                            color = Color.White,
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.fillMaxWidth().height(22.dp),
+                                        )
+                                        Box(
+                                            Modifier.fillMaxWidth().height(18.dp),
+                                            contentAlignment = Alignment.CenterStart,
+                                        ) {
+                                            video.released?.let { released ->
+                                                Text(
+                                                    episodeReleaseDateLabel(released) ?: released,
+                                                    color = Color.White.copy(.72f),
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                )
+                                            }
+                                        }
+                                        Box(Modifier.fillMaxWidth().height(34.dp)) {
+                                            (video.overview ?: video.description)?.let {
+                                                Text(
+                                                    it,
+                                                    color = Color.White.copy(.55f),
+                                                    maxLines = 2,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                )
+                                            }
                                         }
                                     }
                                 }
-                                Spacer(Modifier.width(12.dp))
-                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                    Text(
-                                        video.displayTitle,
-                                        color = Color.White,
-                                        fontWeight = FontWeight.Bold,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                    video.released?.let { released ->
-                                        Text(
-                                            episodeReleaseDateLabel(released) ?: released,
-                                            color = Color.White.copy(.72f),
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            style = MaterialTheme.typography.labelSmall,
-                                        )
-                                    }
-                                    (video.overview ?: video.description)?.let {
-                                        Text(
-                                            it,
-                                            color = Color.White.copy(.55f),
-                                            maxLines = 2,
-                                            overflow = TextOverflow.Ellipsis,
-                                            style = MaterialTheme.typography.bodySmall,
-                                        )
-                                    }
-                                    if (episodeWatchState(progress) == EpisodeWatchState.InProgress) {
-                                        LinearProgressIndicator(
-                                            { episodeProgressFraction(progress) },
-                                            Modifier.fillMaxWidth().padding(top = 5.dp),
-                                            color = MaterialTheme.colorScheme.primary,
-                                        )
-                                    }
-                                    if (episodeWatchState(progress) == EpisodeWatchState.InProgress) {
-                                        Text(
-                                            "${(episodeProgressFraction(progress) * 100).roundToInt()}%",
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            style = MaterialTheme.typography.labelSmall,
-                                        )
-                                    }
-                                }
+                                LinearProgressIndicator(
+                                    {
+                                        if (watchState == EpisodeWatchState.Watched) 1f
+                                        else episodeProgressFraction(progress)
+                                    },
+                                    Modifier.fillMaxWidth().height(4.dp),
+                                    color = MaterialTheme.colorScheme.primary,
+                                    trackColor = Color.White.copy(.16f),
+                                )
                             }
                         }
                     }
