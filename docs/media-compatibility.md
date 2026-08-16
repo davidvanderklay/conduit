@@ -28,6 +28,24 @@ for example, `CONDUIT_MPV_HWDEC=vaapi-copy` tests VA-API without automatic
 fallback to other APIs. These variables are intended for troubleshooting and
 do not alter the saved hardware-acceleration preference.
 
+## Android mobile fallback
+
+Android keeps Media3 as its default playback engine and can retry a stream with
+the bundled libmpv adapter when Media3 reports a playback error or does not
+render a first frame within the bounded startup timeout. The fallback reuses
+the direct source URL, request headers, external subtitle URLs, and the latest
+known playback position. It does not proxy or transcode the source.
+
+Android playback settings expose `Automatic`, `Media3`, and experimental
+`libmpv` modes. Automatic fallback is limited to one libmpv attempt per
+playback attempt and never loops between engines. The active engine and
+fallback reason are included in playback diagnostics and combined errors.
+
+Android libmpv is currently supplied by the pinned
+`io.github.abdallahmehiz:mpv-android-lib:0.1.12` artifact. Its native bundle
+and transitive media-library notices must be reviewed before a release that
+ships the fallback to users. See `THIRD_PARTY_NOTICES.md` for provenance.
+
 ## Hosted web app
 
 The web player uses the browser media APIs and hls.js. Codec, container, audio,

@@ -17,11 +17,11 @@ import androidx.activity.SystemBarStyle
 import android.graphics.Color
 import androidx.activity.compose.setContent
 import media.conduit.mobile.account.MobileOAuthCallbacks
-import androidx.media3.common.Player
 import java.lang.ref.WeakReference
 
 class MainActivity : ComponentActivity() {
-    private var pipPlayer: Player? = null
+    private var pipIsPlaying: (() -> Boolean)? = null
+    private var pipTogglePlayback: (() -> Unit)? = null
     private var pipSourceView = WeakReference<View>(null)
     private var pipActive = false
     private var pipVideoReady = false
@@ -43,7 +43,7 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         if (intent.action == ACTION_TOGGLE_PLAYBACK) {
-            pipPlayer?.let { player -> if (player.isPlaying) player.pause() else player.play() }
+            pipTogglePlayback?.invoke()
             updateConduitPictureInPictureParams()
             return
         }
@@ -52,7 +52,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S && pipActive && pipPlayer?.isPlaying == true) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S && pipActive && pipIsPlaying?.invoke() == true) {
             enterConduitPictureInPicture()
         }
     }
@@ -65,20 +65,22 @@ class MainActivity : ComponentActivity() {
         onPipModeChanged?.invoke(isInPictureInPictureMode)
     }
 
-    internal fun attachConduitPipPlayer(
-        player: Player,
+    internal fun attachConduitPipSession(
+        isPlaying: () -> Boolean,
+        togglePlayback: () -> Unit,
         onModeChanged: (Boolean) -> Unit,
     ) {
-        pipPlayer = player
+        pipIsPlaying = isPlaying
+        pipTogglePlayback = togglePlayback
         onPipModeChanged = onModeChanged
         pipActive = true
         pipVideoReady = false
         updateConduitPictureInPictureParams()
     }
 
-    internal fun detachConduitPipPlayer(player: Player) {
-        if (pipPlayer !== player) return
-        pipPlayer = null
+    internal fun detachConduitPipSession() {
+        pipIsPlaying = null
+        pipTogglePlayback = null
         onPipModeChanged = null
         pipSourceView.clear()
         pipActive = false
@@ -117,7 +119,7 @@ class MainActivity : ComponentActivity() {
             .setActions(listOf(playPauseAction()))
         sourceRect?.let(builder::setSourceRectHint)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            builder.setAutoEnterEnabled(pipVideoReady && pipPlayer?.isPlaying == true)
+            builder.setAutoEnterEnabled(pipVideoReady && pipIsPlaying?.invoke() == true)
             builder.setSeamlessResizeEnabled(true)
         }
         setPictureInPictureParams(builder.build())
@@ -134,8 +136,16 @@ class MainActivity : ComponentActivity() {
         enterPictureInPictureMode(builder.build())
     }
 
+    /** Android has no direct exit-PiP API; foregrounding this singleTask activity exits it. */
+    internal fun exitConduitPictureInPicture() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || !isInPictureInPictureMode) return
+        startActivity(
+            Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT),
+        )
+    }
+
     private fun playPauseAction(): RemoteAction {
-        val playing = pipPlayer?.isPlaying == true
+        val playing = pipIsPlaying?.invoke() == true
         val intent = Intent(this, MainActivity::class.java).apply { action = ACTION_TOGGLE_PLAYBACK }
         val pendingIntent = PendingIntent.getActivity(
             this,

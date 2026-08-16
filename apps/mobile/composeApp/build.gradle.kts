@@ -63,6 +63,7 @@ kotlin {
             implementation("androidx.media3:media3-exoplayer-dash:1.10.1")
             implementation("androidx.media3:media3-exoplayer-smoothstreaming:1.10.1")
             implementation("androidx.media3:media3-ui:1.10.1")
+            implementation("io.github.abdallahmehiz:mpv-android-lib:0.1.12")
             implementation("io.ktor:ktor-client-okhttp:3.5.1")
         }
         androidInstrumentedTest.dependencies {
@@ -102,6 +103,9 @@ android {
         versionCode = providers.environmentVariable("CONDUIT_VERSION_CODE").orNull?.toIntOrNull() ?: 1
         versionName = providers.environmentVariable("CONDUIT_VERSION_NAME").orNull ?: "0.1.0-spike"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        ndk {
+            abiFilters += setOf("arm64-v8a", "x86_64")
+        }
     }
     buildTypes.getByName("release") {
         releaseSigning?.let { signingConfig = it }

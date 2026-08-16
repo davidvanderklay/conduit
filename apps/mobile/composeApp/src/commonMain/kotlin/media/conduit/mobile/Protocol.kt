@@ -95,4 +95,6 @@ data class PlaybackState(
     val ended: Boolean = false,
     val error: String? = null,
     val pipReady: Boolean = false,
+    val engine: NativePlaybackEngine = NativePlaybackEngine.Media3,
+    val fallbackReason: String? = null,
 )

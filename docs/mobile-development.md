@@ -67,8 +67,8 @@ name. The product bundle identifier on both platforms is
 `media.conduit.mobile`.
 
 The shared app uses Kotlin 2.3.0, Compose Multiplatform 1.10.0, Android Gradle
-Plugin 8.10.1, and Ktor 3.5.1. Android playback uses Media3 1.10.1. iOS
-playback uses the pinned MPVKit revision in
+Plugin 8.10.1, and Ktor 3.5.1. Android playback uses Media3 1.10.1 with an
+experimental libmpv fallback. iOS playback uses the pinned MPVKit revision in
 `apps/mobile/iosApp/project.yml`.
 
 ## Platform-neutral checks
