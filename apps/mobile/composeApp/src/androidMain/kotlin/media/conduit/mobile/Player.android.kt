@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.os.SystemClock
+import android.util.Log
 import android.widget.Toast
 import androidx.annotation.OptIn
 import androidx.compose.runtime.*
@@ -565,6 +566,13 @@ actual fun NativePlayer(
     }
 
     val holdToSpeedReady = firstFrameRendered && durationMs > 0
+    val temporarySpeedChanged: (Boolean) -> Unit = { activeSpeed ->
+        Log.d(
+            "ConduitPlayer",
+            "temporary speed active=$activeSpeed ready=$holdToSpeedReady firstFrame=$firstFrameRendered durationMs=$durationMs",
+        )
+        latestTemporarySpeedCallback(activeSpeed)
+    }
     val doubleTapSlopPx = with(LocalDensity.current) { 48.dp.toPx() }
     val currentSpeed: () -> Float = { if (activeEngine == NativePlaybackEngine.Media3) player.playbackParameters.speed else mpvView?.playbackSpeed() ?: playbackSpeed }
     val setPlaybackSpeed: (Float) -> Unit = { speed -> if (activeEngine == NativePlaybackEngine.Media3) player.setPlaybackSpeed(speed) else mpvView?.setPlaybackSpeed(speed) }
@@ -582,24 +590,7 @@ actual fun NativePlayer(
     Box(modifier.background(Color.Black).pointerInput(player, activeEngine, resizeMode) { detectTransformGestures { _, _, zoom, _ ->
         val next = when { zoom > 1.04f -> ANDROID_RESIZE_MODE_ZOOM; zoom < .96f -> AspectRatioFrameLayout.RESIZE_MODE_FIT; else -> resizeMode }
         if (next != resizeMode) resizeMode = next
-    } }.pointerInput(player, activeEngine, touchGestures, holdToSpeed, holdToSpeedReady, controlsVisible) {
-        if (!controlsVisible) {
-            detectMovementTolerantPlayerGestures(
-                touchGestures = touchGestures,
-                holdToSpeed = holdToSpeed,
-                holdToSpeedReady = holdToSpeedReady,
-                doubleTapSlopPx = doubleTapSlopPx,
-                currentSpeed = currentSpeed,
-                setSpeed = setPlaybackSpeed,
-                onTemporarySpeedChanged = latestTemporarySpeedCallback,
-                onTap = { controlsVisible = true },
-                onDoubleTap = { offset ->
-                    seekBy(if (offset.x < size.width / 2f) -10_000L else 10_000L)
-                    controlsVisible = true
-                },
-            )
-        }
-    }) {
+    } }) {
         if (activeEngine == NativePlaybackEngine.Libmpv) {
             AndroidView(
                 factory = { viewContext ->
@@ -637,26 +628,32 @@ actual fun NativePlayer(
                 modifier = Modifier.fillMaxSize(),
             )
         }
+        // Keep the gesture recognizer in a Compose layer above SurfaceView. A
+        // SurfaceView can consume the initial down event before a parent
+        // pointerInput modifier sees it, which breaks hold-to-speed on Android.
+        // The visible controls are a later sibling, so their clicks still win.
+        Box(
+            Modifier
+                .fillMaxSize()
+                .pointerInput(player, activeEngine, touchGestures, holdToSpeed, holdToSpeedReady) {
+                    detectMovementTolerantPlayerGestures(
+                        touchGestures = touchGestures,
+                        holdToSpeed = holdToSpeed,
+                        holdToSpeedReady = holdToSpeedReady,
+                        doubleTapSlopPx = doubleTapSlopPx,
+                        currentSpeed = currentSpeed,
+                        setSpeed = setPlaybackSpeed,
+                        onTemporarySpeedChanged = temporarySpeedChanged,
+                        onTap = { controlsVisible = !controlsVisible },
+                        onDoubleTap = { offset ->
+                            seekBy(if (offset.x < size.width / 2f) -10_000L else 10_000L)
+                            controlsVisible = true
+                        },
+                    )
+                },
+        )
         if (controlsVisible && presentation == PlaybackPresentation.FullScreen) {
-            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .42f)).pointerInput(player, activeEngine, resizeMode) { detectTransformGestures { _, _, zoom, _ ->
-                val next = when { zoom > 1.04f -> ANDROID_RESIZE_MODE_ZOOM; zoom < .96f -> AspectRatioFrameLayout.RESIZE_MODE_FIT; else -> resizeMode }
-                if (next != resizeMode) resizeMode = next
-            } }.pointerInput(player, activeEngine, touchGestures, holdToSpeed, holdToSpeedReady) {
-                detectMovementTolerantPlayerGestures(
-                    touchGestures = touchGestures,
-                    holdToSpeed = holdToSpeed,
-                    holdToSpeedReady = holdToSpeedReady,
-                    doubleTapSlopPx = doubleTapSlopPx,
-                    currentSpeed = currentSpeed,
-                    setSpeed = setPlaybackSpeed,
-                    onTemporarySpeedChanged = latestTemporarySpeedCallback,
-                    onTap = { controlsVisible = false },
-                    onDoubleTap = { offset ->
-                        seekBy(if (offset.x < size.width / 2f) -10_000L else 10_000L)
-                        controlsVisible = true
-                    },
-                )
-            }) {
+            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .42f))) {
                 val portraitLayout = !landscape
                 val timelineAvailable = durationMs > 0
                 Box(Modifier.fillMaxSize()) {
@@ -759,8 +756,8 @@ actual fun NativePlayer(
                             resizeMode = nextAndroidResizeMode(resizeMode)
                             controlsVisible = true
                         }
-                        PlayerBottomAction(Icons.Rounded.Headphones, "Audio", landscape) { trackPanel = C.TRACK_TYPE_AUDIO; controlsVisible = true }
-                        PlayerBottomAction(Icons.Rounded.Subtitles, "Subtitles", landscape) { trackPanel = C.TRACK_TYPE_TEXT; controlsVisible = true }
+                        PlayerBottomAction(Icons.Rounded.Headphones, "Audio", landscape) { trackPanel = C.TRACK_TYPE_AUDIO; controlsVisible = false }
+                        PlayerBottomAction(Icons.Rounded.Subtitles, "Subtitles", landscape) { trackPanel = C.TRACK_TYPE_TEXT; controlsVisible = false }
                         if (hasEpisodes) PlayerBottomAction(Icons.Rounded.PlaylistPlay, "Episodes", landscape, onClick = onEpisodes)
                     }
                 }
@@ -774,6 +771,7 @@ actual fun NativePlayer(
                         view = it,
                         type = type,
                         revision = mpvTrackRevision,
+                        preferredSubtitleLanguage = preferredSubtitleLanguage,
                         onSubtitleSelectionChanged = { id, language, label, enabled ->
                             selectedSubtitleId = id
                             selectedSubtitleLanguage = language
