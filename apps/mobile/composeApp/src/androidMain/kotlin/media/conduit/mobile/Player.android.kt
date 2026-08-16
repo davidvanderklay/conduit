@@ -57,7 +57,7 @@ import kotlinx.coroutines.delay
 import media.conduit.mobile.account.SubtitleItem
 import android.net.Uri
 
-private const val ANDROID_RESIZE_MODE_ZOOM = -1
+internal const val ANDROID_RESIZE_MODE_ZOOM = -1
 
 @Composable
 actual fun PlayerOrientationLock(active: Boolean) {
@@ -111,7 +111,7 @@ actual fun NativePlayer(
     val latestTemporarySpeedCallback by rememberUpdatedState(onTemporarySpeedChanged)
     val latestPipCallback by rememberUpdatedState(onSystemPipChanged)
     val latestPipAvailabilityCallback by rememberUpdatedState(onSystemPipAvailabilityChanged)
-    val player = remember(url, requestHeaders, subtitles) {
+    fun createMedia3Player(): ExoPlayer {
         val http = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
             .setUserAgent("conduit Mobile")
@@ -119,6 +119,7 @@ actual fun NativePlayer(
         val renderers = DefaultRenderersFactory(context).setEnableDecoderFallback(true)
         ExoPlayer.Builder(context, renderers).setMediaSourceFactory(DefaultMediaSourceFactory(http)).build()
     }
+    var player by remember(url, requestHeaders, subtitles) { mutableStateOf(createMedia3Player()) }
     var activeEngine by remember(url, requestHeaders, subtitles, androidPlaybackEngine) {
         mutableStateOf(
             if (androidPlaybackEngine == AndroidPlaybackEngine.Libmpv) {
@@ -131,6 +132,7 @@ actual fun NativePlayer(
     var fallbackAttempted by remember(url, requestHeaders, subtitles, androidPlaybackEngine) { mutableStateOf(false) }
     var fallbackReason by remember(url, requestHeaders, subtitles, androidPlaybackEngine) { mutableStateOf<String?>(null) }
     var fallbackStartPositionMs by remember(url, requestHeaders, subtitles, androidPlaybackEngine) { mutableLongStateOf(0L) }
+    var media3StartPositionMs by remember(url, requestHeaders, subtitles, androidPlaybackEngine) { mutableLongStateOf(startPositionMs) }
     var fallbackPlaybackSpeed by remember(url, requestHeaders, subtitles, androidPlaybackEngine) { mutableFloatStateOf(1f) }
     var fallbackPlayWhenReady by remember(url, requestHeaders, subtitles, androidPlaybackEngine) { mutableStateOf(true) }
     var mpvView by remember(url, requestHeaders, subtitles, activeEngine) { mutableStateOf<ConduitMpvView?>(null) }
@@ -151,32 +153,50 @@ actual fun NativePlayer(
     var trackPanel by remember { mutableStateOf<Int?>(null) }
     var tracksRevision by remember { mutableIntStateOf(0) }
     var trackFallback by remember(player) { mutableStateOf<androidx.media3.common.TrackSelectionParameters?>(null) }
+    var selectedSubtitleId by remember(player) { mutableStateOf<String?>(null) }
+    var subtitlesEnabled by remember(player) { mutableStateOf(true) }
     var lastTrackChangeAt by remember(player) { mutableLongStateOf(0L) }
     var autoAudioSelection by remember(player) { mutableStateOf<String?>(null) }
     var resizeMode by remember(player) { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
     var showRemainingTime by remember(player) { mutableStateOf(false) }
     val preferredAudioCode = remember(preferredAudioLanguage) { audioLanguageCode(preferredAudioLanguage) }
+    var playerReleased by remember(player) { mutableStateOf(false) }
 
     DisposableEffect(player) {
-        onDispose { player.release() }
+        onDispose {
+            if (!playerReleased) player.release()
+        }
+    }
+
+    fun releaseMedia3Player() {
+        if (!playerReleased) {
+            player.release()
+            playerReleased = true
+        }
     }
 
     fun fallbackToLibmpv(reason: String) {
-        if (!canFallbackToLibmpv(androidPlaybackEngine, activeEngine, fallbackAttempted)) {
+        val transition = beginLibmpvFallback(
+            PlaybackEngineSession(androidPlaybackEngine, activeEngine, fallbackAttempted, fallbackReason),
+            reason,
+        )
+        if (transition == null) {
             player.pause()
             playbackError = reason
             return
         }
-        fallbackAttempted = true
-        fallbackReason = reason.take(240)
-        fallbackStartPositionMs = fallbackPositionMs(player.currentPosition, startPositionMs)
+        fallbackAttempted = transition.fallbackAttempted
+        fallbackReason = transition.fallbackReason
+        fallbackStartPositionMs = fallbackPositionMs(player.currentPosition, media3StartPositionMs)
+        media3StartPositionMs = fallbackStartPositionMs
         fallbackPlaybackSpeed = player.playbackParameters.speed
         fallbackPlayWhenReady = player.playWhenReady
-        player.pause()
+        (activity as? MainActivity)?.exitConduitPictureInPicture()
+        releaseMedia3Player()
         playbackError = null
         initialLoadComplete = false
         firstFrameRendered = false
-        activeEngine = NativePlaybackEngine.Libmpv
+        activeEngine = transition.activeEngine
     }
 
     DisposableEffect(player, url, activeEngine) {
@@ -200,12 +220,23 @@ actual fun NativePlayer(
                     androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FAILED,
                     androidx.media3.common.PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
                     -> "This device cannot decode this stream's video format. Try a 1080p H.264/AVC stream or a physical device with HEVC support."
-                    else -> error.cause?.message ?: error.message
+                    else -> error.cause?.message ?: error.message ?: "Media3 could not play this stream."
                 }
                 fallbackToLibmpv(message)
             }
             override fun onTracksChanged(tracks: Tracks) {
                 tracksRevision++
+                tracks.groups
+                    .filter { it.type == C.TRACK_TYPE_TEXT }
+                    .flatMap { group -> (0 until group.length).map { index -> group.getTrackFormat(index) to group.isTrackSelected(index) } }
+                    .firstOrNull { (_, selected) -> selected }
+                    ?.first
+                    ?.id
+                    ?.takeIf { id -> subtitles.any { subtitleSelectionKey(it) == id } }
+                    ?.let { id ->
+                        selectedSubtitleId = id
+                        subtitlesEnabled = true
+                    }
                 val audio = tracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
                 if (audio.isNotEmpty() && audio.none { group -> (0 until group.length).any(group::isTrackSupported) }) {
                     fallbackToLibmpv("Media3 could not decode any audio track in this stream.")
@@ -227,7 +258,7 @@ actual fun NativePlayer(
                     resumed = true
                     initialLoadComplete = true
                     val duration = player.duration.coerceAtLeast(0)
-                    if (startPositionMs > 0 && startPositionMs < duration - 5_000) player.seekTo(startPositionMs)
+                    if (media3StartPositionMs > 0 && media3StartPositionMs < duration - 5_000) player.seekTo(media3StartPositionMs)
                 }
             }
             override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -253,22 +284,31 @@ actual fun NativePlayer(
                     val lower = subtitle.url.substringBefore('?').lowercase()
                     val mime = when { lower.endsWith(".vtt") -> MimeTypes.TEXT_VTT; lower.endsWith(".ass") || lower.endsWith(".ssa") -> MimeTypes.TEXT_SSA; lower.endsWith(".ttml") || lower.endsWith(".xml") -> MimeTypes.APPLICATION_TTML; else -> MimeTypes.APPLICATION_SUBRIP }
                     val language = subtitle.lang?.let { java.util.Locale.forLanguageTag(it.replace('_', '-')).displayLanguage } ?: "Subtitle"
-                    MediaItem.SubtitleConfiguration.Builder(Uri.parse(subtitle.url)).setMimeType(mime).setLanguage(subtitle.lang).setLabel("$language · ${subtitle.addonName ?: "Add-on"}").build()
+                    MediaItem.SubtitleConfiguration.Builder(Uri.parse(subtitle.url))
+                        .setId(subtitleSelectionKey(subtitle))
+                        .setMimeType(mime)
+                        .setLanguage(subtitle.lang)
+                        .setLabel("$language · ${subtitle.addonName ?: "Add-on"}")
+                        .build()
                 })
             }.build()
             player.setMediaItem(item)
             preferredAudioCode?.let { code -> player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().setPreferredAudioLanguages(code).build() }
+            player.setPlaybackSpeed(fallbackPlaybackSpeed)
             player.prepare()
-            player.playWhenReady = active
+            player.playWhenReady = active && fallbackPlayWhenReady
         }
         onDispose {
             player.removeListener(listener)
         }
     }
-    LaunchedEffect(player, url, activeEngine, androidPlaybackEngine) {
+    LaunchedEffect(player, url, activeEngine, androidPlaybackEngine, firstFrameRendered, fallbackAttempted) {
         if (activeEngine != NativePlaybackEngine.Media3 || androidPlaybackEngine != AndroidPlaybackEngine.Automatic || url.isNullOrBlank()) return@LaunchedEffect
+        if (firstFrameRendered || fallbackAttempted) return@LaunchedEffect
         delay(AndroidPlaybackStartupTimeoutMs)
-        if (!firstFrameRendered && !fallbackAttempted && activeEngine == NativePlaybackEngine.Media3) {
+        if (activeEngine == NativePlaybackEngine.Media3 &&
+            shouldFallbackAfterStartup(AndroidPlaybackStartupTimeoutMs, firstFrameRendered, fallbackAttempted)
+        ) {
             fallbackToLibmpv("Media3 did not render a first frame within 10 seconds.")
         }
     }
@@ -316,11 +356,13 @@ actual fun NativePlayer(
             preferredAudioLanguage = preferredAudioLanguage,
             preferredSubtitleLanguage = preferredSubtitleLanguage,
             playbackSpeed = fallbackPlaybackSpeed,
+            selectedSubtitleId = selectedSubtitleId,
+            subtitlesEnabled = subtitlesEnabled,
         )
     }
     LaunchedEffect(activeEngine, active, mpvView) {
         if (activeEngine == NativePlaybackEngine.Media3) {
-            if (active) player.play() else player.pause()
+            if (active && fallbackPlayWhenReady) player.play() else player.pause()
         } else {
             mpvView?.setPaused(!(active && (fallbackReason == null || fallbackPlayWhenReady)))
         }
@@ -334,7 +376,7 @@ actual fun NativePlayer(
                     firstFrameRendered = mpvSnapshot.firstFrameRendered
                     initialLoadComplete = !mpvSnapshot.loading
                     playbackError = mpvSnapshot.error?.let { error ->
-                        if (fallbackReason != null) "Media3 failed: ${fallbackReason}\nlibmpv failed: $error" else error
+                        combinedPlaybackError(fallbackReason, error)
                     }
                     PlaybackState(
                         loading = mpvSnapshot.loading,
@@ -346,7 +388,14 @@ actual fun NativePlayer(
                         videoHeight = mpvSnapshot.videoHeight,
                         ended = mpvSnapshot.ended,
                         error = playbackError,
-                        pipReady = landscape && mpvSnapshot.firstFrameRendered && mpvSnapshot.durationMs > 0 && mpvSnapshot.error == null,
+                        pipReady = landscape &&
+                            !mpvSnapshot.loading &&
+                            !mpvSnapshot.buffering &&
+                            mpvSnapshot.firstFrameRendered &&
+                            mpvSnapshot.videoWidth > 0 &&
+                            mpvSnapshot.videoHeight > 0 &&
+                            mpvSnapshot.durationMs > 0 &&
+                            mpvSnapshot.error == null,
                         engine = NativePlaybackEngine.Libmpv,
                         fallbackReason = fallbackReason,
                     )
@@ -355,6 +404,8 @@ actual fun NativePlayer(
                     val playerPipReady = landscape &&
                         initialLoadComplete &&
                         firstFrameRendered &&
+                        player.videoSize.width > 0 &&
+                        player.videoSize.height > 0 &&
                         player.duration > 0 &&
                         playbackError == null
                     PlaybackState(
@@ -385,6 +436,27 @@ actual fun NativePlayer(
             }
         }
     }
+
+    fun retryAutomaticFromLibmpv() {
+        val view = mpvView ?: return
+        val transition = retryPlaybackEngine(
+            PlaybackEngineSession(androidPlaybackEngine, activeEngine, fallbackAttempted, fallbackReason),
+        )
+        if (transition.activeEngine != NativePlaybackEngine.Media3) return
+        val snapshot = view.snapshot()
+        media3StartPositionMs = snapshot.positionMs
+        fallbackStartPositionMs = snapshot.positionMs
+        fallbackPlaybackSpeed = view.playbackSpeed()
+        fallbackPlayWhenReady = true
+        fallbackAttempted = transition.fallbackAttempted
+        fallbackReason = transition.fallbackReason
+        playbackError = null
+        initialLoadComplete = false
+        firstFrameRendered = false
+        player = createMedia3Player()
+        activeEngine = NativePlaybackEngine.Media3
+    }
+
     LaunchedEffect(player, command?.sequence, activeEngine) {
         when (val next = command?.command) {
             PlaybackCommand.Play -> if (activeEngine == NativePlaybackEngine.Media3) player.play() else mpvView?.setPaused(false)
@@ -397,9 +469,14 @@ actual fun NativePlayer(
                 firstFrameRendered = false
                 if (activeEngine == NativePlaybackEngine.Media3) {
                     player.prepare()
-                    player.play()
+                    if (fallbackPlayWhenReady) player.play() else player.pause()
                 } else {
-                    mpvView?.retry()
+                    val session = PlaybackEngineSession(androidPlaybackEngine, activeEngine, fallbackAttempted, fallbackReason)
+                    if (retryPlaybackEngine(session).activeEngine == NativePlaybackEngine.Media3) {
+                        retryAutomaticFromLibmpv()
+                    } else {
+                        mpvView?.retry()
+                    }
                 }
             }
             null -> Unit
@@ -612,7 +689,16 @@ actual fun NativePlayer(
                 mpvView?.let { MpvTrackPanel(it, type, mpvTrackRevision, onDismiss = { trackPanel = null }) }
             } else {
                 @Suppress("UNUSED_EXPRESSION") tracksRevision
-                PlayerTrackPanel(player, type, onBeforeSelection = { trackFallback = player.trackSelectionParameters; lastTrackChangeAt = SystemClock.elapsedRealtime() }, onDismiss = { trackPanel = null })
+                PlayerTrackPanel(
+                    player = player,
+                    type = type,
+                    onBeforeSelection = { trackFallback = player.trackSelectionParameters; lastTrackChangeAt = SystemClock.elapsedRealtime() },
+                    onSubtitleSelectionChanged = { id, enabled ->
+                        selectedSubtitleId = id
+                        subtitlesEnabled = enabled
+                    },
+                    onDismiss = { trackPanel = null },
+                )
             }
         }
     }
@@ -694,7 +780,13 @@ private fun androidResizeModeLabel(mode: Int): String = when (mode) {
 }
 
 @Composable
-private fun BoxScope.PlayerTrackPanel(player: ExoPlayer, type: Int, onBeforeSelection: () -> Unit, onDismiss: () -> Unit) {
+private fun BoxScope.PlayerTrackPanel(
+    player: ExoPlayer,
+    type: Int,
+    onBeforeSelection: () -> Unit,
+    onSubtitleSelectionChanged: (String?, Boolean) -> Unit,
+    onDismiss: () -> Unit,
+) {
     val groups = player.currentTracks.groups.filter { it.type == type }
     val context = androidx.compose.ui.platform.LocalContext.current
     val options = groups.flatMap { group -> (0 until group.length).map { index -> PlayerTrackOption(group, index) } }
@@ -703,12 +795,13 @@ private fun BoxScope.PlayerTrackPanel(player: ExoPlayer, type: Int, onBeforeSele
     var chosenLanguage by remember(selectedOption?.languageKey) { mutableStateOf(selectedOption?.languageKey ?: options.firstOrNull { it.supported }?.languageKey) }
     fun select(option: PlayerTrackOption, close: Boolean) {
         onBeforeSelection()
+        if (type == C.TRACK_TYPE_TEXT) onSubtitleSelectionChanged(option.trackId, true)
         player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().setTrackTypeDisabled(type, false).clearOverridesOfType(type).addOverride(TrackSelectionOverride(option.group.mediaTrackGroup, option.index)).build()
         chosenLanguage = option.languageKey
         if (close) onDismiss() else subtitlePage = "overview"
     }
     if (type == C.TRACK_TYPE_TEXT) {
-        FullscreenSubtitlePanel(player, options, selectedOption, onBeforeSelection, onDismiss)
+        FullscreenSubtitlePanel(player, options, selectedOption, onBeforeSelection, onSubtitleSelectionChanged, onDismiss)
         return
     }
     Surface(modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight().fillMaxWidth(.48f), color = Color(0xF21A1A1D), shape = RoundedCornerShape(topStart = 28.dp, bottomStart = 28.dp), shadowElevation = 18.dp) {
@@ -762,11 +855,18 @@ private fun BoxScope.PlayerTrackPanel(player: ExoPlayer, type: Int, onBeforeSele
 }
 
 @Composable
-private fun BoxScope.FullscreenSubtitlePanel(player: ExoPlayer, options: List<PlayerTrackOption>, selected: PlayerTrackOption?, onBeforeSelection: () -> Unit, onDismiss: () -> Unit) {
+private fun BoxScope.FullscreenSubtitlePanel(
+    player: ExoPlayer,
+    options: List<PlayerTrackOption>,
+    selected: PlayerTrackOption?,
+    onBeforeSelection: () -> Unit,
+    onSubtitleSelectionChanged: (String?, Boolean) -> Unit,
+    onDismiss: () -> Unit,
+) {
     var language by remember(selected?.languageKey) { mutableStateOf(selected?.languageKey ?: options.firstOrNull { it.supported }?.languageKey) }
     var selectedTrackKey by remember { mutableStateOf(selected?.key) }
     LaunchedEffect(selected?.key) { selectedTrackKey = selected?.key }
-    fun choose(option: PlayerTrackOption) { onBeforeSelection(); language = option.languageKey; selectedTrackKey = option.key; player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false).clearOverridesOfType(C.TRACK_TYPE_TEXT).addOverride(TrackSelectionOverride(option.group.mediaTrackGroup, option.index)).build() }
+    fun choose(option: PlayerTrackOption) { onBeforeSelection(); onSubtitleSelectionChanged(option.trackId, true); language = option.languageKey; selectedTrackKey = option.key; player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false).clearOverridesOfType(C.TRACK_TYPE_TEXT).addOverride(TrackSelectionOverride(option.group.mediaTrackGroup, option.index)).build() }
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val expanded = maxWidth >= 700.dp && maxHeight >= 500.dp
         if (expanded) Box(Modifier.fillMaxSize().background(Color.Black.copy(.52f)).clickable(onClick = onDismiss))
@@ -781,7 +881,7 @@ private fun BoxScope.FullscreenSubtitlePanel(player: ExoPlayer, options: List<Pl
         ) {
           Box {
             Row(Modifier.fillMaxSize().padding(horizontal = 30.dp, vertical = 28.dp), horizontalArrangement = Arrangement.spacedBy(30.dp)) {
-                Column(Modifier.weight(1f)) { Text("Subtitle Languages", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold); Spacer(Modifier.height(18.dp)); LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) { item { PlayerTrackRow("Disabled", selectedTrackKey == null) { selectedTrackKey = null; player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().clearOverridesOfType(C.TRACK_TYPE_TEXT).setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build() } }; options.distinctBy(PlayerTrackOption::languageKey).forEach { option -> item(option.languageKey) { PlayerTrackRow(option.languageName, selectedTrackKey != null && language == option.languageKey, option.supported) { val best = options.firstOrNull { it.languageKey == option.languageKey && it.supported } ?: option; choose(best) } } } } }
+                Column(Modifier.weight(1f)) { Text("Subtitle Languages", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold); Spacer(Modifier.height(18.dp)); LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) { item { PlayerTrackRow("Disabled", selectedTrackKey == null) { selectedTrackKey = null; onSubtitleSelectionChanged(null, false); player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().clearOverridesOfType(C.TRACK_TYPE_TEXT).setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build() } }; options.distinctBy(PlayerTrackOption::languageKey).forEach { option -> item(option.languageKey) { PlayerTrackRow(option.languageName, selectedTrackKey != null && language == option.languageKey, option.supported) { val best = options.firstOrNull { it.languageKey == option.languageKey && it.supported } ?: option; choose(best) } } } } }
                 Column(Modifier.weight(1f)) { Text("Subtitle Variants", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold); Spacer(Modifier.height(18.dp)); LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) { options.filter { it.languageKey == language }.forEach { option -> item(option.key) { PlayerTrackRow(option.variantName, option.key == selectedTrackKey, option.supported) { choose(option) } } } } }
                 Column(Modifier.weight(1f)) { Text("Subtitle Settings", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold); Spacer(Modifier.weight(1f)); Text("Subtitle appearance follows Android system settings. Change it under Accessibility → Caption preferences for consistent styling across apps.", color = Color.White.copy(.72f), style = MaterialTheme.typography.bodyLarge); Spacer(Modifier.weight(1f)) }
             }
@@ -815,6 +915,7 @@ private data class PlayerTrackOption(val group: Tracks.Group, val index: Int) {
     val supported get() = group.isTrackSupported(index)
     val selected get() = group.isTrackSelected(index)
     val key get() = "${group.mediaTrackGroup.id}:$index"
+    val trackId get() = format.id
     private val labelLanguage get() = format.label?.substringBefore('(')?.substringBefore('[')?.trim()?.lowercase()
     val languageKey get() = format.language?.takeIf { it.isNotBlank() }?.substringBefore('-') ?: when (labelLanguage) { "english" -> "en"; "spanish", "español" -> "es"; "german", "deutsch" -> "de"; "arabic", "العربية" -> "ar"; "japanese", "日本語" -> "ja"; "indonesian", "bahasa indonesia" -> "id"; "french", "français" -> "fr"; "italian", "italiano" -> "it"; "portuguese", "português" -> "pt"; else -> labelLanguage ?: "und" }
     val languageName get() = languageKey.takeUnless { it == "und" }?.let { java.util.Locale.forLanguageTag(it).displayLanguage.replaceFirstChar(Char::uppercase) } ?: format.label ?: "Unknown language"

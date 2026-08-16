@@ -136,6 +136,14 @@ class MainActivity : ComponentActivity() {
         enterPictureInPictureMode(builder.build())
     }
 
+    /** Android has no direct exit-PiP API; foregrounding this singleTask activity exits it. */
+    internal fun exitConduitPictureInPicture() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || !isInPictureInPictureMode) return
+        startActivity(
+            Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT),
+        )
+    }
+
     private fun playPauseAction(): RemoteAction {
         val playing = pipIsPlaying?.invoke() == true
         val intent = Intent(this, MainActivity::class.java).apply { action = ACTION_TOGGLE_PLAYBACK }

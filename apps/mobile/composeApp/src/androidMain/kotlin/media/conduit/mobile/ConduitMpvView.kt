@@ -44,7 +44,6 @@ internal class ConduitMpvView(
 ) : BaseMPVView(context, attrs) {
     private var loaded = false
     private var ended = false
-    private var firstFrameRendered = false
     private var errorMessage: String? = null
     private var trackRevision = 0
     private var currentUrl: String? = null
@@ -53,6 +52,8 @@ internal class ConduitMpvView(
     private var currentPreferredAudio = "System default"
     private var currentPreferredSubtitle = "English"
     private var currentPlaybackSpeed = 1f
+    private var currentSelectedSubtitleId: String? = null
+    private var currentSubtitlesEnabled = true
 
     override fun initOptions() {
         setVo("gpu")
@@ -114,7 +115,6 @@ internal class ConduitMpvView(
                     MPV.mpvEvent.MPV_EVENT_START_FILE -> {
                         loaded = false
                         ended = false
-                        firstFrameRendered = false
                         errorMessage = null
                     }
                     MPV.mpvEvent.MPV_EVENT_FILE_LOADED -> {
@@ -125,7 +125,6 @@ internal class ConduitMpvView(
                     MPV.mpvEvent.MPV_EVENT_PLAYBACK_RESTART,
                     -> {
                         loaded = true
-                        firstFrameRendered = true
                         errorMessage = null
                     }
                     MPV.mpvEvent.MPV_EVENT_END_FILE -> {
@@ -149,6 +148,8 @@ internal class ConduitMpvView(
         preferredAudioLanguage: String,
         preferredSubtitleLanguage: String,
         playbackSpeed: Float = currentPlaybackSpeed,
+        selectedSubtitleId: String? = currentSelectedSubtitleId,
+        subtitlesEnabled: Boolean = currentSubtitlesEnabled,
     ) {
         if (!mpv.isInitialized()) {
             errorMessage = "libmpv could not be initialized on this device."
@@ -160,9 +161,10 @@ internal class ConduitMpvView(
         currentPreferredAudio = preferredAudioLanguage
         currentPreferredSubtitle = preferredSubtitleLanguage
         currentPlaybackSpeed = playbackSpeed.coerceIn(0.25f, 4f)
+        currentSelectedSubtitleId = selectedSubtitleId
+        currentSubtitlesEnabled = subtitlesEnabled
         loaded = false
         ended = false
-        firstFrameRendered = false
         errorMessage = null
         applyRequestHeaders(requestHeaders)
         setPreferredLanguages(preferredAudioLanguage, preferredSubtitleLanguage)
@@ -174,9 +176,21 @@ internal class ConduitMpvView(
             emptyArray()
         }
         mpv.command("loadfile", url, "replace", *options)
-        subtitles.forEachIndexed { index, subtitle ->
-            mpv.command("sub-add", subtitle.url, if (index == 0) "select" else "cached")
+        val preferredSubtitleCode = mpvLanguageCode(preferredSubtitleLanguage)
+        val selectedSubtitleIndex = if (subtitlesEnabled) {
+            subtitles.indexOfFirst { subtitle ->
+                subtitleSelectionKey(subtitle) == selectedSubtitleId
+            }.takeIf { it >= 0 } ?: subtitles.indexOfFirst { subtitle ->
+                preferredSubtitleCode != null &&
+                    subtitle.lang?.substringBefore('-')?.substringBefore('_') == preferredSubtitleCode
+            }.takeIf { it >= 0 } ?: subtitles.indices.firstOrNull()
+        } else {
+            null
         }
+        subtitles.forEachIndexed { index, subtitle ->
+            mpv.command("sub-add", subtitle.url, if (index == selectedSubtitleIndex) "select" else "cached")
+        }
+        if (!subtitlesEnabled) mpv.setPropertyString("sid", "no")
         setPaused(!playWhenReady)
     }
 
@@ -191,6 +205,8 @@ internal class ConduitMpvView(
                 preferredAudioLanguage = currentPreferredAudio,
                 preferredSubtitleLanguage = currentPreferredSubtitle,
                 playbackSpeed = playbackSpeed(),
+                selectedSubtitleId = currentSelectedSubtitleId,
+                subtitlesEnabled = currentSubtitlesEnabled,
             )
         }
     }
@@ -296,7 +312,7 @@ internal class ConduitMpvView(
         val height = mpv.getPropertyInt("video-out-params/dh")
             ?: mpv.getPropertyInt("video-params/dh")
             ?: 0
-        val rendered = firstFrameRendered || (loaded && width > 0 && height > 0)
+        val rendered = loaded && width > 0 && height > 0
         val buffering = loaded && !rendered && (pausedForCache || cacheState?.let { it in 0 until 100 } == true)
         return MpvPlaybackSnapshot(
             loading = !loaded || (!rendered && !ended && errorMessage == null),
@@ -369,3 +385,5 @@ private fun mpvLanguageCode(preference: String): String? = when (preference) {
     "Korean" -> "ko"
     else -> null
 }
+
+internal fun subtitleSelectionKey(subtitle: SubtitleItem): String = subtitle.id ?: subtitle.url

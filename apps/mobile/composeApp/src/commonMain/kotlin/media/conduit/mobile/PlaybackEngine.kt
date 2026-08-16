@@ -16,7 +16,52 @@ enum class NativePlaybackEngine {
     Libmpv,
 }
 
+internal data class PlaybackEngineSession(
+    val preference: AndroidPlaybackEngine,
+    val activeEngine: NativePlaybackEngine,
+    val fallbackAttempted: Boolean = false,
+    val fallbackReason: String? = null,
+)
+
 internal const val AndroidPlaybackStartupTimeoutMs = 10_000L
+
+internal fun beginLibmpvFallback(
+    session: PlaybackEngineSession,
+    reason: String,
+): PlaybackEngineSession? {
+    if (!canFallbackToLibmpv(session.preference, session.activeEngine, session.fallbackAttempted)) return null
+    return session.copy(
+        activeEngine = NativePlaybackEngine.Libmpv,
+        fallbackAttempted = true,
+        fallbackReason = reason.take(240),
+    )
+}
+
+internal fun retryPlaybackEngine(session: PlaybackEngineSession): PlaybackEngineSession =
+    if (session.preference == AndroidPlaybackEngine.Automatic &&
+        session.activeEngine == NativePlaybackEngine.Libmpv &&
+        session.fallbackAttempted
+    ) {
+        session.copy(
+            activeEngine = NativePlaybackEngine.Media3,
+            fallbackAttempted = false,
+            fallbackReason = null,
+        )
+    } else {
+        session
+    }
+
+internal fun combinedPlaybackError(fallbackReason: String?, libmpvError: String): String =
+    if (fallbackReason == null) libmpvError
+    else "Media3 failed: $fallbackReason\nlibmpv failed: $libmpvError"
+
+internal fun shouldFallbackAfterStartup(
+    elapsedMs: Long,
+    firstFrameRendered: Boolean,
+    fallbackAttempted: Boolean,
+): Boolean = elapsedMs >= AndroidPlaybackStartupTimeoutMs &&
+    !firstFrameRendered &&
+    !fallbackAttempted
 
 internal fun canFallbackToLibmpv(
     preference: AndroidPlaybackEngine,
