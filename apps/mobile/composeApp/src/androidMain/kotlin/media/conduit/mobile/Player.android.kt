@@ -362,13 +362,13 @@ actual fun NativePlayer(
             mainActivity?.attachConduitPipSession(
                 isPlaying = { player.isPlaying },
                 togglePlayback = { if (player.isPlaying) player.pause() else player.play() },
-                onModeChanged = { latestPipCallback.value(it) },
+                onModeChanged = { latestPipCallback(it) },
             )
         } else if (mpvView != null) {
             mainActivity?.attachConduitPipSession(
                 isPlaying = { mpvView?.snapshot()?.playing == true },
                 togglePlayback = { mpvView?.let { view -> view.setPaused(view.snapshot().playing) } },
-                onModeChanged = { latestPipCallback.value(it) },
+                onModeChanged = { latestPipCallback(it) },
             )
         }
         onDispose { mainActivity?.detachConduitPipSession() }
