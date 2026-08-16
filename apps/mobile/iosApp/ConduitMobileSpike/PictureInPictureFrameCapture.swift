@@ -560,7 +560,7 @@ final class ConduitPictureInPictureFrameCapture {
         onCaptureFailure = handler
     }
 
-    func start() {
+    func start(onReady: (() -> Void)? = nil) {
         shutdownFence.disarm()
         stateLock.lock()
         generation &+= 1
@@ -583,6 +583,7 @@ final class ConduitPictureInPictureFrameCapture {
                 self.isArmed = true
                 self.stateLock.unlock()
                 self.shutdownFence.arm(for: captureGeneration)
+                onReady?()
             }
         }
     }
@@ -678,13 +679,35 @@ final class ConduitPictureInPictureFrameCapture {
         }
     }
 
-    func handlePresentedDrawable(_ drawable: CAMetalDrawable, presentationID: UInt64) {
+    @discardableResult
+    func handlePresentedDrawable(_ drawable: CAMetalDrawable, presentationID: UInt64) -> Bool {
+        handlePresentedTexture(
+            drawable.texture,
+            presentationID: presentationID,
+            sourceLifetime: drawable
+        )
+    }
+
+    @discardableResult
+    func handlePresentedTexture(_ sourceTexture: MTLTexture, presentationID: UInt64) -> Bool {
+        handlePresentedTexture(
+            sourceTexture,
+            presentationID: presentationID,
+            sourceLifetime: nil
+        )
+    }
+
+    private func handlePresentedTexture(
+        _ sourceTexture: MTLTexture,
+        presentationID: UInt64,
+        sourceLifetime: AnyObject?
+    ) -> Bool {
         let clock = clockProvider()
 
         stateLock.lock()
         guard isArmed else {
             stateLock.unlock()
-            return
+            return false
         }
         ConduitPipInstrumentation.event("presented", reason: "drawable")
         let captureGeneration = generation
@@ -692,29 +715,31 @@ final class ConduitPictureInPictureFrameCapture {
             metrics.recordDrop()
             ConduitPipInstrumentation.event("inFlightDrop", reason: "copy already in flight")
             stateLock.unlock()
-            return
+            return false
         }
         captureIdleGroup.enter()
         let captureLifetime = captureLifetimeTracker.begin()
         stateLock.unlock()
 
-        captureQueue.async { [self, captureLifetime] in
+        captureQueue.async { [self, captureLifetime, sourceLifetime] in
+            _ = sourceLifetime
             defer { captureLifetime.release() }
             guard self.isCurrentGeneration(captureGeneration) else {
                 self.finishCapture(for: captureGeneration)
                 return
             }
             self.capture(
-                drawable: drawable,
+                sourceTexture: sourceTexture,
                 presentationID: presentationID,
                 clock: clock,
                 generation: captureGeneration
             )
         }
+        return true
     }
 
     private func capture(
-        drawable: CAMetalDrawable,
+        sourceTexture: MTLTexture,
         presentationID: UInt64,
         clock: ConduitPipPlaybackClockSnapshot,
         generation: UInt64
@@ -751,7 +776,6 @@ final class ConduitPictureInPictureFrameCapture {
         }
         ConduitPipInstrumentation.event("due", reason: "source cadence")
 
-        let sourceTexture = drawable.texture
         guard sourceTexture.width > 1, sourceTexture.height > 1 else {
             failCapture(for: generation, reason: "MPV produced an invalid PiP drawable size")
             return
@@ -1196,13 +1220,15 @@ final class ConduitPictureInPictureFrameCapture {
     }
 
     private static func destinationFormat(for sourceFormat: MTLPixelFormat) -> MTLPixelFormat? {
-        // The pinned MPVKit renderer exposes RGBA16Float. It cannot be
-        // reinterpreted as BGRA8 with a blit, so retain a matching HDR buffer
-        // format and validate the Core Video/Metal allocation below. BGRA
-        // renderers still use the spec's 32BGRA direct-copy path.
+        // Keep the capture buffer in the drawable's native format so the
+        // fast path remains a direct Metal blit. The physical iPhone renderer
+        // uses BGR10A2 for wide-color output even though the layer is
+        // configured for RGBA16Float.
         switch sourceFormat {
         case .rgba16Float:
             return .rgba16Float
+        case .bgr10a2Unorm:
+            return .bgr10a2Unorm
         case .bgra8Unorm, .bgra8Unorm_srgb:
             return sourceFormat
         default:
@@ -1214,6 +1240,8 @@ final class ConduitPictureInPictureFrameCapture {
         switch metalFormat {
         case .rgba16Float:
             return kCVPixelFormatType_64RGBAHalf
+        case .bgr10a2Unorm:
+            return kCVPixelFormatType_ARGB2101010LEPacked
         case .bgra8Unorm, .bgra8Unorm_srgb:
             return kCVPixelFormatType_32BGRA
         default:
