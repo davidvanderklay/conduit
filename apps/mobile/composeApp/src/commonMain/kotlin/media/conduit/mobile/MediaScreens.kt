@@ -637,6 +637,7 @@ internal fun MediaDetailsScreen(
     var streams by remember(item.id) { mutableStateOf<List<StreamSource>?>(null) }
     var streamPageOpen by remember(item.id) { mutableStateOf(false) }
     var streamEpisodesOpen by remember(item.id) { mutableStateOf(false) }
+    var openingPlayback by remember(item.id) { mutableStateOf(false) }
     var streamsLoading by remember(item.id) { mutableStateOf(false) }
     var streamsError by remember(item.id) { mutableStateOf<String?>(null) }
     var selectedStreamAddonId by remember(item.id) { mutableStateOf(preferences.lastStreamAddonId) }
@@ -1060,9 +1061,7 @@ internal fun MediaDetailsScreen(
         val picker = playerStreamPicker ?: return
         if (source.stream.url == null) return
         clearPlayerStreamPickerState()
-        if (selectedVideo?.id != picker.episode.id) {
-            resetPlaybackForVideoChange(saveProgress = false)
-        }
+        resetPlaybackForVideoChange(saveProgress = false)
         selectedVideo = picker.episode
         streamVideoId = picker.episode.id
         currentAddonId = source.addonId
@@ -1071,6 +1070,7 @@ internal fun MediaDetailsScreen(
             picker.episode.id to playbackSourceForStream(source.addonId, source.stream)
         )
         playing = source.stream
+        openingPlayback = true
     }
 
     val orderedVideos = orderedEpisodePickerVideos(
@@ -1156,6 +1156,7 @@ internal fun MediaDetailsScreen(
             minimized = onBack,
             closed = {
                 playing = null
+                openingPlayback = false
                 clearPlayerStreamPickerState()
             },
         )
@@ -1201,6 +1202,7 @@ internal fun MediaDetailsScreen(
             episodes = orderedVideos,
         )
         playbackSession.start(request, callbacks)
+        openingPlayback = false
     }
     SideEffect {
         if (requestIdentity != null && sessionCallbacks != null) playbackSession.attach(requestIdentity, sessionCallbacks)
@@ -1233,7 +1235,7 @@ internal fun MediaDetailsScreen(
             else -> onBack()
         }
     }
-    if (waitingForSavedPlayback) {
+    if (waitingForSavedPlayback || openingPlayback) {
         Box(Modifier.fillMaxSize()) {
             PlayerOpeningOverlay(
                 artwork = meta?.background ?: item.background ?: meta?.poster ?: item.poster,
@@ -1242,7 +1244,11 @@ internal fun MediaDetailsScreen(
                 modifier = Modifier.fillMaxSize(),
             )
             IconButton(
-                onClick = ::cancelAutoResume,
+                onClick = if (waitingForSavedPlayback) {
+                    ::cancelAutoResume
+                } else {
+                    { openingPlayback = false; onBack() }
+                },
                 modifier = Modifier
                     .align(Alignment.TopStart)
                     .statusBarsPadding()
@@ -2265,6 +2271,7 @@ private fun StreamSourceCard(
             Row(verticalAlignment = Alignment.Top) {
                 Text(
                     copy.headline,
+                    color = Color.White,
                     modifier = Modifier.weight(1f),
                     fontWeight = FontWeight.Bold,
                     style = MaterialTheme.typography.titleMedium,
