@@ -179,17 +179,7 @@ internal fun orderedPlayableEpisodes(
 
 internal fun orderedEpisodePickerVideos(
     videos: List<VideoItem>,
-): List<VideoItem> = videos
-    .sortedWith(
-        compareBy<VideoItem> {
-            when (it.season) {
-                0 -> Int.MAX_VALUE - 1
-                null -> Int.MAX_VALUE
-                else -> it.season!!
-            }
-        }
-            .thenBy { it.episode ?: Int.MAX_VALUE },
-    )
+): List<VideoItem> = orderedContinueWatchingEpisodes(videos)
 
 private fun nextIsoDay(day: String): String {
     val year = day.substring(0, 4).toInt()
