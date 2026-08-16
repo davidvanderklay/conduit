@@ -2046,6 +2046,79 @@ private data class StreamAddonChoice(val id: String, val name: String)
 private fun effectiveStreamAddonId(selectedAddonId: String?, choices: List<StreamAddonChoice>): String? =
     selectedAddonId?.takeIf { selectedId -> choices.size > 1 && choices.any { it.id == selectedId } }
 
+private data class StreamCardCopy(val headline: String, val detailLines: List<String>)
+
+private fun StreamItem.streamCardCopy(): StreamCardCopy {
+    val lines = listOfNotNull(name, title, description)
+        .flatMap { value -> value.lineSequence().map { it.trim() }.filter(String::isNotBlank).toList() }
+    val headline = lines.firstOrNull()
+        ?: behaviorHints?.filename?.lineSequence()?.firstOrNull { it.isNotBlank() }?.trim()
+        ?: "Stream"
+    val detailLines = lines
+        .drop(1)
+        .distinct()
+        .ifEmpty {
+            behaviorHints?.filename
+                ?.lineSequence()
+                ?.map { it.trim() }
+                ?.filter(String::isNotBlank)
+                ?.toList()
+                .orEmpty()
+        }
+        .take(8)
+    return StreamCardCopy(headline, detailLines)
+}
+
+private fun streamCardIcon(text: String): ImageVector {
+    val normalized = text.lowercase()
+    return when {
+        normalized.contains("sub") || normalized.contains("dub") -> Icons.Rounded.Description
+        normalized.contains("gb") || normalized.contains("mb") || normalized.contains("mbps") -> Icons.Rounded.Tune
+        normalized.contains("en") || normalized.contains("ja") || normalized.contains("multi") -> Icons.Rounded.Public
+        else -> Icons.Rounded.Info
+    }
+}
+
+private fun streamCardDetailRows(lines: List<String>): List<List<String>> {
+    val rows = mutableListOf<List<String>>()
+    var index = 0
+    while (index < lines.size) {
+        val line = lines[index]
+        val next = lines.getOrNull(index + 1)
+        if (line.length > 34 || next == null || next.length > 34) {
+            rows += listOf(line)
+            index += 1
+        } else {
+            rows += listOf(line, next)
+            index += 2
+        }
+    }
+    return rows
+}
+
+@Composable
+private fun StreamCardDetailLine(text: String, modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Icon(
+            streamCardIcon(text),
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(15.dp),
+        )
+        Text(
+            text,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodySmall,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun StreamSelectionScreen(
@@ -2170,12 +2243,70 @@ private fun StreamSelectionScreen(
                     }
                 }
                 items(streams) { source ->
-                Surface(color = Color.White.copy(alpha = .05f), shape = RoundedCornerShape(12.dp), modifier = Modifier.padding(horizontal = 16.dp).fillMaxWidth().clickable(enabled = source.stream.url != null) { onSelect(source) }) {
-                    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) { Text(source.stream.name ?: source.stream.title ?: "Stream", fontWeight = FontWeight.Bold); source.stream.description?.let { Text(it, maxLines = 2, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant) }; Text(source.addonName, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelSmall) }
-                        Icon(if (source.stream.url != null) Icons.Rounded.PlayArrow else Icons.Rounded.Link, null)
+                    val copy = source.stream.streamCardCopy()
+                    val detailRows = streamCardDetailRows(copy.detailLines)
+                    Surface(
+                        color = Color.White.copy(alpha = .05f),
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, Color.White.copy(alpha = .06f)),
+                        modifier = Modifier
+                            .padding(horizontal = 16.dp)
+                            .fillMaxWidth()
+                            .clickable(enabled = source.stream.url != null) { onSelect(source) },
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(7.dp),
+                        ) {
+                            Row(verticalAlignment = Alignment.Top) {
+                                Text(
+                                    copy.headline,
+                                    modifier = Modifier.weight(1f),
+                                    fontWeight = FontWeight.Bold,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Icon(
+                                    if (source.stream.url != null) Icons.Rounded.PlayArrow else Icons.Rounded.Link,
+                                    contentDescription = if (source.stream.url != null) "Play stream" else "Open stream link",
+                                    tint = MaterialTheme.colorScheme.onSurface,
+                                )
+                            }
+                            detailRows.forEach { row ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                ) {
+                                    row.forEach { line ->
+                                        StreamCardDetailLine(line, Modifier.weight(1f))
+                                    }
+                                    if (row.size == 1) Spacer(Modifier.weight(1f))
+                                }
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                            ) {
+                                Text(
+                                    source.addonName,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                source.stream.fileIdx?.let { fileIndex ->
+                                    Text(
+                                        "File ${fileIndex.toString().trim('"')}",
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        style = MaterialTheme.typography.labelSmall,
+                                    )
+                                }
+                            }
+                        }
                     }
-                }
                 }
             }
         }
