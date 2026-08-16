@@ -10,10 +10,17 @@ import {
 
 const NOW = new Date("2026-07-30T12:00:00Z")
 
-function row(videoId: string, watched: boolean, updatedAt = "2026-07-01T00:00:00Z"): WatchProgress {
+function row(
+  videoId: string,
+  watched: boolean,
+  updatedAt = "2026-07-01T00:00:00Z",
+  season?: number,
+  episode?: number,
+): WatchProgress {
   return {
     videoId, mediaType: "series", mediaId: "show", name: "Show",
-    positionMs: watched ? 1_000 : 500, durationMs: 1_000, watched, updatedAt,
+    season, episode,
+    positionMs: watched ? 1_000 : 1_500, durationMs: 1_000, watched, updatedAt,
   }
 }
 
@@ -41,9 +48,9 @@ describe("series resume selection", () => {
       .toBe("s2e1")
   })
 
-  it("returns no target when fully caught up", () => {
-    expect(selectSeriesVideo(videos, videos.map((video) => row(video.id, true)), undefined, NOW))
-      .toBeUndefined()
+  it("falls back to the first episode when fully caught up", () => {
+    expect(selectSeriesVideo(videos, videos.map((video) => row(video.id, true)), undefined, NOW)?.id)
+      .toBe("s1e1")
   })
 
   it("selects the next unwatched episode after the current episode", () => {
@@ -71,5 +78,64 @@ describe("series resume selection", () => {
       { id: "eligible", season: 1, episode: 3, released: "2026-07-01" },
     ]
     expect(eligibleSeriesVideos(candidates, NOW).map((video) => video.id)).toEqual(["eligible"])
+  })
+
+  it("uses the furthest completed episode instead of the latest timestamp", () => {
+    const episodes: Video[] = [
+      { id: "s1e1", season: 1, episode: 1 },
+      { id: "s1e3", season: 1, episode: 3 },
+      { id: "s1e4", season: 1, episode: 4 },
+    ]
+    expect(selectSeriesVideo(episodes, [
+      row("s1e1", true, "2026-07-03T00:00:00Z"),
+      row("s1e3", true, "2026-07-02T00:00:00Z"),
+    ], undefined, NOW)?.id).toBe("s1e4")
+  })
+
+  it("does not resume stale unfinished progress over a newer completion", () => {
+    const episodes: Video[] = [
+      { id: "s1e1", season: 1, episode: 1 },
+      { id: "s1e2", season: 1, episode: 2 },
+      { id: "s1e3", season: 1, episode: 3 },
+    ]
+    expect(selectSeriesVideo(episodes, [
+      row("s1e1", false, "2026-07-01T00:00:00Z"),
+      row("s1e2", true, "2026-07-02T00:00:00Z"),
+    ], undefined, NOW)?.id).toBe("s1e3")
+  })
+
+  it("uses a valid metadata default before the first regular episode", () => {
+    const episodes: Video[] = [
+      { id: "s1e1", season: 1, episode: 1 },
+      { id: "s1e5", season: 1, episode: 5 },
+    ]
+    expect(selectSeriesVideo(episodes, [], undefined, NOW, "s1e5")?.id).toBe("s1e5")
+  })
+
+  it("matches progress by season and episode when the raw video id changed", () => {
+    const episodes: Video[] = [{ id: "new-id", season: 2, episode: 4 }]
+    expect(selectSeriesVideo(episodes, [
+      row("old-id", false, "2026-07-02T00:00:00Z", 2, 4),
+    ], undefined, NOW)?.id).toBe("new-id")
+  })
+
+  it("prefers canonical coordinates when a raw id points at another episode", () => {
+    const episodes: Video[] = [
+      { id: "old-id", season: 1, episode: 1 },
+      { id: "new-id", season: 2, episode: 4 },
+    ]
+    expect(selectSeriesVideo(episodes, [
+      row("old-id", false, "2026-07-02T00:00:00Z", 2, 4),
+    ], undefined, NOW)?.id).toBe("new-id")
+  })
+
+  it("falls back to the first playable episode when a progress season is missing", () => {
+    const episodes: Video[] = [
+      { id: "s1e1", season: 1, episode: 1 },
+      { id: "s2e1", season: 2, episode: 1 },
+    ]
+    expect(selectSeriesVideo(episodes, [
+      row("missing", false, "2026-07-02T00:00:00Z", 9, 1),
+    ], undefined, NOW)?.id).toBe("s1e1")
   })
 })

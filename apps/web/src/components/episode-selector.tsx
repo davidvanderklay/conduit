@@ -15,6 +15,7 @@ import type { Video } from "../lib/core"
 import {
   displayDate,
   episodeLabel,
+  progressForVideo,
   seasonLabel,
   sortSeasons,
 } from "../lib/metadata"
@@ -33,6 +34,8 @@ export function EpisodeSelector({
   currentVideoId,
   restoreScrollTop,
   focusVideoId,
+  autoPositionVideoId,
+  disableAutoPositioning = false,
   className = "",
   profileId,
   media,
@@ -48,6 +51,8 @@ export function EpisodeSelector({
   currentVideoId?: string
   restoreScrollTop?: number
   focusVideoId?: string
+  autoPositionVideoId?: string
+  disableAutoPositioning?: boolean
   className?: string
   profileId?: string
   media?: WatchActionMedia
@@ -64,6 +69,7 @@ export function EpisodeSelector({
   const [query, setQuery] = useState("")
   const [contextMenu, setContextMenu] = useState<ContextMenuState>()
   const [watchPending, setWatchPending] = useState(false)
+  const positionedKey = useRef<string | undefined>(undefined)
   const activeSeason = season ?? seasons[0] ?? 1
   const episodes = videos
     .filter((video) => (video.season ?? 1) === activeSeason)
@@ -81,13 +87,25 @@ export function EpisodeSelector({
       rail.scrollTop = restoreScrollTop
       return
     }
-    const targetId = focusVideoId ?? currentVideoId
+    const targetId = focusVideoId ?? autoPositionVideoId ?? (
+      disableAutoPositioning ? undefined : currentVideoId
+    )
     if (!targetId) return
+    const targetKind = focusVideoId ? "focus" : autoPositionVideoId ? "auto" : "current"
+    const key = `${targetKind}:${activeSeason}:${targetId}`
+    if (positionedKey.current === key) return
+    const targetVideo = videos.find((video) => video.id === targetId)
+    if (targetVideo?.season == null || targetVideo.episode == null) return
     const episode = [...rail.querySelectorAll<HTMLElement>("[data-video-id]")].find(
       (candidate) => candidate.dataset.videoId === targetId,
     )
-    episode?.scrollIntoView({ block: "center" })
-  }, [activeSeason, currentVideoId, focusVideoId, restoreScrollTop])
+    if (!episode) return
+    const railBounds = rail.getBoundingClientRect()
+    const headerBounds = rail.querySelector<HTMLElement>("[data-episode-selector-header]")?.getBoundingClientRect()
+    const top = Math.max(railBounds.top, headerBounds?.bottom ?? railBounds.top)
+    rail.scrollTop = Math.max(0, rail.scrollTop + episode.getBoundingClientRect().top - top)
+    positionedKey.current = key
+  }, [activeSeason, autoPositionVideoId, currentVideoId, disableAutoPositioning, focusVideoId, restoreScrollTop, videos])
 
   useEffect(() => {
     if (!contextMenu) return
@@ -150,7 +168,7 @@ export function EpisodeSelector({
         aria-label="Episodes"
         onScroll={(event) => onScroll?.(event.currentTarget.scrollTop)}
       >
-      <div className="sticky top-0 z-10 border-b border-white/8 bg-zinc-950/95 p-3 backdrop-blur">
+        <div data-episode-selector-header className="sticky top-0 z-10 border-b border-white/8 bg-zinc-950/95 p-3 backdrop-blur">
         <div className="flex items-center justify-between gap-3">
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
@@ -212,7 +230,7 @@ export function EpisodeSelector({
       )}
       <div className="divide-y divide-white/6 px-2 pb-2">
         {episodes.map((video) => {
-          const itemProgress = progress.find((item) => item.videoId === video.id)
+          const itemProgress = progressForVideo(progress, video, media?.id)
           const state = episodeWatchState(itemProgress)
           const percent = episodeProgressPercent(itemProgress)
           const current = video.id === currentVideoId

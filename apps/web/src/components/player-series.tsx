@@ -46,10 +46,16 @@ export function PlayerEpisodeDrawer({
 }) {
   const current = context?.videos.find((video) => video.id === context.currentVideoId)
   const [season, setSeason] = useState(current?.season ?? 1)
+  const [manualPositioningDisabled, setManualPositioningDisabled] = useState(false)
 
   useEffect(() => {
+    if (open) setManualPositioningDisabled(false)
+  }, [open])
+
+  useEffect(() => {
+    if (manualPositioningDisabled) return
     setSeason(current?.season ?? 1)
-  }, [current?.id, current?.season])
+  }, [current?.id, current?.season, manualPositioningDisabled])
 
   useEffect(() => {
     if (!open) return
@@ -112,8 +118,13 @@ export function PlayerEpisodeDrawer({
         onWatchAction={context.onWatchAction}
         season={season}
         currentVideoId={context.currentVideoId}
+        disableAutoPositioning={manualPositioningDisabled}
         className="h-full flex-1 rounded-l-none"
-        onSeasonChange={setSeason}
+        onSeasonChange={(nextSeason) => {
+          setManualPositioningDisabled(true)
+          setSeason(nextSeason)
+        }}
+        onScroll={() => setManualPositioningDisabled(true)}
         onSelect={(video) => {
           onOpenChange(false)
           onSelect(video)

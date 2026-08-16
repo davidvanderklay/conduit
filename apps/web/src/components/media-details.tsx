@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react"
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   ArrowLeft,
@@ -35,6 +35,7 @@ import {
   displayDate,
   episodeLabel,
   normalizeMetaItem,
+  progressForVideo,
   safeExternalUrl,
   selectSeriesVideo,
   sortSeasons,
@@ -98,6 +99,7 @@ export function MediaDetails({
   const queryClient = useQueryClient()
   const episodeTransition = useRef(0)
   const initialSeriesVideoResolved = useRef(false)
+  const seriesSeasonManuallySelected = useRef(false)
   const episodeRailScrollTop = useRef<number | undefined>(undefined)
   const autoResumeAttemptedKey = useRef<string | undefined>(undefined)
   const autoResumeRequestVersion = useRef(0)
@@ -153,6 +155,25 @@ export function MediaDetails({
         `/v1/profiles/${profileId}/progress?view=status&limit=1000`,
       ).then((result) => result.items),
   })
+  const seriesProgressReady = progress.isSuccess || progress.isError
+  const seriesProgress = [
+    ...(initialProgress && initialProgress.mediaType === item.type && initialProgress.mediaId === item.id
+      ? [initialProgress]
+      : []),
+    ...(progress.data ?? []).filter((entry) =>
+      entry.mediaType === item.type && entry.mediaId === item.id,
+    ),
+  ]
+  const seriesSelectorTarget = useMemo(() => {
+    if (item.type !== "series" || selectedVideoId || !videos.length || !seriesProgressReady) return undefined
+    return selectSeriesVideo(
+      videos,
+      seriesProgress,
+      undefined,
+      undefined,
+      meta.defaultVideoId,
+    )
+  }, [item.type, meta.defaultVideoId, selectedVideoId, seriesProgress, seriesProgressReady, videos])
   const activeProgress = activeVideoId
     ? (initialProgress?.videoId === activeVideoId
         ? initialProgress
@@ -189,15 +210,24 @@ export function MediaDetails({
       !initialVideoId ||
       initialVideoId === item.id ||
       !metadata.isSuccess ||
-      !progress.isSuccess ||
+      (!progress.isSuccess && !progress.isError && !initialProgress) ||
       !videos.length
     )
       return
     initialSeriesVideoResolved.current = true
-    const target = selectSeriesVideo(videos, progress.data ?? [], initialVideoId)
+    const target = selectSeriesVideo(videos, seriesProgress, initialVideoId)
     setSelectedVideoId(target?.id)
     seriesReturnVideoId.current = target?.id
-  }, [initialVideoId, item.type, metadata.isSuccess, progress.data, progress.isSuccess, videos])
+  }, [
+    initialProgress,
+    initialVideoId,
+    item.type,
+    metadata.isSuccess,
+    progress.isError,
+    progress.isSuccess,
+    seriesProgress,
+    videos,
+  ])
 
   useEffect(() => {
     const finishWithoutAutoResume = () => {
@@ -275,10 +305,19 @@ export function MediaDetails({
       setSelectedSeason(selectedVideo.season ?? 1)
       return
     }
-    if (!selectedVideo && selectedSeason == null && videos.length > 0) {
-      setSelectedSeason(sortSeasons(videos.map((video) => video.season ?? 1))[0] ?? 1)
+    if (selectedVideo || videos.length === 0) return
+    const fallbackSeason = sortSeasons(videos.map((video) => video.season ?? 1))[0] ?? 1
+    const returnedVideo = videos.find((video) => video.id === seriesReturnVideoId.current)
+    const targetSeason = seriesProgressReady
+      ? returnedVideo?.season ?? seriesSelectorTarget?.season ?? fallbackSeason
+      : fallbackSeason
+    if (
+      selectedSeason == null ||
+      (seriesProgressReady && !seriesSeasonManuallySelected.current && selectedSeason !== targetSeason)
+    ) {
+      setSelectedSeason(targetSeason)
     }
-  }, [selectedSeason, selectedVideo, videos])
+  }, [selectedSeason, selectedVideo, seriesProgressReady, seriesSelectorTarget, videos])
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow
@@ -413,9 +452,11 @@ export function MediaDetails({
               season={selectedSeason}
               restoreScrollTop={episodeRailScrollTop.current}
               focusVideoId={seriesReturnVideoId.current}
+              autoPositionVideoId={seriesSelectorTarget?.id}
               onSeasonChange={(season) => {
                 episodeRailScrollTop.current = 0
                 seriesReturnVideoId.current = undefined
+                seriesSeasonManuallySelected.current = true
                 setSelectedSeason(season)
               }}
               onScroll={(scrollTop) => {

@@ -25,6 +25,7 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -647,6 +648,11 @@ internal fun MediaDetailsScreen(
     var externalSubtitles by remember(item.id) { mutableStateOf<List<SubtitleItem>>(emptyList()) }
     var externalSubtitlesLoaded by remember(item.id) { mutableStateOf(false) }
     var selectedSeason by remember(item.id) { mutableStateOf<Int?>(null) }
+    var detailsSeasonManuallySelected by remember(item.id) { mutableStateOf(false) }
+    var detailsEpisodeAutoPositioned by remember(item.id) { mutableStateOf(false) }
+    var detailsEpisodePositionedWithoutSnapshot by remember(item.id) { mutableStateOf(false) }
+    var detailsEpisodeManualInteraction by remember(item.id) { mutableStateOf(false) }
+    var detailsEpisodeAutoPositioning by remember(item.id) { mutableStateOf(false) }
     var autoResumeAttemptedKey by remember(item.id) { mutableStateOf<String?>(null) }
     var selectedPlaybackSources by remember(item.id) { mutableStateOf<Map<String, PlaybackSource>>(emptyMap()) }
     var streamSelectionReturnsHome by remember(item.id) { mutableStateOf(returnToHomeOnStreamBack) }
@@ -672,10 +678,17 @@ internal fun MediaDetailsScreen(
         )
     }
     val detailsSeasonListState = rememberLazyListState()
+    val detailsEpisodeListState = key(item.id) { rememberLazyListState() }
     val scope = rememberCoroutineScope()
     val uriHandler = LocalUriHandler.current
     val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
     var actionTarget by remember(item.id) { mutableStateOf<MediaActionTarget?>(null) }
+
+    LaunchedEffect(detailsEpisodeListState) {
+        snapshotFlow { detailsEpisodeListState.isScrollInProgress }.collect { scrolling ->
+            if (scrolling && !detailsEpisodeAutoPositioning) detailsEpisodeManualInteraction = true
+        }
+    }
 
     fun cancelStreamRequest() {
         streamRequestVersion += 1
@@ -708,8 +721,35 @@ internal fun MediaDetailsScreen(
                 meta = it
             }.onFailure { error = it.message }
     }
-    LaunchedEffect(item.id, effectiveInitialVideoId, meta?.videos) {
-        val selection = reconcileRequestedVideo(selectedVideo, meta?.videos.orEmpty(), effectiveInitialVideoId)
+    val requestedProgress = snapshot?.progress.orEmpty()
+        .filter { progress ->
+            progress.mediaType == item.type &&
+                progress.mediaId == item.id &&
+                progress.videoId == effectiveInitialVideoId
+        }
+        .maxByOrNull(ProgressSummary::updatedAt)
+    LaunchedEffect(
+        item.id,
+        effectiveInitialVideoId,
+        requestedProgress?.updatedAt,
+        meta?.videos,
+        snapshot?.profileId,
+    ) {
+        if (effectiveInitialVideoId == null || selectedVideo != null) return@LaunchedEffect
+        if (
+            item.type == "series" &&
+            meta?.videos?.none { it.id == effectiveInitialVideoId } == true &&
+            requestedProgress == null &&
+            snapshot == null
+        ) {
+            return@LaunchedEffect
+        }
+        val selection = reconcileRequestedVideo(
+            selectedVideo,
+            meta?.videos.orEmpty(),
+            effectiveInitialVideoId,
+            requestedProgress,
+        )
         val requestedVideo = selection.video ?: return@LaunchedEffect
         if (selectedVideo?.id == requestedVideo.id) return@LaunchedEffect
         if (selection.shouldResetPlayback) resetPlaybackForVideoChange()
@@ -745,13 +785,13 @@ internal fun MediaDetailsScreen(
         }
     }
 
-    fun progressForVideo(videoId: String): ProgressSummary? = snapshot?.progress?.firstOrNull {
+    fun progressForVideoId(videoId: String): ProgressSummary? = snapshot?.progress?.firstOrNull {
         it.videoId == videoId && it.mediaType == item.type && it.mediaId == item.id
     }
 
     fun savedPlaybackSourceFor(videoId: String): PlaybackSource? =
         selectedPlaybackSources[videoId]
-            ?: progressForVideo(videoId)?.playbackSource
+            ?: progressForVideoId(videoId)?.playbackSource
 
     fun autoResumeSourceFor(videoId: String): PlaybackSource? =
         savedAutoResumeSource(snapshot?.progress.orEmpty(), item, videoId)
@@ -929,10 +969,14 @@ internal fun MediaDetailsScreen(
         (autoResumeAttemptedKey == null || streamsLoading)
     fun currentPlaybackSource(): PlaybackSource? =
         currentAddonId?.let { addonId -> playing?.let { playbackSourceForStream(addonId, it) } }
-    val orderedVideos = orderedPlayableEpisodes(meta?.videos.orEmpty())
-    val nextVideo = orderedVideos.indexOfFirst { it.id == selectedVideo?.id }
+    val orderedVideos = orderedEpisodePickerVideos(
+        meta?.videos.orEmpty(),
+        currentVideoId = selectedVideo?.id,
+    )
+    val playableVideos = orderedPlayableEpisodes(meta?.videos.orEmpty())
+    val nextVideo = playableVideos.indexOfFirst { it.id == selectedVideo?.id }
         .takeIf { it >= 0 }
-        ?.let { orderedVideos.getOrNull(it + 1) }
+        ?.let { playableVideos.getOrNull(it + 1) }
     val playerContentTitle = if (selectedVideo != null) {
         val episodeNumber = listOfNotNull(selectedVideo?.season, selectedVideo?.episode)
             .takeIf { it.size == 2 }
@@ -1170,9 +1214,53 @@ internal fun MediaDetailsScreen(
 
     val details = meta
     val actionItem = details?.asCatalogItem() ?: item
-    val playTarget = detailsPlayTarget(actionItem, snapshot?.progress.orEmpty(), details?.videos.orEmpty())
-    LaunchedEffect(details?.id, playTarget.video?.season) {
-        if (selectedSeason == null) selectedSeason = playTarget.video?.season ?: details?.videos?.firstOrNull()?.season
+    val detailSeasons = details?.videos.orEmpty()
+        .mapNotNull(VideoItem::season)
+        .distinct()
+        .sortedWith(compareBy<Int> { if (it == 0) Int.MAX_VALUE else it })
+    val globalPlayTarget = detailsPlayTarget(
+        actionItem,
+        snapshot?.progress.orEmpty(),
+        details?.videos.orEmpty(),
+        details?.defaultVideoId,
+    )
+    val playTarget = selectedVideo?.let { DetailsPlayTarget(it, "Play") } ?: globalPlayTarget
+    LaunchedEffect(details?.id, playTarget.video?.season, detailSeasons, snapshot?.profileId) {
+        val targetSeason = playTarget.video?.season?.takeIf(detailSeasons::contains)
+            ?: detailSeasons.firstOrNull()
+        if (
+            selectedSeason == null ||
+            (snapshot != null && !detailsSeasonManuallySelected && selectedSeason != targetSeason)
+        ) {
+            selectedSeason = targetSeason
+        }
+    }
+    LaunchedEffect(playTarget.video?.id, selectedSeason, details?.videos, snapshot?.profileId) {
+        if (detailsEpisodeManualInteraction) return@LaunchedEffect
+        if (snapshot != null && detailsEpisodeAutoPositioned) return@LaunchedEffect
+        if (snapshot == null && detailsEpisodePositionedWithoutSnapshot) return@LaunchedEffect
+        val target = playTarget.video ?: return@LaunchedEffect
+        val seasonVideos = details?.videos.orEmpty()
+            .filter { it.season == selectedSeason }
+            .sortedWith(compareBy<VideoItem> { it.episode ?: 0 })
+        val positionTarget = target.takeIf {
+            it.season != null &&
+                it.episode != null &&
+                it.season == selectedSeason
+        } ?: seasonVideos.firstOrNull()
+        val index = positionTarget?.let { targetVideo ->
+            seasonVideos.indexOfFirst { it.id == targetVideo.id }
+        } ?: -1
+        if (index >= 0) {
+            detailsEpisodeAutoPositioning = true
+            try {
+                detailsEpisodeListState.scrollToItem(index)
+            } finally {
+                detailsEpisodeAutoPositioning = false
+            }
+            if (snapshot == null) detailsEpisodePositionedWithoutSnapshot = true
+            else detailsEpisodeAutoPositioned = true
+        }
     }
     val heroPullDp = with(LocalDensity.current) { heroPull.floatValue.toDp() }
     val heroScale = 1f + (heroPull.floatValue / maxHeroPullPx) * HeroMotion.expansionScale
@@ -1347,7 +1435,7 @@ internal fun MediaDetailsScreen(
             }
         }
         details?.videos?.takeIf { it.isNotEmpty() }?.let { videos ->
-            val seasons = videos.mapNotNull(VideoItem::season).distinct().sorted()
+            val seasons = detailSeasons
             item {
                 Column(Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     LaunchedEffect(selectedSeason, seasons) { seasons.indexOf(selectedSeason).takeIf { it >= 0 }?.let { detailsSeasonListState.animateScrollToItem(it) } }
@@ -1357,7 +1445,11 @@ internal fun MediaDetailsScreen(
                             WatchableSeasonChip(
                                 selected = selectedSeason == season,
                                 label = if (season == 0) "Specials" else "Season $season",
-                                onClick = { selectedSeason = season },
+                                onClick = {
+                                    detailsSeasonManuallySelected = true
+                                    detailsEpisodeManualInteraction = true
+                                    selectedSeason = season
+                                },
                                 onLongClick = {
                                     haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
                                     actionTarget = MediaActionTarget(
@@ -1371,9 +1463,16 @@ internal fun MediaDetailsScreen(
                         }
                     }
                     Text(if (selectedSeason == 0) "Specials" else "Season ${selectedSeason ?: 1}", modifier = Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        items(videos.filter { it.season == selectedSeason }, key = VideoItem::id) { video ->
-                            val progress = snapshot?.progress?.firstOrNull { it.videoId == video.id }
+                    val seasonVideos = videos
+                        .filter { it.season == selectedSeason }
+                        .sortedWith(compareBy<VideoItem> { it.episode ?: 0 })
+                    LazyRow(
+                        state = detailsEpisodeListState,
+                        contentPadding = PaddingValues(horizontal = 20.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        items(seasonVideos, key = VideoItem::id) { video ->
+                            val progress = progressForVideo(snapshot?.progress.orEmpty(), actionItem, video)
                             Surface(
                                 modifier = Modifier.width(260.dp).combinedClickable(
                                     onClickLabel = "Play ${video.displayTitle}",
@@ -1604,12 +1703,51 @@ internal fun PlayerEpisodeDrawer(
     onSelect: (VideoItem) -> Unit,
     fullscreen: Boolean = false,
 ) {
-    var season by remember(current?.id, videos) { mutableStateOf(current?.season ?: videos.firstOrNull()?.season ?: 1) }
+    val seasons = videos.mapNotNull(VideoItem::season)
+        .distinct()
+        .sortedWith(compareBy<Int> { if (it == 0) Int.MAX_VALUE else it })
+    var season by remember(current?.id, videos) {
+        mutableStateOf(current?.season?.takeIf(seasons::contains) ?: seasons.firstOrNull() ?: 1)
+    }
     var actionTarget by remember(current?.id, videos) { mutableStateOf<MediaActionTarget?>(null) }
     val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
-    val seasons = videos.mapNotNull(VideoItem::season).distinct().sorted()
+    val activeSeason = season.takeIf(seasons::contains) ?: seasons.firstOrNull() ?: 1
     val seasonListState = rememberLazyListState()
-    LaunchedEffect(season, seasons) { seasons.indexOf(season).takeIf { it >= 0 }?.let { seasonListState.animateScrollToItem(it) } }
+    val episodeListState = rememberLazyListState()
+    var episodeAutoPositioned by remember(current?.id, videos) { mutableStateOf(false) }
+    var episodeManualInteraction by remember(videos) { mutableStateOf(false) }
+    var episodeAutoPositioning by remember(videos) { mutableStateOf(false) }
+    LaunchedEffect(episodeListState) {
+        snapshotFlow { episodeListState.isScrollInProgress }.collect { scrolling ->
+            if (scrolling && !episodeAutoPositioning) episodeManualInteraction = true
+        }
+    }
+    LaunchedEffect(activeSeason, seasons) {
+        seasons.indexOf(activeSeason).takeIf { it >= 0 }?.let { seasonListState.animateScrollToItem(it) }
+    }
+    LaunchedEffect(current?.id, activeSeason, videos) {
+        if (episodeManualInteraction) return@LaunchedEffect
+        if (episodeAutoPositioned) return@LaunchedEffect
+        val target = current ?: return@LaunchedEffect
+        if (target.season == null || target.episode == null) return@LaunchedEffect
+        if (seasons.isNotEmpty() && target.season != activeSeason) return@LaunchedEffect
+        val seasonVideos = (if (seasons.isEmpty()) {
+            videos
+        } else {
+            videos.filter { it.season == activeSeason }
+        })
+            .sortedWith(compareBy<VideoItem> { it.episode ?: 0 })
+        val index = seasonVideos.indexOfFirst { it.id == target.id }
+        if (index >= 0) {
+            episodeAutoPositioning = true
+            try {
+                episodeListState.scrollToItem(index)
+            } finally {
+                episodeAutoPositioning = false
+            }
+            episodeAutoPositioned = true
+        }
+    }
     var dragDistance by remember { mutableFloatStateOf(0f) }
     Box(Modifier.fillMaxSize()) {
         Box(
@@ -1671,9 +1809,12 @@ internal fun PlayerEpisodeDrawer(
                 ) {
                     items(seasons) { value ->
                         WatchableSeasonChip(
-                            selected = season == value,
+                            selected = activeSeason == value,
                             label = if (value == 0) "Specials" else "Season $value",
-                            onClick = { season = value },
+                            onClick = {
+                                episodeManualInteraction = true
+                                season = value
+                            },
                             onLongClick = {
                                 haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
                                 actionTarget = MediaActionTarget(
@@ -1688,12 +1829,19 @@ internal fun PlayerEpisodeDrawer(
                 }
                 Spacer(Modifier.height(10.dp))
                 LazyColumn(
+                    state = episodeListState,
                     modifier = Modifier.fillMaxWidth().weight(1f),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                     contentPadding = PaddingValues(bottom = 12.dp),
                 ) {
-                    items(videos.filter { it.season == season }, key = VideoItem::id) { video ->
-                        val progress = snapshot?.progress?.firstOrNull { it.videoId == video.id }
+                    val seasonVideos = (if (seasons.isEmpty()) {
+                        videos
+                    } else {
+                        videos.filter { it.season == activeSeason }
+                    })
+                        .sortedWith(compareBy<VideoItem> { it.episode ?: 0 })
+                    items(seasonVideos, key = VideoItem::id) { video ->
+                        val progress = progressForVideo(snapshot?.progress.orEmpty(), actionItem, video)
                         val episodeNumber = listOfNotNull(
                             video.season?.let { "S$it" },
                             video.episode?.let { "E$it" },

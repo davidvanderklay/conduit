@@ -138,15 +138,23 @@ internal fun nextEpisodeAfter(
     watchedVideoIds: Set<String> = emptySet(),
     today: String = Clock.System.now().toString().take(10),
     now: Instant = Clock.System.now(),
+    watchedProgress: List<ProgressSummary> = emptyList(),
 ): VideoItem? {
     if (progress == null) return null
     val regular = orderedPlayableEpisodes(videos, today, now)
-    val anchor = regular.firstOrNull { it.id == progress.videoId }
-        ?: regular.firstOrNull { it.season == progress.season && it.episode == progress.episode }
-        ?: return null
+    val anchor = videos.firstOrNull { progressMatchesVideo(progress, it) }
+    val anchorSeason = anchor?.season ?: progress.season
+    val anchorEpisode = anchor?.episode ?: progress.episode
+    if (anchorSeason == null || anchorEpisode == null) return null
     return regular.firstOrNull {
-        compareEpisodes(it, anchor) > 0 &&
-            it.id !in watchedVideoIds
+        (
+            it.season!! > anchorSeason ||
+                (it.season == anchorSeason && it.episode!! > anchorEpisode)
+            ) &&
+            it.id !in watchedVideoIds &&
+            watchedProgress.none { watched ->
+                watched.watched && progressMatchesVideo(watched, it)
+            }
     }
 }
 
@@ -160,6 +168,24 @@ internal fun orderedPlayableEpisodes(
     now: Instant = Clock.System.now(),
 ): List<VideoItem> = orderedContinueWatchingEpisodes(videos)
     .filter { it.hasAired(today, now) }
+
+internal fun orderedEpisodePickerVideos(
+    videos: List<VideoItem>,
+    today: String = Clock.System.now().toString().take(10),
+    now: Instant = Clock.System.now(),
+    currentVideoId: String? = null,
+): List<VideoItem> = videos
+    .filter { it.id == currentVideoId || it.hasAired(today, now) }
+    .sortedWith(
+        compareBy<VideoItem> {
+            when (it.season) {
+                0 -> Int.MAX_VALUE - 1
+                null -> Int.MAX_VALUE
+                else -> it.season!!
+            }
+        }
+            .thenBy { it.episode ?: Int.MAX_VALUE },
+    )
 
 private fun nextIsoDay(day: String): String {
     val year = day.substring(0, 4).toInt()

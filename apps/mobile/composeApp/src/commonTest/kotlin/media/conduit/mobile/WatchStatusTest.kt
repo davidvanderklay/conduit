@@ -95,6 +95,25 @@ class WatchStatusTest {
     }
 
     @Test
+    fun detailsResumePrefersCanonicalCoordinatesOverRawVideoId() {
+        val series = CatalogItem("show", "series", "Show")
+        val unfinished = progress("old-id", "show", position = 30_000)
+            .copy(season = 2, episode = 4)
+
+        assertEquals(
+            "new-id",
+            detailsPlayTarget(
+                series,
+                listOf(unfinished),
+                listOf(
+                    VideoItem("old-id", season = 1, episode = 1),
+                    VideoItem("new-id", season = 2, episode = 4),
+                ),
+            ).video?.id,
+        )
+    }
+
+    @Test
     fun detailsUseNextUpAfterTheLastFinishedEpisode() {
         val series = CatalogItem("show", "series", "Show")
         val completed = progress("s1e2", "show", watched = true).copy(updatedAt = "2026-08-12T12:00:00Z")
@@ -103,6 +122,96 @@ class WatchStatusTest {
         assertEquals(
             DetailsPlayTarget(next, "Next Up S1E3"),
             detailsPlayTarget(series, listOf(completed), listOf(VideoItem("s1e2", season = 1, episode = 2), next)),
+        )
+    }
+
+    @Test
+    fun detailsUseTheFurthestCompletedEpisodeInsteadOfTheLatestTimestamp() {
+        val series = CatalogItem("show", "series", "Show")
+        val first = progress("s1e1", watched = true).copy(updatedAt = "2026-08-12T12:00:00Z")
+        val furthest = progress("s1e3", episode = 3, watched = true).copy(updatedAt = "2026-08-10T12:00:00Z")
+        val next = VideoItem("s1e4", season = 1, episode = 4)
+
+        assertEquals(
+            DetailsPlayTarget(next, "Next Up S1E4"),
+            detailsPlayTarget(
+                series,
+                listOf(first, furthest),
+                listOf(
+                    VideoItem("s1e1", season = 1, episode = 1),
+                    VideoItem("s1e3", season = 1, episode = 3),
+                    next,
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun rawIdOnlyCompletedProgressStillAdvances() {
+        val series = CatalogItem("show", "series", "Show")
+        val completed = progress("s1e1", watched = true).copy(season = null, episode = null)
+
+        assertEquals(
+            "s1e2",
+            detailsPlayTarget(
+                series,
+                listOf(completed),
+                listOf(
+                    VideoItem("s1e1", season = 1, episode = 1),
+                    VideoItem("s1e2", season = 1, episode = 2),
+                ),
+            ).video?.id,
+        )
+    }
+
+    @Test
+    fun fullyCaughtUpIgnoresMetadataDefault() {
+        val series = CatalogItem("show", "series", "Show")
+        val videos = listOf(
+            VideoItem("s1e1", season = 1, episode = 1),
+            VideoItem("s1e2", season = 1, episode = 2),
+        )
+        val watched = videos.map { progress(it.id, episode = it.episode ?: 1, watched = true) }
+
+        assertEquals(
+            "s1e1",
+            detailsPlayTarget(series, watched, videos, defaultVideoId = "s1e2").video?.id,
+        )
+    }
+
+    @Test
+    fun staleUnfinishedProgressDoesNotBeatNewerCompletion() {
+        val series = CatalogItem("show", "series", "Show")
+        val stale = progress("s1e1", watched = false, position = 20_000).copy(updatedAt = "2026-08-10T12:00:00Z")
+        val completed = progress("s1e2", episode = 2, watched = true).copy(updatedAt = "2026-08-12T12:00:00Z")
+
+        assertEquals(
+            "s1e3",
+            detailsPlayTarget(
+                series,
+                listOf(stale, completed),
+                listOf(
+                    VideoItem("s1e1", season = 1, episode = 1),
+                    VideoItem("s1e2", season = 1, episode = 2),
+                    VideoItem("s1e3", season = 1, episode = 3),
+                ),
+            ).video?.id,
+        )
+    }
+
+    @Test
+    fun detailsUseMetadataDefaultBeforeFirstEpisode() {
+        val series = CatalogItem("show", "series", "Show")
+        val default = VideoItem("s1e5", season = 1, episode = 5)
+
+        assertEquals(
+            default,
+            detailsPlayTarget(
+                series,
+                emptyList(),
+                listOf(VideoItem("s1e1", season = 1, episode = 1), default),
+                defaultVideoId = default.id,
+            ).video,
         )
     }
 
@@ -183,6 +292,54 @@ class WatchStatusTest {
 
         assertEquals("s3e10", transition.video?.id)
         assertTrue(transition.shouldResetPlayback)
+    }
+
+    @Test
+    fun requestedEpisodeCanResolveFromCanonicalProgressCoordinates() {
+        val episodes = listOf(
+            VideoItem("old-s3e10", season = 1, episode = 1),
+            VideoItem("new-s3e4", season = 3, episode = 4),
+            VideoItem("new-s3e10", season = 3, episode = 10),
+        )
+        val requestedProgress = progress("old-s3e10", "show", position = 30_000)
+            .copy(season = 3, episode = 10)
+
+        assertEquals(
+            "new-s3e10",
+            resolveRequestedVideo(episodes, "old-s3e10", requestedProgress)?.id,
+        )
+    }
+
+    @Test
+    fun missingCanonicalSeasonFallsBackToFirstPlayableRegularEpisode() {
+        val requestedProgress = progress("old-s9e1", "show", position = 30_000)
+            .copy(season = 9, episode = 1)
+        val episodes = listOf(
+            VideoItem("special", season = 0, episode = 1),
+            VideoItem("unavailable", season = 1, episode = 1, available = false),
+            VideoItem("first-playable", season = 1, episode = 2),
+        )
+
+        assertEquals(
+            "first-playable",
+            resolveRequestedVideo(episodes, "old-s9e1", requestedProgress)?.id,
+        )
+    }
+
+    @Test
+    fun unfinishedProgressWithoutEpisodeMetadataFallsBackToFirstSeriesEpisode() {
+        val series = CatalogItem("show", "series", "Show")
+        val unfinished = progress("legacy-progress-id", "show", position = 30_000)
+            .copy(season = null, episode = null)
+        val episodes = listOf(
+            VideoItem("s1e1", season = 1, episode = 1),
+            VideoItem("s1e2", season = 1, episode = 2),
+        )
+
+        assertEquals(
+            "s1e1",
+            detailsPlayTarget(series, listOf(unfinished), episodes).video?.id,
+        )
     }
 
     private fun progress(videoId: String, mediaId: String, watched: Boolean = false, position: Long = 0, type: String = "series") =
