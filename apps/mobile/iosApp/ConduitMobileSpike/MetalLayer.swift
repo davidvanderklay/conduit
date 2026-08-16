@@ -18,7 +18,7 @@ final class ConduitMetalLayer: CAMetalLayer {
     private var presentationID: UInt64 = 0
     private var latestDrawableTexture: (texture: MTLTexture, presentationID: UInt64)?
 
-    var onDrawablePresented: ((CAMetalDrawable, UInt64) -> Void)? {
+    var onDrawablePresented: ((MTLTexture, UInt64, AnyObject?) -> Void)? {
         get {
             captureLock.lock()
             defer { captureLock.unlock() }
@@ -31,7 +31,7 @@ final class ConduitMetalLayer: CAMetalLayer {
         }
     }
 
-    private var drawablePresentationHandler: ((CAMetalDrawable, UInt64) -> Void)?
+    private var drawablePresentationHandler: ((MTLTexture, UInt64, AnyObject?) -> Void)?
 
     @objc dynamic var isDrawableCaptureArmed: Bool {
         get {
@@ -115,15 +115,19 @@ final class ConduitMetalLayer: CAMetalLayer {
         // presented the texture. This avoids copying while MoltenVK is still
         // rendering into the drawable returned by nextDrawable().
         if shouldCapture, let drawable, let handler {
-            let registered = ConduitAddMetalDrawablePresentedHandler(drawable) { presentedDrawable in
-                guard let drawable = presentedDrawable as? CAMetalDrawable else { return }
-                handler(drawable, currentPresentationID)
+            // The presented-handler callback runs after the drawable has been
+            // presented. Read its texture before registering the callback;
+            // asking a presented CAMetalDrawable for its texture is invalid
+            // and produces a Metal warning on the first PiP transition.
+            let sourceTexture = drawable.texture
+            let registered = ConduitAddMetalDrawablePresentedHandler(drawable) { _ in
+                handler(sourceTexture, currentPresentationID, drawable)
             }
             if !registered {
                 // The iOS simulator SDK currently omits the presentation
                 // handler requirement even though device Metal supports it.
                 // Keep simulator playback usable with a bounded fallback.
-                handler(drawable, currentPresentationID)
+                handler(sourceTexture, currentPresentationID, drawable)
             }
         }
         return drawable

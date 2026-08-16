@@ -560,6 +560,63 @@ final class ConduitPictureInPictureFrameCapture {
         onCaptureFailure = handler
     }
 
+    /// Builds the expensive Core Video and Metal capture resources while the
+    /// player is still in its initial, paused-frame path. This keeps the first
+    /// PiP transition from competing with a live AudioUnit render callback.
+    func prewarmResources() {
+        guard let latest = metalLayer.latestDrawableTextureSnapshot() else {
+#if DEBUG
+            print("[Conduit PiP][diagnostic] prewarm skipped: no drawable")
+#endif
+            return
+        }
+
+        let sourceTexture = latest.texture
+        captureQueue.async { [weak self] in
+            guard let self else { return }
+            let startedAt = ProcessInfo.processInfo.systemUptime
+            guard let destinationFormat = Self.destinationFormat(for: sourceTexture.pixelFormat) else {
+#if DEBUG
+                print("[Conduit PiP][diagnostic] prewarm skipped: unsupported format \(sourceTexture.pixelFormat.rawValue)")
+#endif
+                return
+            }
+
+            switch self.ensureMetalResources() {
+            case .failure(let reason):
+#if DEBUG
+                print("[Conduit PiP][diagnostic] prewarm failed: \(reason)")
+#endif
+                return
+            case .ready:
+                break
+            }
+            switch self.ensurePool(
+                width: sourceTexture.width,
+                height: sourceTexture.height,
+                pixelFormat: destinationFormat
+            ) {
+            case .failure(let reason):
+#if DEBUG
+                print("[Conduit PiP][diagnostic] prewarm failed: \(reason)")
+#endif
+                return
+            case .ready:
+                break
+            }
+
+#if DEBUG
+            let elapsed = ProcessInfo.processInfo.systemUptime - startedAt
+            print(
+                "[Conduit PiP][diagnostic] prewarm ready " +
+                    "\(sourceTexture.width)x\(sourceTexture.height) " +
+                    "format=\(destinationFormat.rawValue) " +
+                    String(format: "in %.3fs", elapsed)
+            )
+#endif
+        }
+    }
+
     func start(onReady: (() -> Void)? = nil) {
         shutdownFence.disarm()
         stateLock.lock()
@@ -680,24 +737,19 @@ final class ConduitPictureInPictureFrameCapture {
     }
 
     @discardableResult
-    func handlePresentedDrawable(_ drawable: CAMetalDrawable, presentationID: UInt64) -> Bool {
-        handlePresentedTexture(
-            drawable.texture,
-            presentationID: presentationID,
-            sourceLifetime: drawable
-        )
-    }
-
-    @discardableResult
-    func handlePresentedTexture(_ sourceTexture: MTLTexture, presentationID: UInt64) -> Bool {
-        handlePresentedTexture(
+    func handlePresentedTexture(
+        _ sourceTexture: MTLTexture,
+        presentationID: UInt64,
+        sourceLifetime: AnyObject? = nil
+    ) -> Bool {
+        capturePresentedTexture(
             sourceTexture,
             presentationID: presentationID,
-            sourceLifetime: nil
+            sourceLifetime: sourceLifetime
         )
     }
 
-    private func handlePresentedTexture(
+    private func capturePresentedTexture(
         _ sourceTexture: MTLTexture,
         presentationID: UInt64,
         sourceLifetime: AnyObject?
