@@ -101,6 +101,14 @@ internal fun releaseDateLabel(released: String, today: String): String {
     return if (month != null && date != null) "$month $date" else released
 }
 
+internal fun episodeReleaseDateLabel(released: String?): String? {
+    val day = releaseDay(released) ?: return released?.takeIf(String::isNotBlank)
+    val year = day.substring(0, 4)
+    val month = day.substring(5, 7).toIntOrNull()?.let { monthNames.getOrNull(it - 1) }
+    val date = day.substring(8, 10).toIntOrNull()
+    return if (month != null && date != null) "$month $date, $year" else released
+}
+
 private fun compareEpisodes(a: VideoItem, b: VideoItem): Int =
     compareValues(a.season, b.season).takeIf { it != 0 }
         ?: compareValues(a.episode, b.episode).takeIf { it != 0 }
@@ -171,11 +179,7 @@ internal fun orderedPlayableEpisodes(
 
 internal fun orderedEpisodePickerVideos(
     videos: List<VideoItem>,
-    today: String = Clock.System.now().toString().take(10),
-    now: Instant = Clock.System.now(),
-    currentVideoId: String? = null,
 ): List<VideoItem> = videos
-    .filter { it.id == currentVideoId || it.hasAired(today, now) }
     .sortedWith(
         compareBy<VideoItem> {
             when (it.season) {
