@@ -277,6 +277,15 @@ fun selectSavedStream(
             candidate.addonId == saved.addonId
     }
     candidates.firstOrNull { candidate -> streamSourceKey(candidate.stream) == saved.sourceKey }?.let { return it }
+    val savedUrlPath = saved.sourceKey
+        .takeIf { it.startsWith("url:") }
+        ?.removePrefix("url:")
+        ?.let(::normalizeStreamUrlPath)
+    if (savedUrlPath != null) {
+        candidates.firstOrNull { candidate ->
+            candidate.stream.url?.let(::normalizeStreamUrlPath) == savedUrlPath
+        }?.let { return it }
+    }
     val bingeGroup = saved.bingeGroup?.takeIf(String::isNotBlank) ?: return null
     return candidates.firstOrNull { candidate ->
         candidate.stream.behaviorHints?.bingeGroup == bingeGroup
@@ -308,6 +317,9 @@ private fun normalizeStreamUrl(value: String): String {
         .joinToString("&")
     return if (query.isBlank()) base else "$base?$query"
 }
+
+private fun normalizeStreamUrlPath(value: String): String =
+    value.substringBefore('#').substringBefore('?').trimEnd('/')
 
 private fun normalizeSourceText(values: List<String?>): String =
     values.filterNotNull().joinToString("|").trim().lowercase().replace(Regex("\\s+"), " ")
