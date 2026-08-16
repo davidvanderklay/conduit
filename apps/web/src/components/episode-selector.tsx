@@ -162,7 +162,7 @@ export function EpisodeSelector({
             <label className="relative">
               <span className="sr-only">Season</span>
               <select
-                className="h-9 appearance-none rounded-lg border border-white/10 bg-white/5 pl-3 pr-8 text-xs font-medium text-zinc-200 outline-none focus:border-amber-400"
+                className="episode-season-select h-9 min-w-28 appearance-none rounded-lg border border-white/10 bg-zinc-900/90 pl-3 pr-8 text-xs font-medium text-zinc-100 shadow-lg shadow-black/20 outline-none transition-colors hover:border-white/20 hover:bg-zinc-800/90 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20"
                 value={activeSeason}
                 onChange={(event) => {
                   onSeasonChange(Number(event.target.value))

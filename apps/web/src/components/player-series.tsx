@@ -78,6 +78,7 @@ export function PlayerEpisodeDrawer({
           handleVisible ? "visible" : "pointer-events-none invisible"
         }`}
         data-native-overlay
+        data-overlay-interactive
         aria-label="Open episode list"
         aria-expanded="false"
         onClick={() => onOpenChange(true)}
@@ -91,6 +92,7 @@ export function PlayerEpisodeDrawer({
     <div
       data-player-episode-drawer
       data-native-overlay
+      data-overlay-interactive
       className="absolute inset-y-0 right-0 z-30 flex w-[min(92vw,430px)] items-stretch p-2 pl-0"
     >
       <button

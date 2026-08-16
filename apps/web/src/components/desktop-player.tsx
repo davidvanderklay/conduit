@@ -264,7 +264,18 @@ export function DesktopPlayer({
       mediaTitle,
       preferences.readAheadSeconds,
       preferences.hardwareAcceleration,
-      { title: mediaTitle, ...artwork },
+      {
+        title: mediaTitle,
+        ...artwork,
+        series: seriesContext
+          ? {
+              name: seriesContext.name,
+              videos: seriesContext.videos,
+              progress: seriesContext.progress,
+              currentVideoId: seriesContext.currentVideoId,
+            }
+          : undefined,
+      },
     )
       .then(async (initial) => {
         if (cancelled) return
@@ -317,11 +328,21 @@ export function DesktopPlayer({
     const unsubscribeNext = electron.onPlayerOverlayNext(() => {
       if (onNextEpisode) void onNextEpisode()
     })
+    const unsubscribeEpisode = electron.onPlayerOverlayEpisode?.((selectedVideoId) => {
+      const selectedVideo = seriesContext?.videos.find((video) => video.id === selectedVideoId)
+      if (!selectedVideo || !onSelectEpisode || nextTransitionRequested.current) return
+      nextTransitionRequested.current = true
+      resetOverlay()
+      void Promise.resolve(onSelectEpisode(selectedVideo)).catch((cause: unknown) => {
+        setError(cause instanceof Error ? cause.message : String(cause))
+      })
+    }) ?? (() => undefined)
     return () => {
       unsubscribeClose()
       unsubscribeNext()
+      unsubscribeEpisode()
     }
-  }, [onClose, onNextEpisode])
+  }, [onClose, onNextEpisode, onSelectEpisode, resetOverlay, seriesContext?.videos])
 
   useEffect(() => {
     if (preferredAudioApplied.current || !preferredAudioLanguage || !snapshot) {

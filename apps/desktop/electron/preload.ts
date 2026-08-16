@@ -37,18 +37,43 @@ contextBridge.exposeInMainWorld("__CONDUIT_ELECTRON__", {
     ipcRenderer.on("conduit:player-overlay-next", handler)
     return () => ipcRenderer.removeListener("conduit:player-overlay-next", handler)
   },
+  onPlayerOverlayEpisode(listener: (videoId: string) => void) {
+    const handler = (_event: Electron.IpcRendererEvent, videoId: string) => listener(videoId)
+    ipcRenderer.on("conduit:player-overlay-episode", handler)
+    return () => ipcRenderer.removeListener("conduit:player-overlay-episode", handler)
+  },
   onPlayerOverlayMedia(listener: (media: {
     title: string
     background?: string
     logo?: string
     poster?: string
+    series?: {
+      name: string
+      videos: unknown[]
+      progress: unknown[]
+      currentVideoId: string
+    }
   }) => void) {
     const handler = (
       _event: Electron.IpcRendererEvent,
-      media: { title: string; background?: string; logo?: string; poster?: string },
+      media: {
+        title: string
+        background?: string
+        logo?: string
+        poster?: string
+        series?: {
+          name: string
+          videos: unknown[]
+          progress: unknown[]
+          currentVideoId: string
+        }
+      },
     ) => listener(media)
     ipcRenderer.on("conduit:player-overlay-media", handler)
     return () => ipcRenderer.removeListener("conduit:player-overlay-media", handler)
+  },
+  notifyPlayerOverlayReady() {
+    ipcRenderer.send("conduit:player-overlay-ready")
   },
   setPlayerOverlayInteractiveRegions(
     regions: Array<{ left: number; top: number; right: number; bottom: number }>,

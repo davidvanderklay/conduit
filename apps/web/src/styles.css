@@ -16,7 +16,9 @@
 }
 
 .library-select,
-.library-select option {
+.library-select option,
+.episode-season-select,
+.episode-season-select option {
   color-scheme: dark;
   color: #f4f4f5;
   background-color: #18181b;

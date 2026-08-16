@@ -209,6 +209,7 @@ function createNativePlayerClient(windowId: string): NativePlayerClient {
 
 let mainWindow: BrowserWindow | undefined
 let playerOverlayWindow: BrowserWindow | undefined
+let playerOverlayMedia: PlayerOverlayMedia | undefined
 let nativePlayer: NativePlayerClient | undefined
 let authServer: Server | undefined
 let devWebServer: ChildProcess | undefined
@@ -246,6 +247,12 @@ type PlayerOverlayMedia = {
   background?: string
   logo?: string
   poster?: string
+  series?: {
+    name: string
+    videos: unknown[]
+    progress: unknown[]
+    currentVideoId: string
+  }
 }
 
 function refreshNativeSurface() {
@@ -388,6 +395,7 @@ function syncPlayerOverlayVisibility() {
 
 function closePlayerOverlay() {
   playerOverlaySequence += 1
+  playerOverlayMedia = undefined
   if (playerOverlayVisibilityTimer) {
     clearTimeout(playerOverlayVisibilityTimer)
     playerOverlayVisibilityTimer = undefined
@@ -405,6 +413,7 @@ function closePlayerOverlay() {
 
 async function ensurePlayerOverlay(media: PlayerOverlayMedia) {
   if (!mainWindow) throw new Error("Main window is unavailable.")
+  playerOverlayMedia = media
   if (playerOverlayWindow && !playerOverlayWindow.isDestroyed()) {
     try {
       playerOverlayWindow.webContents.send("conduit:player-overlay-media", media)
@@ -465,6 +474,7 @@ async function ensurePlayerOverlay(media: PlayerOverlayMedia) {
     overlay.on("closed", () => {
       if (playerOverlayWindow === overlay) {
         playerOverlayWindow = undefined
+        playerOverlayMedia = undefined
         stopPlayerOverlayMousePolling()
       }
     })
@@ -802,6 +812,12 @@ async function invoke(command: string, args: Record<string, unknown> = {}): Prom
     mainWindow?.webContents.send("conduit:player-overlay-next")
     return null
   }
+  if (command === "player_overlay_episode") {
+    if (typeof args.videoId === "string") {
+      mainWindow?.webContents.send("conduit:player-overlay-episode", args.videoId)
+    }
+    return null
+  }
   if (command === "player_toggle_fullscreen") {
     if (!mainWindow) throw new Error("Main window is unavailable.")
     const fullscreen = !mainWindowFullscreen
@@ -840,8 +856,10 @@ async function invoke(command: string, args: Record<string, unknown> = {}): Prom
     nativePlayer?.close()
     const client = createNativePlayerClient(nativeWindowId(mainWindow))
     nativePlayer = client
+    const nativePlayerArgs = { ...args }
+    delete nativePlayerArgs.artwork
     try {
-      const result = await client.request("player_open", args)
+      const result = await client.request("player_open", nativePlayerArgs)
       if (nativePlayer !== client) return result
       // Linux's separate X11 surface needs a transparent controls window.
       // macOS and Windows keep their native video below the main Chromium
@@ -855,6 +873,7 @@ async function invoke(command: string, args: Record<string, unknown> = {}): Prom
           background: typeof artwork.background === "string" ? artwork.background : undefined,
           logo: typeof artwork.logo === "string" ? artwork.logo : undefined,
           poster: typeof artwork.poster === "string" ? artwork.poster : undefined,
+          series: artwork.series as PlayerOverlayMedia["series"],
         })
       }
       return result
@@ -873,6 +892,15 @@ async function invoke(command: string, args: Record<string, unknown> = {}): Prom
 }
 
 function registerIpcHandlers() {
+  ipcMain.on("conduit:player-overlay-ready", (event) => {
+    if (!playerOverlayWindow || playerOverlayWindow.isDestroyed()) return
+    if (!isTrustedIpcSender(event, true) || event.sender.id !== playerOverlayWindow.webContents.id) {
+      return
+    }
+    if (playerOverlayMedia) {
+      event.sender.send("conduit:player-overlay-media", playerOverlayMedia)
+    }
+  })
   ipcMain.on("conduit:player-overlay-interactive-regions", (event, regions: unknown) => {
     if (!playerOverlayWindow || playerOverlayWindow.isDestroyed()) return
     if (!isTrustedIpcSender(event, true) || event.sender.id !== playerOverlayWindow.webContents.id) return
