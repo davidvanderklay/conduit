@@ -35,7 +35,6 @@ import {
   displayDate,
   episodeLabel,
   normalizeMetaItem,
-  progressForVideo,
   safeExternalUrl,
   selectSeriesVideo,
   sortSeasons,

@@ -342,14 +342,21 @@ class WatchStatusTest {
         )
     }
 
-    private fun progress(videoId: String, mediaId: String, watched: Boolean = false, position: Long = 0, type: String = "series") =
+    private fun progress(
+        videoId: String,
+        mediaId: String = "show",
+        watched: Boolean = false,
+        position: Long = 0,
+        type: String = "series",
+        episode: Int? = if (type == "series") videoId.substringAfter("e").toIntOrNull() else null,
+    ) =
         ProgressSummary(
             videoId,
             type,
             mediaId,
             "Title",
             season = if (type == "series") 1 else null,
-            episode = if (type == "series") videoId.substringAfter("e").toIntOrNull() else null,
+            episode = episode,
             positionMs = position,
             durationMs = 100_000,
             watched = watched,
