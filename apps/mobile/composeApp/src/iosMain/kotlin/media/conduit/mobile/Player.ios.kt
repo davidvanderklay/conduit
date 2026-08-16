@@ -94,6 +94,7 @@ actual fun NativePlayer(
     holdToSpeed: Boolean,
     preferredAudioLanguage: String,
     preferredSubtitleLanguage: String,
+    androidPlaybackEngine: AndroidPlaybackEngine,
     onEpisodes: () -> Unit,
     onControlsVisibilityChanged: (Boolean) -> Unit,
     onTemporarySpeedChanged: (Boolean) -> Unit,
@@ -121,6 +122,7 @@ actual fun NativePlayer(
                 PlaybackState(
                     loading = false,
                     error = "The iOS MPVKit player is not registered in this build.",
+                    engine = NativePlaybackEngine.Libmpv,
                 ),
             )
         }
@@ -215,6 +217,7 @@ actual fun NativePlayer(
                 videoHeight = bridge.getVideoHeight(),
                 ended = bridge.getIsEnded(),
                 error = bridge.getErrorMessage().ifBlank { null },
+                engine = NativePlaybackEngine.Libmpv,
                 pipReady = !bridge.getIsLoading() &&
                     bridge.getDurationMs() > 0 &&
                     bridge.getVideoWidth() > 0 &&

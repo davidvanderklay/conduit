@@ -141,6 +141,7 @@ expect fun NativePlayer(
     holdToSpeed: Boolean = true,
     preferredAudioLanguage: String = "System default",
     preferredSubtitleLanguage: String = "English",
+    androidPlaybackEngine: AndroidPlaybackEngine = AndroidPlaybackEngine.Automatic,
     onEpisodes: () -> Unit = {},
     onControlsVisibilityChanged: (Boolean) -> Unit = {},
     onTemporarySpeedChanged: (Boolean) -> Unit = {},

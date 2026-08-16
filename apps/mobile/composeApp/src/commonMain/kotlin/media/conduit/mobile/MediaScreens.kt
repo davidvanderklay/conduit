@@ -2153,8 +2153,14 @@ private fun ContentSettingsScreen(onBack: () -> Unit, onAddons: () -> Unit, modi
 private fun PlaybackSettingsScreen(platform: PlatformInfo, preferences: DevicePreferences, update: (DevicePreferences) -> Unit, onBack: () -> Unit, modifier: Modifier) {
     val languages = listOf("System default", "English", "Spanish", "French", "German", "Japanese", "Korean")
     var picker by remember { mutableStateOf<String?>(null) }
+    var enginePicker by remember { mutableStateOf(false) }
+    val android = platform.name.equals("Android", ignoreCase = true)
     SettingsPage("Playback", onBack, modifier) {
         SettingsGroup("PLAYER") {
+            if (android) {
+                SettingsAction("Android player engine", preferences.androidPlaybackEngine.description) { enginePicker = true }
+                HorizontalDivider(color = Color.White.copy(.06f))
+            }
             SettingsToggle("Auto-select saved streams", "Reuse the last selected stream when it is available", preferences.autoSelectSavedStreams) { update(preferences.copy(autoSelectSavedStreams = it)) }
             SettingsToggle("Miniplayer on back", "Minimize playback instead of closing it when you press Back", preferences.miniplayerOnBack) { update(preferences.copy(miniplayerOnBack = it)) }
             SettingsToggle("Touch gestures", "Double-tap seeking and player gestures", preferences.touchGestures) { update(preferences.copy(touchGestures = it)) }
@@ -2172,6 +2178,31 @@ private fun PlaybackSettingsScreen(platform: PlatformInfo, preferences: DevicePr
         }
     }
     if (picker != null) AlertDialog(onDismissRequest = { picker = null }, title = { Text(if (picker == "audio") "Preferred audio language" else "Preferred subtitle language") }, text = { Column { languages.forEach { language -> Row(Modifier.fillMaxWidth().clickable { if (picker == "audio") update(preferences.copy(preferredAudioLanguage = language)) else update(preferences.copy(preferredSubtitleLanguage = language)); picker = null }.padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) { RadioButton((if (picker == "audio") preferences.preferredAudioLanguage else preferences.preferredSubtitleLanguage) == language, null); Spacer(Modifier.width(8.dp)); Text(language) } } } }, confirmButton = {})
+    if (enginePicker) AlertDialog(
+        onDismissRequest = { enginePicker = false },
+        title = { Text("Android player engine") },
+        text = {
+            Column {
+                AndroidPlaybackEngine.entries.forEach { engine ->
+                    Row(
+                        Modifier.fillMaxWidth().clickable {
+                            update(preferences.copy(androidPlaybackEngine = engine))
+                            enginePicker = false
+                        }.padding(vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(engine == preferences.androidPlaybackEngine, null)
+                        Spacer(Modifier.width(8.dp))
+                        Column {
+                            Text(engine.label)
+                            Text(engine.description, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+    )
 }
 
 @Composable

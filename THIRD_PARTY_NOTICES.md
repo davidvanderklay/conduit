@@ -36,3 +36,18 @@ support used by `apps/mobile/iosApp/ConduitMobileSpike/MPVPlayerBridge.swift`:
 Review the package's upstream license and bundled-library notices before
 shipping an iOS distribution. The package currently describes its MPVKit and
 bundled libraries as LGPL-licensed.
+
+## Android libmpv
+
+The Android mobile player uses the pinned `mpv-android-lib` AAR during the
+libmpv fallback implementation:
+`io.github.abdallahmehiz:mpv-android-lib:0.1.12`.
+
+Artifact metadata and source:
+<https://central.sonatype.com/artifact/io.github.abdallahmehiz/mpv-android-lib>
+<https://github.com/abdallahmehiz/mpv-android>
+
+The published AAR contains native media libraries and declares MIT metadata
+for the wrapper. Review the licenses and notices for libmpv, FFmpeg, and every
+bundled native dependency before shipping an Android release. This entry does
+not by itself settle Conduit's application-license decision.

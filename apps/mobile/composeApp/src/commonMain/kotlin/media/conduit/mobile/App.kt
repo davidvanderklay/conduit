@@ -1320,6 +1320,7 @@ private fun BoxScope.PlaybackSessionHost(
             holdToSpeed = preferences.holdToSpeed,
             preferredAudioLanguage = preferences.preferredAudioLanguage,
             preferredSubtitleLanguage = preferences.preferredSubtitleLanguage,
+            androidPlaybackEngine = preferences.androidPlaybackEngine,
             onControlsVisibilityChanged = { controlsVisible = it },
             onTemporarySpeedChanged = { temporarySpeedActive = it },
             onSystemPipChanged = controller::systemPipChanged,
@@ -1404,6 +1405,10 @@ private fun BoxScope.PlaybackSessionHost(
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("Playback failed", color = Color.White, fontWeight = FontWeight.Bold)
+                        Text("Engine: ${session.playback.engine.name.lowercase()}", color = Color.White.copy(.55f), style = MaterialTheme.typography.labelSmall)
+                        session.playback.fallbackReason?.let { reason ->
+                            Text("Fallback: $reason", color = Color.White.copy(.55f), style = MaterialTheme.typography.labelSmall)
+                        }
                         Text(message, color = Color.White.copy(.7f), style = MaterialTheme.typography.bodySmall)
                         TextButton(onClick = { controller.send(PlaybackCommand.RetryVideoOutput) }) {
                             Text("Retry video")
@@ -1993,6 +1998,7 @@ private fun ArchitectureDemo() {
         )
         Text(
             "Native player · ${playback.positionMs / 1000}s / ${playback.durationMs / 1000}s" +
+                " · ${playback.engine.name.lowercase()}" +
                 if (playback.playing) " · playing" else " · paused",
         )
         playback.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }

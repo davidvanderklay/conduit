@@ -89,6 +89,7 @@ actual fun NativePlayer(
     holdToSpeed: Boolean,
     preferredAudioLanguage: String,
     preferredSubtitleLanguage: String,
+    androidPlaybackEngine: AndroidPlaybackEngine,
     onEpisodes: () -> Unit,
     onControlsVisibilityChanged: (Boolean) -> Unit,
     onTemporarySpeedChanged: (Boolean) -> Unit,
@@ -118,6 +119,22 @@ actual fun NativePlayer(
         val renderers = DefaultRenderersFactory(context).setEnableDecoderFallback(true)
         ExoPlayer.Builder(context, renderers).setMediaSourceFactory(DefaultMediaSourceFactory(http)).build()
     }
+    var activeEngine by remember(url, requestHeaders, subtitles, androidPlaybackEngine) {
+        mutableStateOf(
+            if (androidPlaybackEngine == AndroidPlaybackEngine.Libmpv) {
+                NativePlaybackEngine.Libmpv
+            } else {
+                NativePlaybackEngine.Media3
+            },
+        )
+    }
+    var fallbackAttempted by remember(url, requestHeaders, subtitles, androidPlaybackEngine) { mutableStateOf(false) }
+    var fallbackReason by remember(url, requestHeaders, subtitles, androidPlaybackEngine) { mutableStateOf<String?>(null) }
+    var fallbackStartPositionMs by remember(url, requestHeaders, subtitles, androidPlaybackEngine) { mutableLongStateOf(0L) }
+    var fallbackPlaybackSpeed by remember(url, requestHeaders, subtitles, androidPlaybackEngine) { mutableFloatStateOf(1f) }
+    var fallbackPlayWhenReady by remember(url, requestHeaders, subtitles, androidPlaybackEngine) { mutableStateOf(true) }
+    var mpvView by remember(url, requestHeaders, subtitles, activeEngine) { mutableStateOf<ConduitMpvView?>(null) }
+    var mpvTrackRevision by remember(url, requestHeaders, subtitles, activeEngine) { mutableIntStateOf(0) }
     var playbackError by remember(player) { mutableStateOf<String?>(null) }
     var controlsVisible by remember(player) { mutableStateOf(true) }
     var speedMenuOpen by remember(player) { mutableStateOf(false) }
@@ -126,8 +143,8 @@ actual fun NativePlayer(
     var durationMs by remember(player) { mutableLongStateOf(0L) }
     var playing by remember(player) { mutableStateOf(false) }
     var playbackSpeed by remember(player) { mutableFloatStateOf(1f) }
-    var initialLoadComplete by remember(player) { mutableStateOf(false) }
-    var firstFrameRendered by remember(player) { mutableStateOf(false) }
+    var initialLoadComplete by remember(player, activeEngine) { mutableStateOf(false) }
+    var firstFrameRendered by remember(player, activeEngine) { mutableStateOf(false) }
     var buffering by remember(player) { mutableStateOf(false) }
     var dragging by remember(player) { mutableStateOf(false) }
     var draggedPosition by remember(player) { mutableFloatStateOf(0f) }
@@ -140,7 +157,30 @@ actual fun NativePlayer(
     var showRemainingTime by remember(player) { mutableStateOf(false) }
     val preferredAudioCode = remember(preferredAudioLanguage) { audioLanguageCode(preferredAudioLanguage) }
 
-    DisposableEffect(player, url) {
+    DisposableEffect(player) {
+        onDispose { player.release() }
+    }
+
+    fun fallbackToLibmpv(reason: String) {
+        if (!canFallbackToLibmpv(androidPlaybackEngine, activeEngine, fallbackAttempted)) {
+            player.pause()
+            playbackError = reason
+            return
+        }
+        fallbackAttempted = true
+        fallbackReason = reason.take(240)
+        fallbackStartPositionMs = fallbackPositionMs(player.currentPosition, startPositionMs)
+        fallbackPlaybackSpeed = player.playbackParameters.speed
+        fallbackPlayWhenReady = player.playWhenReady
+        player.pause()
+        playbackError = null
+        initialLoadComplete = false
+        firstFrameRendered = false
+        activeEngine = NativePlaybackEngine.Libmpv
+    }
+
+    DisposableEffect(player, url, activeEngine) {
+        if (activeEngine != NativePlaybackEngine.Media3) return@DisposableEffect onDispose {}
         var resumed = false
         val listener = object : Player.Listener {
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
@@ -156,20 +196,19 @@ actual fun NativePlayer(
                     Toast.makeText(context, "That track is not supported on this device. Restored the previous audio selection.", Toast.LENGTH_LONG).show()
                     return
                 }
-                player.pause()
-                playbackError = when (error.errorCode) {
+                val message = when (error.errorCode) {
                     androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FAILED,
                     androidx.media3.common.PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
                     -> "This device cannot decode this stream's video format. Try a 1080p H.264/AVC stream or a physical device with HEVC support."
                     else -> error.cause?.message ?: error.message
                 }
+                fallbackToLibmpv(message)
             }
             override fun onTracksChanged(tracks: Tracks) {
                 tracksRevision++
                 val audio = tracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
                 if (audio.isNotEmpty() && audio.none { group -> (0 until group.length).any(group::isTrackSupported) }) {
-                    player.pause()
-                    playbackError = "None of this stream's audio formats can be decoded by this device. Choose another stream for working audio."
+                    fallbackToLibmpv("Media3 could not decode any audio track in this stream.")
                 } else {
                     val candidates = audio.flatMap { group -> (0 until group.length).filter(group::isTrackSupported).map { index -> group to index } }
                     val best = candidates.maxByOrNull { (group, index) -> audioTrackScore(group.getTrackFormat(index), preferredAudioCode) }
@@ -224,13 +263,31 @@ actual fun NativePlayer(
         }
         onDispose {
             player.removeListener(listener)
-            player.release()
         }
     }
-    DisposableEffect(player, activity) {
+    LaunchedEffect(player, url, activeEngine, androidPlaybackEngine) {
+        if (activeEngine != NativePlaybackEngine.Media3 || androidPlaybackEngine != AndroidPlaybackEngine.Automatic || url.isNullOrBlank()) return@LaunchedEffect
+        delay(AndroidPlaybackStartupTimeoutMs)
+        if (!firstFrameRendered && !fallbackAttempted && activeEngine == NativePlaybackEngine.Media3) {
+            fallbackToLibmpv("Media3 did not render a first frame within 10 seconds.")
+        }
+    }
+    DisposableEffect(player, mpvView, activity, activeEngine) {
         val mainActivity = activity as? MainActivity
-        mainActivity?.attachConduitPipPlayer(player) { latestPipCallback(it) }
-        onDispose { mainActivity?.detachConduitPipPlayer(player) }
+        if (activeEngine == NativePlaybackEngine.Media3) {
+            mainActivity?.attachConduitPipSession(
+                isPlaying = { player.isPlaying },
+                togglePlayback = { if (player.isPlaying) player.pause() else player.play() },
+                onModeChanged = { latestPipCallback.value(it) },
+            )
+        } else if (mpvView != null) {
+            mainActivity?.attachConduitPipSession(
+                isPlaying = { mpvView?.snapshot()?.playing == true },
+                togglePlayback = { mpvView?.let { view -> view.setPaused(view.snapshot().playing) } },
+                onModeChanged = { latestPipCallback.value(it) },
+            )
+        }
+        onDispose { mainActivity?.detachConduitPipSession() }
     }
     LaunchedEffect(activity) {
         latestPipAvailabilityCallback(
@@ -238,42 +295,68 @@ actual fun NativePlayer(
                 context.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_PICTURE_IN_PICTURE),
         )
     }
-    DisposableEffect(player, lifecycle) {
+    DisposableEffect(player, lifecycle, activeEngine, mpvView) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_STOP && activity?.isInPictureInPictureMode != true) player.pause()
+            if (event == Lifecycle.Event.ON_STOP && activity?.isInPictureInPictureMode != true) {
+                if (activeEngine == NativePlaybackEngine.Media3) player.pause() else mpvView?.setPaused(true)
+            }
         }
         lifecycle.addObserver(observer)
         onDispose { lifecycle.removeObserver(observer) }
     }
-    LaunchedEffect(player, command?.sequence) {
-        when (val next = command?.command) {
-            PlaybackCommand.Play -> player.play()
-            PlaybackCommand.Pause -> player.pause()
-            is PlaybackCommand.SeekTo -> player.seekTo(next.positionMs.coerceAtLeast(0))
-            PlaybackCommand.EnterSystemPip -> (activity as? MainActivity)?.enterConduitPictureInPicture()
-            PlaybackCommand.RetryVideoOutput -> {
-                playbackError = null
-                initialLoadComplete = false
-                firstFrameRendered = false
-                player.prepare()
-                player.play()
-            }
-            null -> Unit
+    LaunchedEffect(mpvView, url, requestHeaders, subtitles, activeEngine) {
+        val view = mpvView ?: return@LaunchedEffect
+        if (activeEngine != NativePlaybackEngine.Libmpv || url.isNullOrBlank()) return@LaunchedEffect
+        view.loadSource(
+            url = url,
+            requestHeaders = requestHeaders,
+            subtitles = subtitles,
+            startPositionMs = fallbackStartPositionMs.takeIf { it > 0 } ?: startPositionMs,
+            playWhenReady = active && (fallbackReason == null || fallbackPlayWhenReady),
+            preferredAudioLanguage = preferredAudioLanguage,
+            preferredSubtitleLanguage = preferredSubtitleLanguage,
+            playbackSpeed = fallbackPlaybackSpeed,
+        )
+    }
+    LaunchedEffect(activeEngine, active, mpvView) {
+        if (activeEngine == NativePlaybackEngine.Media3) {
+            if (active) player.play() else player.pause()
+        } else {
+            mpvView?.setPaused(!(active && (fallbackReason == null || fallbackPlayWhenReady)))
         }
     }
-    LaunchedEffect(presentation) {
-        controlsVisible = presentation == PlaybackPresentation.FullScreen
-    }
-    LaunchedEffect(player, lifecycle, landscape) {
+    LaunchedEffect(player, mpvView, lifecycle, landscape, activeEngine) {
         lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             while (true) {
-                val isBuffering = initialLoadComplete && player.playbackState == Player.STATE_BUFFERING
-                val playerPipReady = landscape &&
-                    initialLoadComplete &&
-                    firstFrameRendered &&
-                    player.duration > 0 &&
-                    playbackError == null
-                currentCallback(
+                val mpvSnapshot = if (activeEngine == NativePlaybackEngine.Libmpv) mpvView?.snapshot() else null
+                val next = if (mpvSnapshot != null) {
+                    mpvTrackRevision = mpvSnapshot.trackRevision
+                    firstFrameRendered = mpvSnapshot.firstFrameRendered
+                    initialLoadComplete = !mpvSnapshot.loading
+                    playbackError = mpvSnapshot.error?.let { error ->
+                        if (fallbackReason != null) "Media3 failed: ${fallbackReason}\nlibmpv failed: $error" else error
+                    }
+                    PlaybackState(
+                        loading = mpvSnapshot.loading,
+                        buffering = mpvSnapshot.buffering,
+                        playing = mpvSnapshot.playing,
+                        positionMs = mpvSnapshot.positionMs,
+                        durationMs = mpvSnapshot.durationMs,
+                        videoWidth = mpvSnapshot.videoWidth,
+                        videoHeight = mpvSnapshot.videoHeight,
+                        ended = mpvSnapshot.ended,
+                        error = playbackError,
+                        pipReady = landscape && mpvSnapshot.firstFrameRendered && mpvSnapshot.durationMs > 0 && mpvSnapshot.error == null,
+                        engine = NativePlaybackEngine.Libmpv,
+                        fallbackReason = fallbackReason,
+                    )
+                } else {
+                    val isBuffering = initialLoadComplete && player.playbackState == Player.STATE_BUFFERING
+                    val playerPipReady = landscape &&
+                        initialLoadComplete &&
+                        firstFrameRendered &&
+                        player.duration > 0 &&
+                        playbackError == null
                     PlaybackState(
                         loading = !initialLoadComplete,
                         buffering = isBuffering,
@@ -285,17 +368,45 @@ actual fun NativePlayer(
                         ended = player.playbackState == Player.STATE_ENDED,
                         error = playbackError,
                         pipReady = playerPipReady,
-                    ),
-                )
-                if (!dragging) positionMs = player.currentPosition.coerceAtLeast(0)
-                durationMs = player.duration.coerceAtLeast(0)
-                playing = player.isPlaying
-                buffering = isBuffering
-                playbackSpeed = player.playbackParameters.speed
-                (activity as? MainActivity)?.updateConduitPipReadiness(playerPipReady)
+                        engine = NativePlaybackEngine.Media3,
+                        fallbackReason = fallbackReason,
+                    )
+                }
+                currentCallback(next)
+                if (!dragging) positionMs = next.positionMs
+                durationMs = next.durationMs
+                playing = next.playing
+                buffering = next.buffering
+                playbackSpeed = if (mpvSnapshot != null) mpvView?.playbackSpeed() ?: playbackSpeed else player.playbackParameters.speed
+                (activity as? MainActivity)?.updateConduitPipVideoSize(next.videoWidth, next.videoHeight)
+                (activity as? MainActivity)?.updateConduitPipReadiness(next.pipReady)
+                (activity as? MainActivity)?.updateConduitPictureInPictureParams()
                 delay(500)
             }
         }
+    }
+    LaunchedEffect(player, command?.sequence, activeEngine) {
+        when (val next = command?.command) {
+            PlaybackCommand.Play -> if (activeEngine == NativePlaybackEngine.Media3) player.play() else mpvView?.setPaused(false)
+            PlaybackCommand.Pause -> if (activeEngine == NativePlaybackEngine.Media3) player.pause() else mpvView?.setPaused(true)
+            is PlaybackCommand.SeekTo -> if (activeEngine == NativePlaybackEngine.Media3) player.seekTo(next.positionMs.coerceAtLeast(0)) else mpvView?.seekTo(next.positionMs.coerceAtLeast(0))
+            PlaybackCommand.EnterSystemPip -> (activity as? MainActivity)?.enterConduitPictureInPicture()
+            PlaybackCommand.RetryVideoOutput -> {
+                playbackError = null
+                initialLoadComplete = false
+                firstFrameRendered = false
+                if (activeEngine == NativePlaybackEngine.Media3) {
+                    player.prepare()
+                    player.play()
+                } else {
+                    mpvView?.retry()
+                }
+            }
+            null -> Unit
+        }
+    }
+    LaunchedEffect(presentation) {
+        controlsVisible = presentation == PlaybackPresentation.FullScreen
     }
     LaunchedEffect(controlsVisible, playing, speedMenuOpen) {
         if (controlsVisible && playing && !speedMenuOpen) {
@@ -306,56 +417,84 @@ actual fun NativePlayer(
 
     val holdToSpeedReady = firstFrameRendered && durationMs > 0
     val doubleTapSlopPx = with(LocalDensity.current) { 48.dp.toPx() }
-    Box(modifier.background(Color.Black).pointerInput(player, resizeMode) { detectTransformGestures { _, _, zoom, _ ->
+    val currentSpeed: () -> Float = { if (activeEngine == NativePlaybackEngine.Media3) player.playbackParameters.speed else mpvView?.playbackSpeed() ?: playbackSpeed }
+    val setPlaybackSpeed: (Float) -> Unit = { speed -> if (activeEngine == NativePlaybackEngine.Media3) player.setPlaybackSpeed(speed) else mpvView?.setPlaybackSpeed(speed) }
+    val seekTo: (Long) -> Unit = { position -> if (activeEngine == NativePlaybackEngine.Media3) player.seekTo(position) else mpvView?.seekTo(position) }
+    val seekBy: (Long) -> Unit = { offset -> if (activeEngine == NativePlaybackEngine.Media3) player.seekTo((player.currentPosition + offset).coerceAtLeast(0L)) else mpvView?.seekBy(offset) }
+    val togglePlayback: () -> Unit = { if (playing) { if (activeEngine == NativePlaybackEngine.Media3) player.pause() else mpvView?.setPaused(true) } else { if (activeEngine == NativePlaybackEngine.Media3) player.play() else mpvView?.setPaused(false) } }
+    Box(modifier.background(Color.Black).pointerInput(player, activeEngine, resizeMode) { detectTransformGestures { _, _, zoom, _ ->
         val next = when { zoom > 1.04f -> ANDROID_RESIZE_MODE_ZOOM; zoom < .96f -> AspectRatioFrameLayout.RESIZE_MODE_FIT; else -> resizeMode }
         if (next != resizeMode) resizeMode = next
-    } }.pointerInput(player, touchGestures, holdToSpeed, holdToSpeedReady, controlsVisible) {
+    } }.pointerInput(player, activeEngine, touchGestures, holdToSpeed, holdToSpeedReady, controlsVisible) {
         detectMovementTolerantPlayerGestures(
             touchGestures = touchGestures,
             holdToSpeed = holdToSpeed,
             holdToSpeedReady = holdToSpeedReady,
             doubleTapSlopPx = doubleTapSlopPx,
-            currentSpeed = { player.playbackParameters.speed },
-            setSpeed = player::setPlaybackSpeed,
+            currentSpeed = currentSpeed,
+            setSpeed = setPlaybackSpeed,
             onTemporarySpeedChanged = latestTemporarySpeedCallback,
             onTap = { controlsVisible = true },
             onDoubleTap = { offset ->
-                if (offset.x < size.width / 2f) player.seekBack() else player.seekForward()
+                seekBy(if (offset.x < size.width / 2f) -10_000L else 10_000L)
                 controlsVisible = true
             },
         )
     }) {
-        AndroidView(
-            factory = { PlayerView(it).apply { this.player = player; useController = false; setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER); keepScreenOn = true; (activity as? MainActivity)?.setConduitPipSourceView(this) } },
-            update = {
-                it.player = player
-                it.resizeMode = if (resizeMode == ANDROID_RESIZE_MODE_ZOOM) AspectRatioFrameLayout.RESIZE_MODE_ZOOM else resizeMode
-                val scale = if (resizeMode == ANDROID_RESIZE_MODE_ZOOM) 1.15f else 1f
-                it.scaleX = scale
-                it.scaleY = scale
-                it.subtitleView?.setFractionalTextSize(
-                    if (presentation == PlaybackPresentation.FullScreen) .0533f else .035f,
-                )
-                (activity as? MainActivity)?.setConduitPipSourceView(it)
-            },
-            modifier = Modifier.fillMaxSize(),
-        )
+        if (activeEngine == NativePlaybackEngine.Libmpv) {
+            AndroidView(
+                factory = { viewContext ->
+                    ConduitMpvView.create(viewContext).apply {
+                        layoutParams = android.view.ViewGroup.LayoutParams(-1, -1)
+                        installObservers {}
+                        mpvView = this
+                        (activity as? MainActivity)?.setConduitPipSourceView(this)
+                    }
+                },
+                update = {
+                    mpvView = it
+                    it.applyResizeMode(resizeMode)
+                    (activity as? MainActivity)?.setConduitPipSourceView(it)
+                },
+                onRelease = {
+                    if (mpvView === it) mpvView = null
+                    runCatching { it.destroy() }
+                },
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
+            AndroidView(
+                factory = { PlayerView(it).apply { this.player = player; useController = false; setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER); keepScreenOn = true; (activity as? MainActivity)?.setConduitPipSourceView(this) } },
+                update = {
+                    it.player = player
+                    it.resizeMode = if (resizeMode == ANDROID_RESIZE_MODE_ZOOM) AspectRatioFrameLayout.RESIZE_MODE_ZOOM else resizeMode
+                    val scale = if (resizeMode == ANDROID_RESIZE_MODE_ZOOM) 1.15f else 1f
+                    it.scaleX = scale
+                    it.scaleY = scale
+                    it.subtitleView?.setFractionalTextSize(
+                        if (presentation == PlaybackPresentation.FullScreen) .0533f else .035f,
+                    )
+                    (activity as? MainActivity)?.setConduitPipSourceView(it)
+                },
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
         if (controlsVisible && presentation == PlaybackPresentation.FullScreen) {
-            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .42f)).pointerInput(player, resizeMode) { detectTransformGestures { _, _, zoom, _ ->
+            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .42f)).pointerInput(player, activeEngine, resizeMode) { detectTransformGestures { _, _, zoom, _ ->
                 val next = when { zoom > 1.04f -> ANDROID_RESIZE_MODE_ZOOM; zoom < .96f -> AspectRatioFrameLayout.RESIZE_MODE_FIT; else -> resizeMode }
                 if (next != resizeMode) resizeMode = next
-            } }.pointerInput(player, touchGestures, holdToSpeed, holdToSpeedReady) {
+            } }.pointerInput(player, activeEngine, touchGestures, holdToSpeed, holdToSpeedReady) {
                 detectMovementTolerantPlayerGestures(
                     touchGestures = touchGestures,
                     holdToSpeed = holdToSpeed,
                     holdToSpeedReady = holdToSpeedReady,
                     doubleTapSlopPx = doubleTapSlopPx,
-                    currentSpeed = { player.playbackParameters.speed },
-                    setSpeed = player::setPlaybackSpeed,
+                    currentSpeed = currentSpeed,
+                    setSpeed = setPlaybackSpeed,
                     onTemporarySpeedChanged = latestTemporarySpeedCallback,
                     onTap = { controlsVisible = false },
                     onDoubleTap = { offset ->
-                        if (offset.x < size.width / 2f) player.seekBack() else player.seekForward()
+                        seekBy(if (offset.x < size.width / 2f) -10_000L else 10_000L)
                         controlsVisible = true
                     },
                 )
@@ -363,7 +502,7 @@ actual fun NativePlayer(
                 val loadingOrPortrait = !landscape || durationMs <= 0
                 Box(Modifier.fillMaxSize()) {
                     if (shouldShowCenterPlaybackControl(controlsVisible, dragging, buffering)) {
-                        FilledIconButton(onClick = { if (player.isPlaying) player.pause() else player.play(); controlsVisible = true }, modifier = Modifier.align(Alignment.Center).size(64.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color.White, contentColor = Color.Black)) {
+                        FilledIconButton(onClick = { togglePlayback(); controlsVisible = true }, modifier = Modifier.align(Alignment.Center).size(64.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color.White, contentColor = Color.Black)) {
                             Icon(if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, if (playing) "Pause" else "Play", modifier = Modifier.size(38.dp))
                         }
                     }
@@ -381,7 +520,7 @@ actual fun NativePlayer(
                     Slider(
                         value = if (dragging) draggedPosition else positionMs.toFloat(),
                         onValueChange = { dragging = true; draggedPosition = it },
-                        onValueChangeFinished = { player.seekTo(draggedPosition.toLong()); dragging = false; controlsVisible = true },
+                        onValueChangeFinished = { seekTo(draggedPosition.toLong()); dragging = false; controlsVisible = true },
                         valueRange = 0f..durationMs.coerceAtLeast(1).toFloat(),
                         colors = SliderDefaults.colors(thumbColor = MaterialTheme.colorScheme.primary, activeTrackColor = MaterialTheme.colorScheme.primary, inactiveTrackColor = Color.White.copy(.35f)), modifier = Modifier.height(30.dp),
                     )
@@ -419,10 +558,10 @@ actual fun NativePlayer(
                                     controlsVisible = true
                                 },
                             ) {
-                                val current = player.playbackParameters.speed
+                                val current = currentSpeed()
                                 val index = speeds.indexOfFirst { it == current }.takeIf { it >= 0 } ?: 2
                                 playbackSpeed = speeds[(index + 1) % speeds.size]
-                                player.setPlaybackSpeed(playbackSpeed)
+                                setPlaybackSpeed(playbackSpeed)
                                 controlsVisible = true
                             }
                             DropdownMenu(
@@ -447,7 +586,7 @@ actual fun NativePlayer(
                                         text = { Text("$speed×", color = if (selected) Color.White else Color.White.copy(alpha = .78f), fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal) },
                                         trailingIcon = if (selected) {{ Icon(Icons.Rounded.Check, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp)) }} else null,
                                         onClick = {
-                                            player.setPlaybackSpeed(speed)
+                                            setPlaybackSpeed(speed)
                                             playbackSpeed = speed
                                             speedMenuOpen = false
                                             controlsVisible = true
@@ -469,8 +608,12 @@ actual fun NativePlayer(
             }
         }
         trackPanel?.let { type ->
-            @Suppress("UNUSED_EXPRESSION") tracksRevision
-            PlayerTrackPanel(player, type, onBeforeSelection = { trackFallback = player.trackSelectionParameters; lastTrackChangeAt = SystemClock.elapsedRealtime() }, onDismiss = { trackPanel = null })
+            if (activeEngine == NativePlaybackEngine.Libmpv) {
+                mpvView?.let { MpvTrackPanel(it, type, mpvTrackRevision, onDismiss = { trackPanel = null }) }
+            } else {
+                @Suppress("UNUSED_EXPRESSION") tracksRevision
+                PlayerTrackPanel(player, type, onBeforeSelection = { trackFallback = player.trackSelectionParameters; lastTrackChangeAt = SystemClock.elapsedRealtime() }, onDismiss = { trackPanel = null })
+            }
         }
     }
 }
