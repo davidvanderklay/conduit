@@ -4,10 +4,10 @@ import android.content.Context
 import android.os.Build
 import android.util.AttributeSet
 import android.util.Log
-import is.xyz.mpv.BaseMPVView
-import is.xyz.mpv.MPV
-import is.xyz.mpv.MPVNode
-import is.xyz.mpv.Utils
+import `is`.xyz.mpv.BaseMPVView
+import `is`.xyz.mpv.MPV
+import `is`.xyz.mpv.MPVNode
+import `is`.xyz.mpv.Utils
 import media.conduit.mobile.account.SubtitleItem
 
 internal data class MpvPlaybackSnapshot(
