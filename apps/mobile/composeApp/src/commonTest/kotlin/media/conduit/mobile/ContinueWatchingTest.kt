@@ -166,6 +166,18 @@ class ContinueWatchingTest {
         assertEquals("Today", releaseDateLabel("2026-08-12", "2026-08-12"))
         assertEquals("Tomorrow", releaseDateLabel("2026-08-13", "2026-08-12"))
         assertEquals("Aug 19", releaseDateLabel("2026-08-19", "2026-08-12"))
+        assertEquals("Aug 19, 2026", episodeReleaseDateLabel("2026-08-19T00:00:00Z"))
+        assertEquals("sometime", episodeReleaseDateLabel("sometime"))
+    }
+
+    @Test
+    fun episodePickerIncludesFutureEpisodesForBrowsing() {
+        val future = VideoItem("future", season = 1, episode = 5, released = "2027-01-01")
+
+        assertEquals(
+            listOf("s1e2", "s1e3", "s1e4", "future"),
+            orderedEpisodePickerVideos(videos + future).map(VideoItem::id),
+        )
     }
 
     private fun progress(

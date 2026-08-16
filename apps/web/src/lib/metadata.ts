@@ -107,6 +107,7 @@ export function normalizeMetaItem(value: unknown, fallback: CatalogItem): MetaIt
     poster: imageUrl(raw.poster) ?? imageUrl(fallback.poster),
     background: imageUrl(raw.background) ?? imageUrl(fallback.background),
     logo: imageUrl(raw.logo),
+    defaultVideoId: text(raw.defaultVideoId, 1_000),
     description: text(raw.description ?? raw.overview) ?? text(fallback.description),
     releaseInfo,
     runtime: text(raw.runtime, 100) ?? text(fallback.runtime, 100),
@@ -137,19 +138,110 @@ export function episodeLabel(video: Video): string {
 }
 
 export function eligibleSeriesVideos(videos: Video[], now = new Date()): Video[] {
-  return videos
-    .filter((video) => {
-      const release = video.released ? Date.parse(video.released) : Number.NaN
-      return video.available !== false &&
-        video.season != null &&
-        video.season > 0 &&
-        video.episode != null &&
-        (Number.isNaN(release) || release <= now.getTime())
-    })
+  return numberedSeriesVideos(videos, now)
+    .filter((video) => video.season! > 0)
     .sort((a, b) =>
       (a.season! - b.season!) ||
       (a.episode! - b.episode!) ||
       a.id.localeCompare(b.id))
+}
+
+function numberedSeriesVideos(videos: Video[], now: Date): Video[] {
+  return videos.filter((video) => {
+    const release = video.released ? Date.parse(video.released) : Number.NaN
+    return video.available !== false &&
+      video.season != null &&
+      video.season >= 0 &&
+      video.episode != null &&
+      (Number.isNaN(release) || release <= now.getTime())
+  })
+}
+
+function playableSeriesVideos(videos: Video[], now: Date): Video[] {
+  const regular = eligibleSeriesVideos(videos, now)
+  if (regular.length > 0) return regular
+  return numberedSeriesVideos(videos, now).sort((a, b) =>
+    (a.season! - b.season!) ||
+    (a.episode! - b.episode!) ||
+    a.id.localeCompare(b.id))
+}
+
+function matchesVideo(progress: WatchProgress, video: Video): boolean {
+  if (
+    progress.season != null &&
+    progress.episode != null &&
+    video.season != null &&
+    video.episode != null
+  ) {
+    return video.season === progress.season && video.episode === progress.episode
+  }
+  return progress.videoId === video.id
+}
+
+function progressVideo(videos: Video[], progress: WatchProgress): Video | undefined {
+  return videos.find((video) => matchesVideo(progress, video))
+}
+
+export function progressForVideo(
+  progress: WatchProgress[],
+  video: Video,
+  mediaId?: string,
+): WatchProgress | undefined {
+  return progress
+    .filter((entry) =>
+      entry.mediaType === "series" &&
+      (mediaId == null
+        ? entry.videoId === video.id
+        : entry.mediaId === mediaId && matchesVideo(entry, video)),
+    )
+    .sort((a, b) => timestamp(b.updatedAt) - timestamp(a.updatedAt))[0]
+}
+
+function timestamp(value: string): number {
+  const parsed = Date.parse(value)
+  return Number.isNaN(parsed) ? 0 : parsed
+}
+
+function progressOrder(videos: Video[], progress: WatchProgress): [number, number, number, string] {
+  const video = progressVideo(videos, progress)
+  return [
+    video?.season ?? progress.season ?? -1,
+    video?.episode ?? progress.episode ?? -1,
+    timestamp(progress.updatedAt),
+    progress.videoId,
+  ]
+}
+
+function compareProgress(videos: Video[], left: WatchProgress, right: WatchProgress): number {
+  const a = progressOrder(videos, left)
+  const b = progressOrder(videos, right)
+  return (a[0] - b[0]) || (a[1] - b[1]) || (a[2] - b[2]) || a[3].localeCompare(b[3])
+}
+
+function latestUnfinishedProgress(videos: Video[], progress: WatchProgress[]): WatchProgress | undefined {
+  return progress
+    .filter((entry) =>
+      entry.mediaType === "series" &&
+      !entry.watched &&
+      entry.positionMs >= 1_000,
+    )
+    .sort((a, b) => timestamp(b.updatedAt) - timestamp(a.updatedAt))[0]
+}
+
+function latestCompletedProgress(videos: Video[], progress: WatchProgress[]): WatchProgress | undefined {
+  return progress
+    .filter((entry) =>
+      entry.mediaType === "series" &&
+      entry.watched &&
+      (progressVideo(videos, entry) != null || (entry.season != null && entry.episode != null)),
+    )
+    .sort((a, b) => compareProgress(videos, b, a))[0]
+}
+
+function firstEpisodeInSeason(videos: Video[], season: number): Video | undefined {
+  return videos
+    .filter((video) => video.season === season)
+    .sort((a, b) => (a.episode ?? 0) - (b.episode ?? 0))[0]
 }
 
 export function selectSeriesVideo(
@@ -157,23 +249,41 @@ export function selectSeriesVideo(
   progress: WatchProgress[],
   preferredVideoId?: string,
   now = new Date(),
+  defaultVideoId?: string,
 ): Video | undefined {
   const eligible = eligibleSeriesVideos(videos, now)
-  const eligibleIds = new Set(eligible.map((video) => video.id))
-  const byId = new Map(progress.map((entry) => [entry.videoId, entry]))
-  if (preferredVideoId && eligibleIds.has(preferredVideoId)) {
-    return eligible.find((video) => video.id === preferredVideoId)
+  const preferredProgress = preferredVideoId
+    ? progress.find((entry) => entry.videoId === preferredVideoId)
+    : undefined
+  const preferred = preferredVideoId && (
+    preferredProgress
+      ? progressVideo(videos, preferredProgress) ??
+        (preferredProgress.season != null
+          ? firstEpisodeInSeason(videos, preferredProgress.season) ?? playableSeriesVideos(videos, now)[0]
+          : videos.find((video) => video.id === preferredVideoId))
+      : videos.find((video) => video.id === preferredVideoId)
+  )
+  if (preferred) return preferred
+
+  const unfinished = latestUnfinishedProgress(videos, progress)
+  const completed = latestCompletedProgress(videos, progress)
+  if (unfinished && (!completed || timestamp(unfinished.updatedAt) > timestamp(completed.updatedAt))) {
+    return progressVideo(videos, unfinished) ??
+      (unfinished.season != null
+        ? firstEpisodeInSeason(videos, unfinished.season) ?? playableSeriesVideos(videos, now)[0]
+        : playableSeriesVideos(videos, now)[0])
   }
-  const latest = progress
-    .filter((entry) => eligibleIds.has(entry.videoId))
-    .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))[0]
-  if (latest && !latest.watched && latest.positionMs > 0) {
-    return eligible.find((video) => video.id === latest.videoId)
+  if (completed) {
+    const next = nextSeriesVideo(videos, completed.videoId, progress, now)
+    if (next) return next
+    return eligible[0] ?? playableSeriesVideos(videos, now)[0]
   }
-  if (latest?.watched) {
-    return nextSeriesVideo(videos, latest.videoId, progress, now)
-  }
-  return eligible.find((video) => !byId.get(video.id)?.watched)
+
+  const playable = playableSeriesVideos(videos, now)
+  const defaultVideo = defaultVideoId
+    ? numberedSeriesVideos(videos, now).find((video) => video.id === defaultVideoId)
+    : undefined
+  return defaultVideo ?? playable[0]
 }
 
 export function nextSeriesVideo(
@@ -183,12 +293,17 @@ export function nextSeriesVideo(
   now = new Date(),
 ): Video | undefined {
   const eligible = eligibleSeriesVideos(videos, now)
-  const currentIndex = eligible.findIndex((video) => video.id === currentVideoId)
-  if (currentIndex < 0) return undefined
-  const watched = new Set(
-    progress.filter((entry) => entry.watched).map((entry) => entry.videoId),
+  const currentProgress = progress.find((entry) => entry.videoId === currentVideoId)
+  const current = (currentProgress ? progressVideo(videos, currentProgress) : undefined) ??
+    videos.find((video) => video.id === currentVideoId) ??
+    currentProgress
+  const season = current?.season
+  const episode = current?.episode
+  if (season == null || episode == null) return undefined
+  return eligible.find((video) =>
+    (video.season! > season || (video.season === season && video.episode! > episode)) &&
+    !progress.some((entry) => entry.watched && matchesVideo(entry, video)),
   )
-  return eligible.slice(currentIndex + 1).find((video) => !watched.has(video.id))
 }
 
 export function adjacentSeriesVideo(

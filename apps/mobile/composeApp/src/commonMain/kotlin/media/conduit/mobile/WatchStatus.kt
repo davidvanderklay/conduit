@@ -73,6 +73,46 @@ internal fun seasonWatchVideos(
     .filter { it.season == season && it.releasedOrAvailable(today) }
     .sortedWith(compareBy<VideoItem> { it.episode ?: 0 }.thenBy(VideoItem::id))
 
+internal fun progressForVideo(
+    progress: List<ProgressSummary>,
+    item: CatalogItem,
+    video: VideoItem,
+): ProgressSummary? = progress
+    .filter {
+        it.mediaType == item.type &&
+            it.mediaId == item.id &&
+            progressMatchesVideo(it, video)
+    }
+    .maxByOrNull(ProgressSummary::updatedAt)
+
+internal fun progressMatchesVideo(progress: ProgressSummary, video: VideoItem): Boolean =
+    if (
+        progress.season != null &&
+        progress.episode != null &&
+        video.season != null &&
+        video.episode != null
+    ) {
+        progress.season == video.season && progress.episode == video.episode
+    } else {
+        progress.videoId == video.id
+    }
+
+private fun progressVideo(
+    videos: List<VideoItem>,
+    progress: ProgressSummary,
+): VideoItem? = videos.firstOrNull { progressMatchesVideo(progress, it) }
+
+private fun canonicalProgressVideo(
+    videos: List<VideoItem>,
+    progress: ProgressSummary,
+): VideoItem? = if (progress.season != null && progress.episode != null) {
+    videos.firstOrNull {
+        it.season == progress.season && it.episode == progress.episode
+    }
+} else {
+    null
+}
+
 internal fun seriesWatchVideos(
     videos: List<VideoItem>,
     today: String = Clock.System.now().toString().take(10),
@@ -81,8 +121,7 @@ internal fun seriesWatchVideos(
     val regular = eligible.filter { it.season != 0 }
     return (regular.ifEmpty { eligible }).sortedWith(
         compareBy<VideoItem> { it.season ?: 0 }
-            .thenBy { it.episode ?: 0 }
-            .thenBy(VideoItem::id),
+            .thenBy { it.episode ?: 0 },
     )
 }
 
@@ -103,9 +142,9 @@ internal fun latestUnfinishedProgress(
     item: CatalogItem,
 ): ProgressSummary? = progress
     .filter {
-        it.mediaType == item.type && it.mediaId == item.id &&
+            it.mediaType == item.type && it.mediaId == item.id &&
             !it.videoId.startsWith(LegacyCompletionMarkerPrefix) &&
-            !it.watched && it.positionMs > 0
+            !it.watched && it.positionMs >= 1_000
     }
     .maxByOrNull(ProgressSummary::updatedAt)
 
@@ -118,22 +157,27 @@ internal fun savedAutoResumeSource(
         it.mediaType == item.type &&
         it.mediaId == item.id &&
         !it.watched &&
-        it.positionMs > 0L
+        it.positionMs >= 1_000L
 }?.playbackSource
 
 internal fun latestCompletedProgress(
     progress: List<ProgressSummary>,
     item: CatalogItem,
+    videos: List<VideoItem> = emptyList(),
 ): ProgressSummary? = progress
     .filter {
-        it.mediaType == item.type && it.mediaId == item.id &&
-            it.watched && it.season != null && it.episode != null &&
+            it.mediaType == item.type && it.mediaId == item.id &&
+            it.watched &&
             !it.videoId.startsWith(LegacyCompletionMarkerPrefix)
     }
     .maxWithOrNull(
-        compareBy<ProgressSummary> { it.updatedAt }
-            .thenBy { it.season }
-            .thenBy { it.episode }
+        compareBy<ProgressSummary> {
+            progressVideo(videos, it)?.season ?: it.season ?: -1
+        }
+            .thenBy {
+                progressVideo(videos, it)?.episode ?: it.episode ?: -1
+            }
+            .thenBy { it.updatedAt }
             .thenBy { it.videoId },
     )
 
@@ -146,9 +190,29 @@ internal fun effectiveResumeVideoId(
 internal fun resolveRequestedVideo(
     videos: List<VideoItem>,
     requestedVideoId: String?,
-): VideoItem? = requestedVideoId
-    ?.let { videoId -> videos.firstOrNull { it.id == videoId } }
-    ?: videos.firstOrNull()
+    requestedProgress: ProgressSummary? = null,
+): VideoItem? {
+    requestedProgress?.let { progress ->
+        if (progress.season != null && progress.episode != null) {
+            return canonicalProgressVideo(videos, progress)
+                ?: videos
+                    .filter { it.season == progress.season }
+                    .sortedWith(compareBy<VideoItem> { it.episode ?: 0 })
+                    .firstOrNull()
+                ?: seriesWatchVideos(videos).firstOrNull()
+        }
+        return progressVideo(videos, progress)
+            ?: requestedVideoId?.let { id -> videos.firstOrNull { it.id == id } }
+            ?: progress.season?.let { season ->
+                videos
+                    .filter { it.season == season }
+                    .sortedWith(compareBy<VideoItem> { it.episode ?: 0 })
+                    .firstOrNull()
+            }
+    }
+    return requestedVideoId?.let { id -> videos.firstOrNull { it.id == id } }
+        ?: videos.firstOrNull()
+}
 
 internal data class RequestedVideoSelection(
     val video: VideoItem?,
@@ -159,8 +223,9 @@ internal fun reconcileRequestedVideo(
     current: VideoItem?,
     videos: List<VideoItem>,
     requestedVideoId: String?,
+    requestedProgress: ProgressSummary? = null,
 ): RequestedVideoSelection {
-    val requested = resolveRequestedVideo(videos, requestedVideoId)
+    val requested = resolveRequestedVideo(videos, requestedVideoId, requestedProgress)
     return RequestedVideoSelection(
         video = requested,
         shouldResetPlayback = current != null && current.id != requested?.id,
@@ -190,13 +255,37 @@ internal fun detailsPlayTarget(
     item: CatalogItem,
     progress: List<ProgressSummary>,
     videos: List<VideoItem>,
+    defaultVideoId: String? = null,
+    today: String = Clock.System.now().toString().take(10),
 ): DetailsPlayTarget {
     val unfinished = latestUnfinishedProgress(progress, item)
-    val resumeVideo = videos.firstOrNull { it.id == unfinished?.videoId }
-    if (unfinished != null && (item.type != "series" || resumeVideo != null)) {
+    val resumeVideo = unfinished?.let { progressRow ->
+        canonicalProgressVideo(videos, progressRow)
+            ?: if (progressRow.season == null || progressRow.episode == null) {
+                videos.firstOrNull { it.id == progressRow.videoId }
+            } else {
+                null
+            }
+    }
+    val resumeFallback = unfinished?.season?.let { season ->
+        videos
+            .filter { it.season == season }
+                .sortedWith(compareBy<VideoItem> { it.episode ?: 0 })
+            .firstOrNull()
+    }
+    val completed = if (item.type == "series") latestCompletedProgress(progress, item, videos) else null
+    val shouldResume = unfinished != null && (
+        item.type != "series" || completed == null || unfinished.updatedAt > completed.updatedAt
+    )
+    val resolvedResumeVideo = resumeVideo ?: resumeFallback ?: if (shouldResume && item.type == "series") {
+        seriesWatchVideos(videos, today).firstOrNull()
+    } else {
+        null
+    }
+    if (shouldResume && (item.type != "series" || resolvedResumeVideo != null)) {
         return DetailsPlayTarget(
-            video = resumeVideo,
-            label = detailsPlayLabel(item, unfinished, resumeVideo),
+            video = resolvedResumeVideo,
+            label = detailsPlayLabel(item, unfinished, resolvedResumeVideo),
         )
     }
 
@@ -205,9 +294,11 @@ internal fun detailsPlayTarget(
             .filter { it.mediaType == item.type && it.mediaId == item.id && it.watched }
             .mapTo(mutableSetOf(), ProgressSummary::videoId)
         val next = nextEpisodeAfter(
-            progress = latestCompletedProgress(progress, item),
+            progress = completed,
             videos = videos,
             watchedVideoIds = watchedVideoIds,
+            today = today,
+            watchedProgress = progress.filter { it.mediaType == item.type && it.mediaId == item.id },
         )
         if (next != null) {
             val season = next.season
@@ -217,5 +308,15 @@ internal fun detailsPlayTarget(
         }
     }
 
-    return DetailsPlayTarget(video = null, label = "Play")
+    val availableVideos = videos
+        .filter { it.releasedOrAvailable(today) }
+        .sortedWith(compareBy<VideoItem> { it.season ?: 0 }.thenBy { it.episode ?: 0 })
+    val fallbackVideos = seriesWatchVideos(videos, today)
+    val fallback = if (completed != null) {
+        fallbackVideos.firstOrNull()
+    } else {
+        defaultVideoId?.let { id -> availableVideos.firstOrNull { it.id == id } }
+            ?: fallbackVideos.firstOrNull()
+    }
+    return DetailsPlayTarget(video = fallback, label = "Play")
 }

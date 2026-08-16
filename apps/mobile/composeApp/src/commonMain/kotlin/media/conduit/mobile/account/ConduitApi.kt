@@ -197,6 +197,7 @@ data class MetaItem(
     val poster: String? = null,
     val background: String? = null,
     val logo: String? = null,
+    val defaultVideoId: String? = null,
     val description: String? = null,
     val releaseInfo: String? = null,
     val runtime: String? = null,

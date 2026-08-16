@@ -101,6 +101,14 @@ internal fun releaseDateLabel(released: String, today: String): String {
     return if (month != null && date != null) "$month $date" else released
 }
 
+internal fun episodeReleaseDateLabel(released: String?): String? {
+    val day = releaseDay(released) ?: return released?.takeIf(String::isNotBlank)
+    val year = day.substring(0, 4)
+    val month = day.substring(5, 7).toIntOrNull()?.let { monthNames.getOrNull(it - 1) }
+    val date = day.substring(8, 10).toIntOrNull()
+    return if (month != null && date != null) "$month $date, $year" else released
+}
+
 private fun compareEpisodes(a: VideoItem, b: VideoItem): Int =
     compareValues(a.season, b.season).takeIf { it != 0 }
         ?: compareValues(a.episode, b.episode).takeIf { it != 0 }
@@ -138,15 +146,23 @@ internal fun nextEpisodeAfter(
     watchedVideoIds: Set<String> = emptySet(),
     today: String = Clock.System.now().toString().take(10),
     now: Instant = Clock.System.now(),
+    watchedProgress: List<ProgressSummary> = emptyList(),
 ): VideoItem? {
     if (progress == null) return null
     val regular = orderedPlayableEpisodes(videos, today, now)
-    val anchor = regular.firstOrNull { it.id == progress.videoId }
-        ?: regular.firstOrNull { it.season == progress.season && it.episode == progress.episode }
-        ?: return null
+    val anchor = videos.firstOrNull { progressMatchesVideo(progress, it) }
+    val anchorSeason = anchor?.season ?: progress.season
+    val anchorEpisode = anchor?.episode ?: progress.episode
+    if (anchorSeason == null || anchorEpisode == null) return null
     return regular.firstOrNull {
-        compareEpisodes(it, anchor) > 0 &&
-            it.id !in watchedVideoIds
+        (
+            it.season!! > anchorSeason ||
+                (it.season == anchorSeason && it.episode!! > anchorEpisode)
+            ) &&
+            it.id !in watchedVideoIds &&
+            watchedProgress.none { watched ->
+                watched.watched && progressMatchesVideo(watched, it)
+            }
     }
 }
 
@@ -160,6 +176,10 @@ internal fun orderedPlayableEpisodes(
     now: Instant = Clock.System.now(),
 ): List<VideoItem> = orderedContinueWatchingEpisodes(videos)
     .filter { it.hasAired(today, now) }
+
+internal fun orderedEpisodePickerVideos(
+    videos: List<VideoItem>,
+): List<VideoItem> = orderedContinueWatchingEpisodes(videos)
 
 private fun nextIsoDay(day: String): String {
     val year = day.substring(0, 4).toInt()

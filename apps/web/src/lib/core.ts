@@ -40,6 +40,7 @@ export interface Video {
 
 export interface MetaItem extends CatalogItem {
   logo?: string
+  defaultVideoId?: string
   releaseInfo?: string
   runtime?: string
   genres?: string[]
