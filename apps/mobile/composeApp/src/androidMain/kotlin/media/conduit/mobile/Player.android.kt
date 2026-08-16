@@ -53,7 +53,9 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.ui.PlayerView
 import androidx.media3.ui.AspectRatioFrameLayout
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import media.conduit.mobile.account.SubtitleItem
 import android.net.Uri
 
@@ -391,20 +393,22 @@ actual fun NativePlayer(
     LaunchedEffect(mpvView, url, requestHeaders, subtitles, activeEngine) {
         val view = mpvView ?: return@LaunchedEffect
         if (activeEngine != NativePlaybackEngine.Libmpv || url.isNullOrBlank()) return@LaunchedEffect
-        view.loadSource(
-            url = url,
-            requestHeaders = requestHeaders,
-            subtitles = subtitles,
-            startPositionMs = fallbackStartPositionMs.takeIf { it > 0 } ?: startPositionMs,
-            playWhenReady = active && (fallbackReason == null || fallbackPlayWhenReady),
-            preferredAudioLanguage = preferredAudioLanguage,
-            preferredSubtitleLanguage = preferredSubtitleLanguage,
-            playbackSpeed = fallbackPlaybackSpeed,
-            selectedSubtitleId = selectedSubtitleId,
-            selectedSubtitleLanguage = selectedSubtitleLanguage,
-            selectedSubtitleLabel = selectedSubtitleLabel,
-            subtitlesEnabled = subtitlesEnabled,
-        )
+        withContext(Dispatchers.IO) {
+            view.loadSource(
+                url = url,
+                requestHeaders = requestHeaders,
+                subtitles = subtitles,
+                startPositionMs = fallbackStartPositionMs.takeIf { it > 0 } ?: startPositionMs,
+                playWhenReady = active && (fallbackReason == null || fallbackPlayWhenReady),
+                preferredAudioLanguage = preferredAudioLanguage,
+                preferredSubtitleLanguage = preferredSubtitleLanguage,
+                playbackSpeed = fallbackPlaybackSpeed,
+                selectedSubtitleId = selectedSubtitleId,
+                selectedSubtitleLanguage = selectedSubtitleLanguage,
+                selectedSubtitleLabel = selectedSubtitleLabel,
+                subtitlesEnabled = subtitlesEnabled,
+            )
+        }
     }
     LaunchedEffect(activeEngine, active, mpvView) {
         if (activeEngine == NativePlaybackEngine.Media3) {
@@ -416,7 +420,11 @@ actual fun NativePlayer(
     LaunchedEffect(player, mpvView, lifecycle, landscape, activeEngine) {
         lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             while (true) {
-                val mpvSnapshot = if (activeEngine == NativePlaybackEngine.Libmpv) mpvView?.snapshot() else null
+                val mpvSnapshot = if (activeEngine == NativePlaybackEngine.Libmpv) {
+                    mpvView?.let { view -> withContext(Dispatchers.IO) { view.refreshSnapshot() } }
+                } else {
+                    null
+                }
                 val next = if (mpvSnapshot != null) {
                     mpvTrackRevision = mpvSnapshot.trackRevision
                     firstFrameRendered = mpvSnapshot.firstFrameRendered
@@ -474,7 +482,7 @@ actual fun NativePlayer(
                 durationMs = next.durationMs
                 playing = next.playing
                 buffering = next.buffering
-                playbackSpeed = if (mpvSnapshot != null) mpvView?.playbackSpeed() ?: playbackSpeed else player.playbackParameters.speed
+                playbackSpeed = mpvSnapshot?.playbackSpeed ?: player.playbackParameters.speed
                 (activity as? MainActivity)?.updateConduitPipVideoSize(next.videoWidth, next.videoHeight)
                 (activity as? MainActivity)?.updateConduitPipReadiness(next.pipReady)
                 (activity as? MainActivity)?.updateConduitPictureInPictureParams()
@@ -525,12 +533,16 @@ actual fun NativePlayer(
                     if (retryPlaybackEngine(session).activeEngine == NativePlaybackEngine.Media3) {
                         retryAutomaticFromLibmpv()
                     } else {
-                        mpvView?.retry(
-                            selectedSubtitleId = selectedSubtitleId,
-                            selectedSubtitleLanguage = selectedSubtitleLanguage,
-                            selectedSubtitleLabel = selectedSubtitleLabel,
-                            subtitlesEnabled = subtitlesEnabled,
-                        )
+                        mpvView?.let { view ->
+                            withContext(Dispatchers.IO) {
+                                view.retry(
+                                    selectedSubtitleId = selectedSubtitleId,
+                                    selectedSubtitleLanguage = selectedSubtitleLanguage,
+                                    selectedSubtitleLabel = selectedSubtitleLabel,
+                                    subtitlesEnabled = subtitlesEnabled,
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -539,6 +551,11 @@ actual fun NativePlayer(
     }
     LaunchedEffect(presentation) {
         controlsVisible = presentation == PlaybackPresentation.FullScreen
+    }
+    LaunchedEffect(mpvView, resizeMode, activeEngine) {
+        if (activeEngine == NativePlaybackEngine.Libmpv) {
+            mpvView?.let { view -> withContext(Dispatchers.IO) { view.applyResizeMode(resizeMode) } }
+        }
     }
     LaunchedEffect(controlsVisible, playing, speedMenuOpen) {
         if (controlsVisible && playing && !speedMenuOpen) {
@@ -585,12 +602,11 @@ actual fun NativePlayer(
                 },
                 update = {
                     mpvView = it
-                    it.applyResizeMode(resizeMode)
                     (activity as? MainActivity)?.setConduitPipSourceView(it)
                 },
                 onRelease = {
                     if (mpvView === it) mpvView = null
-                    runCatching { it.destroy() }
+                    runCatching { it.destroySafely() }
                 },
                 modifier = Modifier.fillMaxSize(),
             )
