@@ -2,6 +2,7 @@ package media.conduit.mobile
 
 import kotlin.time.Clock
 import media.conduit.mobile.account.CatalogItem
+import media.conduit.mobile.account.PlaybackSource
 import media.conduit.mobile.account.ProgressSummary
 import media.conduit.mobile.account.VideoItem
 
@@ -107,6 +108,18 @@ internal fun latestUnfinishedProgress(
             !it.watched && it.positionMs > 0
     }
     .maxByOrNull(ProgressSummary::updatedAt)
+
+internal fun savedAutoResumeSource(
+    progress: List<ProgressSummary>,
+    item: CatalogItem,
+    videoId: String?,
+): PlaybackSource? = progress.firstOrNull {
+    it.videoId == videoId &&
+        it.mediaType == item.type &&
+        it.mediaId == item.id &&
+        !it.watched &&
+        it.positionMs > 0L
+}?.playbackSource
 
 internal fun latestCompletedProgress(
     progress: List<ProgressSummary>,

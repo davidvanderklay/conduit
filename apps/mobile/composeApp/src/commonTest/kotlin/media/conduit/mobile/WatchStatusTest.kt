@@ -5,6 +5,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import media.conduit.mobile.account.CatalogItem
+import media.conduit.mobile.account.PlaybackSource
 import media.conduit.mobile.account.ProgressSummary
 import media.conduit.mobile.account.VideoItem
 
@@ -112,6 +113,19 @@ class WatchStatusTest {
 
         assertEquals(null, latestUnfinishedProgress(listOf(notStarted), movie))
         assertEquals("Play", detailsPlayLabel(movie, null, null))
+    }
+
+    @Test
+    fun savedAutoResumeSourceRequiresExactUnfinishedMediaProgress() {
+        val movie = CatalogItem("movie", "movie", "Movie")
+        val source = PlaybackSource("addon-1", "url:https://example.com/movie.mp4", "url")
+        val saved = progress("movie", "movie", type = "movie", position = 30_000).copy(playbackSource = source)
+
+        assertEquals(source, savedAutoResumeSource(listOf(saved), movie, "movie"))
+        assertEquals(null, savedAutoResumeSource(listOf(saved.copy(watched = true)), movie, "movie"))
+        assertEquals(null, savedAutoResumeSource(listOf(saved.copy(positionMs = 0)), movie, "movie"))
+        assertEquals(null, savedAutoResumeSource(listOf(saved), CatalogItem("other", "movie", "Other"), "movie"))
+        assertEquals(null, savedAutoResumeSource(listOf(saved), movie, "other"))
     }
 
     @Test

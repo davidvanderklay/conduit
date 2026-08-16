@@ -105,4 +105,44 @@ class StreamSelectionTest {
 
         assertEquals(refreshed, selectSavedStream(listOf(refreshed), saved, allowAddonFallback = true))
     }
+
+    @Test
+    fun rejectsAnAmbiguousSameAddonFallbackWithoutStableMetadata() {
+        val saved = PlaybackSource(
+            addonId = "addon-1",
+            sourceKey = "url:https://old.example/movie.mp4",
+            kind = "url",
+        )
+        val candidates = listOf(
+            StreamSource("addon-1", "Provider", StreamItem(url = "https://new.example/1080p.mp4")),
+            StreamSource("addon-1", "Provider", StreamItem(url = "https://new.example/720p.mp4")),
+        )
+
+        assertNull(selectSavedStream(candidates, saved, allowAddonFallback = true))
+    }
+
+    @Test
+    fun choosesTheSameAddonFallbackWhenFilenameMatches() {
+        val saved = PlaybackSource(
+            addonId = "addon-1",
+            sourceKey = "url:https://old.example/movie.mp4",
+            kind = "url",
+            filename = "movie-1080p.mp4",
+        )
+        val matching = StreamSource(
+            "addon-1",
+            "Provider",
+            StreamItem(
+                url = "https://new.example/1080p.mp4",
+                behaviorHints = StreamBehaviorHints(filename = "movie-1080p.mp4"),
+            ),
+        )
+        val other = StreamSource(
+            "addon-1",
+            "Provider",
+            StreamItem(url = "https://new.example/720p.mp4", behaviorHints = StreamBehaviorHints(filename = "movie-720p.mp4")),
+        )
+
+        assertEquals(matching, selectSavedStream(listOf(other, matching), saved, allowAddonFallback = true))
+    }
 }

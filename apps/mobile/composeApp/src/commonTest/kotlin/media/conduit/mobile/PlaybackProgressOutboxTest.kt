@@ -15,6 +15,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import media.conduit.mobile.account.ConduitApi
+import media.conduit.mobile.account.PlaybackSource
 import media.conduit.mobile.foundation.MemorySecureStore
 
 class PlaybackProgressOutboxTest {
@@ -116,5 +117,28 @@ class PlaybackProgressOutboxTest {
         )
 
         assertEquals(20_000L, outbox.pendingSummaries("https://conduit.example", "account-1", "profile-1").single().positionMs)
+    }
+
+    @Test
+    fun aReplacementSourceIsCarriedByTheNextValidCheckpoint() = runTest {
+        val engine = MockEngine { respond("offline", HttpStatusCode.ServiceUnavailable) }
+        val api = ConduitApi(HttpClient(engine) { install(ContentNegotiation) { json() } })
+        val outbox = PlaybackProgressOutbox(api, MemorySecureStore())
+        val replacement = PlaybackSource("addon-2", "url:https://example.test/replacement.mp4", "url")
+        val request = PlaybackRequest(
+            identity = PlaybackIdentity("profile-1", "movie", "movie-1", "video-1"),
+            url = "https://example.test/replacement.mp4",
+            title = "Movie",
+            mediaName = "Movie",
+            source = replacement,
+        )
+
+        outbox.enqueue(
+            "https://conduit.example", "token", "account-1", request,
+            PlaybackState(loading = false, positionMs = 10_000, durationMs = 100_000),
+            PlaybackCheckpointIdentity("session-1", 1), null,
+        )
+
+        assertEquals(replacement, outbox.pendingSummaries("https://conduit.example", "account-1", "profile-1").single().playbackSource)
     }
 }
