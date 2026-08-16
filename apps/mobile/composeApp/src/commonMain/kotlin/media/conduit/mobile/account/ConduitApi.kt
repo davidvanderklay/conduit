@@ -38,6 +38,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.channels.Channel
+import kotlin.time.TimeSource
 
 @Serializable
 data class ServerHealth(val status: String)
@@ -273,16 +274,7 @@ fun selectSavedStream(
     val saved = source ?: return null
     val candidates = streams.filter { candidate ->
         isPlayableStreamUrl(candidate.stream.url) &&
-            if (allowAddonFallback) {
-                val sameAddon = candidate.addonId == saved.addonId
-                val candidateGroup = candidate.stream.behaviorHints?.bingeGroup
-                val savedGroup = saved.bingeGroup
-                val compatibleGroup = candidateGroup.isNullOrBlank() || savedGroup.isNullOrBlank() ||
-                    sameSourceText(candidateGroup, savedGroup)
-                sameAddon && compatibleGroup || sameSourceText(candidateGroup, savedGroup)
-            } else {
-                candidate.addonId == saved.addonId
-            }
+            isSavedStreamCandidate(candidate, saved, allowAddonFallback)
     }
     candidates.firstOrNull { candidate -> streamSourceKey(candidate.stream) == saved.sourceKey }?.let { return it }
 
@@ -301,8 +293,41 @@ fun selectSavedStream(
     return candidates
         .map { candidate -> candidate to streamMatchScore(candidate, saved, allowAddonFallback) }
         .maxByOrNull { it.second }
-        ?.takeIf { it.second > 0 }
+        ?.takeIf { (candidate, _) -> isConfidentSavedStreamMatch(candidate, saved, candidates.size, allowAddonFallback) }
         ?.first
+}
+
+private fun isSavedStreamCandidate(
+    candidate: StreamSource,
+    saved: PlaybackSource,
+    allowAddonFallback: Boolean,
+): Boolean {
+    val candidateGroup = candidate.stream.behaviorHints?.bingeGroup
+    val savedGroup = saved.bingeGroup
+    val groupsConflict = candidateGroup.isNullOrBlank().not() && savedGroup.isNullOrBlank().not() &&
+        !sameSourceText(candidateGroup, savedGroup)
+    if (candidate.addonId == saved.addonId) return !groupsConflict
+    return allowAddonFallback && sameSourceText(candidateGroup, savedGroup)
+}
+
+private fun isConfidentSavedStreamMatch(
+    candidate: StreamSource,
+    saved: PlaybackSource,
+    candidateCount: Int,
+    allowAddonFallback: Boolean,
+): Boolean {
+    val sameAddon = candidate.addonId == saved.addonId
+    if (!sameAddon) {
+        return allowAddonFallback && sameSourceText(
+            candidate.stream.behaviorHints?.bingeGroup,
+            saved.bingeGroup,
+        )
+    }
+    if (candidateCount == 1) return true
+    return sameSourceText(candidate.stream.behaviorHints?.filename, saved.filename) ||
+        sameSourceText(candidate.stream.title, saved.title) ||
+        sameSourceText(candidate.stream.name, saved.name) ||
+        sameSourceText(candidate.stream.behaviorHints?.bingeGroup, saved.bingeGroup)
 }
 
 private fun isPlayableStreamUrl(value: String?): Boolean {
@@ -977,15 +1002,31 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
         addons: List<InstalledAddonSummary>,
         type: String,
         videoId: String,
+        debugLogging: Boolean = false,
     ): List<StreamSource> = coroutineScope {
         val results = addons.filter { it.enabled && it.supportsResource("stream", type, videoId) }.map { addon ->
             async {
-                runCatching {
+                val started = TimeSource.Monotonic.markNow()
+                val result = runCatching {
                     val response = client.get(resourceUrl(addon.manifestUrl, "stream", type, videoId))
-                    if (!response.status.isSuccess()) error("stream request failed")
+                    if (!response.status.isSuccess()) {
+                        throw ServerRequestException(
+                            "Stream request returned HTTP ${response.status.value}",
+                            response.status.value,
+                        )
+                    }
                     val name = addon.manifest["name"]?.jsonPrimitive?.contentOrNull ?: addon.manifestId
                     response.decodeAddonBody<StreamsResponse>().streams.map { StreamSource(addon.id, name, it) }
                 }
+                if (debugLogging) {
+                    val failure = result.exceptionOrNull()
+                    val status = (failure as? ServerRequestException)?.statusCode?.let { " status=$it" }.orEmpty()
+                    LifecycleDiagnostics.event(
+                        "streams.addon",
+                        "addon=${addon.manifestId} outcome=${if (failure == null) "success" else "failure"}$status durationMs=${started.elapsedNow().inWholeMilliseconds}",
+                    )
+                }
+                result
             }
         }.map { it.await() }
         val streams = results.flatMap { it.getOrDefault(emptyList()) }

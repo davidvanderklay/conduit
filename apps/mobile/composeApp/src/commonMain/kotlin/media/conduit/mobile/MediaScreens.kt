@@ -77,8 +77,8 @@ private val VideoItem.displayTitle: String
         ?: overview?.lineSequence()?.firstOrNull()?.take(80)?.takeIf(String::isNotBlank)
         ?: "Episode ${episode ?: ""}".trim()
 
-private const val AUTO_RESUME_TIMEOUT_MS = 500L
-private class AutoResumeTimeoutException : IllegalStateException()
+private const val AUTO_RESUME_TIMEOUT_MS = 8_000L
+private class AutoResumeTimeoutException : IllegalStateException("Saved source lookup timed out")
 
 @Composable
 internal fun MobileLibraryScreen(
@@ -720,19 +720,29 @@ internal fun MediaDetailsScreen(
         requestedAddons: List<InstalledAddonSummary>,
         autoResume: Boolean,
     ): Result<List<StreamSource>> {
-        if (autoResume) {
-            return withTimeoutOrNull(AUTO_RESUME_TIMEOUT_MS) {
-                runCatching { api.loadStreams(requestedAddons, item.type, videoId) }
-            } ?: Result.failure(AutoResumeTimeoutException())
+        suspend fun loadWithRetry(): Result<List<StreamSource>> {
+            var result = Result.failure<List<StreamSource>>(IllegalStateException("Unable to load streams"))
+            repeat(3) { attempt ->
+                result = runCatching {
+                    api.loadStreams(
+                        requestedAddons,
+                        item.type,
+                        videoId,
+                        debugLogging = preferences.debugLogging,
+                    )
+                }
+                if (result.isSuccess && result.getOrThrow().isNotEmpty()) return result
+                if (attempt < 2) delay(400L * (attempt + 1))
+            }
+            return result
         }
 
-        var result = Result.failure<List<StreamSource>>(IllegalStateException("Unable to load streams"))
-        repeat(3) { attempt ->
-            result = runCatching { api.loadStreams(requestedAddons, item.type, videoId) }
-            if (result.isSuccess && result.getOrThrow().isNotEmpty()) return result
-            if (attempt < 2) delay(400L * (attempt + 1))
+        return if (autoResume) {
+            withTimeoutOrNull(AUTO_RESUME_TIMEOUT_MS) { loadWithRetry() }
+                ?: Result.failure(AutoResumeTimeoutException())
+        } else {
+            loadWithRetry()
         }
-        return result
     }
 
     fun progressForVideo(videoId: String): ProgressSummary? = snapshot?.progress?.firstOrNull {
@@ -769,12 +779,7 @@ internal fun MediaDetailsScreen(
         streamVideoId = videoId
         val requestJob = scope.launch(start = CoroutineStart.LAZY) {
             val compatibleAddons = addons.filter { it.enabled && it.supportsResource("stream", item.type, videoId) }
-            val autoSource = preferredSource ?: autoResumeSourceFor(videoId)
-            val requestedAddonId = addonId ?: if (preferredSource == null) {
-                autoSource?.addonId ?: selectedStreamAddonId
-            } else {
-                null
-            }
+            val requestedAddonId = if (autoPlaySavedSource) null else addonId ?: selectedStreamAddonId
             val effectiveAddonId = requestedAddonId?.takeIf { selectedId ->
                 compatibleAddons.size > 1 && compatibleAddons.any { it.id == selectedId }
             }
@@ -793,7 +798,7 @@ internal fun MediaDetailsScreen(
                         val saved = savedPlaybackSourceFor(videoId)
                         val choice = listOfNotNull(
                             preferredSource?.let { it to true },
-                            saved?.let { it to false },
+                            saved?.let { it to true },
                         ).asSequence()
                             .mapNotNull { (source, allowAddonFallback) ->
                                 selectSavedStream(choices, source, allowAddonFallback)
@@ -808,7 +813,7 @@ internal fun MediaDetailsScreen(
                             playing = choice.stream
                         } else {
                             streamsError = if (choices.isEmpty()) {
-                                "No streams were returned. Try again."
+                                "No sources were returned. Choose another source below."
                             } else {
                                 "Saved source unavailable. Choose another source below."
                             }
@@ -816,11 +821,18 @@ internal fun MediaDetailsScreen(
                         }
                     }
                 }
-                .onFailure {
+                .onFailure { cause ->
                     streamsError = if (autoPlaySavedSource) {
-                        "Saved source could not be loaded. Choose another source below."
+                        when (cause) {
+                            is AutoResumeTimeoutException ->
+                                "The saved source took too long to respond. Choose another source below."
+                            is ServerRequestException ->
+                                "The saved source provider could not be reached. Choose another source below."
+                            else ->
+                                "The saved source could not be loaded. Choose another source below."
+                        }
                     } else {
-                        it.message ?: "Unable to load streams"
+                        cause.message ?: "Unable to load streams"
                     }
                     if (autoPlaySavedSource) streamPageOpen = true
                 }
