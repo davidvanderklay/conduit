@@ -152,13 +152,53 @@ internal fun savedAutoResumeSource(
     progress: List<ProgressSummary>,
     item: CatalogItem,
     videoId: String?,
-): PlaybackSource? = progress.firstOrNull {
-    it.videoId == videoId &&
+    video: VideoItem? = null,
+): PlaybackSource? = progress
+    .filter {
         it.mediaType == item.type &&
         it.mediaId == item.id &&
         !it.watched &&
-        it.positionMs >= 1_000L
-}?.playbackSource
+        it.positionMs >= 1_000L &&
+        if (video != null) progressMatchesVideo(it, video) else it.videoId == videoId
+    }
+    .maxByOrNull(ProgressSummary::updatedAt)
+    ?.playbackSource
+
+internal fun savedPlaybackSourceForVideo(
+    progress: List<ProgressSummary>,
+    item: CatalogItem,
+    videos: List<VideoItem>,
+    videoId: String,
+): PlaybackSource? {
+    val target = videos.firstOrNull { it.id == videoId }
+    val mediaProgress = progress.filter {
+        it.mediaType == item.type && it.mediaId == item.id
+    }
+    val exact = if (target != null) {
+        mediaProgress.filter { progressMatchesVideo(it, target) }
+    } else {
+        mediaProgress.filter { it.videoId == videoId }
+    }.maxByOrNull(ProgressSummary::updatedAt)
+    exact?.playbackSource?.let { return it }
+
+    if (item.type != "series" || target == null) return null
+    val targetSeason = target.season ?: return null
+    val targetEpisode = target.episode ?: return null
+    return mediaProgress
+        .filter { row ->
+            row.playbackSource != null &&
+                row.season != null &&
+                row.episode != null &&
+                (row.season < targetSeason ||
+                    (row.season == targetSeason && row.episode < targetEpisode))
+        }
+        .maxWithOrNull(
+            compareBy<ProgressSummary> { it.season ?: -1 }
+                .thenBy { it.episode ?: -1 }
+                .thenBy(ProgressSummary::updatedAt),
+        )
+        ?.playbackSource
+}
 
 internal fun latestCompletedProgress(
     progress: List<ProgressSummary>,
@@ -237,13 +277,19 @@ internal fun detailsPlayLabel(
     progress: ProgressSummary?,
     resumeVideo: VideoItem?,
 ): String {
-    if (progress == null || progress.watched || progress.positionMs <= 0) return "Play"
-    if (item.type != "series") return "Resume"
-    if (resumeVideo?.id != progress.videoId) return "Play"
+    if (item.type != "series") {
+        return if (progress != null && !progress.watched && progress.positionMs >= 1_000L) "Resume" else "Play"
+    }
 
-    val season = resumeVideo.season
-    val episode = resumeVideo.episode
-    return if (season != null && episode != null) "Resume S${season}E$episode" else "Resume"
+    val season = resumeVideo?.season
+    val episode = resumeVideo?.episode
+    val episodeLabel = if (season != null && episode != null) " S${season}E$episode" else ""
+    val canResume = progress != null &&
+        !progress.watched &&
+        progress.positionMs >= 1_000L &&
+        resumeVideo != null &&
+        progressMatchesVideo(progress, resumeVideo)
+    return (if (canResume) "Resume" else "Play") + episodeLabel
 }
 
 internal data class DetailsPlayTarget(
@@ -303,20 +349,20 @@ internal fun detailsPlayTarget(
         if (next != null) {
             val season = next.season
             val episode = next.episode
-            val label = if (season != null && episode != null) "Next Up S${season}E$episode" else "Next Up"
+            val label = if (season != null && episode != null) "Next Up • S${season}E$episode" else "Next Up"
             return DetailsPlayTarget(next, label)
         }
+        if (completed != null) return DetailsPlayTarget(video = null, label = "Play")
     }
 
     val availableVideos = videos
         .filter { it.releasedOrAvailable(today) }
         .sortedWith(compareBy<VideoItem> { it.season ?: 0 }.thenBy { it.episode ?: 0 })
     val fallbackVideos = seriesWatchVideos(videos, today)
-    val fallback = if (completed != null) {
-        fallbackVideos.firstOrNull()
-    } else {
-        defaultVideoId?.let { id -> availableVideos.firstOrNull { it.id == id } }
-            ?: fallbackVideos.firstOrNull()
-    }
-    return DetailsPlayTarget(video = fallback, label = "Play")
+    val fallback = defaultVideoId?.let { id -> availableVideos.firstOrNull { it.id == id } }
+        ?: fallbackVideos.firstOrNull()
+    return DetailsPlayTarget(
+        video = fallback,
+        label = detailsPlayLabel(item, progress = null, resumeVideo = fallback),
+    )
 }

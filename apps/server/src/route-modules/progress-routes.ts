@@ -16,11 +16,7 @@ export function registerProgressRoutes(app: FastifyInstance, context: RouteConte
         params: Type.Object({ profileId: Type.String({ format: "uuid" }) }),
         querystring: Type.Object({
           view: Type.Optional(
-            Type.Union([
-              Type.Literal("continue"),
-              Type.Literal("history"),
-              Type.Literal("status"),
-            ]),
+            Type.Union([Type.Literal("continue"), Type.Literal("history"), Type.Literal("status")]),
           ),
           limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 1000 })),
         }),
@@ -72,8 +68,7 @@ export function registerProgressRoutes(app: FastifyInstance, context: RouteConte
                 )
                 .orderBy(desc(watchProgress.updatedAt))
                 .limit(limit)
-      const visibleRows =
-        view === "continue" ? filterContinueWatching(rows, limit) : rows
+      const visibleRows = view === "continue" ? filterContinueWatching(rows, limit) : rows
       return { items: visibleRows.map(toProgressItem) }
     },
   )
@@ -159,7 +154,8 @@ export function registerProgressRoutes(app: FastifyInstance, context: RouteConte
           continueWatching,
           dismissed,
           checkpointUpdatedAt: body.checkpointUpdatedAt,
-          playbackSourceChanged: body.playbackSource !== undefined &&
+          playbackSourceChanged:
+            body.playbackSource !== undefined &&
             JSON.stringify(body.playbackSource) !== JSON.stringify(existing.playbackSource),
         })
       ) {
@@ -192,9 +188,7 @@ export function registerProgressRoutes(app: FastifyInstance, context: RouteConte
         watched,
         dismissed,
         continueWatching,
-        ...(body.playbackSource !== undefined
-          ? { playbackSource: body.playbackSource }
-          : {}),
+        ...(body.playbackSource !== undefined ? { playbackSource: body.playbackSource } : {}),
         ...checkpointValues,
         updatedAt: new Date(),
       }
@@ -241,10 +235,13 @@ export function registerProgressRoutes(app: FastifyInstance, context: RouteConte
           profileId: Type.String({ format: "uuid" }),
           videoId: Type.String({ minLength: 1, maxLength: 512 }),
         }),
-        body: Type.Object({
-          watched: Type.Optional(Type.Boolean()),
-          dismissed: Type.Optional(Type.Boolean()),
-        }, { minProperties: 1 }),
+        body: Type.Object(
+          {
+            watched: Type.Optional(Type.Boolean()),
+            dismissed: Type.Optional(Type.Boolean()),
+          },
+          { minProperties: 1 },
+        ),
       },
     },
     async (request, reply) => {
@@ -337,34 +334,39 @@ interface ProgressBody {
   durationMs: number
   watched?: boolean
   dismissed?: boolean
-  playbackSource?: PlaybackSource
+  playbackSource?: PlaybackSource | null
   checkpointSessionId?: string
   checkpointSequence?: number
   checkpointUpdatedAt?: string
 }
 
 const playbackSourceSchema = Type.Optional(
-  Type.Object(
-    {
-      addonId: Type.String({ minLength: 1, maxLength: 200 }),
-      sourceKey: Type.String({ minLength: 1, maxLength: 1200 }),
-      kind: Type.Union([Type.Literal("url"), Type.Literal("torrent"), Type.Literal("other")]),
-      infoHash: Type.Optional(Type.String({ maxLength: 200 })),
-      fileIdx: Type.Optional(Type.String({ maxLength: 100 })),
-      name: Type.Optional(Type.String({ maxLength: 500 })),
-      title: Type.Optional(Type.String({ maxLength: 500 })),
-      filename: Type.Optional(Type.String({ maxLength: 500 })),
-      bingeGroup: Type.Optional(Type.String({ maxLength: 500 })),
-    },
-    { additionalProperties: false },
-  ),
+  Type.Union([
+    Type.Object(
+      {
+        addonId: Type.String({ minLength: 1, maxLength: 200 }),
+        sourceKey: Type.String({ minLength: 1, maxLength: 1200 }),
+        kind: Type.Union([Type.Literal("url"), Type.Literal("torrent"), Type.Literal("other")]),
+        infoHash: Type.Optional(Type.String({ maxLength: 200 })),
+        fileIdx: Type.Optional(Type.String({ maxLength: 100 })),
+        name: Type.Optional(Type.String({ maxLength: 500 })),
+        title: Type.Optional(Type.String({ maxLength: 500 })),
+        filename: Type.Optional(Type.String({ maxLength: 500 })),
+        bingeGroup: Type.Optional(Type.String({ maxLength: 500 })),
+      },
+      { additionalProperties: false },
+    ),
+    Type.Null(),
+  ]),
 )
 
 export function isStaleCheckpoint(
   body: ProgressBody,
   existing: typeof watchProgress.$inferSelect,
 ): boolean {
-  const incomingUpdatedAt = body.checkpointUpdatedAt ? Date.parse(body.checkpointUpdatedAt) : Number.NaN
+  const incomingUpdatedAt = body.checkpointUpdatedAt
+    ? Date.parse(body.checkpointUpdatedAt)
+    : Number.NaN
   const existingUpdatedAt = existing.checkpointUpdatedAt?.getTime() ?? Number.NaN
   if (Number.isFinite(incomingUpdatedAt) && Number.isFinite(existingUpdatedAt)) {
     if (incomingUpdatedAt < existingUpdatedAt) return true
@@ -374,7 +376,8 @@ export function isStaleCheckpoint(
       body.checkpointSequence !== undefined &&
       existing.checkpointSequence !== null &&
       body.checkpointSequence <= existing.checkpointSequence
-    ) return true
+    )
+      return true
   }
   return (
     body.checkpointSessionId !== undefined &&
@@ -391,7 +394,8 @@ export function isPlaybackComplete(positionMs: number, durationMs: number): bool
     !Number.isFinite(durationMs) ||
     positionMs < 0 ||
     durationMs <= 0
-  ) return false
+  )
+    return false
   return positionMs / durationMs >= 0.9
 }
 
@@ -399,7 +403,11 @@ export const CONTINUE_WATCHING_ENTRY_POSITION_MS = 1_000
 export const PROGRESS_POSITION_UPDATE_DELTA_MS = 15_000
 export const PROGRESS_UPDATE_INTERVAL_MS = 30_000
 
-export function shouldKeepContinueWatching(existing: boolean, watched: boolean, positionMs: number): boolean {
+export function shouldKeepContinueWatching(
+  existing: boolean,
+  watched: boolean,
+  positionMs: number,
+): boolean {
   return existing || watched || positionMs >= CONTINUE_WATCHING_ENTRY_POSITION_MS
 }
 
@@ -430,7 +438,8 @@ export function shouldPersistProgressUpdate(
   if (incoming.dismissed !== existing.dismissed) return true
   if (incoming.durationMs !== existing.durationMs) return true
   if (incoming.playbackSourceChanged) return true
-  if (Math.abs(incoming.positionMs - existing.positionMs) >= PROGRESS_POSITION_UPDATE_DELTA_MS) return true
+  if (Math.abs(incoming.positionMs - existing.positionMs) >= PROGRESS_POSITION_UPDATE_DELTA_MS)
+    return true
 
   const incomingTime = incoming.checkpointUpdatedAt
     ? Date.parse(incoming.checkpointUpdatedAt)

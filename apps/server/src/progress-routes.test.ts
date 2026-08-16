@@ -38,13 +38,12 @@ describe("progress routes", () => {
       progressRow("s1e2", "2026-08-12T12:00:00Z", 2),
       progressRow("other-show", "2026-08-11T12:00:00Z", 1, "other-show"),
     ]
-    const previousUpdatedAt = rows.filter((row) => row.mediaId === "show").map((row) => row.updatedAt.getTime())
+    const previousUpdatedAt = rows
+      .filter((row) => row.mediaId === "show")
+      .map((row) => row.updatedAt.getTime())
     const database = fakeDatabase(rows)
     const app = Fastify()
-    registerProgressRoutes(
-      app,
-      { auth: {} as Auth, db: database } as RouteContext,
-    )
+    registerProgressRoutes(app, { auth: {} as Auth, db: database } as RouteContext)
     apps.push(app)
 
     const response = await app.inject({
@@ -57,7 +56,44 @@ describe("progress routes", () => {
     expect(response.statusCode).toBe(200)
     expect(rows.filter((row) => row.mediaId === "show").every((row) => row.dismissed)).toBe(true)
     expect(rows.find((row) => row.mediaId === "other-show")?.dismissed).toBe(false)
-    expect(rows.filter((row) => row.mediaId === "show").every((row, index) => row.updatedAt.getTime() > previousUpdatedAt[index]!)).toBe(true)
+    expect(
+      rows
+        .filter((row) => row.mediaId === "show")
+        .every((row, index) => row.updatedAt.getTime() > previousUpdatedAt[index]!),
+    ).toBe(true)
+  })
+
+  it("clears a failed saved playback source without deleting progress", async () => {
+    const rows = [progressRow("s1e1", "2026-08-10T12:00:00Z")]
+    rows[0]!.playbackSource = {
+      addonId: "addon-1",
+      sourceKey: "url:https://video.example/expired.mp4",
+      kind: "url",
+    }
+    const app = Fastify()
+    registerProgressRoutes(app, { auth: {} as Auth, db: fakeDatabase(rows) } as RouteContext)
+    apps.push(app)
+
+    const response = await app.inject({
+      method: "PUT",
+      url: `/v1/profiles/${profileId}/progress/s1e1`,
+      headers: { authorization: "Bearer owner" },
+      payload: {
+        mediaType: "series",
+        mediaId: "show",
+        name: "Show",
+        season: 1,
+        episode: 1,
+        positionMs: 10_000,
+        durationMs: 60_000,
+        watched: false,
+        playbackSource: null,
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(rows[0]?.playbackSource).toBeNull()
+    expect(rows[0]?.positionMs).toBe(10_000)
   })
 })
 
@@ -100,7 +136,8 @@ function fakeDatabase(rows: ProgressRow[]): Database {
           condition = next
           return builder
         },
-        limit: async (amount: number) => rows.filter((row) => matches(condition, row)).slice(0, amount),
+        limit: async (amount: number) =>
+          rows.filter((row) => matches(condition, row)).slice(0, amount),
       }
       return builder
     },
@@ -115,15 +152,35 @@ function fakeDatabase(rows: ProgressRow[]): Database {
         where: (next: unknown) => {
           condition = next
           return {
-            returning: async () => rows.filter((row) => matches(condition, row)).map((row) => {
-              Object.assign(row, values)
-              return row
-            }),
+            returning: async () =>
+              rows
+                .filter((row) => matches(condition, row))
+                .map((row) => {
+                  Object.assign(row, values)
+                  return row
+                }),
           }
         },
       }
       return builder
     },
+    insert: () => ({
+      values: (values: ProgressRow) => ({
+        onConflictDoUpdate: ({ set }: { set: Partial<ProgressRow> }) => ({
+          returning: async () => {
+            const existing = rows.find(
+              (row) => row.profileId === values.profileId && row.videoId === values.videoId,
+            )
+            if (existing) {
+              Object.assign(existing, set)
+              return [existing]
+            }
+            rows.push(values)
+            return [values]
+          },
+        }),
+      }),
+    }),
   } as unknown as Database
 }
 

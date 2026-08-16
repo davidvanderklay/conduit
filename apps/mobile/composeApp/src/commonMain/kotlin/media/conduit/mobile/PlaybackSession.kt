@@ -43,6 +43,7 @@ data class PlaybackRequest(
     val episode: Int? = null,
     val startPositionMs: Long = 0,
     val source: PlaybackSource? = null,
+    val autoSelectedSavedSource: Boolean = false,
     val hasNextEpisode: Boolean = false,
     val nextEpisodeTitle: String? = null,
     val nextEpisodeArtwork: String? = null,
@@ -92,6 +93,7 @@ class PlaybackSessionCallbacks(
     val selectStreamAddon: (String?) -> Unit = {},
     val retryStreams: () -> Unit = {},
     val selectStream: (StreamSource) -> Unit = {},
+    val savedStreamStartupFailed: (String) -> Unit = {},
 )
 
 data class PlaybackCheckpointIdentity(
@@ -302,6 +304,12 @@ class PlaybackSessionController(
         callbacks?.selectStream?.invoke(source)
     }
 
+    fun savedStreamStartupFailed(sessionId: String, message: String) {
+        if (state.sessionId == sessionId && state.request?.autoSelectedSavedSource == true) {
+            callbacks?.savedStreamStartupFailed?.invoke(message)
+        }
+    }
+
     fun selectEpisode(videoId: String) {
         if (state.request == null) return
         closeEpisodes()
@@ -338,6 +346,13 @@ internal fun PlaybackRequest.streamKeyForPlayback(): String =
         append('|')
         append(subtitles)
     }
+
+internal fun savedStreamStartupStalled(
+    request: PlaybackRequest,
+    playback: PlaybackState,
+): Boolean = request.autoSelectedSavedSource &&
+    playback.positionMs <= request.startPositionMs &&
+    !playback.ended
 
 private fun PlaybackRequest.persistenceKey(): String =
     "${identity.profileId}\u0000${identity.videoId}"

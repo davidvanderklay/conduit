@@ -656,6 +656,8 @@ internal fun MediaDetailsScreen(
     var detailsEpisodeAutoPositioning by remember(item.id) { mutableStateOf(false) }
     var autoResumeAttemptedKey by remember(item.id) { mutableStateOf<String?>(null) }
     var selectedPlaybackSources by remember(item.id) { mutableStateOf<Map<String, PlaybackSource>>(emptyMap()) }
+    var autoSelectedSavedVideoIds by remember(item.id) { mutableStateOf<Set<String>>(emptySet()) }
+    var migratedProgressIds by remember(item.id) { mutableStateOf<Set<String>>(emptySet()) }
     var streamSelectionReturnsHome by remember(item.id) { mutableStateOf(returnToHomeOnStreamBack) }
     var streamRequestVersion by remember(item.id) { mutableIntStateOf(0) }
     var streamRequestJob by remember(item.id) { mutableStateOf<Job?>(null) }
@@ -767,6 +769,41 @@ internal fun MediaDetailsScreen(
         if (selection.shouldResetPlayback) resetPlaybackForVideoChange()
         selectedVideo = requestedVideo
     }
+    LaunchedEffect(selectedVideo?.id, requestedProgress?.videoId, profile?.id) {
+        val canonical = selectedVideo ?: return@LaunchedEffect
+        val legacy = requestedProgress ?: return@LaunchedEffect
+        val activeProfile = profile ?: return@LaunchedEffect
+        if (
+            canonical.id == legacy.videoId ||
+            legacy.videoId in migratedProgressIds ||
+            !progressMatchesVideo(legacy, canonical)
+        ) return@LaunchedEffect
+        migratedProgressIds = migratedProgressIds + legacy.videoId
+        runCatching {
+            api.saveProgress(
+                baseUrl = baseUrl,
+                token = token,
+                profileId = activeProfile.id,
+                videoId = canonical.id,
+                mediaType = legacy.mediaType,
+                mediaId = legacy.mediaId,
+                name = legacy.name,
+                poster = legacy.poster,
+                videoTitle = canonical.displayTitle,
+                season = canonical.season,
+                episode = canonical.episode,
+                positionMs = legacy.positionMs,
+                durationMs = legacy.durationMs,
+                playbackSource = legacy.playbackSource,
+                watched = legacy.watched,
+            )
+        }.getOrNull()?.let { migrated ->
+            onProgressChanged(migrated)
+            runCatching {
+                api.deleteProgress(baseUrl, token, activeProfile.id, legacy.videoId)
+            }
+        }
+    }
     suspend fun loadStreamsForRequest(
         videoId: String,
         requestedAddons: List<InstalledAddonSummary>,
@@ -797,16 +834,32 @@ internal fun MediaDetailsScreen(
         }
     }
 
-    fun progressForVideoId(videoId: String): ProgressSummary? = snapshot?.progress?.firstOrNull {
-        it.videoId == videoId && it.mediaType == item.type && it.mediaId == item.id
+    fun progressForVideoId(videoId: String): ProgressSummary? {
+        val matching = snapshot?.progress.orEmpty().filter {
+            it.mediaType == item.type && it.mediaId == item.id
+        }
+        matching.firstOrNull { it.videoId == videoId }?.let { return it }
+        val video = meta?.videos?.firstOrNull { it.id == videoId } ?: return null
+        return matching
+            .filter { progressMatchesVideo(it, video) }
+            .maxByOrNull(ProgressSummary::updatedAt)
     }
 
-    fun savedPlaybackSourceFor(videoId: String): PlaybackSource? =
-        selectedPlaybackSources[videoId]
-            ?: progressForVideoId(videoId)?.playbackSource
+    fun savedPlaybackSourceFor(videoId: String): PlaybackSource? {
+        selectedPlaybackSources[videoId]?.let { return it }
+        return savedPlaybackSourceForVideo(
+            snapshot?.progress.orEmpty(),
+            item,
+            meta?.videos.orEmpty(),
+            videoId,
+        )
+    }
 
-    fun autoResumeSourceFor(videoId: String): PlaybackSource? =
-        savedAutoResumeSource(snapshot?.progress.orEmpty(), item, videoId)
+    fun autoResumeSourceFor(videoId: String): PlaybackSource? {
+        val video = meta?.videos?.firstOrNull { it.id == videoId }
+        return savedAutoResumeSource(snapshot?.progress.orEmpty(), item, videoId, video)
+            ?: savedPlaybackSourceFor(videoId)
+    }
 
     val addonSignature = addons.joinToString("|") { "${it.id}:${it.enabled}:${it.manifestUrl}" }
     fun autoResumeAttemptKey(source: PlaybackSource): String =
@@ -924,18 +977,17 @@ internal fun MediaDetailsScreen(
                     if (autoPlaySavedSource) {
                         val saved = savedPlaybackSourceFor(videoId)
                         val choice = listOfNotNull(
-                            preferredSource?.let { it to true },
-                            saved?.let { it to true },
+                            preferredSource,
+                            saved,
                         ).asSequence()
-                            .mapNotNull { (source, allowAddonFallback) ->
-                                selectSavedStream(choices, source, allowAddonFallback)
-                            }
+                            .mapNotNull { source -> selectSavedStream(choices, source) }
                             .firstOrNull()
                         if (choice != null) {
                             currentAddonId = choice.addonId
                             currentAddonName = choice.addonName
                             val selectedSource = playbackSourceForStream(choice.addonId, choice.stream)
                             selectedPlaybackSources = selectedPlaybackSources + (videoId to selectedSource)
+                            autoSelectedSavedVideoIds = autoSelectedSavedVideoIds + videoId
                             if (autoPlaySavedSource) autoResumeAttemptedKey = autoResumeAttemptKey(selectedSource)
                             playing = choice.stream
                         } else {
@@ -1018,17 +1070,16 @@ internal fun MediaDetailsScreen(
         externalSubtitlesLoaded = true
     }
     LaunchedEffect(playingVideoId, profile?.id) {
-        resumePosition = snapshot?.progress?.firstOrNull { it.videoId == playingVideoId }?.takeUnless { it.watched }?.positionMs
+        resumePosition = progressForVideoId(playingVideoId)?.takeUnless { it.watched }?.positionMs
             ?: profile?.let { runCatching { api.loadProgress(baseUrl, token, it.id, playingVideoId) }.getOrNull()?.takeUnless { progress -> progress.watched }?.positionMs }
             ?: 0L
     }
-    val savedPlaybackSource = effectiveInitialVideoId?.let(::autoResumeSourceFor)
+    val savedPlaybackSource = (selectedVideo?.id ?: effectiveInitialVideoId)?.let(::autoResumeSourceFor)
     val currentAutoResumeAttemptKey = savedPlaybackSource?.let(::autoResumeAttemptKey)
     LaunchedEffect(meta?.id, selectedVideo?.id, effectiveInitialVideoId, savedPlaybackSource, addonSignature, preferences.autoSelectSavedStreams, autoResumeRequested) {
         if (!autoResumeRequested || addons.isEmpty()) return@LaunchedEffect
         if (item.type == "series" && effectiveInitialVideoId == null && selectedVideo == null) return@LaunchedEffect
         val targetVideoId = selectedVideo?.id ?: effectiveInitialVideoId ?: item.id
-        if (effectiveInitialVideoId != null && targetVideoId != effectiveInitialVideoId) return@LaunchedEffect
         if (shouldOpenStreamSelectionImmediately(openMode, preferences.autoSelectSavedStreams, savedPlaybackSource)) {
             requestStreams(
                 selectedVideo,
@@ -1069,6 +1120,7 @@ internal fun MediaDetailsScreen(
         selectedPlaybackSources = selectedPlaybackSources + (
             picker.episode.id to playbackSourceForStream(source.addonId, source.stream)
         )
+        autoSelectedSavedVideoIds = autoSelectedSavedVideoIds - picker.episode.id
         playing = source.stream
         openingPlayback = true
     }
@@ -1153,6 +1205,42 @@ internal fun MediaDetailsScreen(
                 }
             },
             selectStream = ::selectPlayerStream,
+            savedStreamStartupFailed = { message ->
+                val failedVideoId = playingVideoId
+                val failedProgress = progressForVideoId(failedVideoId)
+                autoSelectedSavedVideoIds = autoSelectedSavedVideoIds - failedVideoId
+                selectedPlaybackSources = selectedPlaybackSources - failedVideoId
+                playbackSession.close(saveProgress = false)
+                requestStreams(
+                    selectedVideo,
+                    streamBackToHome = false,
+                    videoIdOverride = failedVideoId,
+                )
+                streamsError = message
+                if (failedProgress?.playbackSource != null) {
+                    scope.launch {
+                        runCatching {
+                            api.saveProgress(
+                                baseUrl = baseUrl,
+                                token = token,
+                                profileId = activeProfile.id,
+                                videoId = failedProgress.videoId,
+                                mediaType = failedProgress.mediaType,
+                                mediaId = failedProgress.mediaId,
+                                name = failedProgress.name,
+                                poster = failedProgress.poster,
+                                videoTitle = failedProgress.videoTitle,
+                                season = failedProgress.season,
+                                episode = failedProgress.episode,
+                                positionMs = failedProgress.positionMs,
+                                durationMs = failedProgress.durationMs,
+                                clearPlaybackSource = true,
+                                watched = failedProgress.watched,
+                            )
+                        }.getOrNull()?.let(onProgressChanged)
+                    }
+                }
+            },
             minimized = onBack,
             closed = {
                 playing = null
@@ -1194,6 +1282,7 @@ internal fun MediaDetailsScreen(
             episode = selectedVideo?.episode,
             startPositionMs = resumePosition,
             source = currentPlaybackSource(),
+            autoSelectedSavedSource = playingVideoId in autoSelectedSavedVideoIds,
             hasNextEpisode = nextVideo != null,
             nextEpisodeTitle = nextVideo?.let { "S${it.season ?: 0}E${it.episode ?: 0} · ${it.displayTitle}" },
             nextEpisodeArtwork = nextVideo?.thumbnail ?: meta?.background,
@@ -1288,6 +1377,7 @@ internal fun MediaDetailsScreen(
                     val selectedSource = playbackSourceForStream(source.addonId, source.stream)
                     val videoId = selectedVideo?.id ?: streamVideoId ?: item.id
                     selectedPlaybackSources = selectedPlaybackSources + (videoId to selectedSource)
+                    autoSelectedSavedVideoIds = autoSelectedSavedVideoIds - videoId
                     if (videoId == effectiveInitialVideoId) autoResumeAttemptedKey = autoResumeAttemptKey(selectedSource)
                     playing = source.stream
                 }
@@ -1349,7 +1439,10 @@ internal fun MediaDetailsScreen(
         details?.videos.orEmpty(),
         details?.defaultVideoId,
     )
-    val playTarget = selectedVideo?.let { DetailsPlayTarget(it, "Play") } ?: globalPlayTarget
+    val playTarget = selectedVideo?.let { video ->
+        val selectedProgress = progressForVideo(snapshot?.progress.orEmpty(), actionItem, video)
+        DetailsPlayTarget(video, detailsPlayLabel(actionItem, selectedProgress, video))
+    } ?: globalPlayTarget
     LaunchedEffect(details?.id, playTarget.video?.season, detailSeasons, snapshot?.profileId) {
         val targetSeason = playTarget.video?.season?.takeIf(detailSeasons::contains)
             ?: detailSeasons.firstOrNull()
@@ -1486,7 +1579,10 @@ internal fun MediaDetailsScreen(
             Column(Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 if (details == null && error == null) CircularProgressIndicator()
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                Button(onClick = { val target = playTarget.video ?: selectedVideo; selectVideo(target) }, modifier = Modifier.fillMaxWidth().height(54.dp)) {
+                Button(
+                    onClick = { selectVideo(playTarget.video, autoPlaySavedSource = false) },
+                    modifier = Modifier.fillMaxWidth().height(54.dp),
+                ) {
                     Icon(Icons.Rounded.PlayArrow, null); Spacer(Modifier.width(8.dp)); Text(playTarget.label)
                 }
                 val movieProgress = snapshot?.progress.orEmpty().firstOrNull { it.videoId == actionItem.id }
@@ -1610,7 +1706,8 @@ internal fun MediaDetailsScreen(
                                     onClick = {
                                         selectVideo(
                                             video,
-                                            preferredSource = currentPlaybackSource(),
+                                            preferredSource = savedPlaybackSourceFor(video.id)
+                                                ?: currentPlaybackSource(),
                                             streamBackToHome = false,
                                         )
                                     },
@@ -1773,7 +1870,8 @@ internal fun MediaDetailsScreen(
         onPlay = { target ->
             selectVideo(
                 target.video,
-                preferredSource = currentPlaybackSource(),
+                preferredSource = target.video?.let { savedPlaybackSourceFor(it.id) }
+                    ?: currentPlaybackSource(),
                 streamBackToHome = false,
             )
         },

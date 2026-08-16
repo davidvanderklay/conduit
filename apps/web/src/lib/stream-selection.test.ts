@@ -47,7 +47,7 @@ describe("stream selection", () => {
     expect(result?.key).toBe("fresh")
   })
 
-  it("matches a saved source when the provider rotates the URL path token", () => {
+  it("matches a saved source by binge group when the provider rotates the URL path token", () => {
     const filename = "Movie.2026.1080p.WEB-DL.mkv"
     const saved = playbackSourceForStream(
       stream("saved", "Provider", {
@@ -73,9 +73,40 @@ describe("stream selection", () => {
   })
 
   it("does not match a saved source from another add-on", () => {
-    const saved = playbackSourceForStream(stream("saved", "Provider", { addonId: "addon-1" }))
+    const saved = playbackSourceForStream(
+      stream("saved", "Provider", {
+        addonId: "addon-1",
+        behaviorHints: { bingeGroup: "release-1080p" },
+      }),
+    )
     expect(
-      selectSavedStream([stream("same-looking", "Provider", { addonId: "addon-2" })], saved),
+      selectSavedStream(
+        [
+          stream("same-looking", "Provider", {
+            addonId: "addon-2",
+            behaviorHints: { bingeGroup: "release-1080p" },
+          }),
+        ],
+        saved,
+      ),
     ).toBeUndefined()
+  })
+
+  it("does not fuzzy-match a changed stream without a binge group", () => {
+    const filename = "Movie.2026.1080p.WEB-DL.mkv"
+    const saved = playbackSourceForStream(
+      stream("saved", "Provider", {
+        addonId: "addon-1",
+        url: "https://video.example/old-token",
+        behaviorHints: { filename },
+      }),
+    )
+    const changed = stream("changed", "Provider", {
+      addonId: "addon-1",
+      url: "https://video.example/new-token",
+      behaviorHints: { filename },
+    })
+
+    expect(selectSavedStream([changed], saved)).toBeUndefined()
   })
 })

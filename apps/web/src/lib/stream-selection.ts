@@ -55,20 +55,8 @@ export function selectSavedStream<T extends AutoSelectableStream>(
   )
   const exactMatch = candidates.find((stream) => streamSourceKey(stream) === source.sourceKey)
   if (exactMatch) return exactMatch
-
-  // Some add-ons put a fresh signed token in the URL path on every resolve.
-  // The release filename is the stable identity in that case.
-  const savedFilename = normalizeSourceText([source.filename])
-  if (!savedFilename) return undefined
-  const filenameMatches = candidates.filter(
-    (stream) => normalizeSourceText([stream.behaviorHints?.filename]) === savedFilename,
-  )
-  if (!filenameMatches.length) return undefined
-
-  return [...filenameMatches].sort(
-    (left, right) =>
-      streamMetadataMatchScore(right, source) - streamMetadataMatchScore(left, source),
-  )[0]
+  if (!source.bingeGroup) return undefined
+  return candidates.find((stream) => stream.behaviorHints?.bingeGroup === source.bingeGroup)
 }
 
 export function isPlayableStreamUrl(value: string | undefined): value is string {
@@ -106,18 +94,4 @@ function normalizedStreamUrl(value: string): string {
 
 function normalizeSourceText(values: Array<string | undefined>): string {
   return values.filter(Boolean).join("|").trim().toLocaleLowerCase().replace(/\s+/g, " ")
-}
-
-function streamMetadataMatchScore(stream: AutoSelectableStream, source: PlaybackSource): number {
-  let score = 0
-  if (source.bingeGroup && source.bingeGroup === stream.behaviorHints?.bingeGroup) {
-    score += 4
-  }
-  if (source.name && normalizeSourceText([source.name]) === normalizeSourceText([stream.name])) {
-    score += 2
-  }
-  if (source.title && normalizeSourceText([source.title]) === normalizeSourceText([stream.title])) {
-    score += 2
-  }
-  return score
 }

@@ -270,91 +270,23 @@ fun playbackSourceForStream(addonId: String, stream: StreamItem): PlaybackSource
 fun selectSavedStream(
     streams: List<StreamSource>,
     source: PlaybackSource?,
-    allowAddonFallback: Boolean = false,
 ): StreamSource? {
     val saved = source ?: return null
     val candidates = streams.filter { candidate ->
         isPlayableStreamUrl(candidate.stream.url) &&
-            isSavedStreamCandidate(candidate, saved, allowAddonFallback)
+            candidate.addonId == saved.addonId
     }
     candidates.firstOrNull { candidate -> streamSourceKey(candidate.stream) == saved.sourceKey }?.let { return it }
-
-    // Providers commonly rotate signed query parameters. Prefer the same
-    // stable URL path before falling back to metadata the add-on kept stable.
-    val savedUrlPath = saved.sourceKey
-        .takeIf { it.startsWith("url:") }
-        ?.removePrefix("url:")
-        ?.let(::normalizeStreamUrlPath)
-    if (savedUrlPath != null) {
-        candidates.firstOrNull { candidate ->
-            candidate.stream.url?.let(::normalizeStreamUrlPath) == savedUrlPath
-        }?.let { return it }
+    val bingeGroup = saved.bingeGroup?.takeIf(String::isNotBlank) ?: return null
+    return candidates.firstOrNull { candidate ->
+        candidate.stream.behaviorHints?.bingeGroup == bingeGroup
     }
-
-    return candidates
-        .map { candidate -> candidate to streamMatchScore(candidate, saved, allowAddonFallback) }
-        .maxByOrNull { it.second }
-        ?.takeIf { (candidate, _) -> isConfidentSavedStreamMatch(candidate, saved, candidates.size, allowAddonFallback) }
-        ?.first
-}
-
-private fun isSavedStreamCandidate(
-    candidate: StreamSource,
-    saved: PlaybackSource,
-    allowAddonFallback: Boolean,
-): Boolean {
-    val candidateGroup = candidate.stream.behaviorHints?.bingeGroup
-    val savedGroup = saved.bingeGroup
-    val groupsConflict = candidateGroup.isNullOrBlank().not() && savedGroup.isNullOrBlank().not() &&
-        !sameSourceText(candidateGroup, savedGroup)
-    if (candidate.addonId == saved.addonId) return !groupsConflict
-    return allowAddonFallback && sameSourceText(candidateGroup, savedGroup)
-}
-
-private fun isConfidentSavedStreamMatch(
-    candidate: StreamSource,
-    saved: PlaybackSource,
-    candidateCount: Int,
-    allowAddonFallback: Boolean,
-): Boolean {
-    val sameAddon = candidate.addonId == saved.addonId
-    if (!sameAddon) {
-        return allowAddonFallback && sameSourceText(
-            candidate.stream.behaviorHints?.bingeGroup,
-            saved.bingeGroup,
-        )
-    }
-    if (candidateCount == 1) return true
-    return sameSourceText(candidate.stream.behaviorHints?.filename, saved.filename) ||
-        sameSourceText(candidate.stream.title, saved.title) ||
-        sameSourceText(candidate.stream.name, saved.name) ||
-        sameSourceText(candidate.stream.behaviorHints?.bingeGroup, saved.bingeGroup)
 }
 
 private fun isPlayableStreamUrl(value: String?): Boolean {
     val protocol = value?.substringBefore(':')?.lowercase()
     return protocol == "http" || protocol == "https"
 }
-
-private fun streamMatchScore(
-    candidate: StreamSource,
-    saved: PlaybackSource,
-    allowAddonFallback: Boolean,
-): Int {
-    val stream = candidate.stream
-    var score = 0
-    if (allowAddonFallback && sameSourceText(stream.behaviorHints?.bingeGroup, saved.bingeGroup)) score += 1_000
-    if (candidate.addonId == saved.addonId) score += 50
-    if (sameSourceText(stream.behaviorHints?.filename, saved.filename)) score += 100
-    if (sameSourceText(stream.title, saved.title)) score += 20
-    if (sameSourceText(stream.name, saved.name)) score += 10
-    if (sameSourceText(stream.behaviorHints?.bingeGroup, saved.bingeGroup)) score += 5
-    return score
-}
-
-private fun sameSourceText(left: String?, right: String?): Boolean =
-    left?.isNotBlank() == true && right?.isNotBlank() == true &&
-        normalizeSourceText(listOf(left)) == normalizeSourceText(listOf(right))
 
 private fun streamSourceKey(stream: StreamItem): String = when {
     stream.infoHash != null -> "torrent:${stream.infoHash.lowercase()}:${stream.fileIdx?.toString()?.trim('"').orEmpty()}"
@@ -376,9 +308,6 @@ private fun normalizeStreamUrl(value: String): String {
         .joinToString("&")
     return if (query.isBlank()) base else "$base?$query"
 }
-
-private fun normalizeStreamUrlPath(value: String): String =
-    value.substringBefore('#').substringBefore('?').trimEnd('/')
 
 private fun normalizeSourceText(values: List<String?>): String =
     values.filterNotNull().joinToString("|").trim().lowercase().replace(Regex("\\s+"), " ")
@@ -894,6 +823,7 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
         mediaType: String, mediaId: String, name: String, poster: String?,
         videoTitle: String?, season: Int?, episode: Int?, positionMs: Long, durationMs: Long,
         playbackSource: PlaybackSource? = null,
+        clearPlaybackSource: Boolean = false,
         watched: Boolean? = null,
         checkpointSessionId: String? = null,
         checkpointSequence: Long? = null,
@@ -905,7 +835,10 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
                 put("mediaType", mediaType); put("mediaId", mediaId); put("name", name)
                 poster?.let { put("poster", it) }; videoTitle?.let { put("videoTitle", it) }
                 season?.let { put("season", it) }; episode?.let { put("episode", it) }
-                playbackSource?.let { put("playbackSource", addonJson.encodeToJsonElement(it)) }
+                when {
+                    clearPlaybackSource -> put("playbackSource", JsonNull)
+                    playbackSource != null -> put("playbackSource", addonJson.encodeToJsonElement(playbackSource))
+                }
                 watched?.let { put("watched", it) }
                 checkpointSessionId?.let { put("checkpointSessionId", it) }
                 checkpointSequence?.let { put("checkpointSequence", it) }
