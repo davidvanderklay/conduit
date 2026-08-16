@@ -168,6 +168,7 @@ export function ElectronPlayerOverlay({ initialMedia }: { initialMedia: PlayerOv
     const unsubscribeWake = electron.onPlayerOverlayWake
       ? electron.onPlayerOverlayWake(showControls)
       : undefined
+    electron.notifyPlayerOverlayReady?.()
     return () => {
       unsubscribeFullscreen()
       unsubscribeMedia()

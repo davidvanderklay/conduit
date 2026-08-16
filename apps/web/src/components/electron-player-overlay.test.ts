@@ -88,6 +88,7 @@ describe("Electron episode drawer", () => {
       onPlayerOverlayNext: vi.fn(() => () => undefined),
       onPlayerOverlayEpisode: vi.fn(() => () => undefined),
       onPlayerOverlayMedia: vi.fn(() => () => undefined),
+      notifyPlayerOverlayReady: vi.fn(),
       setPlayerOverlayInteractiveRegions: vi.fn(),
       onPlayerOverlayWake: vi.fn(() => () => undefined),
       onDesktopAuthCallback: vi.fn(() => () => undefined),

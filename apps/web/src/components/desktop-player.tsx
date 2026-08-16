@@ -328,7 +328,7 @@ export function DesktopPlayer({
     const unsubscribeNext = electron.onPlayerOverlayNext(() => {
       if (onNextEpisode) void onNextEpisode()
     })
-    const unsubscribeEpisode = electron.onPlayerOverlayEpisode((selectedVideoId) => {
+    const unsubscribeEpisode = electron.onPlayerOverlayEpisode?.((selectedVideoId) => {
       const selectedVideo = seriesContext?.videos.find((video) => video.id === selectedVideoId)
       if (!selectedVideo || !onSelectEpisode || nextTransitionRequested.current) return
       nextTransitionRequested.current = true
@@ -336,7 +336,7 @@ export function DesktopPlayer({
       void Promise.resolve(onSelectEpisode(selectedVideo)).catch((cause: unknown) => {
         setError(cause instanceof Error ? cause.message : String(cause))
       })
-    })
+    }) ?? (() => undefined)
     return () => {
       unsubscribeClose()
       unsubscribeNext()

@@ -72,6 +72,9 @@ contextBridge.exposeInMainWorld("__CONDUIT_ELECTRON__", {
     ipcRenderer.on("conduit:player-overlay-media", handler)
     return () => ipcRenderer.removeListener("conduit:player-overlay-media", handler)
   },
+  notifyPlayerOverlayReady() {
+    ipcRenderer.send("conduit:player-overlay-ready")
+  },
   setPlayerOverlayInteractiveRegions(
     regions: Array<{ left: number; top: number; right: number; bottom: number }>,
   ) {
