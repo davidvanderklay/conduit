@@ -2,9 +2,11 @@ name: ConduitMobileSpike
 options:
   bundleIdPrefix: media.conduit
 packages:
+  KSPlayer:
+    url: https://github.com/kingslay/KSPlayer.git
+    revision: 25c923b70d3d7881275e8f3d917e1e9752416e27
   MPVKit:
-    url: https://github.com/NuvioMedia/MPVKit.git
-    revision: d5cf091c80368bbbc1bbf2d195fbc55d926df888
+    path: MPVKitCompat
 schemes:
   ConduitMobileSpike:
     build:
@@ -25,6 +27,7 @@ targets:
     platform: iOS
     sources: [ConduitMobileSpike]
     dependencies:
+      - package: KSPlayer
       - package: MPVKit
     settings:
       base:
@@ -33,7 +36,9 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         INFOPLIST_FILE: ConduitMobileSpike/Info.plist
         SWIFT_OBJC_BRIDGING_HEADER: ConduitMobileSpike/ConduitMobileSpike-Bridging-Header.h
-        FRAMEWORK_SEARCH_PATHS: "$(SRCROOT)/../composeApp/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)"
+        # Xcode-beta does not add the device slices of FFmpegKit's static
+        # frameworks to its normal product search path.
+        FRAMEWORK_SEARCH_PATHS: "$(SRCROOT)/../composeApp/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME) $(BUILD_DIR)/../../SourcePackages/checkouts/FFmpegKit/Sources"
         "EXCLUDED_ARCHS[sdk=iphonesimulator*]": x86_64
         "OTHER_LDFLAGS[sdk=iphoneos*]": "-framework ComposeApp $(SRCROOT)/../native/ios/iosArm64/libconduit_mobile.a"
         "OTHER_LDFLAGS[sdk=iphonesimulator*]": "-framework ComposeApp $(SRCROOT)/../native/ios/iosSimulatorArm64/libconduit_mobile.a"

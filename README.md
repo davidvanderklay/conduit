@@ -143,5 +143,14 @@ the focus remains a cohesive film and television experience.
 
 ## License
 
-Conduit is licensed under the MIT License. See [LICENSE](LICENSE) and
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+The repository's server, web, desktop, and other components remain licensed
+under the MIT License. See [LICENSE](LICENSE).
+
+The Apple mobile application is distributed under the GNU General Public
+License version 3 because its iOS target links KSPlayer and its bundled media
+runtime. The app-specific boundary and source-distribution notice are in
+[`apps/mobile/iosApp/LICENSE`](apps/mobile/iosApp/LICENSE), with the complete
+GPLv3 text in [`apps/mobile/iosApp/LICENSE-GPL-3.0.txt`](apps/mobile/iosApp/LICENSE-GPL-3.0.txt).
+See
+[third-party notices](THIRD_PARTY_NOTICES.md) for the linked media libraries
+and their upstream license files.

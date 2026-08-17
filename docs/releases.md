@@ -25,9 +25,12 @@ repository secrets.
 The IPA cannot be installed directly by iOS. Import it into LiveContainer or
 another sideloading environment that can load or sign unsigned applications.
 The bundle identifier is `media.conduit.mobile`, and the app requires iOS 15 or
-newer. The pinned MPVKit build currently emits deployment-version warnings for
-some codec objects built against iOS 17.5, so runtime compatibility on iOS 15
-through 17.4 remains unverified even though the application links successfully.
+newer. KSPlayer is the default iOS engine; MPVKit remains selectable from
+Playback settings while feature parity is being validated. The Apple mobile
+application is GPLv3, so every distributed IPA must be accompanied by the
+corresponding source and build instructions described in
+[`apps/mobile/iosApp/LICENSE`](../apps/mobile/iosApp/LICENSE) and
+[`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md).
 
 To exercise the same packaging path without creating a release, run the
 workflow manually with the `ios` target. Its IPA is available from the workflow

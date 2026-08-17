@@ -268,8 +268,15 @@ final class ConduitMPVPlayerBridge: NSObject, IosPlayerBridge {
 }
 
 final class ConduitMPVPlayerBridgeCreator: NSObject, IosPlayerBridgeCreator {
-    func createBridge() -> any IosPlayerBridge {
-        ConduitMPVPlayerBridge()
+    func createBridge(engine: String) -> any IosPlayerBridge {
+        switch engine {
+        case "KSPlayer":
+            ConduitKSPlayerBridge()
+        case "MPVKit":
+            ConduitMPVPlayerBridge()
+        default:
+            ConduitKSPlayerBridge()
+        }
     }
 }
 

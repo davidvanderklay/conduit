@@ -1271,7 +1271,10 @@ private fun BoxScope.PlaybackSessionHost(
         label = "mini-player-corner",
     )
 
-    PlayerOrientationLock(active = session.presentation == PlaybackPresentation.FullScreen)
+    PlayerOrientationLock(
+        active = session.presentation == PlaybackPresentation.FullScreen,
+        iosPlaybackEngine = preferences.iosPlaybackEngine,
+    )
     LaunchedEffect(request.identity, request.url) {
         while (true) {
             kotlinx.coroutines.delay(15_000)
@@ -1363,6 +1366,7 @@ private fun BoxScope.PlaybackSessionHost(
             preferredAudioLanguage = preferences.preferredAudioLanguage,
             preferredSubtitleLanguage = preferences.preferredSubtitleLanguage,
             androidPlaybackEngine = preferences.androidPlaybackEngine,
+            iosPlaybackEngine = preferences.iosPlaybackEngine,
             onControlsVisibilityChanged = { controlsVisible = it },
             onTemporarySpeedChanged = { temporarySpeedActive = it },
             onSystemPipChanged = controller::systemPipChanged,

@@ -28,14 +28,37 @@ SOFTWARE.
 
 ## MPVKit
 
-The iOS mobile player links the pinned Nuvio MPVKit fork through Swift Package
-Manager. The package supplies libmpv, FFmpeg, MoltenVK, and the iOS rendering
-support used by `apps/mobile/iosApp/ConduitMobileSpike/MPVPlayerBridge.swift`:
-<https://github.com/NuvioMedia/MPVKit/tree/d5cf091c80368bbbc1bbf2d195fbc55d926df888>.
+The iOS mobile player keeps MPVKit available as a compatibility-testing option
+through the local Swift package at
+`apps/mobile/iosApp/MPVKitCompat/`. That package pins the MPVKit 0.39.0
+`Libmpv` binary, the companion libbluray 1.3.4 and libuchardet 0.0.8 binaries,
+and shares the FFmpegKit 6.1.4 dependency used by KSPlayer:
+<https://github.com/mpvkit/MPVKit/releases/tag/0.39.0-n7.1.1>.
 
-Review the package's upstream license and bundled-library notices before
-shipping an iOS distribution. The package currently describes its MPVKit and
-bundled libraries as LGPL-licensed.
+Review each upstream binary's license and bundled-library notices before
+shipping an iOS distribution. The compatibility package exists only to retain
+the old player during feature-parity testing; KSPlayer is the default iOS
+engine.
+
+## KSPlayer
+
+The iOS mobile player links the pinned KSPlayer package through Swift Package
+Manager:
+<https://github.com/kingslay/KSPlayer/tree/25c923b70d3d7881275e8f3d917e1e9752416e27>.
+
+KSPlayer is distributed under GPLv3. The pinned package also links its
+FFmpegKit dependency from the 6.1.4 line:
+<https://github.com/kingslay/FFmpegKit/tree/6.1.4>.
+Review the pinned package's license files and all bundled FFmpeg, codec, and
+support-library notices when producing an Apple release. The app-specific
+GPLv3 boundary is documented in [`apps/mobile/iosApp/LICENSE`](apps/mobile/iosApp/LICENSE),
+with the complete terms in
+[`apps/mobile/iosApp/LICENSE-GPL-3.0.txt`](apps/mobile/iosApp/LICENSE-GPL-3.0.txt).
+
+The Apple mobile application must be distributed with the corresponding
+source and build instructions, including the pinned Swift package revisions.
+The root repository MIT license does not relicense the GPL-covered Apple
+mobile application.
 
 ## Android libmpv
 
