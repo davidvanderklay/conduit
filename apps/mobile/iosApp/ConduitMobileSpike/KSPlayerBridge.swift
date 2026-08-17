@@ -528,7 +528,11 @@ final class ConduitKSPlayerViewController: UIViewController {
         )
         layer.player.allowsExternalPlayback = true
         layer.player.usesExternalPlaybackWhileExternalScreenIsActive = true
-        if initialPositionMs > 0 {
+        // KSMEPlayer applies startPlayTime inside its demux/read thread. A
+        // second pre-ready layer seek races that initial seek and can leave
+        // the layer buffering forever. AVPlayer does not consume this option,
+        // so retain the layer fallback for that backend.
+        if initialPositionMs > 0, !(layer.player is KSMEPlayer) {
             layer.seek(time: TimeInterval(initialPositionMs) / 1000.0, autoPlay: true) { _ in }
         }
         refreshPlaybackState()
@@ -772,11 +776,17 @@ final class ConduitKSPlayerViewController: UIViewController {
         let tracks = layer.player.tracks(mediaType: .audio)
         let track = tracks.first(where: { trackMatchesLanguage($0, preferred: preferred) })
         guard let track else { return }
-        selectAudioTrack(track, on: layer)
+        // `wantedAudio` normally enables this track while the demuxer opens.
+        // Do not seek again during the ready/buffering transition: an extra
+        // seek here can keep the layer buffering even though audio is ready.
+        if !track.isEnabled {
+            layer.player.select(track: track)
+        }
         didApplyPreferredAudio = tracks.contains { $0.trackID == track.trackID && $0.isEnabled }
     }
 
     private func selectAudioTrack(_ track: any MediaPlayerTrack, on layer: KSPlayerLayer) {
+        guard !track.isEnabled else { return }
         let wasPlaying = shouldPlay || layer.player.isPlaying
         let position = max(0, layer.player.currentPlaybackTime)
         layer.player.select(track: track)
