@@ -328,6 +328,7 @@ final class ConduitKSPlayerViewController: UIViewController {
     private var externalSubtitleLanguages: [String: String] = [:]
     private var userSelectedSubtitle = false
     private var didApplyPreferredTracks = false
+    private var shouldPlay = false
 
     fileprivate var audioTracks: [ConduitKSPlayerTrack] {
         guard let player = playerView.playerLayer?.player else { return [] }
@@ -457,11 +458,13 @@ final class ConduitKSPlayerViewController: UIViewController {
     }
 
     func playPlayback() {
+        shouldPlay = true
         playerView.playerLayer?.play()
         refreshPlaybackState()
     }
 
     func pausePlayback() {
+        shouldPlay = false
         playerView.playerLayer?.pause()
         refreshPlaybackState()
     }
@@ -507,6 +510,7 @@ final class ConduitKSPlayerViewController: UIViewController {
     func retryPlayback() {
         guard let layer = playerView.playerLayer else { return }
         if layer.state == .error {
+            shouldPlay = true
             currentErrorMessage = ""
             layer.play()
         }
@@ -579,6 +583,11 @@ final class ConduitKSPlayerViewController: UIViewController {
             isPlayerLoading = true
             return
         }
+        if shouldPlay && layer.state == .readyToPlay {
+            // The initial play command can arrive while KSPlayer is still
+            // preparing. Re-issue it once the layer has a usable timeline.
+            layer.play()
+        }
         let player = layer.player
         isPlayerLoading = [.initialized, .preparing].contains(layer.state)
         isPlayerBuffering = layer.state == .buffering
@@ -599,6 +608,7 @@ final class ConduitKSPlayerViewController: UIViewController {
 
     func destroyPlayer() {
         stopPictureInPicture()
+        shouldPlay = false
         playerView.playerLayer?.player.shutdown()
         playerView.playerLayer = nil
         playerView.srtControl.selectedSubtitleInfo = nil

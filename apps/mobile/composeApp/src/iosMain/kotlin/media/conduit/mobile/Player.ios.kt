@@ -233,7 +233,13 @@ actual fun NativePlayer(
             currentCallback(next)
             if (!dragging) positionMs = next.positionMs
             durationMs = next.durationMs
-            playbackReady = playbackReady || (!next.loading && next.durationMs > 0)
+            playbackReady = playbackReady || (
+                !next.loading &&
+                    !next.buffering &&
+                    next.videoWidth > 0 &&
+                    next.videoHeight > 0 &&
+                    (next.durationMs > 0 || next.playing)
+            )
             playing = next.playing
             buffering = next.buffering
             playbackSpeed = bridge.getPlaybackSpeed()
@@ -330,7 +336,7 @@ actual fun NativePlayer(
             interactive = false,
         )
 
-        if (controlsVisible && presentation != PlaybackPresentation.Mini) {
+        if (controlsVisible && playbackReady && presentation != PlaybackPresentation.Mini) {
             Box(
                 Modifier
                     .fillMaxSize()

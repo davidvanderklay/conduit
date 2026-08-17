@@ -1265,6 +1265,7 @@ private fun BoxScope.PlaybackSessionHost(
     var startupRecoveryRequested by remember(session.sessionId) { mutableStateOf(false) }
     var containerSize by remember { mutableStateOf(IntSize.Zero) }
     var miniSize by remember { mutableStateOf(IntSize.Zero) }
+    val playbackSurfaceReady = session.playback.videoWidth > 0 && session.playback.videoHeight > 0
     val density = LocalDensity.current
     val animatedMiniOffset by animateIntOffsetAsState(
         targetValue = miniOffset,
@@ -1285,8 +1286,20 @@ private fun BoxScope.PlaybackSessionHost(
     LaunchedEffect(session.playback.ended) {
         if (session.playback.ended) controller.persist()
     }
-    LaunchedEffect(session.playback.playing) {
-        if (session.playback.playing) playbackHasStarted = true
+    LaunchedEffect(
+        session.playback.playing,
+        session.playback.loading,
+        session.playback.buffering,
+        playbackSurfaceReady,
+    ) {
+        if (
+            session.playback.playing &&
+                !session.playback.loading &&
+                !session.playback.buffering &&
+                playbackSurfaceReady
+        ) {
+            playbackHasStarted = true
+        }
         if (!session.playback.playing && session.playback.durationMs > 0) controller.persist()
     }
     LaunchedEffect(session.sessionId, request.url, request.autoSelectedSavedSource) {
@@ -1328,7 +1341,8 @@ private fun BoxScope.PlaybackSessionHost(
             else controller.closeEpisodes()
         },
     )
-    val initialPlaybackLoad = session.playback.loading && !playbackHasStarted
+    val initialPlaybackLoad = !playbackHasStarted &&
+        (session.playback.loading || session.playback.buffering || !playbackSurfaceReady)
 
     Box(Modifier.fillMaxSize().onSizeChanged { containerSize = it }) {
         // Adaptive iOS hides the native bar, but the mini-player keeps its
