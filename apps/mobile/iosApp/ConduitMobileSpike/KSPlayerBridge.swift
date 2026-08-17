@@ -331,6 +331,19 @@ final class ConduitKSPlayerView: VideoPlayerView {
         applyConduitSubtitleFont()
     }
 
+    fileprivate func refreshSubtitlePresentation(fallbackPart: SubtitlePart? = nil) {
+        if let part = fallbackPart ?? srtControl.parts.first {
+            subtitleBackView.image = part.image
+            subtitleLabel.attributedText = part.text
+            subtitleBackView.isHidden = false
+        } else {
+            subtitleBackView.image = nil
+            subtitleLabel.attributedText = nil
+            subtitleBackView.isHidden = true
+        }
+        applyConduitSubtitleFont()
+    }
+
     private func applyConduitSubtitleFont() {
         guard bounds.height > 1 else { return }
         let size = bounds.height < 300
@@ -540,6 +553,7 @@ final class ConduitKSPlayerViewController: UIViewController {
 
     func playPlayback() {
         shouldPlay = true
+        activateAudioSession()
         playerView.playerLayer?.play()
         refreshPlaybackState()
     }
@@ -609,6 +623,7 @@ final class ConduitKSPlayerViewController: UIViewController {
 
     func startPictureInPicture() {
         guard isPictureInPictureSupported else { return }
+        activateAudioSession()
         if pipSubtitleCoordinator.start() {
             return
         }
@@ -636,11 +651,16 @@ final class ConduitKSPlayerViewController: UIViewController {
     fileprivate func setPlaybackIntent(_ playing: Bool) {
         shouldPlay = playing
         if playing {
+            activateAudioSession()
             playerView.playerLayer?.play()
         } else {
             playerView.playerLayer?.pause()
         }
         refreshPlaybackState()
+    }
+
+    fileprivate func activateAudioSessionForPictureInPicture() {
+        activateAudioSession()
     }
 
     func selectAudio(_ trackId: Int) {
@@ -688,7 +708,10 @@ final class ConduitKSPlayerViewController: UIViewController {
         let player = layer.player
         isPlayerLoading = [.initialized, .preparing].contains(layer.state)
         isPlayerBuffering = layer.state == .buffering
-        isPlayerPlaying = layer.state.isPlaying
+        // KSPlayerLayer.state describes buffering/render readiness. Its
+        // `isPlaying` value can be stale during PiP/lifecycle transitions;
+        // the media player owns the actual play/pause state.
+        isPlayerPlaying = player.isPlaying
         isPlayerEnded = layer.state == .playedToTheEnd
         durationMs = Int64(max(0, player.duration) * 1000)
         positionMs = Int64(max(0, player.currentPlaybackTime) * 1000)
@@ -700,6 +723,16 @@ final class ConduitKSPlayerViewController: UIViewController {
         }
         if layer.state == .error, currentErrorMessage.isEmpty {
             currentErrorMessage = "KSPlayer failed to play this media."
+        }
+    }
+
+    private func activateAudioSession() {
+        let session = AVAudioSession.sharedInstance()
+        do {
+            try session.setCategory(.playback, mode: .moviePlayback, policy: .longFormVideo)
+            try session.setActive(true)
+        } catch {
+            print("[Conduit KSPlayer] Failed to activate audio session: \(error)")
         }
     }
 
@@ -873,6 +906,12 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
     private var pictureInPicturePossibleObservation: NSKeyValueObservation?
     private var primingTimeoutWorkItem: DispatchWorkItem?
     private var playbackWasPlaying = false
+    private var pipSubtitlePart: SubtitlePart?
+    private var pipSubtitleID: String?
+    private var backgroundRenderTimer: DispatchSourceTimer?
+    private var lifecycleObservers: [NSObjectProtocol] = []
+    private var preservePlaybackDuringBackground = false
+    private var preservePlaybackWorkItem: DispatchWorkItem?
 
     init(playerView: ConduitKSPlayerView, playerController: ConduitKSPlayerViewController) {
         self.playerView = playerView
@@ -902,6 +941,33 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
         controller.delegate = self
         controller.canStartPictureInPictureAutomaticallyFromInline = true
         self.controller = controller
+        lifecycleObservers.append(NotificationCenter.default.addObserver(
+            forName: UIApplication.willResignActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.handleWillResignActive()
+            }
+        })
+        lifecycleObservers.append(NotificationCenter.default.addObserver(
+            forName: UIApplication.didEnterBackgroundNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.handleDidEnterBackground()
+            }
+        })
+        lifecycleObservers.append(NotificationCenter.default.addObserver(
+            forName: UIApplication.willEnterForegroundNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.stopBackgroundRendering()
+            }
+        })
         pictureInPicturePossibleObservation = controller.observe(
             \.isPictureInPicturePossible,
             options: [.initial, .new]
@@ -911,6 +977,10 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
                 self?.attemptStart()
             }
         }
+    }
+
+    deinit {
+        lifecycleObservers.forEach(NotificationCenter.default.removeObserver)
     }
 
     var isSupported: Bool {
@@ -924,6 +994,13 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
     func start() -> Bool {
         guard isSupported, !isActive, let playerView, let layer = playerView.playerLayer else { return false }
         playbackWasPlaying = playerController?.playbackIntent ?? layer.player.isPlaying
+        // Prime the model once before PiP takes over. This is safe here
+        // because the normal subtitle view and PiP otherwise share the
+        // already-rendered `parts` snapshot instead of searching the same
+        // embedded queue independently on every frame.
+        _ = playerView.srtControl.subtitle(currentTime: layer.player.currentPlaybackTime)
+        pipSubtitlePart = playerView.srtControl.parts.first
+        pipSubtitleID = playerView.srtControl.selectedSubtitleInfo?.subtitleID
         guard prepareVideoOutput() else { return false }
         // Let KSPlayer's own Metal output advance frames. Its normal render
         // path applies the audio/video sync policy; PiP mirrors that output.
@@ -942,6 +1019,7 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
         let timeout = DispatchWorkItem { [weak self] in
             guard let self, self.isPriming else { return }
             self.cleanup()
+            self.restorePlaybackState()
         }
         primingTimeoutWorkItem = timeout
         DispatchQueue.main.asyncAfter(deadline: .now() + 3, execute: timeout)
@@ -961,6 +1039,10 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
 
     private func cleanup() {
         isPriming = false
+        stopBackgroundRendering()
+        preservePlaybackDuringBackground = false
+        preservePlaybackWorkItem?.cancel()
+        preservePlaybackWorkItem = nil
         displayLink?.invalidate()
         displayLink = nil
         primingTimeoutWorkItem?.cancel()
@@ -986,10 +1068,25 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
     }
 
     private func restorePlaybackState() {
-        let shouldPlay = playbackWasPlaying
+        let actualPlayerIsPlaying = playerView?.playerLayer?.player.isPlaying == true
+        let shouldPlay = actualPlayerIsPlaying || playbackWasPlaying
         playbackWasPlaying = false
         setUnderlyingVideoOutputPlaying(shouldPlay)
         playerController?.setPlaybackIntent(shouldPlay)
+        if let playerView, let layer = playerView.playerLayer {
+            // Rebuild the normal subtitle overlay after PiP has released its
+            // mirrored frame surface.
+            _ = playerView.srtControl.subtitle(currentTime: layer.player.currentPlaybackTime)
+            let fallback = subtitlePart(
+                pipSubtitlePart,
+                id: pipSubtitleID,
+                at: layer.player.currentPlaybackTime,
+                control: playerView.srtControl
+            )
+            playerView.refreshSubtitlePresentation(fallbackPart: fallback)
+        }
+        pipSubtitlePart = nil
+        pipSubtitleID = nil
     }
 
     private func setUnderlyingVideoOutputPlaying(_ playing: Bool) {
@@ -999,6 +1096,80 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
         } else {
             player.videoOutput?.pause()
         }
+    }
+
+    private func handleDidEnterBackground() {
+        guard isActive else { return }
+        playerController?.activateAudioSessionForPictureInPicture()
+        if playerController?.playbackIntent == true {
+            // AVKit can ask for a paused state while the app is crossing the
+            // inactive/background boundary. Reassert the user's intent once
+            // the background PiP session is established.
+            playerController?.setPlaybackIntent(true)
+            setUnderlyingVideoOutputPlaying(true)
+            setDisplayRate(1)
+        }
+        startBackgroundRendering()
+    }
+
+    private func handleWillResignActive() {
+        guard isActive, playerController?.playbackIntent == true else { return }
+        preservePlaybackDuringBackground = true
+        preservePlaybackWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.preservePlaybackDuringBackground = false
+            }
+        }
+        preservePlaybackWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: workItem)
+    }
+
+    private func startBackgroundRendering() {
+        guard backgroundRenderTimer == nil else { return }
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(
+            deadline: .now(),
+            repeating: .milliseconds(16),
+            leeway: .milliseconds(4)
+        )
+        timer.setEventHandler { [weak self] in
+            self?.renderBackgroundFrame()
+        }
+        backgroundRenderTimer = timer
+        timer.resume()
+    }
+
+    private func stopBackgroundRendering() {
+        backgroundRenderTimer?.cancel()
+        backgroundRenderTimer = nil
+        preservePlaybackDuringBackground = false
+        preservePlaybackWorkItem?.cancel()
+        preservePlaybackWorkItem = nil
+    }
+
+    private func renderBackgroundFrame() {
+        guard isActive else {
+            stopBackgroundRendering()
+            return
+        }
+        guard playerController?.playbackIntent == true else {
+            renderFrame()
+            return
+        }
+
+        // MetalPlayView's CADisplayLink is tied to the app's foreground
+        // display loop. When iOS stops delivering those callbacks in the
+        // background, advance only frames that have fallen behind the audio
+        // clock. This preserves A/V sync instead of consuming frames at a
+        // fixed rate and making video run faster than audio.
+        if let player = playerView?.playerLayer?.player as? KSMEPlayer,
+           player.isPlaying,
+           let videoOutput = player.videoOutput,
+           player.currentPlaybackTime - player.displayedVideoTime > 0.05 {
+            videoOutput.readNextFrame()
+        }
+        renderFrame()
     }
 
     private func prepareVideoOutput() -> Bool {
@@ -1064,18 +1235,39 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
     private func currentSubtitleOverlay(for sourceBuffer: CVPixelBuffer, at time: TimeInterval) -> CIImage? {
         guard let playerView, playerView.playerLayer != nil else { return nil }
         let subtitleControl = playerView.srtControl
-        _ = subtitleControl.subtitle(currentTime: max(0, time))
+        // SubtitleInfo.search(for:) advances KSPlayer's embedded subtitle
+        // queue. The normal VideoPlayerView already updates `parts`, so PiP
+        // must mirror that state rather than consuming the queue a second
+        // time at a slightly different timestamp.
         guard let selectedSubtitle = subtitleControl.selectedSubtitleInfo else {
+            pipSubtitlePart = nil
+            pipSubtitleID = nil
             lastSubtitleKey = ""
             subtitleOverlay = nil
             return nil
         }
-        // Read the selected track directly instead of depending on the
-        // UIKit subtitle view's last update. PiP can start between two
-        // normal player callbacks, leaving `parts` empty even though the
-        // selected embedded subtitle has a cue for this video timestamp.
+        if pipSubtitleID != selectedSubtitle.subtitleID {
+            pipSubtitleID = selectedSubtitle.subtitleID
+            pipSubtitlePart = nil
+        }
         let subtitleTime = max(0, time - selectedSubtitle.delay - subtitleControl.subtitleDelay)
-        guard let part = selectedSubtitle.search(for: subtitleTime).first else {
+        if pipSubtitlePart == nil || (
+            !subtitleControl.parts.contains(where: { subtitlePartIsVisible($0, at: subtitleTime) }) &&
+                UIApplication.shared.applicationState != .active
+        ) {
+            _ = subtitleControl.subtitle(currentTime: time)
+        }
+        if let currentPart = subtitleControl.parts.first,
+           subtitlePartIsVisible(currentPart, at: subtitleTime) {
+            pipSubtitlePart = currentPart
+        }
+        guard let part = subtitlePart(
+            pipSubtitlePart,
+            id: pipSubtitleID,
+            at: time,
+            control: subtitleControl
+        ) else {
+            pipSubtitlePart = nil
             lastSubtitleKey = ""
             subtitleOverlay = nil
             return nil
@@ -1087,21 +1279,43 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
         let width = CVPixelBufferGetWidth(sourceBuffer)
         let height = CVPixelBufferGetHeight(sourceBuffer)
         guard width > 1, height > 1 else { return nil }
-        if let image = part.image?.cgImage {
-            subtitleOverlay = CIImage(cgImage: image).transformed(
-                by: CGAffineTransform(
-                    scaleX: CGFloat(width) * 0.8 / CGFloat(image.width),
-                    y: CGFloat(height) * 0.25 / CGFloat(image.height)
-                ).translatedBy(x: CGFloat(width) * 0.1, y: CGFloat(height) * 0.08)
-            )
+        if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            // ASS subtitles can carry a bitmap plus text attributes that
+            // UIKit interprets as expansion/shear. Re-render text cues into
+            // our full-frame PiP overlay so the source bitmap cannot escape
+            // the PiP bounds or appear in the top-right corner.
+            subtitleOverlay = makeTextOverlay(text, width: width, height: height)
             return subtitleOverlay
         }
-        guard !text.isEmpty else {
+        if let image = part.image?.cgImage {
+            subtitleOverlay = makeImageOverlay(image, width: width, height: height)
+            return subtitleOverlay
+        }
+        if text.isEmpty {
             subtitleOverlay = nil
             return nil
         }
         subtitleOverlay = makeTextOverlay(text, width: width, height: height)
         return subtitleOverlay
+    }
+
+    private func subtitlePart(
+        _ part: SubtitlePart?,
+        id: String?,
+        at time: TimeInterval,
+        control: SubtitleModel
+    ) -> SubtitlePart? {
+        guard let selectedSubtitle = control.selectedSubtitleInfo,
+              selectedSubtitle.subtitleID == id,
+              let part
+        else { return nil }
+        let subtitleTime = max(0, time - selectedSubtitle.delay - control.subtitleDelay)
+        return subtitlePartIsVisible(part, at: subtitleTime) ? part : nil
+    }
+
+    private func subtitlePartIsVisible(_ part: SubtitlePart, at time: TimeInterval) -> Bool {
+        let tolerance = 0.25
+        return part.start <= time + tolerance && part.end >= time - tolerance
     }
 
     private func makeTextOverlay(_ text: String, width: Int, height: Int) -> CIImage? {
@@ -1131,6 +1345,35 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
             (text as NSString).draw(in: rect, withAttributes: attributes)
         }
         return image.cgImage.map(CIImage.init)
+    }
+
+    private func makeImageOverlay(_ image: CGImage, width: Int, height: Int) -> CIImage? {
+        let target = CGRect(
+            x: CGFloat(width) * 0.1,
+            y: CGFloat(height) * 0.68,
+            width: CGFloat(width) * 0.8,
+            height: CGFloat(height) * 0.25
+        )
+        let scale = min(
+            target.width / CGFloat(image.width),
+            target.height / CGFloat(image.height)
+        )
+        guard scale.isFinite, scale > 0 else { return nil }
+        let size = CGSize(
+            width: CGFloat(image.width) * scale,
+            height: CGFloat(image.height) * scale
+        )
+        let rect = CGRect(
+            x: target.midX - size.width / 2,
+            y: target.midY - size.height / 2,
+            width: size.width,
+            height: size.height
+        )
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: width, height: height))
+        let overlay = renderer.image { _ in
+            UIImage(cgImage: image).draw(in: rect)
+        }
+        return overlay.cgImage.map(CIImage.init)
     }
 
     private func compositedBuffer(source: CVPixelBuffer, subtitle: CIImage?) -> CVPixelBuffer? {
@@ -1218,6 +1461,16 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
     }
 
     func pictureInPictureController(_: AVPictureInPictureController, setPlaying playing: Bool) {
+        if !playing,
+           playerController?.playbackIntent == true,
+           preservePlaybackDuringBackground {
+            // Treat the background transition's transient pause request as a
+            // lifecycle callback, not as a user pause from the PiP controls.
+            playerController?.setPlaybackIntent(true)
+            setUnderlyingVideoOutputPlaying(true)
+            setDisplayRate(1)
+            return
+        }
         playbackWasPlaying = playing
         setDisplayRate(playing ? 1 : 0)
         playerController?.setPlaybackIntent(playing)
@@ -1233,7 +1486,10 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
     }
 
     func pictureInPictureControllerIsPlaybackPaused(_: AVPictureInPictureController) -> Bool {
-        playerController?.playbackIntent != true
+        if let playbackIntent = playerController?.playbackIntent {
+            return !playbackIntent
+        }
+        return playerView?.playerLayer?.player.isPlaying != true
     }
 
     func pictureInPictureController(_: AVPictureInPictureController, didTransitionToRenderSize _: CMVideoDimensions) {}
