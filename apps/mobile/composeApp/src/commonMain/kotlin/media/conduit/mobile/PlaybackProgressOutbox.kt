@@ -186,7 +186,12 @@ internal class PlaybackProgressOutbox(
         sessionId = identity.sessionId,
         sequence = identity.sequence,
         updatedAt = Clock.System.now().toString(),
-        playbackSource = request.source,
+        playbackSource = request.source?.takeIf {
+            !playback.loading &&
+                playback.error == null &&
+                playback.videoWidth > 0 &&
+                playback.videoHeight > 0
+        },
     )
 
     private fun PersistedProgressCheckpoint.toSummary(existing: ProgressSummary?): ProgressSummary {

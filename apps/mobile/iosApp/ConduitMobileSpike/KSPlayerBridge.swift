@@ -432,7 +432,9 @@ final class ConduitKSPlayerViewController: UIViewController {
 
         let options = KSOptions()
         options.startPlayTime = TimeInterval(max(0, initialPositionMs)) / 1000.0
-        options.autoSelectEmbedSubtitle = false
+        // KSPlayer otherwise starts with subtitles disabled. The preferred
+        // language is applied once the embedded tracks are available below.
+        options.autoSelectEmbedSubtitle = true
         options.canStartPictureInPictureAutomaticallyFromInline = true
         options.appendHeader(headers)
 
@@ -630,13 +632,12 @@ final class ConduitKSPlayerViewController: UIViewController {
             layer.player.select(track: track)
         }
 
-        guard let preferred = languageCode(preferredSubtitleLanguage) else {
-            didApplyPreferredTracks = true
-            return
-        }
         let embedded = layer.player.tracks(mediaType: .subtitle)
-        if let track = embedded.first(where: {
-            languageCode($0.languageCode ?? "") == preferred || languageCode($0.name) == preferred
+        let preferred = languageCode(preferredSubtitleLanguage)
+        if let track = preferred.flatMap({ preferred in
+            embedded.first(where: {
+                languageCode($0.languageCode ?? "") == preferred || languageCode($0.name) == preferred
+            })
         }) {
             layer.player.select(track: track)
             if let subtitle = track as? any SubtitleInfo {
@@ -645,8 +646,10 @@ final class ConduitKSPlayerViewController: UIViewController {
             didApplyPreferredTracks = true
             return
         }
-        let external = playerView.srtControl.subtitleInfos.first {
-            languageCode(externalSubtitleLanguages[$0.subtitleID] ?? "") == preferred
+        let external = preferred.flatMap { preferred in
+            playerView.srtControl.subtitleInfos.first {
+                languageCode(externalSubtitleLanguages[$0.subtitleID] ?? "") == preferred
+            }
         }
         if let external {
             embedded.forEach { $0.isEnabled = false }
@@ -656,11 +659,20 @@ final class ConduitKSPlayerViewController: UIViewController {
             // happened, otherwise an external match can mask the embedded
             // track we would normally prefer.
             didApplyPreferredTracks = !embedded.isEmpty
-        } else if !embedded.isEmpty {
-            // The embedded tracks are added asynchronously by KSPlayer. Keep
-            // polling when they have not appeared yet, but stop retrying once
-            // the available embedded subtitle set has been inspected.
+        } else if let track = embedded.first {
+            // Keep subtitles on even when the preferred language is not
+            // present. Embedded subtitles are the best fallback.
+            layer.player.select(track: track)
+            if let subtitle = track as? any SubtitleInfo {
+                playerView.srtControl.selectedSubtitleInfo = subtitle
+            }
             didApplyPreferredTracks = true
+        } else if let external = playerView.srtControl.subtitleInfos.first {
+            // External subtitles can be available before KSPlayer exposes
+            // embedded tracks. Keep retrying so a later preferred embedded
+            // track can still take precedence.
+            playerView.srtControl.selectedSubtitleInfo = external
+            didApplyPreferredTracks = false
         }
     }
 

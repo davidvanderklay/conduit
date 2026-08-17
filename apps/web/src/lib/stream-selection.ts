@@ -28,6 +28,8 @@ export interface AutoSelectableStream {
   }
 }
 
+export const AUTO_SELECTION_STARTUP_TIMEOUT_MS = 8_000
+
 export function playbackSourceForStream(stream: AutoSelectableStream): PlaybackSource | undefined {
   if (!stream.addonId) return undefined
   const filename = stream.behaviorHints?.filename
@@ -50,13 +52,39 @@ export function selectSavedStream<T extends AutoSelectableStream>(
   source: PlaybackSource | undefined,
 ): T | undefined {
   if (!source) return undefined
-  const candidates = streams.filter(
-    (stream) => stream.addonId === source.addonId && isPlayableStreamUrl(stream.url),
-  )
-  const exactMatch = candidates.find((stream) => streamSourceKey(stream) === source.sourceKey)
-  if (exactMatch) return exactMatch
+  const candidates = streams.filter(isAutoSelectableStream)
+  const exactMatches = candidates.filter((stream) => streamSourceKey(stream) === source.sourceKey)
+  const sameAddonExactMatches = exactMatches.filter((stream) => stream.addonId === source.addonId)
+  if (sameAddonExactMatches.length === 1) return sameAddonExactMatches[0]
+  if (sameAddonExactMatches.length > 1) return undefined
+  if (exactMatches.length === 1) return exactMatches[0]
   if (!source.bingeGroup) return undefined
-  return candidates.find((stream) => stream.behaviorHints?.bingeGroup === source.bingeGroup)
+  const groupMatches = candidates.filter(
+    (stream) => stream.behaviorHints?.bingeGroup === source.bingeGroup,
+  )
+  const sameAddonGroupMatches = groupMatches.filter((stream) => stream.addonId === source.addonId)
+  if (sameAddonGroupMatches.length === 1) return sameAddonGroupMatches[0]
+  if (sameAddonGroupMatches.length > 1) return undefined
+  return groupMatches.length === 1 ? groupMatches[0] : undefined
+}
+
+export function selectSingleAutoStream<T extends AutoSelectableStream>(
+  streams: T[],
+  excludedStream?: T,
+): T | undefined {
+  const excludedSourceKey = excludedStream && streamSourceKey(excludedStream)
+  const candidates = streams.filter(
+    (stream) =>
+      isAutoSelectableStream(stream) &&
+      (!excludedSourceKey || streamSourceKey(stream) !== excludedSourceKey),
+  )
+  return candidates.length === 1 ? candidates[0] : undefined
+}
+
+export function isAutoSelectableStream(stream: AutoSelectableStream): stream is AutoSelectableStream & {
+  url: string
+} {
+  return isPlayableStreamUrl(stream.url)
 }
 
 export function isPlayableStreamUrl(value: string | undefined): value is string {

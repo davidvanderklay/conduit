@@ -62,6 +62,17 @@ describe("series resume selection", () => {
     expect(adjacentSeriesVideo(videos, "s2e1", -1, NOW)?.id).toBe("s1e2")
   })
 
+  it("skips duplicate metadata rows for the current episode", () => {
+    const duplicateEpisodes: Video[] = [
+      { id: "s1e2-primary", season: 1, episode: 2 },
+      { id: "s1e2-duplicate", season: 1, episode: 2 },
+      { id: "s1e3", season: 1, episode: 3 },
+    ]
+    expect(adjacentSeriesVideo(duplicateEpisodes, "s1e2-primary", 1, NOW)?.id).toBe("s1e3")
+    expect(adjacentSeriesVideo(duplicateEpisodes, "s1e2-duplicate", 1, NOW)?.id).toBe("s1e3")
+    expect(adjacentSeriesVideo(duplicateEpisodes, "s1e3", 1, NOW)).toBeUndefined()
+  })
+
   it("advances from the latest completed episode instead of returning to an older gap", () => {
     expect(selectSeriesVideo(videos, [
       row("s1e1", false, "2026-07-01T00:00:00Z"),

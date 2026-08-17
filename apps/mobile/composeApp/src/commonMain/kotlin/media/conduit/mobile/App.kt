@@ -1287,6 +1287,23 @@ private fun BoxScope.PlaybackSessionHost(
         if (session.playback.ended) controller.persist()
     }
     LaunchedEffect(
+        request.identity.videoId,
+        request.url,
+        request.hasNextEpisode,
+        preferences.autoplayNextEpisode,
+        session.playback.ended,
+    ) {
+        if (
+            preferences.autoplayNextEpisode &&
+                request.hasNextEpisode &&
+                session.playback.ended
+        ) {
+            // Autoplay advances to the next episode's source chooser. A
+            // source must still be selected explicitly for the new episode.
+            controller.playNext()
+        }
+    }
+    LaunchedEffect(
         session.playback.playing,
         session.playback.loading,
         session.playback.buffering,
@@ -1302,9 +1319,9 @@ private fun BoxScope.PlaybackSessionHost(
         }
         if (!session.playback.playing && session.playback.durationMs > 0) controller.persist()
     }
-    LaunchedEffect(session.sessionId, request.url, request.autoSelectedSavedSource) {
-        if (!request.autoSelectedSavedSource) return@LaunchedEffect
-        kotlinx.coroutines.delay(10_000)
+    LaunchedEffect(session.sessionId, request.url, request.autoRecoveryAttempt) {
+        if (!request.autoRecoveryAttempt) return@LaunchedEffect
+        kotlinx.coroutines.delay(8_000)
         val current = controller.state
         val playback = current.playback
         if (
@@ -1314,7 +1331,7 @@ private fun BoxScope.PlaybackSessionHost(
             !startupRecoveryRequested
         ) {
             startupRecoveryRequested = true
-            controller.savedStreamStartupFailed(
+            controller.autoRecoveryFailed(
                 session.sessionId,
                 "Saved stream failed to start. Choose another stream.",
             )
@@ -1327,7 +1344,7 @@ private fun BoxScope.PlaybackSessionHost(
             !startupRecoveryRequested
         ) {
             startupRecoveryRequested = true
-            controller.savedStreamStartupFailed(
+            controller.autoRecoveryFailed(
                 session.sessionId,
                 "Saved stream failed to start. Choose another stream.",
             )
