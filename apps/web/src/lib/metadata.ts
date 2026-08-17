@@ -313,9 +313,18 @@ export function adjacentSeriesVideo(
   now = new Date(),
 ): Video | undefined {
   const eligible = eligibleSeriesVideos(videos, now)
-  const currentIndex = eligible.findIndex((video) => video.id === currentVideoId)
-  if (currentIndex < 0) return undefined
-  return eligible[currentIndex + direction]
+  const current = eligible.find((video) => video.id === currentVideoId)
+  if (!current) return undefined
+  if (direction === 1) {
+    return eligible.find((video) => compareEpisodeCoordinates(video, current) > 0)
+  }
+  return eligible
+    .filter((video) => compareEpisodeCoordinates(video, current) < 0)
+    .at(-1)
+}
+
+function compareEpisodeCoordinates(a: Video, b: Video): number {
+  return a.season! - b.season! || a.episode! - b.episode!
 }
 
 export function sortSeasons(values: number[]): number[] {

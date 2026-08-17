@@ -35,7 +35,7 @@ export function continueWatchingState(
         video.season != null &&
         video.season > 0 &&
         video.episode != null &&
-        video.available !== false,
+        (video.available !== false || isUpcomingRelease(video, now)),
     )
     .sort(compareEpisodes)
   const anchor =
@@ -48,14 +48,16 @@ export function continueWatchingState(
 
   if (!anchor) return { kind: "caught-up" }
   const next = regular.find(
-    (video) => compareEpisodes(video, anchor) > 0 && !watchedVideoIds.has(video.id),
+    (video) =>
+      compareEpisodeCoordinates(video, anchor) > 0 &&
+      !watchedVideoIds.has(video.id),
   )
   if (next) {
     if (episodeHasReleased(next, now) && isReleaseAlert(progress, next, now)) {
       return { kind: "new-episode", video: next }
     }
     if (episodeHasReleased(next, now)) return { kind: "next-up", video: next }
-    if (calendarDay(next.released) != null) {
+    if (isUpcomingRelease(next, now)) {
       return {
         kind: "scheduled",
         video: next,
@@ -107,7 +109,11 @@ export function releaseDateLabel(released: string, now = new Date()): string {
 }
 
 function compareEpisodes(a: Video, b: Video): number {
-  return a.season! - b.season! || a.episode! - b.episode! || a.id.localeCompare(b.id)
+  return compareEpisodeCoordinates(a, b) || a.id.localeCompare(b.id)
+}
+
+function compareEpisodeCoordinates(a: Video, b: Video): number {
+  return a.season! - b.season! || a.episode! - b.episode!
 }
 
 function episodeHasReleased(video: Video, now: Date): boolean {
@@ -115,6 +121,17 @@ function episodeHasReleased(video: Video, now: Date): boolean {
   const instant = parseReleaseInstant(video.released)
   if (instant != null) return instant <= now.getTime()
   return true
+}
+
+function isUpcomingRelease(video: Video, now: Date): boolean {
+  const day = calendarDay(video.released)
+  if (!day) return false
+  if (!video.released?.includes("T")) {
+    const today = localDay(now)
+    return day > today || (video.available === false && day === today)
+  }
+  const instant = parseReleaseInstant(video.released)
+  return instant != null && instant > now.getTime()
 }
 
 function isReleaseAlert(progress: WatchProgress, video: Video, now: Date): boolean {

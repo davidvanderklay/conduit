@@ -77,6 +77,48 @@ class ContinueWatchingTest {
     }
 
     @Test
+    fun unavailableFutureEpisodeUsesItsReleaseDateInsteadOfCaughtUp() {
+        val upcoming = videos[3].copy(available = false)
+        assertEquals(
+            ContinueWatchingPresentation(ContinueWatchingKind.Scheduled, upcoming, "Tomorrow"),
+            continueWatchingPresentation(
+                progress(videoId = "s1e3", episode = 3),
+                listOf(videos[1], videos[2], upcoming),
+                today = "2026-08-12",
+                now = Instant.parse("2026-08-12T12:00:00Z"),
+            ),
+        )
+    }
+
+    @Test
+    fun unavailableDateOnlyReleaseTodayUsesTodayLabel() {
+        val upcoming = videos[2].copy(available = false, released = "2026-08-12")
+        assertEquals(
+            ContinueWatchingPresentation(ContinueWatchingKind.Scheduled, upcoming, "Today"),
+            continueWatchingPresentation(
+                progress(),
+                listOf(videos[1], upcoming),
+                today = "2026-08-12",
+                now = Instant.parse("2026-08-12T12:00:00Z"),
+            ),
+        )
+    }
+
+    @Test
+    fun duplicateMetadataForTheCurrentEpisodeDoesNotBecomeNextUp() {
+        val duplicate = videos[1].copy(id = "duplicate-s1e2")
+        assertEquals(
+            ContinueWatchingPresentation(ContinueWatchingKind.CaughtUp, videos[1]),
+            continueWatchingPresentation(
+                progress(),
+                listOf(videos[1], duplicate),
+                today = "2026-08-12",
+                now = Instant.parse("2026-08-12T12:00:00Z"),
+            ),
+        )
+    }
+
+    @Test
     fun nextEpisodeSkipsSpecialUnavailableAndFutureEpisodes() {
         val candidates = listOf(
             VideoItem("special", season = 0, episode = 1),

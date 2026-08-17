@@ -1130,9 +1130,9 @@ internal fun MediaDetailsScreen(
         meta?.videos.orEmpty(),
     )
     val playableVideos = orderedPlayableEpisodes(meta?.videos.orEmpty())
-    val nextVideo = playableVideos.indexOfFirst { it.id == selectedVideo?.id }
-        .takeIf { it >= 0 }
-        ?.let { playableVideos.getOrNull(it + 1) }
+    val nextVideo = selectedVideo?.let { current ->
+        playableVideos.firstOrNull { compareEpisodeCoordinates(it, current) > 0 }
+    }
     val playerContentTitle = if (selectedVideo != null) {
         val episodeNumber = listOfNotNull(selectedVideo?.season, selectedVideo?.episode)
             .takeIf { it.size == 2 }

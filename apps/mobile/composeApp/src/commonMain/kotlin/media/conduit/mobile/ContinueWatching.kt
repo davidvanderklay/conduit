@@ -36,7 +36,7 @@ internal fun continueWatchingPresentation(
     now: Instant = Clock.System.now(),
     watchedVideoIds: Set<String> = emptySet(),
 ): ContinueWatchingPresentation {
-    val regular = orderedContinueWatchingEpisodes(videos)
+    val regular = orderedContinueWatchingEpisodes(videos, today, now)
     val anchor = regular.firstOrNull { it.id == progress.videoId }
         ?: regular.firstOrNull { it.season == progress.season && it.episode == progress.episode }
 
@@ -45,7 +45,9 @@ internal fun continueWatchingPresentation(
     }
     if (anchor == null) return ContinueWatchingPresentation(ContinueWatchingKind.CaughtUp)
 
-    val later = regular.filter { compareEpisodes(it, anchor) > 0 && it.id !in watchedVideoIds }
+    val later = regular.filter {
+        compareEpisodeCoordinates(it, anchor) > 0 && it.id !in watchedVideoIds
+    }
     later.firstOrNull()?.let { next ->
         when {
             next.hasAired(today, now) && next.isReleaseAlert(progress, now) ->
@@ -114,14 +116,28 @@ private fun compareEpisodes(a: VideoItem, b: VideoItem): Int =
         ?: compareValues(a.episode, b.episode).takeIf { it != 0 }
         ?: a.id.compareTo(b.id)
 
+internal fun compareEpisodeCoordinates(a: VideoItem, b: VideoItem): Int =
+    compareValues(a.season, b.season).takeIf { it != 0 }
+        ?: compareValues(a.episode, b.episode)
+
 private fun releaseDay(value: String?): String? =
     value?.take(10)?.takeIf { isoDayPattern.matches(it) }
 
 private fun VideoItem.hasAired(today: String, now: Instant): Boolean {
+    if (available == false) return false
     releaseInstant()?.let { return it <= now }
     if (available == true) return true
     val day = releaseDay(released) ?: return available != false
     return day <= today
+}
+
+private fun VideoItem.isUpcomingRelease(today: String, now: Instant): Boolean {
+    if (!released.orEmpty().contains("T")) {
+        return releaseDay(released)?.let {
+            it > today || (available == false && it == today)
+        } == true
+    }
+    return releaseInstant()?.let { it > now } == true
 }
 
 private fun VideoItem.isReleaseAlert(progress: ProgressSummary, now: Instant): Boolean {
@@ -166,15 +182,23 @@ internal fun nextEpisodeAfter(
     }
 }
 
-internal fun orderedContinueWatchingEpisodes(videos: List<VideoItem>): List<VideoItem> = videos
-    .filter { (it.season ?: 0) > 0 && it.episode != null && it.available != false }
+internal fun orderedContinueWatchingEpisodes(
+    videos: List<VideoItem>,
+    today: String = Clock.System.now().toString().take(10),
+    now: Instant = Clock.System.now(),
+): List<VideoItem> = videos
+    .filter {
+        (it.season ?: 0) > 0 &&
+            it.episode != null &&
+            (it.available != false || it.isUpcomingRelease(today, now))
+    }
     .sortedWith(compareBy<VideoItem>({ it.season }, { it.episode }, { it.id }))
 
 internal fun orderedPlayableEpisodes(
     videos: List<VideoItem>,
     today: String = Clock.System.now().toString().take(10),
     now: Instant = Clock.System.now(),
-): List<VideoItem> = orderedContinueWatchingEpisodes(videos)
+): List<VideoItem> = orderedContinueWatchingEpisodes(videos, today, now)
     .filter { it.hasAired(today, now) }
 
 internal fun orderedEpisodePickerVideos(

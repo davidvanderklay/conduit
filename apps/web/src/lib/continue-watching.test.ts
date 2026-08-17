@@ -68,6 +68,36 @@ describe("Continue Watching state", () => {
     expect(state).toEqual({ kind: "scheduled", video: videos[3], label: "Tomorrow" })
   })
 
+  it("shows unavailable future episodes as scheduled instead of caught up", () => {
+    const upcoming = { ...videos[3]!, available: false }
+    expect(
+      continueWatchingState(
+        progress({ videoId: "s1e3", episode: 3 }),
+        [videos[1]!, videos[2]!, upcoming],
+        NOW,
+      ),
+    ).toEqual({ kind: "scheduled", video: upcoming, label: "Tomorrow" })
+  })
+
+  it("shows an unavailable date-only release today as Today", () => {
+    const upcoming = { ...videos[2]!, available: false, released: "2026-08-12" }
+    expect(
+      continueWatchingState(
+        progress({ videoId: "s1e2", episode: 2 }),
+        [videos[1]!, upcoming],
+        NOW,
+      ),
+    ).toEqual({ kind: "scheduled", video: upcoming, label: "Today" })
+  })
+
+  it("does not treat duplicate metadata for the current episode as next up", () => {
+    const duplicate = { ...videos[1]!, id: "duplicate-s1e2" }
+    expect(continueWatchingState(progress(), [videos[1]!, duplicate], NOW)).toEqual({
+      kind: "caught-up",
+      video: videos[1],
+    })
+  })
+
   it("treats a date-only episode as aired and can flag it as new", () => {
     const today = { id: "s1e3", season: 1, episode: 3, released: "2026-08-12" }
     expect(continueWatchingState(progress(), [videos[1]!, today], NOW)).toEqual({
