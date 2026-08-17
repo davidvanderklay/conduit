@@ -265,6 +265,10 @@ final class ConduitKSPlayerBridge: NSObject, IosPlayerBridge {
 /// of truth for controls and gestures.
 final class ConduitKSPlayerView: VideoPlayerView {
     override func customizeUIComponents() {
+        // KSPlayer's phone default is 16pt. MPVKit renders subtitles closer
+        // to the size users expect from the rest of the app, so use the
+        // larger native preset before VideoPlayerView creates its subtitle UI.
+        SubtitleModel.textFontSize = 24
         super.customizeUIComponents()
         hideBuiltInControls()
     }
@@ -286,7 +290,8 @@ final class ConduitKSPlayerViewController: UIViewController {
     private var preferredAudioLanguage = "System default"
     private var preferredSubtitleLanguage = "English"
     private var externalSubtitleLanguages: [String: String] = [:]
-    private var selectedEmbeddedSubtitleID: String?
+    private var userSelectedSubtitle = false
+    private var didApplyPreferredTracks = false
 
     fileprivate var audioTracks: [ConduitKSPlayerTrack] {
         guard let player = playerView.playerLayer?.player else { return [] }
@@ -321,7 +326,7 @@ final class ConduitKSPlayerViewController: UIViewController {
                 sampleRate: 0,
                 bitrate: track.bitRate,
                 external: false,
-                selected: track.isEnabled || selectedEmbeddedSubtitleID == String(track.trackID)
+                selected: playerView.srtControl.selectedSubtitleInfo?.subtitleID == String(track.trackID)
             )
         }
         let embeddedIDs = Set(embedded.map { String($0.id) })
@@ -372,10 +377,12 @@ final class ConduitKSPlayerViewController: UIViewController {
         }
         currentErrorMessage = ""
         externalSubtitleLanguages = [:]
-        selectedEmbeddedSubtitleID = nil
+        userSelectedSubtitle = false
+        didApplyPreferredTracks = false
         let subtitleInfos = subtitles.compactMap { subtitle -> URLSubtitleInfo? in
             guard let subtitleURL = URL(string: subtitle.url) else { return nil }
-            let id = subtitle.id?.isEmpty == false ? subtitle.id! : subtitle.url
+            let rawID = subtitle.id?.isEmpty == false ? subtitle.id! : subtitle.url
+            let id = "external:\(rawID)"
             let name = subtitle.addonName?.isEmpty == false
                 ? subtitle.addonName!
                 : (subtitle.lang?.isEmpty == false ? subtitle.lang! : subtitleURL.lastPathComponent)
@@ -447,6 +454,8 @@ final class ConduitKSPlayerViewController: UIViewController {
 
     func setPreferredSubtitleLanguage(_ language: String) {
         preferredSubtitleLanguage = language
+        userSelectedSubtitle = false
+        didApplyPreferredTracks = false
         applyPreferredTracks()
     }
 
@@ -504,17 +513,17 @@ final class ConduitKSPlayerViewController: UIViewController {
 
     func selectSubtitle(_ trackId: Int) {
         guard let layer = playerView.playerLayer else { return }
+        userSelectedSubtitle = true
         if trackId == -1 {
-            selectedEmbeddedSubtitleID = nil
+            layer.player.tracks(mediaType: .subtitle).forEach { $0.isEnabled = false }
             playerView.srtControl.selectedSubtitleInfo = nil
             return
         }
         let embeddedTracks = layer.player.tracks(mediaType: .subtitle)
         if let track = embeddedTracks.first(where: { Int($0.trackID) == trackId }) {
-            selectedEmbeddedSubtitleID = String(track.trackID)
             layer.player.select(track: track)
-            playerView.srtControl.selectedSubtitleInfo = playerView.srtControl.subtitleInfos.first {
-                $0.subtitleID == String(track.trackID)
+            if let subtitle = track as? any SubtitleInfo {
+                playerView.srtControl.selectedSubtitleInfo = subtitle
             }
             return
         }
@@ -523,7 +532,7 @@ final class ConduitKSPlayerViewController: UIViewController {
         }
         let externalIndex = -trackId - 1000
         guard externalIndex >= 0, externalIndex < externalInfos.count else { return }
-        selectedEmbeddedSubtitleID = nil
+        embeddedTracks.forEach { $0.isEnabled = false }
         playerView.srtControl.selectedSubtitleInfo = externalInfos[externalIndex]
     }
 
@@ -533,7 +542,7 @@ final class ConduitKSPlayerViewController: UIViewController {
             return
         }
         let player = layer.player
-        isPlayerLoading = [.initialized, .preparing, .buffering].contains(layer.state)
+        isPlayerLoading = [.initialized, .preparing].contains(layer.state)
         isPlayerBuffering = layer.state == .buffering
         isPlayerPlaying = layer.state.isPlaying
         isPlayerEnded = layer.state == .playedToTheEnd
@@ -542,15 +551,7 @@ final class ConduitKSPlayerViewController: UIViewController {
         videoWidth = Int(max(0, player.naturalSize.width))
         videoHeight = Int(max(0, player.naturalSize.height))
         currentSpeed = player.playbackRate
-        if let selectedEmbeddedSubtitleID,
-           let embeddedInfo = playerView.srtControl.subtitleInfos.first(where: {
-               $0.subtitleID == selectedEmbeddedSubtitleID
-           }),
-           playerView.srtControl.selectedSubtitleInfo?.subtitleID != selectedEmbeddedSubtitleID
-        {
-            playerView.srtControl.selectedSubtitleInfo = embeddedInfo
-        }
-        if layer.state == .readyToPlay {
+        if layer.state == .readyToPlay && !userSelectedSubtitle && !didApplyPreferredTracks {
             applyPreferredTracks()
         }
         if layer.state == .error, currentErrorMessage.isEmpty {
@@ -563,7 +564,8 @@ final class ConduitKSPlayerViewController: UIViewController {
         playerView.playerLayer?.player.shutdown()
         playerView.playerLayer = nil
         playerView.srtControl.selectedSubtitleInfo = nil
-        selectedEmbeddedSubtitleID = nil
+        userSelectedSubtitle = false
+        didApplyPreferredTracks = false
     }
 
     private func externalSubtitleId(_ index: Int) -> Int {
@@ -580,23 +582,37 @@ final class ConduitKSPlayerViewController: UIViewController {
             layer.player.select(track: track)
         }
 
-        guard let preferred = languageCode(preferredSubtitleLanguage) else { return }
+        guard let preferred = languageCode(preferredSubtitleLanguage) else {
+            didApplyPreferredTracks = true
+            return
+        }
         let embedded = layer.player.tracks(mediaType: .subtitle)
         if let track = embedded.first(where: {
             languageCode($0.languageCode ?? "") == preferred || languageCode($0.name) == preferred
         }) {
-            selectedEmbeddedSubtitleID = String(track.trackID)
             layer.player.select(track: track)
-            playerView.srtControl.selectedSubtitleInfo = playerView.srtControl.subtitleInfos.first {
-                $0.subtitleID == String(track.trackID)
+            if let subtitle = track as? any SubtitleInfo {
+                playerView.srtControl.selectedSubtitleInfo = subtitle
             }
+            didApplyPreferredTracks = true
             return
         }
         let external = playerView.srtControl.subtitleInfos.first {
             languageCode(externalSubtitleLanguages[$0.subtitleID] ?? "") == preferred
         }
         if let external {
+            embedded.forEach { $0.isEnabled = false }
             playerView.srtControl.selectedSubtitleInfo = external
+            // KSPlayer adds embedded tracks about one second after ready. Do
+            // not finalize the preference until that late track discovery has
+            // happened, otherwise an external match can mask the embedded
+            // track we would normally prefer.
+            didApplyPreferredTracks = !embedded.isEmpty
+        } else if !embedded.isEmpty {
+            // The embedded tracks are added asynchronously by KSPlayer. Keep
+            // polling when they have not appeared yet, but stop retrying once
+            // the available embedded subtitle set has been inspected.
+            didApplyPreferredTracks = true
         }
     }
 

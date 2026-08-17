@@ -2,9 +2,9 @@
 
 import PackageDescription
 
-// MPVKit's upstream package bundles a second copy of the FFmpeg targets that
-// KSPlayer depends on. This compatibility package keeps the MPVKit 0.39
-// libmpv bridge while sharing KSPlayer's FFmpegKit dependency graph.
+// Keep the legacy libmpv fallback on the same FFmpeg build as KSPlayer. The
+// standalone MPVKit binary was built against a different libavcodec major
+// version, which is not safe to combine with the app's shared FFmpeg targets.
 let package = Package(
     name: "MPVKit",
     platforms: [.iOS(.v14), .tvOS(.v14), .macOS(.v11)],
@@ -18,7 +18,7 @@ let package = Package(
         .target(
             name: "_MPVKit",
             dependencies: [
-                "Libmpv",
+                .product(name: "libmpv", package: "FFmpegKit"),
                 "MPVLibbluray",
                 "Libuchardet",
                 .product(name: "FFmpegKit", package: "FFmpegKit"),
@@ -28,11 +28,6 @@ let package = Package(
                 .linkedFramework("AVFoundation"),
                 .linkedFramework("CoreAudio"),
             ]
-        ),
-        .binaryTarget(
-            name: "Libmpv",
-            url: "https://github.com/mpvkit/MPVKit/releases/download/0.39.0-n7.1.1/Libmpv.xcframework.zip",
-            checksum: "81f70efbc866d84dcd9f334898d14e0407083247e35153baae7a38e5cc7f8ab0"
         ),
         .binaryTarget(
             name: "MPVLibbluray",
