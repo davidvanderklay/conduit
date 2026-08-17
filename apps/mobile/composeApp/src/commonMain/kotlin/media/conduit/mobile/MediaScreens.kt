@@ -974,6 +974,7 @@ internal fun MediaDetailsScreen(
             result
                 .onSuccess { choices ->
                     streams = choices
+                    if (!autoPlaySavedSource) streamsError = null
                     if (autoPlaySavedSource) {
                         val saved = savedPlaybackSourceFor(videoId)
                         val choice = listOfNotNull(
@@ -1210,6 +1211,8 @@ internal fun MediaDetailsScreen(
                 val failedProgress = progressForVideoId(failedVideoId)
                 autoSelectedSavedVideoIds = autoSelectedSavedVideoIds - failedVideoId
                 selectedPlaybackSources = selectedPlaybackSources - failedVideoId
+                playing = null
+                openingPlayback = false
                 playbackSession.close(saveProgress = false)
                 requestStreams(
                     selectedVideo,
@@ -1312,6 +1315,7 @@ internal fun MediaDetailsScreen(
         active = waitingForSavedPlayback ||
             (playing != null && !ownsPlayback) ||
             (ownsPlayback && playbackSession.state.presentation == PlaybackPresentation.FullScreen),
+        iosPlaybackEngine = preferences.iosPlaybackEngine,
     )
     PlatformBackHandler {
         when {
@@ -1379,6 +1383,10 @@ internal fun MediaDetailsScreen(
                     selectedPlaybackSources = selectedPlaybackSources + (videoId to selectedSource)
                     autoSelectedSavedVideoIds = autoSelectedSavedVideoIds - videoId
                     if (videoId == effectiveInitialVideoId) autoResumeAttemptedKey = autoResumeAttemptKey(selectedSource)
+                    streamPageOpen = false
+                    streams = null
+                    streamsError = null
+                    openingPlayback = true
                     playing = source.stream
                 }
             }
@@ -2778,6 +2786,28 @@ internal fun ProfileSettingsScreen(
     }
     LaunchedEffect(route) { onProfileFlowChanged(route != ProfileRoute.Settings) }
     DisposableEffect(Unit) { onDispose { onProfileFlowChanged(false) } }
+    val licenseNotices = if (platform.name.equals("iOS", ignoreCase = true)) {
+        listOf(
+            "conduit Apple mobile application - GNU GPLv3",
+            "KSPlayer - GNU GPLv3",
+            "FFmpegKit and bundled FFmpeg libraries - see upstream notices",
+            "MPVKit and bundled libmpv libraries - see upstream notices",
+            "Ktor - Apache License 2.0",
+            "Compose Multiplatform - Apache License 2.0",
+            "https://www.gnu.org/licenses/gpl-3.0.html",
+            "https://github.com/davidvanderklay/conduit/blob/main/apps/mobile/iosApp/LICENSE",
+            "https://github.com/davidvanderklay/conduit/blob/main/THIRD_PARTY_NOTICES.md",
+        )
+    } else {
+        listOf(
+            "conduit - MIT License",
+            "AndroidX Media3 - Apache License 2.0",
+            "Ktor - Apache License 2.0",
+            "Compose Multiplatform - Apache License 2.0",
+            "Coil - Apache License 2.0",
+            "https://github.com/davidvanderklay/conduit/blob/main/THIRD_PARTY_NOTICES.md",
+        )
+    }
     PlatformBackHandler(enabled = route != ProfileRoute.Settings) {
         when (route) {
             ProfileRoute.Settings -> Unit
@@ -2814,7 +2844,7 @@ internal fun ProfileSettingsScreen(
         ProfileRoute.Integrations -> return InformationalSettingsScreen("Integrations", "Connected services", listOf("conduit currently uses your installed Stremio add-ons directly.", "Trakt, debrid, and metadata-service connections will appear here only when their credential storage and synchronization flows are implemented."), { route = ProfileRoute.Settings }, modifier)
         ProfileRoute.Supporters -> return InformationalSettingsScreen("Supporters & contributors", "conduit is open source", listOf("Contributors are acknowledged through the project repository.", "https://github.com/davidvanderklay/conduit", "A server-funding goal will appear here once a verified funding source is configured."), { route = ProfileRoute.Settings }, modifier)
         ProfileRoute.Privacy -> return InformationalSettingsScreen("Privacy policy", "Your server, your data", listOf("conduit stores account, profile, library, and viewing data on the server you choose.", "https://github.com/davidvanderklay/conduit#data-and-privacy-model"), { route = ProfileRoute.Settings }, modifier)
-        ProfileRoute.Licenses -> return InformationalSettingsScreen("Licenses & attribution", "Open-source software", listOf("conduit - MIT License", "AndroidX Media3 - Apache License 2.0", "Ktor - Apache License 2.0", "Compose Multiplatform - Apache License 2.0", "Coil - Apache License 2.0", "https://github.com/davidvanderklay/conduit/blob/main/THIRD_PARTY_NOTICES.md"), { route = ProfileRoute.Settings }, modifier)
+        ProfileRoute.Licenses -> return InformationalSettingsScreen("Licenses & attribution", "Open-source software", licenseNotices, { route = ProfileRoute.Settings }, modifier)
         ProfileRoute.Diagnostics -> return InformationalSettingsScreen("Debug information", "${platform.name} ${platform.version}", listOf("Device: ${platform.device}", "Server: ${state.endpoint?.baseUrl}", "Profile: ${activeProfile?.name ?: "None"}", "Add-ons: ${profileSync.snapshot?.addons?.size ?: 0}", "Debug logging: ${if (preferences.debugLogging) "enabled" else "disabled"}"), { route = ProfileRoute.Advanced }, modifier)
         ProfileRoute.Settings -> Unit
     }
@@ -3020,11 +3050,17 @@ private fun PlaybackSettingsScreen(platform: PlatformInfo, preferences: DevicePr
     val languages = listOf("System default", "English", "Spanish", "French", "German", "Japanese", "Korean")
     var picker by remember { mutableStateOf<String?>(null) }
     var enginePicker by remember { mutableStateOf(false) }
+    var iosEnginePicker by remember { mutableStateOf(false) }
     val android = platform.name.equals("Android", ignoreCase = true)
+    val ios = platform.name.equals("iOS", ignoreCase = true)
     SettingsPage("Playback", onBack, modifier) {
         SettingsGroup("PLAYER") {
             if (android) {
                 SettingsAction("Android player engine", preferences.androidPlaybackEngine.description) { enginePicker = true }
+                HorizontalDivider(color = Color.White.copy(.06f))
+            }
+            if (ios) {
+                SettingsAction("iOS player engine", preferences.iosPlaybackEngine.description) { iosEnginePicker = true }
                 HorizontalDivider(color = Color.White.copy(.06f))
             }
             SettingsToggle("Auto-select saved streams", "Reuse the last selected stream when it is available", preferences.autoSelectSavedStreams) { update(preferences.copy(autoSelectSavedStreams = it)) }
@@ -3058,6 +3094,31 @@ private fun PlaybackSettingsScreen(platform: PlatformInfo, preferences: DevicePr
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         RadioButton(engine == preferences.androidPlaybackEngine, null)
+                        Spacer(Modifier.width(8.dp))
+                        Column {
+                            Text(engine.label)
+                            Text(engine.description, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+    )
+    if (iosEnginePicker) AlertDialog(
+        onDismissRequest = { iosEnginePicker = false },
+        title = { Text("iOS player engine") },
+        text = {
+            Column {
+                IosPlaybackEngine.entries.forEach { engine ->
+                    Row(
+                        Modifier.fillMaxWidth().clickable {
+                            update(preferences.copy(iosPlaybackEngine = engine))
+                            iosEnginePicker = false
+                        }.padding(vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(engine == preferences.iosPlaybackEngine, null)
                         Spacer(Modifier.width(8.dp))
                         Column {
                             Text(engine.label)

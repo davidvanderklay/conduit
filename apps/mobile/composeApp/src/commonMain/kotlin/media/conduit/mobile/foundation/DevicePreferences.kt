@@ -1,6 +1,7 @@
 package media.conduit.mobile.foundation
 
 import media.conduit.mobile.AndroidPlaybackEngine
+import media.conduit.mobile.IosPlaybackEngine
 
 enum class NavigationStyle(val label: String, val description: String) {
     Adaptive("Adaptive", "Hide the full bar while scrolling on iOS; compact on Android phones"),
@@ -26,6 +27,7 @@ data class DevicePreferences(
     val autoplayNextEpisode: Boolean = false,
     val p2pEnabled: Boolean = false,
     val androidPlaybackEngine: AndroidPlaybackEngine = AndroidPlaybackEngine.Automatic,
+    val iosPlaybackEngine: IosPlaybackEngine = IosPlaybackEngine.KSPlayer,
     val rememberLastProfile: Boolean = true,
     val debugLogging: Boolean = false,
 )
@@ -59,6 +61,9 @@ class DevicePreferencesRepository(private val store: SettingsStore) {
         androidPlaybackEngine = store.get(prefix + "android-playback-engine")
             ?.let { runCatching { AndroidPlaybackEngine.valueOf(it) }.getOrNull() }
             ?: AndroidPlaybackEngine.Automatic,
+        iosPlaybackEngine = store.get(prefix + "ios-playback-engine")
+            ?.let { runCatching { IosPlaybackEngine.valueOf(it) }.getOrNull() }
+            ?: IosPlaybackEngine.KSPlayer,
         rememberLastProfile = bool("remember-profile", true),
         debugLogging = bool("debug-logging", false),
     )
@@ -80,6 +85,7 @@ class DevicePreferencesRepository(private val store: SettingsStore) {
         store.put(prefix + "autoplay-next", value.autoplayNextEpisode.toString())
         store.put(prefix + "p2p", value.p2pEnabled.toString())
         store.put(prefix + "android-playback-engine", value.androidPlaybackEngine.name)
+        store.put(prefix + "ios-playback-engine", value.iosPlaybackEngine.name)
         store.put(prefix + "remember-profile", value.rememberLastProfile.toString())
         store.put(prefix + "debug-logging", value.debugLogging.toString())
         return value

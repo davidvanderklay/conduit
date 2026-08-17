@@ -10,10 +10,26 @@ enum class AndroidPlaybackEngine(
     Libmpv("libmpv", "Use the experimental libmpv player on Android"),
 }
 
+/** User-selectable iOS engine mode. KSPlayer is the default parity path. */
+enum class IosPlaybackEngine(
+    val label: String,
+    val description: String,
+) {
+    KSPlayer("KSPlayer", "Use KSPlayer on iOS"),
+    MPVKit("MPVKit", "Use MPVKit on iOS for compatibility testing"),
+}
+
+fun IosPlaybackEngine.toNativePlaybackEngine(): NativePlaybackEngine = when (this) {
+    IosPlaybackEngine.KSPlayer -> NativePlaybackEngine.KSPlayer
+    IosPlaybackEngine.MPVKit -> NativePlaybackEngine.MPVKit
+}
+
 /** The engine currently producing the playback state. */
 enum class NativePlaybackEngine {
     Media3,
     Libmpv,
+    KSPlayer,
+    MPVKit,
 }
 
 internal data class PlaybackEngineSession(

@@ -1261,9 +1261,11 @@ private fun BoxScope.PlaybackSessionHost(
     var miniDockedLeft by remember(request.identity, request.url) { mutableStateOf(false) }
     var miniDockedTop by remember(request.identity, request.url) { mutableStateOf(false) }
     var miniGestureActive by remember(request.identity, request.url) { mutableStateOf(false) }
+    var playbackHasStarted by remember(request.identity, request.url) { mutableStateOf(false) }
     var startupRecoveryRequested by remember(session.sessionId) { mutableStateOf(false) }
     var containerSize by remember { mutableStateOf(IntSize.Zero) }
     var miniSize by remember { mutableStateOf(IntSize.Zero) }
+    val playbackSurfaceReady = session.playback.videoWidth > 0 && session.playback.videoHeight > 0
     val density = LocalDensity.current
     val animatedMiniOffset by animateIntOffsetAsState(
         targetValue = miniOffset,
@@ -1271,7 +1273,10 @@ private fun BoxScope.PlaybackSessionHost(
         label = "mini-player-corner",
     )
 
-    PlayerOrientationLock(active = session.presentation == PlaybackPresentation.FullScreen)
+    PlayerOrientationLock(
+        active = session.presentation == PlaybackPresentation.FullScreen,
+        iosPlaybackEngine = preferences.iosPlaybackEngine,
+    )
     LaunchedEffect(request.identity, request.url) {
         while (true) {
             kotlinx.coroutines.delay(15_000)
@@ -1281,7 +1286,20 @@ private fun BoxScope.PlaybackSessionHost(
     LaunchedEffect(session.playback.ended) {
         if (session.playback.ended) controller.persist()
     }
-    LaunchedEffect(session.playback.playing) {
+    LaunchedEffect(
+        session.playback.playing,
+        session.playback.loading,
+        session.playback.buffering,
+        playbackSurfaceReady,
+    ) {
+        if (
+            session.playback.playing &&
+                !session.playback.loading &&
+                !session.playback.buffering &&
+                playbackSurfaceReady
+        ) {
+            playbackHasStarted = true
+        }
         if (!session.playback.playing && session.playback.durationMs > 0) controller.persist()
     }
     LaunchedEffect(session.sessionId, request.url, request.autoSelectedSavedSource) {
@@ -1323,6 +1341,8 @@ private fun BoxScope.PlaybackSessionHost(
             else controller.closeEpisodes()
         },
     )
+    val initialPlaybackLoad = !playbackHasStarted &&
+        (session.playback.loading || session.playback.buffering || !playbackSurfaceReady)
 
     Box(Modifier.fillMaxSize().onSizeChanged { containerSize = it }) {
         // Adaptive iOS hides the native bar, but the mini-player keeps its
@@ -1363,6 +1383,7 @@ private fun BoxScope.PlaybackSessionHost(
             preferredAudioLanguage = preferences.preferredAudioLanguage,
             preferredSubtitleLanguage = preferences.preferredSubtitleLanguage,
             androidPlaybackEngine = preferences.androidPlaybackEngine,
+            iosPlaybackEngine = preferences.iosPlaybackEngine,
             onControlsVisibilityChanged = { controlsVisible = it },
             onTemporarySpeedChanged = { temporarySpeedActive = it },
             onSystemPipChanged = controller::systemPipChanged,
@@ -1378,8 +1399,14 @@ private fun BoxScope.PlaybackSessionHost(
             },
         )
 
+        if (systemPip) {
+            // The native player must keep decoding for PiP, but its inline
+            // surface should not remain visible underneath the PiP window.
+            Box(Modifier.matchParentSize().background(Color.Black))
+        }
+
         if (fullScreen || pipHandoffVisible) {
-            if (session.playback.loading && session.playback.error == null) {
+            if (initialPlaybackLoad && session.playback.error == null) {
                 PlayerOpeningOverlay(
                     artwork = request.artwork,
                     logo = request.logo,
@@ -1387,7 +1414,7 @@ private fun BoxScope.PlaybackSessionHost(
                     modifier = Modifier.matchParentSize(),
                 )
             }
-            if (fullScreen && session.playback.buffering && !session.playback.loading && session.playback.error == null) {
+            if (fullScreen && session.playback.buffering && !initialPlaybackLoad && session.playback.error == null) {
                 PlayerBufferingOverlay(Modifier.matchParentSize())
             }
             if (controlsVisible || pipHandoffVisible) {

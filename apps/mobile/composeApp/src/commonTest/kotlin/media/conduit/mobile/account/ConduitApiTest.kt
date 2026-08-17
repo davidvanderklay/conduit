@@ -295,6 +295,16 @@ class ConduitApiTest {
     }
 
     @Test
+    fun dismissProgressAcceptsAnEmptySuccessResponse() = runTest {
+        val engine = MockEngine {
+            respond("", HttpStatusCode.NoContent)
+        }
+        val api = ConduitApi(HttpClient(engine) { install(ContentNegotiation) { json() } })
+
+        api.setProgressDismissed("https://conduit.example", "token", "p1", "movie", true)
+    }
+
+    @Test
     fun metadataAndStreamsUseStremioResourcePaths() = runTest {
         val requested = mutableListOf<String>()
         val engine = MockEngine { request ->

@@ -95,6 +95,21 @@ describe("progress routes", () => {
     expect(rows[0]?.playbackSource).toBeNull()
     expect(rows[0]?.positionMs).toBe(10_000)
   })
+
+  it("treats dismissal of missing progress as an idempotent success", async () => {
+    const app = Fastify()
+    registerProgressRoutes(app, { auth: {} as Auth, db: fakeDatabase([]) } as RouteContext)
+    apps.push(app)
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: `/v1/profiles/${profileId}/progress/already-removed`,
+      headers: { authorization: "Bearer owner" },
+      payload: { dismissed: true },
+    })
+
+    expect(response.statusCode).toBe(204)
+  })
 })
 
 function progressRow(

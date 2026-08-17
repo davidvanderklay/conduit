@@ -7,8 +7,8 @@ import platform.UIKit.UIViewController
  * controls and the lifecycle of a playback session.
  *
  * Keeping this contract small is intentional: media frames never cross the
- * Kotlin/Native boundary and the Swift side can swap MPVKit versions without
- * changing the shared application code.
+ * Kotlin/Native boundary and the Swift side can swap native player engines
+ * without changing the shared application code.
  */
 interface IosPlayerBridge {
     fun createPlayerViewController(): UIViewController
@@ -76,9 +76,9 @@ object IosPlayerBridgeFactory {
         this.creator = creator
     }
 
-    fun create(): IosPlayerBridge? = creator?.createBridge()
+    fun create(engine: IosPlaybackEngine): IosPlayerBridge? = creator?.createBridge(engine.name)
 }
 
 interface IosPlayerBridgeCreator {
-    fun createBridge(): IosPlayerBridge
+    fun createBridge(engine: String): IosPlayerBridge
 }

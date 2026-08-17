@@ -2,7 +2,7 @@ import AVFoundation
 import AVKit
 import ComposeApp
 import Foundation
-import Libmpv
+import libmpv
 import UIKit
 
 fileprivate struct ConduitSubtitle {
@@ -268,8 +268,15 @@ final class ConduitMPVPlayerBridge: NSObject, IosPlayerBridge {
 }
 
 final class ConduitMPVPlayerBridgeCreator: NSObject, IosPlayerBridgeCreator {
-    func createBridge() -> any IosPlayerBridge {
-        ConduitMPVPlayerBridge()
+    func createBridge(engine: String) -> any IosPlayerBridge {
+        switch engine {
+        case "KSPlayer":
+            ConduitKSPlayerBridge()
+        case "MPVKit":
+            ConduitMPVPlayerBridge()
+        default:
+            ConduitKSPlayerBridge()
+        }
     }
 }
 
@@ -1279,36 +1286,36 @@ final class ConduitMPVPlayerViewController: UIViewController {
 #endif
         var layerPointer = Int64(Int(bitPattern: Unmanaged.passUnretained(metalLayer).toOpaque()))
         checkError(mpv_set_option(mpv, "wid", MPV_FORMAT_INT64, &layerPointer))
-        checkError(mpv_set_option_string(mpv, "vo", "gpu-next"))
-        checkError(mpv_set_option_string(mpv, "gpu-api", "vulkan"))
-        checkError(mpv_set_option_string(mpv, "gpu-context", "moltenvk"))
+        setOptionString(mpv, name: "vo", value: "gpu-next")
+        setOptionString(mpv, name: "gpu-api", value: "vulkan")
+        setOptionString(mpv, name: "gpu-context", value: "moltenvk")
 #if targetEnvironment(simulator)
         // VideoToolbox in the simulator can report success without producing
         // displayable frames. Software decoding still exercises the real
         // MPV/MoltenVK presentation path used by the app.
-        checkError(mpv_set_option_string(mpv, "hwdec", "no"))
+        setOptionString(mpv, name: "hwdec", value: "no")
 #else
-        checkError(mpv_set_option_string(mpv, "hwdec", "videotoolbox"))
-        checkError(mpv_set_option_string(mpv, "hwdec-software-fallback", "yes"))
+        setOptionString(mpv, name: "hwdec", value: "videotoolbox")
+        setOptionString(mpv, name: "hwdec-software-fallback", value: "yes")
 #endif
-        checkError(mpv_set_option_string(mpv, "ao", Self.audioOutput))
-        checkError(mpv_set_option_string(mpv, "audio-channels", "auto"))
-        checkError(mpv_set_option_string(mpv, "audio-fallback-to-null", "yes"))
-        checkError(mpv_set_option_string(mpv, "vulkan-swap-mode", "fifo"))
-        checkError(mpv_set_option_string(mpv, "vulkan-queue-count", "1"))
-        checkError(mpv_set_option_string(mpv, "vulkan-async-compute", "no"))
-        checkError(mpv_set_option_string(mpv, "vulkan-async-transfer", "no"))
-        checkError(mpv_set_option_string(mpv, "vulkan-disable-interop", "yes"))
-        checkError(mpv_set_option_string(mpv, "video-rotate", "no"))
-        checkError(mpv_set_option_string(mpv, "input-default-bindings", "no"))
-        checkError(mpv_set_option_string(mpv, "input-vo-keyboard", "no"))
-        checkError(mpv_set_option_string(mpv, "osc", "no"))
-        checkError(mpv_set_option_string(mpv, "keep-open", "yes"))
-        checkError(mpv_set_option_string(mpv, "subs-match-os-language", "yes"))
-        checkError(mpv_set_option_string(mpv, "subs-fallback", "yes"))
-        checkError(mpv_set_option_string(mpv, "target-colorspace-hint", "yes"))
-        checkError(mpv_set_option_string(mpv, "tone-mapping", "auto"))
-        checkError(mpv_set_option_string(mpv, "hdr-compute-peak", "yes"))
+        setOptionString(mpv, name: "ao", value: Self.audioOutput)
+        setOptionString(mpv, name: "audio-channels", value: "auto")
+        setOptionString(mpv, name: "audio-fallback-to-null", value: "yes")
+        setOptionString(mpv, name: "vulkan-swap-mode", value: "fifo")
+        setOptionString(mpv, name: "vulkan-queue-count", value: "1")
+        setOptionString(mpv, name: "vulkan-async-compute", value: "no")
+        setOptionString(mpv, name: "vulkan-async-transfer", value: "no")
+        setOptionString(mpv, name: "vulkan-disable-interop", value: "yes")
+        setOptionString(mpv, name: "video-rotate", value: "no")
+        setOptionString(mpv, name: "input-default-bindings", value: "no")
+        setOptionString(mpv, name: "input-vo-keyboard", value: "no")
+        setOptionString(mpv, name: "osc", value: "no")
+        setOptionString(mpv, name: "keep-open", value: "yes")
+        setOptionString(mpv, name: "subs-match-os-language", value: "yes")
+        setOptionString(mpv, name: "subs-fallback", value: "yes")
+        setOptionString(mpv, name: "target-colorspace-hint", value: "yes")
+        setOptionString(mpv, name: "tone-mapping", value: "auto")
+        setOptionString(mpv, name: "hdr-compute-peak", value: "yes")
 
         let initializeStatus = mpv_initialize(mpv)
         checkError(initializeStatus)
@@ -1337,6 +1344,13 @@ final class ConduitMPVPlayerViewController: UIViewController {
             },
             Unmanaged.passUnretained(self).toOpaque()
         )
+    }
+
+    private func setOptionString(_ mpv: OpaquePointer, name: String, value: String) {
+        let status = mpv_set_option_string(mpv, name, value)
+        if status < 0 {
+            print("[Conduit MPV] option \(name)=\(value) failed: \(String(cString: mpv_error_string(status)))")
+        }
     }
 
     private func attemptStartPendingLoad() {

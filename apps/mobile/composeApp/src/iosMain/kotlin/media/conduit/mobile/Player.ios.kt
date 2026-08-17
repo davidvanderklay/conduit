@@ -64,8 +64,10 @@ private data class IosTrack(
 )
 
 @Composable
-actual fun PlayerOrientationLock(active: Boolean) {
-    val bridge = remember(active) { if (active) IosPlayerBridgeFactory.create() else null }
+actual fun PlayerOrientationLock(active: Boolean, iosPlaybackEngine: IosPlaybackEngine) {
+    val bridge = remember(active) {
+        if (active) IosPlayerBridgeFactory.create(iosPlaybackEngine) else null
+    }
     DisposableEffect(bridge) {
         bridge?.setImmersivePlayback(true)
         onDispose {
@@ -95,6 +97,7 @@ actual fun NativePlayer(
     preferredAudioLanguage: String,
     preferredSubtitleLanguage: String,
     androidPlaybackEngine: AndroidPlaybackEngine,
+    iosPlaybackEngine: IosPlaybackEngine,
     onEpisodes: () -> Unit,
     onControlsVisibilityChanged: (Boolean) -> Unit,
     onTemporarySpeedChanged: (Boolean) -> Unit,
@@ -109,7 +112,10 @@ actual fun NativePlayer(
     val latestTemporarySpeedCallback by rememberUpdatedState(onTemporarySpeedChanged)
     val latestPipCallback by rememberUpdatedState(onSystemPipChanged)
     val latestPipAvailabilityCallback by rememberUpdatedState(onSystemPipAvailabilityChanged)
-    val bridge = remember { IosPlayerBridgeFactory.create() }
+    // The engine is latched when this native player session is created. A
+    // settings change therefore applies to the next session, not an active
+    // playback/PiP surface.
+    val bridge = remember { IosPlayerBridgeFactory.create(iosPlaybackEngine) }
     val density = LocalDensity.current
     val windowSize = LocalWindowInfo.current.containerSize
     val isIpad = with(density) {
@@ -121,8 +127,8 @@ actual fun NativePlayer(
             currentCallback(
                 PlaybackState(
                     loading = false,
-                    error = "The iOS MPVKit player is not registered in this build.",
-                    engine = NativePlaybackEngine.Libmpv,
+                    error = "The selected iOS player is not registered in this build.",
+                    engine = iosPlaybackEngine.toNativePlaybackEngine(),
                 ),
             )
         }
@@ -217,7 +223,7 @@ actual fun NativePlayer(
                 videoHeight = bridge.getVideoHeight(),
                 ended = bridge.getIsEnded(),
                 error = bridge.getErrorMessage().ifBlank { null },
-                engine = NativePlaybackEngine.Libmpv,
+                engine = iosPlaybackEngine.toNativePlaybackEngine(),
                 pipReady = !bridge.getIsLoading() &&
                     bridge.getDurationMs() > 0 &&
                     bridge.getVideoWidth() > 0 &&
@@ -227,7 +233,13 @@ actual fun NativePlayer(
             currentCallback(next)
             if (!dragging) positionMs = next.positionMs
             durationMs = next.durationMs
-            playbackReady = playbackReady || (!next.loading && next.durationMs > 0)
+            playbackReady = playbackReady || (
+                !next.loading &&
+                    !next.buffering &&
+                    next.videoWidth > 0 &&
+                    next.videoHeight > 0 &&
+                    (next.durationMs > 0 || next.playing)
+            )
             playing = next.playing
             buffering = next.buffering
             playbackSpeed = bridge.getPlaybackSpeed()
@@ -324,7 +336,7 @@ actual fun NativePlayer(
             interactive = false,
         )
 
-        if (controlsVisible && presentation != PlaybackPresentation.Mini) {
+        if (controlsVisible && playbackReady && presentation != PlaybackPresentation.Mini) {
             Box(
                 Modifier
                     .fillMaxSize()

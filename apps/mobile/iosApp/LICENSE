@@ -1,0 +1,19 @@
+# Conduit Apple mobile application license
+
+SPDX-License-Identifier: GPL-3.0-only
+
+Copyright (c) 2026 Conduit contributors.
+
+The Apple mobile application target in this directory, including the
+KSPlayer-based iOS playback integration and the application code linked into
+that target, is distributed under the GNU General Public License, version 3
+(GPLv3).
+
+This file identifies the license boundary for the Apple mobile application.
+The complete license terms are included in
+[LICENSE-GPL-3.0.txt](LICENSE-GPL-3.0.txt) and are the GNU GPLv3 published by
+the Free Software Foundation at <https://www.gnu.org/licenses/gpl-3.0.html>.
+A corresponding copy of the source tree and build instructions must accompany
+every distributed Apple mobile application release. The repository root's
+[MIT license](../../LICENSE) remains unchanged for components outside this
+Apple mobile application boundary.

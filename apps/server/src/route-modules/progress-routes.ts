@@ -255,7 +255,13 @@ export function registerProgressRoutes(app: FastifyInstance, context: RouteConte
         .from(watchProgress)
         .where(and(eq(watchProgress.profileId, profileId), eq(watchProgress.videoId, videoId)))
         .limit(1)
-      if (!current) return reply.notFound()
+      if (!current) {
+        // Dismissal is a remove-from-Continue-Watching operation. If a stale
+        // client asks to dismiss a row that is already gone, the desired
+        // state has already been reached.
+        if (dismissed !== undefined && watched === undefined) return reply.code(204).send()
+        return reply.notFound()
+      }
 
       // Continue Watching dismissal is title-scoped; history deletion remains video-scoped.
       const updatingTitleDismissal = dismissed !== undefined && watched === undefined
