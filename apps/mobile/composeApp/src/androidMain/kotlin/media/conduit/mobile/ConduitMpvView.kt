@@ -122,6 +122,14 @@ internal class ConduitMpvView(
         // path intact and lets mpv fall back to software decoding quickly.
         mpv.setOptionString("hwdec", "auto-copy")
         mpv.setOptionString("hwdec-software-fallback", "yes")
+        // Match the iOS subtitle treatment: centered text, slightly above the
+        // bottom edge, with the same scaled-pixel baseline as Media3's full-
+        // screen subtitle size. These are global options so they also apply
+        // when external subtitles are added after the first video frame.
+        mpv.setOptionString("sub-pos", "95")
+        mpv.setOptionString("sub-align-x", "center")
+        mpv.setOptionString("sub-align-y", "bottom")
+        mpv.setOptionString("sub-font-size", "38")
         mpv.setOptionString("msg-level", "all=warn")
         mpv.setOptionString("tls-verify", "yes")
         mpv.setOptionString("tls-ca-file", "${context.filesDir.path}/cacert.pem")
