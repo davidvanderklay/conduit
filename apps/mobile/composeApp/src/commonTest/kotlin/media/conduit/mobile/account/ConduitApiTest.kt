@@ -299,7 +299,7 @@ class ConduitApiTest {
         val engine = MockEngine {
             respond("", HttpStatusCode.NoContent)
         }
-        val api = ConduitApi(HttpClient(engine))
+        val api = ConduitApi(HttpClient(engine) { install(ContentNegotiation) { json() } })
 
         api.setProgressDismissed("https://conduit.example", "token", "p1", "movie", true)
     }
