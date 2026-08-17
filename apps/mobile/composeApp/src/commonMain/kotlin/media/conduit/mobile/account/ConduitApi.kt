@@ -38,7 +38,6 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.time.TimeSource
 
 @Serializable
@@ -960,9 +959,7 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
             async {
                 val started = TimeSource.Monotonic.markNow()
                 val result = runCatching {
-                    val response = withTimeoutOrNull(8_000L) {
-                        client.get(resourceUrl(addon.manifestUrl, "stream", type, videoId))
-                    } ?: error("Stream request timed out")
+                    val response = client.get(resourceUrl(addon.manifestUrl, "stream", type, videoId))
                     if (!response.status.isSuccess()) {
                         throw ServerRequestException(
                             "Stream request returned HTTP ${response.status.value}",
