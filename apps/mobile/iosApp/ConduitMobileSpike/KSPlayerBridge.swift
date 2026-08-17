@@ -388,7 +388,10 @@ final class ConduitKSPlayerView: VideoPlayerView {
 
 final class ConduitKSPlayerViewController: UIViewController {
     private let playerView = ConduitKSPlayerView(frame: .zero)
-    private lazy var pipSubtitleCoordinator = ConduitKSPictureInPictureCoordinator(playerView: playerView)
+    private lazy var pipSubtitleCoordinator = ConduitKSPictureInPictureCoordinator(
+        playerView: playerView,
+        playerController: self
+    )
     private var preferredAudioLanguage = "System default"
     private var preferredSubtitleLanguage = "English"
     private var externalSubtitleLanguages: [String: String] = [:]
@@ -624,10 +627,24 @@ final class ConduitKSPlayerViewController: UIViewController {
         // constraints installed by VideoPlayerView while it is resized.
     }
 
+    fileprivate var playbackIntent: Bool { shouldPlay }
+
+    fileprivate func setPlaybackIntent(_ playing: Bool) {
+        shouldPlay = playing
+        if playing {
+            playerView.playerLayer?.play()
+        } else {
+            playerView.playerLayer?.pause()
+        }
+        refreshPlaybackState()
+    }
+
     func selectAudio(_ trackId: Int) {
-        guard let track = playerView.playerLayer?.player.tracks(mediaType: .audio).first(where: { Int($0.trackID) == trackId }) else { return }
+        guard let layer = playerView.playerLayer,
+              let track = layer.player.tracks(mediaType: .audio).first(where: { Int($0.trackID) == trackId })
+        else { return }
         userSelectedAudio = true
-        playerView.playerLayer?.player.select(track: track)
+        selectAudioTrack(track, on: layer)
     }
 
     func selectSubtitle(_ trackId: Int) {
@@ -640,7 +657,6 @@ final class ConduitKSPlayerViewController: UIViewController {
         }
         let embeddedTracks = layer.player.tracks(mediaType: .subtitle)
         if let track = embeddedTracks.first(where: { Int($0.trackID) == trackId }) {
-            layer.player.select(track: track)
             if let subtitle = track as? any SubtitleInfo {
                 playerView.srtControl.selectedSubtitleInfo = subtitle
             }
@@ -675,7 +691,7 @@ final class ConduitKSPlayerViewController: UIViewController {
         videoWidth = Int(max(0, player.naturalSize.width))
         videoHeight = Int(max(0, player.naturalSize.height))
         currentSpeed = player.playbackRate
-        if layer.state == .readyToPlay {
+        if ![.initialized, .preparing, .error].contains(layer.state) {
             applyPreferredTracks()
         }
         if layer.state == .error, currentErrorMessage.isEmpty {
@@ -710,11 +726,7 @@ final class ConduitKSPlayerViewController: UIViewController {
         }
         let preferred = preferredLanguageCode(preferredSubtitleLanguage)
         if let track = preferred.flatMap({ preferred in
-            embedded.first(where: {
-                languageCode($0.languageCode ?? "") == preferred
-            }) ?? embedded.first(where: {
-                languageCode($0.name) == preferred
-            })
+            embedded.first(where: { trackMatchesLanguage($0, preferred: preferred) })
         }) {
             if let subtitle = track as? any SubtitleInfo {
                 playerView.srtControl.selectedSubtitleInfo = subtitle
@@ -760,8 +772,18 @@ final class ConduitKSPlayerViewController: UIViewController {
         let tracks = layer.player.tracks(mediaType: .audio)
         let track = tracks.first(where: { trackMatchesLanguage($0, preferred: preferred) })
         guard let track else { return }
-        layer.player.select(track: track)
+        selectAudioTrack(track, on: layer)
         didApplyPreferredAudio = tracks.contains { $0.trackID == track.trackID && $0.isEnabled }
+    }
+
+    private func selectAudioTrack(_ track: any MediaPlayerTrack, on layer: KSPlayerLayer) {
+        let wasPlaying = shouldPlay || layer.player.isPlaying
+        let position = max(0, layer.player.currentPlaybackTime)
+        layer.player.select(track: track)
+        layer.seek(time: position, autoPlay: wasPlaying) { [weak layer] finished in
+            guard finished, wasPlaying else { return }
+            layer?.play()
+        }
     }
 
     fileprivate func languageCode(_ value: String) -> String? {
@@ -823,6 +845,7 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
     @preconcurrency AVPictureInPictureControllerDelegate,
     @preconcurrency AVPictureInPictureSampleBufferPlaybackDelegate {
     private weak var playerView: ConduitKSPlayerView?
+    private weak var playerController: ConduitKSPlayerViewController?
     private let displayLayer = AVSampleBufferDisplayLayer()
     private var controller: AVPictureInPictureController?
     private var displayLink: CADisplayLink?
@@ -839,9 +862,12 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
     private var renderedFrameCount = 0
     private var pictureInPicturePossibleObservation: NSKeyValueObservation?
     private var primingTimeoutWorkItem: DispatchWorkItem?
+    private var playbackWasPlaying = false
+    private var lastSourceReadUptime: TimeInterval = 0
 
-    init(playerView: ConduitKSPlayerView) {
+    init(playerView: ConduitKSPlayerView, playerController: ConduitKSPlayerViewController) {
         self.playerView = playerView
+        self.playerController = playerController
         super.init()
 
         displayLayer.videoGravity = .resizeAspect
@@ -887,14 +913,17 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
     }
 
     func start() -> Bool {
-        guard isSupported, !isActive, playerView?.playerLayer?.player != nil else { return false }
+        guard isSupported, !isActive, let playerView, let layer = playerView.playerLayer else { return false }
+        playbackWasPlaying = playerController?.playbackIntent ?? layer.player.isPlaying
         guard prepareVideoOutput() else { return false }
+        setUnderlyingVideoOutputPlaying(false)
 
         isPriming = true
         renderedFrameCount = 0
         lastSourceBuffer = nil
-        displayLayer.frame = playerView?.bounds ?? .zero
+        displayLayer.frame = playerView.bounds
         displayLayer.flush()
+        setDisplayRate(playbackWasPlaying ? 1 : 0)
         displayLink?.invalidate()
         let displayLink = CADisplayLink(target: self, selector: #selector(renderFrame))
         displayLink.add(to: .main, forMode: .common)
@@ -911,10 +940,11 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
     }
 
     func stop() {
-        let wasActive = isActive
-        cleanup()
-        if wasActive {
+        if controller?.isPictureInPictureActive == true {
             controller?.stopPictureInPicture()
+        } else {
+            cleanup()
+            restorePlaybackState()
         }
     }
 
@@ -932,10 +962,33 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
         lastSourceBuffer = nil
         subtitleOverlay = nil
         lastSubtitleKey = ""
+        lastSourceReadUptime = 0
         pixelBufferPool = nil
         pixelBufferSize = .zero
         formatDescription = nil
         displayLayer.flushAndRemoveImage()
+        setDisplayRate(0)
+    }
+
+    private func setDisplayRate(_ rate: Float) {
+        guard let timebase = displayLayer.controlTimebase else { return }
+        CMTimebaseSetRate(timebase, rate: Float64(rate))
+    }
+
+    private func restorePlaybackState() {
+        let shouldPlay = playbackWasPlaying
+        playbackWasPlaying = false
+        setUnderlyingVideoOutputPlaying(shouldPlay)
+        playerController?.setPlaybackIntent(shouldPlay)
+    }
+
+    private func setUnderlyingVideoOutputPlaying(_ playing: Bool) {
+        guard let player = playerView?.playerLayer?.player as? KSMEPlayer else { return }
+        if playing {
+            player.videoOutput?.play()
+        } else {
+            player.videoOutput?.pause()
+        }
     }
 
     private func prepareVideoOutput() -> Bool {
@@ -980,7 +1033,14 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
     private func currentVideoFrame() -> (buffer: CVPixelBuffer, time: CMTime)? {
         guard let player = playerView?.playerLayer?.player else { return nil }
         if let player = player as? KSMEPlayer {
-            player.videoOutput?.readNextFrame()
+            let now = CACurrentMediaTime()
+            let needsInitialFrame = player.videoOutput?.pixelBuffer == nil
+            let frameIsDue = player.isPlaying && player.displayedVideoTime <= player.currentPlaybackTime
+            let minimumFrameInterval = 1.0 / 30.0
+            if needsInitialFrame || (frameIsDue && now - lastSourceReadUptime >= minimumFrameInterval) {
+                player.videoOutput?.readNextFrame()
+                lastSourceReadUptime = now
+            }
         }
         if let player = player as? KSMEPlayer,
            let buffer = player.videoOutput?.pixelBuffer?.cvPixelBuffer {
@@ -1136,14 +1196,19 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
 
     func pictureInPictureControllerDidStopPictureInPicture(_: AVPictureInPictureController) {
         cleanup()
+        restorePlaybackState()
     }
 
     func pictureInPictureController(_: AVPictureInPictureController, failedToStartPictureInPictureWithError _: Error) {
         cleanup()
+        restorePlaybackState()
     }
 
     func pictureInPictureController(_: AVPictureInPictureController, setPlaying playing: Bool) {
-        playing ? playerView?.playerLayer?.play() : playerView?.playerLayer?.pause()
+        playbackWasPlaying = playing
+        setDisplayRate(playing ? 1 : 0)
+        playerController?.setPlaybackIntent(playing)
+        setUnderlyingVideoOutputPlaying(false)
     }
 
     func pictureInPictureControllerTimeRangeForPlayback(_: AVPictureInPictureController) -> CMTimeRange {
@@ -1155,7 +1220,7 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
     }
 
     func pictureInPictureControllerIsPlaybackPaused(_: AVPictureInPictureController) -> Bool {
-        playerView?.playerLayer?.player.isPlaying != true
+        playerController?.playbackIntent != true
     }
 
     func pictureInPictureController(_: AVPictureInPictureController, didTransitionToRenderSize _: CMVideoDimensions) {}
@@ -1164,7 +1229,10 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
         guard let playerView else { return }
         await MainActor.run {
             let currentTime = playerView.playerLayer?.player.currentPlaybackTime ?? 0
-            playerView.playerLayer?.seek(time: currentTime + skipInterval.seconds, autoPlay: true) { _ in }
+            playerView.playerLayer?.seek(
+                time: currentTime + skipInterval.seconds,
+                autoPlay: playerController?.playbackIntent == true
+            ) { _ in }
         }
     }
 
