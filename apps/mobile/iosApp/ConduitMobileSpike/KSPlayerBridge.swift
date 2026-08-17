@@ -379,7 +379,7 @@ final class ConduitKSPlayerViewController: UIViewController {
         guard let player = playerView.playerLayer?.player else { return [] }
         let embedded = player.tracks(mediaType: .subtitle).enumerated().map { index, track in
             let language = track.languageCode ?? ""
-            ConduitKSPlayerTrack(
+            return ConduitKSPlayerTrack(
                 id: Int(track.trackID),
                 title: displayTrackTitle(track.name, language: language, fallback: "Subtitle \(index + 1)"),
                 language: language,
