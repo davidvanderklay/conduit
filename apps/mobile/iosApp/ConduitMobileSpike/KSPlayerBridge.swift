@@ -901,6 +901,8 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
     private var pixelBufferSize = CGSize.zero
     private var lastSubtitleKey = ""
     private var subtitleOverlay: CIImage?
+    private var subtitleOverlayVersion = 0
+    private var lastRenderedSubtitleVersion = -1
     private var isPriming = false
     private var renderedFrameCount = 0
     private var pictureInPicturePossibleObservation: NSKeyValueObservation?
@@ -1011,6 +1013,8 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
         isPriming = true
         renderedFrameCount = 0
         lastSourceBuffer = nil
+        subtitleOverlayVersion = 0
+        lastRenderedSubtitleVersion = -1
         displayLayer.frame = playerView.bounds
         displayLayer.flush()
         setDisplayRate(playbackWasPlaying ? 1 : 0)
@@ -1057,6 +1061,8 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
         lastSourceBuffer = nil
         subtitleOverlay = nil
         lastSubtitleKey = ""
+        subtitleOverlayVersion = 0
+        lastRenderedSubtitleVersion = -1
         lastSubtitleRefreshTime = -Double.infinity
         pixelBufferPool = nil
         pixelBufferSize = .zero
@@ -1204,12 +1210,17 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
     @objc private func renderFrame() {
         guard isPriming || controller?.isPictureInPictureActive == true else { return }
         guard let frame = currentVideoFrame() else { return }
-        guard frame.buffer !== lastSourceBuffer || (isPriming && renderedFrameCount < 2) else { return }
-        lastSourceBuffer = frame.buffer
+        let subtitle = currentSubtitleOverlay(for: frame.buffer, at: frame.time.seconds)
+        let hasNewVideoFrame = frame.buffer !== lastSourceBuffer
+        guard hasNewVideoFrame || subtitleOverlayVersion != lastRenderedSubtitleVersion ||
+              (isPriming && renderedFrameCount < 2)
+        else { return }
         guard let outputBuffer = compositedBuffer(
             source: frame.buffer,
-            subtitle: currentSubtitleOverlay(for: frame.buffer, at: frame.time.seconds)
+            subtitle: subtitle
         ) else { return }
+        lastSourceBuffer = frame.buffer
+        lastRenderedSubtitleVersion = subtitleOverlayVersion
         enqueue(outputBuffer, at: frame.time)
         renderedFrameCount += 1
         if isPriming, renderedFrameCount >= 2 {
@@ -1246,8 +1257,11 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
         guard let selectedSubtitle = subtitleControl.selectedSubtitleInfo else {
             pipSubtitlePart = nil
             pipSubtitleID = nil
-            lastSubtitleKey = ""
-            subtitleOverlay = nil
+            if lastSubtitleKey != "" || subtitleOverlay != nil {
+                lastSubtitleKey = ""
+                subtitleOverlay = nil
+                subtitleOverlayVersion += 1
+            }
             return nil
         }
         if pipSubtitleID != selectedSubtitle.subtitleID {
@@ -1279,14 +1293,18 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
             control: subtitleControl
         ) else {
             pipSubtitlePart = nil
-            lastSubtitleKey = ""
-            subtitleOverlay = nil
+            if lastSubtitleKey != "" || subtitleOverlay != nil {
+                lastSubtitleKey = ""
+                subtitleOverlay = nil
+                subtitleOverlayVersion += 1
+            }
             return nil
         }
         let text = part.text?.string ?? ""
         let key = "\(part.start):\(part.end):\(text)"
         guard key != lastSubtitleKey else { return subtitleOverlay }
         lastSubtitleKey = key
+        subtitleOverlayVersion += 1
         let width = CVPixelBufferGetWidth(sourceBuffer)
         let height = CVPixelBufferGetHeight(sourceBuffer)
         guard width > 1, height > 1 else { return nil }
@@ -1338,9 +1356,9 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
         let image = renderer.image { _ in
             let rect = CGRect(
                 x: CGFloat(width) * 0.05,
-                y: CGFloat(height) * 0.68,
+                y: CGFloat(height) * 0.76,
                 width: CGFloat(width) * 0.9,
-                height: CGFloat(height) * 0.25
+                height: CGFloat(height) * 0.2
             )
             let attributes: [NSAttributedString.Key: Any] = [
                 .font: UIFont.boldSystemFont(ofSize: size),
@@ -1362,9 +1380,9 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
     private func makeImageOverlay(_ image: CGImage, width: Int, height: Int) -> CIImage? {
         let target = CGRect(
             x: CGFloat(width) * 0.1,
-            y: CGFloat(height) * 0.68,
+            y: CGFloat(height) * 0.76,
             width: CGFloat(width) * 0.8,
-            height: CGFloat(height) * 0.25
+            height: CGFloat(height) * 0.2
         )
         let scale = min(
             target.width / CGFloat(image.width),
