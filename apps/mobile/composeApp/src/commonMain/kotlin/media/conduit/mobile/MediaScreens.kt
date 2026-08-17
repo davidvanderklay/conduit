@@ -974,6 +974,7 @@ internal fun MediaDetailsScreen(
             result
                 .onSuccess { choices ->
                     streams = choices
+                    if (!autoPlaySavedSource) streamsError = null
                     if (autoPlaySavedSource) {
                         val saved = savedPlaybackSourceFor(videoId)
                         val choice = listOfNotNull(
@@ -1210,6 +1211,8 @@ internal fun MediaDetailsScreen(
                 val failedProgress = progressForVideoId(failedVideoId)
                 autoSelectedSavedVideoIds = autoSelectedSavedVideoIds - failedVideoId
                 selectedPlaybackSources = selectedPlaybackSources - failedVideoId
+                playing = null
+                openingPlayback = false
                 playbackSession.close(saveProgress = false)
                 requestStreams(
                     selectedVideo,
@@ -1380,6 +1383,10 @@ internal fun MediaDetailsScreen(
                     selectedPlaybackSources = selectedPlaybackSources + (videoId to selectedSource)
                     autoSelectedSavedVideoIds = autoSelectedSavedVideoIds - videoId
                     if (videoId == effectiveInitialVideoId) autoResumeAttemptedKey = autoResumeAttemptKey(selectedSource)
+                    streamPageOpen = false
+                    streams = null
+                    streamsError = null
+                    openingPlayback = true
                     playing = source.stream
                 }
             }
