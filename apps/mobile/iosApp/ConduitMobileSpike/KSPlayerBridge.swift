@@ -908,6 +908,7 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
     private var playbackWasPlaying = false
     private var pipSubtitlePart: SubtitlePart?
     private var pipSubtitleID: String?
+    private var lastSubtitleRefreshTime = -Double.infinity
     private var backgroundRenderTimer: DispatchSourceTimer?
     private var lifecycleObservers: [NSObjectProtocol] = []
     private var preservePlaybackDuringBackground = false
@@ -1001,6 +1002,7 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
         _ = playerView.srtControl.subtitle(currentTime: layer.player.currentPlaybackTime)
         pipSubtitlePart = playerView.srtControl.parts.first
         pipSubtitleID = playerView.srtControl.selectedSubtitleInfo?.subtitleID
+        lastSubtitleRefreshTime = -Double.infinity
         guard prepareVideoOutput() else { return false }
         // Let KSPlayer's own Metal output advance frames. Its normal render
         // path applies the audio/video sync policy; PiP mirrors that output.
@@ -1055,6 +1057,7 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
         lastSourceBuffer = nil
         subtitleOverlay = nil
         lastSubtitleKey = ""
+        lastSubtitleRefreshTime = -Double.infinity
         pixelBufferPool = nil
         pixelBufferSize = .zero
         formatDescription = nil
@@ -1087,6 +1090,7 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
         }
         pipSubtitlePart = nil
         pipSubtitleID = nil
+        lastSubtitleRefreshTime = -Double.infinity
     }
 
     private func setUnderlyingVideoOutputPlaying(_ playing: Bool) {
@@ -1251,10 +1255,17 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
             pipSubtitlePart = nil
         }
         let subtitleTime = max(0, time - selectedSubtitle.delay - subtitleControl.subtitleDelay)
-        if pipSubtitlePart == nil || (
-            !subtitleControl.parts.contains(where: { subtitlePartIsVisible($0, at: subtitleTime) }) &&
-                UIApplication.shared.applicationState != .active
-        ) {
+        let hasVisibleParts = subtitleControl.parts.contains {
+            subtitlePartIsVisible($0, at: subtitleTime)
+        }
+        let hasVisibleCachedPart = subtitlePartIsVisible(pipSubtitlePart, at: subtitleTime)
+        if !hasVisibleParts, !hasVisibleCachedPart,
+           abs(time - lastSubtitleRefreshTime) >= 0.25 {
+            // The normal KSPlayer subtitle callback can stop while PiP is
+            // active. Refresh only when the cached cue has ended, and throttle
+            // the lookup so embedded subtitle queues are not consumed twice
+            // on every video frame.
+            lastSubtitleRefreshTime = time
             _ = subtitleControl.subtitle(currentTime: time)
         }
         if let currentPart = subtitleControl.parts.first,
@@ -1313,7 +1324,8 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
         return subtitlePartIsVisible(part, at: subtitleTime) ? part : nil
     }
 
-    private func subtitlePartIsVisible(_ part: SubtitlePart, at time: TimeInterval) -> Bool {
+    private func subtitlePartIsVisible(_ part: SubtitlePart?, at time: TimeInterval) -> Bool {
+        guard let part else { return false }
         let tolerance = 0.25
         return part.start <= time + tolerance && part.end >= time - tolerance
     }
