@@ -170,6 +170,10 @@ actual fun NativePlayer(
         resizeMode = 0
         playbackReady = false
         url?.takeIf(String::isNotBlank)?.let {
+            // Set preferences before KSPlayer opens the asset so its initial
+            // stream choice matches the app settings, not the first stream.
+            bridge.setPreferredAudioLanguage(preferredAudioLanguage)
+            bridge.setPreferredSubtitleLanguage(preferredSubtitleLanguage)
             bridge.loadFile(
                 url = it,
                 initialPositionMs = startPositionMs.coerceAtLeast(0),
