@@ -8,6 +8,11 @@ import `is`.xyz.mpv.BaseMPVView
 import `is`.xyz.mpv.MPV
 import `is`.xyz.mpv.MPVNode
 import `is`.xyz.mpv.Utils
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import media.conduit.mobile.account.SubtitleItem
 
 internal data class MpvPlaybackSnapshot(
@@ -22,6 +27,7 @@ internal data class MpvPlaybackSnapshot(
     val firstFrameRendered: Boolean,
     val error: String?,
     val trackRevision: Int,
+    val playbackSpeed: Float,
 )
 
 internal data class MpvTrack(
@@ -32,6 +38,19 @@ internal data class MpvTrack(
     val selectionKey: String?,
     val selected: Boolean,
     val forced: Boolean,
+)
+
+private data class MpvLoadRequest(
+    val generation: Long,
+    val url: String,
+    val requestHeaders: Map<String, String>,
+    val subtitles: List<SubtitleItem>,
+    val startPositionMs: Long,
+    val playWhenReady: Boolean,
+    val preferredAudioLanguage: String,
+    val preferredSubtitleLanguage: String,
+    val playbackSpeed: Float,
+    val subtitlesEnabled: Boolean,
 )
 
 private const val EmbeddedSubtitleSelectionPrefix = "embedded:"
@@ -45,27 +64,72 @@ internal class ConduitMpvView(
     context: Context,
     attrs: AttributeSet? = null,
 ) : BaseMPVView(context, attrs) {
-    private var loaded = false
-    private var ended = false
-    private var errorMessage: String? = null
-    private var trackRevision = 0
-    private var currentUrl: String? = null
-    private var currentHeaders: Map<String, String> = emptyMap()
-    private var currentSubtitles: List<SubtitleItem> = emptyList()
-    private var currentPreferredAudio = "System default"
-    private var currentPreferredSubtitle = "English"
-    private var currentPlaybackSpeed = 1f
-    private var currentStartPositionMs = 0L
-    private var currentPlayWhenReady = true
-    private var currentSelectedSubtitleId: String? = null
-    private var currentSelectedSubtitleLanguage: String? = null
-    private var currentSelectedSubtitleLabel: String? = null
-    private var currentSubtitlesEnabled = true
+    @Volatile private var loaded = false
+    @Volatile private var fileLoadStarted = false
+    @Volatile private var ended = false
+    @Volatile private var errorMessage: String? = null
+    @Volatile private var trackRevision = 0
+    @Volatile private var currentUrl: String? = null
+    @Volatile private var currentHeaders: Map<String, String> = emptyMap()
+    @Volatile private var currentSubtitles: List<SubtitleItem> = emptyList()
+    @Volatile private var currentPreferredAudio = "System default"
+    @Volatile private var currentPreferredSubtitle = "English"
+    @Volatile private var currentPlaybackSpeed = 1f
+    @Volatile private var currentStartPositionMs = 0L
+    @Volatile private var currentPlayWhenReady = true
+    @Volatile private var currentSelectedSubtitleId: String? = null
+    @Volatile private var currentSelectedSubtitleLanguage: String? = null
+    @Volatile private var currentSelectedSubtitleLabel: String? = null
+    @Volatile private var currentSubtitlesEnabled = true
+    @Volatile private var preferredSubtitleApplied = false
+    @Volatile private var trackCacheRefreshRequested = true
+    @Volatile private var initialVideoOutputReady = false
+    @Volatile private var pendingExternalSubtitles: List<SubtitleItem> = emptyList()
+    @Volatile private var externalSubtitleLoadQueued = false
+    @Volatile private var loadGeneration = 0L
+    @Volatile private var activeLoadGeneration = 0L
+    @Volatile private var lastLoadSignature: String? = null
+    private var lastResizeMode: Int? = null
+    private val nativeLock = Any()
+    private val nativeScope = CoroutineScope(SupervisorJob() + Dispatchers.IO.limitedParallelism(1))
+    private val subtitleScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    @Volatile private var destroyed = false
+    private var surfaceReady = false
+    private var pendingLoadRequest: MpvLoadRequest? = null
+    private var snapshotRefreshQueued = false
+    @Volatile private var cachedTracks: Map<String, List<MpvTrack>> = emptyMap()
+    @Volatile private var cachedSnapshot = MpvPlaybackSnapshot(
+        loading = true,
+        buffering = false,
+        playing = false,
+        positionMs = 0L,
+        durationMs = 0L,
+        videoWidth = 0,
+        videoHeight = 0,
+        ended = false,
+        firstFrameRendered = false,
+        error = null,
+        trackRevision = 0,
+        playbackSpeed = 1f,
+    )
 
     override fun initOptions() {
         setVo("gpu")
+        mpv.setOptionString("gpu-context", "android")
         mpv.setOptionString("profile", "fast")
-        mpv.setOptionString("hwdec", "auto")
+        // Direct MediaCodec rendering intermittently loses the SurfaceView's
+        // native window on Android. Copying decoded frames keeps the GPU VO
+        // path intact and lets mpv fall back to software decoding quickly.
+        mpv.setOptionString("hwdec", "auto-copy")
+        mpv.setOptionString("hwdec-software-fallback", "yes")
+        // Match the iOS subtitle treatment: centered text, slightly above the
+        // bottom edge, with the same scaled-pixel baseline as Media3's full-
+        // screen subtitle size. These are global options so they also apply
+        // when external subtitles are added after the first video frame.
+        mpv.setOptionString("sub-pos", "95")
+        mpv.setOptionString("sub-align-x", "center")
+        mpv.setOptionString("sub-align-y", "bottom")
+        mpv.setOptionString("sub-font-size", "38")
         mpv.setOptionString("msg-level", "all=warn")
         mpv.setOptionString("tls-verify", "yes")
         mpv.setOptionString("tls-ca-file", "${context.filesDir.path}/cacert.pem")
@@ -99,7 +163,7 @@ internal class ConduitMpvView(
             override fun eventProperty(property: String) {
                 if (property == "track-list") {
                     trackRevision++
-                    applyPendingSubtitleSelection()
+                    trackCacheRefreshRequested = true
                 }
                 onChanged()
             }
@@ -118,7 +182,7 @@ internal class ConduitMpvView(
             override fun eventProperty(property: String, value: MPVNode) {
                 if (property == "track-list") {
                     trackRevision++
-                    applyPendingSubtitleSelection()
+                    trackCacheRefreshRequested = true
                 }
                 onChanged()
             }
@@ -126,24 +190,35 @@ internal class ConduitMpvView(
             override fun event(eventId: Int, data: MPVNode) {
                 when (eventId) {
                     MPV.mpvEvent.MPV_EVENT_START_FILE -> {
+                        Log.d("ConduitMpv", "event start-file")
+                        fileLoadStarted = true
                         loaded = false
+                        initialVideoOutputReady = false
                         ended = false
                         errorMessage = null
                     }
                     MPV.mpvEvent.MPV_EVENT_FILE_LOADED -> {
+                        Log.d("ConduitMpv", "event file-loaded")
                         loaded = true
                         errorMessage = null
-                        applyPendingSubtitleSelection()
+                        trackCacheRefreshRequested = true
                     }
                     MPV.mpvEvent.MPV_EVENT_VIDEO_RECONFIG,
                     MPV.mpvEvent.MPV_EVENT_PLAYBACK_RESTART,
                     -> {
-                        loaded = true
+                        Log.d(
+                            "ConduitMpv",
+                            "event ${if (eventId == MPV.mpvEvent.MPV_EVENT_VIDEO_RECONFIG) "video-reconfig" else "playback-restart"}",
+                        )
+                        if (fileLoadStarted) loaded = true
                         errorMessage = null
-                        applyPendingSubtitleSelection()
+                        if (fileLoadStarted) trackCacheRefreshRequested = true
                     }
                     MPV.mpvEvent.MPV_EVENT_END_FILE -> {
                         val reason = data.nodeString("reason")
+                        Log.d("ConduitMpv", "event end-file reason=$reason error=${data.nodeString("error")}")
+                        fileLoadStarted = false
+                        loaded = false
                         if (reason == "error" || reason == "unknown") {
                             errorMessage = sanitizePlaybackError(
                                 data.nodeString("error") ?: "libmpv could not play this stream",
@@ -186,50 +261,67 @@ internal class ConduitMpvView(
         currentSelectedSubtitleLanguage = selectedSubtitleLanguage
         currentSelectedSubtitleLabel = selectedSubtitleLabel
         currentSubtitlesEnabled = subtitlesEnabled
+        preferredSubtitleApplied = false
+        val loadSignature = listOf(
+            url,
+            requestHeaders,
+            subtitles,
+            startPositionMs.coerceAtLeast(0L),
+            playWhenReady,
+            preferredAudioLanguage,
+            preferredSubtitleLanguage,
+            currentPlaybackSpeed,
+            selectedSubtitleId,
+            selectedSubtitleLanguage,
+            selectedSubtitleLabel,
+            subtitlesEnabled,
+        ).toString()
+        if (loadSignature == lastLoadSignature) {
+            Log.d("ConduitMpv", "coalesced duplicate load request")
+            return
+        }
+        lastLoadSignature = loadSignature
         loaded = false
+        fileLoadStarted = false
+        initialVideoOutputReady = false
         ended = false
         errorMessage = null
-        applyRequestHeaders(requestHeaders)
-        setPreferredLanguages(preferredAudioLanguage, preferredSubtitleLanguage)
-        setPlaybackSpeed(currentPlaybackSpeed)
-        setPaused(!playWhenReady)
-        val options = if (startPositionMs > 0) {
-            arrayOf("start=${startPositionMs / 1000.0}")
-        } else {
-            emptyArray()
-        }
-        mpv.command("loadfile", url, "replace", *options)
-        val preferredSubtitleCode = mpvLanguageCode(preferredSubtitleLanguage)
-        val selectedSubtitleIndex = if (subtitlesEnabled) {
-            val selectedExternalIndex = subtitles.indexOfFirst { subtitle ->
-                subtitleSelectionKey(subtitle) == selectedSubtitleId
-            }
-            val hasExplicitSubtitleSelection = selectedSubtitleId != null ||
-                selectedSubtitleLanguage != null ||
-                selectedSubtitleLabel != null
-            selectedExternalIndex.takeIf { it >= 0 } ?: if (hasExplicitSubtitleSelection) {
-                null
-            } else {
-                subtitles.indexOfFirst { subtitle ->
-                    preferredSubtitleCode != null &&
-                        subtitle.lang?.substringBefore('-')?.substringBefore('_') == preferredSubtitleCode
-                }.takeIf { it >= 0 } ?: subtitles.indices.firstOrNull()
-            }
-        } else {
-            null
-        }
-        subtitles.forEachIndexed { index, subtitle ->
-            mpv.command(
-                "sub-add",
-                subtitle.url,
-                if (index == selectedSubtitleIndex) "select" else "cached",
-                subtitle.addonName.orEmpty(),
-                subtitle.lang.orEmpty(),
+        cachedTracks = emptyMap()
+        cachedSnapshot = cachedSnapshot.copy(
+            loading = true,
+            buffering = false,
+            playing = false,
+            positionMs = 0L,
+            durationMs = 0L,
+            videoWidth = 0,
+            videoHeight = 0,
+            ended = false,
+            firstFrameRendered = false,
+            error = null,
+            playbackSpeed = currentPlaybackSpeed,
+        )
+        trackCacheRefreshRequested = true
+        Log.d(
+            "ConduitMpv",
+            "load requested surfaceReady=$surfaceReady subtitles=${subtitles.size} playWhenReady=$playWhenReady startMs=$currentStartPositionMs",
+        )
+        synchronized(nativeLock) {
+            if (destroyed || !mpv.isInitialized) return
+            loadGeneration += 1
+            pendingLoadRequest = MpvLoadRequest(
+                generation = loadGeneration,
+                url = url,
+                requestHeaders = requestHeaders,
+                subtitles = subtitles,
+                startPositionMs = currentStartPositionMs,
+                playWhenReady = playWhenReady,
+                preferredAudioLanguage = preferredAudioLanguage,
+                preferredSubtitleLanguage = preferredSubtitleLanguage,
+                playbackSpeed = currentPlaybackSpeed,
+                subtitlesEnabled = subtitlesEnabled,
             )
         }
-        if (!subtitlesEnabled) mpv.setPropertyString("sid", "no")
-        applyPendingSubtitleSelection()
-        setPaused(!playWhenReady)
+        enqueueNative { loadPendingSourceNative() }
     }
 
     fun retry(
@@ -242,6 +334,7 @@ internal class ConduitMpvView(
         currentSelectedSubtitleLanguage = selectedSubtitleLanguage
         currentSelectedSubtitleLabel = selectedSubtitleLabel
         currentSubtitlesEnabled = subtitlesEnabled
+        lastLoadSignature = null
         currentUrl?.let {
             loadSource(
                 url = it,
@@ -266,50 +359,86 @@ internal class ConduitMpvView(
 
     fun setPaused(paused: Boolean) {
         currentPlayWhenReady = !paused
-        if (!mpv.isInitialized) return
-        runCatching { mpv.setPropertyBoolean("pause", paused) }
+        if (cachedSnapshot.firstFrameRendered) {
+            cachedSnapshot = cachedSnapshot.copy(playing = !paused, buffering = false)
+        }
+        if (!paused && !initialVideoOutputReady) {
+            Log.d("ConduitMpv", "defer pause=false until initial video output")
+            return
+        }
+        Log.d("ConduitMpv", "queue pause=$paused")
+        enqueueNative {
+            Log.d("ConduitMpv", "apply pause=$paused")
+            setPausedNative(paused)
+        }
     }
 
     fun seekTo(positionMs: Long) {
-        if (!mpv.isInitialized) return
-        runCatching { mpv.command("seek", (positionMs.coerceAtLeast(0) / 1000.0).toString(), "absolute") }
+        enqueueNative {
+            mpv.command("seek", (positionMs.coerceAtLeast(0) / 1000.0).toString(), "absolute")
+        }
     }
 
     fun seekBy(offsetMs: Long) {
-        if (!mpv.isInitialized) return
-        runCatching { mpv.command("seek", (offsetMs / 1000.0).toString(), "relative") }
+        enqueueNative { mpv.command("seek", (offsetMs / 1000.0).toString(), "relative") }
     }
 
     fun setPlaybackSpeed(speed: Float) {
-        if (!mpv.isInitialized) return
-        runCatching { mpv.setPropertyDouble("speed", speed.coerceIn(0.25f, 4f).toDouble()) }
+        currentPlaybackSpeed = speed.coerceIn(0.25f, 4f)
+        cachedSnapshot = cachedSnapshot.copy(playbackSpeed = currentPlaybackSpeed)
+        Log.d("ConduitMpv", "queue speed=$currentPlaybackSpeed")
+        enqueueNative {
+            Log.d("ConduitMpv", "apply speed=$currentPlaybackSpeed")
+            setPlaybackSpeedNative(currentPlaybackSpeed)
+        }
     }
 
-    fun playbackSpeed(): Float = if (mpv.isInitialized) {
-        mpv.getPropertyDouble("speed")?.toFloat()?.takeIf { it.isFinite() } ?: 1f
-    } else {
-        1f
-    }
+    fun playbackSpeed(): Float = currentPlaybackSpeed
 
     fun applyResizeMode(mode: Int) {
-        if (!mpv.isInitialized) return
+        if (lastResizeMode == mode) return
+        lastResizeMode = mode
         val panscan = when (mode) {
             ANDROID_RESIZE_MODE_ZOOM -> 0.5
             androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> 1.0
             else -> 0.0
         }
-        runCatching {
+        enqueueNative {
             mpv.setPropertyDouble("panscan", panscan)
             mpv.setPropertyString("video-aspect-override", "no")
         }
     }
 
     fun tracks(type: String): List<MpvTrack> {
-        if (!mpv.isInitialized) return emptyList()
-        return mpv.getPropertyNode("track-list")
+        val loadedTracks = cachedTracks[type].orEmpty()
+        if (type != "sub") return loadedTracks
+
+        val loadedKeys = loadedTracks.mapNotNull(MpvTrack::selectionKey).toSet()
+        val hasSelectedLoadedTrack = loadedTracks.any(MpvTrack::selected)
+        val defaultExternalIndex = preferredExternalSubtitleIndex()
+        val pendingTracks = currentSubtitles.mapIndexedNotNull { index, subtitle ->
+            val key = subtitleSelectionKey(subtitle)
+            if (key in loadedKeys) return@mapIndexedNotNull null
+            MpvTrack(
+                id = -1 - index,
+                type = "sub",
+                label = subtitle.addonName?.takeIf(String::isNotBlank)
+                    ?: subtitle.url.substringAfterLast('/').substringBefore('?').ifBlank { "Add-on subtitle" },
+                language = subtitle.lang,
+                selectionKey = key,
+                selected = currentSubtitlesEnabled && !hasSelectedLoadedTrack &&
+                    (key == currentSelectedSubtitleId || (currentSelectedSubtitleId == null && index == defaultExternalIndex)),
+                forced = false,
+            )
+        }
+        return loadedTracks + pendingTracks
+    }
+
+    private fun refreshTrackCacheNative() {
+        val tracks = mpv.getPropertyNode("track-list")
             ?.asArray()
             ?.mapNotNull { node ->
-                if (node.nodeString("type") != type) return@mapNotNull null
+                val type = node.nodeString("type") ?: return@mapNotNull null
                 val id = node.nodeInt("id") ?: return@mapNotNull null
                 val externalFilename = node.nodeString("external-filename")
                 val label = node.nodeString("title")
@@ -344,24 +473,55 @@ internal class ConduitMpvView(
                 )
             }
             .orEmpty()
+        val nextTracks = tracks.groupBy(MpvTrack::type)
+        if (nextTracks != cachedTracks) {
+            trackRevision += 1
+            Log.d(
+                "ConduitMpv",
+                "track cache audio=${nextTracks["audio"].orEmpty().size} subtitles=${nextTracks["sub"].orEmpty().size}",
+            )
+        }
+        cachedTracks = nextTracks
+        trackCacheRefreshRequested = false
     }
 
     fun selectAudio(trackId: Int?) {
-        if (!mpv.isInitialized) return
-        if (trackId == null) mpv.setPropertyString("aid", "no") else mpv.setPropertyInt("aid", trackId)
+        enqueueNative {
+            if (trackId == null) mpv.setPropertyString("aid", "no") else mpv.setPropertyInt("aid", trackId)
+        }
     }
 
     fun selectSubtitle(trackId: Int?, selectionKey: String?, subtitlesEnabled: Boolean) {
         currentSelectedSubtitleId = selectionKey
         currentSubtitlesEnabled = subtitlesEnabled
-        if (!mpv.isInitialized) return
-        if (trackId == null) mpv.setPropertyString("sid", "no") else mpv.setPropertyInt("sid", trackId)
+        enqueueNative {
+            if (trackId == null) {
+                mpv.setPropertyString("sid", "no")
+            } else if (trackId < 0 && selectionKey != null) {
+                currentSubtitles.firstOrNull { subtitleSelectionKey(it) == selectionKey }?.let { subtitle ->
+                    mpv.command(
+                        "sub-add",
+                        subtitle.url,
+                        "select",
+                        subtitle.addonName.orEmpty(),
+                        subtitle.lang.orEmpty(),
+                    )
+                    trackCacheRefreshRequested = true
+                }
+            } else {
+                selectSingleSubtitleNative(trackId)
+            }
+        }
     }
 
-    private fun applyPendingSubtitleSelection() {
-        if (!mpv.isInitialized) return
+    private fun selectSingleSubtitleNative(trackId: Int) {
+        mpv.setPropertyString("sid", "no")
+        mpv.setPropertyInt("sid", trackId)
+    }
+
+    private fun applyPendingSubtitleSelectionNative() {
         if (!currentSubtitlesEnabled) {
-            if (tracks("sub").any { it.selected }) {
+            if (cachedTracks["sub"].orEmpty().any { it.selected }) {
                 runCatching { mpv.setPropertyString("sid", "no") }
             }
             return
@@ -370,7 +530,7 @@ internal class ConduitMpvView(
             currentSelectedSubtitleLanguage == null &&
             currentSelectedSubtitleLabel == null
         ) return
-        val subtitleTracks = tracks("sub")
+        val subtitleTracks = cachedTracks["sub"].orEmpty()
         val selectedTrack = currentSelectedSubtitleId
             ?.let { selectionKey -> subtitleTracks.firstOrNull { it.selectionKey == selectionKey } }
             ?: subtitleTracks.firstOrNull { track ->
@@ -380,62 +540,306 @@ internal class ConduitMpvView(
                 sameSubtitleLanguage(track.language, currentSelectedSubtitleLanguage)
             }
             ?: return
-        if (!selectedTrack.selected) {
-            runCatching { mpv.setPropertyInt("sid", selectedTrack.id) }
+        if (!selectedTrack.selected || subtitleTracks.count(MpvTrack::selected) != 1) {
+            runCatching { selectSingleSubtitleNative(selectedTrack.id) }
         }
     }
 
-    fun snapshot(): MpvPlaybackSnapshot {
-        if (!mpv.isInitialized) {
-            return MpvPlaybackSnapshot(
-                loading = false,
-                buffering = false,
-                playing = false,
-                positionMs = 0L,
-                durationMs = 0L,
-                videoWidth = 0,
-                videoHeight = 0,
-                ended = false,
-                firstFrameRendered = false,
+    /** Match iOS/desktop: prefer an embedded track in the configured language. */
+    private fun applyPreferredSubtitleSelectionNative() {
+        if (!currentSubtitlesEnabled || preferredSubtitleApplied) return
+        if (currentSelectedSubtitleId != null ||
+            currentSelectedSubtitleLanguage != null ||
+            currentSelectedSubtitleLabel != null
+        ) return
+        val preferred = mpvLanguageCode(currentPreferredSubtitle) ?: return
+        val matchingTracks = cachedTracks["sub"].orEmpty().filter { track ->
+            sameSubtitleLanguage(track.language, preferred) ||
+                sameSubtitleLanguage(languageFromLabel(track.label), preferred)
+        }
+        val selectedTrack = matchingTracks.firstOrNull { it.selectionKey?.startsWith(EmbeddedSubtitleSelectionPrefix) == true }
+            ?: matchingTracks.firstOrNull()
+            ?: return
+        preferredSubtitleApplied = true
+        if (!selectedTrack.selected || cachedTracks["sub"].orEmpty().count(MpvTrack::selected) != 1) {
+            runCatching { selectSingleSubtitleNative(selectedTrack.id) }
+        }
+    }
+
+    private fun loadPendingSourceNative() {
+        if (!surfaceReady) {
+            Log.d("ConduitMpv", "load deferred: surface not ready")
+            return
+        }
+        val request = pendingLoadRequest ?: run {
+            Log.d("ConduitMpv", "surface ready with no pending load")
+            return
+        }
+        Log.d(
+            "ConduitMpv",
+            "loadfile generation=${request.generation} subtitles=${request.subtitles.size} startMs=${request.startPositionMs}",
+        )
+        pendingLoadRequest = null
+        activeLoadGeneration = request.generation
+        pendingExternalSubtitles = request.subtitles
+        externalSubtitleLoadQueued = false
+        fileLoadStarted = false
+        initialVideoOutputReady = false
+        applyRequestHeaders(request.requestHeaders)
+        setPreferredAudioLanguage(request.preferredAudioLanguage)
+        setPlaybackSpeedNative(request.playbackSpeed)
+        // Keep both audio and video paused until the first video output is
+        // available. Without this, mpv can start audio while MediaCodec is
+        // still retrying video initialization.
+        setPausedNative(true)
+        // mpv >= 0.38 added a playlist index argument before per-file options.
+        // The options must remain one comma-separated argument, matching the
+        // iOS bridge. Passing each option as its own argument can prevent the
+        // load command from starting at all.
+        val fileOptions = buildList {
+            add("pause=yes")
+            if (request.startPositionMs > 0) add("start=${request.startPositionMs / 1000.0}")
+        }.joinToString(",")
+        mpv.command("loadfile", request.url, "replace", "-1", fileOptions)
+        // Keep mpv's automatic subtitle selection from racing the explicit
+        // embedded-first choice made after track-list becomes available.
+        mpv.setPropertyString("sid", "no")
+        trackCacheRefreshRequested = true
+        applyPendingSubtitleSelectionNative()
+    }
+
+    /** Returns the last background-refreshed state without touching JNI. */
+    fun snapshot(): MpvPlaybackSnapshot = cachedSnapshot
+
+    /** Schedules a non-blocking state refresh and returns the latest cached snapshot. */
+    fun refreshSnapshot(): MpvPlaybackSnapshot {
+        val shouldQueueRefresh = synchronized(nativeLock) {
+            if (destroyed || !mpv.isInitialized || snapshotRefreshQueued) {
+                false
+            } else {
+                snapshotRefreshQueued = true
+                true
+            }
+        }
+        if (shouldQueueRefresh) {
+            nativeScope.launch {
+                synchronized(nativeLock) {
+                    try {
+                        if (destroyed || !mpv.isInitialized) return@synchronized
+                        refreshSnapshotNative()
+                    } finally {
+                        snapshotRefreshQueued = false
+                    }
+                }
+            }
+        }
+        return cachedSnapshot
+    }
+
+    private fun refreshSnapshotNative() {
+        val snapshot = runCatching {
+            if (trackCacheRefreshRequested) refreshTrackCacheNative()
+            applyPendingSubtitleSelectionNative()
+            applyPreferredSubtitleSelectionNative()
+
+            val paused = mpv.getPropertyBoolean("pause") ?: true
+            val pausedForCache = mpv.getPropertyBoolean("paused-for-cache") ?: false
+            val idle = mpv.getPropertyBoolean("core-idle") ?: false
+            val seeking = mpv.getPropertyBoolean("seeking") ?: false
+            val cacheState = mpv.getPropertyInt("cache-buffering-state")
+            val durationMs = mpv.getPropertyDouble("duration").toMillis()
+            val positionMs = mpv.getPropertyDouble("time-pos").toMillis()
+            val speed = mpv.getPropertyDouble("speed")?.toFloat()?.takeIf { it.isFinite() } ?: currentPlaybackSpeed
+            currentPlaybackSpeed = speed
+            val width = mpv.getPropertyInt("video-out-params/dw")
+                ?: mpv.getPropertyInt("video-params/dw")
+                ?: 0
+            val height = mpv.getPropertyInt("video-out-params/dh")
+                ?: mpv.getPropertyInt("video-params/dh")
+                ?: 0
+            // Dimensions can be available while the decoder is still preparing
+            // its first frame. Match the iOS bridge's stronger output check so
+            // audio cannot resume against a still-black video surface.
+            val hasInitialVideoOutput = !mpv.getPropertyString("video-frame-info/picture-type").isNullOrBlank() ||
+                !mpv.getPropertyString("video-out-params/pixelformat").isNullOrBlank()
+            val rendered = loaded && width > 0 && height > 0 && hasInitialVideoOutput
+            if (rendered && !initialVideoOutputReady) {
+                initialVideoOutputReady = true
+                if (currentPlayWhenReady) {
+                    Log.d("ConduitMpv", "initial video output ready; resuming playback")
+                    setPausedNative(false)
+                }
+                queueExternalSubtitlesNative(activeLoadGeneration)
+            }
+            val buffering = loaded && !rendered && (pausedForCache || cacheState?.let { it in 0 until 100 } == true)
+            MpvPlaybackSnapshot(
+                loading = !loaded || (!rendered && !ended && errorMessage == null),
+                buffering = buffering || (loaded && seeking),
+                playing = loaded && rendered && !paused && !pausedForCache && !idle && !ended,
+                positionMs = positionMs,
+                durationMs = durationMs,
+                videoWidth = width,
+                videoHeight = height,
+                ended = ended || (mpv.getPropertyBoolean("eof-reached") ?: false),
+                firstFrameRendered = rendered,
+                error = errorMessage,
+                trackRevision = trackRevision,
+                playbackSpeed = speed,
+            )
+        }.getOrElse {
+            cachedSnapshot.copy(
                 error = errorMessage ?: "libmpv could not be initialized on this device.",
                 trackRevision = trackRevision,
+                playbackSpeed = currentPlaybackSpeed,
             )
         }
-        val paused = mpv.getPropertyBoolean("pause") ?: true
-        val pausedForCache = mpv.getPropertyBoolean("paused-for-cache") ?: false
-        val idle = mpv.getPropertyBoolean("core-idle") ?: false
-        val seeking = mpv.getPropertyBoolean("seeking") ?: false
-        val cacheState = mpv.getPropertyInt("cache-buffering-state")
-        val durationMs = mpv.getPropertyDouble("duration").toMillis()
-        val positionMs = mpv.getPropertyDouble("time-pos").toMillis()
-        val width = mpv.getPropertyInt("video-out-params/dw")
-            ?: mpv.getPropertyInt("video-params/dw")
-            ?: 0
-        val height = mpv.getPropertyInt("video-out-params/dh")
-            ?: mpv.getPropertyInt("video-params/dh")
-            ?: 0
-        // The pinned mpv-android AAR does not expose a rendered-frame callback;
-        // dimensions after video reconfiguration are the available conservative proxy.
-        val rendered = loaded && width > 0 && height > 0
-        val buffering = loaded && !rendered && (pausedForCache || cacheState?.let { it in 0 until 100 } == true)
-        return MpvPlaybackSnapshot(
-            loading = !loaded || (!rendered && !ended && errorMessage == null),
-            buffering = buffering || (loaded && seeking),
-            playing = loaded && rendered && !paused && !pausedForCache && !idle && !ended,
-            positionMs = positionMs,
-            durationMs = durationMs,
-            videoWidth = width,
-            videoHeight = height,
-            ended = ended || (mpv.getPropertyBoolean("eof-reached") ?: false),
-            firstFrameRendered = rendered,
-            error = errorMessage,
-            trackRevision = trackRevision,
-        )
+        cachedSnapshot = snapshot
     }
 
-    private fun setPreferredLanguages(audio: String, subtitles: String) {
+    private fun queueExternalSubtitlesNative(generation: Long) {
+        val subtitles = pendingExternalSubtitles
+        if (subtitles.isEmpty() || externalSubtitleLoadQueued) return
+        externalSubtitleLoadQueued = true
+        pendingExternalSubtitles = emptyList()
+        val selectedIndex = preferredExternalSubtitleIndex()
+        Log.d("ConduitMpv", "external subtitle load started count=${subtitles.size} selectedIndex=$selectedIndex")
+        subtitleScope.launch {
+            subtitles.forEachIndexed { index, subtitle ->
+                if (destroyed || generation != activeLoadGeneration) return@launch
+                runCatching {
+                    mpv.command(
+                        "sub-add",
+                        subtitle.url,
+                        // mpv's `cached` flag selects the added subtitle. Use
+                        // `auto` for alternatives so loading them cannot
+                        // replace the user's current subtitle.
+                        if (index == selectedIndex) "select" else "auto",
+                        subtitle.addonName.orEmpty(),
+                        subtitle.lang.orEmpty(),
+                    )
+                }
+            }
+            synchronized(nativeLock) {
+                if (generation == activeLoadGeneration) {
+                    trackCacheRefreshRequested = true
+                    externalSubtitleLoadQueued = false
+                    Log.d("ConduitMpv", "external subtitle load finished count=${subtitles.size}")
+                }
+            }
+        }
+    }
+
+    private fun preferredExternalSubtitleIndex(): Int? {
+        if (!currentSubtitlesEnabled || currentSubtitles.isEmpty()) return null
+        return currentSubtitles.indexOfFirst { subtitleSelectionKey(it) == currentSelectedSubtitleId }
+            .takeIf { it >= 0 }
+            ?: if (currentSelectedSubtitleId != null || currentSelectedSubtitleLanguage != null || currentSelectedSubtitleLabel != null) {
+                null
+            } else {
+                if (hasPreferredEmbeddedSubtitle()) return null
+                val preferred = mpvLanguageCode(currentPreferredSubtitle)
+                preferred?.let { code ->
+                    currentSubtitles.indexOfFirst { subtitle ->
+                        subtitle.lang?.substringBefore('-')?.substringBefore('_') == code
+                    }.takeIf { it >= 0 }
+                } ?: currentSubtitles.indices.firstOrNull()
+            }
+    }
+
+    private fun hasPreferredEmbeddedSubtitle(): Boolean {
+        val preferred = mpvLanguageCode(currentPreferredSubtitle) ?: return false
+        return cachedTracks["sub"].orEmpty().any { track ->
+            track.selectionKey?.startsWith(EmbeddedSubtitleSelectionPrefix) == true &&
+                (sameSubtitleLanguage(track.language, preferred) ||
+                    sameSubtitleLanguage(languageFromLabel(track.label), preferred))
+        }
+    }
+
+    private fun setPausedNative(paused: Boolean) {
+        runCatching { mpv.setPropertyBoolean("pause", paused) }
+    }
+
+    private fun setPlaybackSpeedNative(speed: Float) {
+        runCatching { mpv.setPropertyDouble("speed", speed.toDouble()) }
+    }
+
+    private fun enqueueNative(block: () -> Unit) {
+        nativeScope.launch {
+            synchronized(nativeLock) {
+                if (!destroyed && mpv.isInitialized) runCatching(block)
+            }
+        }
+    }
+
+    fun destroySafely() {
+        synchronized(nativeLock) {
+            if (destroyed) return
+            destroyed = true
+        }
+        subtitleScope.cancel()
+        nativeScope.launch {
+            synchronized(nativeLock) {
+                runCatching { destroy() }
+            }
+            nativeScope.cancel()
+        }
+    }
+
+    override fun surfaceCreated(holder: android.view.SurfaceHolder) {
+        nativeScope.launch {
+            synchronized(nativeLock) {
+                if (!destroyed) {
+                    surfaceReady = false
+                    runCatching {
+                        super.surfaceCreated(holder)
+                        Log.d("ConduitMpv", "libmpv surface attached")
+                    }.onFailure {
+                        surfaceReady = false
+                        Log.e("ConduitMpv", "Failed to attach libmpv surface", it)
+                    }
+                }
+            }
+        }
+    }
+
+    override fun surfaceChanged(holder: android.view.SurfaceHolder, format: Int, width: Int, height: Int) {
+        nativeScope.launch {
+            synchronized(nativeLock) {
+                if (!destroyed) {
+                    runCatching {
+                        super.surfaceChanged(holder, format, width, height)
+                        surfaceReady = width > 0 && height > 0
+                        if (surfaceReady) {
+                            Log.d("ConduitMpv", "libmpv surface ready: ${width}x$height")
+                            loadPendingSourceNative()
+                        }
+                    }.onFailure {
+                        surfaceReady = false
+                        Log.e("ConduitMpv", "Failed to configure libmpv surface", it)
+                    }
+                }
+            }
+        }
+    }
+
+    override fun surfaceDestroyed(holder: android.view.SurfaceHolder) {
+        nativeScope.launch {
+            synchronized(nativeLock) {
+                if (!destroyed) {
+                    surfaceReady = false
+                    runCatching {
+                        super.surfaceDestroyed(holder)
+                        Log.d("ConduitMpv", "libmpv surface detached")
+                    }.onFailure {
+                        Log.e("ConduitMpv", "Failed to detach libmpv surface", it)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun setPreferredAudioLanguage(audio: String) {
         mpvLanguageCode(audio)?.let { mpv.setPropertyString("alang", it) }
-        mpvLanguageCode(subtitles)?.let { mpv.setPropertyString("slang", it) }
     }
 
     private fun applyRequestHeaders(headers: Map<String, String>) {

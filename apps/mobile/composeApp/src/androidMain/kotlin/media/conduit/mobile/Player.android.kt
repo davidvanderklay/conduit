@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.os.SystemClock
+import android.util.Log
 import android.widget.Toast
 import androidx.annotation.OptIn
 import androidx.compose.runtime.*
@@ -53,7 +54,9 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.ui.PlayerView
 import androidx.media3.ui.AspectRatioFrameLayout
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import media.conduit.mobile.account.SubtitleItem
 import android.net.Uri
 
@@ -391,20 +394,22 @@ actual fun NativePlayer(
     LaunchedEffect(mpvView, url, requestHeaders, subtitles, activeEngine) {
         val view = mpvView ?: return@LaunchedEffect
         if (activeEngine != NativePlaybackEngine.Libmpv || url.isNullOrBlank()) return@LaunchedEffect
-        view.loadSource(
-            url = url,
-            requestHeaders = requestHeaders,
-            subtitles = subtitles,
-            startPositionMs = fallbackStartPositionMs.takeIf { it > 0 } ?: startPositionMs,
-            playWhenReady = active && (fallbackReason == null || fallbackPlayWhenReady),
-            preferredAudioLanguage = preferredAudioLanguage,
-            preferredSubtitleLanguage = preferredSubtitleLanguage,
-            playbackSpeed = fallbackPlaybackSpeed,
-            selectedSubtitleId = selectedSubtitleId,
-            selectedSubtitleLanguage = selectedSubtitleLanguage,
-            selectedSubtitleLabel = selectedSubtitleLabel,
-            subtitlesEnabled = subtitlesEnabled,
-        )
+        withContext(Dispatchers.IO) {
+            view.loadSource(
+                url = url,
+                requestHeaders = requestHeaders,
+                subtitles = subtitles,
+                startPositionMs = fallbackStartPositionMs.takeIf { it > 0 } ?: startPositionMs,
+                playWhenReady = active && (fallbackReason == null || fallbackPlayWhenReady),
+                preferredAudioLanguage = preferredAudioLanguage,
+                preferredSubtitleLanguage = preferredSubtitleLanguage,
+                playbackSpeed = fallbackPlaybackSpeed,
+                selectedSubtitleId = selectedSubtitleId,
+                selectedSubtitleLanguage = selectedSubtitleLanguage,
+                selectedSubtitleLabel = selectedSubtitleLabel,
+                subtitlesEnabled = subtitlesEnabled,
+            )
+        }
     }
     LaunchedEffect(activeEngine, active, mpvView) {
         if (activeEngine == NativePlaybackEngine.Media3) {
@@ -416,7 +421,11 @@ actual fun NativePlayer(
     LaunchedEffect(player, mpvView, lifecycle, landscape, activeEngine) {
         lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             while (true) {
-                val mpvSnapshot = if (activeEngine == NativePlaybackEngine.Libmpv) mpvView?.snapshot() else null
+                val mpvSnapshot = if (activeEngine == NativePlaybackEngine.Libmpv) {
+                    mpvView?.let { view -> withContext(Dispatchers.IO) { view.refreshSnapshot() } }
+                } else {
+                    null
+                }
                 val next = if (mpvSnapshot != null) {
                     mpvTrackRevision = mpvSnapshot.trackRevision
                     firstFrameRendered = mpvSnapshot.firstFrameRendered
@@ -474,7 +483,7 @@ actual fun NativePlayer(
                 durationMs = next.durationMs
                 playing = next.playing
                 buffering = next.buffering
-                playbackSpeed = if (mpvSnapshot != null) mpvView?.playbackSpeed() ?: playbackSpeed else player.playbackParameters.speed
+                playbackSpeed = mpvSnapshot?.playbackSpeed ?: player.playbackParameters.speed
                 (activity as? MainActivity)?.updateConduitPipVideoSize(next.videoWidth, next.videoHeight)
                 (activity as? MainActivity)?.updateConduitPipReadiness(next.pipReady)
                 (activity as? MainActivity)?.updateConduitPictureInPictureParams()
@@ -525,12 +534,16 @@ actual fun NativePlayer(
                     if (retryPlaybackEngine(session).activeEngine == NativePlaybackEngine.Media3) {
                         retryAutomaticFromLibmpv()
                     } else {
-                        mpvView?.retry(
-                            selectedSubtitleId = selectedSubtitleId,
-                            selectedSubtitleLanguage = selectedSubtitleLanguage,
-                            selectedSubtitleLabel = selectedSubtitleLabel,
-                            subtitlesEnabled = subtitlesEnabled,
-                        )
+                        mpvView?.let { view ->
+                            withContext(Dispatchers.IO) {
+                                view.retry(
+                                    selectedSubtitleId = selectedSubtitleId,
+                                    selectedSubtitleLanguage = selectedSubtitleLanguage,
+                                    selectedSubtitleLabel = selectedSubtitleLabel,
+                                    subtitlesEnabled = subtitlesEnabled,
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -540,6 +553,11 @@ actual fun NativePlayer(
     LaunchedEffect(presentation) {
         controlsVisible = presentation == PlaybackPresentation.FullScreen
     }
+    LaunchedEffect(mpvView, resizeMode, activeEngine) {
+        if (activeEngine == NativePlaybackEngine.Libmpv) {
+            mpvView?.let { view -> withContext(Dispatchers.IO) { view.applyResizeMode(resizeMode) } }
+        }
+    }
     LaunchedEffect(controlsVisible, playing, speedMenuOpen) {
         if (controlsVisible && playing && !speedMenuOpen) {
             delay(4_000)
@@ -548,31 +566,31 @@ actual fun NativePlayer(
     }
 
     val holdToSpeedReady = firstFrameRendered && durationMs > 0
+    val temporarySpeedChanged: (Boolean) -> Unit = { activeSpeed ->
+        Log.d(
+            "ConduitPlayer",
+            "temporary speed active=$activeSpeed ready=$holdToSpeedReady firstFrame=$firstFrameRendered durationMs=$durationMs",
+        )
+        latestTemporarySpeedCallback(activeSpeed)
+    }
     val doubleTapSlopPx = with(LocalDensity.current) { 48.dp.toPx() }
     val currentSpeed: () -> Float = { if (activeEngine == NativePlaybackEngine.Media3) player.playbackParameters.speed else mpvView?.playbackSpeed() ?: playbackSpeed }
     val setPlaybackSpeed: (Float) -> Unit = { speed -> if (activeEngine == NativePlaybackEngine.Media3) player.setPlaybackSpeed(speed) else mpvView?.setPlaybackSpeed(speed) }
     val seekTo: (Long) -> Unit = { position -> if (activeEngine == NativePlaybackEngine.Media3) player.seekTo(position) else mpvView?.seekTo(position) }
     val seekBy: (Long) -> Unit = { offset -> if (activeEngine == NativePlaybackEngine.Media3) player.seekTo((player.currentPosition + offset).coerceAtLeast(0L)) else mpvView?.seekBy(offset) }
-    val togglePlayback: () -> Unit = { if (playing) { if (activeEngine == NativePlaybackEngine.Media3) player.pause() else mpvView?.setPaused(true) } else { if (activeEngine == NativePlaybackEngine.Media3) player.play() else mpvView?.setPaused(false) } }
+    val togglePlayback: () -> Unit = {
+        if (activeEngine == NativePlaybackEngine.Media3) {
+            if (playing) player.pause() else player.play()
+        } else {
+            val nextPlaying = !playing
+            mpvView?.setPaused(!nextPlaying)
+            playing = nextPlaying
+        }
+    }
     Box(modifier.background(Color.Black).pointerInput(player, activeEngine, resizeMode) { detectTransformGestures { _, _, zoom, _ ->
         val next = when { zoom > 1.04f -> ANDROID_RESIZE_MODE_ZOOM; zoom < .96f -> AspectRatioFrameLayout.RESIZE_MODE_FIT; else -> resizeMode }
         if (next != resizeMode) resizeMode = next
-    } }.pointerInput(player, activeEngine, touchGestures, holdToSpeed, holdToSpeedReady, controlsVisible) {
-        detectMovementTolerantPlayerGestures(
-            touchGestures = touchGestures,
-            holdToSpeed = holdToSpeed,
-            holdToSpeedReady = holdToSpeedReady,
-            doubleTapSlopPx = doubleTapSlopPx,
-            currentSpeed = currentSpeed,
-            setSpeed = setPlaybackSpeed,
-            onTemporarySpeedChanged = latestTemporarySpeedCallback,
-            onTap = { controlsVisible = true },
-            onDoubleTap = { offset ->
-                seekBy(if (offset.x < size.width / 2f) -10_000L else 10_000L)
-                controlsVisible = true
-            },
-        )
-    }) {
+    } }) {
         if (activeEngine == NativePlaybackEngine.Libmpv) {
             AndroidView(
                 factory = { viewContext ->
@@ -585,12 +603,11 @@ actual fun NativePlayer(
                 },
                 update = {
                     mpvView = it
-                    it.applyResizeMode(resizeMode)
                     (activity as? MainActivity)?.setConduitPipSourceView(it)
                 },
                 onRelease = {
                     if (mpvView === it) mpvView = null
-                    runCatching { it.destroy() }
+                    runCatching { it.destroySafely() }
                 },
                 modifier = Modifier.fillMaxSize(),
             )
@@ -611,27 +628,34 @@ actual fun NativePlayer(
                 modifier = Modifier.fillMaxSize(),
             )
         }
+        // Keep the gesture recognizer in a Compose layer above SurfaceView. A
+        // SurfaceView can consume the initial down event before a parent
+        // pointerInput modifier sees it, which breaks hold-to-speed on Android.
+        // The visible controls are a later sibling, so their clicks still win.
+        Box(
+            Modifier
+                .fillMaxSize()
+                .pointerInput(player, activeEngine, touchGestures, holdToSpeed, holdToSpeedReady) {
+                    detectMovementTolerantPlayerGestures(
+                        touchGestures = touchGestures,
+                        holdToSpeed = holdToSpeed,
+                        holdToSpeedReady = holdToSpeedReady,
+                        doubleTapSlopPx = doubleTapSlopPx,
+                        currentSpeed = currentSpeed,
+                        setSpeed = setPlaybackSpeed,
+                        onTemporarySpeedChanged = temporarySpeedChanged,
+                        onTap = { controlsVisible = !controlsVisible },
+                        onDoubleTap = { offset ->
+                            seekBy(if (offset.x < size.width / 2f) -10_000L else 10_000L)
+                            controlsVisible = true
+                        },
+                    )
+                },
+        )
         if (controlsVisible && presentation == PlaybackPresentation.FullScreen) {
-            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .42f)).pointerInput(player, activeEngine, resizeMode) { detectTransformGestures { _, _, zoom, _ ->
-                val next = when { zoom > 1.04f -> ANDROID_RESIZE_MODE_ZOOM; zoom < .96f -> AspectRatioFrameLayout.RESIZE_MODE_FIT; else -> resizeMode }
-                if (next != resizeMode) resizeMode = next
-            } }.pointerInput(player, activeEngine, touchGestures, holdToSpeed, holdToSpeedReady) {
-                detectMovementTolerantPlayerGestures(
-                    touchGestures = touchGestures,
-                    holdToSpeed = holdToSpeed,
-                    holdToSpeedReady = holdToSpeedReady,
-                    doubleTapSlopPx = doubleTapSlopPx,
-                    currentSpeed = currentSpeed,
-                    setSpeed = setPlaybackSpeed,
-                    onTemporarySpeedChanged = latestTemporarySpeedCallback,
-                    onTap = { controlsVisible = false },
-                    onDoubleTap = { offset ->
-                        seekBy(if (offset.x < size.width / 2f) -10_000L else 10_000L)
-                        controlsVisible = true
-                    },
-                )
-            }) {
-                val loadingOrPortrait = !landscape || durationMs <= 0
+            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .42f))) {
+                val portraitLayout = !landscape
+                val timelineAvailable = durationMs > 0
                 Box(Modifier.fillMaxSize()) {
                     if (shouldShowCenterPlaybackControl(controlsVisible, dragging, buffering)) {
                         FilledIconButton(onClick = { togglePlayback(); controlsVisible = true }, modifier = Modifier.align(Alignment.Center).size(64.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color.White, contentColor = Color.Black)) {
@@ -648,8 +672,9 @@ actual fun NativePlayer(
                         }
                     }
                 }
-                Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(start = 18.dp, end = 18.dp, top = 6.dp, bottom = if (loadingOrPortrait) 66.dp else 14.dp), verticalArrangement = Arrangement.spacedBy(0.dp)) {
+                Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(start = 18.dp, end = 18.dp, top = 6.dp, bottom = if (portraitLayout) 66.dp else 14.dp), verticalArrangement = Arrangement.spacedBy(0.dp)) {
                     Slider(
+                        enabled = timelineAvailable,
                         value = if (dragging) draggedPosition else positionMs.toFloat(),
                         onValueChange = { dragging = true; draggedPosition = it },
                         onValueChangeFinished = { seekTo(draggedPosition.toLong()); dragging = false; controlsVisible = true },
@@ -676,7 +701,7 @@ actual fun NativePlayer(
                             },
                         )
                     }
-                    if (!loadingOrPortrait) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceEvenly) {
+                    if (!portraitLayout) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceEvenly) {
                         val haptics = LocalHapticFeedback.current
                         val speeds = listOf(.5f, .75f, 1f, 1.25f, 1.5f, 2f)
                         Box {
@@ -731,12 +756,12 @@ actual fun NativePlayer(
                             resizeMode = nextAndroidResizeMode(resizeMode)
                             controlsVisible = true
                         }
-                        PlayerBottomAction(Icons.Rounded.Headphones, "Audio", landscape) { trackPanel = C.TRACK_TYPE_AUDIO; controlsVisible = true }
-                        PlayerBottomAction(Icons.Rounded.Subtitles, "Subtitles", landscape) { trackPanel = C.TRACK_TYPE_TEXT; controlsVisible = true }
+                        PlayerBottomAction(Icons.Rounded.Headphones, "Audio", landscape) { trackPanel = C.TRACK_TYPE_AUDIO; controlsVisible = false }
+                        PlayerBottomAction(Icons.Rounded.Subtitles, "Subtitles", landscape) { trackPanel = C.TRACK_TYPE_TEXT; controlsVisible = false }
                         if (hasEpisodes) PlayerBottomAction(Icons.Rounded.PlaylistPlay, "Episodes", landscape, onClick = onEpisodes)
                     }
                 }
-                if (loadingOrPortrait && hasEpisodes) IconButton(onClick = onEpisodes, modifier = Modifier.align(Alignment.BottomEnd).padding(end = 14.dp, bottom = 8.dp).background(Color.Black.copy(.58f), CircleShape)) { Icon(Icons.Rounded.PlaylistPlay, "Episodes", tint = Color.White) }
+                if (portraitLayout && hasEpisodes) IconButton(onClick = onEpisodes, modifier = Modifier.align(Alignment.BottomEnd).padding(end = 14.dp, bottom = 8.dp).background(Color.Black.copy(.58f), CircleShape)) { Icon(Icons.Rounded.PlaylistPlay, "Episodes", tint = Color.White) }
             }
         }
         trackPanel?.let { type ->
@@ -746,6 +771,7 @@ actual fun NativePlayer(
                         view = it,
                         type = type,
                         revision = mpvTrackRevision,
+                        preferredSubtitleLanguage = preferredSubtitleLanguage,
                         onSubtitleSelectionChanged = { id, language, label, enabled ->
                             selectedSubtitleId = id
                             selectedSubtitleLanguage = language
