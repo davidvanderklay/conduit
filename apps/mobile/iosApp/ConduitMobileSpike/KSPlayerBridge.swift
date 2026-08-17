@@ -873,7 +873,6 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
     private var pictureInPicturePossibleObservation: NSKeyValueObservation?
     private var primingTimeoutWorkItem: DispatchWorkItem?
     private var playbackWasPlaying = false
-    private var lastSourceReadUptime: TimeInterval = 0
 
     init(playerView: ConduitKSPlayerView, playerController: ConduitKSPlayerViewController) {
         self.playerView = playerView
@@ -926,7 +925,9 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
         guard isSupported, !isActive, let playerView, let layer = playerView.playerLayer else { return false }
         playbackWasPlaying = playerController?.playbackIntent ?? layer.player.isPlaying
         guard prepareVideoOutput() else { return false }
-        setUnderlyingVideoOutputPlaying(false)
+        // Let KSPlayer's own Metal output advance frames. Its normal render
+        // path applies the audio/video sync policy; PiP mirrors that output.
+        setUnderlyingVideoOutputPlaying(playbackWasPlaying)
 
         isPriming = true
         renderedFrameCount = 0
@@ -972,7 +973,6 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
         lastSourceBuffer = nil
         subtitleOverlay = nil
         lastSubtitleKey = ""
-        lastSourceReadUptime = 0
         pixelBufferPool = nil
         pixelBufferSize = .zero
         formatDescription = nil
@@ -1004,7 +1004,9 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
     private func prepareVideoOutput() -> Bool {
         guard let player = playerView?.playerLayer?.player else { return false }
         if let player = player as? KSMEPlayer {
-            player.videoOutput?.readNextFrame()
+            if player.videoOutput?.pixelBuffer == nil {
+                player.videoOutput?.readNextFrame()
+            }
             return player.videoOutput != nil
         }
         guard let player = player as? KSAVPlayer,
@@ -1042,16 +1044,6 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
 
     private func currentVideoFrame() -> (buffer: CVPixelBuffer, time: CMTime)? {
         guard let player = playerView?.playerLayer?.player else { return nil }
-        if let player = player as? KSMEPlayer {
-            let now = CACurrentMediaTime()
-            let needsInitialFrame = player.videoOutput?.pixelBuffer == nil
-            let frameIsDue = player.isPlaying && player.displayedVideoTime <= player.currentPlaybackTime
-            let minimumFrameInterval = 1.0 / 30.0
-            if needsInitialFrame || (frameIsDue && now - lastSourceReadUptime >= minimumFrameInterval) {
-                player.videoOutput?.readNextFrame()
-                lastSourceReadUptime = now
-            }
-        }
         if let player = player as? KSMEPlayer,
            let buffer = player.videoOutput?.pixelBuffer?.cvPixelBuffer {
             let seconds = max(0, player.displayedVideoTime)
@@ -1071,8 +1063,19 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
 
     private func currentSubtitleOverlay(for sourceBuffer: CVPixelBuffer, at time: TimeInterval) -> CIImage? {
         guard let playerView, playerView.playerLayer != nil else { return nil }
-        _ = playerView.srtControl.subtitle(currentTime: max(0, time))
-        guard let part = playerView.srtControl.parts.first else {
+        let subtitleControl = playerView.srtControl
+        _ = subtitleControl.subtitle(currentTime: max(0, time))
+        guard let selectedSubtitle = subtitleControl.selectedSubtitleInfo else {
+            lastSubtitleKey = ""
+            subtitleOverlay = nil
+            return nil
+        }
+        // Read the selected track directly instead of depending on the
+        // UIKit subtitle view's last update. PiP can start between two
+        // normal player callbacks, leaving `parts` empty even though the
+        // selected embedded subtitle has a cue for this video timestamp.
+        let subtitleTime = max(0, time - selectedSubtitle.delay - subtitleControl.subtitleDelay)
+        guard let part = selectedSubtitle.search(for: subtitleTime).first else {
             lastSubtitleKey = ""
             subtitleOverlay = nil
             return nil
@@ -1218,7 +1221,7 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
         playbackWasPlaying = playing
         setDisplayRate(playing ? 1 : 0)
         playerController?.setPlaybackIntent(playing)
-        setUnderlyingVideoOutputPlaying(false)
+        setUnderlyingVideoOutputPlaying(playing)
     }
 
     func pictureInPictureControllerTimeRangeForPlayback(_: AVPictureInPictureController) -> CMTimeRange {
