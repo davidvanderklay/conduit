@@ -51,6 +51,7 @@ interface IosPlayerBridge {
     fun getSubtitleTrackId(at: Int): Int
     fun getSubtitleTrackLabel(at: Int): String
     fun getSubtitleTrackLang(at: Int): String
+    fun getSubtitleTrackCodec(at: Int): String
     fun isSubtitleTrackExternal(at: Int): Boolean
     fun isSubtitleTrackSelected(at: Int): Boolean
     fun selectAudioTrack(trackId: Int)

@@ -133,8 +133,8 @@ final class ConduitKSPlayerBridge: NSObject, IosPlayerBridge {
 
     func getAudioTrackLanguageName(at: Int32) -> String {
         guard let language = track(at: at, in: playerViewController?.audioTracks)?.language else { return "" }
-        let code = language.replacingOccurrences(of: "_", with: "-").split(separator: "-").first.map(String.init) ?? ""
-        return Locale.current.localizedString(forLanguageCode: code)?.localizedCapitalized ?? ""
+        guard let code = playerViewController?.languageCode(language) else { return "" }
+        return Locale(identifier: "en_US").localizedString(forLanguageCode: code)?.localizedCapitalized ?? ""
     }
 
     func getAudioTrackCodec(at: Int32) -> String {
@@ -175,6 +175,10 @@ final class ConduitKSPlayerBridge: NSObject, IosPlayerBridge {
 
     func getSubtitleTrackLang(at: Int32) -> String {
         track(at: at, in: playerViewController?.subtitleTracks)?.language ?? ""
+    }
+
+    func getSubtitleTrackCodec(at: Int32) -> String {
+        track(at: at, in: playerViewController?.subtitleTracks)?.codec ?? ""
     }
 
     func isSubtitleTrackExternal(at: Int32) -> Bool {
@@ -292,20 +296,39 @@ final class ConduitKSPlayerView: VideoPlayerView {
         let font = SubtitleModel.textFont.withSize(size)
         subtitleLabel.font = font
         guard let attributedText = subtitleLabel.attributedText, attributedText.length > 0 else { return }
-        if let existingFont = attributedText.attribute(
-            .font,
-            at: 0,
-            effectiveRange: nil
-        ) as? UIFont, abs(existingFont.pointSize - size) < 0.1 {
+
+        let range = NSRange(location: 0, length: attributedText.length)
+        var needsNormalization = false
+        attributedText.enumerateAttributes(in: range) { attributes, _, stop in
+            guard !needsNormalization else {
+                stop.pointee = true
+                return
+            }
+            let hasExpectedFont = (attributes[.font] as? UIFont).map {
+                abs($0.pointSize - size) < 0.1
+            } ?? false
+            needsNormalization = !hasExpectedFont ||
+                attributes[.expansion] != nil ||
+                attributes[.obliqueness] != nil
+        }
+        guard needsNormalization else {
             return
         }
-        let resized = NSMutableAttributedString(attributedString: attributedText)
-        resized.addAttribute(
+
+        // KSPlayer preserves ASS expansion/obliqueness attributes. Its ASS
+        // parser currently uses those attributes for bold/italic tags, but
+        // UIKit interprets them as geometric stretching and shearing. The
+        // app uses one consistent subtitle style, so discard those source
+        // transforms while retaining the text itself.
+        let normalized = NSMutableAttributedString(attributedString: attributedText)
+        normalized.removeAttribute(.expansion, range: range)
+        normalized.removeAttribute(.obliqueness, range: range)
+        normalized.addAttribute(
             .font,
             value: font,
-            range: NSRange(location: 0, length: resized.length)
+            range: range
         )
-        subtitleLabel.attributedText = resized
+        subtitleLabel.attributedText = normalized
     }
 
     private func hideBuiltInControls() {
@@ -326,20 +349,22 @@ final class ConduitKSPlayerViewController: UIViewController {
     private var preferredAudioLanguage = "System default"
     private var preferredSubtitleLanguage = "English"
     private var externalSubtitleLanguages: [String: String] = [:]
+    private var userSelectedAudio = false
     private var userSelectedSubtitle = false
+    private var didApplyPreferredAudio = false
     private var didApplyPreferredTracks = false
     private var shouldPlay = false
 
     fileprivate var audioTracks: [ConduitKSPlayerTrack] {
         guard let player = playerView.playerLayer?.player else { return [] }
         return player.tracks(mediaType: .audio).enumerated().map { index, track in
-            let description = String(describing: track)
             let asbd = track.audioStreamBasicDescription
+            let language = track.languageCode ?? ""
             return ConduitKSPlayerTrack(
                 id: Int(track.trackID),
-                title: track.name.isEmpty ? "Audio \(index + 1)" : track.name,
-                language: track.languageCode ?? "",
-                codec: description,
+                title: displayTrackTitle(track.name, language: language, fallback: "Audio \(index + 1)"),
+                language: language,
+                codec: mediaCodecName(track) ?? "",
                 channels: asbd.map { String($0.mChannelsPerFrame) } ?? "",
                 channelCount: asbd.map { Int($0.mChannelsPerFrame) } ?? 0,
                 sampleRate: asbd.map { Int($0.mSampleRate) } ?? 0,
@@ -353,11 +378,12 @@ final class ConduitKSPlayerViewController: UIViewController {
     fileprivate var subtitleTracks: [ConduitKSPlayerTrack] {
         guard let player = playerView.playerLayer?.player else { return [] }
         let embedded = player.tracks(mediaType: .subtitle).enumerated().map { index, track in
+            let language = track.languageCode ?? ""
             ConduitKSPlayerTrack(
                 id: Int(track.trackID),
-                title: track.name.isEmpty ? "Subtitle \(index + 1)" : track.name,
-                language: track.languageCode ?? "",
-                codec: String(describing: track),
+                title: displayTrackTitle(track.name, language: language, fallback: "Subtitle \(index + 1)"),
+                language: language,
+                codec: mediaCodecName(track) ?? "",
                 channels: "",
                 channelCount: 0,
                 sampleRate: 0,
@@ -414,7 +440,9 @@ final class ConduitKSPlayerViewController: UIViewController {
         }
         currentErrorMessage = ""
         externalSubtitleLanguages = [:]
+        userSelectedAudio = false
         userSelectedSubtitle = false
+        didApplyPreferredAudio = false
         didApplyPreferredTracks = false
         stopPictureInPicture()
         let subtitleInfos = subtitles.compactMap { subtitle -> URLSubtitleInfo? in
@@ -432,9 +460,10 @@ final class ConduitKSPlayerViewController: UIViewController {
 
         let options = KSOptions()
         options.startPlayTime = TimeInterval(max(0, initialPositionMs)) / 1000.0
-        // KSPlayer otherwise starts with subtitles disabled. The preferred
-        // language is applied once the embedded tracks are available below.
-        options.autoSelectEmbedSubtitle = true
+        // Keep KSPlayer from selecting the first embedded text stream. Text
+        // streams are commonly all reported as enabled, so that default is
+        // not a language preference. The bridge selects subtitles below.
+        options.autoSelectEmbedSubtitle = false
         options.canStartPictureInPictureAutomaticallyFromInline = true
         options.appendHeader(headers)
 
@@ -491,6 +520,8 @@ final class ConduitKSPlayerViewController: UIViewController {
 
     func setPreferredAudioLanguage(_ language: String) {
         preferredAudioLanguage = language
+        userSelectedAudio = false
+        didApplyPreferredAudio = false
         applyPreferredTracks()
     }
 
@@ -552,6 +583,7 @@ final class ConduitKSPlayerViewController: UIViewController {
 
     func selectAudio(_ trackId: Int) {
         guard let track = playerView.playerLayer?.player.tracks(mediaType: .audio).first(where: { Int($0.trackID) == trackId }) else { return }
+        userSelectedAudio = true
         playerView.playerLayer?.player.select(track: track)
     }
 
@@ -600,7 +632,7 @@ final class ConduitKSPlayerViewController: UIViewController {
         videoWidth = Int(max(0, player.naturalSize.width))
         videoHeight = Int(max(0, player.naturalSize.height))
         currentSpeed = player.playbackRate
-        if layer.state == .readyToPlay && !userSelectedSubtitle && !didApplyPreferredTracks {
+        if layer.state == .readyToPlay {
             applyPreferredTracks()
         }
         if layer.state == .error, currentErrorMessage.isEmpty {
@@ -614,7 +646,9 @@ final class ConduitKSPlayerViewController: UIViewController {
         playerView.playerLayer?.player.shutdown()
         playerView.playerLayer = nil
         playerView.srtControl.selectedSubtitleInfo = nil
+        userSelectedAudio = false
         userSelectedSubtitle = false
+        didApplyPreferredAudio = false
         didApplyPreferredTracks = false
     }
 
@@ -624,19 +658,16 @@ final class ConduitKSPlayerViewController: UIViewController {
 
     private func applyPreferredTracks() {
         guard let layer = playerView.playerLayer else { return }
-        if let preferred = languageCode(preferredAudioLanguage),
-           let track = layer.player.tracks(mediaType: .audio).first(where: {
-               languageCode($0.languageCode ?? "") == preferred || languageCode($0.name) == preferred
-           })
-        {
-            layer.player.select(track: track)
-        }
+        applyPreferredAudioTrack(layer: layer)
+        guard !userSelectedSubtitle, !didApplyPreferredTracks else { return }
 
         let embedded = layer.player.tracks(mediaType: .subtitle)
-        let preferred = languageCode(preferredSubtitleLanguage)
+        let preferred = preferredLanguageCode(preferredSubtitleLanguage)
         if let track = preferred.flatMap({ preferred in
             embedded.first(where: {
-                languageCode($0.languageCode ?? "") == preferred || languageCode($0.name) == preferred
+                languageCode($0.languageCode ?? "") == preferred
+            }) ?? embedded.first(where: {
+                languageCode($0.name) == preferred
             })
         }) {
             layer.player.select(track: track)
@@ -676,22 +707,75 @@ final class ConduitKSPlayerViewController: UIViewController {
         }
     }
 
-    private func languageCode(_ value: String) -> String? {
+    private func applyPreferredAudioTrack(layer: KSPlayerLayer) {
+        guard !userSelectedAudio, !didApplyPreferredAudio else { return }
+        guard let preferred = preferredLanguageCode(preferredAudioLanguage) else {
+            didApplyPreferredAudio = true
+            return
+        }
+        let tracks = layer.player.tracks(mediaType: .audio)
+        let track = tracks.first(where: {
+            languageCode($0.languageCode ?? "") == preferred
+        }) ?? tracks.first(where: {
+            languageCode($0.name) == preferred
+        })
+        guard let track else { return }
+        layer.player.select(track: track)
+        didApplyPreferredAudio = true
+    }
+
+    fileprivate func languageCode(_ value: String) -> String? {
         let normalized = value
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
             .replacingOccurrences(of: "_", with: "-")
-        let base = normalized.split(separator: "-").first.map(String.init) ?? normalized
+        let base = normalized
+            .components(separatedBy: CharacterSet(charactersIn: "-_:([·, "))
+            .first(where: { !$0.isEmpty }) ?? normalized
         let aliases = [
             "english": "en", "eng": "en", "spanish": "es", "spa": "es",
             "french": "fr", "fra": "fr", "fre": "fr", "german": "de", "deu": "de", "ger": "de",
             "italian": "it", "ita": "it", "portuguese": "pt", "por": "pt", "japanese": "ja", "jpn": "ja",
             "korean": "ko", "kor": "ko", "chinese": "zh", "zho": "zh", "chi": "zh",
             "arabic": "ar", "ara": "ar", "indonesian": "id", "ind": "id", "russian": "ru", "rus": "ru",
-            "hindi": "hi", "hin": "hi",
+            "hindi": "hi", "hin": "hi", "tamil": "ta", "tam": "ta", "telugu": "te", "tel": "te",
+            "kannada": "kn", "kan": "kn", "malayalam": "ml", "mal": "ml", "marathi": "mr", "mar": "mr",
+            "punjabi": "pa", "pan": "pa", "bengali": "bn", "ben": "bn",
         ]
         if base == "system" || base == "default" || base.isEmpty { return nil }
         return aliases[base] ?? (base.count == 2 ? base : nil)
+    }
+
+    private func preferredLanguageCode(_ value: String) -> String? {
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if normalized == "system default" || normalized == "system" || normalized == "default" {
+            return languageCode(Locale.current.languageCode ?? "")
+        }
+        return languageCode(value)
+    }
+
+    private func localizedLanguageName(_ language: String) -> String? {
+        guard let code = languageCode(language) else { return nil }
+        return Locale(identifier: "en_US").localizedString(forLanguageCode: code)?.localizedCapitalized
+    }
+
+    private func mediaCodecName(_ track: any MediaPlayerTrack) -> String? {
+        (track as? FFmpegAssetTrack)?.codecName
+    }
+
+    private func displayTrackTitle(_ title: String, language: String, fallback: String) -> String {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.isEmpty || isSourceLabel(trimmed) else { return trimmed }
+        return localizedLanguageName(language) ?? fallback
+    }
+
+    private func isSourceLabel(_ value: String) -> Bool {
+        let normalized = value.lowercased()
+        if normalized.hasPrefix("http://") || normalized.hasPrefix("https://") || normalized.hasPrefix("www.") {
+            return true
+        }
+        guard !normalized.contains(where: { $0.isWhitespace }), normalized.contains(".") else { return false }
+        return URL(string: "https://\(normalized)")?.host?.contains(".") == true
     }
 
     private var nativePictureInPictureController: KSPictureInPictureController? {

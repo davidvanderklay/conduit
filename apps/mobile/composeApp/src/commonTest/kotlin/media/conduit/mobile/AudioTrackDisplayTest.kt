@@ -43,4 +43,26 @@ class AudioTrackDisplayTest {
             ),
         )
     }
+
+    @Test
+    fun replacesPublisherDomainWithTrackLanguage() {
+        assertEquals(
+            AudioTrackDisplay(
+                primary = "Tamil (Stereo, 48 kHz, 320 kbps, AC-3)",
+                secondary = "Tamil",
+            ),
+            audioTrackDisplay(
+                AudioTrackDisplayInfo(
+                    title = "www.1TamilBlasters.land",
+                    languageCode = "ta",
+                    languageName = "Tamil",
+                    codec = "ac3",
+                    channelCount = 2,
+                    sampleRate = 48_000,
+                    bitrate = 320_000,
+                ),
+                fallback = "Audio 1",
+            ),
+        )
+    }
 }

@@ -551,6 +551,7 @@ private fun IosPlayerBridge.readSubtitleTracks(): List<IosTrack> =
             id = getSubtitleTrackId(index),
             label = getSubtitleTrackLabel(index).ifBlank { "Subtitle ${index + 1}" },
             language = getSubtitleTrackLang(index),
+            codec = getSubtitleTrackCodec(index),
             external = isSubtitleTrackExternal(index),
             selected = isSubtitleTrackSelected(index),
         )
@@ -802,7 +803,9 @@ private val IosTrack.languageKey: String
     get() = iosSubtitleLanguageKey(language, label)
 
 private val IosTrack.languageName: String
-    get() = localizedLanguage.ifBlank { iosLanguageName(languageKey) ?: label.ifBlank { "Unknown language" } }
+    get() = localizedLanguage.ifBlank {
+        iosLanguageName(languageKey) ?: label.takeIf { languageKey != "und" }.orEmpty().ifBlank { "Unknown language" }
+    }
 
 private val IosTrack.audioLanguageName: String
     get() = localizedLanguage.ifBlank { iosLanguageName(languageKey) ?: "Unknown language" }
@@ -824,18 +827,21 @@ private fun iosLanguageName(languageKey: String): String? = when (languageKey) {
         "hi" -> "Hindi"
         "id" -> "Indonesian"
         "vi" -> "Vietnamese"
+        "ta" -> "Tamil"
+        "te" -> "Telugu"
+        "kn" -> "Kannada"
+        "ml" -> "Malayalam"
+        "mr" -> "Marathi"
+        "pa" -> "Punjabi"
+        "bn" -> "Bengali"
         else -> null
     }
 
 private val IosTrack.variantName: String
     get() {
         if (external) return "${label.ifBlank { "Add-on subtitle" }} · External"
-        val normalized = label.substringBefore('(').substringBefore('[').trim().lowercase()
-        return if (label.isBlank() || iosSubtitleLanguageKey(normalized, normalized) == languageKey) {
-            "Embedded"
-        } else {
-            "$label · Embedded"
-        }
+        val subtitleCodec = codec.trim().takeIf(String::isNotBlank)?.lowercase()
+        return subtitleCodec?.let { "${languageName}: $it" } ?: "Embedded"
     }
 
 private fun iosSubtitleLanguageKey(language: String, label: String): String {
@@ -847,9 +853,15 @@ private fun iosSubtitleLanguageKey(language: String, label: String): String {
         "jpn" to "ja", "japanese" to "ja", "kor" to "ko", "korean" to "ko", "zho" to "zh", "chi" to "zh", "chinese" to "zh",
         "rus" to "ru", "russian" to "ru", "ara" to "ar", "arabic" to "ar", "hin" to "hi", "hindi" to "hi",
         "ind" to "id", "indonesian" to "id", "vie" to "vi", "vietnamese" to "vi",
+        "tam" to "ta", "tamil" to "ta", "tel" to "te", "telugu" to "te", "kan" to "kn", "kannada" to "kn",
+        "mal" to "ml", "malayalam" to "ml", "mar" to "mr", "marathi" to "mr", "pan" to "pa", "punjabi" to "pa",
+        "ben" to "bn", "bengali" to "bn",
     )
     fun normalize(value: String): String {
-        val normalized = value.trim().lowercase().replace('_', '-').substringBefore('-')
+        val normalized = value.trim().lowercase().replace('_', '-')
+            .split('-', ':', '(', '[', '·', ',', ' ')
+            .firstOrNull { it.isNotBlank() }
+            .orEmpty()
         return aliases[normalized] ?: normalized.takeIf { it.length == 2 }.orEmpty()
     }
     return normalize(language).ifBlank {
