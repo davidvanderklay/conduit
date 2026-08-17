@@ -1334,7 +1334,7 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
         // The composited frame is later reduced to the PiP window. A normal
         // 24px subtitle therefore becomes unreadably small in PiP.
         let size = CGFloat(max(24, min(96, Double(height) * 0.09)))
-        let renderer = UIGraphicsImageRenderer(size: CGSize(width: width, height: height))
+        let renderer = makeOverlayRenderer(width: width, height: height)
         let image = renderer.image { _ in
             let rect = CGRect(
                 x: CGFloat(width) * 0.05,
@@ -1381,11 +1381,24 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
             width: size.width,
             height: size.height
         )
-        let renderer = UIGraphicsImageRenderer(size: CGSize(width: width, height: height))
+        let renderer = makeOverlayRenderer(width: width, height: height)
         let overlay = renderer.image { _ in
             UIImage(cgImage: image).draw(in: rect)
         }
         return overlay.cgImage.map(CIImage.init)
+    }
+
+    private func makeOverlayRenderer(width: Int, height: Int) -> UIGraphicsImageRenderer {
+        let format = UIGraphicsImageRendererFormat()
+        // The subtitle canvas is already expressed in video pixels. The
+        // default UIKit renderer scale follows the device screen scale,
+        // producing a 2x/3x CIImage that gets clipped and enlarged in PiP.
+        format.scale = 1
+        format.opaque = false
+        return UIGraphicsImageRenderer(
+            size: CGSize(width: width, height: height),
+            format: format
+        )
     }
 
     private func compositedBuffer(source: CVPixelBuffer, subtitle: CIImage?) -> CVPixelBuffer? {
