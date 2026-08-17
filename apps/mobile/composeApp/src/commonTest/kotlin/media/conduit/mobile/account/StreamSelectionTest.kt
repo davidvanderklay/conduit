@@ -21,7 +21,7 @@ class StreamSelectionTest {
     }
 
     @Test
-    fun matchesAProviderUrlWhenAnUnrecognizedQueryTokenRotates() {
+    fun doesNotMatchAChangedUrlWhenTheProviderDoesNotGiveAStableIdentity() {
         val saved = playbackSourceForStream(
             "addon-1",
             StreamItem(url = "https://video.example/movie.mp4?session=old"),
@@ -32,11 +32,11 @@ class StreamSelectionTest {
             stream = StreamItem(url = "https://video.example/movie.mp4?session=new"),
         )
 
-        assertEquals(fresh, selectSavedStream(listOf(fresh), saved))
+        assertNull(selectSavedStream(listOf(fresh), saved))
     }
 
     @Test
-    fun doesNotMatchAStreamFromAnotherAddOn() {
+    fun matchesAnExactStreamFromAnotherAddOn() {
         val saved = playbackSourceForStream(
             "addon-1",
             StreamItem(url = "https://video.example/movie.mp4"),
@@ -47,7 +47,7 @@ class StreamSelectionTest {
             stream = StreamItem(url = "https://video.example/movie.mp4"),
         )
 
-        assertNull(selectSavedStream(listOf(otherAddOn), saved))
+        assertEquals(otherAddOn, selectSavedStream(listOf(otherAddOn), saved))
     }
 
     @Test
@@ -144,5 +144,22 @@ class StreamSelectionTest {
         )
 
         assertNull(selectSavedStream(listOf(other, matching), saved))
+    }
+
+    @Test
+    fun autoSelectsTheOnlyFallbackStream() {
+        val saved = StreamSource(
+            addonId = "addon-1",
+            addonName = "Provider",
+            stream = StreamItem(url = "https://video.example/saved.mp4"),
+        )
+        val fallback = StreamSource(
+            addonId = "addon-2",
+            addonName = "Other provider",
+            stream = StreamItem(url = "https://video.example/fallback.mp4"),
+        )
+
+        assertEquals(fallback, selectSingleAutoStream(listOf(saved, fallback), saved))
+        assertNull(selectSingleAutoStream(listOf(saved, fallback)))
     }
 }

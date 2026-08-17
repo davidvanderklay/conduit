@@ -3,6 +3,7 @@ import {
   isPlayableStreamUrl,
   playbackSourceForStream,
   selectSavedStream,
+  selectSingleAutoStream,
   type AutoSelectableStream,
 } from "./stream-selection"
 
@@ -72,18 +73,42 @@ describe("stream selection", () => {
     expect(result?.key).toBe("fresh")
   })
 
-  it("does not match a saved source from another add-on", () => {
+  it("matches an exact source from another add-on when the identity is stable", () => {
     const saved = playbackSourceForStream(
       stream("saved", "Provider", {
         addonId: "addon-1",
+        url: "https://video.example/movie.mp4",
+      }),
+    )
+    const result = selectSavedStream(
+      [
+        stream("same-source", "Other provider", {
+          addonId: "addon-2",
+          url: "https://video.example/movie.mp4",
+        }),
+      ],
+      saved,
+    )
+    expect(result?.key).toBe("same-source")
+  })
+
+  it("only matches a unique binge group when the saved add-on is absent", () => {
+    const saved = playbackSourceForStream(
+      stream("saved", "Provider", {
+        addonId: "addon-1",
+        url: "https://video.example/old-token",
         behaviorHints: { bingeGroup: "release-1080p" },
       }),
     )
     expect(
       selectSavedStream(
         [
-          stream("same-looking", "Provider", {
+          stream("same-looking", "Provider 2", {
             addonId: "addon-2",
+            behaviorHints: { bingeGroup: "release-1080p" },
+          }),
+          stream("ambiguous", "Provider 3", {
+            addonId: "addon-3",
             behaviorHints: { bingeGroup: "release-1080p" },
           }),
         ],
@@ -108,5 +133,12 @@ describe("stream selection", () => {
     })
 
     expect(selectSavedStream([changed], saved)).toBeUndefined()
+  })
+
+  it("auto-selects the only valid fallback stream", () => {
+    const saved = stream("saved", "Provider", { addonId: "addon-1" })
+    const fallback = stream("fallback", "Provider", { addonId: "addon-2" })
+    expect(selectSingleAutoStream([saved, fallback], saved)?.key).toBe("fallback")
+    expect(selectSingleAutoStream([saved, fallback])).toBeUndefined()
   })
 })

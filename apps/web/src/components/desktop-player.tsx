@@ -40,6 +40,7 @@ import { readPreferences, writePreferences } from "../lib/preferences"
 import { configuredTrackLanguage, matchesTrackLanguage } from "../lib/track-preference"
 import { mpvVideoScaleCommands, type VideoScale } from "../lib/video-scale"
 import { usePlaybackProgress } from "../lib/progress"
+import { AUTO_SELECTION_STARTUP_TIMEOUT_MS } from "../lib/stream-selection"
 import { Card } from "./ui/card"
 import { NextEpisodePrompt, PlayerEpisodeDrawer, type PlayerSeriesContext } from "./player-series"
 import { VideoScaleControl } from "./video-scale-control"
@@ -112,6 +113,9 @@ export function DesktopPlayer({
   onSelectEpisode,
   onNextEpisode,
   onEnded,
+  autoRecoveryAttempt = false,
+  onAutoRecoveryStarted,
+  onAutoRecoveryFailed,
   onClose,
 }: {
   accountId?: string
@@ -129,6 +133,9 @@ export function DesktopPlayer({
   onSelectEpisode?: (video: Video) => void | Promise<void>
   onNextEpisode?: () => void | Promise<void>
   onEnded?: (allowAutoplay?: boolean) => void | Promise<void>
+  autoRecoveryAttempt?: boolean
+  onAutoRecoveryStarted?: () => void
+  onAutoRecoveryFailed?: () => void
   onClose: () => void
 }) {
   const preferences = readPreferences()
@@ -174,15 +181,53 @@ export function DesktopPlayer({
   const preferredAudioApplied = useRef(false)
   const preferredSubtitleApplied = useRef(false)
   const subtitleMetadataReadyPolls = useRef(0)
+  const autoRecoveryStarted = useRef(false)
+  const autoRecoveryFailureReported = useRef(false)
+  const autoRecoveryAttemptRef = useRef(autoRecoveryAttempt)
+  const onAutoRecoveryStartedRef = useRef(onAutoRecoveryStarted)
+  const onAutoRecoveryFailedRef = useRef(onAutoRecoveryFailed)
+  autoRecoveryAttemptRef.current = autoRecoveryAttempt
+  onAutoRecoveryStartedRef.current = onAutoRecoveryStarted
+  onAutoRecoveryFailedRef.current = onAutoRecoveryFailed
+  const [playbackStarted, setPlaybackStarted] = useState(false)
   const preferredAudioLanguage = configuredTrackLanguage(preferences.audioLanguage, addons)
   const preferredSubtitleLanguage = configuredTrackLanguage(preferences.subtitleLanguage, addons)
   const { progress, save: saveProgress } = usePlaybackProgress(
     profileId,
     videoId,
     progressMetadata,
-    playbackSource,
+    playbackStarted ? playbackSource : undefined,
     accountId,
   )
+
+  const reportAutoRecoveryFailure = useCallback(() => {
+    if (
+      !autoRecoveryAttemptRef.current ||
+      autoRecoveryStarted.current ||
+      autoRecoveryFailureReported.current
+    )
+      return
+    autoRecoveryFailureReported.current = true
+    onAutoRecoveryFailedRef.current?.()
+  }, [])
+
+  const markAutoRecoveryStarted = useCallback(() => {
+    if (!autoRecoveryAttemptRef.current || autoRecoveryStarted.current) return
+    autoRecoveryStarted.current = true
+    onAutoRecoveryStartedRef.current?.()
+  }, [])
+
+  useEffect(() => {
+    autoRecoveryStarted.current = false
+    autoRecoveryFailureReported.current = false
+    setPlaybackStarted(false)
+  }, [url])
+
+  useEffect(() => {
+    if (!autoRecoveryAttempt) return
+    const timeout = window.setTimeout(reportAutoRecoveryFailure, AUTO_SELECTION_STARTUP_TIMEOUT_MS)
+    return () => window.clearTimeout(timeout)
+  }, [autoRecoveryAttempt, reportAutoRecoveryFailure, url])
 
   const showControls = useCallback(() => {
     setControlsVisible(true)
@@ -281,6 +326,7 @@ export function DesktopPlayer({
         if (cancelled) return
         playerStarted = true
         setSnapshot(initial)
+        if (initial.firstFrameReady) setPlaybackStarted(true)
         await nativePlayerCommand(["set", "sub-pos", preferences.subtitlePosition])
         await nativePlayerCommand(["set", "sub-border-size", preferences.subtitleOutline ? 3 : 0])
         const resolved = await resolveAddonSubtitles(addons, type, videoId)
@@ -290,7 +336,10 @@ export function DesktopPlayer({
         }
       })
       .catch((cause: unknown) => {
-        if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause))
+        if (!cancelled) {
+          reportAutoRecoveryFailure()
+          setError(cause instanceof Error ? cause.message : String(cause))
+        }
       })
 
     const poll = window.setInterval(() => {
@@ -319,7 +368,30 @@ export function DesktopPlayer({
       document.documentElement.classList.remove("native-playback")
       if (!closing.current) void stopNativePlayer()
     }
-  }, [addons, artwork?.background, artwork?.logo, artwork?.poster, mediaTitle, type, url, videoId])
+  }, [
+    addons,
+    artwork?.background,
+    artwork?.logo,
+    artwork?.poster,
+    markAutoRecoveryStarted,
+    mediaTitle,
+    preferences.subtitleOutline,
+    preferences.subtitlePosition,
+    reportAutoRecoveryFailure,
+    type,
+    url,
+    videoId,
+  ])
+
+  useEffect(() => {
+    if (!autoRecoveryAttempt || !snapshot) return
+    if (snapshot.firstFrameReady && !error) {
+      setPlaybackStarted(true)
+      markAutoRecoveryStarted()
+      return
+    }
+    if (error) reportAutoRecoveryFailure()
+  }, [autoRecoveryAttempt, error, markAutoRecoveryStarted, reportAutoRecoveryFailure, snapshot])
 
   useEffect(() => {
     const electron = window.__CONDUIT_ELECTRON__

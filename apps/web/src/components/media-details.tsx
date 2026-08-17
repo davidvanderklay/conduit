@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   ArrowLeft,
@@ -41,7 +41,13 @@ import {
   trailerUrl,
 } from "../lib/metadata"
 import { readPreferences, writePreferences } from "../lib/preferences"
-import { playbackSourceForStream, selectSavedStream } from "../lib/stream-selection"
+import { progressPath } from "../lib/progress"
+import {
+  AUTO_SELECTION_STARTUP_TIMEOUT_MS,
+  playbackSourceForStream,
+  selectSavedStream,
+  selectSingleAutoStream,
+} from "../lib/stream-selection"
 import { nativeFullscreen, onNativeFullscreenChange } from "../lib/desktop"
 import { mediaForWatchActions, setEpisodeWatched, setVideosWatched } from "../lib/watch-actions"
 import { episodeProgressPercent, episodeWatchState, resumePositionLabel } from "../lib/watch-status"
@@ -58,6 +64,8 @@ interface ResolvedStream extends Stream {
   addonId: string
   addonName: string
 }
+
+type AutoResumeStage = "inactive" | "resolving" | "starting" | "picker"
 
 export type MetadataBrowseTarget =
   | { kind: "genre"; value: string; mediaType: string }
@@ -102,6 +110,12 @@ export function MediaDetails({
   const episodeRailScrollTop = useRef<number | undefined>(undefined)
   const autoResumeAttemptedKey = useRef<string | undefined>(undefined)
   const autoResumeRequestVersion = useRef(0)
+  const autoFallbackStream = useRef<ResolvedStream | undefined>(undefined)
+  const autoRecoveryCandidate = useRef<ResolvedStream | undefined>(undefined)
+  const autoRecoveryFailedStream = useRef<ResolvedStream | undefined>(undefined)
+  const autoRecoveryUsedSavedSource = useRef(false)
+  const autoResolutionPending = useRef(false)
+  const autoRecoveryFailurePending = useRef(false)
   const seriesReturnVideoId = useRef<string | undefined>(
     initialVideoId && initialVideoId !== item.id ? initialVideoId : undefined,
   )
@@ -142,10 +156,11 @@ export function MediaDetails({
     savedPlaybackSource?.sourceKey ?? "",
     effectiveStreamAddonId ?? "all",
   ].join(":")
-  const [waitingForSavedPlayback, setWaitingForSavedPlayback] = useState(autoResumeEligible)
+  const [autoResumeStage, setAutoResumeStage] = useState<AutoResumeStage>(() =>
+    autoResumeEligible ? "resolving" : "inactive",
+  )
   const shouldWaitForSavedPlayback =
-    autoResumeEligible &&
-    (waitingForSavedPlayback || autoResumeAttemptedKey.current !== autoResumeAttemptKey)
+    autoResumeStage === "resolving" || autoResumeStage === "starting"
   const progress = useQuery({
     queryKey: ["series-progress", profileId, item.type, item.id],
     refetchOnMount: "always",
@@ -231,7 +246,8 @@ export function MediaDetails({
   useEffect(() => {
     const finishWithoutAutoResume = () => {
       autoResumeAttemptedKey.current = autoResumeAttemptKey
-      setWaitingForSavedPlayback(false)
+      autoFallbackStream.current = undefined
+      setAutoResumeStage("inactive")
     }
 
     if (!autoResumeEligible) {
@@ -258,27 +274,85 @@ export function MediaDetails({
       return
     }
     autoResumeAttemptedKey.current = autoResumeAttemptKey
+    autoFallbackStream.current = undefined
+    autoRecoveryCandidate.current = undefined
+    autoRecoveryFailedStream.current = undefined
+    autoRecoveryUsedSavedSource.current = false
+    autoRecoveryFailurePending.current = false
+    autoResolutionPending.current = true
+    setAutoResumeStage("resolving")
     const requestVersion = ++autoResumeRequestVersion.current
-    void queryClient
-      .fetchQuery({
-        queryKey: ["streams", item.type, activeVideoId, addonIds, effectiveStreamAddonId ?? "all"],
-        queryFn: () => resolveStreams(requestedStreamAddons, item.type, activeVideoId),
-        staleTime: 5 * 60 * 1000,
-      })
+    void resolveStreamsProgressively(streamAddons, item.type, activeVideoId, (partial) => {
+      if (
+        requestVersion !== autoResumeRequestVersion.current ||
+        autoRecoveryCandidate.current ||
+        autoRecoveryFailurePending.current
+      )
+        return
+      const saved = selectSavedStream(partial, savedPlaybackSource)
+      // A partial result can safely win early only when the saved provider has
+      // answered. Otherwise a later provider could make a cross-provider group
+      // match ambiguous.
+      if (!saved || saved.addonId !== savedPlaybackSource.addonId) return
+      autoRecoveryCandidate.current = saved
+      autoRecoveryUsedSavedSource.current = true
+      autoFallbackStream.current = selectSingleAutoStream(partial, saved)
+      setStreamResolutionError(undefined)
+      setPlaying(saved)
+      setAutoResumeStage("starting")
+    })
       .then((resolved) => {
         if (requestVersion !== autoResumeRequestVersion.current) return
-        const saved = selectSavedStream(resolved, savedPlaybackSource)
-        setWaitingForSavedPlayback(false)
-        if (saved) {
-          setStreamResolutionError(undefined)
-          setPlaying(saved)
-        } else {
-          setStreamResolutionError("Saved source unavailable. Choose another source below.")
+        autoResolutionPending.current = false
+        queryClient.setQueryData(
+          ["streams", item.type, activeVideoId, addonIds, "all"],
+          resolved,
+        )
+        if (autoRecoveryFailurePending.current) {
+          autoRecoveryFailurePending.current = false
+          const fallback = selectSingleAutoStream(resolved, autoRecoveryFailedStream.current)
+          autoRecoveryFailedStream.current = undefined
+          if (fallback) {
+            setStreamResolutionError(undefined)
+            setPlaying(fallback)
+            setAutoResumeStage("starting")
+          } else {
+            setPlaying(undefined)
+            setAutoResumeStage("picker")
+            setStreamResolutionError("The source could not be started. Choose another source below.")
+          }
+          return
         }
+        if (autoRecoveryCandidate.current) {
+          autoFallbackStream.current = selectSingleAutoStream(
+            resolved,
+            autoRecoveryCandidate.current,
+          )
+          return
+        }
+        const saved = selectSavedStream(resolved, savedPlaybackSource)
+        autoRecoveryUsedSavedSource.current = Boolean(saved)
+        const candidate = saved ?? selectSingleAutoStream(resolved)
+        autoFallbackStream.current = saved ? selectSingleAutoStream(resolved, saved) : undefined
+        if (!candidate) {
+          setPlaying(undefined)
+          setAutoResumeStage("picker")
+          setStreamResolutionError(
+            resolved.length
+              ? "Saved source unavailable. Choose another source below."
+              : "No sources were returned. Choose another source below.",
+          )
+          return
+        }
+        setStreamResolutionError(undefined)
+        setPlaying(candidate)
+        setAutoResumeStage("starting")
       })
       .catch(() => {
         if (requestVersion !== autoResumeRequestVersion.current) return
-        setWaitingForSavedPlayback(false)
+        autoResolutionPending.current = false
+        setPlaying(undefined)
+        setAutoResumeStage("picker")
         setStreamResolutionError("Saved source could not be loaded. Choose another source below.")
       })
   }, [
@@ -295,8 +369,8 @@ export function MediaDetails({
     progress.isError,
     progress.isSuccess,
     queryClient,
-    requestedStreamAddons,
     savedPlaybackSource,
+    streamAddons,
   ])
 
   useEffect(() => {
@@ -349,12 +423,79 @@ export function MediaDetails({
     openEpisodeSources(nextEpisode)
   }
 
-  const cancelPendingAutoResume = () => {
+  const cancelPendingAutoResume = useCallback(() => {
     autoResumeRequestVersion.current += 1
+    autoResolutionPending.current = false
+    autoRecoveryFailurePending.current = false
+    autoRecoveryCandidate.current = undefined
+    autoRecoveryFailedStream.current = undefined
+    autoRecoveryUsedSavedSource.current = false
     autoResumeAttemptedKey.current = autoResumeAttemptKey
-    setWaitingForSavedPlayback(false)
+    autoFallbackStream.current = undefined
+    setAutoResumeStage("inactive")
     setStreamResolutionError(undefined)
-  }
+  }, [autoResumeAttemptKey])
+
+  const clearSavedPlaybackSource = useCallback(() => {
+    const progressToClear = activeProgress?.playbackSource
+      ? activeProgress
+      : initialProgress?.playbackSource
+        ? initialProgress
+        : undefined
+    if (!progressToClear?.playbackSource || !activeVideoId) return
+    void api(progressPath(profileId, activeVideoId), {
+      method: "PUT",
+      body: JSON.stringify({
+        mediaType: progressToClear.mediaType,
+        mediaId: progressToClear.mediaId,
+        name: progressToClear.name,
+        ...(progressToClear.poster ? { poster: progressToClear.poster } : {}),
+        ...(progressToClear.videoTitle ? { videoTitle: progressToClear.videoTitle } : {}),
+        ...(progressToClear.season !== undefined ? { season: progressToClear.season } : {}),
+        ...(progressToClear.episode !== undefined ? { episode: progressToClear.episode } : {}),
+        positionMs: progressToClear.positionMs,
+        durationMs: progressToClear.durationMs,
+        watched: progressToClear.watched,
+        playbackSource: null,
+      }),
+    })
+      .then(() =>
+        Promise.all([
+          queryClient.invalidateQueries({ queryKey: ["progress", profileId] }),
+          queryClient.invalidateQueries({ queryKey: ["series-progress", profileId] }),
+        ]),
+      )
+      .catch(() => undefined)
+  }, [activeProgress, activeVideoId, initialProgress, profileId, queryClient])
+
+  const handleAutoRecoveryStarted = useCallback(() => {
+    autoFallbackStream.current = undefined
+    setAutoResumeStage("inactive")
+  }, [])
+
+  const handleAutoRecoveryFailed = useCallback(() => {
+    const savedSourceWasUsed = autoRecoveryUsedSavedSource.current
+    autoRecoveryUsedSavedSource.current = false
+    if (savedSourceWasUsed) clearSavedPlaybackSource()
+    autoRecoveryFailedStream.current = autoRecoveryCandidate.current
+    autoRecoveryCandidate.current = undefined
+    const fallback = autoFallbackStream.current
+    autoFallbackStream.current = undefined
+    if (autoResolutionPending.current) {
+      autoRecoveryFailurePending.current = true
+      setPlaying(undefined)
+      setAutoResumeStage("resolving")
+      return
+    }
+    if (fallback) {
+      setPlaying(fallback)
+      setAutoResumeStage("starting")
+      return
+    }
+    setPlaying(undefined)
+    setAutoResumeStage("picker")
+    setStreamResolutionError("The source could not be started. Choose another source below.")
+  }, [clearSavedPlaybackSource])
 
   const openEpisodeSources = (video: Video) => {
     episodeTransition.current += 1
@@ -571,8 +712,12 @@ export function MediaDetails({
           onSelectEpisode={openEpisodeSources}
           onNextEpisode={nextEpisode ? () => openEpisodeSources(nextEpisode) : undefined}
           onEnded={autoplayNextEpisode}
+          autoRecoveryAttempt={autoResumeStage === "starting"}
+          onAutoRecoveryStarted={handleAutoRecoveryStarted}
+          onAutoRecoveryFailed={handleAutoRecoveryFailed}
           onClose={() => {
             episodeTransition.current += 1
+            cancelPendingAutoResume()
             setPlaying(undefined)
           }}
         />
@@ -1221,21 +1366,61 @@ async function resolveStreams(
   type: string,
   videoId: string,
 ): Promise<ResolvedStream[]> {
+  return resolveStreamsProgressively(addons, type, videoId, () => undefined)
+}
+
+async function resolveStreamsProgressively(
+  addons: InstalledAddon[],
+  type: string,
+  videoId: string,
+  onUpdate: (streams: ResolvedStream[], pendingAddons: number) => void,
+): Promise<ResolvedStream[]> {
   const candidates = addonsForResource(addons, "stream", type, videoId)
-  const results = await Promise.allSettled(
-    candidates.map(async (addon) => ({
-      addon,
-      streams: await loadStreams(addon.manifestUrl, type, videoId),
-    })),
-  )
-  return results.flatMap((result) => {
-    if (result.status === "rejected") return []
-    return result.value.streams.map((stream, index) => ({
-      ...stream,
-      addonId: result.value.addon.id,
-      externalUrl: safeExternalUrl(stream.externalUrl),
-      key: `${result.value.addon.id}:${index}:${stream.url ?? stream.infoHash ?? stream.externalUrl ?? "stream"}`,
-      addonName: result.value.addon.manifest.name,
-    }))
+  const pending = candidates.map((addon, index) => ({
+    index,
+    promise: withTimeout(loadStreams(addon.manifestUrl, type, videoId), AUTO_SELECTION_STARTUP_TIMEOUT_MS)
+      .then((streams) => ({ addon, streams }))
+      .catch(() => ({ addon, streams: [] })),
+  }))
+  const resolved: ResolvedStream[] = []
+
+  while (pending.length) {
+    const result = await Promise.race(
+      pending.map(({ index, promise }) =>
+        promise.then(({ addon, streams }) => ({ index, addon, streams })),
+      ),
+    )
+    const resultIndex = pending.findIndex((entry) => entry.index === result.index)
+    if (resultIndex >= 0) pending.splice(resultIndex, 1)
+    resolved.push(...resolvedStreamsForAddon(result.addon, result.streams))
+    onUpdate(resolved, pending.length)
+  }
+
+  return resolved
+}
+
+function resolvedStreamsForAddon(addon: InstalledAddon, streams: Stream[]): ResolvedStream[] {
+  return streams.map((stream, index) => ({
+    ...stream,
+    addonId: addon.id,
+    externalUrl: safeExternalUrl(stream.externalUrl),
+    key: `${addon.id}:${index}:${stream.url ?? stream.infoHash ?? stream.externalUrl ?? "stream"}`,
+    addonName: addon.manifest.name,
+  }))
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timeout = window.setTimeout(() => reject(new Error("Stream request timed out")), timeoutMs)
+    promise.then(
+      (value) => {
+        window.clearTimeout(timeout)
+        resolve(value)
+      },
+      (error: unknown) => {
+        window.clearTimeout(timeout)
+        reject(error)
+      },
+    )
   })
 }

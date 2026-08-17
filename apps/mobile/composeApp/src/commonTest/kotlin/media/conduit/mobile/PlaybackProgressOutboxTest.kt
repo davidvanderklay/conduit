@@ -110,6 +110,19 @@ class PlaybackProgressOutboxTest {
             PlaybackState(loading = false, positionMs = 10_000, durationMs = 100_000),
             PlaybackCheckpointIdentity("session-1", 1), null,
         )
+        assertNull(outbox.pendingSummaries("https://conduit.example", "account-1", "profile-1").single().playbackSource)
+
+        outbox.enqueue(
+            "https://conduit.example", "token", "account-1", request,
+            PlaybackState(
+                loading = false,
+                positionMs = 10_000,
+                durationMs = 100_000,
+                videoWidth = 1920,
+                videoHeight = 1080,
+            ),
+            PlaybackCheckpointIdentity("session-1", 1), null,
+        )
         outbox.enqueue(
             "https://conduit.example", "token", "account-1", request,
             PlaybackState(loading = false, positionMs = 20_000, durationMs = 100_000),

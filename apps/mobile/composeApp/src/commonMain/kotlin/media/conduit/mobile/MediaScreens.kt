@@ -81,6 +81,13 @@ private val VideoItem.displayTitle: String
 private const val AUTO_RESUME_TIMEOUT_MS = 8_000L
 private class AutoResumeTimeoutException : IllegalStateException("Saved source lookup timed out")
 
+private enum class AutoResumeStage {
+    Inactive,
+    Resolving,
+    Starting,
+    Picker,
+}
+
 @Composable
 internal fun MobileLibraryScreen(
     snapshot: ProfileSnapshot?,
@@ -656,7 +663,10 @@ internal fun MediaDetailsScreen(
     var detailsEpisodeAutoPositioning by remember(item.id) { mutableStateOf(false) }
     var autoResumeAttemptedKey by remember(item.id) { mutableStateOf<String?>(null) }
     var selectedPlaybackSources by remember(item.id) { mutableStateOf<Map<String, PlaybackSource>>(emptyMap()) }
-    var autoSelectedSavedVideoIds by remember(item.id) { mutableStateOf<Set<String>>(emptySet()) }
+    var autoRecoveryVideoIds by remember(item.id) { mutableStateOf<Set<String>>(emptySet()) }
+    var autoRecoverySavedSourceVideoIds by remember(item.id) { mutableStateOf<Set<String>>(emptySet()) }
+    var autoResumeStage by remember(item.id) { mutableStateOf(AutoResumeStage.Inactive) }
+    var autoFallbackStreams by remember(item.id) { mutableStateOf<Map<String, StreamSource>>(emptyMap()) }
     var migratedProgressIds by remember(item.id) { mutableStateOf<Set<String>>(emptySet()) }
     var streamSelectionReturnsHome by remember(item.id) { mutableStateOf(returnToHomeOnStreamBack) }
     var streamRequestVersion by remember(item.id) { mutableIntStateOf(0) }
@@ -727,6 +737,10 @@ internal fun MediaDetailsScreen(
         externalSubtitles = emptyList()
         externalSubtitlesLoaded = false
         autoResumeAttemptedKey = null
+        autoResumeStage = AutoResumeStage.Inactive
+        autoFallbackStreams = emptyMap()
+        autoRecoveryVideoIds = emptySet()
+        autoRecoverySavedSourceVideoIds = emptySet()
     }
 
     LaunchedEffect(item.id, item.type, addons) {
@@ -949,7 +963,15 @@ internal fun MediaDetailsScreen(
         videoIdOverride: String? = null,
     ) {
         cancelStreamRequest()
-        if (!autoPlaySavedSource) streamPageOpen = true
+        if (!autoPlaySavedSource) {
+            streamPageOpen = true
+            autoResumeStage = AutoResumeStage.Inactive
+            autoFallbackStreams = emptyMap()
+        } else {
+            streamPageOpen = false
+            autoResumeStage = AutoResumeStage.Resolving
+            autoFallbackStreams = emptyMap()
+        }
         streamBackToHome?.let { streamSelectionReturnsHome = it }
         streamsLoading = true
         if (!autoPlaySavedSource) streamsError = null
@@ -977,19 +999,29 @@ internal fun MediaDetailsScreen(
                     if (!autoPlaySavedSource) streamsError = null
                     if (autoPlaySavedSource) {
                         val saved = savedPlaybackSourceFor(videoId)
-                        val choice = listOfNotNull(
+                        val savedChoice = listOfNotNull(
                             preferredSource,
                             saved,
                         ).asSequence()
                             .mapNotNull { source -> selectSavedStream(choices, source) }
                             .firstOrNull()
+                        val choice = savedChoice ?: selectSingleAutoStream(choices)
+                        val fallback = savedChoice?.let { selectSingleAutoStream(choices, it) }
                         if (choice != null) {
                             currentAddonId = choice.addonId
                             currentAddonName = choice.addonName
                             val selectedSource = playbackSourceForStream(choice.addonId, choice.stream)
                             selectedPlaybackSources = selectedPlaybackSources + (videoId to selectedSource)
-                            autoSelectedSavedVideoIds = autoSelectedSavedVideoIds + videoId
+                            autoRecoveryVideoIds = autoRecoveryVideoIds + videoId
+                            autoRecoverySavedSourceVideoIds = if (savedChoice != null) {
+                                autoRecoverySavedSourceVideoIds + videoId
+                            } else {
+                                autoRecoverySavedSourceVideoIds - videoId
+                            }
+                            autoFallbackStreams = fallback?.let { autoFallbackStreams + (videoId to it) }
+                                ?: (autoFallbackStreams - videoId)
                             if (autoPlaySavedSource) autoResumeAttemptedKey = autoResumeAttemptKey(selectedSource)
+                            autoResumeStage = AutoResumeStage.Starting
                             playing = choice.stream
                         } else {
                             streamsError = if (choices.isEmpty()) {
@@ -997,6 +1029,7 @@ internal fun MediaDetailsScreen(
                             } else {
                                 "Saved source unavailable. Choose another source below."
                             }
+                            autoResumeStage = AutoResumeStage.Picker
                             streamPageOpen = true
                         }
                     }
@@ -1015,6 +1048,7 @@ internal fun MediaDetailsScreen(
                         cause.message ?: "Unable to load streams"
                     }
                     if (autoPlaySavedSource) streamPageOpen = true
+                    if (autoPlaySavedSource) autoResumeStage = AutoResumeStage.Picker
                 }
             if (requestVersion == streamRequestVersion) {
                 streamsLoading = false
@@ -1098,14 +1132,31 @@ internal fun MediaDetailsScreen(
             videoIdOverride = effectiveInitialVideoId,
         )
     }
-    val waitingForSavedPlayback = shouldAutoResume(
-        openMode,
-        preferences.autoSelectSavedStreams,
-        savedPlaybackSource,
-    ) && effectiveInitialVideoId != null &&
-        error == null && (meta == null || addons.isNotEmpty()) &&
-        !streamPageOpen && playing == null &&
-        (autoResumeAttemptedKey == null || streamsLoading)
+    val waitingForSavedPlayback =
+        autoResumeStage == AutoResumeStage.Resolving || autoResumeStage == AutoResumeStage.Starting
+    LaunchedEffect(
+        autoResumeStage,
+        playbackSession.state.sessionId,
+        playbackSession.state.playback.playing,
+        playbackSession.state.playback.loading,
+        playbackSession.state.playback.buffering,
+        playbackSession.state.playback.videoWidth,
+        playbackSession.state.playback.videoHeight,
+    ) {
+        val playback = playbackSession.state.playback
+        if (
+            autoResumeStage == AutoResumeStage.Starting &&
+                !playback.loading &&
+                playback.videoWidth > 0 &&
+                playback.videoHeight > 0
+        ) {
+            streamsError = null
+            autoRecoveryVideoIds = autoRecoveryVideoIds - playingVideoId
+            autoRecoverySavedSourceVideoIds = autoRecoverySavedSourceVideoIds - playingVideoId
+            autoFallbackStreams = autoFallbackStreams - playingVideoId
+            autoResumeStage = AutoResumeStage.Inactive
+        }
+    }
     fun currentPlaybackSource(): PlaybackSource? =
         currentAddonId?.let { addonId -> playing?.let { playbackSourceForStream(addonId, it) } }
 
@@ -1121,7 +1172,10 @@ internal fun MediaDetailsScreen(
         selectedPlaybackSources = selectedPlaybackSources + (
             picker.episode.id to playbackSourceForStream(source.addonId, source.stream)
         )
-        autoSelectedSavedVideoIds = autoSelectedSavedVideoIds - picker.episode.id
+        autoRecoveryVideoIds = autoRecoveryVideoIds - picker.episode.id
+        autoRecoverySavedSourceVideoIds = autoRecoverySavedSourceVideoIds - picker.episode.id
+        autoFallbackStreams = autoFallbackStreams - picker.episode.id
+        autoResumeStage = AutoResumeStage.Inactive
         playing = source.stream
         openingPlayback = true
     }
@@ -1203,41 +1257,56 @@ internal fun MediaDetailsScreen(
                 }
             },
             selectStream = ::selectPlayerStream,
-            savedStreamStartupFailed = { message ->
+            autoRecoveryFailed = { message ->
                 val failedVideoId = playingVideoId
                 val failedProgress = progressForVideoId(failedVideoId)
-                autoSelectedSavedVideoIds = autoSelectedSavedVideoIds - failedVideoId
-                selectedPlaybackSources = selectedPlaybackSources - failedVideoId
-                playing = null
-                openingPlayback = false
-                playbackSession.close(saveProgress = false)
-                requestStreams(
-                    selectedVideo,
-                    streamBackToHome = false,
-                    videoIdOverride = failedVideoId,
-                )
-                streamsError = message
-                if (failedProgress?.playbackSource != null) {
-                    scope.launch {
-                        runCatching {
-                            api.saveProgress(
-                                baseUrl = baseUrl,
-                                token = token,
-                                profileId = activeProfile.id,
-                                videoId = failedProgress.videoId,
-                                mediaType = failedProgress.mediaType,
-                                mediaId = failedProgress.mediaId,
-                                name = failedProgress.name,
-                                poster = failedProgress.poster,
-                                videoTitle = failedProgress.videoTitle,
-                                season = failedProgress.season,
-                                episode = failedProgress.episode,
-                                positionMs = failedProgress.positionMs,
-                                durationMs = failedProgress.durationMs,
-                                clearPlaybackSource = true,
-                                watched = failedProgress.watched,
-                            )
-                        }.getOrNull()?.let(onProgressChanged)
+                if (failedVideoId in autoRecoveryVideoIds) {
+                    val savedSourceWasUsed = failedVideoId in autoRecoverySavedSourceVideoIds
+                    val fallback = autoFallbackStreams[failedVideoId]
+                    autoRecoveryVideoIds = autoRecoveryVideoIds - failedVideoId
+                    autoRecoverySavedSourceVideoIds = autoRecoverySavedSourceVideoIds - failedVideoId
+                    autoFallbackStreams = autoFallbackStreams - failedVideoId
+                    selectedPlaybackSources = selectedPlaybackSources - failedVideoId
+                    playing = null
+                    openingPlayback = false
+                    playbackSession.close(saveProgress = false)
+                    streamsError = message
+                    if (fallback != null) {
+                        streamsError = null
+                        currentAddonId = fallback.addonId
+                        currentAddonName = fallback.addonName
+                        selectedPlaybackSources = selectedPlaybackSources + (
+                            failedVideoId to playbackSourceForStream(fallback.addonId, fallback.stream)
+                        )
+                        autoRecoveryVideoIds = autoRecoveryVideoIds + failedVideoId
+                        autoResumeStage = AutoResumeStage.Starting
+                        playing = fallback.stream
+                    } else {
+                        autoResumeStage = AutoResumeStage.Picker
+                        streamPageOpen = true
+                    }
+                    if (savedSourceWasUsed && failedProgress?.playbackSource != null) {
+                        scope.launch {
+                            runCatching {
+                                api.saveProgress(
+                                    baseUrl = baseUrl,
+                                    token = token,
+                                    profileId = activeProfile.id,
+                                    videoId = failedProgress.videoId,
+                                    mediaType = failedProgress.mediaType,
+                                    mediaId = failedProgress.mediaId,
+                                    name = failedProgress.name,
+                                    poster = failedProgress.poster,
+                                    videoTitle = failedProgress.videoTitle,
+                                    season = failedProgress.season,
+                                    episode = failedProgress.episode,
+                                    positionMs = failedProgress.positionMs,
+                                    durationMs = failedProgress.durationMs,
+                                    clearPlaybackSource = true,
+                                    watched = failedProgress.watched,
+                                )
+                            }.getOrNull()?.let(onProgressChanged)
+                        }
                     }
                 }
             },
@@ -1245,6 +1314,10 @@ internal fun MediaDetailsScreen(
             closed = {
                 playing = null
                 openingPlayback = false
+                autoResumeStage = AutoResumeStage.Inactive
+                autoFallbackStreams = emptyMap()
+                autoRecoveryVideoIds = emptySet()
+                autoRecoverySavedSourceVideoIds = emptySet()
                 clearPlayerStreamPickerState()
             },
         )
@@ -1282,7 +1355,7 @@ internal fun MediaDetailsScreen(
             episode = selectedVideo?.episode,
             startPositionMs = resumePosition,
             source = currentPlaybackSource(),
-            autoSelectedSavedSource = playingVideoId in autoSelectedSavedVideoIds,
+            autoRecoveryAttempt = playingVideoId in autoRecoveryVideoIds,
             hasNextEpisode = nextVideo != null,
             nextEpisodeTitle = nextVideo?.let { "S${it.season ?: 0}E${it.episode ?: 0} · ${it.displayTitle}" },
             nextEpisodeArtwork = nextVideo?.thumbnail ?: meta?.background,
@@ -1305,6 +1378,10 @@ internal fun MediaDetailsScreen(
     }
     fun cancelAutoResume() {
         cancelStreamRequest()
+        autoResumeStage = AutoResumeStage.Inactive
+        autoFallbackStreams = emptyMap()
+        autoRecoveryVideoIds = emptySet()
+        autoRecoverySavedSourceVideoIds = emptySet()
         onBack()
     }
     val ownsPlayback = requestIdentity != null && playbackSession.state.request?.identity == requestIdentity
@@ -1378,7 +1455,8 @@ internal fun MediaDetailsScreen(
                     val selectedSource = playbackSourceForStream(source.addonId, source.stream)
                     val videoId = selectedVideo?.id ?: streamVideoId ?: item.id
                     selectedPlaybackSources = selectedPlaybackSources + (videoId to selectedSource)
-                    autoSelectedSavedVideoIds = autoSelectedSavedVideoIds - videoId
+                    autoRecoveryVideoIds = autoRecoveryVideoIds - videoId
+                    autoRecoverySavedSourceVideoIds = autoRecoverySavedSourceVideoIds - videoId
                     if (videoId == effectiveInitialVideoId) autoResumeAttemptedKey = autoResumeAttemptKey(selectedSource)
                     streamPageOpen = false
                     streams = null

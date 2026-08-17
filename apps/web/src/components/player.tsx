@@ -25,6 +25,7 @@ import { readPreferences, writePreferences } from "../lib/preferences"
 import { playbackBufferState } from "../lib/playback-buffer"
 import { browserPlaybackError } from "../lib/playback-compatibility"
 import { playerHeading, type PlayerHeading } from "../lib/player-title"
+import { AUTO_SELECTION_STARTUP_TIMEOUT_MS } from "../lib/stream-selection"
 import { subtitlePositionForVideoScale, videoObjectFit, type VideoScale } from "../lib/video-scale"
 import { usePlaybackProgress } from "../lib/progress"
 import { DesktopPlayer } from "./desktop-player"
@@ -66,6 +67,9 @@ export function Player({
   onSelectEpisode,
   onNextEpisode,
   onEnded,
+  autoRecoveryAttempt = false,
+  onAutoRecoveryStarted,
+  onAutoRecoveryFailed,
   onClose,
 }: {
   accountId?: string
@@ -83,6 +87,9 @@ export function Player({
   onSelectEpisode?: (video: Video) => void | Promise<void>
   onNextEpisode?: () => void | Promise<void>
   onEnded?: (allowAutoplay?: boolean) => void | Promise<void>
+  autoRecoveryAttempt?: boolean
+  onAutoRecoveryStarted?: () => void
+  onAutoRecoveryFailed?: () => void
   onClose: () => void
 }) {
   if (isDesktop()) {
@@ -103,6 +110,9 @@ export function Player({
         onSelectEpisode={onSelectEpisode}
         onNextEpisode={onNextEpisode}
         onEnded={onEnded}
+        autoRecoveryAttempt={autoRecoveryAttempt}
+        onAutoRecoveryStarted={onAutoRecoveryStarted}
+        onAutoRecoveryFailed={onAutoRecoveryFailed}
         onClose={onClose}
       />
     )
@@ -123,6 +133,9 @@ export function Player({
       onSelectEpisode={onSelectEpisode}
       onNextEpisode={onNextEpisode}
       onEnded={onEnded}
+      autoRecoveryAttempt={autoRecoveryAttempt}
+      onAutoRecoveryStarted={onAutoRecoveryStarted}
+      onAutoRecoveryFailed={onAutoRecoveryFailed}
       onClose={onClose}
     />
   )
@@ -143,6 +156,9 @@ function WebPlayer({
   onSelectEpisode,
   onNextEpisode,
   onEnded,
+  autoRecoveryAttempt = false,
+  onAutoRecoveryStarted,
+  onAutoRecoveryFailed,
   onClose,
 }: {
   accountId?: string
@@ -159,6 +175,9 @@ function WebPlayer({
   onSelectEpisode?: (video: Video) => void | Promise<void>
   onNextEpisode?: () => void | Promise<void>
   onEnded?: (allowAutoplay?: boolean) => void | Promise<void>
+  autoRecoveryAttempt?: boolean
+  onAutoRecoveryStarted?: () => void
+  onAutoRecoveryFailed?: () => void
   onClose: () => void
 }) {
   const preferences = readPreferences()
@@ -187,14 +206,52 @@ function WebPlayer({
   const [episodeDrawerOpen, setEpisodeDrawerOpen] = useState(false)
   const nextTransitionSuppressed = useRef(false)
   const nextTransitionRequested = useRef(false)
+  const [playbackStarted, setPlaybackStarted] = useState(false)
   const { progress, save: saveProgress } = usePlaybackProgress(
     profileId,
     videoId,
     progressMetadata,
-    playbackSource,
+    playbackStarted ? playbackSource : undefined,
     accountId,
   )
   const resumed = useRef(false)
+  const autoRecoveryStarted = useRef(false)
+  const autoRecoveryFailureReported = useRef(false)
+  const autoRecoveryAttemptRef = useRef(autoRecoveryAttempt)
+  const onAutoRecoveryStartedRef = useRef(onAutoRecoveryStarted)
+  const onAutoRecoveryFailedRef = useRef(onAutoRecoveryFailed)
+  autoRecoveryAttemptRef.current = autoRecoveryAttempt
+  onAutoRecoveryStartedRef.current = onAutoRecoveryStarted
+  onAutoRecoveryFailedRef.current = onAutoRecoveryFailed
+
+  const reportAutoRecoveryFailure = useCallback(() => {
+    if (
+      !autoRecoveryAttemptRef.current ||
+      autoRecoveryStarted.current ||
+      autoRecoveryFailureReported.current
+    )
+      return
+    autoRecoveryFailureReported.current = true
+    onAutoRecoveryFailedRef.current?.()
+  }, [])
+
+  useEffect(() => {
+    autoRecoveryStarted.current = false
+    autoRecoveryFailureReported.current = false
+    setPlaybackStarted(false)
+  }, [url])
+
+  useEffect(() => {
+    if (!autoRecoveryAttempt) return
+    const timeout = window.setTimeout(reportAutoRecoveryFailure, AUTO_SELECTION_STARTUP_TIMEOUT_MS)
+    return () => window.clearTimeout(timeout)
+  }, [autoRecoveryAttempt, reportAutoRecoveryFailure, url])
+
+  const markAutoRecoveryStarted = useCallback(() => {
+    if (!autoRecoveryAttemptRef.current || autoRecoveryStarted.current) return
+    autoRecoveryStarted.current = true
+    onAutoRecoveryStartedRef.current?.()
+  }, [])
 
   const currentSubtitlePosition = useCallback(
     (position: number) => {
@@ -361,7 +418,10 @@ function WebPlayer({
           })
           hls.on(HlsPlayer.Events.AUDIO_TRACK_SWITCHED, (_, data) => setSelectedAudio(data.id))
           hls.on(HlsPlayer.Events.ERROR, (_, data) => {
-            if (data.fatal) setPlaybackError(browserPlaybackError())
+            if (data.fatal) {
+              reportAutoRecoveryFailure()
+              setPlaybackError(browserPlaybackError())
+            }
           })
           hls.loadSource(url)
           hls.attachMedia(video)
@@ -384,6 +444,8 @@ function WebPlayer({
     preferences.autoplay,
     preferences.readAheadSeconds,
     preferences.volume,
+    markAutoRecoveryStarted,
+    reportAutoRecoveryFailure,
     url,
   ])
 
@@ -526,7 +588,11 @@ function WebPlayer({
             autoPlay
             playsInline
             onClick={togglePlayback}
-            onPlay={() => setPlaying(true)}
+            onPlay={() => {
+              setPlaying(true)
+              setPlaybackStarted(true)
+              markAutoRecoveryStarted()
+            }}
             onPause={(event) => {
               setPlaying(false)
               if (resumed.current) {
@@ -537,9 +603,14 @@ function WebPlayer({
                 )
               }
             }}
-            onPlaying={() => setWaiting(false)}
+            onPlaying={() => {
+              setWaiting(false)
+              setPlaybackStarted(true)
+              markAutoRecoveryStarted()
+            }}
             onError={(event) => {
               setWaiting(false)
+              reportAutoRecoveryFailure()
               setPlaybackError(browserPlaybackError(event.currentTarget.error?.code))
             }}
             onWaiting={() => setWaiting(true)}

@@ -43,7 +43,7 @@ data class PlaybackRequest(
     val episode: Int? = null,
     val startPositionMs: Long = 0,
     val source: PlaybackSource? = null,
-    val autoSelectedSavedSource: Boolean = false,
+    val autoRecoveryAttempt: Boolean = false,
     val hasNextEpisode: Boolean = false,
     val nextEpisodeTitle: String? = null,
     val nextEpisodeArtwork: String? = null,
@@ -93,7 +93,7 @@ class PlaybackSessionCallbacks(
     val selectStreamAddon: (String?) -> Unit = {},
     val retryStreams: () -> Unit = {},
     val selectStream: (StreamSource) -> Unit = {},
-    val savedStreamStartupFailed: (String) -> Unit = {},
+    val autoRecoveryFailed: (String) -> Unit = {},
 )
 
 data class PlaybackCheckpointIdentity(
@@ -304,9 +304,9 @@ class PlaybackSessionController(
         callbacks?.selectStream?.invoke(source)
     }
 
-    fun savedStreamStartupFailed(sessionId: String, message: String) {
-        if (state.sessionId == sessionId && state.request?.autoSelectedSavedSource == true) {
-            callbacks?.savedStreamStartupFailed?.invoke(message)
+    fun autoRecoveryFailed(sessionId: String, message: String) {
+        if (state.sessionId == sessionId && state.request?.autoRecoveryAttempt == true) {
+            callbacks?.autoRecoveryFailed?.invoke(message)
         }
     }
 
@@ -350,9 +350,11 @@ internal fun PlaybackRequest.streamKeyForPlayback(): String =
 internal fun savedStreamStartupStalled(
     request: PlaybackRequest,
     playback: PlaybackState,
-): Boolean = request.autoSelectedSavedSource &&
+): Boolean = request.autoRecoveryAttempt &&
     playback.positionMs <= request.startPositionMs &&
-    !playback.ended
+    !playback.playing &&
+    !playback.ended &&
+    (playback.videoWidth <= 0 || playback.videoHeight <= 0)
 
 private fun PlaybackRequest.persistenceKey(): String =
     "${identity.profileId}\u0000${identity.videoId}"

@@ -38,6 +38,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.time.TimeSource
 
 @Serializable
@@ -272,25 +273,35 @@ fun selectSavedStream(
     source: PlaybackSource?,
 ): StreamSource? {
     val saved = source ?: return null
-    val candidates = streams.filter { candidate ->
-        isPlayableStreamUrl(candidate.stream.url) &&
-            candidate.addonId == saved.addonId
-    }
-    candidates.firstOrNull { candidate -> streamSourceKey(candidate.stream) == saved.sourceKey }?.let { return it }
-    val savedUrlPath = saved.sourceKey
-        .takeIf { it.startsWith("url:") }
-        ?.removePrefix("url:")
-        ?.let(::normalizeStreamUrlPath)
-    if (savedUrlPath != null) {
-        candidates.firstOrNull { candidate ->
-            candidate.stream.url?.let(::normalizeStreamUrlPath) == savedUrlPath
-        }?.let { return it }
-    }
+    val candidates = streams.filter(::isAutoSelectableStream)
+    val exactMatches = candidates.filter { candidate -> streamSourceKey(candidate.stream) == saved.sourceKey }
+    val sameAddonExactMatches = exactMatches.filter { it.addonId == saved.addonId }
+    if (sameAddonExactMatches.size == 1) return sameAddonExactMatches.first()
+    if (sameAddonExactMatches.size > 1) return null
+    if (exactMatches.size == 1) return exactMatches.first()
     val bingeGroup = saved.bingeGroup?.takeIf(String::isNotBlank) ?: return null
-    return candidates.firstOrNull { candidate ->
+    val groupMatches = candidates.filter { candidate ->
         candidate.stream.behaviorHints?.bingeGroup == bingeGroup
     }
+    val sameAddonGroupMatches = groupMatches.filter { it.addonId == saved.addonId }
+    if (sameAddonGroupMatches.size == 1) return sameAddonGroupMatches.first()
+    if (sameAddonGroupMatches.size > 1) return null
+    return groupMatches.singleOrNull()
 }
+
+fun selectSingleAutoStream(
+    streams: List<StreamSource>,
+    excludedStream: StreamSource? = null,
+): StreamSource? {
+    val excludedSourceKey = excludedStream?.stream?.let(::streamSourceKey)
+    return streams
+        .filter(::isAutoSelectableStream)
+        .filter { excludedSourceKey == null || streamSourceKey(it.stream) != excludedSourceKey }
+        .singleOrNull()
+}
+
+private fun isAutoSelectableStream(candidate: StreamSource): Boolean =
+    isPlayableStreamUrl(candidate.stream.url)
 
 private fun isPlayableStreamUrl(value: String?): Boolean {
     val protocol = value?.substringBefore(':')?.lowercase()
@@ -317,9 +328,6 @@ private fun normalizeStreamUrl(value: String): String {
         .joinToString("&")
     return if (query.isBlank()) base else "$base?$query"
 }
-
-private fun normalizeStreamUrlPath(value: String): String =
-    value.substringBefore('#').substringBefore('?').trimEnd('/')
 
 private fun normalizeSourceText(values: List<String?>): String =
     values.filterNotNull().joinToString("|").trim().lowercase().replace(Regex("\\s+"), " ")
@@ -952,7 +960,9 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
             async {
                 val started = TimeSource.Monotonic.markNow()
                 val result = runCatching {
-                    val response = client.get(resourceUrl(addon.manifestUrl, "stream", type, videoId))
+                    val response = withTimeoutOrNull(8_000L) {
+                        client.get(resourceUrl(addon.manifestUrl, "stream", type, videoId))
+                    } ?: error("Stream request timed out")
                     if (!response.status.isSuccess()) {
                         throw ServerRequestException(
                             "Stream request returned HTTP ${response.status.value}",

@@ -12,19 +12,25 @@ import media.conduit.mobile.account.VideoItem
 
 class PlaybackSessionTest {
     @Test
-    fun savedStreamStartupRequiresPlaybackProgress() {
+    fun savedStreamStartupAcceptsPlaybackOrFirstFrame() {
         val request = PlaybackRequest(
             identity = PlaybackIdentity("profile", "series", "show", "s1e1"),
             url = "https://example.com/episode.mp4",
             title = "Episode 1",
             mediaName = "Show",
             startPositionMs = 30_000,
-            autoSelectedSavedSource = true,
+            autoRecoveryAttempt = true,
         )
 
         assertTrue(savedStreamStartupStalled(request, PlaybackState(positionMs = 30_000)))
         assertFalse(savedStreamStartupStalled(request, PlaybackState(positionMs = 30_001)))
-        assertFalse(savedStreamStartupStalled(request.copy(autoSelectedSavedSource = false), PlaybackState()))
+        assertFalse(
+            savedStreamStartupStalled(
+                request,
+                PlaybackState(positionMs = 30_000, videoWidth = 1920, videoHeight = 1080),
+            ),
+        )
+        assertFalse(savedStreamStartupStalled(request.copy(autoRecoveryAttempt = false), PlaybackState()))
     }
 
     @Test
