@@ -145,10 +145,10 @@ jobs:
             flatpak-builder \
             ostree
       - name: Set version from tag
-        if: github.ref_type == 'tag'
+        if: github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && inputs.target == 'flatpak' && inputs.release_tag != '')
         run: |
           RELEASE_DATE="$(git show -s --format=%cs "$GITHUB_SHA")" \
-            node scripts/set-release-version.mjs "${GITHUB_REF_NAME#v}"
+            node scripts/set-release-version.mjs "${{ inputs.release_tag || github.ref_name }}"
       - name: Configure production server
         run: |
           # shellcheck disable=SC2016
