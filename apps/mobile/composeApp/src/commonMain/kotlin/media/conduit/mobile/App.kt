@@ -1261,6 +1261,7 @@ private fun BoxScope.PlaybackSessionHost(
     var miniDockedLeft by remember(request.identity, request.url) { mutableStateOf(false) }
     var miniDockedTop by remember(request.identity, request.url) { mutableStateOf(false) }
     var miniGestureActive by remember(request.identity, request.url) { mutableStateOf(false) }
+    var playbackHasStarted by remember(request.identity, request.url) { mutableStateOf(false) }
     var startupRecoveryRequested by remember(session.sessionId) { mutableStateOf(false) }
     var containerSize by remember { mutableStateOf(IntSize.Zero) }
     var miniSize by remember { mutableStateOf(IntSize.Zero) }
@@ -1285,6 +1286,7 @@ private fun BoxScope.PlaybackSessionHost(
         if (session.playback.ended) controller.persist()
     }
     LaunchedEffect(session.playback.playing) {
+        if (session.playback.playing) playbackHasStarted = true
         if (!session.playback.playing && session.playback.durationMs > 0) controller.persist()
     }
     LaunchedEffect(session.sessionId, request.url, request.autoSelectedSavedSource) {
@@ -1326,6 +1328,7 @@ private fun BoxScope.PlaybackSessionHost(
             else controller.closeEpisodes()
         },
     )
+    val initialPlaybackLoad = session.playback.loading && !playbackHasStarted
 
     Box(Modifier.fillMaxSize().onSizeChanged { containerSize = it }) {
         // Adaptive iOS hides the native bar, but the mini-player keeps its
@@ -1382,8 +1385,14 @@ private fun BoxScope.PlaybackSessionHost(
             },
         )
 
+        if (systemPip) {
+            // The native player must keep decoding for PiP, but its inline
+            // surface should not remain visible underneath the PiP window.
+            Box(Modifier.matchParentSize().background(Color.Black))
+        }
+
         if (fullScreen || pipHandoffVisible) {
-            if (session.playback.loading && session.playback.error == null) {
+            if (initialPlaybackLoad && session.playback.error == null) {
                 PlayerOpeningOverlay(
                     artwork = request.artwork,
                     logo = request.logo,
@@ -1391,7 +1400,7 @@ private fun BoxScope.PlaybackSessionHost(
                     modifier = Modifier.matchParentSize(),
                 )
             }
-            if (fullScreen && session.playback.buffering && !session.playback.loading && session.playback.error == null) {
+            if (fullScreen && session.playback.buffering && !initialPlaybackLoad && session.playback.error == null) {
                 PlayerBufferingOverlay(Modifier.matchParentSize())
             }
             if (controlsVisible || pipHandoffVisible) {

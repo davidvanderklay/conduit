@@ -1,6 +1,7 @@
 import AVFoundation
-import AVKit
+@preconcurrency import AVKit
 import ComposeApp
+import CoreImage
 import Foundation
 import KSPlayer
 import UIKit
@@ -273,6 +274,40 @@ final class ConduitKSPlayerView: VideoPlayerView {
         hideBuiltInControls()
     }
 
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        applyConduitSubtitleFont()
+    }
+
+    override func player(layer: KSPlayerLayer, currentTime: TimeInterval, totalTime: TimeInterval) {
+        super.player(layer: layer, currentTime: currentTime, totalTime: totalTime)
+        applyConduitSubtitleFont()
+    }
+
+    private func applyConduitSubtitleFont() {
+        guard bounds.height > 1 else { return }
+        let size = bounds.height < 300
+            ? max(12, min(16, bounds.height * 0.1))
+            : 24
+        let font = SubtitleModel.textFont.withSize(size)
+        subtitleLabel.font = font
+        guard let attributedText = subtitleLabel.attributedText, attributedText.length > 0 else { return }
+        if let existingFont = attributedText.attribute(
+            .font,
+            at: 0,
+            effectiveRange: nil
+        ) as? UIFont, abs(existingFont.pointSize - size) < 0.1 {
+            return
+        }
+        let resized = NSMutableAttributedString(attributedString: attributedText)
+        resized.addAttribute(
+            .font,
+            value: font,
+            range: NSRange(location: 0, length: resized.length)
+        )
+        subtitleLabel.attributedText = resized
+    }
+
     private func hideBuiltInControls() {
         controllerView.isHidden = true
         controllerView.isUserInteractionEnabled = false
@@ -287,6 +322,7 @@ final class ConduitKSPlayerView: VideoPlayerView {
 
 final class ConduitKSPlayerViewController: UIViewController {
     private let playerView = ConduitKSPlayerView(frame: .zero)
+    private lazy var pipSubtitleCoordinator = ConduitKSPictureInPictureCoordinator(playerView: playerView)
     private var preferredAudioLanguage = "System default"
     private var preferredSubtitleLanguage = "English"
     private var externalSubtitleLanguages: [String: String] = [:]
@@ -379,6 +415,7 @@ final class ConduitKSPlayerViewController: UIViewController {
         externalSubtitleLanguages = [:]
         userSelectedSubtitle = false
         didApplyPreferredTracks = false
+        stopPictureInPicture()
         let subtitleInfos = subtitles.compactMap { subtitle -> URLSubtitleInfo? in
             guard let subtitleURL = URL(string: subtitle.url) else { return nil }
             let rawID = subtitle.id?.isEmpty == false ? subtitle.id! : subtitle.url
@@ -476,22 +513,23 @@ final class ConduitKSPlayerViewController: UIViewController {
     }
 
     var isPictureInPictureSupported: Bool {
-        if #available(iOS 15.0, *) {
-            return playerView.playerLayer?.player.pipController != nil
-        }
-        return false
+        pipSubtitleCoordinator.isSupported || nativePictureInPictureController != nil
     }
 
     var isPictureInPictureActive: Bool {
-        playerView.playerLayer?.isPipActive ?? false
+        pipSubtitleCoordinator.isActive || playerView.playerLayer?.isPipActive == true
     }
 
     func startPictureInPicture() {
         guard isPictureInPictureSupported else { return }
+        if pipSubtitleCoordinator.start() {
+            return
+        }
         playerView.playerLayer?.isPipActive = true
     }
 
     func stopPictureInPicture() {
+        pipSubtitleCoordinator.stop()
         playerView.playerLayer?.isPipActive = false
     }
 
@@ -632,5 +670,378 @@ final class ConduitKSPlayerViewController: UIViewController {
         ]
         if base == "system" || base == "default" || base.isEmpty { return nil }
         return aliases[base] ?? (base.count == 2 ? base : nil)
+    }
+
+    private var nativePictureInPictureController: KSPictureInPictureController? {
+        if #available(iOS 15.0, *) {
+            return playerView.playerLayer?.player.pipController
+        }
+        return nil
+    }
+}
+
+/// KSPlayer's subtitle view is a UIKit overlay, but PiP only accepts a player
+/// layer or sample-buffer display layer. Mirror the current video frame into a
+/// PiP-owned sample-buffer layer and composite the active KS subtitle into
+/// that frame before enqueueing it.
+@MainActor
+final class ConduitKSPictureInPictureCoordinator: NSObject,
+    @preconcurrency AVPictureInPictureControllerDelegate,
+    @preconcurrency AVPictureInPictureSampleBufferPlaybackDelegate {
+    private weak var playerView: ConduitKSPlayerView?
+    private let displayLayer = AVSampleBufferDisplayLayer()
+    private var controller: AVPictureInPictureController?
+    private var displayLink: CADisplayLink?
+    private var videoOutput: AVPlayerItemVideoOutput?
+    private weak var attachedItem: AVPlayerItem?
+    private var pixelBufferPool: CVPixelBufferPool?
+    private var formatDescription: CMVideoFormatDescription?
+    private var ciContext = CIContext(options: [.cacheIntermediates: false])
+    private var lastSourceBuffer: CVPixelBuffer?
+    private var pixelBufferSize = CGSize.zero
+    private var lastSubtitleKey = ""
+    private var subtitleOverlay: CIImage?
+    private var isPriming = false
+    private var renderedFrameCount = 0
+    private var pictureInPicturePossibleObservation: NSKeyValueObservation?
+    private var primingTimeoutWorkItem: DispatchWorkItem?
+
+    init(playerView: ConduitKSPlayerView) {
+        self.playerView = playerView
+        super.init()
+
+        displayLayer.videoGravity = .resizeAspect
+        displayLayer.backgroundColor = UIColor.black.cgColor
+        playerView.layer.insertSublayer(displayLayer, at: 0)
+        var timebase: CMTimebase?
+        CMTimebaseCreateWithSourceClock(
+            allocator: kCFAllocatorDefault,
+            sourceClock: CMClockGetHostTimeClock(),
+            timebaseOut: &timebase
+        )
+        if let timebase {
+            displayLayer.controlTimebase = timebase
+            CMTimebaseSetTime(timebase, time: .zero)
+            CMTimebaseSetRate(timebase, rate: 1)
+        }
+
+        let source = AVPictureInPictureController.ContentSource(
+            sampleBufferDisplayLayer: displayLayer,
+            playbackDelegate: self
+        )
+        let controller = AVPictureInPictureController(contentSource: source)
+        controller.delegate = self
+        controller.canStartPictureInPictureAutomaticallyFromInline = true
+        self.controller = controller
+        pictureInPicturePossibleObservation = controller.observe(
+            \.isPictureInPicturePossible,
+            options: [.initial, .new]
+        ) { [weak self] _, change in
+            guard change.newValue == true else { return }
+            DispatchQueue.main.async { [weak self] in
+                self?.attemptStart()
+            }
+        }
+    }
+
+    var isSupported: Bool {
+        AVPictureInPictureController.isPictureInPictureSupported()
+    }
+
+    var isActive: Bool {
+        controller?.isPictureInPictureActive == true || isPriming
+    }
+
+    func start() -> Bool {
+        guard isSupported, !isActive, playerView?.playerLayer?.player != nil else { return false }
+        guard prepareVideoOutput() else { return false }
+
+        isPriming = true
+        renderedFrameCount = 0
+        lastSourceBuffer = nil
+        displayLayer.frame = playerView?.bounds ?? .zero
+        displayLayer.flush()
+        displayLink?.invalidate()
+        let displayLink = CADisplayLink(target: self, selector: #selector(renderFrame))
+        displayLink.add(to: .main, forMode: .common)
+        self.displayLink = displayLink
+        let timeout = DispatchWorkItem { [weak self] in
+            guard let self, self.isPriming else { return }
+            self.cleanup()
+        }
+        primingTimeoutWorkItem = timeout
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3, execute: timeout)
+        renderFrame()
+        attemptStart()
+        return true
+    }
+
+    func stop() {
+        let wasActive = isActive
+        cleanup()
+        if wasActive {
+            controller?.stopPictureInPicture()
+        }
+    }
+
+    private func cleanup() {
+        isPriming = false
+        displayLink?.invalidate()
+        displayLink = nil
+        primingTimeoutWorkItem?.cancel()
+        primingTimeoutWorkItem = nil
+        videoOutput.flatMap { output in
+            attachedItem?.remove(output)
+        }
+        attachedItem = nil
+        videoOutput = nil
+        lastSourceBuffer = nil
+        subtitleOverlay = nil
+        lastSubtitleKey = ""
+        pixelBufferPool = nil
+        pixelBufferSize = .zero
+        formatDescription = nil
+        displayLayer.flushAndRemoveImage()
+    }
+
+    private func prepareVideoOutput() -> Bool {
+        guard let player = playerView?.playerLayer?.player else { return false }
+        if let player = player as? KSMEPlayer {
+            player.videoOutput?.readNextFrame()
+            return player.videoOutput != nil
+        }
+        guard let player = player as? KSAVPlayer,
+              let playerView = player.view as? KSAVPlayerView,
+              let item = playerView.player.currentItem
+        else { return false }
+        if videoOutput == nil {
+            videoOutput = AVPlayerItemVideoOutput(pixelBufferAttributes: [
+                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+            ])
+        }
+        if attachedItem !== item {
+            attachedItem?.remove(videoOutput!)
+            item.add(videoOutput!)
+            attachedItem = item
+        }
+        return true
+    }
+
+    @objc private func renderFrame() {
+        guard isPriming || controller?.isPictureInPictureActive == true else { return }
+        guard let frame = currentVideoFrame() else { return }
+        guard frame.buffer !== lastSourceBuffer || (isPriming && renderedFrameCount < 2) else { return }
+        lastSourceBuffer = frame.buffer
+        guard let outputBuffer = compositedBuffer(
+            source: frame.buffer,
+            subtitle: currentSubtitleOverlay(for: frame.buffer, at: frame.time.seconds)
+        ) else { return }
+        enqueue(outputBuffer, at: frame.time)
+        renderedFrameCount += 1
+        if isPriming, renderedFrameCount >= 2 {
+            attemptStart()
+        }
+    }
+
+    private func currentVideoFrame() -> (buffer: CVPixelBuffer, time: CMTime)? {
+        guard let player = playerView?.playerLayer?.player else { return nil }
+        if let player = player as? KSMEPlayer {
+            player.videoOutput?.readNextFrame()
+        }
+        if let player = player as? KSMEPlayer,
+           let buffer = player.videoOutput?.pixelBuffer?.cvPixelBuffer {
+            let seconds = max(0, player.displayedVideoTime)
+            return (buffer, CMTime(seconds: seconds, preferredTimescale: 1_000))
+        }
+        guard let player = player as? KSAVPlayer,
+              let playerView = player.view as? KSAVPlayerView,
+              playerView.player.currentItem != nil,
+              let videoOutput
+        else { return nil }
+        let itemTime = playerView.player.currentTime()
+        guard videoOutput.hasNewPixelBuffer(forItemTime: itemTime),
+              let buffer = videoOutput.copyPixelBuffer(forItemTime: itemTime, itemTimeForDisplay: nil)
+        else { return nil }
+        return (buffer, itemTime)
+    }
+
+    private func currentSubtitleOverlay(for sourceBuffer: CVPixelBuffer, at time: TimeInterval) -> CIImage? {
+        guard let playerView, playerView.playerLayer != nil else { return nil }
+        _ = playerView.srtControl.subtitle(currentTime: max(0, time))
+        guard let part = playerView.srtControl.parts.first else {
+            lastSubtitleKey = ""
+            subtitleOverlay = nil
+            return nil
+        }
+        let text = part.text?.string ?? ""
+        let key = "\(part.start):\(part.end):\(text)"
+        guard key != lastSubtitleKey else { return subtitleOverlay }
+        lastSubtitleKey = key
+        let width = CVPixelBufferGetWidth(sourceBuffer)
+        let height = CVPixelBufferGetHeight(sourceBuffer)
+        guard width > 1, height > 1 else { return nil }
+        if let image = part.image?.cgImage {
+            subtitleOverlay = CIImage(cgImage: image).transformed(
+                by: CGAffineTransform(
+                    scaleX: CGFloat(width) * 0.8 / CGFloat(image.width),
+                    y: CGFloat(height) * 0.25 / CGFloat(image.height)
+                ).translatedBy(x: CGFloat(width) * 0.1, y: CGFloat(height) * 0.08)
+            )
+            return subtitleOverlay
+        }
+        guard !text.isEmpty else {
+            subtitleOverlay = nil
+            return nil
+        }
+        subtitleOverlay = makeTextOverlay(text, width: width, height: height)
+        return subtitleOverlay
+    }
+
+    private func makeTextOverlay(_ text: String, width: Int, height: Int) -> CIImage? {
+        // The composited frame is later reduced to the PiP window. A normal
+        // 24px subtitle therefore becomes unreadably small in PiP.
+        let size = CGFloat(max(24, min(96, Double(height) * 0.09)))
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: width, height: height))
+        let image = renderer.image { _ in
+            let rect = CGRect(
+                x: CGFloat(width) * 0.05,
+                y: CGFloat(height) * 0.68,
+                width: CGFloat(width) * 0.9,
+                height: CGFloat(height) * 0.25
+            )
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: UIFont.boldSystemFont(ofSize: size),
+                .foregroundColor: UIColor.white,
+                .strokeColor: UIColor.black,
+                .strokeWidth: -3,
+                .paragraphStyle: {
+                    let style = NSMutableParagraphStyle()
+                    style.alignment = .center
+                    style.lineBreakMode = .byWordWrapping
+                    return style
+                }(),
+            ]
+            (text as NSString).draw(in: rect, withAttributes: attributes)
+        }
+        return image.cgImage.map(CIImage.init)
+    }
+
+    private func compositedBuffer(source: CVPixelBuffer, subtitle: CIImage?) -> CVPixelBuffer? {
+        let width = CVPixelBufferGetWidth(source)
+        let height = CVPixelBufferGetHeight(source)
+        if pixelBufferPool == nil || formatDescription == nil ||
+            pixelBufferSize != CGSize(width: width, height: height) {
+            let attributes: [String: Any] = [
+                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+                kCVPixelBufferWidthKey as String: width,
+                kCVPixelBufferHeightKey as String: height,
+                kCVPixelBufferIOSurfacePropertiesKey as String: [:],
+            ]
+            CVPixelBufferPoolCreate(
+                kCFAllocatorDefault,
+                nil,
+                attributes as CFDictionary,
+                &pixelBufferPool
+            )
+            pixelBufferSize = CGSize(width: width, height: height)
+            formatDescription = nil
+        }
+        guard let pixelBufferPool else { return nil }
+        var output: CVPixelBuffer?
+        guard CVPixelBufferPoolCreatePixelBuffer(nil, pixelBufferPool, &output) == kCVReturnSuccess,
+              let output
+        else { return nil }
+
+        let video = CIImage(cvPixelBuffer: source)
+        let image = subtitle?.composited(over: video) ?? video
+        ciContext.render(image, to: output)
+        if formatDescription == nil {
+            CMVideoFormatDescriptionCreateForImageBuffer(
+                allocator: kCFAllocatorDefault,
+                imageBuffer: output,
+                formatDescriptionOut: &formatDescription
+            )
+        }
+        return output
+    }
+
+    private func enqueue(_ buffer: CVPixelBuffer, at time: CMTime) {
+        guard let formatDescription else { return }
+        var sampleBuffer: CMSampleBuffer?
+        let timing = CMSampleTimingInfo(
+            duration: .invalid,
+            presentationTimeStamp: time,
+            decodeTimeStamp: .invalid
+        )
+        CMSampleBufferCreateReadyWithImageBuffer(
+            allocator: kCFAllocatorDefault,
+            imageBuffer: buffer,
+            formatDescription: formatDescription,
+            sampleTiming: [timing],
+            sampleBufferOut: &sampleBuffer
+        )
+        guard let sampleBuffer else { return }
+        if let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: true) as? [NSMutableDictionary],
+           let attachment = attachments.first {
+            attachment[kCMSampleAttachmentKey_DisplayImmediately] = true
+        }
+        guard displayLayer.isReadyForMoreMediaData else { return }
+        displayLayer.enqueue(sampleBuffer)
+    }
+
+    private func attemptStart() {
+        guard isPriming, renderedFrameCount >= 2,
+              let controller, !controller.isPictureInPictureActive,
+              controller.isPictureInPicturePossible
+        else { return }
+        primingTimeoutWorkItem?.cancel()
+        primingTimeoutWorkItem = nil
+        isPriming = false
+        controller.startPictureInPicture()
+    }
+
+    func pictureInPictureControllerDidStopPictureInPicture(_: AVPictureInPictureController) {
+        cleanup()
+    }
+
+    func pictureInPictureController(_: AVPictureInPictureController, failedToStartPictureInPictureWithError _: Error) {
+        cleanup()
+    }
+
+    func pictureInPictureController(_: AVPictureInPictureController, setPlaying playing: Bool) {
+        playing ? playerView?.playerLayer?.play() : playerView?.playerLayer?.pause()
+    }
+
+    func pictureInPictureControllerTimeRangeForPlayback(_: AVPictureInPictureController) -> CMTimeRange {
+        let duration = playerView?.playerLayer?.player.duration ?? 0
+        if duration == 0 {
+            return CMTimeRange(start: .negativeInfinity, duration: .positiveInfinity)
+        }
+        return CMTimeRange(start: .zero, duration: CMTime(seconds: duration, preferredTimescale: 1_000))
+    }
+
+    func pictureInPictureControllerIsPlaybackPaused(_: AVPictureInPictureController) -> Bool {
+        playerView?.playerLayer?.player.isPlaying != true
+    }
+
+    func pictureInPictureController(_: AVPictureInPictureController, didTransitionToRenderSize _: CMVideoDimensions) {}
+
+    func pictureInPictureController(_: AVPictureInPictureController, skipByInterval skipInterval: CMTime) async {
+        guard let playerView else { return }
+        await MainActor.run {
+            let currentTime = playerView.playerLayer?.player.currentPlaybackTime ?? 0
+            playerView.playerLayer?.seek(time: currentTime + skipInterval.seconds, autoPlay: true) { _ in }
+        }
+    }
+
+    func pictureInPictureControllerShouldProhibitBackgroundAudioPlayback(_: AVPictureInPictureController) -> Bool {
+        false
+    }
+
+    func pictureInPictureController(
+        _: AVPictureInPictureController,
+        restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler: @escaping (Bool) -> Void
+    ) {
+        completionHandler(true)
     }
 }

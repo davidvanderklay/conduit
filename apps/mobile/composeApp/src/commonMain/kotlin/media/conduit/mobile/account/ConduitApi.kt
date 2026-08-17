@@ -806,15 +806,13 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
         profileId: String,
         videoId: String,
         dismissed: Boolean,
-    ): ProgressSummary {
+    ) {
         val response = client.patch("$baseUrl/v1/profiles/$profileId/progress/${videoId.encodeURLPathPart()}") {
             bearerAuth(token)
             contentType(ContentType.Application.Json)
             setBody(buildJsonObject { put("dismissed", dismissed) })
         }
         if (!response.status.isSuccess()) throw ServerRequestException("Unable to update Continue Watching", response.status.value)
-        return response.body<ProgressItemResponse>().item
-            ?: throw ServerRequestException("The server did not return playback progress")
     }
 
     suspend fun deleteProgress(baseUrl: String, token: String, profileId: String, videoId: String) {
