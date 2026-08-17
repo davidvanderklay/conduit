@@ -26,6 +26,49 @@ fileprivate struct ConduitKSPlayerTrack {
     let selected: Bool
 }
 
+fileprivate func conduitLanguageCode(_ value: String) -> String? {
+    let normalized = value
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .lowercased()
+        .replacingOccurrences(of: "_", with: "-")
+    let base = normalized
+        .components(separatedBy: CharacterSet(charactersIn: "-_:([·, "))
+        .first(where: { !$0.isEmpty }) ?? normalized
+    let aliases = [
+        "english": "en", "eng": "en", "spanish": "es", "spa": "es",
+        "french": "fr", "fra": "fr", "fre": "fr", "german": "de", "deu": "de", "ger": "de",
+        "italian": "it", "ita": "it", "portuguese": "pt", "por": "pt", "japanese": "ja", "jpn": "ja",
+        "korean": "ko", "kor": "ko", "chinese": "zh", "zho": "zh", "chi": "zh",
+        "arabic": "ar", "ara": "ar", "indonesian": "id", "ind": "id", "russian": "ru", "rus": "ru",
+        "hindi": "hi", "hin": "hi", "tamil": "ta", "tam": "ta", "telugu": "te", "tel": "te",
+        "kannada": "kn", "kan": "kn", "malayalam": "ml", "mal": "ml", "marathi": "mr", "mar": "mr",
+        "punjabi": "pa", "pan": "pa", "bengali": "bn", "ben": "bn",
+    ]
+    if base == "system" || base == "default" || base.isEmpty { return nil }
+    return aliases[base] ?? (base.count == 2 ? base : nil)
+}
+
+fileprivate final class ConduitKSOptions: KSOptions {
+    private let preferredAudioCode: String?
+
+    init(preferredAudioLanguage: String) {
+        let normalized = preferredAudioLanguage.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let language = normalized == "system default" || normalized == "system" || normalized == "default"
+            ? Locale.current.languageCode ?? ""
+            : preferredAudioLanguage
+        preferredAudioCode = conduitLanguageCode(language)
+        super.init()
+    }
+
+    override func wantedAudio(tracks: [any MediaPlayerTrack]) -> Int? {
+        guard let preferredAudioCode else { return nil }
+        return tracks.firstIndex { track in
+            conduitLanguageCode(track.languageCode ?? "") == preferredAudioCode
+                || conduitLanguageCode(track.name) == preferredAudioCode
+        }
+    }
+}
+
 /// KSPlayer implementation of the shared iOS player boundary.
 ///
 /// Compose continues to own all controls. KSPlayer owns decoding, rendering,
@@ -133,8 +176,8 @@ final class ConduitKSPlayerBridge: NSObject, IosPlayerBridge {
 
     func getAudioTrackLanguageName(at: Int32) -> String {
         guard let language = track(at: at, in: playerViewController?.audioTracks)?.language else { return "" }
-        let code = language.replacingOccurrences(of: "_", with: "-").split(separator: "-").first.map(String.init) ?? ""
-        return Locale.current.localizedString(forLanguageCode: code)?.localizedCapitalized ?? ""
+        guard let code = playerViewController?.languageCode(language) else { return "" }
+        return Locale(identifier: "en_US").localizedString(forLanguageCode: code)?.localizedCapitalized ?? ""
     }
 
     func getAudioTrackCodec(at: Int32) -> String {
@@ -175,6 +218,10 @@ final class ConduitKSPlayerBridge: NSObject, IosPlayerBridge {
 
     func getSubtitleTrackLang(at: Int32) -> String {
         track(at: at, in: playerViewController?.subtitleTracks)?.language ?? ""
+    }
+
+    func getSubtitleTrackCodec(at: Int32) -> String {
+        track(at: at, in: playerViewController?.subtitleTracks)?.codec ?? ""
     }
 
     func isSubtitleTrackExternal(at: Int32) -> Bool {
@@ -284,6 +331,19 @@ final class ConduitKSPlayerView: VideoPlayerView {
         applyConduitSubtitleFont()
     }
 
+    fileprivate func refreshSubtitlePresentation(fallbackPart: SubtitlePart? = nil) {
+        if let part = fallbackPart ?? srtControl.parts.first {
+            subtitleBackView.image = part.image
+            subtitleLabel.attributedText = part.text
+            subtitleBackView.isHidden = false
+        } else {
+            subtitleBackView.image = nil
+            subtitleLabel.attributedText = nil
+            subtitleBackView.isHidden = true
+        }
+        applyConduitSubtitleFont()
+    }
+
     private func applyConduitSubtitleFont() {
         guard bounds.height > 1 else { return }
         let size = bounds.height < 300
@@ -292,20 +352,39 @@ final class ConduitKSPlayerView: VideoPlayerView {
         let font = SubtitleModel.textFont.withSize(size)
         subtitleLabel.font = font
         guard let attributedText = subtitleLabel.attributedText, attributedText.length > 0 else { return }
-        if let existingFont = attributedText.attribute(
-            .font,
-            at: 0,
-            effectiveRange: nil
-        ) as? UIFont, abs(existingFont.pointSize - size) < 0.1 {
+
+        let range = NSRange(location: 0, length: attributedText.length)
+        var needsNormalization = false
+        attributedText.enumerateAttributes(in: range) { attributes, _, stop in
+            guard !needsNormalization else {
+                stop.pointee = true
+                return
+            }
+            let hasExpectedFont = (attributes[.font] as? UIFont).map {
+                abs($0.pointSize - size) < 0.1
+            } ?? false
+            needsNormalization = !hasExpectedFont ||
+                attributes[.expansion] != nil ||
+                attributes[.obliqueness] != nil
+        }
+        guard needsNormalization else {
             return
         }
-        let resized = NSMutableAttributedString(attributedString: attributedText)
-        resized.addAttribute(
+
+        // KSPlayer preserves ASS expansion/obliqueness attributes. Its ASS
+        // parser currently uses those attributes for bold/italic tags, but
+        // UIKit interprets them as geometric stretching and shearing. The
+        // app uses one consistent subtitle style, so discard those source
+        // transforms while retaining the text itself.
+        let normalized = NSMutableAttributedString(attributedString: attributedText)
+        normalized.removeAttribute(.expansion, range: range)
+        normalized.removeAttribute(.obliqueness, range: range)
+        normalized.addAttribute(
             .font,
             value: font,
-            range: NSRange(location: 0, length: resized.length)
+            range: range
         )
-        subtitleLabel.attributedText = resized
+        subtitleLabel.attributedText = normalized
     }
 
     private func hideBuiltInControls() {
@@ -322,24 +401,29 @@ final class ConduitKSPlayerView: VideoPlayerView {
 
 final class ConduitKSPlayerViewController: UIViewController {
     private let playerView = ConduitKSPlayerView(frame: .zero)
-    private lazy var pipSubtitleCoordinator = ConduitKSPictureInPictureCoordinator(playerView: playerView)
+    private lazy var pipSubtitleCoordinator = ConduitKSPictureInPictureCoordinator(
+        playerView: playerView,
+        playerController: self
+    )
     private var preferredAudioLanguage = "System default"
     private var preferredSubtitleLanguage = "English"
     private var externalSubtitleLanguages: [String: String] = [:]
+    private var userSelectedAudio = false
     private var userSelectedSubtitle = false
+    private var didApplyPreferredAudio = false
     private var didApplyPreferredTracks = false
     private var shouldPlay = false
 
     fileprivate var audioTracks: [ConduitKSPlayerTrack] {
         guard let player = playerView.playerLayer?.player else { return [] }
         return player.tracks(mediaType: .audio).enumerated().map { index, track in
-            let description = String(describing: track)
             let asbd = track.audioStreamBasicDescription
+            let language = track.languageCode ?? ""
             return ConduitKSPlayerTrack(
                 id: Int(track.trackID),
-                title: track.name.isEmpty ? "Audio \(index + 1)" : track.name,
-                language: track.languageCode ?? "",
-                codec: description,
+                title: displayTrackTitle(track.name, language: language, fallback: "Audio \(index + 1)"),
+                language: language,
+                codec: mediaCodecName(track) ?? "",
                 channels: asbd.map { String($0.mChannelsPerFrame) } ?? "",
                 channelCount: asbd.map { Int($0.mChannelsPerFrame) } ?? 0,
                 sampleRate: asbd.map { Int($0.mSampleRate) } ?? 0,
@@ -353,11 +437,12 @@ final class ConduitKSPlayerViewController: UIViewController {
     fileprivate var subtitleTracks: [ConduitKSPlayerTrack] {
         guard let player = playerView.playerLayer?.player else { return [] }
         let embedded = player.tracks(mediaType: .subtitle).enumerated().map { index, track in
-            ConduitKSPlayerTrack(
+            let language = track.languageCode ?? ""
+            return ConduitKSPlayerTrack(
                 id: Int(track.trackID),
-                title: track.name.isEmpty ? "Subtitle \(index + 1)" : track.name,
-                language: track.languageCode ?? "",
-                codec: String(describing: track),
+                title: displayTrackTitle(track.name, language: language, fallback: "Subtitle \(index + 1)"),
+                language: language,
+                codec: mediaCodecName(track) ?? "",
                 channels: "",
                 channelCount: 0,
                 sampleRate: 0,
@@ -414,7 +499,9 @@ final class ConduitKSPlayerViewController: UIViewController {
         }
         currentErrorMessage = ""
         externalSubtitleLanguages = [:]
+        userSelectedAudio = false
         userSelectedSubtitle = false
+        didApplyPreferredAudio = false
         didApplyPreferredTracks = false
         stopPictureInPicture()
         let subtitleInfos = subtitles.compactMap { subtitle -> URLSubtitleInfo? in
@@ -430,11 +517,12 @@ final class ConduitKSPlayerViewController: UIViewController {
         let subtitleSource = URLSubtitleDataSouce(urls: [])
         subtitleSource.infos = subtitleInfos
 
-        let options = KSOptions()
+        let options = ConduitKSOptions(preferredAudioLanguage: preferredAudioLanguage)
         options.startPlayTime = TimeInterval(max(0, initialPositionMs)) / 1000.0
-        // KSPlayer otherwise starts with subtitles disabled. The preferred
-        // language is applied once the embedded tracks are available below.
-        options.autoSelectEmbedSubtitle = true
+        // Keep KSPlayer from selecting the first embedded text stream. Text
+        // streams are commonly all reported as enabled, so that default is
+        // not a language preference. The bridge selects subtitles below.
+        options.autoSelectEmbedSubtitle = false
         options.canStartPictureInPictureAutomaticallyFromInline = true
         options.appendHeader(headers)
 
@@ -453,7 +541,11 @@ final class ConduitKSPlayerViewController: UIViewController {
         )
         layer.player.allowsExternalPlayback = true
         layer.player.usesExternalPlaybackWhileExternalScreenIsActive = true
-        if initialPositionMs > 0 {
+        // KSMEPlayer applies startPlayTime inside its demux/read thread. A
+        // second pre-ready layer seek races that initial seek and can leave
+        // the layer buffering forever. AVPlayer does not consume this option,
+        // so retain the layer fallback for that backend.
+        if initialPositionMs > 0, !(layer.player is KSMEPlayer) {
             layer.seek(time: TimeInterval(initialPositionMs) / 1000.0, autoPlay: true) { _ in }
         }
         refreshPlaybackState()
@@ -461,6 +553,7 @@ final class ConduitKSPlayerViewController: UIViewController {
 
     func playPlayback() {
         shouldPlay = true
+        activateAudioSession()
         playerView.playerLayer?.play()
         refreshPlaybackState()
     }
@@ -491,6 +584,8 @@ final class ConduitKSPlayerViewController: UIViewController {
 
     func setPreferredAudioLanguage(_ language: String) {
         preferredAudioLanguage = language
+        userSelectedAudio = false
+        didApplyPreferredAudio = false
         applyPreferredTracks()
     }
 
@@ -528,6 +623,7 @@ final class ConduitKSPlayerViewController: UIViewController {
 
     func startPictureInPicture() {
         guard isPictureInPictureSupported else { return }
+        activateAudioSession()
         if pipSubtitleCoordinator.start() {
             return
         }
@@ -550,9 +646,29 @@ final class ConduitKSPlayerViewController: UIViewController {
         // constraints installed by VideoPlayerView while it is resized.
     }
 
+    fileprivate var playbackIntent: Bool { shouldPlay }
+
+    fileprivate func setPlaybackIntent(_ playing: Bool) {
+        shouldPlay = playing
+        if playing {
+            activateAudioSession()
+            playerView.playerLayer?.play()
+        } else {
+            playerView.playerLayer?.pause()
+        }
+        refreshPlaybackState()
+    }
+
+    fileprivate func activateAudioSessionForPictureInPicture() {
+        activateAudioSession()
+    }
+
     func selectAudio(_ trackId: Int) {
-        guard let track = playerView.playerLayer?.player.tracks(mediaType: .audio).first(where: { Int($0.trackID) == trackId }) else { return }
-        playerView.playerLayer?.player.select(track: track)
+        guard let layer = playerView.playerLayer,
+              let track = layer.player.tracks(mediaType: .audio).first(where: { Int($0.trackID) == trackId })
+        else { return }
+        userSelectedAudio = true
+        selectAudioTrack(track, on: layer)
     }
 
     func selectSubtitle(_ trackId: Int) {
@@ -565,7 +681,6 @@ final class ConduitKSPlayerViewController: UIViewController {
         }
         let embeddedTracks = layer.player.tracks(mediaType: .subtitle)
         if let track = embeddedTracks.first(where: { Int($0.trackID) == trackId }) {
-            layer.player.select(track: track)
             if let subtitle = track as? any SubtitleInfo {
                 playerView.srtControl.selectedSubtitleInfo = subtitle
             }
@@ -593,18 +708,31 @@ final class ConduitKSPlayerViewController: UIViewController {
         let player = layer.player
         isPlayerLoading = [.initialized, .preparing].contains(layer.state)
         isPlayerBuffering = layer.state == .buffering
-        isPlayerPlaying = layer.state.isPlaying
+        // KSPlayerLayer.state describes buffering/render readiness. Its
+        // `isPlaying` value can be stale during PiP/lifecycle transitions;
+        // the media player owns the actual play/pause state.
+        isPlayerPlaying = player.isPlaying
         isPlayerEnded = layer.state == .playedToTheEnd
         durationMs = Int64(max(0, player.duration) * 1000)
         positionMs = Int64(max(0, player.currentPlaybackTime) * 1000)
         videoWidth = Int(max(0, player.naturalSize.width))
         videoHeight = Int(max(0, player.naturalSize.height))
         currentSpeed = player.playbackRate
-        if layer.state == .readyToPlay && !userSelectedSubtitle && !didApplyPreferredTracks {
+        if ![.initialized, .preparing, .error].contains(layer.state) {
             applyPreferredTracks()
         }
         if layer.state == .error, currentErrorMessage.isEmpty {
             currentErrorMessage = "KSPlayer failed to play this media."
+        }
+    }
+
+    private func activateAudioSession() {
+        let session = AVAudioSession.sharedInstance()
+        do {
+            try session.setCategory(.playback, mode: .moviePlayback, policy: .longFormVideo)
+            try session.setActive(true)
+        } catch {
+            print("[Conduit KSPlayer] Failed to activate audio session: \(error)")
         }
     }
 
@@ -614,7 +742,9 @@ final class ConduitKSPlayerViewController: UIViewController {
         playerView.playerLayer?.player.shutdown()
         playerView.playerLayer = nil
         playerView.srtControl.selectedSubtitleInfo = nil
+        userSelectedAudio = false
         userSelectedSubtitle = false
+        didApplyPreferredAudio = false
         didApplyPreferredTracks = false
     }
 
@@ -624,22 +754,17 @@ final class ConduitKSPlayerViewController: UIViewController {
 
     private func applyPreferredTracks() {
         guard let layer = playerView.playerLayer else { return }
-        if let preferred = languageCode(preferredAudioLanguage),
-           let track = layer.player.tracks(mediaType: .audio).first(where: {
-               languageCode($0.languageCode ?? "") == preferred || languageCode($0.name) == preferred
-           })
-        {
-            layer.player.select(track: track)
-        }
+        applyPreferredAudioTrack(layer: layer)
+        guard !userSelectedSubtitle else { return }
 
         let embedded = layer.player.tracks(mediaType: .subtitle)
-        let preferred = languageCode(preferredSubtitleLanguage)
+        if didApplyPreferredTracks, playerView.srtControl.selectedSubtitleInfo != nil {
+            return
+        }
+        let preferred = preferredLanguageCode(preferredSubtitleLanguage)
         if let track = preferred.flatMap({ preferred in
-            embedded.first(where: {
-                languageCode($0.languageCode ?? "") == preferred || languageCode($0.name) == preferred
-            })
+            embedded.first(where: { trackMatchesLanguage($0, preferred: preferred) })
         }) {
-            layer.player.select(track: track)
             if let subtitle = track as? any SubtitleInfo {
                 playerView.srtControl.selectedSubtitleInfo = subtitle
             }
@@ -662,7 +787,6 @@ final class ConduitKSPlayerViewController: UIViewController {
         } else if let track = embedded.first {
             // Keep subtitles on even when the preferred language is not
             // present. Embedded subtitles are the best fallback.
-            layer.player.select(track: track)
             if let subtitle = track as? any SubtitleInfo {
                 playerView.srtControl.selectedSubtitleInfo = subtitle
             }
@@ -676,22 +800,75 @@ final class ConduitKSPlayerViewController: UIViewController {
         }
     }
 
-    private func languageCode(_ value: String) -> String? {
-        let normalized = value
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-            .replacingOccurrences(of: "_", with: "-")
-        let base = normalized.split(separator: "-").first.map(String.init) ?? normalized
-        let aliases = [
-            "english": "en", "eng": "en", "spanish": "es", "spa": "es",
-            "french": "fr", "fra": "fr", "fre": "fr", "german": "de", "deu": "de", "ger": "de",
-            "italian": "it", "ita": "it", "portuguese": "pt", "por": "pt", "japanese": "ja", "jpn": "ja",
-            "korean": "ko", "kor": "ko", "chinese": "zh", "zho": "zh", "chi": "zh",
-            "arabic": "ar", "ara": "ar", "indonesian": "id", "ind": "id", "russian": "ru", "rus": "ru",
-            "hindi": "hi", "hin": "hi",
-        ]
-        if base == "system" || base == "default" || base.isEmpty { return nil }
-        return aliases[base] ?? (base.count == 2 ? base : nil)
+    private func applyPreferredAudioTrack(layer: KSPlayerLayer) {
+        guard !userSelectedAudio, !didApplyPreferredAudio else { return }
+        guard let preferred = preferredLanguageCode(preferredAudioLanguage) else {
+            didApplyPreferredAudio = true
+            return
+        }
+        let tracks = layer.player.tracks(mediaType: .audio)
+        let track = tracks.first(where: { trackMatchesLanguage($0, preferred: preferred) })
+        guard let track else { return }
+        // `wantedAudio` normally enables this track while the demuxer opens.
+        // Do not seek again during the ready/buffering transition: an extra
+        // seek here can keep the layer buffering even though audio is ready.
+        if !track.isEnabled {
+            layer.player.select(track: track)
+        }
+        didApplyPreferredAudio = tracks.contains { $0.trackID == track.trackID && $0.isEnabled }
+    }
+
+    private func selectAudioTrack(_ track: any MediaPlayerTrack, on layer: KSPlayerLayer) {
+        guard !track.isEnabled else { return }
+        let wasPlaying = shouldPlay || layer.player.isPlaying
+        let position = max(0, layer.player.currentPlaybackTime)
+        layer.player.select(track: track)
+        layer.seek(time: position, autoPlay: wasPlaying) { [weak layer] finished in
+            guard finished, wasPlaying else { return }
+            layer?.play()
+        }
+    }
+
+    fileprivate func languageCode(_ value: String) -> String? {
+        conduitLanguageCode(value)
+    }
+
+    private func preferredLanguageCode(_ value: String) -> String? {
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if normalized == "system default" || normalized == "system" || normalized == "default" {
+            return languageCode(Locale.current.languageCode ?? "")
+        }
+        return languageCode(value)
+    }
+
+    private func localizedLanguageName(_ language: String) -> String? {
+        guard let code = languageCode(language) else { return nil }
+        return Locale(identifier: "en_US").localizedString(forLanguageCode: code)?.localizedCapitalized
+    }
+
+    private func mediaCodecName(_ track: any MediaPlayerTrack) -> String? {
+        (track as? FFmpegAssetTrack)?.codecName
+    }
+
+    private func trackMatchesLanguage(_ track: any MediaPlayerTrack, preferred: String) -> Bool {
+        languageCode(track.languageCode ?? "") == preferred
+            || languageCode(track.name) == preferred
+            || languageCode(displayTrackTitle(track.name, language: track.languageCode ?? "", fallback: "")) == preferred
+    }
+
+    private func displayTrackTitle(_ title: String, language: String, fallback: String) -> String {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.isEmpty || isSourceLabel(trimmed) else { return trimmed }
+        return localizedLanguageName(language) ?? fallback
+    }
+
+    private func isSourceLabel(_ value: String) -> Bool {
+        let normalized = value.lowercased()
+        if normalized.hasPrefix("http://") || normalized.hasPrefix("https://") || normalized.hasPrefix("www.") {
+            return true
+        }
+        guard !normalized.contains(where: { $0.isWhitespace }), normalized.contains(".") else { return false }
+        return URL(string: "https://\(normalized)")?.host?.contains(".") == true
     }
 
     private var nativePictureInPictureController: KSPictureInPictureController? {
@@ -711,6 +888,7 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
     @preconcurrency AVPictureInPictureControllerDelegate,
     @preconcurrency AVPictureInPictureSampleBufferPlaybackDelegate {
     private weak var playerView: ConduitKSPlayerView?
+    private weak var playerController: ConduitKSPlayerViewController?
     private let displayLayer = AVSampleBufferDisplayLayer()
     private var controller: AVPictureInPictureController?
     private var displayLink: CADisplayLink?
@@ -723,13 +901,24 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
     private var pixelBufferSize = CGSize.zero
     private var lastSubtitleKey = ""
     private var subtitleOverlay: CIImage?
+    private var subtitleOverlayVersion = 0
+    private var lastRenderedSubtitleVersion = -1
     private var isPriming = false
     private var renderedFrameCount = 0
     private var pictureInPicturePossibleObservation: NSKeyValueObservation?
     private var primingTimeoutWorkItem: DispatchWorkItem?
+    private var playbackWasPlaying = false
+    private var pipSubtitlePart: SubtitlePart?
+    private var pipSubtitleID: String?
+    private var lastSubtitleRefreshTime = -Double.infinity
+    private var backgroundRenderTimer: DispatchSourceTimer?
+    private var lifecycleObservers: [NSObjectProtocol] = []
+    private var preservePlaybackDuringBackground = false
+    private var preservePlaybackWorkItem: DispatchWorkItem?
 
-    init(playerView: ConduitKSPlayerView) {
+    init(playerView: ConduitKSPlayerView, playerController: ConduitKSPlayerViewController) {
         self.playerView = playerView
+        self.playerController = playerController
         super.init()
 
         displayLayer.videoGravity = .resizeAspect
@@ -755,6 +944,33 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
         controller.delegate = self
         controller.canStartPictureInPictureAutomaticallyFromInline = true
         self.controller = controller
+        lifecycleObservers.append(NotificationCenter.default.addObserver(
+            forName: UIApplication.willResignActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.handleWillResignActive()
+            }
+        })
+        lifecycleObservers.append(NotificationCenter.default.addObserver(
+            forName: UIApplication.didEnterBackgroundNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.handleDidEnterBackground()
+            }
+        })
+        lifecycleObservers.append(NotificationCenter.default.addObserver(
+            forName: UIApplication.willEnterForegroundNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.stopBackgroundRendering()
+            }
+        })
         pictureInPicturePossibleObservation = controller.observe(
             \.isPictureInPicturePossible,
             options: [.initial, .new]
@@ -766,6 +982,10 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
         }
     }
 
+    deinit {
+        lifecycleObservers.forEach(NotificationCenter.default.removeObserver)
+    }
+
     var isSupported: Bool {
         AVPictureInPictureController.isPictureInPictureSupported()
     }
@@ -775,14 +995,29 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
     }
 
     func start() -> Bool {
-        guard isSupported, !isActive, playerView?.playerLayer?.player != nil else { return false }
+        guard isSupported, !isActive, let playerView, let layer = playerView.playerLayer else { return false }
+        playbackWasPlaying = playerController?.playbackIntent ?? layer.player.isPlaying
+        // Prime the model once before PiP takes over. This is safe here
+        // because the normal subtitle view and PiP otherwise share the
+        // already-rendered `parts` snapshot instead of searching the same
+        // embedded queue independently on every frame.
+        _ = playerView.srtControl.subtitle(currentTime: layer.player.currentPlaybackTime)
+        pipSubtitlePart = playerView.srtControl.parts.first
+        pipSubtitleID = playerView.srtControl.selectedSubtitleInfo?.subtitleID
+        lastSubtitleRefreshTime = -Double.infinity
         guard prepareVideoOutput() else { return false }
+        // Let KSPlayer's own Metal output advance frames. Its normal render
+        // path applies the audio/video sync policy; PiP mirrors that output.
+        setUnderlyingVideoOutputPlaying(playbackWasPlaying)
 
         isPriming = true
         renderedFrameCount = 0
         lastSourceBuffer = nil
-        displayLayer.frame = playerView?.bounds ?? .zero
+        subtitleOverlayVersion = 0
+        lastRenderedSubtitleVersion = -1
+        displayLayer.frame = playerView.bounds
         displayLayer.flush()
+        setDisplayRate(playbackWasPlaying ? 1 : 0)
         displayLink?.invalidate()
         let displayLink = CADisplayLink(target: self, selector: #selector(renderFrame))
         displayLink.add(to: .main, forMode: .common)
@@ -790,6 +1025,7 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
         let timeout = DispatchWorkItem { [weak self] in
             guard let self, self.isPriming else { return }
             self.cleanup()
+            self.restorePlaybackState()
         }
         primingTimeoutWorkItem = timeout
         DispatchQueue.main.asyncAfter(deadline: .now() + 3, execute: timeout)
@@ -799,15 +1035,20 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
     }
 
     func stop() {
-        let wasActive = isActive
-        cleanup()
-        if wasActive {
+        if controller?.isPictureInPictureActive == true {
             controller?.stopPictureInPicture()
+        } else {
+            cleanup()
+            restorePlaybackState()
         }
     }
 
     private func cleanup() {
         isPriming = false
+        stopBackgroundRendering()
+        preservePlaybackDuringBackground = false
+        preservePlaybackWorkItem?.cancel()
+        preservePlaybackWorkItem = nil
         displayLink?.invalidate()
         displayLink = nil
         primingTimeoutWorkItem?.cancel()
@@ -820,16 +1061,133 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
         lastSourceBuffer = nil
         subtitleOverlay = nil
         lastSubtitleKey = ""
+        subtitleOverlayVersion = 0
+        lastRenderedSubtitleVersion = -1
+        lastSubtitleRefreshTime = -Double.infinity
         pixelBufferPool = nil
         pixelBufferSize = .zero
         formatDescription = nil
         displayLayer.flushAndRemoveImage()
+        setDisplayRate(0)
+    }
+
+    private func setDisplayRate(_ rate: Float) {
+        guard let timebase = displayLayer.controlTimebase else { return }
+        CMTimebaseSetRate(timebase, rate: Float64(rate))
+    }
+
+    private func restorePlaybackState() {
+        let actualPlayerIsPlaying = playerView?.playerLayer?.player.isPlaying == true
+        let shouldPlay = actualPlayerIsPlaying || playbackWasPlaying
+        playbackWasPlaying = false
+        setUnderlyingVideoOutputPlaying(shouldPlay)
+        playerController?.setPlaybackIntent(shouldPlay)
+        if let playerView, let layer = playerView.playerLayer {
+            // Rebuild the normal subtitle overlay after PiP has released its
+            // mirrored frame surface.
+            _ = playerView.srtControl.subtitle(currentTime: layer.player.currentPlaybackTime)
+            let fallback = subtitlePart(
+                pipSubtitlePart,
+                id: pipSubtitleID,
+                at: layer.player.currentPlaybackTime,
+                control: playerView.srtControl
+            )
+            playerView.refreshSubtitlePresentation(fallbackPart: fallback)
+        }
+        pipSubtitlePart = nil
+        pipSubtitleID = nil
+        lastSubtitleRefreshTime = -Double.infinity
+    }
+
+    private func setUnderlyingVideoOutputPlaying(_ playing: Bool) {
+        guard let player = playerView?.playerLayer?.player as? KSMEPlayer else { return }
+        if playing {
+            player.videoOutput?.play()
+        } else {
+            player.videoOutput?.pause()
+        }
+    }
+
+    private func handleDidEnterBackground() {
+        guard isActive else { return }
+        playerController?.activateAudioSessionForPictureInPicture()
+        if playerController?.playbackIntent == true {
+            // AVKit can ask for a paused state while the app is crossing the
+            // inactive/background boundary. Reassert the user's intent once
+            // the background PiP session is established.
+            playerController?.setPlaybackIntent(true)
+            setUnderlyingVideoOutputPlaying(true)
+            setDisplayRate(1)
+        }
+        startBackgroundRendering()
+    }
+
+    private func handleWillResignActive() {
+        guard isActive, playerController?.playbackIntent == true else { return }
+        preservePlaybackDuringBackground = true
+        preservePlaybackWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.preservePlaybackDuringBackground = false
+            }
+        }
+        preservePlaybackWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: workItem)
+    }
+
+    private func startBackgroundRendering() {
+        guard backgroundRenderTimer == nil else { return }
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(
+            deadline: .now(),
+            repeating: .milliseconds(16),
+            leeway: .milliseconds(4)
+        )
+        timer.setEventHandler { [weak self] in
+            self?.renderBackgroundFrame()
+        }
+        backgroundRenderTimer = timer
+        timer.resume()
+    }
+
+    private func stopBackgroundRendering() {
+        backgroundRenderTimer?.cancel()
+        backgroundRenderTimer = nil
+        preservePlaybackDuringBackground = false
+        preservePlaybackWorkItem?.cancel()
+        preservePlaybackWorkItem = nil
+    }
+
+    private func renderBackgroundFrame() {
+        guard isActive else {
+            stopBackgroundRendering()
+            return
+        }
+        guard playerController?.playbackIntent == true else {
+            renderFrame()
+            return
+        }
+
+        // MetalPlayView's CADisplayLink is tied to the app's foreground
+        // display loop. When iOS stops delivering those callbacks in the
+        // background, advance only frames that have fallen behind the audio
+        // clock. This preserves A/V sync instead of consuming frames at a
+        // fixed rate and making video run faster than audio.
+        if let player = playerView?.playerLayer?.player as? KSMEPlayer,
+           player.isPlaying,
+           let videoOutput = player.videoOutput,
+           player.currentPlaybackTime - player.displayedVideoTime > 0.05 {
+            videoOutput.readNextFrame()
+        }
+        renderFrame()
     }
 
     private func prepareVideoOutput() -> Bool {
         guard let player = playerView?.playerLayer?.player else { return false }
         if let player = player as? KSMEPlayer {
-            player.videoOutput?.readNextFrame()
+            if player.videoOutput?.pixelBuffer == nil {
+                player.videoOutput?.readNextFrame()
+            }
             return player.videoOutput != nil
         }
         guard let player = player as? KSAVPlayer,
@@ -852,12 +1210,17 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
     @objc private func renderFrame() {
         guard isPriming || controller?.isPictureInPictureActive == true else { return }
         guard let frame = currentVideoFrame() else { return }
-        guard frame.buffer !== lastSourceBuffer || (isPriming && renderedFrameCount < 2) else { return }
-        lastSourceBuffer = frame.buffer
+        let subtitle = currentSubtitleOverlay(for: frame.buffer, at: frame.time.seconds)
+        let hasNewVideoFrame = frame.buffer !== lastSourceBuffer
+        guard hasNewVideoFrame || subtitleOverlayVersion != lastRenderedSubtitleVersion ||
+              (isPriming && renderedFrameCount < 2)
+        else { return }
         guard let outputBuffer = compositedBuffer(
             source: frame.buffer,
-            subtitle: currentSubtitleOverlay(for: frame.buffer, at: frame.time.seconds)
+            subtitle: subtitle
         ) else { return }
+        lastSourceBuffer = frame.buffer
+        lastRenderedSubtitleVersion = subtitleOverlayVersion
         enqueue(outputBuffer, at: frame.time)
         renderedFrameCount += 1
         if isPriming, renderedFrameCount >= 2 {
@@ -867,9 +1230,6 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
 
     private func currentVideoFrame() -> (buffer: CVPixelBuffer, time: CMTime)? {
         guard let player = playerView?.playerLayer?.player else { return nil }
-        if let player = player as? KSMEPlayer {
-            player.videoOutput?.readNextFrame()
-        }
         if let player = player as? KSMEPlayer,
            let buffer = player.videoOutput?.pixelBuffer?.cvPixelBuffer {
             let seconds = max(0, player.displayedVideoTime)
@@ -889,29 +1249,78 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
 
     private func currentSubtitleOverlay(for sourceBuffer: CVPixelBuffer, at time: TimeInterval) -> CIImage? {
         guard let playerView, playerView.playerLayer != nil else { return nil }
-        _ = playerView.srtControl.subtitle(currentTime: max(0, time))
-        guard let part = playerView.srtControl.parts.first else {
-            lastSubtitleKey = ""
-            subtitleOverlay = nil
+        let subtitleControl = playerView.srtControl
+        // SubtitleInfo.search(for:) advances KSPlayer's embedded subtitle
+        // queue. The normal VideoPlayerView already updates `parts`, so PiP
+        // must mirror that state rather than consuming the queue a second
+        // time at a slightly different timestamp.
+        guard let selectedSubtitle = subtitleControl.selectedSubtitleInfo else {
+            pipSubtitlePart = nil
+            pipSubtitleID = nil
+            if lastSubtitleKey != "" || subtitleOverlay != nil {
+                lastSubtitleKey = ""
+                subtitleOverlay = nil
+                subtitleOverlayVersion += 1
+            }
+            return nil
+        }
+        if pipSubtitleID != selectedSubtitle.subtitleID {
+            pipSubtitleID = selectedSubtitle.subtitleID
+            pipSubtitlePart = nil
+        }
+        let subtitleTime = max(0, time - selectedSubtitle.delay - subtitleControl.subtitleDelay)
+        let hasVisibleParts = subtitleControl.parts.contains {
+            subtitlePartIsVisible($0, at: subtitleTime)
+        }
+        let hasVisibleCachedPart = subtitlePartIsVisible(pipSubtitlePart, at: subtitleTime)
+        if !hasVisibleParts, !hasVisibleCachedPart,
+           abs(time - lastSubtitleRefreshTime) >= 0.25 {
+            // The normal KSPlayer subtitle callback can stop while PiP is
+            // active. Refresh only when the cached cue has ended, and throttle
+            // the lookup so embedded subtitle queues are not consumed twice
+            // on every video frame.
+            lastSubtitleRefreshTime = time
+            _ = subtitleControl.subtitle(currentTime: time)
+        }
+        if let currentPart = subtitleControl.parts.first,
+           subtitlePartIsVisible(currentPart, at: subtitleTime) {
+            pipSubtitlePart = currentPart
+        }
+        guard let part = subtitlePart(
+            pipSubtitlePart,
+            id: pipSubtitleID,
+            at: time,
+            control: subtitleControl
+        ) else {
+            pipSubtitlePart = nil
+            if lastSubtitleKey != "" || subtitleOverlay != nil {
+                lastSubtitleKey = ""
+                subtitleOverlay = nil
+                subtitleOverlayVersion += 1
+            }
             return nil
         }
         let text = part.text?.string ?? ""
         let key = "\(part.start):\(part.end):\(text)"
         guard key != lastSubtitleKey else { return subtitleOverlay }
         lastSubtitleKey = key
+        subtitleOverlayVersion += 1
         let width = CVPixelBufferGetWidth(sourceBuffer)
         let height = CVPixelBufferGetHeight(sourceBuffer)
         guard width > 1, height > 1 else { return nil }
-        if let image = part.image?.cgImage {
-            subtitleOverlay = CIImage(cgImage: image).transformed(
-                by: CGAffineTransform(
-                    scaleX: CGFloat(width) * 0.8 / CGFloat(image.width),
-                    y: CGFloat(height) * 0.25 / CGFloat(image.height)
-                ).translatedBy(x: CGFloat(width) * 0.1, y: CGFloat(height) * 0.08)
-            )
+        if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            // ASS subtitles can carry a bitmap plus text attributes that
+            // UIKit interprets as expansion/shear. Re-render text cues into
+            // our full-frame PiP overlay so the source bitmap cannot escape
+            // the PiP bounds or appear in the top-right corner.
+            subtitleOverlay = makeTextOverlay(text, width: width, height: height)
             return subtitleOverlay
         }
-        guard !text.isEmpty else {
+        if let image = part.image?.cgImage {
+            subtitleOverlay = makeImageOverlay(image, width: width, height: height)
+            return subtitleOverlay
+        }
+        if text.isEmpty {
             subtitleOverlay = nil
             return nil
         }
@@ -919,17 +1328,37 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
         return subtitleOverlay
     }
 
+    private func subtitlePart(
+        _ part: SubtitlePart?,
+        id: String?,
+        at time: TimeInterval,
+        control: SubtitleModel
+    ) -> SubtitlePart? {
+        guard let selectedSubtitle = control.selectedSubtitleInfo,
+              selectedSubtitle.subtitleID == id,
+              let part
+        else { return nil }
+        let subtitleTime = max(0, time - selectedSubtitle.delay - control.subtitleDelay)
+        return subtitlePartIsVisible(part, at: subtitleTime) ? part : nil
+    }
+
+    private func subtitlePartIsVisible(_ part: SubtitlePart?, at time: TimeInterval) -> Bool {
+        guard let part else { return false }
+        let tolerance = 0.25
+        return part.start <= time + tolerance && part.end >= time - tolerance
+    }
+
     private func makeTextOverlay(_ text: String, width: Int, height: Int) -> CIImage? {
         // The composited frame is later reduced to the PiP window. A normal
         // 24px subtitle therefore becomes unreadably small in PiP.
         let size = CGFloat(max(24, min(96, Double(height) * 0.09)))
-        let renderer = UIGraphicsImageRenderer(size: CGSize(width: width, height: height))
+        let renderer = makeOverlayRenderer(width: width, height: height)
         let image = renderer.image { _ in
             let rect = CGRect(
                 x: CGFloat(width) * 0.05,
-                y: CGFloat(height) * 0.68,
+                y: CGFloat(height) * 0.76,
                 width: CGFloat(width) * 0.9,
-                height: CGFloat(height) * 0.25
+                height: CGFloat(height) * 0.2
             )
             let attributes: [NSAttributedString.Key: Any] = [
                 .font: UIFont.boldSystemFont(ofSize: size),
@@ -946,6 +1375,48 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
             (text as NSString).draw(in: rect, withAttributes: attributes)
         }
         return image.cgImage.map(CIImage.init)
+    }
+
+    private func makeImageOverlay(_ image: CGImage, width: Int, height: Int) -> CIImage? {
+        let target = CGRect(
+            x: CGFloat(width) * 0.1,
+            y: CGFloat(height) * 0.76,
+            width: CGFloat(width) * 0.8,
+            height: CGFloat(height) * 0.2
+        )
+        let scale = min(
+            target.width / CGFloat(image.width),
+            target.height / CGFloat(image.height)
+        )
+        guard scale.isFinite, scale > 0 else { return nil }
+        let size = CGSize(
+            width: CGFloat(image.width) * scale,
+            height: CGFloat(image.height) * scale
+        )
+        let rect = CGRect(
+            x: target.midX - size.width / 2,
+            y: target.midY - size.height / 2,
+            width: size.width,
+            height: size.height
+        )
+        let renderer = makeOverlayRenderer(width: width, height: height)
+        let overlay = renderer.image { _ in
+            UIImage(cgImage: image).draw(in: rect)
+        }
+        return overlay.cgImage.map(CIImage.init)
+    }
+
+    private func makeOverlayRenderer(width: Int, height: Int) -> UIGraphicsImageRenderer {
+        let format = UIGraphicsImageRendererFormat()
+        // The subtitle canvas is already expressed in video pixels. The
+        // default UIKit renderer scale follows the device screen scale,
+        // producing a 2x/3x CIImage that gets clipped and enlarged in PiP.
+        format.scale = 1
+        format.opaque = false
+        return UIGraphicsImageRenderer(
+            size: CGSize(width: width, height: height),
+            format: format
+        )
     }
 
     private func compositedBuffer(source: CVPixelBuffer, subtitle: CIImage?) -> CVPixelBuffer? {
@@ -1024,14 +1495,29 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
 
     func pictureInPictureControllerDidStopPictureInPicture(_: AVPictureInPictureController) {
         cleanup()
+        restorePlaybackState()
     }
 
     func pictureInPictureController(_: AVPictureInPictureController, failedToStartPictureInPictureWithError _: Error) {
         cleanup()
+        restorePlaybackState()
     }
 
     func pictureInPictureController(_: AVPictureInPictureController, setPlaying playing: Bool) {
-        playing ? playerView?.playerLayer?.play() : playerView?.playerLayer?.pause()
+        if !playing,
+           playerController?.playbackIntent == true,
+           preservePlaybackDuringBackground {
+            // Treat the background transition's transient pause request as a
+            // lifecycle callback, not as a user pause from the PiP controls.
+            playerController?.setPlaybackIntent(true)
+            setUnderlyingVideoOutputPlaying(true)
+            setDisplayRate(1)
+            return
+        }
+        playbackWasPlaying = playing
+        setDisplayRate(playing ? 1 : 0)
+        playerController?.setPlaybackIntent(playing)
+        setUnderlyingVideoOutputPlaying(playing)
     }
 
     func pictureInPictureControllerTimeRangeForPlayback(_: AVPictureInPictureController) -> CMTimeRange {
@@ -1043,7 +1529,10 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
     }
 
     func pictureInPictureControllerIsPlaybackPaused(_: AVPictureInPictureController) -> Bool {
-        playerView?.playerLayer?.player.isPlaying != true
+        if let playbackIntent = playerController?.playbackIntent {
+            return !playbackIntent
+        }
+        return playerView?.playerLayer?.player.isPlaying != true
     }
 
     func pictureInPictureController(_: AVPictureInPictureController, didTransitionToRenderSize _: CMVideoDimensions) {}
@@ -1052,7 +1541,10 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
         guard let playerView else { return }
         await MainActor.run {
             let currentTime = playerView.playerLayer?.player.currentPlaybackTime ?? 0
-            playerView.playerLayer?.seek(time: currentTime + skipInterval.seconds, autoPlay: true) { _ in }
+            playerView.playerLayer?.seek(
+                time: currentTime + skipInterval.seconds,
+                autoPlay: playerController?.playbackIntent == true
+            ) { _ in }
         }
     }
 

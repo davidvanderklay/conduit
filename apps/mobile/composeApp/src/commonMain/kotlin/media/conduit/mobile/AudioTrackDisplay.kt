@@ -18,12 +18,19 @@ data class AudioTrackDisplay(
 
 fun audioTrackDisplay(info: AudioTrackDisplayInfo, fallback: String): AudioTrackDisplay {
     val codec = audioCodecName(info.codec)
-    val base = info.title.trim().ifBlank { fallback }
+    val base = info.title.trim().takeUnless(::isSourceLabel)
+        ?.takeIf(String::isNotBlank)
+        ?: info.languageName.trim().takeIf(String::isNotBlank)
+        ?: fallback
     val channelSummary = audioChannelSummary(info.channelCount, info.channels)
+    val channels = info.channels?.trim()
+        ?.takeIf(String::isNotBlank)
+        ?.takeUnless { it.all(Char::isDigit) }
+        ?: channelSummary
     val sampleRate = info.sampleRate?.takeIf { it > 0 }?.let(::formatSampleRate)
     val bitrate = info.bitrate?.takeIf { it > 0 }?.let { "${it / 1_000} kbps" }
     val technical = listOfNotNull(
-        info.channels?.trim()?.takeIf(String::isNotBlank) ?: channelSummary,
+        channels,
         sampleRate,
         bitrate,
         codec?.takeIf { !base.contains(it, ignoreCase = true) },
@@ -33,6 +40,13 @@ fun audioTrackDisplay(info: AudioTrackDisplayInfo, fallback: String): AudioTrack
         primary = base + technical?.let { " $it" }.orEmpty(),
         secondary = info.languageName.ifBlank { "Unknown language" },
     )
+}
+
+private fun isSourceLabel(value: String): Boolean {
+    val normalized = value.trim().lowercase()
+    return normalized.startsWith("http://") ||
+        normalized.startsWith("https://") ||
+        normalized.startsWith("www.")
 }
 
 private fun audioChannelSummary(channelCount: Int?, channels: String?): String? = when (channelCount) {

@@ -175,6 +175,10 @@ final class ConduitMPVPlayerBridge: NSObject, IosPlayerBridge {
         track(at: at, in: playerViewController?.subtitleTracks)?.language ?? ""
     }
 
+    func getSubtitleTrackCodec(at: Int32) -> String {
+        track(at: at, in: playerViewController?.subtitleTracks)?.codec ?? ""
+    }
+
     func isSubtitleTrackExternal(at: Int32) -> Bool {
         track(at: at, in: playerViewController?.subtitleTracks)?.external ?? false
     }
