@@ -21,9 +21,9 @@
     "test": "vp run ci:test"
   },
   "devDependencies": {
-    "@voidzero-dev/vite-plus-core": "0.2.8",
+    "@voidzero-dev/vite-plus-core": "0.2.9",
     "@voidzero-dev/vite-plus-test": "0.1.24",
-    "vite-plus": "0.2.8"
+    "vite-plus": "0.2.9"
   },
   "packageManager": "pnpm@10.14.0"
 }
