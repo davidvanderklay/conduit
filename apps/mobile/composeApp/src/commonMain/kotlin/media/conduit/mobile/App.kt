@@ -1287,6 +1287,23 @@ private fun BoxScope.PlaybackSessionHost(
         if (session.playback.ended) controller.persist()
     }
     LaunchedEffect(
+        request.identity.videoId,
+        request.url,
+        request.hasNextEpisode,
+        preferences.autoplayNextEpisode,
+        session.playback.ended,
+    ) {
+        if (
+            preferences.autoplayNextEpisode &&
+                request.hasNextEpisode &&
+                session.playback.ended
+        ) {
+            // Autoplay advances to the next episode's source chooser. A
+            // source must still be selected explicitly for the new episode.
+            controller.playNext()
+        }
+    }
+    LaunchedEffect(
         session.playback.playing,
         session.playback.loading,
         session.playback.buffering,

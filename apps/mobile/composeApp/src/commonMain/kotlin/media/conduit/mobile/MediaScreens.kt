@@ -1172,13 +1172,10 @@ internal fun MediaDetailsScreen(
             },
             playNext = {
                 nextVideo?.let { video ->
-                    val currentSource = currentPlaybackSource()
-                    selectVideo(
-                        video,
-                        preferredSource = currentSource,
-                        streamBackToHome = false,
-                        closePlaybackWithoutSaving = true,
-                    )
+                    // The next episode can be served by a different add-on or
+                    // require a different stream. Let the user choose it
+                    // instead of silently reusing the current source.
+                    openPlayerStreamPicker(video)
                 }
             },
             openEpisodes = {},
@@ -3073,7 +3070,7 @@ private fun PlaybackSettingsScreen(platform: PlatformInfo, preferences: DevicePr
             HorizontalDivider(color = Color.White.copy(.06f)); SettingsAction("Preferred subtitle language", preferences.preferredSubtitleLanguage) { picker = "subtitle" }
             HorizontalDivider(color = Color.White.copy(.06f)); SettingsToggle("Subtitle outline", "Improve readability on bright scenes", preferences.subtitleOutline) { update(preferences.copy(subtitleOutline = it)) }
         }
-        SettingsGroup("AUTOPLAY") { SettingsToggle("Autoplay next episode", "Continue after the next-episode prompt", preferences.autoplayNextEpisode) { update(preferences.copy(autoplayNextEpisode = it)) } }
+        SettingsGroup("AUTOPLAY") { SettingsToggle("Autoplay next episode", "Open the next episode's stream selector when playback ends", preferences.autoplayNextEpisode) { update(preferences.copy(autoplayNextEpisode = it)) } }
         SettingsGroup("P2P STREAMING") {
             SettingsToggle("Allow P2P sources", if (platform.p2pAvailable) "Master permission for peer-to-peer playback on this device" else "Not available in this build", preferences.p2pEnabled && platform.p2pAvailable, enabled = platform.p2pAvailable) { update(preferences.copy(p2pEnabled = it)) }
             if (!platform.p2pAvailable) Text("This distribution does not include a P2P engine. Builds that permit P2P can expose this switch without changing the rest of the playback settings.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(bottom = 12.dp))
