@@ -146,9 +146,11 @@ jobs:
             ostree
       - name: Set version from tag
         if: github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && inputs.target == 'flatpak' && inputs.release_tag != '')
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
         run: |
           RELEASE_DATE="$(git show -s --format=%cs "$GITHUB_SHA")" \
-            node scripts/set-release-version.mjs "${{ inputs.release_tag || github.ref_name }}"
+            node scripts/set-release-version.mjs "${RELEASE_TAG#v}"
       - name: Configure production server
         run: |
           # shellcheck disable=SC2016
