@@ -210,6 +210,39 @@ describe("next episode prompt", () => {
     expect(host.textContent).not.toContain("A new beginning")
   })
 
+  it("changes seasons with centered previous and next controls", () => {
+    const secondSeasonEpisode: Video = {
+      id: "series:4:1",
+      season: 4,
+      episode: 1,
+      title: "A different season",
+    }
+    act(() => {
+      root.render(
+        <PlayerEpisodeDrawer
+          open
+          context={{
+            name: "Example",
+            videos: [episode, secondSeasonEpisode],
+            progress: [],
+            currentVideoId: episode.id,
+          }}
+          onOpenChange={vi.fn()}
+          onSelect={vi.fn()}
+        />,
+      )
+    })
+
+    const nextSeason = host.querySelector<HTMLButtonElement>('button[aria-label="Next season"]')
+    expect(nextSeason?.disabled).toBe(false)
+    act(() => nextSeason?.click())
+
+    expect(host.textContent).toContain("A different season")
+    expect(host.textContent).not.toContain("A new beginning")
+    expect(host.querySelector<HTMLButtonElement>('button[aria-label="Previous season"]')?.disabled).toBe(false)
+    expect(host.querySelector<HTMLButtonElement>('button[aria-label="Next season"]')?.disabled).toBe(true)
+  })
+
   it("opens episode actions from a desktop context-menu event", () => {
     const onWatchAction = vi.fn().mockResolvedValue(undefined)
     const secondEpisode: Video = {
@@ -224,7 +257,6 @@ describe("next episode prompt", () => {
           open
           context={{
             name: "Example",
-            profileId: "profile-1",
             media: { type: "series", id: "example", name: "Example" },
             videos: [episode, secondEpisode],
             progress: [],

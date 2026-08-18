@@ -825,6 +825,18 @@ async function invoke(command: string, args: Record<string, unknown> = {}): Prom
     }
     return null
   }
+  if (command === "player_overlay_watch_action") {
+    const videoIds = Array.isArray(args.videoIds)
+      ? args.videoIds.filter((videoId): videoId is string => typeof videoId === "string")
+      : []
+    if (videoIds.length > 0 && typeof args.watched === "boolean") {
+      mainWindow?.webContents.send("conduit:player-overlay-watch-action", {
+        videoIds,
+        watched: args.watched,
+      })
+    }
+    return null
+  }
   if (command === "player_toggle_fullscreen") {
     if (!mainWindow) throw new Error("Main window is unavailable.")
     const fullscreen = !mainWindowFullscreen

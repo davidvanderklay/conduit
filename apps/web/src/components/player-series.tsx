@@ -9,7 +9,6 @@ import { EpisodeSelector, type EpisodeSelectorShow } from "./episode-selector"
 export interface PlayerSeriesContext {
   name: string
   show?: EpisodeSelectorShow
-  profileId?: string
   media?: WatchActionMedia
   onWatchAction?: (targets: Video[], watched: boolean) => Promise<void>
   videos: Video[]
@@ -65,7 +64,7 @@ export function PlayerEpisodeDrawer({
       const target = event.target
       if (
         target instanceof Element &&
-        target.closest("[data-player-episode-drawer]")
+        target.closest("[data-player-episode-drawer], [data-episode-context-menu]")
       ) {
         return
       }
@@ -115,7 +114,6 @@ export function PlayerEpisodeDrawer({
         videos={context.videos}
         progress={context.progress}
         show={context.show}
-        profileId={context.profileId}
         media={context.media}
         onWatchAction={context.onWatchAction}
         season={season}

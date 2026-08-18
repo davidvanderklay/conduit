@@ -3,6 +3,8 @@ import { createPortal } from "react-dom"
 import {
   Check,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Film,
   LoaderCircle,
   MoreHorizontal,
@@ -45,7 +47,6 @@ export function EpisodeSelector({
   autoPositionVideoId,
   disableAutoPositioning = false,
   className = "",
-  profileId,
   media,
   show,
   onWatchAction,
@@ -63,7 +64,6 @@ export function EpisodeSelector({
   autoPositionVideoId?: string
   disableAutoPositioning?: boolean
   className?: string
-  profileId?: string
   media?: WatchActionMedia
   show?: EpisodeSelectorShow
   onWatchAction?: (targets: Video[], watched: boolean) => Promise<void>
@@ -82,6 +82,9 @@ export function EpisodeSelector({
   const [seasonMenuOpen, setSeasonMenuOpen] = useState(false)
   const positionedKey = useRef<string | undefined>(undefined)
   const activeSeason = season ?? seasons[0] ?? 1
+  const seasonIndex = seasons.indexOf(activeSeason)
+  const previousSeason = seasonIndex > 0 ? seasons[seasonIndex - 1] : undefined
+  const nextSeason = seasonIndex >= 0 ? seasons[seasonIndex + 1] : undefined
   const episodes = videos
     .filter((video) => (video.season ?? 1) === activeSeason)
     .filter((video) => {
@@ -165,7 +168,7 @@ export function EpisodeSelector({
 
   const openContextMenu = (event: MouseEvent, video: Video) => {
     event.preventDefault()
-    if (!profileId || !media || !onWatchAction) return
+    if (!onWatchAction) return
     openContextMenuAt(video, event.clientX, event.clientY)
   }
 
@@ -182,7 +185,7 @@ export function EpisodeSelector({
   const openKeyboardContextMenu = (event: ReactKeyboardEvent, video: Video) => {
     if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return
     event.preventDefault()
-    if (!profileId || !media || !onWatchAction) return
+    if (!onWatchAction) return
     const target = event.currentTarget
     if (!(target instanceof HTMLElement)) return
     const bounds = target.getBoundingClientRect()
@@ -275,9 +278,19 @@ export function EpisodeSelector({
         <div className="mt-2 h-0.5 overflow-hidden bg-white/10">
           <span className="block h-full bg-amber-400" style={{ width: seasonProgress + "%" }} />
         </div>
-        <div className="mt-5 flex items-center justify-between gap-3">
-          {seasons.length > 0 && (
-            <div className="relative" data-episode-season-menu>
+        {seasons.length > 0 && (
+          <div className="mt-5 grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+            <button
+              type="button"
+              className="inline-flex min-w-0 items-center gap-1.5 justify-self-start text-xs font-medium text-zinc-300 outline-none transition-colors hover:text-white focus-visible:text-white focus-visible:ring-2 focus-visible:ring-amber-400 disabled:pointer-events-none disabled:opacity-35"
+              aria-label="Previous season"
+              disabled={!previousSeason}
+              onClick={() => previousSeason !== undefined && chooseSeason(previousSeason)}
+            >
+              <ChevronLeft size={15} />
+              <span>Prev</span>
+            </button>
+            <div className="relative justify-self-center" data-episode-season-menu>
               <span className="sr-only" id="episode-season-label">Season</span>
               <button
                 type="button"
@@ -296,7 +309,7 @@ export function EpisodeSelector({
               </button>
               {seasonMenuOpen && (
                 <div
-                  className="absolute right-0 top-[calc(100%+0.4rem)] z-40 max-h-56 w-40 overflow-y-auto rounded-lg border border-white/10 bg-zinc-900 p-1 shadow-2xl shadow-black/60"
+                  className="absolute left-1/2 top-[calc(100%+0.4rem)] z-40 max-h-56 w-40 -translate-x-1/2 overflow-y-auto rounded-lg border border-white/10 bg-zinc-900 p-1 shadow-2xl shadow-black/60"
                   role="listbox"
                   aria-labelledby="episode-season-label"
                 >
@@ -318,8 +331,18 @@ export function EpisodeSelector({
                 </div>
               )}
             </div>
-          )}
-        </div>
+            <button
+              type="button"
+              className="inline-flex min-w-0 items-center gap-1.5 justify-self-end text-xs font-medium text-zinc-300 outline-none transition-colors hover:text-white focus-visible:text-white focus-visible:ring-2 focus-visible:ring-amber-400 disabled:pointer-events-none disabled:opacity-35"
+              aria-label="Next season"
+              disabled={!nextSeason}
+              onClick={() => nextSeason !== undefined && chooseSeason(nextSeason)}
+            >
+              <span>Next</span>
+              <ChevronRight size={15} />
+            </button>
+          </div>
+        )}
         <label className="relative mt-3 block">
           <Search
             className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-600"
@@ -370,7 +393,7 @@ export function EpisodeSelector({
                   current ? "bg-amber-400/10 ring-1 ring-inset ring-amber-400/35" : ""
                 }`}
                 aria-current={current ? "true" : undefined}
-                aria-haspopup={profileId && media ? "menu" : undefined}
+                aria-haspopup={onWatchAction ? "menu" : undefined}
                 aria-label={`${current ? "Currently playing " : "Play "}${episodeLabel(video)}: ${video.title ?? "Untitled episode"}. ${status}`}
                 onClick={() => onSelect(video)}
                 onContextMenu={(event) => openContextMenu(event, video)}
@@ -409,7 +432,7 @@ export function EpisodeSelector({
                   </p>
                 </div>
               </button>
-              {profileId && media && onWatchAction && (
+              {onWatchAction && (
                 <button
                   type="button"
                   aria-label={`Actions for ${episodeLabel(video)}`}
@@ -435,7 +458,7 @@ export function EpisodeSelector({
   )
 
   function renderContextMenu() {
-    if (!contextMenu || !media || !profileId || !onWatchAction) return null
+    if (!contextMenu || !onWatchAction) return null
     const season = seasonWatchVideos(
       videos,
       contextMenu.video.season ?? 1,

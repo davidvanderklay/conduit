@@ -571,7 +571,6 @@ export function MediaDetails({
               videos={videos}
               loading={metadata.isLoading}
               progress={progress.data ?? []}
-              profileId={profileId}
               media={mediaForWatchActions(meta)}
               show={{
                 name: meta.name,
@@ -697,7 +696,6 @@ export function MediaDetails({
                     description: meta.description,
                     releaseInfo: meta.releaseInfo,
                   },
-                  profileId,
                   media: mediaForWatchActions(meta),
                   onWatchAction: async (targets, watched) => {
                     try {
