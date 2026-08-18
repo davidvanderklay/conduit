@@ -312,10 +312,25 @@ final class ConduitKSPlayerBridge: NSObject, IosPlayerBridge {
 /// Its built-in transport UI stays hidden because Compose is the app's source
 /// of truth for controls and gestures.
 final class ConduitKSPlayerView: VideoPlayerView {
+    private struct SubtitleSnapshot {
+        let start: TimeInterval
+        let end: TimeInterval
+        let text: NSAttributedString?
+        let image: UIImage?
+        let origin: CGPoint
+        let textPosition: TextPosition?
+        let preservesSourceMetrics: Bool
+    }
+
+    private var activeSubtitleSnapshot: SubtitleSnapshot?
+    private var cachedSubtitleSnapshots: [String: SubtitleSnapshot] = [:]
+    private var cachedSubtitleID: String?
+    private var isApplyingSubtitleLayout = false
+
     override func customizeUIComponents() {
-        // KSPlayer's phone default is 16pt. MPVKit renders subtitles closer
-        // to the size users expect from the rest of the app, so use the
-        // larger native preset before VideoPlayerView creates its subtitle UI.
+        // Keep ordinary subtitles at the app's established 24pt size. ASS
+        // cues are restored from their source attributes below instead of
+        // being forced through this global fallback.
         SubtitleModel.textFontSize = 24
         super.customizeUIComponents()
         hideBuiltInControls()
@@ -327,25 +342,116 @@ final class ConduitKSPlayerView: VideoPlayerView {
     }
 
     override func player(layer: KSPlayerLayer, currentTime: TimeInterval, totalTime: TimeInterval) {
+        let selectedSubtitleID = srtControl.selectedSubtitleInfo?.subtitleID
+        if cachedSubtitleID != selectedSubtitleID {
+            cachedSubtitleID = selectedSubtitleID
+            cachedSubtitleSnapshots.removeAll()
+        }
+        // URLSubtitleInfo.search is a regular array lookup, but embedded
+        // FFmpegAssetTrack.search consumes KSPlayer's subtitle queue. Never
+        // search an embedded track before super.player: VideoPlayerView does
+        // the consuming lookup itself and would otherwise see an empty cue.
+        let sourceSnapshot = sourceSubtitleSnapshotBeforePlayer(at: currentTime).map { snapshot in
+            guard snapshot.textPosition != nil else { return snapshot }
+            let key = subtitleSnapshotKey(snapshot)
+            if let cached = cachedSubtitleSnapshots[key] {
+                return cached
+            }
+            cachedSubtitleSnapshots[key] = snapshot
+            return snapshot
+        }
         super.player(layer: layer, currentTime: currentTime, totalTime: totalTime)
-        applyConduitSubtitleFont()
-    }
-
-    fileprivate func refreshSubtitlePresentation(fallbackPart: SubtitlePart? = nil) {
-        if let part = fallbackPart ?? srtControl.parts.first {
-            subtitleBackView.image = part.image
-            subtitleLabel.attributedText = part.text
-            subtitleBackView.isHidden = false
+        let subtitleTime = srtControl.selectedSubtitleInfo.map {
+            max(0, currentTime - $0.delay - srtControl.subtitleDelay)
+        }
+        let hasEmptyCurrentPart = subtitleTime.map { time in
+            guard let part = srtControl.parts.first else { return false }
+            let isCurrent = part.start <= time + subtitleVisibilityTolerance &&
+                part.end >= time - subtitleVisibilityTolerance
+            return !hasRenderableSubtitleContent(part) && isCurrent
+        } ?? false
+        if hasEmptyCurrentPart {
+            // KSPlayer emits empty parts to terminate bitmap cues. Its base
+            // view still marks those parts visible, so clear that sentinel
+            // instead of letting it become a plain-text renderer state.
+            clearSubtitlePresentation()
         } else {
-            subtitleBackView.image = nil
-            subtitleLabel.attributedText = nil
-            subtitleBackView.isHidden = true
+            let presentedSnapshot = sourceSnapshot ?? presentedSubtitleSnapshot(at: currentTime)
+            if let presentedSnapshot {
+                if presentedSnapshot.textPosition != nil {
+                    let key = subtitleSnapshotKey(presentedSnapshot)
+                    let snapshot = cachedSubtitleSnapshots[key] ?? presentedSnapshot
+                    activeSubtitleSnapshot = snapshot
+                    cachedSubtitleSnapshots[key] = snapshot
+                } else {
+                    activeSubtitleSnapshot = presentedSnapshot
+                }
+            } else if let activeSubtitleSnapshot, !subtitleBackView.isHidden {
+                // Keep the current renderer while the subtitle view is still
+                // visible. KSPlayer can briefly publish no matching part while
+                // advancing an embedded queue; falling back to ordinary sizing
+                // here makes the same ASS cue visibly change size.
+                self.activeSubtitleSnapshot = activeSubtitleSnapshot
+            } else {
+                activeSubtitleSnapshot = nil
+            }
         }
         applyConduitSubtitleFont()
     }
 
+    fileprivate func refreshSubtitlePresentation(fallbackPart: SubtitlePart? = nil) {
+        guard let part = fallbackPart ?? srtControl.parts.first,
+              hasRenderableSubtitleContent(part)
+        else {
+            clearSubtitlePresentation()
+            applyConduitSubtitleFont()
+            return
+        }
+        subtitleBackView.image = part.image
+        if let snapshot = activeSubtitleSnapshot, snapshotMatches(snapshot, part: part) {
+            subtitleLabel.attributedText = snapshot.text
+        } else {
+            activeSubtitleSnapshot = nil
+            subtitleLabel.attributedText = part.text
+        }
+        subtitleBackView.isHidden = false
+        applyConduitSubtitleFont()
+    }
+
+    fileprivate func resetSubtitlePresentationCache() {
+        clearSubtitlePresentation()
+        cachedSubtitleSnapshots.removeAll()
+        cachedSubtitleID = nil
+        subtitleBackView.transform = .identity
+    }
+
     private func applyConduitSubtitleFont() {
         guard bounds.height > 1 else { return }
+        guard !isApplyingSubtitleLayout else { return }
+        isApplyingSubtitleLayout = true
+        defer { isApplyingSubtitleLayout = false }
+
+        if let snapshot = activeSubtitleSnapshot,
+           snapshot.textPosition != nil,
+           let text = snapshot.text {
+            let renderedText = scaledASSAttributedText(
+                text,
+                preservesSourceMetrics: snapshot.preservesSourceMetrics
+            )
+            if subtitleLabel.attributedText?.isEqual(to: renderedText) != true {
+                subtitleLabel.attributedText = renderedText
+            }
+            subtitleLabel.font = SubtitleModel.textFont.withSize(24)
+            applyASSPosition(snapshot.textPosition)
+            return
+        }
+
+        if let snapshot = activeSubtitleSnapshot, let image = snapshot.image {
+            applyBitmapPosition(image: image, origin: snapshot.origin)
+            return
+        }
+
+        subtitleBackView.transform = .identity
         let size = bounds.height < 300
             ? max(12, min(16, bounds.height * 0.1))
             : 24
@@ -371,11 +477,9 @@ final class ConduitKSPlayerView: VideoPlayerView {
             return
         }
 
-        // KSPlayer preserves ASS expansion/obliqueness attributes. Its ASS
-        // parser currently uses those attributes for bold/italic tags, but
-        // UIKit interprets them as geometric stretching and shearing. The
-        // app uses one consistent subtitle style, so discard those source
-        // transforms while retaining the text itself.
+        // Plain text subtitles use one consistent app style. ASS subtitles
+        // take the source-preserving path above, where KSPlayer's pseudo
+        // bold/italic attributes are converted into actual font traits.
         let normalized = NSMutableAttributedString(attributedString: attributedText)
         normalized.removeAttribute(.expansion, range: range)
         normalized.removeAttribute(.obliqueness, range: range)
@@ -385,6 +489,226 @@ final class ConduitKSPlayerView: VideoPlayerView {
             range: range
         )
         subtitleLabel.attributedText = normalized
+    }
+
+    private func sourceSubtitleSnapshotBeforePlayer(at time: TimeInterval) -> SubtitleSnapshot? {
+        guard let selectedSubtitle = srtControl.selectedSubtitleInfo else { return nil }
+        guard !(selectedSubtitle is any MediaPlayerTrack) else { return nil }
+        let subtitleTime = max(0, time - selectedSubtitle.delay - srtControl.subtitleDelay)
+        guard let part = selectedSubtitle.search(for: subtitleTime).first,
+              hasRenderableSubtitleContent(part)
+        else { return nil }
+        return makeSubtitleSnapshot(
+            for: part,
+            preservesSourceMetrics: true
+        )
+    }
+
+    private func presentedSubtitleSnapshot(at time: TimeInterval) -> SubtitleSnapshot? {
+        guard let selectedSubtitle = srtControl.selectedSubtitleInfo else { return nil }
+        let subtitleTime = max(0, time - selectedSubtitle.delay - srtControl.subtitleDelay)
+        guard let part = srtControl.parts.first,
+              hasRenderableSubtitleContent(part),
+              part.start <= subtitleTime + subtitleVisibilityTolerance,
+              part.end >= subtitleTime - subtitleVisibilityTolerance
+        else { return nil }
+        return makeSubtitleSnapshot(
+            for: part,
+            preservesSourceMetrics: false
+        )
+    }
+
+    private func hasRenderableSubtitleContent(_ part: SubtitlePart) -> Bool {
+        part.image != nil || (part.text?.length ?? 0) > 0
+    }
+
+    private func clearSubtitlePresentation() {
+        activeSubtitleSnapshot = nil
+        subtitleBackView.image = nil
+        subtitleLabel.attributedText = nil
+        subtitleBackView.isHidden = true
+        subtitleBackView.transform = .identity
+    }
+
+    private func makeSubtitleSnapshot(
+        for part: SubtitlePart,
+        preservesSourceMetrics: Bool
+    ) -> SubtitleSnapshot {
+        SubtitleSnapshot(
+            start: part.start,
+            end: part.end,
+            text: part.text.map { NSAttributedString(attributedString: $0) },
+            image: part.image,
+            origin: part.origin,
+            textPosition: part.textPosition,
+            preservesSourceMetrics: preservesSourceMetrics
+        )
+    }
+
+    private func snapshotMatches(_ snapshot: SubtitleSnapshot, part: SubtitlePart) -> Bool {
+        snapshot.start == part.start && snapshot.end == part.end
+    }
+
+    private let subtitleVisibilityTolerance: TimeInterval = 0.25
+
+    private func subtitleSnapshotKey(_ snapshot: SubtitleSnapshot) -> String {
+        "\(snapshot.start):\(snapshot.end)"
+    }
+
+    private func scaledASSAttributedText(
+        _ source: NSAttributedString,
+        preservesSourceMetrics: Bool
+    ) -> NSAttributedString {
+        let scale = preservesSourceMetrics ? subtitleViewportScale() : 1
+        let result = NSMutableAttributedString(attributedString: source)
+        let fullRange = NSRange(location: 0, length: source.length)
+
+        source.enumerateAttributes(in: fullRange) { attributes, range, _ in
+            let sourceFont = (attributes[.font] as? UIFont) ?? SubtitleModel.textFont
+            var traits = sourceFont.fontDescriptor.symbolicTraits
+            if (attributes[.expansion] as? NSNumber)?.doubleValue != 0 {
+                traits.insert(.traitBold)
+            }
+            if (attributes[.obliqueness] as? NSNumber)?.doubleValue != 0 {
+                traits.insert(.traitItalic)
+            }
+
+            let descriptor = sourceFont.fontDescriptor.withSymbolicTraits(traits) ?? sourceFont.fontDescriptor
+            let fontSize = max(1, sourceFont.pointSize * scale)
+            let font = UIFont(descriptor: descriptor, size: fontSize) ?? sourceFont.withSize(fontSize)
+            result.addAttribute(.font, value: font, range: range)
+            result.removeAttribute(.expansion, range: range)
+            result.removeAttribute(.obliqueness, range: range)
+
+            if let strokeWidth = (attributes[.strokeWidth] as? NSNumber)?.doubleValue {
+                result.addAttribute(.strokeWidth, value: strokeWidth * scale, range: range)
+            }
+
+            if let sourceShadow = attributes[.shadow] as? NSShadow,
+               let shadow = sourceShadow.copy() as? NSShadow {
+                shadow.shadowOffset = CGSize(
+                    width: shadow.shadowOffset.width * scale,
+                    height: shadow.shadowOffset.height * scale
+                )
+                shadow.shadowBlurRadius *= scale
+                result.addAttribute(.shadow, value: shadow, range: range)
+            }
+        }
+        return result
+    }
+
+    private func subtitleViewportScale() -> CGFloat {
+        guard let player = playerLayer?.player else { return 1 }
+        let source = player.naturalSize
+        guard source.width > 1, source.height > 1, bounds.width > 1, bounds.height > 1 else { return 1 }
+        switch player.contentMode {
+        case .scaleAspectFill:
+            return max(bounds.width / source.width, bounds.height / source.height)
+        case .scaleToFill:
+            return min(bounds.width / source.width, bounds.height / source.height)
+        default:
+            return min(bounds.width / source.width, bounds.height / source.height)
+        }
+    }
+
+    private func videoContentRect() -> CGRect {
+        guard let player = playerLayer?.player,
+              player.naturalSize.width > 1,
+              player.naturalSize.height > 1
+        else { return bounds }
+
+        let source = player.naturalSize
+        let scale = subtitleViewportScale()
+        let size = CGSize(width: source.width * scale, height: source.height * scale)
+        return CGRect(
+            x: bounds.midX - size.width / 2,
+            y: bounds.midY - size.height / 2,
+            width: size.width,
+            height: size.height
+        )
+    }
+
+    private func applyBitmapPosition(image: UIImage, origin: CGPoint) {
+        guard subtitleBackView.isHidden == false else {
+            subtitleBackView.transform = .identity
+            return
+        }
+
+        subtitleBackView.transform = .identity
+        layoutIfNeeded()
+        let frame = subtitleBackView.frame
+        guard frame.width > 0, frame.height > 0 else { return }
+
+        let scale = subtitleViewportScale()
+        let desiredSize = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+        let imageScaleX = desiredSize.width / frame.width
+        let imageScaleY = desiredSize.height / frame.height
+        guard imageScaleX.isFinite, imageScaleY.isFinite, imageScaleX > 0, imageScaleY > 0 else { return }
+
+        let contentRect = videoContentRect()
+        let targetCenter: CGPoint
+        if origin == .zero {
+            targetCenter = CGPoint(
+                x: contentRect.midX,
+                y: contentRect.maxY - desiredSize.height / 2 - 5
+            )
+        } else {
+            targetCenter = CGPoint(
+                x: contentRect.minX + origin.x * scale + desiredSize.width / 2,
+                y: contentRect.minY + origin.y * scale + desiredSize.height / 2
+            )
+        }
+
+        subtitleBackView.transform = CGAffineTransform(
+            translationX: targetCenter.x - frame.midX,
+            y: targetCenter.y - frame.midY
+        ).scaledBy(x: imageScaleX, y: imageScaleY)
+    }
+
+    private func applyASSPosition(_ position: TextPosition?) {
+        guard let position, subtitleBackView.isHidden == false else {
+            subtitleBackView.transform = .identity
+            return
+        }
+
+        subtitleBackView.transform = .identity
+        layoutIfNeeded()
+        let frame = subtitleBackView.frame
+        guard frame.width > 0, frame.height > 0 else { return }
+
+        let scale = subtitleViewportScale()
+        let horizontalMargin: CGFloat
+        if position.horizontalAlign == .leading {
+            horizontalMargin = position.leftMargin * scale
+        } else if position.horizontalAlign == .trailing {
+            horizontalMargin = position.rightMargin * scale
+        } else {
+            horizontalMargin = 0
+        }
+        let verticalMargin = position.verticalMargin * scale
+
+        let targetX: CGFloat
+        if position.horizontalAlign == .leading {
+            targetX = frame.width / 2 + horizontalMargin
+        } else if position.horizontalAlign == .trailing {
+            targetX = bounds.width - frame.width / 2 - horizontalMargin
+        } else {
+            targetX = bounds.midX
+        }
+
+        let targetY: CGFloat
+        if position.verticalAlign == .top {
+            targetY = safeAreaInsets.top + verticalMargin + frame.height / 2
+        } else if position.verticalAlign == .center {
+            targetY = bounds.midY
+        } else {
+            targetY = bounds.height - safeAreaInsets.bottom - 5 - verticalMargin - frame.height / 2
+        }
+
+        subtitleBackView.transform = CGAffineTransform(
+            translationX: targetX - frame.midX,
+            y: targetY - frame.midY
+        )
     }
 
     private func hideBuiltInControls() {
@@ -504,6 +828,7 @@ final class ConduitKSPlayerViewController: UIViewController {
         didApplyPreferredAudio = false
         didApplyPreferredTracks = false
         stopPictureInPicture()
+        playerView.resetSubtitlePresentationCache()
         let subtitleInfos = subtitles.compactMap { subtitle -> URLSubtitleInfo? in
             guard let subtitleURL = URL(string: subtitle.url) else { return nil }
             let rawID = subtitle.id?.isEmpty == false ? subtitle.id! : subtitle.url

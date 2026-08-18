@@ -187,6 +187,9 @@ struct ConduitMobileSpikeApp: App {
         IosBottomNavigationBridgeFactory.shared.register(
             bridge: ConduitBottomNavigationCoordinator.shared
         )
+        IosBackGestureBridgeFactory.shared.register(
+            bridge: ConduitBackGestureCoordinator.shared
+        )
     }
 
     var body: some Scene {
@@ -272,6 +275,80 @@ final class ConduitBottomNavigationCoordinator: NSObject, ObservableObject, IosB
 
     fileprivate func select(_ index: Int) {
         selectionHandler?.select(index: Int32(index))
+    }
+}
+
+/// Provides the native equivalent of Android's system back gesture for the
+/// Compose screens that currently own a back action.
+final class ConduitBackGestureCoordinator: NSObject, IosBackGestureBridge, UIGestureRecognizerDelegate {
+    static let shared = ConduitBackGestureCoordinator()
+
+    private var handler: IosBackGestureHandler?
+    private weak var gestureView: UIView?
+    private var edgeGesture: UIScreenEdgePanGestureRecognizer?
+    private var activationObserver: NSObjectProtocol?
+
+    private override init() {
+        super.init()
+        activationObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.installGestureIfNeeded()
+            self?.edgeGesture?.isEnabled = self?.handler != nil
+        }
+    }
+
+    deinit {
+        if let activationObserver {
+            NotificationCenter.default.removeObserver(activationObserver)
+        }
+    }
+
+    func update(handler: IosBackGestureHandler?) {
+        let apply = { [weak self] in
+            guard let self else { return }
+            self.handler = handler
+            self.installGestureIfNeeded()
+            self.edgeGesture?.isEnabled = handler != nil
+        }
+        if Thread.isMainThread { apply() } else { DispatchQueue.main.async(execute: apply) }
+    }
+
+    private func installGestureIfNeeded() {
+        guard edgeGesture == nil,
+              let window = UIApplication.shared.connectedScenes
+                  .compactMap({ $0 as? UIWindowScene })
+                  .first(where: { $0.activationState == .foregroundActive })?
+                  .windows
+                  .first(where: \.isKeyWindow),
+              let view = window.rootViewController?.view
+        else { return }
+
+        let gesture = UIScreenEdgePanGestureRecognizer(
+            target: self,
+            action: #selector(handleEdgePan(_:))
+        )
+        gesture.edges = .left
+        gesture.delegate = self
+        view.addGestureRecognizer(gesture)
+        gestureView = view
+        edgeGesture = gesture
+    }
+
+    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        guard let edgeGesture else { return false }
+        return gestureRecognizer === edgeGesture && handler != nil
+    }
+
+    @objc private func handleEdgePan(_ gesture: UIScreenEdgePanGestureRecognizer) {
+        guard gesture.state == .ended,
+              let view = gestureView,
+              let handler,
+              gesture.translation(in: view).x >= 80 || gesture.velocity(in: view).x >= 500
+        else { return }
+        handler.onBack()
     }
 }
 

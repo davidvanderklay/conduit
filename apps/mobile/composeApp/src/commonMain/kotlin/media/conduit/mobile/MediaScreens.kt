@@ -202,6 +202,7 @@ internal fun MobileContinueWatchingScreen(
     snapshot: ProfileSnapshot?,
     api: ConduitApi,
     onMutation: suspend (ProfileMutation) -> Result<Unit>,
+    active: Boolean,
     onBack: () -> Unit,
     onSelect: (CatalogItem) -> Unit,
     onSelectVideo: (CatalogItem, String?) -> Unit,
@@ -235,7 +236,7 @@ internal fun MobileContinueWatchingScreen(
             }
         }
 
-    PlatformBackHandler(onBack = onBack)
+    PlatformBackHandler(enabled = active, onBack = onBack)
     Column(modifier.fillMaxSize()) {
         ProfileHeader("Continue Watching", onBack)
         Column(Modifier.padding(horizontal = 10.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -2838,6 +2839,7 @@ internal fun ProfileSettingsScreen(
     activeProfile: ProfileSummary?,
     profileSync: ProfileSyncState,
     api: ConduitApi,
+    active: Boolean,
     dispatch: (AppAction) -> Unit,
     onSignOut: () -> Unit,
     onProfilesChanged: (String?) -> Unit,
@@ -2883,7 +2885,7 @@ internal fun ProfileSettingsScreen(
             "https://github.com/davidvanderklay/conduit/blob/main/THIRD_PARTY_NOTICES.md",
         )
     }
-    PlatformBackHandler(enabled = route != ProfileRoute.Settings) {
+    PlatformBackHandler(enabled = active && route != ProfileRoute.Settings) {
         when (route) {
             ProfileRoute.Settings -> Unit
             ProfileRoute.Overview -> route = ProfileRoute.Settings
