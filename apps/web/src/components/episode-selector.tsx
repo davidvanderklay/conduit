@@ -28,6 +28,7 @@ import type { WatchActionMedia } from "../lib/watch-actions"
 
 export interface EpisodeSelectorShow {
   name: string
+  logo?: string
   poster?: string
   description?: string
   releaseInfo?: string
@@ -89,6 +90,15 @@ export function EpisodeSelector({
         `${video.episode ?? ""} ${video.title ?? ""}`.toLocaleLowerCase().includes(search)
     })
     .sort((a, b) => (a.episode ?? 0) - (b.episode ?? 0))
+  const seasonProgress = episodes.length > 0
+    ? Math.round(
+        episodes.reduce((total, video) => {
+          const itemProgress = progressForVideo(progress, video, media?.id)
+          const state = episodeWatchState(itemProgress)
+          return total + (state === "watched" ? 100 : episodeProgressPercent(itemProgress))
+        }, 0) / episodes.length,
+      )
+    : 0
 
   useEffect(() => {
     const rail = railRef.current
@@ -232,37 +242,40 @@ export function EpisodeSelector({
         aria-label="Episodes"
         onScroll={(event) => onScroll?.(event.currentTarget.scrollTop)}
       >
-        <div data-episode-selector-header className="sticky top-0 z-10 border-b border-white/8 bg-zinc-950/95 p-4 backdrop-blur sm:p-5">
-        <div className="flex gap-3.5">
-          <div className="relative h-20 w-14 shrink-0 overflow-hidden rounded-md bg-zinc-900 shadow-lg shadow-black/30">
-            <EpisodeArtwork src={show?.poster ?? media?.poster} />
-            {!show?.poster && !media?.poster && (
-              <div className="absolute inset-0 grid place-items-center text-zinc-700">
-                <Film size={18} />
-              </div>
-            )}
-          </div>
-          <div className="min-w-0">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-amber-300">
-              Browse episodes
-            </p>
-            <h2 className="mt-1 line-clamp-2 font-display text-xl font-semibold leading-tight">
+        <div data-episode-selector-header className="sticky top-0 z-10 border-b border-white/8 bg-zinc-950/95 p-5 backdrop-blur sm:p-6">
+        <div className="min-w-0">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-amber-300">
+            Browse episodes
+          </p>
+          {show?.logo ? (
+            <img
+              className="mt-3 max-h-14 max-w-full object-contain object-left"
+              src={show.logo}
+              alt={show.name}
+              referrerPolicy="no-referrer"
+            />
+          ) : (
+            <h2 className="mt-2 line-clamp-2 font-display text-2xl font-semibold leading-tight">
               {show?.name ?? media?.name ?? "Episodes"}
             </h2>
-            <p className="mt-1 text-[11px] text-zinc-500">
-              {[show?.releaseInfo, seasons.length + " " + (seasons.length === 1 ? "season" : "seasons"), videos.length + " episodes"]
-                .filter(Boolean)
-                .join(" · ")}
-            </p>
-            {show?.description && (
-              <p className="mt-2 line-clamp-2 text-xs leading-5 text-zinc-400">{show.description}</p>
-            )}
-          </div>
-        </div>
-        <div className="mt-4 flex items-center justify-between gap-3">
-          <p className="text-[11px] text-zinc-500">
-            {episodes.length} {episodes.length === 1 ? "episode" : "episodes"} in {seasonLabel(activeSeason)}
+          )}
+          <p className="mt-2 text-xs text-zinc-500">
+            {[show?.releaseInfo, seasons.length + " " + (seasons.length === 1 ? "season" : "seasons"), videos.length + " episodes"]
+              .filter(Boolean)
+              .join(" · ")}
           </p>
+          {show?.description && (
+            <p className="mt-3 line-clamp-3 max-w-2xl text-sm leading-6 text-zinc-300">{show.description}</p>
+          )}
+        </div>
+        <div className="mt-5 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 text-xs">
+          <span className="font-medium text-amber-300">{seasonProgress}% watched</span>
+          <span className="text-zinc-500">{episodes.length} episodes in {seasonLabel(activeSeason)}</span>
+        </div>
+        <div className="mt-2 h-0.5 overflow-hidden bg-white/10">
+          <span className="block h-full bg-amber-400" style={{ width: seasonProgress + "%" }} />
+        </div>
+        <div className="mt-5 flex items-center justify-between gap-3">
           {seasons.length > 0 && (
             <div className="relative" data-episode-season-menu>
               <span className="sr-only" id="episode-season-label">Season</span>

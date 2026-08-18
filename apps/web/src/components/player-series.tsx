@@ -100,7 +100,7 @@ export function PlayerEpisodeDrawer({
       data-player-episode-drawer
       data-native-overlay
       data-overlay-interactive
-      className="absolute inset-y-0 right-0 z-30 flex w-[min(92vw,480px)] items-stretch p-2 pl-0"
+      className="absolute inset-y-0 right-0 z-30 flex w-[min(92vw,30vw,620px)] items-stretch"
     >
       <button
         type="button"
@@ -121,7 +121,7 @@ export function PlayerEpisodeDrawer({
         season={season}
         currentVideoId={context.currentVideoId}
         disableAutoPositioning={manualPositioningDisabled}
-        className="h-full w-full flex-1 rounded-l-none"
+        className="h-full w-full flex-1 !rounded-none"
         onSeasonChange={(nextSeason) => {
           setManualPositioningDisabled(true)
           setSeason(nextSeason)

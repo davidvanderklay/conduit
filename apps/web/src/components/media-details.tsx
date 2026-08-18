@@ -575,6 +575,7 @@ export function MediaDetails({
               media={mediaForWatchActions(meta)}
               show={{
                 name: meta.name,
+                logo: meta.logo,
                 poster: meta.poster,
                 description: meta.description,
                 releaseInfo: meta.releaseInfo,
@@ -691,6 +692,7 @@ export function MediaDetails({
                   name: meta.name,
                   show: {
                     name: meta.name,
+                    logo: meta.logo,
                     poster: meta.poster,
                     description: meta.description,
                     releaseInfo: meta.releaseInfo,

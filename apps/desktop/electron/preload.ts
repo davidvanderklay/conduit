@@ -51,6 +51,7 @@ contextBridge.exposeInMainWorld("__CONDUIT_ELECTRON__", {
       name: string
       show?: {
         name: string
+        logo?: string
         poster?: string
         description?: string
         releaseInfo?: string
@@ -71,10 +72,11 @@ contextBridge.exposeInMainWorld("__CONDUIT_ELECTRON__", {
           name: string
           show?: {
             name: string
-          poster?: string
-          description?: string
-          releaseInfo?: string
-        }
+            logo?: string
+            poster?: string
+            description?: string
+            releaseInfo?: string
+          }
           videos: unknown[]
           progress: unknown[]
           currentVideoId: string

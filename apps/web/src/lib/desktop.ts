@@ -61,6 +61,7 @@ export interface PlayerOverlaySeries {
   name: string
   show?: {
     name: string
+    logo?: string
     poster?: string
     description?: string
     releaseInfo?: string
