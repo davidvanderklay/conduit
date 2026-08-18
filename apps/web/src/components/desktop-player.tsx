@@ -315,6 +315,7 @@ export function DesktopPlayer({
         series: seriesContext
           ? {
               name: seriesContext.name,
+              show: seriesContext.show,
               videos: seriesContext.videos,
               progress: seriesContext.progress,
               currentVideoId: seriesContext.currentVideoId,

@@ -249,6 +249,12 @@ type PlayerOverlayMedia = {
   poster?: string
   series?: {
     name: string
+    show?: {
+      name: string
+      poster?: string
+      description?: string
+      releaseInfo?: string
+    }
     videos: unknown[]
     progress: unknown[]
     currentVideoId: string

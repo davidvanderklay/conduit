@@ -26,6 +26,13 @@ import {
 } from "../lib/watch-status"
 import type { WatchActionMedia } from "../lib/watch-actions"
 
+export interface EpisodeSelectorShow {
+  name: string
+  poster?: string
+  description?: string
+  releaseInfo?: string
+}
+
 export function EpisodeSelector({
   videos,
   loading = false,
@@ -39,6 +46,7 @@ export function EpisodeSelector({
   className = "",
   profileId,
   media,
+  show,
   onWatchAction,
   onSeasonChange,
   onScroll,
@@ -56,6 +64,7 @@ export function EpisodeSelector({
   className?: string
   profileId?: string
   media?: WatchActionMedia
+  show?: EpisodeSelectorShow
   onWatchAction?: (targets: Video[], watched: boolean) => Promise<void>
   onSeasonChange: (season: number) => void
   onScroll?: (scrollTop: number) => void
@@ -69,6 +78,7 @@ export function EpisodeSelector({
   const [query, setQuery] = useState("")
   const [contextMenu, setContextMenu] = useState<ContextMenuState>()
   const [watchPending, setWatchPending] = useState(false)
+  const [seasonMenuOpen, setSeasonMenuOpen] = useState(false)
   const positionedKey = useRef<string | undefined>(undefined)
   const activeSeason = season ?? seasons[0] ?? 1
   const episodes = videos
@@ -125,6 +135,24 @@ export function EpisodeSelector({
     }
   }, [contextMenu])
 
+  useEffect(() => {
+    if (!seasonMenuOpen) return
+    const dismiss = (event: PointerEvent) => {
+      const target = event.target
+      if (target instanceof Element && target.closest("[data-episode-season-menu]")) return
+      setSeasonMenuOpen(false)
+    }
+    const dismissKeyboard = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") setSeasonMenuOpen(false)
+    }
+    document.addEventListener("pointerdown", dismiss, true)
+    window.addEventListener("keydown", dismissKeyboard)
+    return () => {
+      document.removeEventListener("pointerdown", dismiss, true)
+      window.removeEventListener("keydown", dismissKeyboard)
+    }
+  }, [seasonMenuOpen])
+
   const openContextMenu = (event: MouseEvent, video: Video) => {
     event.preventDefault()
     if (!profileId || !media || !onWatchAction) return
@@ -160,6 +188,42 @@ export function EpisodeSelector({
       .finally(() => setWatchPending(false))
   }
 
+  const chooseSeason = (nextSeason: number) => {
+    setSeasonMenuOpen(false)
+    onSeasonChange(nextSeason)
+    setQuery("")
+  }
+
+  const handleSeasonKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
+    if (event.key === "Escape") {
+      setSeasonMenuOpen(false)
+      return
+    }
+    if (event.key === "Tab") {
+      setSeasonMenuOpen(false)
+      return
+    }
+    if (!["ArrowDown", "ArrowUp", "Home", "End", "Enter", " "].includes(event.key)) return
+    if (!seasonMenuOpen && !["ArrowDown", "ArrowUp", "Enter", " "].includes(event.key)) return
+    event.preventDefault()
+    if (!seasonMenuOpen) {
+      setSeasonMenuOpen(true)
+      return
+    }
+    const currentIndex = seasons.indexOf(activeSeason)
+    if (event.key === "ArrowDown") {
+      chooseSeason(seasons[Math.min(seasons.length - 1, currentIndex + 1)] ?? activeSeason)
+    } else if (event.key === "ArrowUp") {
+      chooseSeason(seasons[Math.max(0, currentIndex - 1)] ?? activeSeason)
+    } else if (event.key === "Home") {
+      chooseSeason(seasons[0] ?? activeSeason)
+    } else if (event.key === "End") {
+      chooseSeason(seasons[seasons.length - 1] ?? activeSeason)
+    } else if (event.key === "Enter" || event.key === " ") {
+      setSeasonMenuOpen(false)
+    }
+  }
+
   return (
     <>
       <aside
@@ -168,34 +232,79 @@ export function EpisodeSelector({
         aria-label="Episodes"
         onScroll={(event) => onScroll?.(event.currentTarget.scrollTop)}
       >
-        <div data-episode-selector-header className="sticky top-0 z-10 border-b border-white/8 bg-zinc-950/95 p-3 backdrop-blur">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+        <div data-episode-selector-header className="sticky top-0 z-10 border-b border-white/8 bg-zinc-950/95 p-4 backdrop-blur sm:p-5">
+        <div className="flex gap-3.5">
+          <div className="relative h-20 w-14 shrink-0 overflow-hidden rounded-md bg-zinc-900 shadow-lg shadow-black/30">
+            <EpisodeArtwork src={show?.poster ?? media?.poster} />
+            {!show?.poster && !media?.poster && (
+              <div className="absolute inset-0 grid place-items-center text-zinc-700">
+                <Film size={18} />
+              </div>
+            )}
+          </div>
+          <div className="min-w-0">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-amber-300">
               Browse episodes
             </p>
-            <h2 className="font-display text-lg font-semibold">Episodes</h2>
+            <h2 className="mt-1 line-clamp-2 font-display text-xl font-semibold leading-tight">
+              {show?.name ?? media?.name ?? "Episodes"}
+            </h2>
+            <p className="mt-1 text-[11px] text-zinc-500">
+              {[show?.releaseInfo, seasons.length + " " + (seasons.length === 1 ? "season" : "seasons"), videos.length + " episodes"]
+                .filter(Boolean)
+                .join(" · ")}
+            </p>
+            {show?.description && (
+              <p className="mt-2 line-clamp-2 text-xs leading-5 text-zinc-400">{show.description}</p>
+            )}
           </div>
+        </div>
+        <div className="mt-4 flex items-center justify-between gap-3">
+          <p className="text-[11px] text-zinc-500">
+            {episodes.length} {episodes.length === 1 ? "episode" : "episodes"} in {seasonLabel(activeSeason)}
+          </p>
           {seasons.length > 0 && (
-            <label className="relative">
-              <span className="sr-only">Season</span>
-              <select
-                className="episode-season-select h-9 min-w-28 appearance-none rounded-lg border border-white/10 bg-zinc-900/90 pl-3 pr-8 text-xs font-medium text-zinc-100 shadow-lg shadow-black/20 outline-none transition-colors hover:border-white/20 hover:bg-zinc-800/90 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20"
-                value={activeSeason}
-                onChange={(event) => {
-                  onSeasonChange(Number(event.target.value))
-                  setQuery("")
-                }}
+            <div className="relative" data-episode-season-menu>
+              <span className="sr-only" id="episode-season-label">Season</span>
+              <button
+                type="button"
+                className="flex h-9 min-w-32 items-center justify-between gap-3 rounded-lg border border-white/10 bg-zinc-900/90 px-3 text-xs font-medium text-zinc-100 shadow-lg shadow-black/20 outline-none transition-colors hover:border-white/20 hover:bg-zinc-800/90 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20"
+                aria-labelledby="episode-season-label"
+                aria-haspopup="listbox"
+                aria-expanded={seasonMenuOpen}
+                onClick={() => setSeasonMenuOpen((open) => !open)}
+                onKeyDown={handleSeasonKeyDown}
               >
-                {seasons.map((value) => (
-                  <option key={value} value={value}>{seasonLabel(value)}</option>
-                ))}
-              </select>
-              <ChevronDown
-                className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500"
-                size={14}
-              />
-            </label>
+                {seasonLabel(activeSeason)}
+                <ChevronDown
+                  className={seasonMenuOpen ? "rotate-180 text-zinc-500 transition-transform" : "text-zinc-500 transition-transform"}
+                  size={14}
+                />
+              </button>
+              {seasonMenuOpen && (
+                <div
+                  className="absolute right-0 top-[calc(100%+0.4rem)] z-40 max-h-56 w-40 overflow-y-auto rounded-lg border border-white/10 bg-zinc-900 p-1 shadow-2xl shadow-black/60"
+                  role="listbox"
+                  aria-labelledby="episode-season-label"
+                >
+                  {seasons.map((value) => (
+                    <button
+                      key={value}
+                      type="button"
+                      role="option"
+                      aria-selected={value === activeSeason}
+                      className={value === activeSeason
+                        ? "flex w-full items-center justify-between rounded-md bg-amber-400 px-3 py-2 text-left text-xs font-semibold text-zinc-950"
+                        : "flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-xs text-zinc-300 transition-colors hover:bg-white/10 hover:text-white"}
+                      onClick={() => chooseSeason(value)}
+                    >
+                      {seasonLabel(value)}
+                      {value === activeSeason && <Check size={13} />}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
         </div>
         <label className="relative mt-3 block">

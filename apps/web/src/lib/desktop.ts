@@ -59,6 +59,12 @@ export type PlayerOverlayMedia = PlayerArtwork & {
 
 export interface PlayerOverlaySeries {
   name: string
+  show?: {
+    name: string
+    poster?: string
+    description?: string
+    releaseInfo?: string
+  }
   videos: Video[]
   progress: WatchProgress[]
   currentVideoId: string

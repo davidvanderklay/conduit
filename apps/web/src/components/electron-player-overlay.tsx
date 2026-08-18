@@ -445,6 +445,7 @@ export function ElectronPlayerOverlay({ initialMedia }: { initialMedia: PlayerOv
         handleVisible={chromeVisible}
         context={series ? {
           name: series.name,
+          show: series.show,
           videos: series.videos,
           progress: series.progress,
           currentVideoId: series.currentVideoId,

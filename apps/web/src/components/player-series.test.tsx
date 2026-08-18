@@ -170,6 +170,46 @@ describe("next episode prompt", () => {
     expect(select).toHaveBeenCalledWith(episode)
   })
 
+  it("opens the in-page season menu and changes the episode list", () => {
+    const secondSeasonEpisode: Video = {
+      id: "series:4:1",
+      season: 4,
+      episode: 1,
+      title: "A different season",
+    }
+    act(() => {
+      root.render(
+        <PlayerEpisodeDrawer
+          open
+          context={{
+            name: "Example",
+            videos: [episode, secondSeasonEpisode],
+            progress: [],
+            currentVideoId: episode.id,
+          }}
+          onOpenChange={vi.fn()}
+          onSelect={vi.fn()}
+        />,
+      )
+    })
+
+    const seasonButton = host.querySelector<HTMLButtonElement>('[aria-haspopup="listbox"]')
+    expect(seasonButton).not.toBeNull()
+    act(() => seasonButton?.click())
+
+    const seasonMenu = host.querySelector('[role="listbox"]')
+    expect(seasonMenu).not.toBeNull()
+    const seasonOptions = host.querySelectorAll<HTMLButtonElement>('[role="option"]')
+    expect(seasonOptions).toHaveLength(2)
+    expect(seasonOptions[1]?.textContent).toContain("Season 4")
+
+    act(() => seasonOptions[1]?.click())
+
+    expect(host.querySelector('[role="listbox"]')).toBeNull()
+    expect(host.textContent).toContain("A different season")
+    expect(host.textContent).not.toContain("A new beginning")
+  })
+
   it("opens episode actions from a desktop context-menu event", () => {
     const onWatchAction = vi.fn().mockResolvedValue(undefined)
     const secondEpisode: Video = {
