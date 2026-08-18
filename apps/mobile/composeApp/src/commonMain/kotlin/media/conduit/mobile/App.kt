@@ -1196,7 +1196,7 @@ private fun DestinationContent(
                     modifier = tabModifier,
                 )
                 AppDestination.Profile -> ProfileSettingsScreen(
-                    state, platform, account, activeProfile, profileSync, api, dispatch, onSignOut,
+                    state, platform, account, activeProfile, profileSync, api, active, dispatch, onSignOut,
                     onProfilesChanged, { if (active) onProfileFlowChanged(it) }, onProfileDataChanged,
                     onProfileMutation, onSelectMedia,
                     preferences, onPreferencesChanged, settingsListState = settingsListState,
@@ -1204,6 +1204,7 @@ private fun DestinationContent(
                 )
                 AppDestination.ContinueWatching -> MobileContinueWatchingScreen(
                     snapshot = profileSync.snapshot, api = api, onMutation = onProfileMutation,
+                    active = active,
                     onBack = { dispatch(AppAction.Navigate(AppDestination.Home)) },
                     onSelect = onSelectContinueWatchingDetails, onSelectVideo = onSelectContinueWatching,
                     gridState = continueWatchingGridState, modifier = tabModifier,

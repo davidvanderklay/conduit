@@ -313,10 +313,9 @@ final class ConduitKSPlayerBridge: NSObject, IosPlayerBridge {
 /// of truth for controls and gestures.
 final class ConduitKSPlayerView: VideoPlayerView {
     override func customizeUIComponents() {
-        // KSPlayer's phone default is 16pt. MPVKit renders subtitles closer
-        // to the size users expect from the rest of the app, so use the
-        // larger native preset before VideoPlayerView creates its subtitle UI.
-        SubtitleModel.textFontSize = 24
+        // Keep the KSPlayer phone standard. A larger fixed size is especially
+        // noticeable for landscape playback and ASS/positional cues.
+        SubtitleModel.textFontSize = SubtitleModel.Size.standard.rawValue
         super.customizeUIComponents()
         hideBuiltInControls()
     }
@@ -348,7 +347,7 @@ final class ConduitKSPlayerView: VideoPlayerView {
         guard bounds.height > 1 else { return }
         let size = bounds.height < 300
             ? max(12, min(16, bounds.height * 0.1))
-            : 24
+            : SubtitleModel.Size.standard.rawValue
         let font = SubtitleModel.textFont.withSize(size)
         subtitleLabel.font = font
         guard let attributedText = subtitleLabel.attributedText, attributedText.length > 0 else { return }
