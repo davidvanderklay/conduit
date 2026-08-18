@@ -325,6 +325,11 @@ final class ConduitKSPlayerView: VideoPlayerView {
     private var activeSubtitleSnapshot: SubtitleSnapshot?
     private var cachedSubtitleSnapshots: [String: SubtitleSnapshot] = [:]
     private var cachedSubtitleID: String?
+    private var isApplyingSubtitleLayout = false
+#if DEBUG
+    private var lastSubtitleDebugLogTime = -Double.infinity
+    private var lastSubtitleDebugSignature: String?
+#endif
 
     override func customizeUIComponents() {
         // Keep ordinary subtitles at the app's established 24pt size. ASS
@@ -360,40 +365,65 @@ final class ConduitKSPlayerView: VideoPlayerView {
             return snapshot
         }
         super.player(layer: layer, currentTime: currentTime, totalTime: totalTime)
-        let presentedSnapshot = sourceSnapshot ?? presentedSubtitleSnapshot(at: currentTime)
-        activeSubtitleSnapshot = presentedSnapshot.map { snapshot in
-            guard snapshot.textPosition != nil else { return snapshot }
-            let key = subtitleSnapshotKey(snapshot)
-            if let cached = cachedSubtitleSnapshots[key] {
-                return cached
+        let subtitleTime = srtControl.selectedSubtitleInfo.map {
+            max(0, currentTime - $0.delay - srtControl.subtitleDelay)
+        }
+        let hasEmptyCurrentPart = subtitleTime.map { time in
+            guard let part = srtControl.parts.first else { return false }
+            let isCurrent = part.start <= time + subtitleVisibilityTolerance &&
+                part.end >= time - subtitleVisibilityTolerance
+            return !hasRenderableSubtitleContent(part) && isCurrent
+        } ?? false
+        if hasEmptyCurrentPart {
+            // KSPlayer emits empty parts to terminate bitmap cues. Its base
+            // view still marks those parts visible, so clear that sentinel
+            // instead of letting it become a plain-text renderer state.
+            clearSubtitlePresentation()
+        } else {
+            let presentedSnapshot = sourceSnapshot ?? presentedSubtitleSnapshot(at: currentTime)
+            if let presentedSnapshot {
+                if presentedSnapshot.textPosition != nil {
+                    let key = subtitleSnapshotKey(presentedSnapshot)
+                    let snapshot = cachedSubtitleSnapshots[key] ?? presentedSnapshot
+                    activeSubtitleSnapshot = snapshot
+                    cachedSubtitleSnapshots[key] = snapshot
+                } else {
+                    activeSubtitleSnapshot = presentedSnapshot
+                }
+            } else if let activeSubtitleSnapshot, !subtitleBackView.isHidden {
+                // Keep the current renderer while the subtitle view is still
+                // visible. KSPlayer can briefly publish no matching part while
+                // advancing an embedded queue; falling back to ordinary sizing
+                // here makes the same ASS cue visibly change size.
+                self.activeSubtitleSnapshot = activeSubtitleSnapshot
+            } else {
+                activeSubtitleSnapshot = nil
             }
-            cachedSubtitleSnapshots[key] = snapshot
-            return snapshot
         }
         applyConduitSubtitleFont()
     }
 
     fileprivate func refreshSubtitlePresentation(fallbackPart: SubtitlePart? = nil) {
-        if let part = fallbackPart ?? srtControl.parts.first {
-            subtitleBackView.image = part.image
-            if let snapshot = activeSubtitleSnapshot, snapshotMatches(snapshot, part: part) {
-                subtitleLabel.attributedText = snapshot.text
-            } else {
-                activeSubtitleSnapshot = nil
-                subtitleLabel.attributedText = part.text
-            }
-            subtitleBackView.isHidden = false
+        guard let part = fallbackPart ?? srtControl.parts.first,
+              hasRenderableSubtitleContent(part)
+        else {
+            clearSubtitlePresentation()
+            applyConduitSubtitleFont()
+            return
+        }
+        subtitleBackView.image = part.image
+        if let snapshot = activeSubtitleSnapshot, snapshotMatches(snapshot, part: part) {
+            subtitleLabel.attributedText = snapshot.text
         } else {
             activeSubtitleSnapshot = nil
-            subtitleBackView.image = nil
-            subtitleLabel.attributedText = nil
-            subtitleBackView.isHidden = true
+            subtitleLabel.attributedText = part.text
         }
+        subtitleBackView.isHidden = false
         applyConduitSubtitleFont()
     }
 
     fileprivate func resetSubtitlePresentationCache() {
-        activeSubtitleSnapshot = nil
+        clearSubtitlePresentation()
         cachedSubtitleSnapshots.removeAll()
         cachedSubtitleID = nil
         subtitleBackView.transform = .identity
@@ -401,14 +431,23 @@ final class ConduitKSPlayerView: VideoPlayerView {
 
     private func applyConduitSubtitleFont() {
         guard bounds.height > 1 else { return }
+        guard !isApplyingSubtitleLayout else { return }
+        isApplyingSubtitleLayout = true
+        defer { isApplyingSubtitleLayout = false }
+#if DEBUG
+        defer { logSubtitleDiagnostics() }
+#endif
 
         if let snapshot = activeSubtitleSnapshot,
            snapshot.textPosition != nil,
            let text = snapshot.text {
-            subtitleLabel.attributedText = scaledASSAttributedText(
+            let renderedText = scaledASSAttributedText(
                 text,
                 preservesSourceMetrics: snapshot.preservesSourceMetrics
             )
+            if subtitleLabel.attributedText?.isEqual(to: renderedText) != true {
+                subtitleLabel.attributedText = renderedText
+            }
             subtitleLabel.font = SubtitleModel.textFont.withSize(24)
             applyASSPosition(snapshot.textPosition)
             return
@@ -459,11 +498,59 @@ final class ConduitKSPlayerView: VideoPlayerView {
         subtitleLabel.attributedText = normalized
     }
 
+#if DEBUG
+    private func logSubtitleDiagnostics() {
+        let time = playerLayer?.player.currentPlaybackTime ?? 0
+        let snapshot = activeSubtitleSnapshot
+        let mode: String
+        if snapshot?.textPosition != nil {
+            mode = "ASS"
+        } else if snapshot?.image != nil {
+            mode = "bitmap"
+        } else {
+            mode = "plain"
+        }
+        let image = subtitleBackView.image
+        let imageSize = image.map {
+            String(format: "%.1fx%.1f@%.1f", $0.size.width, $0.size.height, $0.scale)
+        } ?? "nil"
+        let activeImageSize = snapshot?.image.map {
+            String(format: "%.1fx%.1f@%.1f", $0.size.width, $0.size.height, $0.scale)
+        } ?? "nil"
+        let part = srtControl.parts.first
+        let partImageSize = part?.image.map {
+            String(format: "%.1fx%.1f@%.1f", $0.size.width, $0.size.height, $0.scale)
+        } ?? "nil"
+        let textLength = subtitleLabel.attributedText?.length ?? 0
+        let transform = subtitleBackView.transform
+        let signature = [
+            mode,
+            "hidden=\(subtitleBackView.isHidden)",
+            "part=\(part?.start ?? -1)-\(part?.end ?? -1)",
+            "image=\(imageSize)",
+            "activeImage=\(activeImageSize)",
+            "partImage=\(partImageSize)",
+            "text=\(textLength)",
+            "bounds=\(String(format: "%.1fx%.1f", subtitleBackView.bounds.width, subtitleBackView.bounds.height))",
+            "scale=\(String(format: "%.4fx%.4f", transform.a, transform.d))",
+            "translation=\(String(format: "%.1f,%.1f", transform.tx, transform.ty))"
+        ].joined(separator: "|")
+        guard signature != lastSubtitleDebugSignature || time - lastSubtitleDebugLogTime >= 0.25 else {
+            return
+        }
+        lastSubtitleDebugSignature = signature
+        lastSubtitleDebugLogTime = time
+        print("[Conduit subtitle] t=\(String(format: "%.3f", time)) \(signature)")
+    }
+#endif
+
     private func sourceSubtitleSnapshotBeforePlayer(at time: TimeInterval) -> SubtitleSnapshot? {
         guard let selectedSubtitle = srtControl.selectedSubtitleInfo else { return nil }
         guard !(selectedSubtitle is any MediaPlayerTrack) else { return nil }
         let subtitleTime = max(0, time - selectedSubtitle.delay - srtControl.subtitleDelay)
-        guard let part = selectedSubtitle.search(for: subtitleTime).first else { return nil }
+        guard let part = selectedSubtitle.search(for: subtitleTime).first,
+              hasRenderableSubtitleContent(part)
+        else { return nil }
         return makeSubtitleSnapshot(
             for: part,
             preservesSourceMetrics: true
@@ -474,13 +561,26 @@ final class ConduitKSPlayerView: VideoPlayerView {
         guard let selectedSubtitle = srtControl.selectedSubtitleInfo else { return nil }
         let subtitleTime = max(0, time - selectedSubtitle.delay - srtControl.subtitleDelay)
         guard let part = srtControl.parts.first,
-              part.start <= subtitleTime,
-              part.end >= subtitleTime
+              hasRenderableSubtitleContent(part),
+              part.start <= subtitleTime + subtitleVisibilityTolerance,
+              part.end >= subtitleTime - subtitleVisibilityTolerance
         else { return nil }
         return makeSubtitleSnapshot(
             for: part,
             preservesSourceMetrics: false
         )
+    }
+
+    private func hasRenderableSubtitleContent(_ part: SubtitlePart) -> Bool {
+        part.image != nil || (part.text?.length ?? 0) > 0
+    }
+
+    private func clearSubtitlePresentation() {
+        activeSubtitleSnapshot = nil
+        subtitleBackView.image = nil
+        subtitleLabel.attributedText = nil
+        subtitleBackView.isHidden = true
+        subtitleBackView.transform = .identity
     }
 
     private func makeSubtitleSnapshot(
@@ -501,6 +601,8 @@ final class ConduitKSPlayerView: VideoPlayerView {
     private func snapshotMatches(_ snapshot: SubtitleSnapshot, part: SubtitlePart) -> Bool {
         snapshot.start == part.start && snapshot.end == part.end
     }
+
+    private let subtitleVisibilityTolerance: TimeInterval = 0.25
 
     private func subtitleSnapshotKey(_ snapshot: SubtitleSnapshot) -> String {
         "\(snapshot.start):\(snapshot.end)"
