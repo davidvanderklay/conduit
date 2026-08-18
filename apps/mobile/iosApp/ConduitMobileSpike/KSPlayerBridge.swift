@@ -319,6 +319,7 @@ final class ConduitKSPlayerView: VideoPlayerView {
         let image: UIImage?
         let origin: CGPoint
         let textPosition: TextPosition?
+        let preservesSourceMetrics: Bool
     }
 
     private var activeSubtitleSnapshot: SubtitleSnapshot?
@@ -345,7 +346,11 @@ final class ConduitKSPlayerView: VideoPlayerView {
             cachedSubtitleID = selectedSubtitleID
             cachedSubtitleSnapshots.removeAll()
         }
-        let sourceSnapshot = sourceSubtitleSnapshot(at: currentTime).map { snapshot in
+        // URLSubtitleInfo.search is a regular array lookup, but embedded
+        // FFmpegAssetTrack.search consumes KSPlayer's subtitle queue. Never
+        // search an embedded track before super.player: VideoPlayerView does
+        // the consuming lookup itself and would otherwise see an empty cue.
+        let sourceSnapshot = sourceSubtitleSnapshotBeforePlayer(at: currentTime).map { snapshot in
             guard snapshot.textPosition != nil else { return snapshot }
             let key = subtitleSnapshotKey(snapshot)
             if let cached = cachedSubtitleSnapshots[key] {
@@ -355,7 +360,16 @@ final class ConduitKSPlayerView: VideoPlayerView {
             return snapshot
         }
         super.player(layer: layer, currentTime: currentTime, totalTime: totalTime)
-        activeSubtitleSnapshot = sourceSnapshot
+        let presentedSnapshot = sourceSnapshot ?? presentedSubtitleSnapshot(at: currentTime)
+        activeSubtitleSnapshot = presentedSnapshot.map { snapshot in
+            guard snapshot.textPosition != nil else { return snapshot }
+            let key = subtitleSnapshotKey(snapshot)
+            if let cached = cachedSubtitleSnapshots[key] {
+                return cached
+            }
+            cachedSubtitleSnapshots[key] = snapshot
+            return snapshot
+        }
         applyConduitSubtitleFont()
     }
 
@@ -391,7 +405,10 @@ final class ConduitKSPlayerView: VideoPlayerView {
         if let snapshot = activeSubtitleSnapshot,
            snapshot.textPosition != nil,
            let text = snapshot.text {
-            subtitleLabel.attributedText = scaledASSAttributedText(text)
+            subtitleLabel.attributedText = scaledASSAttributedText(
+                text,
+                preservesSourceMetrics: snapshot.preservesSourceMetrics
+            )
             subtitleLabel.font = SubtitleModel.textFont.withSize(24)
             applyASSPosition(snapshot.textPosition)
             return
@@ -442,17 +459,42 @@ final class ConduitKSPlayerView: VideoPlayerView {
         subtitleLabel.attributedText = normalized
     }
 
-    private func sourceSubtitleSnapshot(at time: TimeInterval) -> SubtitleSnapshot? {
+    private func sourceSubtitleSnapshotBeforePlayer(at time: TimeInterval) -> SubtitleSnapshot? {
         guard let selectedSubtitle = srtControl.selectedSubtitleInfo else { return nil }
+        guard !(selectedSubtitle is any MediaPlayerTrack) else { return nil }
         let subtitleTime = max(0, time - selectedSubtitle.delay - srtControl.subtitleDelay)
         guard let part = selectedSubtitle.search(for: subtitleTime).first else { return nil }
-        return SubtitleSnapshot(
+        return makeSubtitleSnapshot(
+            for: part,
+            preservesSourceMetrics: true
+        )
+    }
+
+    private func presentedSubtitleSnapshot(at time: TimeInterval) -> SubtitleSnapshot? {
+        guard let selectedSubtitle = srtControl.selectedSubtitleInfo else { return nil }
+        let subtitleTime = max(0, time - selectedSubtitle.delay - srtControl.subtitleDelay)
+        guard let part = srtControl.parts.first,
+              part.start <= subtitleTime,
+              part.end >= subtitleTime
+        else { return nil }
+        return makeSubtitleSnapshot(
+            for: part,
+            preservesSourceMetrics: false
+        )
+    }
+
+    private func makeSubtitleSnapshot(
+        for part: SubtitlePart,
+        preservesSourceMetrics: Bool
+    ) -> SubtitleSnapshot {
+        SubtitleSnapshot(
             start: part.start,
             end: part.end,
             text: part.text.map { NSAttributedString(attributedString: $0) },
             image: part.image,
             origin: part.origin,
-            textPosition: part.textPosition
+            textPosition: part.textPosition,
+            preservesSourceMetrics: preservesSourceMetrics
         )
     }
 
@@ -464,8 +506,11 @@ final class ConduitKSPlayerView: VideoPlayerView {
         "\(snapshot.start):\(snapshot.end)"
     }
 
-    private func scaledASSAttributedText(_ source: NSAttributedString) -> NSAttributedString {
-        let scale = subtitleViewportScale()
+    private func scaledASSAttributedText(
+        _ source: NSAttributedString,
+        preservesSourceMetrics: Bool
+    ) -> NSAttributedString {
+        let scale = preservesSourceMetrics ? subtitleViewportScale() : 1
         let result = NSMutableAttributedString(attributedString: source)
         let fullRange = NSRange(location: 0, length: source.length)
 
