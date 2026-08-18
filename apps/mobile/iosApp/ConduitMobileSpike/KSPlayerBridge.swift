@@ -326,10 +326,6 @@ final class ConduitKSPlayerView: VideoPlayerView {
     private var cachedSubtitleSnapshots: [String: SubtitleSnapshot] = [:]
     private var cachedSubtitleID: String?
     private var isApplyingSubtitleLayout = false
-#if DEBUG
-    private var lastSubtitleDebugLogTime = -Double.infinity
-    private var lastSubtitleDebugSignature: String?
-#endif
 
     override func customizeUIComponents() {
         // Keep ordinary subtitles at the app's established 24pt size. ASS
@@ -434,9 +430,6 @@ final class ConduitKSPlayerView: VideoPlayerView {
         guard !isApplyingSubtitleLayout else { return }
         isApplyingSubtitleLayout = true
         defer { isApplyingSubtitleLayout = false }
-#if DEBUG
-        defer { logSubtitleDiagnostics() }
-#endif
 
         if let snapshot = activeSubtitleSnapshot,
            snapshot.textPosition != nil,
@@ -497,52 +490,6 @@ final class ConduitKSPlayerView: VideoPlayerView {
         )
         subtitleLabel.attributedText = normalized
     }
-
-#if DEBUG
-    private func logSubtitleDiagnostics() {
-        let time = playerLayer?.player.currentPlaybackTime ?? 0
-        let snapshot = activeSubtitleSnapshot
-        let mode: String
-        if snapshot?.textPosition != nil {
-            mode = "ASS"
-        } else if snapshot?.image != nil {
-            mode = "bitmap"
-        } else {
-            mode = "plain"
-        }
-        let image = subtitleBackView.image
-        let imageSize = image.map {
-            String(format: "%.1fx%.1f@%.1f", $0.size.width, $0.size.height, $0.scale)
-        } ?? "nil"
-        let activeImageSize = snapshot?.image.map {
-            String(format: "%.1fx%.1f@%.1f", $0.size.width, $0.size.height, $0.scale)
-        } ?? "nil"
-        let part = srtControl.parts.first
-        let partImageSize = part?.image.map {
-            String(format: "%.1fx%.1f@%.1f", $0.size.width, $0.size.height, $0.scale)
-        } ?? "nil"
-        let textLength = subtitleLabel.attributedText?.length ?? 0
-        let transform = subtitleBackView.transform
-        let signature = [
-            mode,
-            "hidden=\(subtitleBackView.isHidden)",
-            "part=\(part?.start ?? -1)-\(part?.end ?? -1)",
-            "image=\(imageSize)",
-            "activeImage=\(activeImageSize)",
-            "partImage=\(partImageSize)",
-            "text=\(textLength)",
-            "bounds=\(String(format: "%.1fx%.1f", subtitleBackView.bounds.width, subtitleBackView.bounds.height))",
-            "scale=\(String(format: "%.4fx%.4f", transform.a, transform.d))",
-            "translation=\(String(format: "%.1f,%.1f", transform.tx, transform.ty))"
-        ].joined(separator: "|")
-        guard signature != lastSubtitleDebugSignature || time - lastSubtitleDebugLogTime >= 0.25 else {
-            return
-        }
-        lastSubtitleDebugSignature = signature
-        lastSubtitleDebugLogTime = time
-        print("[Conduit subtitle] t=\(String(format: "%.3f", time)) \(signature)")
-    }
-#endif
 
     private func sourceSubtitleSnapshotBeforePlayer(at time: TimeInterval) -> SubtitleSnapshot? {
         guard let selectedSubtitle = srtControl.selectedSubtitleInfo else { return nil }
