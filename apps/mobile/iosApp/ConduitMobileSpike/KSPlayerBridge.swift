@@ -82,6 +82,10 @@ final class ConduitKSPlayerBridge: NSObject, IosPlayerBridge {
     override init() {
         super.init()
         KSOptions.canBackgroundPlay = true
+        // Let KSMEPlayer's display link run at the device refresh rate. Its
+        // default source-FPS preference leaves 2x playback of 24 FPS video
+        // rendering at roughly 24 FPS instead of the ~48 FPS it requires.
+        KSOptions.preferredFrame = false
         ConduitOrientationCoordinator.shared.beginPlayback()
     }
 
@@ -737,6 +741,11 @@ final class ConduitKSPlayerViewController: UIViewController {
     private var didApplyPreferredAudio = false
     private var didApplyPreferredTracks = false
     private var shouldPlay = false
+    private var lastDiagnosticBackend = ""
+    private var lastDiagnosticDroppedFrames: UInt32 = .max
+    private var lastDiagnosticDroppedPackets: UInt32 = .max
+    private var lastDiagnosticRate = Float.nan
+    private var lastDiagnosticLogUptime = -Double.infinity
 
     fileprivate var audioTracks: [ConduitKSPlayerTrack] {
         guard let player = playerView.playerLayer?.player else { return [] }
@@ -827,6 +836,7 @@ final class ConduitKSPlayerViewController: UIViewController {
         userSelectedSubtitle = false
         didApplyPreferredAudio = false
         didApplyPreferredTracks = false
+        resetPlaybackDiagnostics()
         stopPictureInPicture()
         playerView.resetSubtitlePresentationCache()
         let subtitleInfos = subtitles.compactMap { subtitle -> URLSubtitleInfo? in
@@ -873,6 +883,7 @@ final class ConduitKSPlayerViewController: UIViewController {
         if initialPositionMs > 0, !(layer.player is KSMEPlayer) {
             layer.seek(time: TimeInterval(initialPositionMs) / 1000.0, autoPlay: true) { _ in }
         }
+        logPlaybackDiagnostics(force: true)
         refreshPlaybackState()
     }
 
@@ -1043,6 +1054,7 @@ final class ConduitKSPlayerViewController: UIViewController {
         videoWidth = Int(max(0, player.naturalSize.width))
         videoHeight = Int(max(0, player.naturalSize.height))
         currentSpeed = player.playbackRate
+        logPlaybackDiagnostics()
         if ![.initialized, .preparing, .error].contains(layer.state) {
             applyPreferredTracks()
         }
@@ -1071,6 +1083,57 @@ final class ConduitKSPlayerViewController: UIViewController {
         userSelectedSubtitle = false
         didApplyPreferredAudio = false
         didApplyPreferredTracks = false
+    }
+
+    private func resetPlaybackDiagnostics() {
+        lastDiagnosticBackend = ""
+        lastDiagnosticDroppedFrames = .max
+        lastDiagnosticDroppedPackets = .max
+        lastDiagnosticRate = .nan
+        lastDiagnosticLogUptime = -Double.infinity
+    }
+
+    /// Logs the native backend and timing counters that distinguish a render
+    /// cadence problem from ordinary network buffering. KSAVPlayer has no
+    /// DynamicInfo, while KSMEPlayer exposes dropped-frame and A/V-sync data.
+    private func logPlaybackDiagnostics(force: Bool = false) {
+        guard let layer = playerView.playerLayer else { return }
+        let player = layer.player
+        let backend = String(describing: type(of: player))
+        let dynamicInfo = player.dynamicInfo
+        let droppedFrames = dynamicInfo?.droppedVideoFrameCount ?? 0
+        let droppedPackets = dynamicInfo?.droppedVideoPacketCount ?? 0
+        let rate = player.playbackRate
+        let now = ProcessInfo.processInfo.systemUptime
+        let backendChanged = backend != lastDiagnosticBackend
+        let droppedFramesChanged = droppedFrames != lastDiagnosticDroppedFrames
+        let droppedPacketsChanged = droppedPackets != lastDiagnosticDroppedPackets
+        let rateChanged = lastDiagnosticRate.isNaN || abs(rate - lastDiagnosticRate) > 0.001
+        let periodicUpdate = now - lastDiagnosticLogUptime >= 2
+        guard force || backendChanged || droppedFramesChanged || droppedPacketsChanged || rateChanged || periodicUpdate else {
+            return
+        }
+
+        let nominalFrameRate = player.nominalFrameRate
+        let displayFrameRate = dynamicInfo.map { String(format: "%.2f", $0.displayFPS) } ?? "n/a"
+        let syncDifference = dynamicInfo.map { String(format: "%.4f", $0.audioVideoSyncDiff) } ?? "n/a"
+        print(
+            "[Conduit KSPlayer][timing] " +
+                "backend=\(backend) " +
+                "state=\(layer.state) " +
+                "rate=\(String(format: "%.2f", Double(rate)))x " +
+                "nominalFPS=\(String(format: "%.3f", Double(nominalFrameRate))) " +
+                "displayFPS=\(displayFrameRate) " +
+                "avSyncDiff=\(syncDifference)s " +
+                "droppedFrames=\(droppedFrames) " +
+                "droppedPackets=\(droppedPackets) " +
+                "position=\(String(format: "%.3f", player.currentPlaybackTime))s"
+        )
+        lastDiagnosticBackend = backend
+        lastDiagnosticDroppedFrames = droppedFrames
+        lastDiagnosticDroppedPackets = droppedPackets
+        lastDiagnosticRate = rate
+        lastDiagnosticLogUptime = now
     }
 
     private func externalSubtitleId(_ index: Int) -> Int {
