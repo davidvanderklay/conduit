@@ -546,7 +546,7 @@ export function MediaDetails({
           </Button>
         </nav>
 
-        <main className="relative grid h-dvh min-h-0 grid-rows-[minmax(0,47%)_minmax(0,53%)] gap-3 p-3 pt-15 sm:p-5 sm:pt-17 md:grid-cols-[minmax(0,1fr)_minmax(330px,31vw)] md:grid-rows-1 md:gap-5">
+        <main className="relative grid h-dvh min-h-0 grid-rows-[minmax(0,47%)_minmax(0,53%)] gap-3 p-3 pt-15 sm:p-5 sm:pt-17 md:grid-cols-[minmax(0,1fr)_minmax(390px,36vw)] md:grid-rows-1 md:gap-5">
           <div className="flex min-h-0 items-start overflow-hidden px-2 pt-2 sm:px-5 sm:pt-[clamp(1rem,3vh,2rem)] md:pr-[clamp(1rem,4vw,5rem)]">
             <div className="w-full max-w-5xl">
               {episodeMode && selectedVideo ? (
@@ -571,8 +571,14 @@ export function MediaDetails({
               videos={videos}
               loading={metadata.isLoading}
               progress={progress.data ?? []}
-              profileId={profileId}
               media={mediaForWatchActions(meta)}
+              show={{
+                name: meta.name,
+                logo: meta.logo,
+                poster: meta.poster,
+                description: meta.description,
+                releaseInfo: meta.releaseInfo,
+              }}
               onWatchAction={async (targets, watched) => {
                 try {
                   await setVideosWatched(
@@ -642,7 +648,7 @@ export function MediaDetails({
                 setPlaying(stream)
               }}
               onBackToSeries={
-                !streamSelectionReturnToHome && episodeMode && selectedVideo
+                episodeMode && selectedVideo
                   ? () => {
                       setSelectedSeason(selectedVideo.season ?? 1)
                       seriesReturnVideoId.current = selectedVideo.id
@@ -683,7 +689,13 @@ export function MediaDetails({
             selectedVideo
               ? {
                   name: meta.name,
-                  profileId,
+                  show: {
+                    name: meta.name,
+                    logo: meta.logo,
+                    poster: meta.poster,
+                    description: meta.description,
+                    releaseInfo: meta.releaseInfo,
+                  },
                   media: mediaForWatchActions(meta),
                   onWatchAction: async (targets, watched) => {
                     try {
@@ -928,7 +940,7 @@ function StreamRail({
   onBackToSeries?: () => void
   onBack?: () => void
 }) {
-  const back = onBack ?? onBackToSeries
+  const back = onBackToSeries ?? onBack
   return (
     <aside className="min-h-0 overflow-y-auto rounded-2xl border border-white/10 bg-zinc-950/80 shadow-2xl shadow-black/40 backdrop-blur-xl">
       <div className="sticky top-0 z-10 flex items-center gap-2 rounded-t-2xl border-b border-white/8 bg-zinc-950/95 px-4 py-4 backdrop-blur">
@@ -937,7 +949,7 @@ function StreamRail({
             size="icon"
             variant="ghost"
             className="shrink-0"
-            aria-label={onBack ? "Back" : "Back to series episodes"}
+            aria-label={onBackToSeries ? "Back to series episodes" : "Back"}
             onClick={back}
           >
             <ArrowLeft size={17} />

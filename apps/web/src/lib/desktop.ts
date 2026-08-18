@@ -40,6 +40,9 @@ export interface ElectronDesktopBridge {
   onPlayerOverlayClose(listener: () => void): () => void
   onPlayerOverlayNext(listener: () => void): () => void
   onPlayerOverlayEpisode?: (listener: (videoId: string) => void) => () => void
+  onPlayerOverlayWatchAction?: (
+    listener: (action: { videoIds: string[]; watched: boolean }) => void,
+  ) => () => void
   onPlayerOverlayMedia(listener: (media: PlayerOverlayMedia) => void): () => void
   notifyPlayerOverlayReady?: () => void
   setPlayerOverlayInteractiveRegions(
@@ -59,6 +62,13 @@ export type PlayerOverlayMedia = PlayerArtwork & {
 
 export interface PlayerOverlaySeries {
   name: string
+  show?: {
+    name: string
+    logo?: string
+    poster?: string
+    description?: string
+    releaseInfo?: string
+  }
   videos: Video[]
   progress: WatchProgress[]
   currentVideoId: string

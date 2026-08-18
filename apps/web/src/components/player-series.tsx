@@ -4,11 +4,11 @@ import type { WatchProgress } from "../lib/api"
 import type { Video } from "../lib/core"
 import { episodeLabel } from "../lib/metadata"
 import type { WatchActionMedia } from "../lib/watch-actions"
-import { EpisodeSelector } from "./episode-selector"
+import { EpisodeSelector, type EpisodeSelectorShow } from "./episode-selector"
 
 export interface PlayerSeriesContext {
   name: string
-  profileId?: string
+  show?: EpisodeSelectorShow
   media?: WatchActionMedia
   onWatchAction?: (targets: Video[], watched: boolean) => Promise<void>
   videos: Video[]
@@ -64,7 +64,7 @@ export function PlayerEpisodeDrawer({
       const target = event.target
       if (
         target instanceof Element &&
-        target.closest("[data-player-episode-drawer]")
+        target.closest("[data-player-episode-drawer], [data-episode-context-menu]")
       ) {
         return
       }
@@ -99,7 +99,7 @@ export function PlayerEpisodeDrawer({
       data-player-episode-drawer
       data-native-overlay
       data-overlay-interactive
-      className="absolute inset-y-0 right-0 z-30 flex w-[min(92vw,430px)] items-stretch p-2 pl-0"
+      className="absolute inset-y-0 right-0 z-30 flex w-[min(92vw,30vw,620px)] items-stretch"
     >
       <button
         type="button"
@@ -113,13 +113,13 @@ export function PlayerEpisodeDrawer({
       <EpisodeSelector
         videos={context.videos}
         progress={context.progress}
-        profileId={context.profileId}
+        show={context.show}
         media={context.media}
         onWatchAction={context.onWatchAction}
         season={season}
         currentVideoId={context.currentVideoId}
         disableAutoPositioning={manualPositioningDisabled}
-        className="h-full flex-1 rounded-l-none"
+        className="h-full w-full flex-1 !rounded-none"
         onSeasonChange={(nextSeason) => {
           setManualPositioningDisabled(true)
           setSeason(nextSeason)

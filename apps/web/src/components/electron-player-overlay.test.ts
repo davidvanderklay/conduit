@@ -136,5 +136,22 @@ describe("Electron episode drawer", () => {
     const nextEpisode = host.querySelector<HTMLButtonElement>('[data-video-id="s1e2"]')
     act(() => nextEpisode?.click())
     expect(desktop.invoke).toHaveBeenCalledWith("player_overlay_episode", { videoId: "s1e2" })
+
+    act(() => host.querySelector<HTMLButtonElement>('button[aria-label="Open episode list"]')?.click())
+    const reopenedEpisode = host.querySelector<HTMLButtonElement>('[data-video-id="s1e2"]')
+    act(() => {
+      reopenedEpisode?.dispatchEvent(new MouseEvent("contextmenu", {
+        bubbles: true,
+        clientX: 120,
+        clientY: 120,
+      }))
+    })
+    const markWatched = [...document.body.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+      .find((button) => button.textContent?.includes("Mark as watched"))
+    act(() => markWatched?.click())
+    expect(desktop.invoke).toHaveBeenCalledWith("player_overlay_watch_action", {
+      videoIds: ["s1e2"],
+      watched: true,
+    })
   })
 })

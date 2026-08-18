@@ -249,6 +249,13 @@ type PlayerOverlayMedia = {
   poster?: string
   series?: {
     name: string
+    show?: {
+      name: string
+      logo?: string
+      poster?: string
+      description?: string
+      releaseInfo?: string
+    }
     videos: unknown[]
     progress: unknown[]
     currentVideoId: string
@@ -815,6 +822,18 @@ async function invoke(command: string, args: Record<string, unknown> = {}): Prom
   if (command === "player_overlay_episode") {
     if (typeof args.videoId === "string") {
       mainWindow?.webContents.send("conduit:player-overlay-episode", args.videoId)
+    }
+    return null
+  }
+  if (command === "player_overlay_watch_action") {
+    const videoIds = Array.isArray(args.videoIds)
+      ? args.videoIds.filter((videoId): videoId is string => typeof videoId === "string")
+      : []
+    if (videoIds.length > 0 && typeof args.watched === "boolean") {
+      mainWindow?.webContents.send("conduit:player-overlay-watch-action", {
+        videoIds,
+        watched: args.watched,
+      })
     }
     return null
   }

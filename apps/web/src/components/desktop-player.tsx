@@ -315,6 +315,7 @@ export function DesktopPlayer({
         series: seriesContext
           ? {
               name: seriesContext.name,
+              show: seriesContext.show,
               videos: seriesContext.videos,
               progress: seriesContext.progress,
               currentVideoId: seriesContext.currentVideoId,
@@ -409,12 +410,20 @@ export function DesktopPlayer({
         setError(cause instanceof Error ? cause.message : String(cause))
       })
     }) ?? (() => undefined)
+    const unsubscribeWatchAction = electron.onPlayerOverlayWatchAction?.(({ videoIds, watched }) => {
+      const targets = seriesContext?.videos.filter((video) => videoIds.includes(video.id)) ?? []
+      if (!targets.length || !seriesContext?.onWatchAction) return
+      void seriesContext.onWatchAction(targets, watched).catch((cause: unknown) => {
+        setError(cause instanceof Error ? cause.message : String(cause))
+      })
+    }) ?? (() => undefined)
     return () => {
       unsubscribeClose()
       unsubscribeNext()
       unsubscribeEpisode()
+      unsubscribeWatchAction()
     }
-  }, [onClose, onNextEpisode, onSelectEpisode, resetOverlay, seriesContext?.videos])
+  }, [onClose, onNextEpisode, onSelectEpisode, resetOverlay, seriesContext?.onWatchAction, seriesContext?.videos])
 
   useEffect(() => {
     if (preferredAudioApplied.current || !preferredAudioLanguage || !snapshot) {

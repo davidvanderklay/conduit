@@ -312,6 +312,15 @@ export function ElectronPlayerOverlay({ initialMedia }: { initialMedia: PlayerOv
     })
   }, [])
 
+  const episodeWatchAction = useCallback(async (targets: Video[], watched: boolean) => {
+    const electron = window.__CONDUIT_ELECTRON__
+    if (!electron) throw new Error("Desktop bridge is unavailable.")
+    await electron.invoke("player_overlay_watch_action", {
+      videoIds: targets.map((video) => video.id),
+      watched,
+    })
+  }, [])
+
   const audioTracks = snapshot?.tracks.filter((track) => track.type === "audio") ?? []
   const subtitleTracks = snapshot?.tracks.filter((track) => track.type === "sub") ?? []
   const subtitleGroups = groupSubtitles(subtitleTracks, (track) => track.lang || track.title)
@@ -445,6 +454,8 @@ export function ElectronPlayerOverlay({ initialMedia }: { initialMedia: PlayerOv
         handleVisible={chromeVisible}
         context={series ? {
           name: series.name,
+          show: series.show,
+          onWatchAction: episodeWatchAction,
           videos: series.videos,
           progress: series.progress,
           currentVideoId: series.currentVideoId,
