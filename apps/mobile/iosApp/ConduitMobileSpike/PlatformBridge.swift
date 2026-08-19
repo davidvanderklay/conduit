@@ -1,9 +1,31 @@
 import ComposeApp
 import AuthenticationServices
+import AVFoundation
 import CryptoKit
 import Foundation
 import Security
 import UIKit
+
+/// Keeps video playback from taking exclusive ownership of the device audio
+/// session. This matters on iPad, where another app can remain audible beside
+/// Conduit in a multitasking window.
+enum ConduitAudioSession {
+    private static let mixingOptions: AVAudioSession.CategoryOptions = [.mixWithOthers]
+
+    static func configureForPlayback(_ session: AVAudioSession = AVAudioSession.sharedInstance()) throws {
+        try session.setCategory(.playback, mode: .moviePlayback, options: mixingOptions)
+    }
+
+    static func activateForPlayback() throws {
+        let session = AVAudioSession.sharedInstance()
+        try configureForPlayback(session)
+        try session.setActive(true)
+    }
+
+    static func deactivateAfterPlayback() throws {
+        try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    }
+}
 
 final class ConduitKeychainStore: NSObject, IosSecureStoreBridge {
     private let service = "media.conduit.mobile"
