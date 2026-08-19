@@ -917,6 +917,10 @@ final class ConduitKSPlayerViewController: UIViewController {
         )
         layer.player.allowsExternalPlayback = true
         layer.player.usesExternalPlaybackWhileExternalScreenIsActive = true
+        // KSPlayer's pinned revision activates a non-mixable session while it
+        // constructs its backend. Release that temporary activation and leave
+        // the shared session mixable before playback starts.
+        restoreMixingAudioSessionAfterKSPlayerSetup()
         // KSMEPlayer applies startPlayTime inside its demux/read thread. A
         // second pre-ready layer seek races that initial seek and can leave
         // the layer buffering forever. AVPlayer does not consume this option,
@@ -1105,12 +1109,19 @@ final class ConduitKSPlayerViewController: UIViewController {
     }
 
     private func activateAudioSession() {
-        let session = AVAudioSession.sharedInstance()
         do {
-            try session.setCategory(.playback, mode: .moviePlayback, policy: .longFormVideo)
-            try session.setActive(true)
+            try ConduitAudioSession.activateForPlayback()
         } catch {
             print("[Conduit KSPlayer] Failed to activate audio session: \(error)")
+        }
+    }
+
+    private func restoreMixingAudioSessionAfterKSPlayerSetup() {
+        do {
+            try ConduitAudioSession.deactivateAfterPlayback()
+            try ConduitAudioSession.configureForPlayback()
+        } catch {
+            print("[Conduit KSPlayer] Failed to configure mixable audio session: \(error)")
         }
     }
 
@@ -1124,6 +1135,11 @@ final class ConduitKSPlayerViewController: UIViewController {
         userSelectedSubtitle = false
         didApplyPreferredAudio = false
         didApplyPreferredTracks = false
+        do {
+            try ConduitAudioSession.deactivateAfterPlayback()
+        } catch {
+            print("[Conduit KSPlayer] Failed to deactivate audio session: \(error)")
+        }
     }
 
     private func resetPlaybackDiagnostics() {

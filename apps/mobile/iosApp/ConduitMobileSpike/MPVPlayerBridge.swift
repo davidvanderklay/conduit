@@ -1951,7 +1951,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
         let session = AVAudioSession.sharedInstance()
         Self.audioSessionQueue.async {
             do {
-                try session.setCategory(.playback, mode: .moviePlayback)
+                try ConduitAudioSession.configureForPlayback(session)
                 #if DEBUG
                 print("[Conduit Audio][diagnostic] configured \(Self.audioSessionDescription(session))")
                 #endif
@@ -1967,7 +1967,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
         let session = AVAudioSession.sharedInstance()
         Self.audioSessionQueue.async { [weak self] in
             do {
-                try session.setActive(true)
+                try ConduitAudioSession.activateForPlayback()
                 #if DEBUG
                 print("[Conduit Audio][diagnostic] activated \(Self.audioSessionDescription(session))")
                 #endif
@@ -1984,7 +1984,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
         let session = AVAudioSession.sharedInstance()
         Self.audioSessionQueue.async {
             do {
-                try session.setActive(false, options: .notifyOthersOnDeactivation)
+                try ConduitAudioSession.deactivateAfterPlayback()
             } catch {
                 print("[Conduit MPV] Failed to deactivate audio session: \(error)")
             }
