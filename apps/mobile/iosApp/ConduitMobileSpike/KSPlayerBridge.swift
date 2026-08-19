@@ -368,12 +368,11 @@ final class ConduitKSPlayerView: VideoPlayerView {
         let subtitleTime = srtControl.selectedSubtitleInfo.map {
             max(0, currentTime - $0.delay - srtControl.subtitleDelay)
         }
-        let hasEmptyCurrentPart = subtitleTime.map { time in
-            guard let part = srtControl.parts.first else { return false }
-            let isCurrent = part.start <= time + subtitleVisibilityTolerance &&
-                part.end >= time - subtitleVisibilityTolerance
-            return !hasRenderableSubtitleContent(part) && isCurrent
-        } ?? false
+        let currentParts = subtitleTime.map { time in
+            visibleSubtitleParts(at: time, in: srtControl.parts)
+        } ?? []
+        let hasEmptyCurrentPart = !currentParts.contains(where: hasRenderableSubtitleContent) &&
+            !currentParts.isEmpty
         if hasEmptyCurrentPart {
             // KSPlayer emits empty parts to terminate bitmap cues. Its base
             // view still marks those parts visible, so clear that sentinel
@@ -403,9 +402,9 @@ final class ConduitKSPlayerView: VideoPlayerView {
         applyConduitSubtitleFont()
     }
 
-    fileprivate func refreshSubtitlePresentation(fallbackPart: SubtitlePart? = nil) {
-        guard let part = fallbackPart ?? srtControl.parts.first,
-              hasRenderableSubtitleContent(part)
+    fileprivate func refreshSubtitlePresentation(fallbackParts: [SubtitlePart]? = nil) {
+        let parts = fallbackParts ?? srtControl.parts
+        guard let part = mergedSubtitlePart(from: parts)
         else {
             clearSubtitlePresentation()
             applyConduitSubtitleFont()
@@ -499,8 +498,7 @@ final class ConduitKSPlayerView: VideoPlayerView {
         guard let selectedSubtitle = srtControl.selectedSubtitleInfo else { return nil }
         guard !(selectedSubtitle is any MediaPlayerTrack) else { return nil }
         let subtitleTime = max(0, time - selectedSubtitle.delay - srtControl.subtitleDelay)
-        guard let part = selectedSubtitle.search(for: subtitleTime).first,
-              hasRenderableSubtitleContent(part)
+        guard let part = mergedSubtitlePart(from: selectedSubtitle.search(for: subtitleTime))
         else { return nil }
         return makeSubtitleSnapshot(
             for: part,
@@ -511,10 +509,9 @@ final class ConduitKSPlayerView: VideoPlayerView {
     private func presentedSubtitleSnapshot(at time: TimeInterval) -> SubtitleSnapshot? {
         guard let selectedSubtitle = srtControl.selectedSubtitleInfo else { return nil }
         let subtitleTime = max(0, time - selectedSubtitle.delay - srtControl.subtitleDelay)
-        guard let part = srtControl.parts.first,
-              hasRenderableSubtitleContent(part),
-              part.start <= subtitleTime + subtitleVisibilityTolerance,
-              part.end >= subtitleTime - subtitleVisibilityTolerance
+        guard let part = mergedSubtitlePart(
+            from: visibleSubtitleParts(at: subtitleTime, in: srtControl.parts)
+        )
         else { return nil }
         return makeSubtitleSnapshot(
             for: part,
@@ -524,6 +521,45 @@ final class ConduitKSPlayerView: VideoPlayerView {
 
     private func hasRenderableSubtitleContent(_ part: SubtitlePart) -> Bool {
         part.image != nil || (part.text?.length ?? 0) > 0
+    }
+
+    private func visibleSubtitleParts(at time: TimeInterval, in parts: [SubtitlePart]) -> [SubtitlePart] {
+        parts.filter { part in
+            part.start <= time + subtitleVisibilityTolerance &&
+                part.end >= time - subtitleVisibilityTolerance
+        }
+    }
+
+    private func mergedSubtitlePart(from parts: [SubtitlePart]) -> SubtitlePart? {
+        let renderableParts = parts.filter(hasRenderableSubtitleContent)
+        guard let first = renderableParts.first else { return nil }
+
+        let textParts = renderableParts.compactMap(\.text)
+        let mergedText: NSAttributedString?
+        if textParts.isEmpty {
+            mergedText = nil
+        } else {
+            let text = NSMutableAttributedString()
+            for (index, partText) in textParts.enumerated() {
+                if index > 0 {
+                    text.append(NSAttributedString(string: "\n"))
+                }
+                text.append(partText)
+            }
+            mergedText = text
+        }
+
+        let merged = SubtitlePart(
+            renderableParts.map(\.start).min() ?? first.start,
+            renderableParts.map(\.end).max() ?? first.end,
+            attributedString: mergedText
+        )
+        if let imagePart = renderableParts.first(where: { $0.image != nil }) {
+            merged.image = imagePart.image
+            merged.origin = imagePart.origin
+        }
+        merged.textPosition = renderableParts.first(where: { $0.textPosition != nil })?.textPosition
+        return merged
     }
 
     private func clearSubtitlePresentation() {
@@ -550,13 +586,18 @@ final class ConduitKSPlayerView: VideoPlayerView {
     }
 
     private func snapshotMatches(_ snapshot: SubtitleSnapshot, part: SubtitlePart) -> Bool {
-        snapshot.start == part.start && snapshot.end == part.end
+        snapshot.start == part.start &&
+            snapshot.end == part.end &&
+            snapshot.text?.string == part.text?.string &&
+            snapshot.image?.size == part.image?.size
     }
 
     private let subtitleVisibilityTolerance: TimeInterval = 0.25
 
     private func subtitleSnapshotKey(_ snapshot: SubtitleSnapshot) -> String {
-        "\(snapshot.start):\(snapshot.end)"
+        let text = snapshot.text?.string ?? ""
+        let imageSize = snapshot.image.map { "\($0.size.width)x\($0.size.height)" } ?? "none"
+        return "\(snapshot.start):\(snapshot.end):\(text):\(imageSize)"
     }
 
     private func scaledASSAttributedText(
@@ -1296,9 +1337,10 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
     private var pictureInPicturePossibleObservation: NSKeyValueObservation?
     private var primingTimeoutWorkItem: DispatchWorkItem?
     private var playbackWasPlaying = false
-    private var pipSubtitlePart: SubtitlePart?
+    private var pipSubtitleParts: [SubtitlePart] = []
     private var pipSubtitleID: String?
     private var lastSubtitleRefreshTime = -Double.infinity
+    private var lastSubtitleDiagnosticKey = ""
     private var backgroundRenderTimer: DispatchSourceTimer?
     private var lifecycleObservers: [NSObjectProtocol] = []
     private var preservePlaybackDuringBackground = false
@@ -1389,10 +1431,11 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
         // because the normal subtitle view and PiP otherwise share the
         // already-rendered `parts` snapshot instead of searching the same
         // embedded queue independently on every frame.
-        _ = playerView.srtControl.subtitle(currentTime: layer.player.currentPlaybackTime)
-        pipSubtitlePart = playerView.srtControl.parts.first
+        let currentTime = layer.player.currentPlaybackTime
+        _ = playerView.srtControl.subtitle(currentTime: currentTime)
         pipSubtitleID = playerView.srtControl.selectedSubtitleInfo?.subtitleID
-        lastSubtitleRefreshTime = -Double.infinity
+        lastSubtitleRefreshTime = currentTime
+        refreshSubtitleState(at: currentTime)
         guard prepareVideoOutput() else { return false }
         // Let KSPlayer's own Metal output advance frames. Its normal render
         // path applies the audio/video sync policy; PiP mirrors that output.
@@ -1452,6 +1495,7 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
         subtitleOverlayVersion = 0
         lastRenderedSubtitleVersion = -1
         lastSubtitleRefreshTime = -Double.infinity
+        lastSubtitleDiagnosticKey = ""
         pixelBufferPool = nil
         pixelBufferSize = .zero
         formatDescription = nil
@@ -1474,15 +1518,15 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
             // Rebuild the normal subtitle overlay after PiP has released its
             // mirrored frame surface.
             _ = playerView.srtControl.subtitle(currentTime: layer.player.currentPlaybackTime)
-            let fallback = subtitlePart(
-                pipSubtitlePart,
+            let fallback = subtitleParts(
+                pipSubtitleParts,
                 id: pipSubtitleID,
                 at: layer.player.currentPlaybackTime,
                 control: playerView.srtControl
             )
-            playerView.refreshSubtitlePresentation(fallbackPart: fallback)
+            playerView.refreshSubtitlePresentation(fallbackParts: fallback)
         }
-        pipSubtitlePart = nil
+        pipSubtitleParts = []
         pipSubtitleID = nil
         lastSubtitleRefreshTime = -Double.infinity
     }
@@ -1567,6 +1611,12 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
            player.currentPlaybackTime - player.displayedVideoTime > 0.05 {
             videoOutput.readNextFrame()
         }
+        // Subtitle state must advance even when the video output has not
+        // produced a new pixel buffer yet. This is especially important for
+        // embedded subtitles because their decode queue is consumed by lookup.
+        if let player = playerView?.playerLayer?.player {
+            refreshSubtitleState(at: player.currentPlaybackTime)
+        }
         renderFrame()
     }
 
@@ -1638,96 +1688,186 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
     private func currentSubtitleOverlay(for sourceBuffer: CVPixelBuffer, at time: TimeInterval) -> CIImage? {
         guard let playerView, playerView.playerLayer != nil else { return nil }
         let subtitleControl = playerView.srtControl
-        // SubtitleInfo.search(for:) advances KSPlayer's embedded subtitle
-        // queue. The normal VideoPlayerView already updates `parts`, so PiP
-        // must mirror that state rather than consuming the queue a second
-        // time at a slightly different timestamp.
+        refreshSubtitleState(at: time)
         guard let selectedSubtitle = subtitleControl.selectedSubtitleInfo else {
-            pipSubtitlePart = nil
+            pipSubtitleParts = []
             pipSubtitleID = nil
-            if lastSubtitleKey != "" || subtitleOverlay != nil {
-                lastSubtitleKey = ""
-                subtitleOverlay = nil
-                subtitleOverlayVersion += 1
-            }
+            clearSubtitleOverlay()
             return nil
         }
         if pipSubtitleID != selectedSubtitle.subtitleID {
             pipSubtitleID = selectedSubtitle.subtitleID
-            pipSubtitlePart = nil
+            pipSubtitleParts = []
         }
         let subtitleTime = max(0, time - selectedSubtitle.delay - subtitleControl.subtitleDelay)
-        let hasVisibleParts = subtitleControl.parts.contains {
-            subtitlePartIsVisible($0, at: subtitleTime)
+        let parts = pipSubtitleParts.filter {
+            subtitlePartIsVisible($0, at: subtitleTime) && subtitlePartHasContent($0)
         }
-        let hasVisibleCachedPart = subtitlePartIsVisible(pipSubtitlePart, at: subtitleTime)
-        if !hasVisibleParts, !hasVisibleCachedPart,
-           abs(time - lastSubtitleRefreshTime) >= 0.25 {
-            // The normal KSPlayer subtitle callback can stop while PiP is
-            // active. Refresh only when the cached cue has ended, and throttle
-            // the lookup so embedded subtitle queues are not consumed twice
-            // on every video frame.
-            lastSubtitleRefreshTime = time
-            _ = subtitleControl.subtitle(currentTime: time)
-        }
-        if let currentPart = subtitleControl.parts.first,
-           subtitlePartIsVisible(currentPart, at: subtitleTime) {
-            pipSubtitlePart = currentPart
-        }
-        guard let part = subtitlePart(
-            pipSubtitlePart,
-            id: pipSubtitleID,
-            at: time,
-            control: subtitleControl
-        ) else {
-            pipSubtitlePart = nil
-            if lastSubtitleKey != "" || subtitleOverlay != nil {
-                lastSubtitleKey = ""
-                subtitleOverlay = nil
-                subtitleOverlayVersion += 1
-            }
+        guard !parts.isEmpty else {
+            pipSubtitleParts = []
+            clearSubtitleOverlay()
             return nil
         }
-        let text = part.text?.string ?? ""
-        let key = "\(part.start):\(part.end):\(text)"
+
+        let key = subtitleOverlayKey(for: parts)
         guard key != lastSubtitleKey else { return subtitleOverlay }
         lastSubtitleKey = key
         subtitleOverlayVersion += 1
         let width = CVPixelBufferGetWidth(sourceBuffer)
         let height = CVPixelBufferGetHeight(sourceBuffer)
         guard width > 1, height > 1 else { return nil }
-        if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            // ASS subtitles can carry a bitmap plus text attributes that
-            // UIKit interprets as expansion/shear. Re-render text cues into
-            // our full-frame PiP overlay so the source bitmap cannot escape
-            // the PiP bounds or appear in the top-right corner.
-            subtitleOverlay = makeTextOverlay(text, width: width, height: height)
-            return subtitleOverlay
+
+        let text = subtitleText(from: parts)
+        let images = parts.compactMap { $0.image?.cgImage }
+        let textOverlay = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? nil
+            : makeTextOverlay(text, width: width, height: height)
+        let imageOverlay = images.isEmpty
+            ? nil
+            : makeImageOverlay(images, width: width, height: height)
+        if let textOverlay, let imageOverlay {
+            subtitleOverlay = textOverlay.composited(over: imageOverlay)
+        } else {
+            subtitleOverlay = textOverlay ?? imageOverlay
         }
-        if let image = part.image?.cgImage {
-            subtitleOverlay = makeImageOverlay(image, width: width, height: height)
-            return subtitleOverlay
-        }
-        if text.isEmpty {
-            subtitleOverlay = nil
-            return nil
-        }
-        subtitleOverlay = makeTextOverlay(text, width: width, height: height)
         return subtitleOverlay
     }
 
-    private func subtitlePart(
-        _ part: SubtitlePart?,
+    /// Keeps the PiP subtitle state alive when KSPlayer's normal layer timer
+    /// stops delivering callbacks in the background. Embedded subtitle lookup
+    /// consumes a decode queue, so only poll after the cached cue has ended.
+    private func refreshSubtitleState(at time: TimeInterval) {
+        guard let playerView, playerView.playerLayer != nil else { return }
+        let subtitleControl = playerView.srtControl
+        guard let selectedSubtitle = subtitleControl.selectedSubtitleInfo else {
+            pipSubtitleParts = []
+            pipSubtitleID = nil
+            return
+        }
+        var subtitleSelectionChanged = false
+        if pipSubtitleID != selectedSubtitle.subtitleID {
+            pipSubtitleID = selectedSubtitle.subtitleID
+            pipSubtitleParts = []
+            lastSubtitleRefreshTime = -Double.infinity
+            subtitleSelectionChanged = true
+        }
+
+        let subtitleTime = max(0, time - selectedSubtitle.delay - subtitleControl.subtitleDelay)
+        if subtitleSelectionChanged {
+            lastSubtitleRefreshTime = time
+            _ = subtitleControl.subtitle(currentTime: time)
+        }
+        let currentParts = subtitleControl.parts.filter {
+            subtitlePartIsVisible($0, at: subtitleTime) && subtitlePartHasContent($0)
+        }
+        if !currentParts.isEmpty {
+            pipSubtitleParts = currentParts
+            logSubtitleState(
+                selectedSubtitle: selectedSubtitle,
+                time: time,
+                currentParts: currentParts,
+                refreshed: false
+            )
+            return
+        }
+
+        let cachedParts = pipSubtitleParts.filter {
+            subtitlePartIsVisible($0, at: subtitleTime) && subtitlePartHasContent($0)
+        }
+        if !cachedParts.isEmpty {
+            pipSubtitleParts = cachedParts
+            logSubtitleState(
+                selectedSubtitle: selectedSubtitle,
+                time: time,
+                currentParts: subtitleControl.parts,
+                refreshed: false
+            )
+            return
+        }
+
+        guard abs(time - lastSubtitleRefreshTime) >= 0.25 else { return }
+        lastSubtitleRefreshTime = time
+        let didRefresh = subtitleControl.subtitle(currentTime: time)
+        pipSubtitleParts = subtitleControl.parts.filter {
+            subtitlePartIsVisible($0, at: subtitleTime) && subtitlePartHasContent($0)
+        }
+        logSubtitleState(
+            selectedSubtitle: selectedSubtitle,
+            time: time,
+            currentParts: subtitleControl.parts,
+            refreshed: didRefresh
+        )
+    }
+
+    private func logSubtitleState(
+        selectedSubtitle: any SubtitleInfo,
+        time: TimeInterval,
+        currentParts: [SubtitlePart],
+        refreshed: Bool
+    ) {
+        let source = selectedSubtitle is any MediaPlayerTrack ? "embedded" : "external"
+        let appState = String(describing: UIApplication.shared.applicationState)
+        let currentSignature = currentParts.map(subtitlePartSignature).joined(separator: "|")
+        let cachedSignature = pipSubtitleParts.map(subtitlePartSignature).joined(separator: "|")
+        let key = "\(selectedSubtitle.subtitleID)|\(source)|\(appState)|\(currentSignature)|\(cachedSignature)"
+        guard key != lastSubtitleDiagnosticKey else { return }
+        lastSubtitleDiagnosticKey = key
+        print(
+            "[Conduit KSPlayer][subtitle] " +
+                "source=\(source) " +
+                "appState=\(appState) " +
+                "position=\(String(format: "%.3f", time))s " +
+                "refreshed=\(refreshed) " +
+                "current=\(currentSignature.isEmpty ? "none" : currentSignature) " +
+                "cached=\(cachedSignature.isEmpty ? "none" : cachedSignature)"
+        )
+    }
+
+    private func subtitlePartSignature(_ part: SubtitlePart) -> String {
+        let textLength = part.text?.length ?? 0
+        let content = part.image == nil ? "text" : "image"
+        return "\(String(format: "%.3f", part.start))-\(String(format: "%.3f", part.end)):\(content):\(textLength)"
+    }
+
+    private func subtitlePartHasContent(_ part: SubtitlePart) -> Bool {
+        part.image != nil || (part.text?.length ?? 0) > 0
+    }
+
+    private func subtitleText(from parts: [SubtitlePart]) -> String {
+        parts.compactMap { part in
+            guard let text = part.text?.string,
+                  !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            else { return nil }
+            return text
+        }.joined(separator: "\n")
+    }
+
+    private func subtitleOverlayKey(for parts: [SubtitlePart]) -> String {
+        parts.map { part in
+            let text = part.text?.string ?? ""
+            let imageSize = part.image.map { "\($0.size.width)x\($0.size.height)" } ?? "none"
+            return "\(part.start):\(part.end):\(text):\(imageSize)"
+        }.joined(separator: "|")
+    }
+
+    private func clearSubtitleOverlay() {
+        guard lastSubtitleKey != "" || subtitleOverlay != nil else { return }
+        lastSubtitleKey = ""
+        subtitleOverlay = nil
+        subtitleOverlayVersion += 1
+    }
+
+    private func subtitleParts(
+        _ parts: [SubtitlePart],
         id: String?,
         at time: TimeInterval,
         control: SubtitleModel
-    ) -> SubtitlePart? {
+    ) -> [SubtitlePart] {
         guard let selectedSubtitle = control.selectedSubtitleInfo,
-              selectedSubtitle.subtitleID == id,
-              let part
-        else { return nil }
+              selectedSubtitle.subtitleID == id
+        else { return [] }
         let subtitleTime = max(0, time - selectedSubtitle.delay - control.subtitleDelay)
-        return subtitlePartIsVisible(part, at: subtitleTime) ? part : nil
+        return parts.filter { subtitlePartIsVisible($0, at: subtitleTime) }
     }
 
     private func subtitlePartIsVisible(_ part: SubtitlePart?, at time: TimeInterval) -> Bool {
@@ -1737,59 +1877,101 @@ final class ConduitKSPictureInPictureCoordinator: NSObject,
     }
 
     private func makeTextOverlay(_ text: String, width: Int, height: Int) -> CIImage? {
-        // The composited frame is later reduced to the PiP window. A normal
-        // 24px subtitle therefore becomes unreadably small in PiP.
-        let size = CGFloat(max(24, min(96, Double(height) * 0.09)))
+        // Reserve a generous bottom band and shrink only when the cue needs
+        // it. The old fixed 20% rectangle clipped ordinary two-line cues.
+        let target = CGRect(
+            x: CGFloat(width) * 0.05,
+            y: CGFloat(height) * 0.52,
+            width: CGFloat(width) * 0.9,
+            height: CGFloat(height) * 0.45
+        )
+        let initialSize = CGFloat(max(24, min(96, Double(height) * 0.09)))
+        let minimumSize = max(12, min(24, CGFloat(height) * 0.03))
+        var size = initialSize
+        var attributes = textAttributes(fontSize: size)
+        var measured = (text as NSString).boundingRect(
+            with: CGSize(width: target.width, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: attributes,
+            context: nil
+        )
+        while measured.height > target.height, size > minimumSize {
+            size = max(minimumSize, size - 1)
+            attributes = textAttributes(fontSize: size)
+            measured = (text as NSString).boundingRect(
+                with: CGSize(width: target.width, height: .greatestFiniteMagnitude),
+                options: [.usesLineFragmentOrigin, .usesFontLeading],
+                attributes: attributes,
+                context: nil
+            )
+        }
+
+        let drawHeight = min(target.height, max(1, ceil(measured.height) + 4))
+        let rect = CGRect(
+            x: target.minX,
+            y: max(target.minY, target.maxY - drawHeight),
+            width: target.width,
+            height: drawHeight
+        )
         let renderer = makeOverlayRenderer(width: width, height: height)
         let image = renderer.image { _ in
-            let rect = CGRect(
-                x: CGFloat(width) * 0.05,
-                y: CGFloat(height) * 0.76,
-                width: CGFloat(width) * 0.9,
-                height: CGFloat(height) * 0.2
-            )
-            let attributes: [NSAttributedString.Key: Any] = [
-                .font: UIFont.boldSystemFont(ofSize: size),
-                .foregroundColor: UIColor.white,
-                .strokeColor: UIColor.black,
-                .strokeWidth: -3,
-                .paragraphStyle: {
-                    let style = NSMutableParagraphStyle()
-                    style.alignment = .center
-                    style.lineBreakMode = .byWordWrapping
-                    return style
-                }(),
-            ]
             (text as NSString).draw(in: rect, withAttributes: attributes)
         }
         return image.cgImage.map(CIImage.init)
     }
 
-    private func makeImageOverlay(_ image: CGImage, width: Int, height: Int) -> CIImage? {
+    private func textAttributes(fontSize: CGFloat) -> [NSAttributedString.Key: Any] {
+        let style = NSMutableParagraphStyle()
+        style.alignment = .center
+        style.lineBreakMode = .byWordWrapping
+        return [
+            .font: UIFont.boldSystemFont(ofSize: fontSize),
+            .foregroundColor: UIColor.white,
+            .strokeColor: UIColor.black,
+            .strokeWidth: -3,
+            .paragraphStyle: style,
+        ]
+    }
+
+    private func makeImageOverlay(_ images: [CGImage], width: Int, height: Int) -> CIImage? {
+        guard !images.isEmpty else { return nil }
         let target = CGRect(
             x: CGFloat(width) * 0.1,
-            y: CGFloat(height) * 0.76,
+            y: CGFloat(height) * 0.52,
             width: CGFloat(width) * 0.8,
-            height: CGFloat(height) * 0.2
+            height: CGFloat(height) * 0.45
         )
+        let maxWidth = images.map(\.width).max() ?? 0
+        guard maxWidth > 0 else { return nil }
+        let totalHeightAtWidth = images.reduce(CGFloat.zero) { result, image in
+            result + CGFloat(image.height) * target.width / CGFloat(maxWidth)
+        }
         let scale = min(
-            target.width / CGFloat(image.width),
-            target.height / CGFloat(image.height)
+            target.width / CGFloat(maxWidth),
+            target.height / max(CGFloat(1), totalHeightAtWidth)
         )
         guard scale.isFinite, scale > 0 else { return nil }
-        let size = CGSize(
-            width: CGFloat(image.width) * scale,
-            height: CGFloat(image.height) * scale
-        )
-        let rect = CGRect(
-            x: target.midX - size.width / 2,
-            y: target.midY - size.height / 2,
-            width: size.width,
-            height: size.height
-        )
+        let gap = min(8, target.height * 0.02)
+        let totalHeight = images.reduce(CGFloat.zero) { result, image in
+            result + CGFloat(image.height) * scale
+        } + gap * CGFloat(max(0, images.count - 1))
+        var y = target.maxY - totalHeight
         let renderer = makeOverlayRenderer(width: width, height: height)
         let overlay = renderer.image { _ in
-            UIImage(cgImage: image).draw(in: rect)
+            for image in images {
+                let size = CGSize(
+                    width: CGFloat(image.width) * scale,
+                    height: CGFloat(image.height) * scale
+                )
+                let rect = CGRect(
+                    x: target.midX - size.width / 2,
+                    y: y,
+                    width: size.width,
+                    height: size.height
+                )
+                UIImage(cgImage: image).draw(in: rect)
+                y += size.height + gap
+            }
         }
         return overlay.cgImage.map(CIImage.init)
     }
