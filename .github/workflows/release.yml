@@ -120,7 +120,9 @@ jobs:
       - name: Build Electron AppImage
         run: xvfb-run --auto-servernum pnpm --filter @conduit/desktop dist:linux
       - name: Verify AppImage
-        run: ls -lh apps/desktop/dist/*.AppImage
+        run: |
+          test -x apps/desktop/dist/linux-unpacked/resources/native/conduit-electron-native
+          ls -lh apps/desktop/dist/*.AppImage
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: conduit-linux-appimage

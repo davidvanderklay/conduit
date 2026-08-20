@@ -516,6 +516,9 @@ function nativePlayerPath(): string {
     if (process.env.CONDUIT_ELECTRON_NATIVE_PLAYER) {
       return process.env.CONDUIT_ELECTRON_NATIVE_PLAYER
     }
+    if (app.isPackaged) {
+      return path.join(process.resourcesPath, "native", "conduit-electron-native")
+    }
     const build = process.env.NODE_ENV === "production" ? "release" : "debug"
     // Cargo resolves the workspace target directory from the repository root,
     // even when it is given the helper's manifest path.
