@@ -147,6 +147,7 @@ expect fun NativePlayer(
     onEpisodes: () -> Unit = {},
     onSources: () -> Unit = {},
     onControlsVisibilityChanged: (Boolean) -> Unit = {},
+    onOverlayVisibilityChanged: (Boolean) -> Unit = {},
     onTemporarySpeedChanged: (Boolean) -> Unit = {},
     onSystemPipChanged: (Boolean) -> Unit = {},
     onSystemPipAvailabilityChanged: (Boolean) -> Unit = {},

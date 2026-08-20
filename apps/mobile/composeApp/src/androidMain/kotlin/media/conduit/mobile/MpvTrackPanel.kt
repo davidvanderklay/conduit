@@ -209,12 +209,17 @@ private fun BoxScope.MpvSubtitlePanel(
             shape = if (expanded) RoundedCornerShape(24.dp) else RoundedCornerShape(0.dp),
             shadowElevation = if (expanded) 24.dp else 0.dp,
         ) {
-            Box {
+            Column(Modifier.fillMaxSize().safeDrawingPadding().padding(12.dp)) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Subtitles", color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.weight(1f))
+                    IconButton(onClick = onDismiss) { Icon(Icons.Rounded.Close, "Close", tint = Color.White, modifier = Modifier.size(30.dp)) }
+                }
                 Row(
                     Modifier
-                        .fillMaxSize()
-                        .safeDrawingPadding()
-                        .padding(horizontal = 30.dp, vertical = 28.dp),
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .padding(horizontal = 18.dp, vertical = 10.dp),
                     horizontalArrangement = Arrangement.spacedBy(30.dp),
                 ) {
                     Column(Modifier.weight(1f)) {
@@ -262,12 +267,6 @@ private fun BoxScope.MpvSubtitlePanel(
                         )
                         Spacer(Modifier.weight(1f))
                     }
-                }
-                IconButton(
-                    onClick = onDismiss,
-                    modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
-                ) {
-                    Icon(Icons.Rounded.Close, "Close", tint = Color.White, modifier = Modifier.size(34.dp))
                 }
             }
         }

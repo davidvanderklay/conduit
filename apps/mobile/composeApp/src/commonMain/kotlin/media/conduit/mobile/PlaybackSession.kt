@@ -83,7 +83,15 @@ data class PlaybackSessionState(
     val queueOpen: Boolean = false,
     val autoRecoveryExhausted: Boolean = false,
     val recoveryError: String? = null,
+    val transition: PlaybackTransition? = null,
     val notice: String? = null,
+)
+
+data class PlaybackTransition(
+    val title: String,
+    val mediaName: String,
+    val artwork: String?,
+    val logo: String? = null,
 )
 
 class PlaybackSessionCallbacks(
@@ -263,6 +271,22 @@ class PlaybackSessionController(
         callbacks?.playNext?.invoke()
     }
 
+    fun beginTransition(title: String, mediaName: String, artwork: String?, logo: String? = null) {
+        if (state.request == null) return
+        send(PlaybackCommand.Pause)
+        state = state.copy(
+            presentation = PlaybackPresentation.FullScreen,
+            transition = PlaybackTransition(title, mediaName, artwork, logo),
+            episodePickerOpen = false,
+            streamPicker = null,
+            queueOpen = false,
+        )
+    }
+
+    fun cancelTransition() {
+        if (state.transition != null) state = state.copy(transition = null)
+    }
+
     fun openEpisodes() {
         if (state.request == null) return
         state = state.copy(episodePickerOpen = true, queueOpen = false)
@@ -302,6 +326,7 @@ class PlaybackSessionController(
             episodePickerOpen = false,
             streamPicker = picker,
             queueOpen = false,
+            transition = null,
         )
     }
 

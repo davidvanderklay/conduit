@@ -23,6 +23,29 @@ import media.conduit.mobile.foundation.ServerEndpoint
 
 class ConduitApiTest {
     @Test
+    fun profileSyncTreatsMissingQueueEndpointAsAnEmptyQueue() = runTest {
+        val engine = MockEngine { request ->
+            val path = request.url.encodedPath
+            if (path.endsWith("/queue")) {
+                respond("not found", HttpStatusCode.NotFound)
+            } else {
+                val body = when {
+                    path.endsWith("/addons") -> """{"addons":[]}"""
+                    path.endsWith("/library") -> """{"items":[]}"""
+                    path.endsWith("/progress") -> """{"items":[]}"""
+                    else -> error("Unexpected path $path")
+                }
+                respond(body, HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "application/json"))
+            }
+        }
+
+        val snapshot = ConduitApi(HttpClient(engine) { install(ContentNegotiation) { json() } })
+            .synchronizeProfile("https://conduit.example", "token", "p1")
+
+        assertTrue(snapshot.queue.isEmpty())
+    }
+
+    @Test
     fun validatesHealthAndAuthenticationConfiguration() = runTest {
         val client = mockClient { path, _ ->
             when (path) {

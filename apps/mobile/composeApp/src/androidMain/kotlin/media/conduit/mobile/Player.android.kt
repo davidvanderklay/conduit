@@ -98,6 +98,7 @@ actual fun NativePlayer(
     onEpisodes: () -> Unit,
     onSources: () -> Unit,
     onControlsVisibilityChanged: (Boolean) -> Unit,
+    onOverlayVisibilityChanged: (Boolean) -> Unit,
     onTemporarySpeedChanged: (Boolean) -> Unit,
     onSystemPipChanged: (Boolean) -> Unit,
     onSystemPipAvailabilityChanged: (Boolean) -> Unit,
@@ -157,6 +158,7 @@ actual fun NativePlayer(
     var dragging by remember(player) { mutableStateOf(false) }
     var draggedPosition by remember(player) { mutableFloatStateOf(0f) }
     var trackPanel by remember { mutableStateOf<Int?>(null) }
+    LaunchedEffect(trackPanel) { onOverlayVisibilityChanged(trackPanel != null) }
     var tracksRevision by remember { mutableIntStateOf(0) }
     var trackFallback by remember(player) { mutableStateOf<androidx.media3.common.TrackSelectionParameters?>(null) }
     var selectedSubtitleId by remember(url, requestHeaders, subtitles) { mutableStateOf<String?>(null) }
@@ -990,13 +992,17 @@ private fun BoxScope.FullscreenSubtitlePanel(
             shape = if (expanded) RoundedCornerShape(24.dp) else RoundedCornerShape(0.dp),
             shadowElevation = if (expanded) 24.dp else 0.dp,
         ) {
-          Box {
-            Row(Modifier.fillMaxSize().padding(horizontal = 30.dp, vertical = 28.dp), horizontalArrangement = Arrangement.spacedBy(30.dp)) {
+          Column(Modifier.fillMaxSize().safeDrawingPadding().padding(12.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("Subtitles", color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                Spacer(Modifier.weight(1f))
+                IconButton(onClick = onDismiss) { Icon(Icons.Rounded.Close, "Close", tint = Color.White, modifier = Modifier.size(30.dp)) }
+            }
+            Row(Modifier.fillMaxWidth().weight(1f).padding(horizontal = 18.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(30.dp)) {
                 Column(Modifier.weight(1f)) { Text("Subtitle Languages", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold); Spacer(Modifier.height(18.dp)); LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) { item { PlayerTrackRow("Disabled", selectedTrackKey == null) { selectedTrackKey = null; onSubtitleSelectionChanged(null, null, false); player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().clearOverridesOfType(C.TRACK_TYPE_TEXT).setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build() } }; options.distinctBy(PlayerTrackOption::languageKey).forEach { option -> item(option.languageKey) { PlayerTrackRow(option.languageName, selectedTrackKey != null && language == option.languageKey, option.supported) { val best = options.firstOrNull { it.languageKey == option.languageKey && it.supported } ?: option; choose(best) } } } } }
                 Column(Modifier.weight(1f)) { Text("Subtitle Variants", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold); Spacer(Modifier.height(18.dp)); LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) { options.filter { it.languageKey == language }.forEach { option -> item(option.key) { PlayerTrackRow(option.variantName, option.key == selectedTrackKey, option.supported) { choose(option) } } } } }
                 Column(Modifier.weight(1f)) { Text("Subtitle Settings", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold); Spacer(Modifier.weight(1f)); Text("Subtitle appearance follows Android system settings. Change it under Accessibility → Caption preferences for consistent styling across apps.", color = Color.White.copy(.72f), style = MaterialTheme.typography.bodyLarge); Spacer(Modifier.weight(1f)) }
             }
-            IconButton(onClick = onDismiss, Modifier.align(Alignment.TopEnd).padding(12.dp)) { Icon(Icons.Rounded.Close, "Close", tint = Color.White, modifier = Modifier.size(34.dp)) }
           }
         }
     }

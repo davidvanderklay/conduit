@@ -1291,9 +1291,20 @@ internal fun MediaDetailsScreen(
             },
             playNext = {
                 if (queuedNext != null) {
+                    playbackSession.beginTransition(
+                        title = queuedNext.videoTitle ?: queuedNext.name,
+                        mediaName = queuedNext.name,
+                        artwork = queuedNext.artwork ?: queuedNext.poster,
+                    )
                     onPlayQueueItem(queuedNext)
                 } else nextVideo?.let { video ->
                     if (preferences.autoSelectNextStreams) {
+                        playbackSession.beginTransition(
+                            title = video.displayTitle,
+                            mediaName = meta?.name ?: item.name,
+                            artwork = meta?.background ?: item.background ?: meta?.poster ?: item.poster,
+                            logo = meta?.logo,
+                        )
                         selectVideo(
                             video = video,
                             autoPlaySavedSource = true,

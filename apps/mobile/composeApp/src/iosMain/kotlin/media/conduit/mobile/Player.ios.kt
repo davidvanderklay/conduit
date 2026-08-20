@@ -103,6 +103,7 @@ actual fun NativePlayer(
     onEpisodes: () -> Unit,
     onSources: () -> Unit,
     onControlsVisibilityChanged: (Boolean) -> Unit,
+    onOverlayVisibilityChanged: (Boolean) -> Unit,
     onTemporarySpeedChanged: (Boolean) -> Unit,
     onSystemPipChanged: (Boolean) -> Unit,
     onSystemPipAvailabilityChanged: (Boolean) -> Unit,
@@ -156,6 +157,7 @@ actual fun NativePlayer(
     var resizeMode by remember(bridge) { mutableIntStateOf(0) }
     var showRemainingTime by remember(bridge) { mutableStateOf(false) }
     var trackPanel by remember(bridge) { mutableStateOf<Int?>(null) }
+    LaunchedEffect(trackPanel) { onOverlayVisibilityChanged(trackPanel != null) }
     var speedMenuOpen by remember(bridge) { mutableStateOf(false) }
     var playbackReady by remember(bridge) { mutableStateOf(false) }
     var audioTracks by remember(bridge) { mutableStateOf<List<IosTrack>>(emptyList()) }
@@ -754,9 +756,14 @@ private fun BoxScope.IosSubtitlePanel(
             shape = if (expanded) RoundedCornerShape(24.dp) else RoundedCornerShape(0.dp),
             shadowElevation = if (expanded) 24.dp else 0.dp,
         ) {
-          Box {
+          Column(Modifier.fillMaxSize().safeDrawingPadding().padding(12.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("Subtitles", color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.weight(1f))
+                IconButton(onClick = onDismiss) { Icon(Icons.Rounded.Close, "Close", tint = Color.White, modifier = Modifier.size(30.dp)) }
+            }
             Row(
-                Modifier.fillMaxSize().safeDrawingPadding().padding(horizontal = 30.dp, vertical = 28.dp),
+                Modifier.fillMaxWidth().weight(1f).padding(horizontal = 18.dp, vertical = 10.dp),
                 horizontalArrangement = Arrangement.spacedBy(30.dp),
             ) {
                 Column(Modifier.weight(1f)) {
@@ -800,9 +807,6 @@ private fun BoxScope.IosSubtitlePanel(
                     )
                     Spacer(Modifier.weight(1f))
                 }
-            }
-            IconButton(onClick = onDismiss, Modifier.align(Alignment.TopEnd).safeDrawingPadding().padding(12.dp)) {
-                Icon(Icons.Rounded.Close, "Close", tint = Color.White, modifier = Modifier.size(34.dp))
             }
           }
         }

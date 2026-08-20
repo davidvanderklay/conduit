@@ -790,7 +790,8 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
             val history = async { get("/v1/profiles/$profileId/progress?view=history&limit=1000") }
             val continueWatching = async { get("/v1/profiles/$profileId/progress?view=continue&limit=50") }
             val queue = async { get("/v1/profiles/$profileId/queue") }
-            val responses = listOf(addons.await(), library.await(), progress.await(), history.await(), continueWatching.await(), queue.await())
+            val queueResponse = queue.await()
+            val responses = listOf(addons.await(), library.await(), progress.await(), history.await(), continueWatching.await())
             responses.firstOrNull { !it.status.isSuccess() }?.let { response ->
                 throw ServerRequestException(
                     if (response.status.value == 401) "Your session has expired" else
@@ -805,7 +806,12 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
                 progress = responses[2].body<ProgressResponse>().items,
                 history = responses[3].body<ProgressResponse>().items,
                 continueWatching = responses[4].body<ProgressResponse>().items,
-                queue = responses[5].body<PlaybackQueueResponse>().items,
+                queue = if (queueResponse.status.value == 404) emptyList() else {
+                    if (!queueResponse.status.isSuccess()) {
+                        throw ServerRequestException("Profile synchronization returned HTTP ${queueResponse.status.value}", queueResponse.status.value)
+                    }
+                    queueResponse.body<PlaybackQueueResponse>().items
+                },
             )
         }
 

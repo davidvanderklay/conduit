@@ -1297,6 +1297,7 @@ private fun BoxScope.PlaybackSessionHost(
     val pipHandoffVisible = systemPip && systemPipKeepsAppVisible
     val pipActionReady = isSystemPipActionReady(session.systemPipAvailable, session.playback)
     var controlsVisible by remember(request.identity, request.url) { mutableStateOf(true) }
+    var playerOverlayVisible by remember(request.identity, request.url) { mutableStateOf(false) }
     var temporarySpeedActive by remember(request.identity, request.url) { mutableStateOf(false) }
     var miniOffset by remember(request.identity, request.url) { mutableStateOf(IntOffset.Zero) }
     var miniWidthDp by remember(request.identity, request.url, expanded) {
@@ -1418,6 +1419,7 @@ private fun BoxScope.PlaybackSessionHost(
     )
     val initialPlaybackLoad = !playbackHasStarted &&
         (session.playback.loading || session.playback.buffering || !playbackSurfaceReady)
+    val playbackTransition = session.transition
     val presentPlaybackError = shouldPresentPlaybackError(
         request,
         session.playback,
@@ -1467,6 +1469,7 @@ private fun BoxScope.PlaybackSessionHost(
             androidPlaybackEngine = preferences.androidPlaybackEngine,
             iosPlaybackEngine = preferences.iosPlaybackEngine,
             onControlsVisibilityChanged = { controlsVisible = it },
+            onOverlayVisibilityChanged = { playerOverlayVisible = it },
             onTemporarySpeedChanged = { temporarySpeedActive = it },
             onSystemPipChanged = controller::systemPipChanged,
             onSystemPipAvailabilityChanged = controller::systemPipAvailabilityChanged,
@@ -1488,18 +1491,18 @@ private fun BoxScope.PlaybackSessionHost(
         }
 
         if (fullScreen || pipHandoffVisible) {
-            if (initialPlaybackLoad && !presentPlaybackError) {
+            if ((initialPlaybackLoad || playbackTransition != null) && !presentPlaybackError) {
                 PlayerOpeningOverlay(
-                    artwork = request.artwork,
-                    logo = request.logo,
-                    title = request.mediaName,
+                    artwork = playbackTransition?.artwork ?: request.artwork,
+                    logo = playbackTransition?.logo ?: request.logo,
+                    title = playbackTransition?.mediaName ?: request.mediaName,
                     modifier = Modifier.matchParentSize(),
                 )
             }
             if (fullScreen && session.playback.buffering && !initialPlaybackLoad && !presentPlaybackError) {
                 PlayerBufferingOverlay(Modifier.matchParentSize())
             }
-            if (controlsVisible || pipHandoffVisible) {
+            if ((controlsVisible && !playerOverlayVisible) || pipHandoffVisible) {
                 Row(
                     modifier = Modifier
                         .align(Alignment.TopStart)
