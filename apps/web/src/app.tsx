@@ -64,7 +64,7 @@ export function App() {
     }
   }, [session.data?.user, session.error, session.isPending])
 
-  if (session.isPending) {
+  if (session.isPending && !isDesktop()) {
     return <CenteredMessage>Starting conduit…</CenteredMessage>
   }
   if (window.location.pathname === "/recover/admin") {
@@ -110,6 +110,7 @@ function AuthScreen() {
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (!authConfig.isSuccess) return
     setPending(true)
     setError("")
     const data = new FormData(event.currentTarget)
@@ -257,6 +258,7 @@ function AuthScreen() {
                 className="space-y-5"
                 onSubmit={async (event) => {
                   event.preventDefault()
+                  if (!authConfig.isSuccess) return
                   setPending(true)
                   setError("")
                   const data = new FormData(event.currentTarget)
@@ -279,16 +281,40 @@ function AuthScreen() {
                 }}
               >
                 <AuthField id="recovery-email" label="Email address">
-                  <Input id="recovery-email" name="email" type="email" autoComplete="email" placeholder="you@example.com" required />
+                  <Input
+                    id="recovery-email"
+                    name="email"
+                    type="email"
+                    autoComplete="email"
+                    placeholder="you@example.com"
+                    disabled={!authConfig.isSuccess || pending}
+                    required
+                  />
                 </AuthField>
                 <AuthField id="recovery-code" label="Recovery code">
-                  <Input id="recovery-code" name="code" autoComplete="one-time-code" placeholder="XXXX-XXXX-XXXX-XXXX" required />
+                  <Input
+                    id="recovery-code"
+                    name="code"
+                    autoComplete="one-time-code"
+                    placeholder="XXXX-XXXX-XXXX-XXXX"
+                    disabled={!authConfig.isSuccess || pending}
+                    required
+                  />
                 </AuthField>
                 <AuthField id="recovery-password" label="New password">
-                  <Input id="recovery-password" name="password" type="password" autoComplete="new-password" placeholder="At least 8 characters" minLength={8} required />
+                  <Input
+                    id="recovery-password"
+                    name="password"
+                    type="password"
+                    autoComplete="new-password"
+                    placeholder="At least 8 characters"
+                    disabled={!authConfig.isSuccess || pending}
+                    minLength={8}
+                    required
+                  />
                 </AuthField>
                 {error && <AuthMessage message={error} />}
-                <Button className="h-11 w-full" disabled={pending}>
+                <Button className="h-11 w-full" disabled={pending || !authConfig.isSuccess}>
                   {pending ? "Resetting…" : "Reset password"}
                 </Button>
                 <button
@@ -309,7 +335,7 @@ function AuthScreen() {
                     <Button
                       className="h-11 w-full border border-zinc-700 bg-white text-zinc-900 hover:bg-zinc-100"
                       variant="secondary"
-                      disabled={oauthPending}
+                      disabled={oauthPending || !authConfig.isSuccess}
                       onClick={() => void signInWithOAuth()}
                     >
                       {authConfig.data!.oidc.provider === "google" && <GoogleMark />}
@@ -328,7 +354,15 @@ function AuthScreen() {
                 )}
                 <form className="space-y-5" onSubmit={submit}>
                   <AuthField id="auth-email" label="Email address">
-                    <Input id="auth-email" name="email" type="email" autoComplete="email" placeholder="you@example.com" required />
+                    <Input
+                      id="auth-email"
+                      name="email"
+                      type="email"
+                      autoComplete="email"
+                      placeholder="you@example.com"
+                      disabled={!authConfig.isSuccess || pending}
+                      required
+                    />
                   </AuthField>
                   <AuthField id="auth-password" label="Password">
                     <Input
@@ -337,21 +371,24 @@ function AuthScreen() {
                       type="password"
                       autoComplete={mode === "register" ? "new-password" : "current-password"}
                       placeholder={mode === "register" ? "At least 8 characters" : "Enter your password"}
+                      disabled={!authConfig.isSuccess || pending}
                       minLength={8}
                       required
                     />
                     {mode === "sign-in" && (
                       <div className="mt-2 flex justify-end text-xs">
-                        <button
-                          type="button"
-                          className="font-medium text-zinc-500 transition hover:text-amber-300"
-                          onClick={() => {
-                            setRecovering(true)
-                            setError("")
-                          }}
-                        >
-                          Use recovery code
-                        </button>
+                        {authConfig.isSuccess && (
+                          <button
+                            type="button"
+                            className="font-medium text-zinc-500 transition hover:text-amber-300"
+                            onClick={() => {
+                              setRecovering(true)
+                              setError("")
+                            }}
+                          >
+                            Use recovery code
+                          </button>
+                        )}
                       </div>
                     )}
                   </AuthField>
@@ -363,6 +400,7 @@ function AuthScreen() {
                         type="password"
                         autoComplete="one-time-code"
                         placeholder="Enter the token from the server operator"
+                        disabled={!authConfig.isSuccess || pending}
                         required
                       />
                     </AuthField>
@@ -373,13 +411,42 @@ function AuthScreen() {
                     </p>
                   )}
                   {error && <AuthMessage message={error} success={error.startsWith("Password reset")} />}
-                  <Button className="h-11 w-full" disabled={pending}>
+                  <Button className="h-11 w-full" disabled={pending || !authConfig.isSuccess}>
                     {pending ? "Working…" : mode === "register" ? "Create account" : "Sign in"}
                   </Button>
                 </form>
               </>
             )}
           </div>
+          {authConfig.isPending && (
+            <div
+              className="flex items-center justify-center gap-2 border-t border-zinc-800/80 bg-zinc-950/40 px-6 py-3 text-xs text-amber-300"
+              role="status"
+            >
+              <span className="size-1.5 rounded-full bg-amber-400" />
+              Waking server…
+            </div>
+          )}
+          {authConfig.isError && (
+            <div
+              className="flex flex-col items-center gap-1 border-t border-red-950/80 bg-red-950/20 px-6 py-3 text-center text-xs text-red-300"
+              role="alert"
+            >
+              <span>
+                {authConfig.error instanceof Error
+                  ? authConfig.error.message
+                  : "Could not reach the server."}
+              </span>
+              <Button
+                className="h-auto px-2 py-1 text-xs text-amber-300 hover:bg-red-950/40 hover:text-amber-200"
+                variant="ghost"
+                size="sm"
+                onClick={() => void authConfig.refetch()}
+              >
+                Retry
+              </Button>
+            </div>
+          )}
           {authConfig.data?.needsOwner && authConfig.data.bootstrapMode === "manual" && (
             <p className="border-t border-zinc-800/80 bg-zinc-950/40 px-6 py-4 text-center text-sm text-zinc-500">
               The server operator must create the first owner with <code className="text-zinc-300">conduit admin create-owner</code>.
@@ -405,7 +472,15 @@ function AuthScreen() {
           className="mx-auto mt-5 flex max-w-full items-center gap-2 rounded-full border border-zinc-800/80 bg-zinc-900/60 px-3 py-1.5 text-xs text-zinc-500 transition hover:border-zinc-700 hover:text-zinc-300"
           onClick={() => setSelectingServer(true)}
         >
-          <span className="size-1.5 shrink-0 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,.5)]" />
+          <span
+            className={`size-1.5 shrink-0 rounded-full shadow-[0_0_8px_rgba(52,211,153,.5)] ${
+              authConfig.isPending
+                ? "bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,.5)]"
+                : authConfig.isError
+                  ? "bg-red-400 shadow-[0_0_8px_rgba(248,113,113,.5)]"
+                  : "bg-emerald-400"
+            }`}
+          />
           <span className="truncate">
             {isDefaultServer(API_URL) ? "Default server" : serverDisplayName(API_URL)}
           </span>
