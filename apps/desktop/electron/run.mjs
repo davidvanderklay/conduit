@@ -7,7 +7,7 @@ const { ELECTRON_RUN_AS_NODE: _electronRunAsNode, ...environment } = process.env
 const appArguments = process.argv.slice(2)
 if (process.platform === "linux") {
   const ozonePlatform = environment.CONDUIT_ELECTRON_OZONE ??
-    (environment.WAYLAND_DISPLAY ? "wayland" : "x11")
+    "x11"
   environment.NIXOS_OZONE_WL = ozonePlatform === "wayland" ? "1" : "0"
 
   const electronSwitches = [`--ozone-platform=${ozonePlatform}`]
