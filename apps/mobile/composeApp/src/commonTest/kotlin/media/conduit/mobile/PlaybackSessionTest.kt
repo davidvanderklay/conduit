@@ -12,6 +12,29 @@ import media.conduit.mobile.account.VideoItem
 
 class PlaybackSessionTest {
     @Test
+    fun nextTransitionImmediatelyReplacesTheVisibleOpeningMetadata() = runTest {
+        val controller = PlaybackSessionController(this)
+        controller.start(
+            PlaybackRequest(
+                identity = PlaybackIdentity("profile", "series", "show", "s1e1"),
+                url = "https://example.test/one.mp4",
+                title = "Episode 1",
+                mediaName = "Show",
+            ),
+            PlaybackSessionCallbacks(
+                persist = { _, _ -> }, playNext = {}, openEpisodes = {}, minimized = {}, closed = {},
+            ),
+        )
+
+        controller.beginTransition("Episode 2", "Show", "https://example.test/two.jpg")
+
+        assertEquals("Episode 2", controller.state.transition?.title)
+        assertEquals("https://example.test/two.jpg", controller.state.transition?.artwork)
+        assertEquals(PlaybackPresentation.FullScreen, controller.state.presentation)
+        assertEquals(PlaybackCommand.Pause, controller.state.command?.command)
+    }
+
+    @Test
     fun savedStreamStartupAcceptsPlaybackOrFirstFrame() {
         val request = PlaybackRequest(
             identity = PlaybackIdentity("profile", "series", "show", "s1e1"),
@@ -31,6 +54,74 @@ class PlaybackSessionTest {
             ),
         )
         assertFalse(savedStreamStartupStalled(request.copy(autoRecoveryAttempt = false), PlaybackState()))
+    }
+
+    @Test
+    fun recoverableStartupErrorKeepsTheLoadingSurfaceVisible() {
+        val request = PlaybackRequest(
+            identity = PlaybackIdentity("profile", "series", "show", "s1e2"),
+            url = "https://example.com/episode.mp4",
+            title = "Episode 2",
+            mediaName = "Show",
+            autoRecoveryAttempt = true,
+        )
+
+        assertFalse(
+            shouldPresentPlaybackError(
+                request,
+                PlaybackState(error = "KSPlayer failed to open the stream"),
+            ),
+        )
+        assertTrue(
+            shouldPresentPlaybackError(
+                request,
+                PlaybackState(error = "KSPlayer failed to open the stream"),
+                autoRecoveryExhausted = true,
+            ),
+        )
+    }
+
+    @Test
+    fun recoveryExhaustionDoesNotCloseTheFullscreenSession() {
+        val controller = PlaybackSessionController(TestScope())
+        val request = PlaybackRequest(
+            identity = PlaybackIdentity("profile", "series", "show", "s1e2"),
+            url = "https://example.com/episode.mp4",
+            title = "Episode 2",
+            mediaName = "Show",
+            autoRecoveryAttempt = true,
+        )
+        controller.start(
+            request,
+            PlaybackSessionCallbacks(
+                persist = { _, _ -> },
+                playNext = {},
+                openEpisodes = {},
+                minimized = {},
+                closed = {},
+            ),
+        )
+
+        controller.exhaustAutoRecovery(controller.state.sessionId, "All sources failed")
+
+        assertEquals(PlaybackPresentation.FullScreen, controller.state.presentation)
+        assertTrue(controller.state.autoRecoveryExhausted)
+        assertEquals("All sources failed", controller.state.recoveryError)
+    }
+
+    @Test
+    fun manualSourceSwitchFailureStaysBehindTheLoadingSurface() {
+        val request = PlaybackRequest(
+            identity = PlaybackIdentity("profile", "movie", "movie", "movie"),
+            url = "https://example.test/new-source.mp4",
+            title = "Movie",
+            mediaName = "Movie",
+            manualSourceSwitch = true,
+        )
+        val playback = PlaybackState(error = "Source failed")
+
+        assertTrue(manualSourceSwitchStartupStalled(request, playback))
+        assertFalse(shouldPresentPlaybackError(request, playback))
     }
 
     @Test

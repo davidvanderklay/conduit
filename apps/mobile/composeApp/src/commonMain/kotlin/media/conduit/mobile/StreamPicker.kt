@@ -10,6 +10,7 @@ data class StreamAddonChoice(
 
 data class PlaybackStreamPickerState(
     val episode: VideoItem,
+    val movie: Boolean = false,
     val streams: List<StreamSource> = emptyList(),
     val addonChoices: List<StreamAddonChoice> = emptyList(),
     val selectedAddonId: String? = null,

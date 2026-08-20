@@ -27,6 +27,7 @@ sealed interface ProfileMutation {
     ) : ProfileMutation
 
     data class RemoveProgress(val progress: ProgressSummary) : ProfileMutation
+    data class SetQueue(val items: List<PlaybackQueueItem>) : ProfileMutation
 }
 
 /** Removes playback acknowledgements invalidated by a successful profile mutation. */
@@ -49,6 +50,7 @@ internal fun acknowledgedProgressAfterMutation(
         progress.mediaType != mutation.progress.mediaType || progress.mediaId != mutation.progress.mediaId
     }
     is ProfileMutation.RemoveProgress -> acknowledged - mutation.progress.videoId
+    is ProfileMutation.SetQueue -> acknowledged
 }
 
 fun ProfileSnapshot.applyOptimistically(mutation: ProfileMutation): ProfileSnapshot = when (mutation) {
@@ -165,6 +167,7 @@ fun ProfileSnapshot.applyOptimistically(mutation: ProfileMutation): ProfileSnaps
         history = history.filterNot { it.videoId == mutation.progress.videoId },
         continueWatching = continueWatching.filterNot { it.videoId == mutation.progress.videoId },
     )
+    is ProfileMutation.SetQueue -> copy(queue = mutation.items.distinctBy(PlaybackQueueItem::key))
 }
 
 private fun List<ProgressSummary>.replaceProgress(item: ProgressSummary): List<ProgressSummary> =
@@ -204,5 +207,6 @@ suspend fun ConduitApi.executeMutation(
         is ProfileMutation.RemoveProgress -> deleteProgress(
             baseUrl, token, profileId, mutation.progress.videoId,
         )
+        is ProfileMutation.SetQueue -> replaceQueue(baseUrl, token, profileId, mutation.items)
     }
 }

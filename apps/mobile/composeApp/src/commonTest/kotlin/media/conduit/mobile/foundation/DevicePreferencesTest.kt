@@ -12,6 +12,16 @@ class DevicePreferencesTest {
     }
 
     @Test
+    fun nextStreamSelectionDefaultsToEnabledAndRoundTrips() {
+        val store = MemorySettingsStore()
+        val repository = DevicePreferencesRepository(store)
+
+        assertEquals(true, repository.load().autoSelectNextStreams)
+        repository.save(repository.load().copy(autoSelectNextStreams = false))
+        assertEquals(false, repository.load().autoSelectNextStreams)
+    }
+
+    @Test
     fun miniplayerOnBackDefaultsToEnabled() {
         val preferences = DevicePreferencesRepository(MemorySettingsStore()).load()
 

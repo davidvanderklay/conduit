@@ -7,6 +7,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculatePan
@@ -37,6 +38,10 @@ import androidx.compose.material.icons.rounded.PictureInPictureAlt
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Explore
 import androidx.compose.material.icons.rounded.Extension
+import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.material.icons.rounded.DragHandle
+import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.QueueMusic
 import androidx.compose.runtime.*
 import androidx.compose.animation.core.animateIntOffsetAsState
 import androidx.compose.animation.core.spring
@@ -709,6 +714,7 @@ private fun AppShell(
             ProfileSyncState(snapshot = activeProfile?.let { syncRepository.cached(it.id) }),
         )
     }
+    var queueManagerOpen by remember(activeProfile?.id) { mutableStateOf(false) }
     var acknowledgedProgress by remember(activeProfile?.id, account.session.token) {
         mutableStateOf<Map<String, ProgressSummary>>(emptyMap())
     }
@@ -832,6 +838,7 @@ private fun AppShell(
                 syncRepository.save(optimistic)
                 runCatching {
                     api.executeMutation(state.endpoint!!.baseUrl, account.session.token, profile.id, mutation)
+                    if (mutation is ProfileMutation.SetQueue) syncRepository.clearPendingQueue(profile.id)
                     acknowledgedProgress = acknowledgedProgressAfterMutation(acknowledgedProgress, mutation)
                     profileSyncMutex.withLock {
                         val synchronized = synchronizeProfileData(profile.id)
@@ -845,9 +852,20 @@ private fun AppShell(
                         if (postMutation != null) syncRepository.save(postMutation)
                         profileSync = synchronized.copy(snapshot = postMutation)
                     }
-                }.onFailure {
-                    profileSync = profileSync.copy(snapshot = before, error = it.message)
-                    syncRepository.save(before)
+                }.recoverCatching { cause ->
+                    if (mutation is ProfileMutation.SetQueue) {
+                        syncRepository.savePendingQueue(profile.id, mutation.items)
+                        profileSync = profileSync.copy(
+                            snapshot = optimistic,
+                            offline = true,
+                            error = "Queue will sync when the server is reachable",
+                        )
+                        syncRepository.save(optimistic)
+                    } else {
+                        profileSync = profileSync.copy(snapshot = before, error = cause.message)
+                        syncRepository.save(before)
+                        throw cause
+                    }
                 }
             }
             result.exceptionOrNull()?.let { snackbarHostState.showSnackbar(it.message ?: "Unable to update this title") }
@@ -900,6 +918,18 @@ private fun AppShell(
             selectedVideoId = null
             selectedMediaReturnsToOrigin = false
             selectedMediaOpenMode = MediaOpenMode.Details
+        }
+        val openQueuedItem: (PlaybackQueueItem) -> Unit = { queued ->
+            selectedMedia = CatalogItem(
+                id = queued.mediaId,
+                type = queued.mediaType,
+                name = queued.name,
+                poster = queued.poster,
+                background = queued.artwork,
+            )
+            selectedVideoId = queued.videoId
+            selectedMediaReturnsToOrigin = false
+            selectedMediaOpenMode = MediaOpenMode.Queue
         }
         val openBrowse: (MobileBrowseTarget) -> Unit = { target ->
             when (target) {
@@ -961,7 +991,7 @@ private fun AppShell(
                         DestinationContent(
                             state, platform, account, activeProfile, profileSync, api, selectedMedia,
                             selectedVideoId, selectedMediaReturnsToOrigin, selectedMediaOpenMode,
-                            openMedia, openLibraryEntry, openContinueWatching, openContinueWatchingDetails,
+                            openMedia, openLibraryEntry, openContinueWatching, openContinueWatchingDetails, openQueuedItem,
                             { selectedMedia = null; selectedMediaReturnsToOrigin = false; selectedMediaOpenMode = MediaOpenMode.Details }, dispatch, onSignOut, onProfilesChanged,
                             { profileFlowActive = it },
                             refreshProfileData,
@@ -980,7 +1010,7 @@ private fun AppShell(
                 DestinationContent(
                     state, platform, account, activeProfile, profileSync, api, selectedMedia,
                     selectedVideoId, selectedMediaReturnsToOrigin, selectedMediaOpenMode,
-                            openMedia, openLibraryEntry, openContinueWatching, openContinueWatchingDetails,
+                            openMedia, openLibraryEntry, openContinueWatching, openContinueWatchingDetails, openQueuedItem,
                             { selectedMedia = null; selectedMediaReturnsToOrigin = false; selectedMediaOpenMode = MediaOpenMode.Details }, dispatch, onSignOut, onProfilesChanged,
                             { profileFlowActive = it },
                             refreshProfileData,
@@ -1029,6 +1059,8 @@ private fun AppShell(
                 onAddProfile = { openProfile(ProfileLaunchTarget.Manage) },
                 onOpenAddons = { openProfile(ProfileLaunchTarget.Addons) },
                 onOpenSettings = { openProfile(ProfileLaunchTarget.Settings) },
+                queueSize = profileSync.snapshot?.queue?.size ?: 0,
+                onOpenQueue = { queueManagerOpen = true },
                 onSignOut = onSignOut,
                 modifier = Modifier.align(Alignment.TopCenter)
                     .then(if (expanded) Modifier.padding(start = 80.dp) else Modifier),
@@ -1060,6 +1092,14 @@ private fun AppShell(
             snapshot = profileSync.snapshot,
             onMutation = ::mutateProfile,
         )
+        if (queueManagerOpen && playbackSession.state.request == null) {
+            PlaybackQueueDrawer(
+                items = profileSync.snapshot?.queue.orEmpty(),
+                onClose = { queueManagerOpen = false },
+                onPlay = { item -> queueManagerOpen = false; openQueuedItem(item) },
+                onChange = { items -> mutateProfile(ProfileMutation.SetQueue(items)) },
+            )
+        }
     }
 }
 
@@ -1129,6 +1169,7 @@ private fun DestinationContent(
     onSelectLibraryEntry: (CatalogItem, String?) -> Unit,
     onSelectContinueWatching: (CatalogItem, String?) -> Unit,
     onSelectContinueWatchingDetails: (CatalogItem) -> Unit,
+    onSelectQueuedItem: (PlaybackQueueItem) -> Unit,
     onCloseMedia: () -> Unit,
     dispatch: (AppAction) -> Unit,
     onSignOut: () -> Unit,
@@ -1230,6 +1271,7 @@ private fun DestinationContent(
                 onProgressChanged = onPlaybackProgressChanged,
                 onMutation = onProfileMutation,
                 onBrowse = onBrowse,
+                onPlayQueueItem = onSelectQueuedItem,
                 onBack = onCloseMedia,
                 playbackSession = playbackSession,
             )
@@ -1247,6 +1289,7 @@ private fun BoxScope.PlaybackSessionHost(
     snapshot: ProfileSnapshot?,
     onMutation: suspend (ProfileMutation) -> Result<Unit>,
 ) {
+    val scope = rememberCoroutineScope()
     val session = controller.state
     val request = session.request ?: return
     val fullScreen = session.presentation == PlaybackPresentation.FullScreen
@@ -1254,6 +1297,7 @@ private fun BoxScope.PlaybackSessionHost(
     val pipHandoffVisible = systemPip && systemPipKeepsAppVisible
     val pipActionReady = isSystemPipActionReady(session.systemPipAvailable, session.playback)
     var controlsVisible by remember(request.identity, request.url) { mutableStateOf(true) }
+    var playerOverlayVisible by remember(request.identity, request.url) { mutableStateOf(false) }
     var temporarySpeedActive by remember(request.identity, request.url) { mutableStateOf(false) }
     var miniOffset by remember(request.identity, request.url) { mutableStateOf(IntOffset.Zero) }
     var miniWidthDp by remember(request.identity, request.url, expanded) {
@@ -1349,18 +1393,38 @@ private fun BoxScope.PlaybackSessionHost(
                 session.sessionId,
                 "Saved stream failed to start. Choose another stream.",
             )
+        } else if (
+            session.playback.error != null &&
+            manualSourceSwitchStartupStalled(request, session.playback) &&
+            !startupRecoveryRequested
+        ) {
+            startupRecoveryRequested = true
+            controller.manualSourceSwitchFailed(session.sessionId)
+        }
+    }
+    LaunchedEffect(session.notice) {
+        if (session.notice != null) {
+            kotlinx.coroutines.delay(3_000)
+            controller.dismissNotice()
         }
     }
 
     PlatformBackHandler(
-        enabled = fullScreen && (session.episodePickerOpen || session.streamPicker != null),
+        enabled = fullScreen && (session.episodePickerOpen || session.streamPicker != null || session.queueOpen),
         onBack = {
-            if (session.streamPicker != null) controller.closeStreamPicker()
+            if (session.queueOpen) controller.closeQueue()
+            else if (session.streamPicker != null) controller.closeStreamPicker()
             else controller.closeEpisodes()
         },
     )
     val initialPlaybackLoad = !playbackHasStarted &&
         (session.playback.loading || session.playback.buffering || !playbackSurfaceReady)
+    val playbackTransition = session.transition
+    val presentPlaybackError = shouldPresentPlaybackError(
+        request,
+        session.playback,
+        session.autoRecoveryExhausted,
+    )
 
     Box(Modifier.fillMaxSize().onSizeChanged { containerSize = it }) {
         // Adaptive iOS hides the native bar, but the mini-player keeps its
@@ -1396,6 +1460,8 @@ private fun BoxScope.PlaybackSessionHost(
             onNextEpisode = controller::playNext,
             hasEpisodes = request.hasEpisodes,
             onEpisodes = controller::openEpisodes,
+            hasSources = true,
+            onSources = controller::openSources,
             touchGestures = preferences.touchGestures,
             holdToSpeed = preferences.holdToSpeed,
             preferredAudioLanguage = preferences.preferredAudioLanguage,
@@ -1403,6 +1469,7 @@ private fun BoxScope.PlaybackSessionHost(
             androidPlaybackEngine = preferences.androidPlaybackEngine,
             iosPlaybackEngine = preferences.iosPlaybackEngine,
             onControlsVisibilityChanged = { controlsVisible = it },
+            onOverlayVisibilityChanged = { playerOverlayVisible = it },
             onTemporarySpeedChanged = { temporarySpeedActive = it },
             onSystemPipChanged = controller::systemPipChanged,
             onSystemPipAvailabilityChanged = controller::systemPipAvailabilityChanged,
@@ -1424,18 +1491,18 @@ private fun BoxScope.PlaybackSessionHost(
         }
 
         if (fullScreen || pipHandoffVisible) {
-            if (initialPlaybackLoad && session.playback.error == null) {
+            if ((initialPlaybackLoad || playbackTransition != null) && !presentPlaybackError) {
                 PlayerOpeningOverlay(
-                    artwork = request.artwork,
-                    logo = request.logo,
-                    title = request.mediaName,
+                    artwork = playbackTransition?.artwork ?: request.artwork,
+                    logo = playbackTransition?.logo ?: request.logo,
+                    title = playbackTransition?.mediaName ?: request.mediaName,
                     modifier = Modifier.matchParentSize(),
                 )
             }
-            if (fullScreen && session.playback.buffering && !initialPlaybackLoad && session.playback.error == null) {
+            if (fullScreen && session.playback.buffering && !initialPlaybackLoad && !presentPlaybackError) {
                 PlayerBufferingOverlay(Modifier.matchParentSize())
             }
-            if (controlsVisible || pipHandoffVisible) {
+            if ((controlsVisible && !playerOverlayVisible) || pipHandoffVisible) {
                 Row(
                     modifier = Modifier
                         .align(Alignment.TopStart)
@@ -1463,6 +1530,19 @@ private fun BoxScope.PlaybackSessionHost(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
                     )
+                    if (fullScreen) {
+                        BadgedBox(
+                            badge = {
+                                val count = snapshot?.queue?.size ?: 0
+                                if (count > 0) Badge { Text(count.coerceAtMost(99).toString()) }
+                            },
+                        ) {
+                            IconButton(
+                                onClick = controller::openQueue,
+                                modifier = Modifier.background(Color.Black.copy(.55f), androidx.compose.foundation.shape.CircleShape),
+                            ) { Icon(Icons.Rounded.QueueMusic, "Queue", tint = Color.White) }
+                        }
+                    }
                     if (fullScreen && pipActionReady) {
                         IconButton(
                             onClick = { controller.send(PlaybackCommand.EnterSystemPip) },
@@ -1485,22 +1565,49 @@ private fun BoxScope.PlaybackSessionHost(
                         .padding(horizontal = 14.dp, vertical = 8.dp),
                 )
             }
-            if (fullScreen) session.playback.error?.let { message ->
-                Box(
-                    Modifier.matchParentSize().background(Color.Black.copy(.72f)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("Playback failed", color = Color.White, fontWeight = FontWeight.Bold)
-                        Text("Engine: ${session.playback.engine.name.lowercase()}", color = Color.White.copy(.55f), style = MaterialTheme.typography.labelSmall)
-                        session.playback.fallbackReason?.let { reason ->
-                            Text("Fallback: $reason", color = Color.White.copy(.55f), style = MaterialTheme.typography.labelSmall)
+            session.notice?.let { notice ->
+                Surface(
+                    modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 24.dp),
+                    color = Color(0xF0202022),
+                    shape = RoundedCornerShape(8.dp),
+                    border = BorderStroke(1.dp, Color.White.copy(.14f)),
+                ) { Text(notice, color = Color.White, modifier = Modifier.padding(horizontal = 16.dp, vertical = 11.dp)) }
+            }
+            if (fullScreen && presentPlaybackError) (session.playback.error ?: session.recoveryError)?.let { message ->
+                Box(Modifier.matchParentSize().background(Color.Black.copy(.58f))) {
+                    Surface(
+                        modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth(),
+                        color = Color(0xFA08080A),
+                        tonalElevation = 0.dp,
+                        shadowElevation = 18.dp,
+                    ) {
+                        Column(
+                            Modifier.navigationBarsPadding().padding(horizontal = 22.dp, vertical = 18.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Text("Couldn't start this video", color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                            Text(message, color = Color.White.copy(.72f), style = MaterialTheme.typography.bodyMedium)
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Button(onClick = if (request.autoRecoveryAttempt) controller::retryAutoRecovery else {
+                                    { controller.send(PlaybackCommand.RetryVideoOutput) }
+                                }) { Text("Retry") }
+                                OutlinedButton(onClick = controller::openSources) { Text("Choose source") }
+                                val failedQueued = snapshot?.queue?.firstOrNull { queued ->
+                                    queued.mediaId == request.identity.mediaId && queued.videoId == request.identity.videoId
+                                }
+                                if (failedQueued != null) {
+                                    OutlinedButton(onClick = {
+                                        scope.launch {
+                                            val remaining = snapshot.queue.removeFromQueue(failedQueued.key)
+                                            if (onMutation(ProfileMutation.SetQueue(remaining)).isSuccess) {
+                                                remaining.firstOrNull()?.let(controller::playQueueItem) ?: controller.close()
+                                            }
+                                        }
+                                    }) { Text("Skip item") }
+                                }
+                                OutlinedButton(onClick = controller::close) { Text("Close") }
+                            }
                         }
-                        Text(message, color = Color.White.copy(.7f), style = MaterialTheme.typography.bodySmall)
-                        TextButton(onClick = { controller.send(PlaybackCommand.RetryVideoOutput) }) {
-                            Text("Retry video")
-                        }
-                        TextButton(onClick = controller::close) { Text("Choose another stream") }
                     }
                 }
             }
@@ -1525,7 +1632,7 @@ private fun BoxScope.PlaybackSessionHost(
                         )
                         Spacer(Modifier.width(10.dp))
                         Column(Modifier.weight(1f)) {
-                            Text("NEXT EPISODE", color = Color.White.copy(.6f), style = MaterialTheme.typography.labelSmall)
+                            Text(if (request.nextItemQueued) "UP NEXT" else "NEXT EPISODE", color = Color.White.copy(.6f), style = MaterialTheme.typography.labelSmall)
                             Text(request.nextEpisodeTitle.orEmpty(), color = Color.White, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                         FilledTonalIconButton(onClick = controller::playNext) {
@@ -1544,6 +1651,14 @@ private fun BoxScope.PlaybackSessionHost(
                     onDismiss = controller::closeEpisodes,
                     onSelect = { controller.selectEpisode(it.id) },
                     fullscreen = false,
+                )
+            }
+            if (fullScreen && session.queueOpen) {
+                PlaybackQueueDrawer(
+                    items = snapshot?.queue.orEmpty(),
+                    onClose = controller::closeQueue,
+                    onPlay = controller::playQueueItem,
+                    onChange = { items -> onMutation(ProfileMutation.SetQueue(items)) },
                 )
             }
             if (fullScreen) {
@@ -1703,6 +1818,165 @@ private fun BoxScope.PlaybackSessionHost(
 }
 
 @Composable
+private fun BoxScope.PlaybackQueueDrawer(
+    items: List<PlaybackQueueItem>,
+    onClose: () -> Unit,
+    onPlay: (PlaybackQueueItem) -> Unit,
+    onChange: suspend (List<PlaybackQueueItem>) -> Result<Unit>,
+) {
+    val scope = rememberCoroutineScope()
+    val density = LocalDensity.current
+    val reorderThreshold = with(density) { 54.dp.toPx() }
+    var displayed by remember(items) { mutableStateOf(items) }
+    var draggingKey by remember { mutableStateOf<String?>(null) }
+    var dragDistance by remember { mutableFloatStateOf(0f) }
+    var menuKey by remember { mutableStateOf<String?>(null) }
+    var confirmClear by remember { mutableStateOf(false) }
+
+    Box(Modifier.matchParentSize().background(Color.Black.copy(.32f))) {
+        Box(Modifier.matchParentSize().clickable(onClick = onClose))
+        Surface(
+            modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight().fillMaxWidth(.68f),
+            color = Color(0xF21A1A1D),
+            shape = RoundedCornerShape(topStart = 28.dp, bottomStart = 28.dp),
+            shadowElevation = 20.dp,
+        ) {
+            Column(Modifier.statusBarsPadding().navigationBarsPadding().padding(18.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Queue", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                    if (displayed.isNotEmpty()) {
+                        Text("  ·  ${displayed.size}", color = Color.White.copy(.55f), style = MaterialTheme.typography.titleMedium)
+                    }
+                    Spacer(Modifier.weight(1f))
+                    if (displayed.isNotEmpty()) {
+                        TextButton(onClick = { confirmClear = true }) { Text("Clear") }
+                    }
+                    IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, "Close queue", tint = Color.White) }
+                }
+                if (displayed.isEmpty()) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Icon(Icons.Rounded.QueueMusic, null, tint = Color.White.copy(.45f), modifier = Modifier.size(34.dp))
+                            Text("Your queue is empty", color = Color.White, fontWeight = FontWeight.SemiBold)
+                            Text("Add movies or episodes from their menus.", color = Color.White.copy(.58f), style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                } else {
+                    Column(
+                        Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        displayed.forEach { item ->
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(Color.White.copy(.05f))
+                                    .clickable { onPlay(item) }
+                                    .padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(
+                                    Icons.Rounded.DragHandle,
+                                    "Hold and drag to reorder",
+                                    tint = Color.White.copy(.42f),
+                                    modifier = Modifier.size(34.dp).pointerInput(item.key, displayed) {
+                                        detectDragGesturesAfterLongPress(
+                                            onDragStart = { draggingKey = item.key; dragDistance = 0f },
+                                            onDragCancel = { draggingKey = null; dragDistance = 0f },
+                                            onDragEnd = {
+                                                draggingKey = null
+                                                dragDistance = 0f
+                                                if (displayed != items) scope.launch { onChange(displayed) }
+                                            },
+                                            onDrag = { change, amount ->
+                                                change.consume()
+                                                dragDistance += amount.y
+                                                val current = displayed.indexOfFirst { it.key == item.key }
+                                                val target = when {
+                                                    dragDistance > reorderThreshold -> current + 1
+                                                    dragDistance < -reorderThreshold -> current - 1
+                                                    else -> current
+                                                }
+                                                if (target in displayed.indices && target != current) {
+                                                    displayed = displayed.moveQueueItem(current, target)
+                                                    dragDistance = 0f
+                                                }
+                                            },
+                                        )
+                                    },
+                                )
+                                AsyncImage(
+                                    model = item.artwork ?: item.poster,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(76.dp, 46.dp).clip(RoundedCornerShape(7.dp)),
+                                    contentScale = ContentScale.Crop,
+                                )
+                                Spacer(Modifier.width(10.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        if (item.mediaType == "movie") item.name else listOfNotNull(
+                                            item.name,
+                                            item.season?.let { "S${it}E${item.episode ?: 0}" },
+                                        ).joinToString(" · "),
+                                        color = Color.White,
+                                        fontWeight = FontWeight.SemiBold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    item.videoTitle?.let {
+                                        Text(it, color = Color.White.copy(.56f), style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    }
+                                }
+                                Box {
+                                    IconButton(onClick = { menuKey = item.key }) { Icon(Icons.Rounded.MoreVert, "Queue item options", tint = Color.White) }
+                                    DropdownMenu(
+                                        expanded = menuKey == item.key,
+                                        onDismissRequest = { menuKey = null },
+                                        containerColor = Color(0xFF171719),
+                                    ) {
+                                        DropdownMenuItem(
+                                            text = { Text("Play now") },
+                                            leadingIcon = { Icon(Icons.Rounded.PlayArrow, null) },
+                                            onClick = { menuKey = null; onPlay(item) },
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Remove") },
+                                            leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null) },
+                                            onClick = {
+                                                menuKey = null
+                                                val next = displayed.removeFromQueue(item.key)
+                                                displayed = next
+                                                scope.launch { onChange(next) }
+                                            },
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if (confirmClear) {
+        AlertDialog(
+            onDismissRequest = { confirmClear = false },
+            title = { Text("Clear queue?") },
+            text = { Text("This removes every waiting movie and episode. Current playback will continue.") },
+            dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Cancel") } },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmClear = false
+                    displayed = emptyList()
+                    scope.launch { onChange(emptyList()) }
+                }) { Text("Clear", color = MaterialTheme.colorScheme.error) }
+            },
+        )
+    }
+}
+
+@Composable
 private fun PlayerBackButton(onClick: () -> Unit) {
     IconButton(
         onClick = onClick,
@@ -1753,6 +2027,8 @@ private fun MainTopBar(
     onAddProfile: () -> Unit,
     onOpenAddons: () -> Unit,
     onOpenSettings: () -> Unit,
+    queueSize: Int,
+    onOpenQueue: () -> Unit,
     onSignOut: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -1892,6 +2168,15 @@ private fun MainTopBar(
                         )
                     }
                     HorizontalDivider()
+                    if (queueSize > 0) {
+                        DropdownMenuItem(
+                            modifier = Modifier.clip(RoundedCornerShape(16.dp)),
+                            text = { Text("Queue") },
+                            leadingIcon = { Icon(Icons.Rounded.QueueMusic, null) },
+                            trailingIcon = { Text(queueSize.toString(), color = MaterialTheme.colorScheme.onSurfaceVariant) },
+                            onClick = { profileMenuOpen = false; onOpenQueue() },
+                        )
+                    }
                     DropdownMenuItem(
                         modifier = Modifier.clip(RoundedCornerShape(16.dp)),
                         text = { Text("Add profile") },

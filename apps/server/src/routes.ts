@@ -6,6 +6,7 @@ import type { RouteContext } from "./route-modules/context.js"
 import { rehashAddonInstallationUrls } from "./route-modules/helpers.js"
 import { registerLibraryRoutes } from "./route-modules/library-routes.js"
 import { registerProfileRoutes } from "./route-modules/profile-routes.js"
+import { registerQueueRoutes } from "./route-modules/queue-routes.js"
 import {
   filterContinueWatching,
   isPlaybackComplete,
@@ -32,6 +33,7 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
   registerAddonRoutes(app, context)
   registerLibraryRoutes(app, context)
   registerProgressRoutes(app, context)
+  registerQueueRoutes(app, context)
 }
 
 export {

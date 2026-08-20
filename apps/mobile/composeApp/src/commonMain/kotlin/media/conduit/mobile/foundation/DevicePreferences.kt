@@ -22,6 +22,7 @@ data class DevicePreferences(
     val touchGestures: Boolean = true,
     val holdToSpeed: Boolean = true,
     val autoSelectSavedStreams: Boolean = false,
+    val autoSelectNextStreams: Boolean = true,
     val lastStreamAddonId: String? = null,
     val miniplayerOnBack: Boolean = true,
     val autoplayNextEpisode: Boolean = false,
@@ -54,6 +55,7 @@ class DevicePreferencesRepository(private val store: SettingsStore) {
         touchGestures = bool("touch-gestures", true),
         holdToSpeed = bool("hold-to-speed", true),
         autoSelectSavedStreams = bool("auto-select-saved-streams", false),
+        autoSelectNextStreams = bool("auto-select-next-streams", true),
         lastStreamAddonId = store.get(prefix + "last-stream-addon-id")?.takeIf(String::isNotBlank),
         miniplayerOnBack = bool("miniplayer-on-back", true),
         autoplayNextEpisode = bool("autoplay-next", false),
@@ -80,6 +82,7 @@ class DevicePreferencesRepository(private val store: SettingsStore) {
         store.put(prefix + "touch-gestures", value.touchGestures.toString())
         store.put(prefix + "hold-to-speed", value.holdToSpeed.toString())
         store.put(prefix + "auto-select-saved-streams", value.autoSelectSavedStreams.toString())
+        store.put(prefix + "auto-select-next-streams", value.autoSelectNextStreams.toString())
         store.put(prefix + "last-stream-addon-id", value.lastStreamAddonId.orEmpty())
         store.put(prefix + "miniplayer-on-back", value.miniplayerOnBack.toString())
         store.put(prefix + "autoplay-next", value.autoplayNextEpisode.toString())

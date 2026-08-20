@@ -27,7 +27,9 @@ export const users = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    uniqueIndex("single_instance_owner_idx").on(table.role).where(sql`${table.role} = 'owner'`),
+    uniqueIndex("single_instance_owner_idx")
+      .on(table.role)
+      .where(sql`${table.role} = 'owner'`),
   ],
 )
 
@@ -254,6 +256,38 @@ export const watchProgress = pgTable(
   (table) => [
     primaryKey({ columns: [table.profileId, table.videoId] }),
     index("watch_progress_updated_idx").on(table.profileId, table.updatedAt),
+  ],
+)
+
+export const playbackQueueItems = pgTable(
+  "playback_queue_item",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    profileId: uuid("profile_id")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "cascade" }),
+    mediaType: text("media_type").notNull(),
+    mediaId: text("media_id").notNull(),
+    videoId: text("video_id").notNull(),
+    name: text("name").notNull(),
+    poster: text("poster"),
+    artwork: text("artwork"),
+    videoTitle: text("video_title"),
+    season: integer("season"),
+    episode: integer("episode"),
+    position: integer("position").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("playback_queue_profile_item_idx").on(
+      table.profileId,
+      table.mediaType,
+      table.mediaId,
+      table.videoId,
+    ),
+    index("playback_queue_profile_position_idx").on(table.profileId, table.position),
+    check("playback_queue_media_type_check", sql`${table.mediaType} in ('movie', 'series')`),
   ],
 )
 

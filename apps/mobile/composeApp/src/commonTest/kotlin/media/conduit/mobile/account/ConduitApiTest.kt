@@ -23,6 +23,29 @@ import media.conduit.mobile.foundation.ServerEndpoint
 
 class ConduitApiTest {
     @Test
+    fun profileSyncTreatsMissingQueueEndpointAsAnEmptyQueue() = runTest {
+        val engine = MockEngine { request ->
+            val path = request.url.encodedPath
+            if (path.endsWith("/queue")) {
+                respond("not found", HttpStatusCode.NotFound)
+            } else {
+                val body = when {
+                    path.endsWith("/addons") -> """{"addons":[]}"""
+                    path.endsWith("/library") -> """{"items":[]}"""
+                    path.endsWith("/progress") -> """{"items":[]}"""
+                    else -> error("Unexpected path $path")
+                }
+                respond(body, HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "application/json"))
+            }
+        }
+
+        val snapshot = ConduitApi(HttpClient(engine) { install(ContentNegotiation) { json() } })
+            .synchronizeProfile("https://conduit.example", "token", "p1")
+
+        assertTrue(snapshot.queue.isEmpty())
+    }
+
+    @Test
     fun validatesHealthAndAuthenticationConfiguration() = runTest {
         val client = mockClient { path, _ ->
             when (path) {
@@ -151,6 +174,7 @@ class ConduitApiTest {
                     """{"addons":[{"id":"a1","manifestId":"fixture","manifestUrl":"https://secret.example/manifest.json?token=private","manifest":{"id":"fixture","name":"Fixture"},"position":0,"enabled":true}]}"""
                 request.url.encodedPath.endsWith("/library") ->
                     """{"items":[{"id":"movie:1","type":"movie","name":"A Movie","updatedAt":"2026-07-31T00:00:00Z"}]}"""
+                request.url.encodedPath.endsWith("/queue") -> """{"items":[]}"""
                 request.url.encodedPath.endsWith("/progress") -> {
                     request.url.parameters["view"]?.let(requestedProgressViews::add)
                     """{"items":[{"videoId":"v1","mediaType":"movie","mediaId":"1","name":"A Movie","positionMs":1000,"durationMs":2000,"watched":false,"updatedAt":"2026-07-31T00:00:00Z"}]}"""

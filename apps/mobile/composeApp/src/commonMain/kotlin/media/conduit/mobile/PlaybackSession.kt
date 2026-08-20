@@ -9,6 +9,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import media.conduit.mobile.account.CatalogItem
 import media.conduit.mobile.account.PlaybackSource
+import media.conduit.mobile.account.PlaybackQueueItem
 import media.conduit.mobile.account.SubtitleItem
 import media.conduit.mobile.account.StreamSource
 import media.conduit.mobile.account.VideoItem
@@ -44,9 +45,11 @@ data class PlaybackRequest(
     val startPositionMs: Long = 0,
     val source: PlaybackSource? = null,
     val autoRecoveryAttempt: Boolean = false,
+    val manualSourceSwitch: Boolean = false,
     val hasNextEpisode: Boolean = false,
     val nextEpisodeTitle: String? = null,
     val nextEpisodeArtwork: String? = null,
+    val nextItemQueued: Boolean = false,
     val hasEpisodes: Boolean = false,
     val mediaItem: CatalogItem? = null,
     val episodes: List<VideoItem> = emptyList(),
@@ -77,6 +80,18 @@ data class PlaybackSessionState(
     val command: SequencedPlaybackCommand? = null,
     val episodePickerOpen: Boolean = false,
     val streamPicker: PlaybackStreamPickerState? = null,
+    val queueOpen: Boolean = false,
+    val autoRecoveryExhausted: Boolean = false,
+    val recoveryError: String? = null,
+    val transition: PlaybackTransition? = null,
+    val notice: String? = null,
+)
+
+data class PlaybackTransition(
+    val title: String,
+    val mediaName: String,
+    val artwork: String?,
+    val logo: String? = null,
 )
 
 class PlaybackSessionCallbacks(
@@ -85,6 +100,10 @@ class PlaybackSessionCallbacks(
         { request, playback, _ -> persist(request, playback) },
     val playNext: () -> Unit,
     val openEpisodes: () -> Unit,
+    val openSources: () -> Unit = {},
+    val playQueueItem: (PlaybackQueueItem) -> Unit = {},
+    val retryAutoRecovery: () -> Unit = {},
+    val manualSourceSwitchFailed: () -> Unit = {},
     val minimized: () -> Unit,
     val closed: () -> Unit,
     val selectEpisode: (String) -> Unit = {},
@@ -142,6 +161,7 @@ class PlaybackSessionController(
                 request = request,
                 sessionId = "playback-${++sessionSequence}",
                 presentation = PlaybackPresentation.FullScreen,
+                notice = state.notice,
             )
         }
         if (!sameStream) checkpointSequence = 0L
@@ -170,6 +190,7 @@ class PlaybackSessionController(
             presentation = PlaybackPresentation.Mini,
             episodePickerOpen = false,
             streamPicker = null,
+            queueOpen = false,
         )
         if (hadStreamPicker) callbacks?.closeStreamPicker?.invoke()
         if (notifyOwner) callbacks?.minimized?.invoke()
@@ -250,10 +271,49 @@ class PlaybackSessionController(
         callbacks?.playNext?.invoke()
     }
 
+    fun beginTransition(title: String, mediaName: String, artwork: String?, logo: String? = null) {
+        if (state.request == null) return
+        send(PlaybackCommand.Pause)
+        state = state.copy(
+            presentation = PlaybackPresentation.FullScreen,
+            transition = PlaybackTransition(title, mediaName, artwork, logo),
+            episodePickerOpen = false,
+            streamPicker = null,
+            queueOpen = false,
+        )
+    }
+
+    fun cancelTransition() {
+        if (state.transition != null) state = state.copy(transition = null)
+    }
+
     fun openEpisodes() {
         if (state.request == null) return
-        state = state.copy(episodePickerOpen = true)
+        state = state.copy(episodePickerOpen = true, queueOpen = false)
         callbacks?.openEpisodes?.invoke()
+    }
+
+    fun openSources() {
+        if (state.request == null) return
+        callbacks?.openSources?.invoke()
+    }
+
+    fun openQueue() {
+        if (state.request == null) return
+        val hadStreamPicker = state.streamPicker != null
+        state = state.copy(episodePickerOpen = false, streamPicker = null, queueOpen = true)
+        if (hadStreamPicker) callbacks?.closeStreamPicker?.invoke()
+    }
+
+    fun closeQueue() {
+        if (state.queueOpen) state = state.copy(queueOpen = false)
+    }
+
+    fun playQueueItem(item: PlaybackQueueItem) {
+        if (state.request == null) return
+        persist()
+        state = state.copy(queueOpen = false)
+        callbacks?.playQueueItem?.invoke(item)
     }
 
     fun closeEpisodes() {
@@ -265,6 +325,8 @@ class PlaybackSessionController(
         state = state.copy(
             episodePickerOpen = false,
             streamPicker = picker,
+            queueOpen = false,
+            transition = null,
         )
     }
 
@@ -310,6 +372,32 @@ class PlaybackSessionController(
         }
     }
 
+    fun exhaustAutoRecovery(sessionId: String, message: String) {
+        if (state.sessionId == sessionId && state.request?.autoRecoveryAttempt == true) {
+            state = state.copy(autoRecoveryExhausted = true, recoveryError = message)
+        }
+    }
+
+    fun retryAutoRecovery() {
+        if (state.request?.autoRecoveryAttempt != true) return
+        state = state.copy(playback = PlaybackState(), autoRecoveryExhausted = false, recoveryError = null)
+        callbacks?.retryAutoRecovery?.invoke()
+    }
+
+    fun manualSourceSwitchFailed(sessionId: String) {
+        if (state.sessionId == sessionId && state.request?.manualSourceSwitch == true) {
+            callbacks?.manualSourceSwitchFailed?.invoke()
+        }
+    }
+
+    fun showNotice(message: String) {
+        if (state.request != null) state = state.copy(notice = message)
+    }
+
+    fun dismissNotice() {
+        if (state.notice != null) state = state.copy(notice = null)
+    }
+
     fun selectEpisode(videoId: String) {
         if (state.request == null) return
         closeEpisodes()
@@ -351,6 +439,23 @@ internal fun savedStreamStartupStalled(
     request: PlaybackRequest,
     playback: PlaybackState,
 ): Boolean = request.autoRecoveryAttempt &&
+    playback.positionMs <= request.startPositionMs &&
+    !playback.playing &&
+    !playback.ended &&
+    (playback.videoWidth <= 0 || playback.videoHeight <= 0)
+
+internal fun shouldPresentPlaybackError(
+    request: PlaybackRequest,
+    playback: PlaybackState,
+    autoRecoveryExhausted: Boolean = false,
+): Boolean = playback.error != null &&
+    (!request.autoRecoveryAttempt || autoRecoveryExhausted) &&
+    !request.manualSourceSwitch
+
+internal fun manualSourceSwitchStartupStalled(
+    request: PlaybackRequest,
+    playback: PlaybackState,
+): Boolean = request.manualSourceSwitch &&
     playback.positionMs <= request.startPositionMs &&
     !playback.playing &&
     !playback.ended &&

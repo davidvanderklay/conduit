@@ -5,6 +5,7 @@ import media.conduit.mobile.account.PlaybackSource
 internal enum class MediaOpenMode {
     Details,
     AutoResume,
+    Queue,
 }
 
 internal fun shouldAutoResume(

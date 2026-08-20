@@ -162,4 +162,50 @@ class StreamSelectionTest {
         assertEquals(fallback, selectSingleAutoStream(listOf(saved, fallback), saved))
         assertNull(selectSingleAutoStream(listOf(saved, fallback)))
     }
+
+    @Test
+    fun automaticRankingPrefersSavedThenBingeGroupThenLowerQuality() {
+        val saved = PlaybackSource("saved-addon", "url:https://saved.example/video", "url")
+        val previous = PlaybackSource(
+            addonId = "current-addon",
+            sourceKey = "url:https://current.example/video",
+            kind = "url",
+            name = "1080p",
+            bingeGroup = "show-release",
+        )
+        val sources = listOf(
+            StreamSource("other", "Other", StreamItem(url = "https://example/4k", name = "4K")),
+            StreamSource("current-addon", "Current", StreamItem(url = "https://example/720", name = "720p")),
+            StreamSource(
+                "other",
+                "Other",
+                StreamItem(
+                    url = "https://example/binge",
+                    name = "1080p",
+                    behaviorHints = StreamBehaviorHints(bingeGroup = "show-release"),
+                ),
+            ),
+            StreamSource("saved-addon", "Saved", StreamItem(url = "https://saved.example/video", name = "480p")),
+        )
+
+        assertEquals(
+            listOf(
+                "https://saved.example/video",
+                "https://example/binge",
+                "https://example/720",
+                "https://example/4k",
+            ),
+            rankAutomaticStreams(sources, previous, saved).map { it.stream.url },
+        )
+    }
+
+    @Test
+    fun automaticRankingTriesEachNormalizedUrlOnce() {
+        val duplicateWithFreshToken = listOf(
+            StreamSource("one", "One", StreamItem(url = "https://example/video?token=old")),
+            StreamSource("two", "Two", StreamItem(url = "https://example/video?token=new")),
+        )
+
+        assertEquals(1, rankAutomaticStreams(duplicateWithFreshToken).size)
+    }
 }

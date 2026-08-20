@@ -55,6 +55,10 @@ class ProfileSyncRepository(
     ): ProfileSyncState {
         val cached = cached(profileId)
         return try {
+            pendingQueue(profileId)?.let { pending ->
+                api.replaceQueue(baseUrl, token, profileId, pending)
+                clearPendingQueue(profileId)
+            }
             val snapshot = api.synchronizeProfile(baseUrl, token, profileId)
                 .withProgressUpdates(preservedProgress)
             secureStore.put(cacheKey(profileId), json.encodeToString(snapshot))
@@ -72,7 +76,17 @@ class ProfileSyncRepository(
         secureStore.put(cacheKey(snapshot.profileId), json.encodeToString(snapshot))
     }
 
+    fun savePendingQueue(profileId: String, items: List<PlaybackQueueItem>) {
+        secureStore.put(pendingQueueKey(profileId), json.encodeToString(items))
+    }
+
+    fun pendingQueue(profileId: String): List<PlaybackQueueItem>? = secureStore.get(pendingQueueKey(profileId))
+        ?.let { runCatching { json.decodeFromString<List<PlaybackQueueItem>>(it) }.getOrNull() }
+
+    fun clearPendingQueue(profileId: String) = secureStore.remove(pendingQueueKey(profileId))
+
     fun clear(profileId: String) = secureStore.remove(cacheKey(profileId))
 
     private fun cacheKey(profileId: String) = "profile.snapshot.v1.$profileId"
+    private fun pendingQueueKey(profileId: String) = "profile.queue.pending.v1.$profileId"
 }
