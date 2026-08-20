@@ -40,6 +40,38 @@ internal fun nextQueuedItem(
     videoId: String,
 ): PlaybackQueueItem? = queue.firstOrNull { it.mediaId != mediaId || it.videoId != videoId }
 
+internal data class PlaybackUpNext(
+    val nextEpisodeTitle: String?,
+    val nextEpisodeArtwork: String?,
+    val nextItemQueued: Boolean,
+    val queuedItem: PlaybackQueueItem? = null,
+)
+
+internal fun playbackUpNext(
+    request: PlaybackRequest,
+    queue: List<PlaybackQueueItem>,
+): PlaybackUpNext? {
+    val queued = nextQueuedItem(queue, request.identity.mediaId, request.identity.videoId)
+    if (queued != null) {
+        val title = if (queued.mediaType == "movie") {
+            queued.name
+        } else {
+            listOfNotNull(
+                queued.name,
+                queued.season?.let { season -> "S${season}E${queued.episode ?: 0}" },
+                queued.videoTitle,
+            ).joinToString(" · ")
+        }
+        return PlaybackUpNext(title, queued.artwork ?: queued.poster, true, queued)
+    }
+
+    return if (request.hasNextEpisode) {
+        PlaybackUpNext(request.nextEpisodeTitle, request.nextEpisodeArtwork, false)
+    } else {
+        null
+    }
+}
+
 internal fun List<PlaybackQueueItem>.moveQueueItem(fromIndex: Int, toIndex: Int): List<PlaybackQueueItem> {
     if (fromIndex !in indices || toIndex !in indices || fromIndex == toIndex) return this
     val mutable = toMutableList()

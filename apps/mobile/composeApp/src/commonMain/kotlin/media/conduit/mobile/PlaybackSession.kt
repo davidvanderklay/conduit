@@ -135,6 +135,7 @@ class PlaybackSessionController(
         private set
 
     private var callbacks: PlaybackSessionCallbacks? = null
+    private var queuedNext: PlaybackQueueItem? = null
     private var commandSequence = 0L
     private var sessionSequence = 0L
     private var checkpointSequence = 0L
@@ -145,6 +146,7 @@ class PlaybackSessionController(
         val current = state.request
         val sameStream = current?.isSameStream(request) == true
         if (current != null && !sameStream) persist()
+        if (!sameStream) queuedNext = null
         this.callbacks = callbacks
         state = if (sameStream) {
             // Reopening a minimized stream should resume the live player. Keeping
@@ -233,6 +235,7 @@ class PlaybackSessionController(
         val closed = callbacks?.closed
         state = PlaybackSessionState()
         callbacks = null
+        queuedNext = null
         closed?.invoke()
     }
 
@@ -268,8 +271,16 @@ class PlaybackSessionController(
 
     fun playNext() {
         if (state.request == null) return
+        queuedNext?.let {
+            playQueueItem(it)
+            return
+        }
         persist()
         callbacks?.playNext?.invoke()
+    }
+
+    fun updateQueuedNext(identity: PlaybackIdentity, item: PlaybackQueueItem?) {
+        if (state.request?.identity == identity) queuedNext = item
     }
 
     fun beginTransition(title: String, mediaName: String, artwork: String?, logo: String? = null) {

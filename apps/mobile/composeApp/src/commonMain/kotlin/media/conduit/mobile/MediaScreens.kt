@@ -1254,7 +1254,6 @@ internal fun MediaDetailsScreen(
     val nextVideo = selectedVideo?.let { current ->
         playableVideos.firstOrNull { compareEpisodeCoordinates(it, current) > 0 }
     }
-    val queuedNext = nextQueuedItem(snapshot?.queue.orEmpty(), item.id, playingVideoId)
     val playerContentTitle = if (selectedVideo != null) {
         val episodeNumber = listOfNotNull(selectedVideo?.season, selectedVideo?.episode)
             .takeIf { it.size == 2 }
@@ -1293,14 +1292,7 @@ internal fun MediaDetailsScreen(
                 }
             },
             playNext = {
-                if (queuedNext != null) {
-                    playbackSession.beginTransition(
-                        title = queuedNext.videoTitle ?: queuedNext.name,
-                        mediaName = queuedNext.name,
-                        artwork = queuedNext.artwork ?: queuedNext.poster,
-                    )
-                    onPlayQueueItem(queuedNext)
-                } else nextVideo?.let { video ->
+                nextVideo?.let { video ->
                     if (preferences.autoSelectNextStreams) {
                         playbackSession.beginTransition(
                             title = video.displayTitle,
@@ -1478,16 +1470,10 @@ internal fun MediaDetailsScreen(
             source = currentPlaybackSource(),
             autoRecoveryAttempt = playingVideoId in autoRecoveryVideoIds,
             manualSourceSwitch = playingVideoId in manualSourceSwitchVideoIds,
-            hasNextEpisode = queuedNext != null || nextVideo != null,
-            nextEpisodeTitle = queuedNext?.let { queued ->
-                if (queued.mediaType == "movie") queued.name else listOfNotNull(
-                    queued.name,
-                    queued.season?.let { season -> "S${season}E${queued.episode ?: 0}" },
-                    queued.videoTitle,
-                ).joinToString(" · ")
-            } ?: nextVideo?.let { "S${it.season ?: 0}E${it.episode ?: 0} · ${it.displayTitle}" },
-            nextEpisodeArtwork = queuedNext?.artwork ?: queuedNext?.poster ?: nextVideo?.thumbnail ?: meta?.background,
-            nextItemQueued = queuedNext != null,
+            hasNextEpisode = nextVideo != null,
+            nextEpisodeTitle = nextVideo?.let { "S${it.season ?: 0}E${it.episode ?: 0} · ${it.displayTitle}" },
+            nextEpisodeArtwork = nextVideo?.thumbnail ?: meta?.background,
+            nextItemQueued = false,
             hasEpisodes = orderedVideos.isNotEmpty(),
             mediaItem = item,
             episodes = orderedVideos,

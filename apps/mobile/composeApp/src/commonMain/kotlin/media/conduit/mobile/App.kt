@@ -1294,6 +1294,10 @@ private fun BoxScope.PlaybackSessionHost(
     val scope = rememberCoroutineScope()
     val session = controller.state
     val request = session.request ?: return
+    val upNext = playbackUpNext(request, snapshot?.queue.orEmpty())
+    SideEffect {
+        controller.updateQueuedNext(request.identity, upNext?.queuedItem)
+    }
     val fullScreen = session.presentation == PlaybackPresentation.FullScreen
     val systemPip = session.presentation == PlaybackPresentation.SystemPip
     val pipHandoffVisible = systemPip && systemPipKeepsAppVisible
@@ -1336,13 +1340,14 @@ private fun BoxScope.PlaybackSessionHost(
     LaunchedEffect(
         request.identity.videoId,
         request.url,
-        request.hasNextEpisode,
+        upNext?.queuedItem?.key,
+        upNext?.nextEpisodeTitle,
         preferences.autoplayNextEpisode,
         session.playback.ended,
     ) {
         if (
             preferences.autoplayNextEpisode &&
-                request.hasNextEpisode &&
+                upNext != null &&
                 session.playback.ended
         ) {
             // Autoplay advances to the next episode's source chooser. A
@@ -1458,7 +1463,7 @@ private fun BoxScope.PlaybackSessionHost(
             subtitles = request.subtitles,
             contentLogo = request.logo,
             contentTitle = request.title,
-            hasNextEpisode = request.hasNextEpisode,
+            hasNextEpisode = upNext != null,
             onNextEpisode = controller::playNext,
             hasEpisodes = request.hasEpisodes,
             onEpisodes = controller::openEpisodes,
@@ -1614,7 +1619,7 @@ private fun BoxScope.PlaybackSessionHost(
                 }
             }
             if (fullScreen &&
-                request.hasNextEpisode &&
+                upNext != null &&
                 session.playback.durationMs > 0 &&
                 session.playback.durationMs - session.playback.positionMs in 1..30_000
             ) {
@@ -1627,15 +1632,15 @@ private fun BoxScope.PlaybackSessionHost(
                 ) {
                     Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
                         AsyncImage(
-                            request.nextEpisodeArtwork,
+                            upNext.nextEpisodeArtwork,
                             null,
                             Modifier.size(88.dp, 54.dp).clip(RoundedCornerShape(11.dp)),
                             contentScale = ContentScale.Crop,
                         )
                         Spacer(Modifier.width(10.dp))
                         Column(Modifier.weight(1f)) {
-                            Text(if (request.nextItemQueued) "UP NEXT" else "NEXT EPISODE", color = Color.White.copy(.6f), style = MaterialTheme.typography.labelSmall)
-                            Text(request.nextEpisodeTitle.orEmpty(), color = Color.White, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(if (upNext.nextItemQueued) "UP NEXT" else "NEXT EPISODE", color = Color.White.copy(.6f), style = MaterialTheme.typography.labelSmall)
+                            Text(upNext.nextEpisodeTitle.orEmpty(), color = Color.White, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                         FilledTonalIconButton(onClick = controller::playNext) {
                             Icon(Icons.Rounded.PlayArrow, "Play next")
