@@ -80,11 +80,12 @@ The Electron desktop shell uses Chromium for the UI and a native libmpv bridge. 
 
 macOS uses an in-process OpenGL render view below Chromium, Windows embeds mpv
 with the Electron window's HWND, and Linux uses its X11 window ID. Native
-Wayland does not expose an X11-compatible window ID, so Linux playback should
-currently be launched through X11/XWayland:
+Wayland does not expose an X11-compatible window ID, so Linux launches through
+X11/Ozone by default. Set `CONDUIT_ELECTRON_OZONE=wayland` only when testing the
+UI without embedded playback:
 
 ```sh
-CONDUIT_ELECTRON_OZONE=x11 pnpm dev:electron
+CONDUIT_ELECTRON_OZONE=wayland pnpm dev:electron
 ```
 
 If X11/Ozone reproduces a Chromium GPU-process crash on an Nvidia driver,
@@ -231,9 +232,9 @@ For development outside Nix:
   testing a different build. `pnpm --filter @conduit/desktop build` creates an
   NSIS installer with the DLL included.
 
-Linux playback uses libmpv's OpenGL render API. X11 is supported directly.
-Wayland sessions use the native backend by default. `CONDUIT_XWAYLAND=1`
-enables the XWayland fallback for diagnostic compatibility testing.
+Linux playback uses libmpv's OpenGL render API through X11/Ozone. The packaged
+app and development launcher use X11 by default because native Wayland does not
+provide the window ID required by the embedded player.
 Conduit keeps WebKitGTK's accelerated DMA-BUF renderer enabled on Intel and AMD
 and disables it automatically on NVIDIA to avoid known black-screen and
 protocol-failure paths. Set `WEBKIT_DISABLE_DMABUF_RENDERER=1` manually when

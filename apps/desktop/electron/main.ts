@@ -32,7 +32,9 @@ function electronOzonePlatform(): ElectronOzonePlatform {
   if (configured) {
     throw new Error("CONDUIT_ELECTRON_OZONE must be either x11 or wayland.")
   }
-  return process.env.WAYLAND_DISPLAY ? "wayland" : "x11"
+  // Linux libmpv embedding requires an X11-compatible window. Users can still
+  // opt into native Wayland for UI-only diagnostics with the environment variable.
+  return "x11"
 }
 
 if (process.platform === "linux") {
@@ -513,6 +515,9 @@ function nativePlayerPath(): string {
   if (process.platform === "linux") {
     if (process.env.CONDUIT_ELECTRON_NATIVE_PLAYER) {
       return process.env.CONDUIT_ELECTRON_NATIVE_PLAYER
+    }
+    if (app.isPackaged) {
+      return path.join(process.resourcesPath, "native", "conduit-electron-native")
     }
     const build = process.env.NODE_ENV === "production" ? "release" : "debug"
     // Cargo resolves the workspace target directory from the repository root,
