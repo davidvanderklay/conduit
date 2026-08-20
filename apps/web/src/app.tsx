@@ -1016,9 +1016,9 @@ function ProfileApp({
         <LibraryView
           profileId={profile.id}
           addons={addons.data?.addons ?? []}
-          onSelect={(item) => {
-            setSelectedVideoId(undefined)
-            setSelectedProgress(undefined)
+          onSelect={(item, progress) => {
+            setSelectedVideoId(progress?.videoId)
+            setSelectedProgress(progress)
             setAutoResumeOnOpen(true)
             setSelectedItem(item)
           }}

@@ -33,7 +33,7 @@ export function LibraryView({
 }: {
   profileId: string
   addons: InstalledAddon[]
-  onSelect: (item: CatalogItem) => void
+  onSelect: (item: CatalogItem, progress?: WatchProgress) => void
 }) {
   const [filter, setFilter] = useState<Filter>("all")
   const [sort, setSort] = useState<LibrarySort>("last-watched")
@@ -50,6 +50,22 @@ export function LibraryView({
     const latest = new Map<string, WatchProgress>()
     for (const entry of progress.data ?? []) {
       if (entry.videoId.startsWith("conduit:completion:")) continue
+      const key = `${entry.mediaType}:${entry.mediaId}`
+      const current = latest.get(key)
+      if (!current || Date.parse(entry.updatedAt) > Date.parse(current.updatedAt)) {
+        latest.set(key, entry)
+      }
+    }
+    return latest
+  }, [progress.data])
+  const resumeProgress = useMemo(() => {
+    const latest = new Map<string, WatchProgress>()
+    for (const entry of progress.data ?? []) {
+      if (
+        entry.videoId.startsWith("conduit:completion:") ||
+        entry.watched ||
+        entry.positionMs < 1_000
+      ) continue
       const key = `${entry.mediaType}:${entry.mediaId}`
       const current = latest.get(key)
       if (!current || Date.parse(entry.updatedAt) > Date.parse(current.updatedAt)) {
@@ -177,6 +193,7 @@ export function LibraryView({
             itemKey={({ item }) => `${item.type}:${item.id}`}
             renderItem={({ item, catalogItem, metadataAvailable }) => {
             const latest = latestProgress.get(`${item.type}:${item.id}`)
+            const resume = resumeProgress.get(`${item.type}:${item.id}`)
             const percent =
               latest && latest.durationMs > 0
                 ? Math.min(100, (latest.positionMs / latest.durationMs) * 100)
@@ -187,7 +204,7 @@ export function LibraryView({
                   <button
                     className="absolute inset-0 w-full text-left"
                     aria-label={`View ${catalogItem.name}`}
-                    onClick={() => onSelect(catalogItem)}
+                    onClick={() => onSelect(catalogItem, resume)}
                   >
                     {catalogItem.poster ? (
                       <img
@@ -216,13 +233,13 @@ export function LibraryView({
                   <PosterResumeButton
                     title={catalogItem.name}
                     progress={latest}
-                    onResume={() => onSelect(catalogItem)}
+                    onResume={() => onSelect(catalogItem, resume)}
                   />
                 </div>
                 <div className="mt-2 flex items-start gap-1">
                   <button
                     className="min-w-0 flex-1 text-left"
-                    onClick={() => onSelect(catalogItem)}
+                    onClick={() => onSelect(catalogItem, resume)}
                   >
                     <p className={posterTitleSlotClass}>{catalogItem.name}</p>
                     {!metadataAvailable && (
@@ -235,7 +252,7 @@ export function LibraryView({
                     profileId={profileId}
                     item={catalogItem}
                     progress={progress.data ?? []}
-                    onSelect={() => onSelect(catalogItem)}
+                    onSelect={() => onSelect(catalogItem, resume)}
                   />
                 </div>
                 <div className="pointer-events-none absolute right-2 top-2">
