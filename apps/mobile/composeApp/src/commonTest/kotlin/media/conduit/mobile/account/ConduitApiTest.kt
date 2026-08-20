@@ -151,6 +151,7 @@ class ConduitApiTest {
                     """{"addons":[{"id":"a1","manifestId":"fixture","manifestUrl":"https://secret.example/manifest.json?token=private","manifest":{"id":"fixture","name":"Fixture"},"position":0,"enabled":true}]}"""
                 request.url.encodedPath.endsWith("/library") ->
                     """{"items":[{"id":"movie:1","type":"movie","name":"A Movie","updatedAt":"2026-07-31T00:00:00Z"}]}"""
+                request.url.encodedPath.endsWith("/queue") -> """{"items":[]}"""
                 request.url.encodedPath.endsWith("/progress") -> {
                     request.url.parameters["view"]?.let(requestedProgressViews::add)
                     """{"items":[{"videoId":"v1","mediaType":"movie","mediaId":"1","name":"A Movie","positionMs":1000,"durationMs":2000,"watched":false,"updatedAt":"2026-07-31T00:00:00Z"}]}"""

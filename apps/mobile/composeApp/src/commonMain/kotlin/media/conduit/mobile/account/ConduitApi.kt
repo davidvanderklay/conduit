@@ -156,7 +156,26 @@ data class ProfileSnapshot(
     val progress: List<ProgressSummary>,
     val history: List<ProgressSummary> = emptyList(),
     val continueWatching: List<ProgressSummary> = emptyList(),
+    val queue: List<PlaybackQueueItem> = emptyList(),
 )
+
+@Serializable
+data class PlaybackQueueItem(
+    val mediaType: String,
+    val mediaId: String,
+    val videoId: String,
+    val name: String,
+    val poster: String? = null,
+    val artwork: String? = null,
+    val videoTitle: String? = null,
+    val season: Int? = null,
+    val episode: Int? = null,
+) {
+    val key: String get() = "$mediaType\u0000$mediaId\u0000$videoId"
+}
+
+@Serializable
+private data class PlaybackQueueResponse(val items: List<PlaybackQueueItem>)
 
 @Serializable
 data class CatalogItem(
@@ -299,6 +318,65 @@ fun selectSingleAutoStream(
         .singleOrNull()
 }
 
+/** Ranks direct streams for an automatic transition without changing provider order on ties. */
+fun rankAutomaticStreams(
+    streams: List<StreamSource>,
+    previousSource: PlaybackSource? = null,
+    savedSource: PlaybackSource? = null,
+): List<StreamSource> {
+    val targetResolution = streamResolution(previousSource)
+    val indexed = streams
+        .filter(::isAutoSelectableStream)
+        .mapIndexed { index, source -> IndexedValue(index, source) }
+
+    return indexed.sortedWith(
+        compareBy<IndexedValue<StreamSource>>(
+            { candidate -> if (savedSource != null && streamSourceKey(candidate.value.stream) == savedSource.sourceKey) 0 else 1 },
+            { candidate ->
+                val bingeGroup = previousSource?.bingeGroup?.takeIf(String::isNotBlank)
+                if (bingeGroup != null && candidate.value.stream.behaviorHints?.bingeGroup == bingeGroup) 0 else 1
+            },
+            { candidate -> if (previousSource != null && candidate.value.addonId == previousSource.addonId) 0 else 1 },
+            { candidate -> resolutionRank(streamResolution(candidate.value.stream), targetResolution).first },
+            { candidate -> resolutionRank(streamResolution(candidate.value.stream), targetResolution).second },
+            IndexedValue<StreamSource>::index,
+        ),
+    ).map(IndexedValue<StreamSource>::value)
+        .distinctBy { streamSourceKey(it.stream) }
+}
+
+private fun resolutionRank(candidate: Int?, target: Int?): Pair<Int, Int> = when {
+    target == null -> 0 to 0
+    candidate == null -> 3 to Int.MAX_VALUE
+    candidate == target -> 0 to 0
+    candidate < target -> 1 to target - candidate
+    else -> 2 to candidate - target
+}
+
+private fun streamResolution(source: PlaybackSource?): Int? = source?.let {
+    parseStreamResolution(listOf(it.name, it.title, it.filename, it.bingeGroup))
+}
+
+private fun streamResolution(stream: StreamItem): Int? = parseStreamResolution(
+    listOf(
+        stream.name,
+        stream.title,
+        stream.description,
+        stream.behaviorHints?.filename,
+        stream.behaviorHints?.bingeGroup,
+    ),
+)
+
+private fun parseStreamResolution(values: List<String?>): Int? {
+    val value = values.filterNotNull().joinToString(" ")
+    if (Regex("(?i)(?:^|[^a-z0-9])(?:4k|uhd)(?:$|[^a-z0-9])").containsMatchIn(value)) return 2160
+    return Regex("(?i)(?:^|[^0-9])(2160|1440|1080|720|576|480|360)p?(?:$|[^0-9])")
+        .find(value)
+        ?.groupValues
+        ?.getOrNull(1)
+        ?.toIntOrNull()
+}
+
 private fun isAutoSelectableStream(candidate: StreamSource): Boolean =
     isPlayableStreamUrl(candidate.stream.url)
 
@@ -307,7 +385,7 @@ private fun isPlayableStreamUrl(value: String?): Boolean {
     return protocol == "http" || protocol == "https"
 }
 
-private fun streamSourceKey(stream: StreamItem): String = when {
+internal fun streamSourceKey(stream: StreamItem): String = when {
     stream.infoHash != null -> "torrent:${stream.infoHash.lowercase()}:${stream.fileIdx?.toString()?.trim('"').orEmpty()}"
     stream.url != null -> "url:${normalizeStreamUrl(stream.url)}"
     else -> "other:${normalizeSourceText(listOf(stream.name, stream.title, stream.behaviorHints?.filename))}"
@@ -711,7 +789,8 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
             val progress = async { get("/v1/profiles/$profileId/progress?view=status&limit=1000") }
             val history = async { get("/v1/profiles/$profileId/progress?view=history&limit=1000") }
             val continueWatching = async { get("/v1/profiles/$profileId/progress?view=continue&limit=50") }
-            val responses = listOf(addons.await(), library.await(), progress.await(), history.await(), continueWatching.await())
+            val queue = async { get("/v1/profiles/$profileId/queue") }
+            val responses = listOf(addons.await(), library.await(), progress.await(), history.await(), continueWatching.await(), queue.await())
             responses.firstOrNull { !it.status.isSuccess() }?.let { response ->
                 throw ServerRequestException(
                     if (response.status.value == 401) "Your session has expired" else
@@ -726,8 +805,25 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
                 progress = responses[2].body<ProgressResponse>().items,
                 history = responses[3].body<ProgressResponse>().items,
                 continueWatching = responses[4].body<ProgressResponse>().items,
+                queue = responses[5].body<PlaybackQueueResponse>().items,
             )
         }
+
+    suspend fun replaceQueue(
+        baseUrl: String,
+        token: String,
+        profileId: String,
+        items: List<PlaybackQueueItem>,
+    ) {
+        val response = client.put("$baseUrl/v1/profiles/$profileId/queue") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody(buildJsonObject { put("items", Json.encodeToJsonElement(items)) })
+        }
+        if (!response.status.isSuccess()) {
+            throw ServerRequestException("Unable to update queue", response.status.value)
+        }
+    }
 
     suspend fun saveLibraryItem(
         baseUrl: String,

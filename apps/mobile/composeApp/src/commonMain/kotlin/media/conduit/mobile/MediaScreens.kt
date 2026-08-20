@@ -634,6 +634,7 @@ internal fun MediaDetailsScreen(
     onProgressChanged: (ProgressSummary) -> Unit,
     onMutation: suspend (ProfileMutation) -> Result<Unit>,
     onBrowse: (MobileBrowseTarget) -> Unit,
+    onPlayQueueItem: (PlaybackQueueItem) -> Unit,
     onBack: () -> Unit,
     returnToHomeOnStreamBack: Boolean,
     openMode: MediaOpenMode,
@@ -667,7 +668,7 @@ internal fun MediaDetailsScreen(
     var autoRecoveryVideoIds by remember(item.id) { mutableStateOf<Set<String>>(emptySet()) }
     var autoRecoverySavedSourceVideoIds by remember(item.id) { mutableStateOf<Set<String>>(emptySet()) }
     var autoResumeStage by remember(item.id) { mutableStateOf(AutoResumeStage.Inactive) }
-    var autoFallbackStreams by remember(item.id) { mutableStateOf<Map<String, StreamSource>>(emptyMap()) }
+    var autoFallbackStreams by remember(item.id) { mutableStateOf<Map<String, List<StreamSource>>>(emptyMap()) }
     var migratedProgressIds by remember(item.id) { mutableStateOf<Set<String>>(emptySet()) }
     var streamSelectionReturnsHome by remember(item.id) { mutableStateOf(returnToHomeOnStreamBack) }
     var streamRequestVersion by remember(item.id) { mutableIntStateOf(0) }
@@ -675,7 +676,10 @@ internal fun MediaDetailsScreen(
     var playerStreamPicker by remember(item.id) { mutableStateOf<PlaybackStreamPickerState?>(null) }
     var playerStreamRequestVersion by remember(item.id) { mutableIntStateOf(0) }
     var playerStreamRequestJob by remember(item.id) { mutableStateOf<Job?>(null) }
-    val autoResumeRequested = openMode == MediaOpenMode.AutoResume
+    var consumedQueuedItemKey by remember(item.id) { mutableStateOf<String?>(null) }
+    var manualSourceSwitchVideoIds by remember(item.id) { mutableStateOf<Set<String>>(emptySet()) }
+    var manualSourceFallbacks by remember(item.id) { mutableStateOf<Map<String, StreamSource>>(emptyMap()) }
+    val autoResumeRequested = openMode == MediaOpenMode.AutoResume || openMode == MediaOpenMode.Queue
     val effectiveInitialVideoId = effectiveResumeVideoId(
         initialVideoId,
         snapshot?.progress.orEmpty(),
@@ -721,8 +725,11 @@ internal fun MediaDetailsScreen(
         playerStreamPicker = null
     }
 
-    fun resetPlaybackForVideoChange(saveProgress: Boolean = true) {
-        playbackSession.close(saveProgress = saveProgress)
+    fun resetPlaybackForVideoChange(
+        saveProgress: Boolean = true,
+        keepPlayerVisible: Boolean = false,
+    ) {
+        if (!keepPlayerVisible) playbackSession.close(saveProgress = saveProgress)
         clearPlayerStreamPickerState()
         cancelStreamRequest()
         streams = null
@@ -940,11 +947,12 @@ internal fun MediaDetailsScreen(
         requestJob.start()
     }
 
-    fun openPlayerStreamPicker(video: VideoItem) {
+    fun openPlayerStreamPicker(video: VideoItem, movie: Boolean = false) {
         clearPlayerStreamPickerState()
         val addonChoices = streamAddonChoicesFor(video.id)
         val picker = PlaybackStreamPickerState(
             episode = video,
+            movie = movie,
             addonChoices = addonChoices,
             selectedAddonId = effectiveStreamAddonId(selectedStreamAddonId, addonChoices),
             resumeFrom = resumePositionLabel(progressForVideoId(video.id)?.positionMs ?: 0L),
@@ -958,6 +966,7 @@ internal fun MediaDetailsScreen(
     fun requestStreams(
         video: VideoItem?,
         autoPlaySavedSource: Boolean = false,
+        rankAllAutomaticStreams: Boolean = false,
         addonId: String? = null,
         preferredSource: PlaybackSource? = null,
         streamBackToHome: Boolean? = null,
@@ -1006,8 +1015,20 @@ internal fun MediaDetailsScreen(
                         ).asSequence()
                             .mapNotNull { source -> selectSavedStream(choices, source) }
                             .firstOrNull()
-                        val choice = savedChoice ?: selectSingleAutoStream(choices)
-                        val fallback = savedChoice?.let { selectSingleAutoStream(choices, it) }
+                        val rankedChoices = if (rankAllAutomaticStreams) {
+                            rankAutomaticStreams(
+                                choices,
+                                previousSource = preferredSource,
+                                savedSource = saved,
+                            ).take(3)
+                        } else {
+                            val choice = savedChoice ?: selectSingleAutoStream(choices)
+                            listOfNotNull(
+                                choice,
+                                savedChoice?.let { selectSingleAutoStream(choices, it) },
+                            )
+                        }
+                        val choice = rankedChoices.firstOrNull()
                         if (choice != null) {
                             currentAddonId = choice.addonId
                             currentAddonName = choice.addonName
@@ -1019,7 +1040,8 @@ internal fun MediaDetailsScreen(
                             } else {
                                 autoRecoverySavedSourceVideoIds - videoId
                             }
-                            autoFallbackStreams = fallback?.let { autoFallbackStreams + (videoId to it) }
+                            autoFallbackStreams = rankedChoices.drop(1).takeIf(List<StreamSource>::isNotEmpty)
+                                ?.let { autoFallbackStreams + (videoId to it) }
                                 ?: (autoFallbackStreams - videoId)
                             if (autoPlaySavedSource) autoResumeAttemptedKey = autoResumeAttemptKey(selectedSource)
                             autoResumeStage = AutoResumeStage.Starting
@@ -1063,19 +1085,25 @@ internal fun MediaDetailsScreen(
     fun selectVideo(
         video: VideoItem?,
         autoPlaySavedSource: Boolean? = null,
+        rankAllAutomaticStreams: Boolean = false,
         preferredSource: PlaybackSource? = null,
         streamBackToHome: Boolean? = null,
         closePlaybackWithoutSaving: Boolean = false,
+        keepPlayerVisible: Boolean = false,
     ) {
         val shouldAutoPlay = autoPlaySavedSource ?: (preferredSource != null && preferences.autoSelectSavedStreams)
         if (streamBackToHome != null) streamSelectionReturnsHome = streamBackToHome
         if (selectedVideo?.id != video?.id) {
-            resetPlaybackForVideoChange(saveProgress = !closePlaybackWithoutSaving)
+            resetPlaybackForVideoChange(
+                saveProgress = !closePlaybackWithoutSaving,
+                keepPlayerVisible = keepPlayerVisible,
+            )
         }
         selectedVideo = video
         requestStreams(
             video,
             autoPlaySavedSource = shouldAutoPlay,
+            rankAllAutomaticStreams = rankAllAutomaticStreams,
             addonId = if (shouldAutoPlay) null else selectedStreamAddonId,
             preferredSource = preferredSource,
             streamBackToHome = streamBackToHome,
@@ -1116,6 +1144,26 @@ internal fun MediaDetailsScreen(
         if (!autoResumeRequested || addons.isEmpty()) return@LaunchedEffect
         if (item.type == "series" && effectiveInitialVideoId == null && selectedVideo == null) return@LaunchedEffect
         val targetVideoId = selectedVideo?.id ?: effectiveInitialVideoId ?: item.id
+        if (openMode == MediaOpenMode.Queue) {
+            if (preferences.autoSelectNextStreams) {
+                if (autoResumeAttemptedKey == "queue:$targetVideoId") return@LaunchedEffect
+                autoResumeAttemptedKey = "queue:$targetVideoId"
+                requestStreams(
+                    selectedVideo,
+                    autoPlaySavedSource = true,
+                    rankAllAutomaticStreams = true,
+                    streamBackToHome = true,
+                    videoIdOverride = effectiveInitialVideoId,
+                )
+            } else {
+                requestStreams(
+                    selectedVideo,
+                    streamBackToHome = true,
+                    videoIdOverride = effectiveInitialVideoId,
+                )
+            }
+            return@LaunchedEffect
+        }
         if (shouldOpenStreamSelectionImmediately(openMode, preferences.autoSelectSavedStreams, savedPlaybackSource)) {
             requestStreams(
                 selectedVideo,
@@ -1146,7 +1194,7 @@ internal fun MediaDetailsScreen(
     ) {
         val playback = playbackSession.state.playback
         if (
-            autoResumeStage == AutoResumeStage.Starting &&
+            (autoResumeStage == AutoResumeStage.Starting || openMode == MediaOpenMode.Queue) &&
                 !playback.loading &&
                 playback.videoWidth > 0 &&
                 playback.videoHeight > 0
@@ -1156,6 +1204,14 @@ internal fun MediaDetailsScreen(
             autoRecoverySavedSourceVideoIds = autoRecoverySavedSourceVideoIds - playingVideoId
             autoFallbackStreams = autoFallbackStreams - playingVideoId
             autoResumeStage = AutoResumeStage.Inactive
+            if (openMode == MediaOpenMode.Queue && consumedQueuedItemKey != playingVideoId) {
+                val queued = snapshot?.queue.orEmpty()
+                val consumed = queued.firstOrNull { it.videoId == playingVideoId && it.mediaId == item.id }
+                if (consumed != null) {
+                    consumedQueuedItemKey = consumed.key
+                    onMutation(ProfileMutation.SetQueue(queued.removeFromQueue(consumed.key)))
+                }
+            }
         }
     }
     fun currentPlaybackSource(): PlaybackSource? =
@@ -1164,9 +1220,16 @@ internal fun MediaDetailsScreen(
     fun selectPlayerStream(source: StreamSource) {
         val picker = playerStreamPicker ?: return
         if (source.stream.url == null) return
+        val switchingCurrentSource = picker.episode.id == playingVideoId
+        if (switchingCurrentSource && currentAddonId != null && currentAddonName != null && playing != null) {
+            manualSourceSwitchVideoIds = manualSourceSwitchVideoIds + picker.episode.id
+            manualSourceFallbacks = manualSourceFallbacks + (
+                picker.episode.id to StreamSource(currentAddonId!!, currentAddonName!!, playing!!)
+            )
+        }
         clearPlayerStreamPickerState()
-        resetPlaybackForVideoChange(saveProgress = false)
-        selectedVideo = picker.episode
+        resetPlaybackForVideoChange(saveProgress = false, keepPlayerVisible = true)
+        selectedVideo = picker.episode.takeUnless { picker.movie }
         streamVideoId = picker.episode.id
         currentAddonId = source.addonId
         currentAddonName = source.addonName
@@ -1188,6 +1251,7 @@ internal fun MediaDetailsScreen(
     val nextVideo = selectedVideo?.let { current ->
         playableVideos.firstOrNull { compareEpisodeCoordinates(it, current) > 0 }
     }
+    val queuedNext = snapshot?.queue?.firstOrNull()
     val playerContentTitle = if (selectedVideo != null) {
         val episodeNumber = listOfNotNull(selectedVideo?.season, selectedVideo?.episode)
             .takeIf { it.size == 2 }
@@ -1226,14 +1290,54 @@ internal fun MediaDetailsScreen(
                 }
             },
             playNext = {
-                nextVideo?.let { video ->
-                    // The next episode can be served by a different add-on or
-                    // require a different stream. Let the user choose it
-                    // instead of silently reusing the current source.
-                    openPlayerStreamPicker(video)
+                if (queuedNext != null) {
+                    onPlayQueueItem(queuedNext)
+                } else nextVideo?.let { video ->
+                    if (preferences.autoSelectNextStreams) {
+                        selectVideo(
+                            video = video,
+                            autoPlaySavedSource = true,
+                            rankAllAutomaticStreams = true,
+                            preferredSource = currentPlaybackSource(),
+                            closePlaybackWithoutSaving = true,
+                            keepPlayerVisible = true,
+                        )
+                    } else {
+                        openPlayerStreamPicker(video)
+                    }
                 }
             },
             openEpisodes = {},
+            openSources = {
+                openPlayerStreamPicker(
+                    selectedVideo ?: VideoItem(item.id, title = meta?.name ?: item.name),
+                    movie = item.type == "movie",
+                )
+            },
+            playQueueItem = onPlayQueueItem,
+            retryAutoRecovery = {
+                requestStreams(
+                    selectedVideo,
+                    autoPlaySavedSource = true,
+                    rankAllAutomaticStreams = true,
+                    preferredSource = currentPlaybackSource(),
+                    videoIdOverride = playingVideoId,
+                )
+            },
+            manualSourceSwitchFailed = {
+                val fallback = manualSourceFallbacks[playingVideoId]
+                manualSourceSwitchVideoIds = manualSourceSwitchVideoIds - playingVideoId
+                manualSourceFallbacks = manualSourceFallbacks - playingVideoId
+                if (fallback != null) {
+                    currentAddonId = fallback.addonId
+                    currentAddonName = fallback.addonName
+                    selectedPlaybackSources = selectedPlaybackSources + (
+                        playingVideoId to playbackSourceForStream(fallback.addonId, fallback.stream)
+                    )
+                    playing = fallback.stream
+                    playbackSession.showNotice("Couldn't switch source")
+                }
+            },
             selectEpisode = { videoId ->
                 orderedVideos.firstOrNull { it.id == videoId }?.let { video ->
                     openPlayerStreamPicker(video)
@@ -1263,14 +1367,16 @@ internal fun MediaDetailsScreen(
                 val failedProgress = progressForVideoId(failedVideoId)
                 if (failedVideoId in autoRecoveryVideoIds) {
                     val savedSourceWasUsed = failedVideoId in autoRecoverySavedSourceVideoIds
-                    val fallback = autoFallbackStreams[failedVideoId]
+                    val fallbacks = autoFallbackStreams[failedVideoId].orEmpty()
+                    val fallback = fallbacks.firstOrNull()
                     autoRecoveryVideoIds = autoRecoveryVideoIds - failedVideoId
                     autoRecoverySavedSourceVideoIds = autoRecoverySavedSourceVideoIds - failedVideoId
-                    autoFallbackStreams = autoFallbackStreams - failedVideoId
+                    autoFallbackStreams = fallbacks.drop(1).takeIf(List<StreamSource>::isNotEmpty)
+                        ?.let { autoFallbackStreams + (failedVideoId to it) }
+                        ?: (autoFallbackStreams - failedVideoId)
                     selectedPlaybackSources = selectedPlaybackSources - failedVideoId
                     playing = null
                     openingPlayback = false
-                    playbackSession.close(saveProgress = false)
                     streamsError = message
                     if (fallback != null) {
                         streamsError = null
@@ -1283,8 +1389,8 @@ internal fun MediaDetailsScreen(
                         autoResumeStage = AutoResumeStage.Starting
                         playing = fallback.stream
                     } else {
+                        playbackSession.exhaustAutoRecovery(playbackSession.state.sessionId, message)
                         autoResumeStage = AutoResumeStage.Picker
-                        streamPageOpen = true
                     }
                     if (savedSourceWasUsed && failedProgress?.playbackSource != null) {
                         scope.launch {
@@ -1357,9 +1463,17 @@ internal fun MediaDetailsScreen(
             startPositionMs = resumePosition,
             source = currentPlaybackSource(),
             autoRecoveryAttempt = playingVideoId in autoRecoveryVideoIds,
-            hasNextEpisode = nextVideo != null,
-            nextEpisodeTitle = nextVideo?.let { "S${it.season ?: 0}E${it.episode ?: 0} · ${it.displayTitle}" },
-            nextEpisodeArtwork = nextVideo?.thumbnail ?: meta?.background,
+            manualSourceSwitch = playingVideoId in manualSourceSwitchVideoIds,
+            hasNextEpisode = queuedNext != null || nextVideo != null,
+            nextEpisodeTitle = queuedNext?.let { queued ->
+                if (queued.mediaType == "movie") queued.name else listOfNotNull(
+                    queued.name,
+                    queued.season?.let { season -> "S${season}E${queued.episode ?: 0}" },
+                    queued.videoTitle,
+                ).joinToString(" · ")
+            } ?: nextVideo?.let { "S${it.season ?: 0}E${it.episode ?: 0} · ${it.displayTitle}" },
+            nextEpisodeArtwork = queuedNext?.artwork ?: queuedNext?.poster ?: nextVideo?.thumbnail ?: meta?.background,
+            nextItemQueued = queuedNext != null,
             hasEpisodes = orderedVideos.isNotEmpty(),
             mediaItem = item,
             episodes = orderedVideos,
@@ -3141,6 +3255,7 @@ private fun PlaybackSettingsScreen(platform: PlatformInfo, preferences: DevicePr
                 HorizontalDivider(color = Color.White.copy(.06f))
             }
             SettingsToggle("Auto-select saved streams", "Reuse the last selected stream when it is available", preferences.autoSelectSavedStreams) { update(preferences.copy(autoSelectSavedStreams = it)) }
+            SettingsToggle("Automatically select streams", "Choose sources for Next and queued playback", preferences.autoSelectNextStreams) { update(preferences.copy(autoSelectNextStreams = it)) }
             SettingsToggle("Miniplayer on back", "Minimize playback instead of closing it when you press Back", preferences.miniplayerOnBack) { update(preferences.copy(miniplayerOnBack = it)) }
             SettingsToggle("Touch gestures", "Double-tap seeking and player gestures", preferences.touchGestures) { update(preferences.copy(touchGestures = it)) }
             SettingsToggle("Hold to speed", "Hold the player to temporarily speed up", preferences.holdToSpeed) { update(preferences.copy(holdToSpeed = it)) }
@@ -3150,7 +3265,7 @@ private fun PlaybackSettingsScreen(platform: PlatformInfo, preferences: DevicePr
             HorizontalDivider(color = Color.White.copy(.06f)); SettingsAction("Preferred subtitle language", preferences.preferredSubtitleLanguage) { picker = "subtitle" }
             HorizontalDivider(color = Color.White.copy(.06f)); SettingsToggle("Subtitle outline", "Improve readability on bright scenes", preferences.subtitleOutline) { update(preferences.copy(subtitleOutline = it)) }
         }
-        SettingsGroup("AUTOPLAY") { SettingsToggle("Autoplay next episode", "Open the next episode's stream selector when playback ends", preferences.autoplayNextEpisode) { update(preferences.copy(autoplayNextEpisode = it)) } }
+        SettingsGroup("AUTOPLAY") { SettingsToggle("Automatically continue playback", "Start the next queued item or episode when playback ends", preferences.autoplayNextEpisode) { update(preferences.copy(autoplayNextEpisode = it)) } }
         SettingsGroup("P2P STREAMING") {
             SettingsToggle("Allow P2P sources", if (platform.p2pAvailable) "Master permission for peer-to-peer playback on this device" else "Not available in this build", preferences.p2pEnabled && platform.p2pAvailable, enabled = platform.p2pAvailable) { update(preferences.copy(p2pEnabled = it)) }
             if (!platform.p2pAvailable) Text("This distribution does not include a P2P engine. Builds that permit P2P can expose this switch without changing the rest of the playback settings.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(bottom = 12.dp))

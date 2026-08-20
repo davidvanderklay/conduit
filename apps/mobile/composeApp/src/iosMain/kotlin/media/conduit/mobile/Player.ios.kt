@@ -21,6 +21,7 @@ import androidx.compose.material.icons.rounded.PlaylistPlay
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.Subtitles
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -92,6 +93,7 @@ actual fun NativePlayer(
     hasNextEpisode: Boolean,
     onNextEpisode: () -> Unit,
     hasEpisodes: Boolean,
+    hasSources: Boolean,
     touchGestures: Boolean,
     holdToSpeed: Boolean,
     preferredAudioLanguage: String,
@@ -99,6 +101,7 @@ actual fun NativePlayer(
     androidPlaybackEngine: AndroidPlaybackEngine,
     iosPlaybackEngine: IosPlaybackEngine,
     onEpisodes: () -> Unit,
+    onSources: () -> Unit,
     onControlsVisibilityChanged: (Boolean) -> Unit,
     onTemporarySpeedChanged: (Boolean) -> Unit,
     onSystemPipChanged: (Boolean) -> Unit,
@@ -499,6 +502,9 @@ actual fun NativePlayer(
                         IosPlayerBottomAction(Icons.Rounded.Subtitles, "Subtitles") {
                             trackPanel = 1
                             controlsVisible = true
+                        }
+                        if (hasSources) {
+                            IosPlayerBottomAction(Icons.Rounded.Tune, "Sources", onClick = onSources)
                         }
                         if (hasEpisodes) {
                             IosPlayerBottomAction(Icons.Rounded.PlaylistPlay, "Episodes", onClick = onEpisodes)

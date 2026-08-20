@@ -88,6 +88,7 @@ actual fun NativePlayer(
     hasNextEpisode: Boolean,
     onNextEpisode: () -> Unit,
     hasEpisodes: Boolean,
+    hasSources: Boolean,
     touchGestures: Boolean,
     holdToSpeed: Boolean,
     preferredAudioLanguage: String,
@@ -95,6 +96,7 @@ actual fun NativePlayer(
     androidPlaybackEngine: AndroidPlaybackEngine,
     iosPlaybackEngine: IosPlaybackEngine,
     onEpisodes: () -> Unit,
+    onSources: () -> Unit,
     onControlsVisibilityChanged: (Boolean) -> Unit,
     onTemporarySpeedChanged: (Boolean) -> Unit,
     onSystemPipChanged: (Boolean) -> Unit,
@@ -759,6 +761,7 @@ actual fun NativePlayer(
                         }
                         PlayerBottomAction(Icons.Rounded.Headphones, "Audio", landscape) { trackPanel = C.TRACK_TYPE_AUDIO; controlsVisible = false }
                         PlayerBottomAction(Icons.Rounded.Subtitles, "Subtitles", landscape) { trackPanel = C.TRACK_TYPE_TEXT; controlsVisible = false }
+                        if (hasSources) PlayerBottomAction(Icons.Rounded.Tune, "Sources", landscape, onClick = onSources)
                         if (hasEpisodes) PlayerBottomAction(Icons.Rounded.PlaylistPlay, "Episodes", landscape, onClick = onEpisodes)
                     }
                 }

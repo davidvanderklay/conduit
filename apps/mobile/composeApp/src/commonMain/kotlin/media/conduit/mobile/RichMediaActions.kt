@@ -408,6 +408,9 @@ internal fun MediaActionSheet(
     var removingHistory by remember(active.progress?.videoId) { mutableStateOf(false) }
     val saved = snapshot?.library.orEmpty().any { it.type == active.item.type && it.id == active.item.id }
     val progress = active.progress
+    val queue = snapshot?.queue.orEmpty()
+    val queueItem = playbackQueueItem(active.item, active.video)
+    val queueIndex = queueItem?.let { item -> queue.indexOfFirst { it.key == item.key } } ?: -1
     val watchProgress = progress?.takeIf { active.video == null || active.video.id == it.videoId }
     val seriesVideos = active.videos.ifEmpty { metadataCache?.videosFor(active.item).orEmpty() }
     val releasedVideos = seriesWatchVideos(seriesVideos)
@@ -466,6 +469,38 @@ internal fun MediaActionSheet(
             }
             if (active.context != MediaActionContext.Episode && active.context != MediaActionContext.Season) {
                 ActionRow("Details", Icons.Rounded.Info) { onDismiss(); onDetails(active) }
+            }
+            if (queueItem != null) {
+                when {
+                    queueIndex == 0 -> ActionRow("Remove from queue", Icons.Rounded.PlaylistRemove) {
+                        onDismiss()
+                        scope.launch { onMutation(ProfileMutation.SetQueue(queue.removeFromQueue(queueItem.key))) }
+                    }
+                    queueIndex > 0 -> {
+                        ActionRow("Move to next", Icons.Rounded.VerticalAlignTop) {
+                            onDismiss()
+                            scope.launch { onMutation(ProfileMutation.SetQueue(queue.moveToQueueFront(queueItem))) }
+                        }
+                        ActionRow("Remove from queue", Icons.Rounded.PlaylistRemove) {
+                            onDismiss()
+                            scope.launch { onMutation(ProfileMutation.SetQueue(queue.removeFromQueue(queueItem.key))) }
+                        }
+                    }
+                    queue.isNotEmpty() -> {
+                        ActionRow("Play next", Icons.Rounded.SkipNext) {
+                            onDismiss()
+                            scope.launch { onMutation(ProfileMutation.SetQueue(queue.moveToQueueFront(queueItem))) }
+                        }
+                        ActionRow("Add to queue", Icons.Rounded.PlaylistAdd) {
+                            onDismiss()
+                            scope.launch { onMutation(ProfileMutation.SetQueue(queue.addToQueue(queueItem))) }
+                        }
+                    }
+                    else -> ActionRow("Add to queue", Icons.Rounded.PlaylistAdd) {
+                        onDismiss()
+                        scope.launch { onMutation(ProfileMutation.SetQueue(queue.addToQueue(queueItem))) }
+                    }
+                }
             }
             if (active.context == MediaActionContext.Season) {
                 ActionRow(
