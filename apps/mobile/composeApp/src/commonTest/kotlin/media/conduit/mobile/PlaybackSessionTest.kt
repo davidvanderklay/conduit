@@ -35,6 +35,26 @@ class PlaybackSessionTest {
     }
 
     @Test
+    fun restartingTheSameStreamClearsThePendingTransition() = runTest {
+        val request = PlaybackRequest(
+            identity = PlaybackIdentity("profile", "series", "show", "s1e1"),
+            url = "https://example.test/one.mp4",
+            title = "Episode 1",
+            mediaName = "Show",
+        )
+        val callbacks = PlaybackSessionCallbacks(
+            persist = { _, _ -> }, playNext = {}, openEpisodes = {}, minimized = {}, closed = {},
+        )
+        val controller = PlaybackSessionController(this)
+        controller.start(request, callbacks)
+        controller.beginTransition("Episode 2", "Show", "https://example.test/background.jpg")
+
+        controller.start(request, callbacks)
+
+        assertEquals(null, controller.state.transition)
+    }
+
+    @Test
     fun savedStreamStartupAcceptsPlaybackOrFirstFrame() {
         val request = PlaybackRequest(
             identity = PlaybackIdentity("profile", "series", "show", "s1e1"),

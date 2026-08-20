@@ -8,6 +8,13 @@ internal enum class MediaOpenMode {
     Queue,
 }
 
+internal data class MediaDetailsInstanceKey(
+    val mediaType: String,
+    val mediaId: String,
+    val videoId: String?,
+    val openMode: MediaOpenMode,
+)
+
 internal fun shouldAutoResume(
     openMode: MediaOpenMode,
     autoSelectSavedStreams: Boolean,

@@ -12,7 +12,7 @@ internal fun playbackQueueItem(item: CatalogItem, video: VideoItem? = null): Pla
         videoId = video?.id ?: item.id,
         name = item.name,
         poster = item.poster,
-        artwork = video?.thumbnail ?: item.background,
+        artwork = item.background,
         videoTitle = video?.title ?: video?.name,
         season = video?.season,
         episode = video?.episode,
@@ -27,6 +27,18 @@ internal fun List<PlaybackQueueItem>.moveToQueueFront(item: PlaybackQueueItem): 
 
 internal fun List<PlaybackQueueItem>.removeFromQueue(key: String): List<PlaybackQueueItem> =
     filterNot { it.key == key }
+
+internal fun queueAfterPlaybackStarted(
+    queue: List<PlaybackQueueItem>,
+    mediaId: String,
+    videoId: String,
+): List<PlaybackQueueItem> = queue.filterNot { it.mediaId == mediaId && it.videoId == videoId }
+
+internal fun nextQueuedItem(
+    queue: List<PlaybackQueueItem>,
+    mediaId: String,
+    videoId: String,
+): PlaybackQueueItem? = queue.firstOrNull { it.mediaId != mediaId || it.videoId != videoId }
 
 internal fun List<PlaybackQueueItem>.moveQueueItem(fromIndex: Int, toIndex: Int): List<PlaybackQueueItem> {
     if (fromIndex !in indices || toIndex !in indices || fromIndex == toIndex) return this

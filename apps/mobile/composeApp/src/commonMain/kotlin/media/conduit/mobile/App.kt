@@ -1253,28 +1253,30 @@ private fun DestinationContent(
             }
         }
         if (selectedMedia != null) {
-            MediaDetailsScreen(
-                item = selectedMedia,
-                initialVideoId = selectedVideoId,
-                returnToHomeOnStreamBack = selectedMediaReturnsToOrigin,
-                openMode = selectedMediaOpenMode,
-                addons = profileSync.snapshot?.addons.orEmpty(),
-                api = api,
-                progressOutbox = progressOutbox,
-                profile = activeProfile,
-                snapshot = profileSync.snapshot,
-                baseUrl = state.endpoint!!.baseUrl,
-                token = account.session.token,
-                accountId = account.bootstrap.user?.email ?: account.session.token,
-                preferences = preferences,
-                onPreferencesChanged = onPreferencesChanged,
-                onProgressChanged = onPlaybackProgressChanged,
-                onMutation = onProfileMutation,
-                onBrowse = onBrowse,
-                onPlayQueueItem = onSelectQueuedItem,
-                onBack = onCloseMedia,
-                playbackSession = playbackSession,
-            )
+            key(MediaDetailsInstanceKey(selectedMedia.type, selectedMedia.id, selectedVideoId, selectedMediaOpenMode)) {
+                MediaDetailsScreen(
+                    item = selectedMedia,
+                    initialVideoId = selectedVideoId,
+                    returnToHomeOnStreamBack = selectedMediaReturnsToOrigin,
+                    openMode = selectedMediaOpenMode,
+                    addons = profileSync.snapshot?.addons.orEmpty(),
+                    api = api,
+                    progressOutbox = progressOutbox,
+                    profile = activeProfile,
+                    snapshot = profileSync.snapshot,
+                    baseUrl = state.endpoint!!.baseUrl,
+                    token = account.session.token,
+                    accountId = account.bootstrap.user?.email ?: account.session.token,
+                    preferences = preferences,
+                    onPreferencesChanged = onPreferencesChanged,
+                    onProgressChanged = onPlaybackProgressChanged,
+                    onMutation = onProfileMutation,
+                    onBrowse = onBrowse,
+                    onPlayQueueItem = onSelectQueuedItem,
+                    onBack = onCloseMedia,
+                    playbackSession = playbackSession,
+                )
+            }
         }
         if (profileSync.refreshing) LinearProgressIndicator(Modifier.fillMaxWidth().align(Alignment.TopCenter))
     }

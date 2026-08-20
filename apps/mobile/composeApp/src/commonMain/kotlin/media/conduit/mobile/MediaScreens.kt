@@ -1194,7 +1194,12 @@ internal fun MediaDetailsScreen(
     ) {
         val playback = playbackSession.state.playback
         if (
-            (autoResumeStage == AutoResumeStage.Starting || openMode == MediaOpenMode.Queue) &&
+            (
+                autoResumeStage == AutoResumeStage.Starting ||
+                    playbackSession.state.request?.identity?.let { identity ->
+                        identity.mediaId == item.id && identity.videoId == playingVideoId
+                    } == true
+                ) &&
                 !playback.loading &&
                 playback.videoWidth > 0 &&
                 playback.videoHeight > 0
@@ -1204,13 +1209,11 @@ internal fun MediaDetailsScreen(
             autoRecoverySavedSourceVideoIds = autoRecoverySavedSourceVideoIds - playingVideoId
             autoFallbackStreams = autoFallbackStreams - playingVideoId
             autoResumeStage = AutoResumeStage.Inactive
-            if (openMode == MediaOpenMode.Queue && consumedQueuedItemKey != playingVideoId) {
-                val queued = snapshot?.queue.orEmpty()
-                val consumed = queued.firstOrNull { it.videoId == playingVideoId && it.mediaId == item.id }
-                if (consumed != null) {
-                    consumedQueuedItemKey = consumed.key
-                    onMutation(ProfileMutation.SetQueue(queued.removeFromQueue(consumed.key)))
-                }
+            val queued = snapshot?.queue.orEmpty()
+            val consumed = queued.firstOrNull { it.videoId == playingVideoId && it.mediaId == item.id }
+            if (consumed != null && consumedQueuedItemKey != consumed.key) {
+                consumedQueuedItemKey = consumed.key
+                onMutation(ProfileMutation.SetQueue(queueAfterPlaybackStarted(queued, item.id, playingVideoId)))
             }
         }
     }
@@ -1251,7 +1254,7 @@ internal fun MediaDetailsScreen(
     val nextVideo = selectedVideo?.let { current ->
         playableVideos.firstOrNull { compareEpisodeCoordinates(it, current) > 0 }
     }
-    val queuedNext = snapshot?.queue?.firstOrNull()
+    val queuedNext = nextQueuedItem(snapshot?.queue.orEmpty(), item.id, playingVideoId)
     val playerContentTitle = if (selectedVideo != null) {
         val episodeNumber = listOfNotNull(selectedVideo?.season, selectedVideo?.episode)
             .takeIf { it.size == 2 }

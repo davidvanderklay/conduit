@@ -153,6 +153,7 @@ class PlaybackSessionController(
             state.copy(
                 request = request,
                 presentation = PlaybackPresentation.FullScreen,
+                transition = null,
             )
         } else {
             // A new stream gets a clean playback state and immediately replaces
