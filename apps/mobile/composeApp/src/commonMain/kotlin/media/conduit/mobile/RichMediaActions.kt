@@ -405,6 +405,7 @@ internal fun MediaActionSheet(
     // active sheet is dismissed and its target is cleared.
     val scope = rememberCoroutineScope()
     val active = target ?: return
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var removingHistory by remember(active.progress?.videoId) { mutableStateOf(false) }
     val saved = snapshot?.library.orEmpty().any { it.type == active.item.type && it.id == active.item.id }
     val progress = active.progress
@@ -449,7 +450,11 @@ internal fun MediaActionSheet(
             metadataCache?.load(active.item)
         }
     }
-    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Color(0xFF171719)) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = Color(0xFF171719),
+    ) {
         Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = 8.dp)) {
             Text(
                 active.video?.title
@@ -459,6 +464,7 @@ internal fun MediaActionSheet(
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
+                color = Color.White,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
