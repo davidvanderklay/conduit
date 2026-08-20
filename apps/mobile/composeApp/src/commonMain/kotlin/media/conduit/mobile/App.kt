@@ -1833,17 +1833,17 @@ private fun BoxScope.PlaybackQueueDrawer(
     var menuKey by remember { mutableStateOf<String?>(null) }
     var confirmClear by remember { mutableStateOf(false) }
 
-    Box(Modifier.matchParentSize().background(Color.Black.copy(.42f))) {
+    Box(Modifier.matchParentSize().background(Color.Black.copy(.32f))) {
         Box(Modifier.matchParentSize().clickable(onClick = onClose))
         Surface(
-            modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight().fillMaxWidth(.58f),
-            color = Color(0xFA050506),
+            modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight().fillMaxWidth(.68f),
+            color = Color(0xF21A1A1D),
+            shape = RoundedCornerShape(topStart = 28.dp, bottomStart = 28.dp),
             shadowElevation = 20.dp,
-            border = BorderStroke(1.dp, Color.White.copy(.14f)),
         ) {
-            Column(Modifier.statusBarsPadding().navigationBarsPadding().padding(14.dp)) {
+            Column(Modifier.statusBarsPadding().navigationBarsPadding().padding(18.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Queue", color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Text("Queue", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                     if (displayed.isNotEmpty()) {
                         Text("  ·  ${displayed.size}", color = Color.White.copy(.55f), style = MaterialTheme.typography.titleMedium)
                     }
@@ -1853,7 +1853,6 @@ private fun BoxScope.PlaybackQueueDrawer(
                     }
                     IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, "Close queue", tint = Color.White) }
                 }
-                HorizontalDivider(color = Color.White.copy(.1f))
                 if (displayed.isEmpty()) {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1863,11 +1862,18 @@ private fun BoxScope.PlaybackQueueDrawer(
                         }
                     }
                 } else {
-                    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
+                    Column(
+                        Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
                         displayed.forEach { item ->
-                            val index = displayed.indexOfFirst { it.key == item.key }
                             Row(
-                                Modifier.fillMaxWidth().clickable { onPlay(item) }.padding(vertical = 10.dp),
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(Color.White.copy(.05f))
+                                    .clickable { onPlay(item) }
+                                    .padding(10.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Icon(
@@ -1947,7 +1953,6 @@ private fun BoxScope.PlaybackQueueDrawer(
                                     }
                                 }
                             }
-                            if (index < displayed.lastIndex) HorizontalDivider(color = Color.White.copy(.08f))
                         }
                     }
                 }
