@@ -3,8 +3,10 @@ options:
   bundleIdPrefix: media.conduit
 packages:
   KSPlayer:
-    url: https://github.com/kingslay/KSPlayer.git
-    revision: 25c923b70d3d7881275e8f3d917e1e9752416e27
+    # Fork carrying the iOS 26 tinny-audio workaround (bypass AVAudioUnitTimePitch
+    # at rate 1x). Base: kingslay/KSPlayer 25c923b. Revisit upstream before bumping.
+    url: https://github.com/davidvanderklay/KSPlayer.git
+    revision: d7d152119173f5811ef0d5f54e768c26c8fcbc39
   MPVKit:
     path: MPVKitCompat
 schemes:

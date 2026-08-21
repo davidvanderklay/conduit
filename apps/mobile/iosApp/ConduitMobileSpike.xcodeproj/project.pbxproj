@@ -399,10 +399,10 @@
 /* Begin XCRemoteSwiftPackageReference section */
 		A1B2C3D4E5F60718293A4B5F /* XCRemoteSwiftPackageReference "KSPlayer" */ = {
 			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/kingslay/KSPlayer.git";
+			repositoryURL = "https://github.com/davidvanderklay/KSPlayer.git";
 			requirement = {
 				kind = revision;
-				revision = 25c923b70d3d7881275e8f3d917e1e9752416e27;
+				revision = d7d152119173f5811ef0d5f54e768c26c8fcbc39;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
