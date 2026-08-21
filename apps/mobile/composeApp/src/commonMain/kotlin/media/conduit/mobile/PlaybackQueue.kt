@@ -4,6 +4,8 @@ import media.conduit.mobile.account.CatalogItem
 import media.conduit.mobile.account.PlaybackQueueItem
 import media.conduit.mobile.account.VideoItem
 
+internal fun canQueueEpisode(video: VideoItem, today: String): Boolean = video.isReleasedOrAvailable(today)
+
 internal fun playbackQueueItem(item: CatalogItem, video: VideoItem? = null): PlaybackQueueItem? {
     if (item.type == "series" && video == null) return null
     return PlaybackQueueItem(

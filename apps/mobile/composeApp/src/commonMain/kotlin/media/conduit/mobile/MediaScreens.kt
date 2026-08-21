@@ -279,13 +279,26 @@ internal fun MobileContinueWatchingScreen(
             ) {
                 items(items, key = { "${it.mediaType}:${it.mediaId}" }) { progress ->
                     val catalogItem = CatalogItem(progress.mediaId, progress.mediaType, progress.name, poster = progress.poster)
+                    LaunchedEffect(catalogItem.type, catalogItem.id) {
+                        metadataCache.load(catalogItem)
+                    }
+                    val metadata = metadataCache.metadataFor(catalogItem)
+                    val video = metadata?.videos?.firstOrNull { progressMatchesVideo(progress, it) }
                     RichPosterCard(
                         item = catalogItem,
                         caption = progress.videoTitle ?: progress.mediaType,
                         snapshot = snapshot,
                         metadataCache = metadataCache,
                         onClick = { onSelectVideo(catalogItem, progress.videoId) },
-                        onActions = { actionTarget = MediaActionTarget(catalogItem, MediaActionContext.Continue, progress) },
+                        onActions = {
+                            actionTarget = MediaActionTarget(
+                                catalogItem,
+                                MediaActionContext.Continue,
+                                progress,
+                                video,
+                                videos = metadata?.videos.orEmpty(),
+                            )
+                        },
                     )
                 }
             }
@@ -294,6 +307,7 @@ internal fun MobileContinueWatchingScreen(
     MediaActionSheet(
         target = actionTarget,
         snapshot = snapshot,
+        metadataCache = metadataCache,
         onDismiss = { actionTarget = null },
         onPlay = { onSelect(it.item) },
         onDetails = { onSelect(it.item) },

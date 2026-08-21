@@ -2,7 +2,10 @@ package media.conduit.mobile
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 import media.conduit.mobile.account.PlaybackQueueItem
+import media.conduit.mobile.account.VideoItem
 
 class PlaybackQueueTest {
     private val first = PlaybackQueueItem("series", "show", "s1e1", "Show")
@@ -24,6 +27,12 @@ class PlaybackQueueTest {
     @Test
     fun seriesCoversCannotBeQueuedWithoutAnEpisode() {
         assertEquals(null, playbackQueueItem(media.conduit.mobile.account.CatalogItem("show", "series", "Show")))
+    }
+
+    @Test
+    fun unreleasedEpisodesCannotBeQueued() {
+        assertFalse(canQueueEpisode(VideoItem("future", released = "2026-09-01"), today = "2026-08-20"))
+        assertTrue(canQueueEpisode(VideoItem("released", released = "2026-08-19"), today = "2026-08-20"))
     }
 
     @Test

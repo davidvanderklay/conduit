@@ -70,7 +70,7 @@ internal fun seasonWatchVideos(
     season: Int,
     today: String = Clock.System.now().toString().take(10),
 ): List<VideoItem> = videos
-    .filter { it.season == season && it.releasedOrAvailable(today) }
+    .filter { it.season == season && it.isReleasedOrAvailable(today) }
     .sortedWith(compareBy<VideoItem> { it.episode ?: 0 }.thenBy(VideoItem::id))
 
 internal fun progressForVideo(
@@ -117,7 +117,7 @@ internal fun seriesWatchVideos(
     videos: List<VideoItem>,
     today: String = Clock.System.now().toString().take(10),
 ): List<VideoItem> {
-    val eligible = videos.filter { it.releasedOrAvailable(today) }
+    val eligible = videos.filter { it.isReleasedOrAvailable(today) }
     val regular = eligible.filter { it.season != 0 }
     return (regular.ifEmpty { eligible }).sortedWith(
         compareBy<VideoItem> { it.season ?: 0 }
@@ -125,7 +125,7 @@ internal fun seriesWatchVideos(
     )
 }
 
-private fun VideoItem.releasedOrAvailable(today: String): Boolean {
+internal fun VideoItem.isReleasedOrAvailable(today: String): Boolean {
     if (available == false) return false
     if (released == null) return true
     val releaseDate = released.take(10)
@@ -356,7 +356,7 @@ internal fun detailsPlayTarget(
     }
 
     val availableVideos = videos
-        .filter { it.releasedOrAvailable(today) }
+        .filter { it.isReleasedOrAvailable(today) }
         .sortedWith(compareBy<VideoItem> { it.season ?: 0 }.thenBy { it.episode ?: 0 })
     val fallbackVideos = seriesWatchVideos(videos, today)
     val fallback = defaultVideoId?.let { id -> availableVideos.firstOrNull { it.id == id } }
