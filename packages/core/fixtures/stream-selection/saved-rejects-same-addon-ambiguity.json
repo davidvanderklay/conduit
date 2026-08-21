@@ -1,0 +1,30 @@
+{
+  "name": "saved rejects ambiguity between duplicate same-add-on identities",
+  "operation": "selectSavedStream",
+  "request": {
+    "sources": [
+      {
+        "addonId": "addon-1",
+        "addonName": "Provider",
+        "stream": {
+          "url": "https://mirror.example/video.mp4"
+        }
+      },
+      {
+        "addonId": "addon-1",
+        "addonName": "Provider",
+        "stream": {
+          "url": "https://mirror.example/video.mp4"
+        }
+      }
+    ],
+    "saved": {
+      "addonId": "addon-1",
+      "sourceKey": "url:https://mirror.example/video.mp4",
+      "kind": "url"
+    }
+  },
+  "expected": {
+    "index": null
+  }
+}

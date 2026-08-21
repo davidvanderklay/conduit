@@ -1,0 +1,22 @@
+{
+  "name": "source keeps torrent identity stable across hash casing",
+  "operation": "playbackSource",
+  "request": {
+    "addonId": "addon-1",
+    "stream": {
+      "infoHash": "ABCDEF1234",
+      "fileIdx": 2,
+      "name": "720p"
+    }
+  },
+  "expected": {
+    "playbackSource": {
+      "addonId": "addon-1",
+      "sourceKey": "torrent:abcdef1234:2",
+      "kind": "torrent",
+      "infoHash": "ABCDEF1234",
+      "fileIdx": "2",
+      "name": "720p"
+    }
+  }
+}

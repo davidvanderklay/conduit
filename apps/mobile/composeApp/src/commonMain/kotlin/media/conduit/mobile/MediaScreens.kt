@@ -716,6 +716,10 @@ internal fun MediaDetailsScreen(
     val scope = rememberCoroutineScope()
     val uriHandler = LocalUriHandler.current
     val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
+    val streamSelection = remember(item.id) { StreamSelection(EngineClient()) }
+    DisposableEffect(item.id) {
+        onDispose { runCatching { streamSelection.close() } }
+    }
     var actionTarget by remember(item.id) { mutableStateOf<MediaActionTarget?>(null) }
 
     LaunchedEffect(detailsEpisodeListState) {
@@ -1026,26 +1030,26 @@ internal fun MediaDetailsScreen(
                             preferredSource,
                             saved,
                         ).asSequence()
-                            .mapNotNull { source -> selectSavedStream(choices, source) }
+                            .mapNotNull { source -> streamSelection.selectSavedStream(choices, source) }
                             .firstOrNull()
                         val rankedChoices = if (rankAllAutomaticStreams) {
-                            rankAutomaticStreams(
+                            streamSelection.rankAutomaticStreams(
                                 choices,
                                 previousSource = preferredSource,
                                 savedSource = saved,
                             ).take(3)
                         } else {
-                            val choice = savedChoice ?: selectSingleAutoStream(choices)
+                            val choice = savedChoice ?: streamSelection.selectSingleAutoStream(choices)
                             listOfNotNull(
                                 choice,
-                                savedChoice?.let { selectSingleAutoStream(choices, it) },
+                                savedChoice?.let { streamSelection.selectSingleAutoStream(choices, it) },
                             )
                         }
                         val choice = rankedChoices.firstOrNull()
                         if (choice != null) {
                             currentAddonId = choice.addonId
                             currentAddonName = choice.addonName
-                            val selectedSource = playbackSourceForStream(choice.addonId, choice.stream)
+                            val selectedSource = streamSelection.playbackSourceFor(choice.addonId, choice.stream)
                             selectedPlaybackSources = selectedPlaybackSources + (videoId to selectedSource)
                             autoRecoveryVideoIds = autoRecoveryVideoIds + videoId
                             autoRecoverySavedSourceVideoIds = if (savedChoice != null) {
@@ -1230,7 +1234,7 @@ internal fun MediaDetailsScreen(
         }
     }
     fun currentPlaybackSource(): PlaybackSource? =
-        currentAddonId?.let { addonId -> playing?.let { playbackSourceForStream(addonId, it) } }
+        currentAddonId?.let { addonId -> playing?.let { streamSelection.playbackSourceFor(addonId, it) } }
 
     fun selectPlayerStream(source: StreamSource) {
         val picker = playerStreamPicker ?: return
@@ -1249,7 +1253,7 @@ internal fun MediaDetailsScreen(
         currentAddonId = source.addonId
         currentAddonName = source.addonName
         selectedPlaybackSources = selectedPlaybackSources + (
-            picker.episode.id to playbackSourceForStream(source.addonId, source.stream)
+            picker.episode.id to streamSelection.playbackSourceFor(source.addonId, source.stream)
         )
         autoRecoveryVideoIds = autoRecoveryVideoIds - picker.episode.id
         autoRecoverySavedSourceVideoIds = autoRecoverySavedSourceVideoIds - picker.episode.id
@@ -1350,7 +1354,7 @@ internal fun MediaDetailsScreen(
                     currentAddonId = fallback.addonId
                     currentAddonName = fallback.addonName
                     selectedPlaybackSources = selectedPlaybackSources + (
-                        playingVideoId to playbackSourceForStream(fallback.addonId, fallback.stream)
+                        playingVideoId to streamSelection.playbackSourceFor(fallback.addonId, fallback.stream)
                     )
                     playing = fallback.stream
                     playbackSession.showNotice("Couldn't switch source")
@@ -1401,7 +1405,7 @@ internal fun MediaDetailsScreen(
                         currentAddonId = fallback.addonId
                         currentAddonName = fallback.addonName
                         selectedPlaybackSources = selectedPlaybackSources + (
-                            failedVideoId to playbackSourceForStream(fallback.addonId, fallback.stream)
+                            failedVideoId to streamSelection.playbackSourceFor(fallback.addonId, fallback.stream)
                         )
                         autoRecoveryVideoIds = autoRecoveryVideoIds + failedVideoId
                         autoResumeStage = AutoResumeStage.Starting
@@ -1578,7 +1582,7 @@ internal fun MediaDetailsScreen(
                 if (source.stream.url != null) {
                     currentAddonId = source.addonId
                     currentAddonName = source.addonName
-                    val selectedSource = playbackSourceForStream(source.addonId, source.stream)
+                    val selectedSource = streamSelection.playbackSourceFor(source.addonId, source.stream)
                     val videoId = selectedVideo?.id ?: streamVideoId ?: item.id
                     selectedPlaybackSources = selectedPlaybackSources + (videoId to selectedSource)
                     autoRecoveryVideoIds = autoRecoveryVideoIds - videoId

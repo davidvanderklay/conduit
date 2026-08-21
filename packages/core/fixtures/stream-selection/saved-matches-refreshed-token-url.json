@@ -1,0 +1,25 @@
+{
+  "name": "saved matches a refreshed url that only rotated tokens",
+  "operation": "selectSavedStream",
+  "request": {
+    "sources": [
+      {
+        "addonId": "addon-1",
+        "addonName": "Provider",
+        "stream": {
+          "url": "https://video.example/movie.m3u8?token=new&quality=1080p",
+          "title": "1080p HEVC"
+        }
+      }
+    ],
+    "saved": {
+      "addonId": "addon-1",
+      "sourceKey": "url:https://video.example/movie.m3u8?quality=1080p",
+      "kind": "url",
+      "title": "1080p HEVC"
+    }
+  },
+  "expected": {
+    "index": 0
+  }
+}

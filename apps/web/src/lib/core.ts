@@ -1,4 +1,4 @@
-import init, { fetchManifest, fetchResource } from "../../../../packages/core/pkg/conduit_core.js"
+import init, { fetchManifest, fetchResource } from "@conduit/core"
 import type { AddonManifest } from "./api"
 
 let initialization: Promise<unknown> | undefined

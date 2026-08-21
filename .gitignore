@@ -11,6 +11,7 @@ coverage/
 
 target/
 packages/core/pkg/
+packages/core/pkg-node/
 apps/mobile/.gradle/
 apps/mobile/.idea/
 apps/mobile/.kotlin/

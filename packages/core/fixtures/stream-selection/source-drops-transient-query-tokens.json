@@ -1,0 +1,19 @@
+{
+  "name": "source drops transient query tokens",
+  "operation": "playbackSource",
+  "request": {
+    "addonId": "addon-1",
+    "stream": {
+      "url": "https://video.example/movie.m3u8?token=old&quality=1080p",
+      "title": "1080p HEVC"
+    }
+  },
+  "expected": {
+    "playbackSource": {
+      "addonId": "addon-1",
+      "sourceKey": "url:https://video.example/movie.m3u8?quality=1080p",
+      "kind": "url",
+      "title": "1080p HEVC"
+    }
+  }
+}

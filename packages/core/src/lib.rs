@@ -1,12 +1,17 @@
 mod addon;
 mod error;
 mod resource;
+pub mod selection;
 
 pub use addon::{
     AddonDescriptor, AddonManifest, AddonResource, CatalogDescriptor, ManifestResource,
 };
 pub use error::CoreError;
 pub use resource::{ExtraArg, ResourceRequest};
+pub use selection::{
+    is_playable_stream_url, playback_source, rank_auto, select_saved, select_single_auto,
+    source_key, DeviceConstraints, StreamCandidate,
+};
 
 use serde::{Deserialize, Serialize};
 
@@ -153,6 +158,69 @@ mod wasm {
         }
         let value: serde_json::Value = response.json().await.map_err(js_error)?;
         to_js_value(&value)
+    }
+
+    #[wasm_bindgen(js_name = isPlayableStreamUrl)]
+    pub fn is_playable_stream_url(value: &str) -> bool {
+        selection::is_playable_stream_url(value)
+    }
+
+    #[wasm_bindgen(js_name = streamPlaybackSource)]
+    pub fn stream_playback_source(addon_id: &str, stream: JsValue) -> Result<JsValue, JsValue> {
+        let stream: selection::CandidateStream =
+            serde_wasm_bindgen::from_value(stream).map_err(js_error)?;
+        to_js_value(&selection::playback_source(addon_id, &stream))
+    }
+
+    #[wasm_bindgen(js_name = selectSavedStream)]
+    pub fn select_saved_stream(sources: JsValue, saved: JsValue) -> Result<JsValue, JsValue> {
+        let sources: Vec<selection::StreamCandidate> =
+            serde_wasm_bindgen::from_value(sources).map_err(js_error)?;
+        let saved: Option<selection::PlaybackSource> =
+            serde_wasm_bindgen::from_value(saved).map_err(js_error)?;
+        Ok(match saved {
+            Some(saved) => selection::select_saved(&sources, &saved)
+                .map(|index| JsValue::from(index as u32))
+                .unwrap_or(JsValue::NULL),
+            None => JsValue::NULL,
+        })
+    }
+
+    #[wasm_bindgen(js_name = selectSingleAutoStream)]
+    pub fn select_single_auto_stream(
+        sources: JsValue,
+        excluded: JsValue,
+    ) -> Result<JsValue, JsValue> {
+        let sources: Vec<selection::StreamCandidate> =
+            serde_wasm_bindgen::from_value(sources).map_err(js_error)?;
+        let excluded: Option<selection::CandidateStream> =
+            serde_wasm_bindgen::from_value(excluded).map_err(js_error)?;
+        Ok(selection::select_single_auto(&sources, excluded.as_ref())
+            .map(|index| JsValue::from(index as u32))
+            .unwrap_or(JsValue::NULL))
+    }
+
+    #[wasm_bindgen(js_name = rankAutoStreams)]
+    pub fn rank_auto_streams(
+        sources: JsValue,
+        previous: JsValue,
+        saved: JsValue,
+        device: JsValue,
+    ) -> Result<JsValue, JsValue> {
+        let sources: Vec<selection::StreamCandidate> =
+            serde_wasm_bindgen::from_value(sources).map_err(js_error)?;
+        let previous: Option<selection::PlaybackSource> =
+            serde_wasm_bindgen::from_value(previous).map_err(js_error)?;
+        let saved: Option<selection::PlaybackSource> =
+            serde_wasm_bindgen::from_value(saved).map_err(js_error)?;
+        let device: Option<selection::DeviceConstraints> =
+            serde_wasm_bindgen::from_value(device).map_err(js_error)?;
+        to_js_value(
+            &selection::rank_auto(&sources, previous.as_ref(), saved.as_ref(), device.as_ref())
+                .iter()
+                .map(|index| *index as u32)
+                .collect::<Vec<u32>>(),
+        )
     }
 }
 

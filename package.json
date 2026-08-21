@@ -9,7 +9,7 @@
     "format": "vp fmt --write",
     "lint": "vp lint --deny-warnings",
     "lint:fix": "vp lint --fix --deny-warnings",
-    "core:build": "wasm-pack build packages/core --target web --out-dir pkg",
+    "core:build": "wasm-pack build packages/core --target web --out-dir pkg && wasm-pack build packages/core --target nodejs --out-dir pkg-node",
     "admin:recover": "corepack pnpm --filter @conduit/server cli -- admin recover",
     "db:generate": "pnpm --filter @conduit/server db:generate",
     "db:migrate": "pnpm --filter @conduit/server db:migrate",

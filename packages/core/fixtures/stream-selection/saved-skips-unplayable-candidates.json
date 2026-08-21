@@ -1,0 +1,37 @@
+{
+  "name": "saved skips unplayable candidates even on group match",
+  "operation": "selectSavedStream",
+  "request": {
+    "sources": [
+      {
+        "addonId": "addon-9",
+        "addonName": "Unsafe",
+        "stream": {
+          "url": "javascript:alert(1)",
+          "behaviorHints": {
+            "bingeGroup": "release-1080p"
+          }
+        }
+      },
+      {
+        "addonId": "addon-2",
+        "addonName": "Good",
+        "stream": {
+          "url": "https://good.example/movie.mp4",
+          "behaviorHints": {
+            "bingeGroup": "release-1080p"
+          }
+        }
+      }
+    ],
+    "saved": {
+      "addonId": "addon-1",
+      "sourceKey": "url:https://old.example/movie.mp4",
+      "kind": "url",
+      "bingeGroup": "release-1080p"
+    }
+  },
+  "expected": {
+    "index": 1
+  }
+}

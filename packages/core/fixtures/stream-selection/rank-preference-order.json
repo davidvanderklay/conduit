@@ -1,0 +1,59 @@
+{
+  "name": "rank prefers saved identity then binge group then add-on then resolution",
+  "operation": "rankAutoStreams",
+  "request": {
+    "sources": [
+      {
+        "addonId": "other",
+        "addonName": "Other",
+        "stream": {
+          "url": "https://example/4k",
+          "name": "4K"
+        }
+      },
+      {
+        "addonId": "current-addon",
+        "addonName": "Current",
+        "stream": {
+          "url": "https://example/720",
+          "name": "720p"
+        }
+      },
+      {
+        "addonId": "other",
+        "addonName": "Other",
+        "stream": {
+          "url": "https://example/binge",
+          "name": "1080p",
+          "behaviorHints": {
+            "bingeGroup": "show-release"
+          }
+        }
+      },
+      {
+        "addonId": "saved-addon",
+        "addonName": "Saved",
+        "stream": {
+          "url": "https://saved.example/video",
+          "name": "480p"
+        }
+      }
+    ],
+    "previous": {
+      "addonId": "current-addon",
+      "sourceKey": "url:https://current.example/video",
+      "kind": "url",
+      "name": "1080p",
+      "bingeGroup": "show-release"
+    },
+    "saved": {
+      "addonId": "saved-addon",
+      "sourceKey": "url:https://saved.example/video",
+      "kind": "url"
+    },
+    "device": null
+  },
+  "expected": {
+    "order": [3, 2, 1, 0]
+  }
+}

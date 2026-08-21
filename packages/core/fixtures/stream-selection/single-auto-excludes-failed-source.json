@@ -1,0 +1,28 @@
+{
+  "name": "single auto ignores the excluded identity before deciding",
+  "operation": "selectSingleAutoStream",
+  "request": {
+    "sources": [
+      {
+        "addonId": "a1",
+        "addonName": "One",
+        "stream": {
+          "url": "https://one.example/x.mp4"
+        }
+      },
+      {
+        "addonId": "a2",
+        "addonName": "Two",
+        "stream": {
+          "url": "https://two.example/y.mp4"
+        }
+      }
+    ],
+    "excluded": {
+      "url": "https://one.example/x.mp4"
+    }
+  },
+  "expected": {
+    "index": 1
+  }
+}

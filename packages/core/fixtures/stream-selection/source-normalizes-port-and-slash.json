@@ -1,0 +1,17 @@
+{
+  "name": "source normalizes ports and trailing slashes",
+  "operation": "playbackSource",
+  "request": {
+    "addonId": "addon-5",
+    "stream": {
+      "url": "https://host.example:443/library/movie.mp4#fragment"
+    }
+  },
+  "expected": {
+    "playbackSource": {
+      "addonId": "addon-5",
+      "sourceKey": "url:https://host.example/library/movie.mp4",
+      "kind": "url"
+    }
+  }
+}

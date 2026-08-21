@@ -1,0 +1,20 @@
+{
+  "name": "source falls back to text identity without urls",
+  "operation": "playbackSource",
+  "request": {
+    "addonId": "addon-2",
+    "stream": {
+      "name": "Movie",
+      "title": "2026 Cut"
+    }
+  },
+  "expected": {
+    "playbackSource": {
+      "addonId": "addon-2",
+      "sourceKey": "other:movie|2026 cut",
+      "kind": "other",
+      "name": "Movie",
+      "title": "2026 Cut"
+    }
+  }
+}

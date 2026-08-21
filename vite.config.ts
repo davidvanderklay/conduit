@@ -6,7 +6,7 @@ export default defineConfig({
     singleQuote: false,
   },
   lint: {
-    ignorePatterns: ["**/dist/**", "**/node_modules/**", "packages/core/pkg/**"],
+    ignorePatterns: ["**/dist/**", "**/node_modules/**", "packages/core/pkg/**", "packages/core/pkg-node/**"],
   },
   run: {
     tasks: {

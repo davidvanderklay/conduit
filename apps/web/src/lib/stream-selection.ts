@@ -1,3 +1,19 @@
+import init, {
+  isPlayableStreamUrl as coreIsPlayableStreamUrl,
+  selectSavedStream as coreSelectSavedStream,
+  selectSingleAutoStream as coreSelectSingleAutoStream,
+  streamPlaybackSource,
+} from "@conduit/core"
+import type { CandidateStream } from "./core-candidate"
+
+// Selection decisions must answer synchronously once the module graph has
+// loaded, so the WASM engine initializes at import time. The shared logic
+// lives in packages/core (see ADR 0005); the NodeJS build starts eagerly on
+// import and exposes no initializer.
+if (typeof init === "function") {
+  await init()
+}
+
 export type PlaybackSourceKind = "url" | "torrent" | "other"
 
 export interface PlaybackSource {
@@ -30,96 +46,53 @@ export interface AutoSelectableStream {
 
 export const AUTO_SELECTION_STARTUP_TIMEOUT_MS = 8_000
 
+function candidateStream(stream: AutoSelectableStream): CandidateStream {
+  return {
+    url: stream.url,
+    infoHash: stream.infoHash,
+    fileIdx: stream.fileIdx,
+    name: stream.name,
+    title: stream.title,
+    description: stream.description,
+    behaviorHints: stream.behaviorHints,
+  }
+}
+
+function candidate<T extends AutoSelectableStream>(stream: T) {
+  return {
+    addonId: stream.addonId ?? "",
+    addonName: stream.addonName ?? "",
+    stream: candidateStream(stream),
+  }
+}
+
 export function playbackSourceForStream(stream: AutoSelectableStream): PlaybackSource | undefined {
   if (!stream.addonId) return undefined
-  const filename = stream.behaviorHints?.filename
-  const kind: PlaybackSourceKind = stream.infoHash ? "torrent" : stream.url ? "url" : "other"
-  return {
-    addonId: stream.addonId,
-    sourceKey: streamSourceKey(stream),
-    kind,
-    ...(stream.infoHash ? { infoHash: stream.infoHash } : {}),
-    ...(stream.fileIdx !== undefined ? { fileIdx: String(stream.fileIdx) } : {}),
-    ...(stream.name ? { name: stream.name } : {}),
-    ...(stream.title ? { title: stream.title } : {}),
-    ...(filename ? { filename } : {}),
-    ...(stream.behaviorHints?.bingeGroup ? { bingeGroup: stream.behaviorHints.bingeGroup } : {}),
-  }
+  return streamPlaybackSource(stream.addonId, candidateStream(stream)) as PlaybackSource
 }
 
 export function selectSavedStream<T extends AutoSelectableStream>(
   streams: T[],
   source: PlaybackSource | undefined,
 ): T | undefined {
-  if (!source) return undefined
-  const candidates = streams.filter(isAutoSelectableStream)
-  const exactMatches = candidates.filter((stream) => streamSourceKey(stream) === source.sourceKey)
-  const sameAddonExactMatches = exactMatches.filter((stream) => stream.addonId === source.addonId)
-  if (sameAddonExactMatches.length === 1) return sameAddonExactMatches[0]
-  if (sameAddonExactMatches.length > 1) return undefined
-  if (exactMatches.length === 1) return exactMatches[0]
-  if (!source.bingeGroup) return undefined
-  const groupMatches = candidates.filter(
-    (stream) => stream.behaviorHints?.bingeGroup === source.bingeGroup,
+  const index = coreSelectSavedStream(
+    streams.map(candidate),
+    source ?? null,
   )
-  const sameAddonGroupMatches = groupMatches.filter((stream) => stream.addonId === source.addonId)
-  if (sameAddonGroupMatches.length === 1) return sameAddonGroupMatches[0]
-  if (sameAddonGroupMatches.length > 1) return undefined
-  return groupMatches.length === 1 ? groupMatches[0] : undefined
+  return typeof index === "number" ? streams[index] : undefined
 }
 
 export function selectSingleAutoStream<T extends AutoSelectableStream>(
   streams: T[],
   excludedStream?: T,
 ): T | undefined {
-  const excludedSourceKey = excludedStream && streamSourceKey(excludedStream)
-  const candidates = streams.filter(
-    (stream) =>
-      isAutoSelectableStream(stream) &&
-      (!excludedSourceKey || streamSourceKey(stream) !== excludedSourceKey),
+  const index = coreSelectSingleAutoStream(
+    streams.map(candidate),
+    excludedStream ? candidateStream(excludedStream) : null,
   )
-  return candidates.length === 1 ? candidates[0] : undefined
-}
-
-export function isAutoSelectableStream(stream: AutoSelectableStream): stream is AutoSelectableStream & {
-  url: string
-} {
-  return isPlayableStreamUrl(stream.url)
+  return typeof index === "number" ? streams[index] : undefined
 }
 
 export function isPlayableStreamUrl(value: string | undefined): value is string {
-  if (!value) return false
-  try {
-    const protocol = new URL(value).protocol
-    return protocol === "http:" || protocol === "https:"
-  } catch {
-    return false
-  }
-}
-
-function streamSourceKey(stream: AutoSelectableStream): string {
-  if (stream.infoHash) {
-    return `torrent:${stream.infoHash.toLowerCase()}:${stream.fileIdx ?? ""}`
-  }
-  if (stream.url) return `url:${normalizedStreamUrl(stream.url)}`
-  return `other:${normalizeSourceText([stream.name, stream.title, stream.behaviorHints?.filename])}`
-}
-
-function normalizedStreamUrl(value: string): string {
-  try {
-    const url = new URL(value)
-    const stableQuery = [...url.searchParams.entries()]
-      .filter(([key]) => !/(token|sig|signature|expires|expiry|auth|key)/i.test(key))
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, item]) => `${key}=${item}`)
-      .join("&")
-    const path = url.pathname.replace(/\/+$/, "") || "/"
-    return `${url.protocol}//${url.host}${path}${stableQuery ? `?${stableQuery}` : ""}`
-  } catch {
-    return value.split(/[?#]/, 1)[0]!.replace(/\/+$/, "")
-  }
-}
-
-function normalizeSourceText(values: Array<string | undefined>): string {
-  return values.filter(Boolean).join("|").trim().toLocaleLowerCase().replace(/\s+/g, " ")
+  return typeof value === "string" && coreIsPlayableStreamUrl(value)
 }

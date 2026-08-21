@@ -1,0 +1,26 @@
+{
+  "name": "single auto refuses to guess between two playable candidates",
+  "operation": "selectSingleAutoStream",
+  "request": {
+    "sources": [
+      {
+        "addonId": "a1",
+        "addonName": "One",
+        "stream": {
+          "url": "https://one.example/x.mp4"
+        }
+      },
+      {
+        "addonId": "a2",
+        "addonName": "Two",
+        "stream": {
+          "url": "https://two.example/y.mp4"
+        }
+      }
+    ],
+    "excluded": null
+  },
+  "expected": {
+    "index": null
+  }
+}

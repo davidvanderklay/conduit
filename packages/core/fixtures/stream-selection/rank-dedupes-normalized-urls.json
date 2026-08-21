@@ -1,0 +1,28 @@
+{
+  "name": "rank deduplicates normalized urls keeping provider order",
+  "operation": "rankAutoStreams",
+  "request": {
+    "sources": [
+      {
+        "addonId": "one",
+        "addonName": "One",
+        "stream": {
+          "url": "https://example/video?token=old"
+        }
+      },
+      {
+        "addonId": "two",
+        "addonName": "Two",
+        "stream": {
+          "url": "https://example/video?token=new"
+        }
+      }
+    ],
+    "previous": null,
+    "saved": null,
+    "device": null
+  },
+  "expected": {
+    "order": [0]
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "name": "@conduit/core",
+  "private": true,
+  "version": "0.1.0",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./pkg/conduit_core.d.ts",
+      "node": "./pkg-node/conduit_core.js",
+      "default": "./pkg/conduit_core.js"
+    }
+  }
+}

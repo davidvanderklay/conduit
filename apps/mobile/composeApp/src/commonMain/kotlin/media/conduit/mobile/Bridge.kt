@@ -14,9 +14,23 @@ expect class RustEngine() {
     fun close()
 }
 
-class EngineClient(private val engine: RustEngine = RustEngine()) {
-    fun dispatch(action: EngineAction): EngineState =
-        ProtocolJson.decodeFromString(engine.dispatch(ProtocolJson.encodeToString(action)))
+/** Transport boundary so tests can fake the native engine. */
+interface EngineConnection {
+    fun dispatch(json: String): String
+    fun close()
+}
 
-    fun close() = engine.close()
+class RustConnection : EngineConnection {
+    private val engine = RustEngine()
+
+    override fun dispatch(json: String): String = engine.dispatch(json)
+
+    override fun close() = engine.close()
+}
+
+class EngineClient(private val connection: EngineConnection = RustConnection()) : AutoCloseable {
+    fun dispatch(action: EngineAction): EngineState =
+        ProtocolJson.decodeFromString(connection.dispatch(ProtocolJson.encodeToString(action)))
+
+    override fun close() = connection.close()
 }

@@ -1,3 +1,6 @@
+use conduit_core::selection::{
+    self, CandidateStream, DeviceConstraints, PlaybackSource, StreamCandidate,
+};
 use conduit_core::{parse_manifest_json, ResourceRequest, StreamsResponse};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -23,6 +26,9 @@ pub struct ConduitEngine {
     rename_all = "camelCase",
     rename_all_fields = "camelCase"
 )]
+// Dispatch messages are parsed one at a time and bounded by MAX_MESSAGE_BYTES,
+// so the few hundred bytes of variance between variants does not matter.
+#[allow(clippy::large_enum_variant)]
 enum Action {
     ResolveStreams {
         protocol_version: u32,
@@ -40,6 +46,32 @@ enum Action {
     Close {
         protocol_version: u32,
     },
+    PlaybackSource {
+        protocol_version: u32,
+        request_id: String,
+        addon_id: String,
+        stream: CandidateStream,
+    },
+    SelectSavedStream {
+        protocol_version: u32,
+        request_id: String,
+        sources: Vec<StreamCandidate>,
+        saved: Option<PlaybackSource>,
+    },
+    SelectSingleAutoStream {
+        protocol_version: u32,
+        request_id: String,
+        sources: Vec<StreamCandidate>,
+        excluded: Option<CandidateStream>,
+    },
+    RankAutoStreams {
+        protocol_version: u32,
+        request_id: String,
+        sources: Vec<StreamCandidate>,
+        previous: Option<PlaybackSource>,
+        saved: Option<PlaybackSource>,
+        device: Option<DeviceConstraints>,
+    },
 }
 
 impl Action {
@@ -51,7 +83,19 @@ impl Action {
             | Self::Cancel {
                 protocol_version, ..
             }
-            | Self::Close { protocol_version } => *protocol_version,
+            | Self::Close { protocol_version }
+            | Self::PlaybackSource {
+                protocol_version, ..
+            }
+            | Self::SelectSavedStream {
+                protocol_version, ..
+            }
+            | Self::SelectSingleAutoStream {
+                protocol_version, ..
+            }
+            | Self::RankAutoStreams {
+                protocol_version, ..
+            } => *protocol_version,
         }
     }
 }
@@ -79,6 +123,26 @@ enum State {
     },
     Closed {
         protocol_version: u32,
+    },
+    SourceResolved {
+        protocol_version: u32,
+        request_id: String,
+        playback_source: PlaybackSource,
+    },
+    SavedStreamSelected {
+        protocol_version: u32,
+        request_id: String,
+        index: Option<usize>,
+    },
+    AutoStreamSelected {
+        protocol_version: u32,
+        request_id: String,
+        index: Option<usize>,
+    },
+    AutoStreamsRanked {
+        protocol_version: u32,
+        request_id: String,
+        order: Vec<usize>,
     },
     Error {
         protocol_version: u32,
@@ -216,6 +280,73 @@ impl ConduitEngine {
                 self.closed = true;
                 State::Closed {
                     protocol_version: PROTOCOL_VERSION,
+                }
+            }
+            Action::PlaybackSource {
+                request_id,
+                addon_id,
+                stream,
+                ..
+            } => {
+                if let Err(message) = validate_request_id(&request_id) {
+                    return error(None, "invalid_request_id", message, true);
+                }
+                State::SourceResolved {
+                    protocol_version: PROTOCOL_VERSION,
+                    request_id,
+                    playback_source: selection::playback_source(&addon_id, &stream),
+                }
+            }
+            Action::SelectSavedStream {
+                request_id,
+                sources,
+                saved,
+                ..
+            } => {
+                if let Err(message) = validate_request_id(&request_id) {
+                    return error(None, "invalid_request_id", message, true);
+                }
+                State::SavedStreamSelected {
+                    protocol_version: PROTOCOL_VERSION,
+                    request_id,
+                    index: saved.and_then(|saved| selection::select_saved(&sources, &saved)),
+                }
+            }
+            Action::SelectSingleAutoStream {
+                request_id,
+                sources,
+                excluded,
+                ..
+            } => {
+                if let Err(message) = validate_request_id(&request_id) {
+                    return error(None, "invalid_request_id", message, true);
+                }
+                State::AutoStreamSelected {
+                    protocol_version: PROTOCOL_VERSION,
+                    request_id,
+                    index: selection::select_single_auto(&sources, excluded.as_ref()),
+                }
+            }
+            Action::RankAutoStreams {
+                request_id,
+                sources,
+                previous,
+                saved,
+                device,
+                ..
+            } => {
+                if let Err(message) = validate_request_id(&request_id) {
+                    return error(None, "invalid_request_id", message, true);
+                }
+                State::AutoStreamsRanked {
+                    protocol_version: PROTOCOL_VERSION,
+                    request_id,
+                    order: selection::rank_auto(
+                        &sources,
+                        previous.as_ref(),
+                        saved.as_ref(),
+                        device.as_ref(),
+                    ),
                 }
             }
         }
@@ -484,5 +615,34 @@ mod tests {
         )
         .unwrap();
         assert_eq!(value["code"], "too_many_cancellations");
+    }
+
+    #[test]
+    fn selection_actions_round_trip_through_the_engine() {
+        let mut engine = ConduitEngine::default();
+        let action = serde_json::json!({
+            "type": "selectSavedStream", "protocolVersion": 2, "requestId": "select-1",
+            "sources": [{"addonId": "addon-1", "addonName": "Provider",
+                         "stream": {"url": "https://video.example/movie.m3u8?token=new&quality=1080p"}}],
+            "saved": {"addonId": "addon-1",
+                      "sourceKey": "url:https://video.example/movie.m3u8?quality=1080p",
+                      "kind": "url"},
+        });
+        let value = serde_json::to_value(engine.dispatch(&action.to_string())).unwrap();
+        assert_eq!(value["type"], "savedStreamSelected");
+        assert_eq!(value["index"], 0);
+
+        let rank = serde_json::json!({
+            "type": "rankAutoStreams", "protocolVersion": 2, "requestId": "rank-1",
+            "sources": [
+                {"addonId": "a", "addonName": "A", "stream": {"url": "https://example/4k", "name": "4K"}},
+                {"addonId": "b", "addonName": "B", "stream": {"url": "https://example/hd.mp4", "name": "1080p"}}
+            ],
+            "previous": null, "saved": null,
+            "device": {"maxResolutionHeight": 1080},
+        });
+        let value = serde_json::to_value(engine.dispatch(&rank.to_string())).unwrap();
+        assert_eq!(value["type"], "autoStreamsRanked");
+        assert_eq!(value["order"], serde_json::json!([1, 0]));
     }
 }
