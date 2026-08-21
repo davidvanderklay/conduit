@@ -35,7 +35,7 @@
 		3CEFD8FDE7E40F59DC303C20 /* ConduitMobileSpikeTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = ConduitMobileSpikeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		5AC979B32D477B1541BBEB1B /* VideoOutputRecoveryPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoOutputRecoveryPolicyTests.swift; sourceTree = "<group>"; };
 		78797B88432B747E72D3926B /* ConduitMetalDrawableBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ConduitMetalDrawableBridge.h; sourceTree = "<group>"; };
-		8C36451C3657ACC0B4612422 /* ConduitMobileSpike.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = ConduitMobileSpike.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		8C36451C3657ACC0B4612422 /* conduit.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = conduit.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		8C4D3715EC258774BDAE0C6F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		99D2F22946D55A7EF71C2DD5 /* MetalLayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetalLayer.swift; sourceTree = "<group>"; };
 		ABFC1C5FF4A79A0A52335D32 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -68,7 +68,7 @@
 		13A52ADA6DA781D1722AE43C /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				8C36451C3657ACC0B4612422 /* ConduitMobileSpike.app */,
+				8C36451C3657ACC0B4612422 /* conduit.app */,
 				3CEFD8FDE7E40F59DC303C20 /* ConduitMobileSpikeTests.xctest */,
 			);
 			name = Products;
@@ -120,7 +120,7 @@
 				6722BC9818D0FD97D537EA0C /* MPVKit */,
 			);
 			productName = ConduitMobileSpike;
-			productReference = 8C36451C3657ACC0B4612422 /* ConduitMobileSpike.app */;
+			productReference = 8C36451C3657ACC0B4612422 /* conduit.app */;
 			productType = "com.apple.product-type.application";
 		};
 		E66FFF54D36AFF888F918787 /* ConduitMobileSpikeTests */ = {
@@ -149,8 +149,6 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
-				TargetAttributes = {
-				};
 			};
 			buildConfigurationList = F9D4FD312848BD7C790199E9 /* Build configuration list for PBXProject "ConduitMobileSpike" */;
 			developmentRegion = en;
@@ -401,6 +399,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = PYG6R5S4Q7;
 				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
 				FRAMEWORK_SEARCH_PATHS = "$(SRCROOT)/../composeApp/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)";
 				INFOPLIST_FILE = ConduitMobileSpike/Info.plist;
@@ -408,8 +407,16 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				"OTHER_LDFLAGS[sdk=iphoneos*]" = "-framework ComposeApp $(SRCROOT)/../native/ios/iosArm64/libconduit_mobile.a";
-				"OTHER_LDFLAGS[sdk=iphonesimulator*]" = "-framework ComposeApp $(SRCROOT)/../native/ios/iosSimulatorArm64/libconduit_mobile.a";
+				"OTHER_LDFLAGS[sdk=iphoneos*]" = (
+					"-framework",
+					ComposeApp,
+					"$(SRCROOT)/../native/ios/iosArm64/libconduit_mobile.a",
+				);
+				"OTHER_LDFLAGS[sdk=iphonesimulator*]" = (
+					"-framework",
+					ComposeApp,
+					"$(SRCROOT)/../native/ios/iosSimulatorArm64/libconduit_mobile.a",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = media.conduit.mobile;
 				PRODUCT_NAME = conduit;
 				SDKROOT = iphoneos;
@@ -423,6 +430,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = PYG6R5S4Q7;
 				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
 				FRAMEWORK_SEARCH_PATHS = "$(SRCROOT)/../composeApp/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)";
 				INFOPLIST_FILE = ConduitMobileSpike/Info.plist;
@@ -430,8 +438,16 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				"OTHER_LDFLAGS[sdk=iphoneos*]" = "-framework ComposeApp $(SRCROOT)/../native/ios/iosArm64/libconduit_mobile.a";
-				"OTHER_LDFLAGS[sdk=iphonesimulator*]" = "-framework ComposeApp $(SRCROOT)/../native/ios/iosSimulatorArm64/libconduit_mobile.a";
+				"OTHER_LDFLAGS[sdk=iphoneos*]" = (
+					"-framework",
+					ComposeApp,
+					"$(SRCROOT)/../native/ios/iosArm64/libconduit_mobile.a",
+				);
+				"OTHER_LDFLAGS[sdk=iphonesimulator*]" = (
+					"-framework",
+					ComposeApp,
+					"$(SRCROOT)/../native/ios/iosSimulatorArm64/libconduit_mobile.a",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = media.conduit.mobile;
 				PRODUCT_NAME = conduit;
 				SDKROOT = iphoneos;
