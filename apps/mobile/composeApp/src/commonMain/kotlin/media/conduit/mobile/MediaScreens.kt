@@ -676,7 +676,6 @@ internal fun MediaDetailsScreen(
     var playerStreamPicker by remember(item.id) { mutableStateOf<PlaybackStreamPickerState?>(null) }
     var playerStreamRequestVersion by remember(item.id) { mutableIntStateOf(0) }
     var playerStreamRequestJob by remember(item.id) { mutableStateOf<Job?>(null) }
-    var consumedQueuedItemKey by remember(item.id) { mutableStateOf<String?>(null) }
     var manualSourceSwitchVideoIds by remember(item.id) { mutableStateOf<Set<String>>(emptySet()) }
     var manualSourceFallbacks by remember(item.id) { mutableStateOf<Map<String, StreamSource>>(emptyMap()) }
     val autoResumeRequested = openMode == MediaOpenMode.AutoResume || openMode == MediaOpenMode.Queue
@@ -1214,12 +1213,6 @@ internal fun MediaDetailsScreen(
             autoRecoverySavedSourceVideoIds = autoRecoverySavedSourceVideoIds - playingVideoId
             autoFallbackStreams = autoFallbackStreams - playingVideoId
             autoResumeStage = AutoResumeStage.Inactive
-            val queued = snapshot?.queue.orEmpty()
-            val consumed = queued.firstOrNull { it.videoId == playingVideoId && it.mediaId == item.id }
-            if (consumed != null && consumedQueuedItemKey != consumed.key) {
-                consumedQueuedItemKey = consumed.key
-                onMutation(ProfileMutation.SetQueue(queueAfterPlaybackStarted(queued, item.id, playingVideoId)))
-            }
         }
     }
     fun currentPlaybackSource(): PlaybackSource? =

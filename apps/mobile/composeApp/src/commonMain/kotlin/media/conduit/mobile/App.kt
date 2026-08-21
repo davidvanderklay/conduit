@@ -1314,6 +1314,7 @@ private fun BoxScope.PlaybackSessionHost(
     var miniDockedTop by remember(request.identity, request.url) { mutableStateOf(false) }
     var miniGestureActive by remember(request.identity, request.url) { mutableStateOf(false) }
     var playbackHasStarted by remember(request.identity, request.url) { mutableStateOf(false) }
+    var consumedQueueItemKey by remember(session.sessionId) { mutableStateOf<String?>(null) }
     var startupRecoveryRequested by remember(session.sessionId) { mutableStateOf(false) }
     var containerSize by remember { mutableStateOf(IntSize.Zero) }
     var miniSize by remember { mutableStateOf(IntSize.Zero) }
@@ -1357,10 +1358,15 @@ private fun BoxScope.PlaybackSessionHost(
         }
     }
     LaunchedEffect(
+        session.sessionId,
+        request.identity,
         session.playback.playing,
         session.playback.loading,
         session.playback.buffering,
         playbackSurfaceReady,
+        snapshot?.queue?.firstOrNull { item ->
+            item.mediaId == request.identity.mediaId && item.videoId == request.identity.videoId
+        }?.key,
     ) {
         if (
             session.playback.playing &&
@@ -1369,6 +1375,23 @@ private fun BoxScope.PlaybackSessionHost(
                 playbackSurfaceReady
         ) {
             playbackHasStarted = true
+        }
+        // Queue consumption belongs to the session host because it observes the
+        // authoritative request and playback state for every playback entry point.
+        if (!session.playback.loading && !session.playback.buffering && playbackSurfaceReady) {
+            val queued = snapshot?.queue.orEmpty()
+            val consumed = queued.firstOrNull { item ->
+                item.mediaId == request.identity.mediaId && item.videoId == request.identity.videoId
+            }
+            if (consumed != null && consumedQueueItemKey != consumed.key) {
+                consumedQueueItemKey = consumed.key
+                val remainingQueue = queueAfterPlaybackStarted(
+                    queued,
+                    request.identity.mediaId,
+                    request.identity.videoId,
+                )
+                onMutation(ProfileMutation.SetQueue(remainingQueue))
+            }
         }
         if (!session.playback.playing && session.playback.durationMs > 0) controller.persist()
     }
