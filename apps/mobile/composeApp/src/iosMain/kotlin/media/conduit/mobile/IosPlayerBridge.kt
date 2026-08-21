@@ -77,9 +77,9 @@ object IosPlayerBridgeFactory {
         this.creator = creator
     }
 
-    fun create(engine: IosPlaybackEngine): IosPlayerBridge? = creator?.createBridge(engine.name)
+    fun create(): IosPlayerBridge? = creator?.createBridge()
 }
 
 interface IosPlayerBridgeCreator {
-    fun createBridge(engine: String): IosPlayerBridge
+    fun createBridge(): IosPlayerBridge
 }

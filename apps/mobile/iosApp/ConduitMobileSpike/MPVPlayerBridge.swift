@@ -2,7 +2,7 @@ import AVFoundation
 import AVKit
 import ComposeApp
 import Foundation
-import libmpv
+import Libmpv
 import UIKit
 
 fileprivate struct ConduitSubtitle {
@@ -272,15 +272,8 @@ final class ConduitMPVPlayerBridge: NSObject, IosPlayerBridge {
 }
 
 final class ConduitMPVPlayerBridgeCreator: NSObject, IosPlayerBridgeCreator {
-    func createBridge(engine: String) -> any IosPlayerBridge {
-        switch engine {
-        case "KSPlayer":
-            ConduitKSPlayerBridge()
-        case "MPVKit":
-            ConduitMPVPlayerBridge()
-        default:
-            ConduitKSPlayerBridge()
-        }
+    func createBridge() -> any IosPlayerBridge {
+        ConduitMPVPlayerBridge()
     }
 }
 

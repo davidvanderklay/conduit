@@ -28,30 +28,18 @@ SOFTWARE.
 
 ## MPVKit
 
-The iOS mobile player keeps MPVKit available as a compatibility-testing option
-through the local Swift package at
-`apps/mobile/iosApp/MPVKitCompat/`. That package pins the MPVKit 0.39.0
-`Libmpv` binary, the companion libbluray 1.3.4 and libuchardet 0.0.8 binaries,
-and shares the FFmpegKit 6.1.4 dependency used by KSPlayer:
-<https://github.com/mpvkit/MPVKit/releases/tag/0.39.0-n7.1.1>.
+The iOS mobile player links the pinned NuvioMedia MPVKit fork through Swift
+Package Manager:
+<https://github.com/NuvioMedia/MPVKit/tree/d5cf091c80368bbbc1bbf2d195fbc55d926df888>.
 
-Review each upstream binary's license and bundled-library notices before
-shipping an iOS distribution. The compatibility package exists only to retain
-the old player during feature-parity testing; KSPlayer is the default iOS
-engine.
+The fork pins the Nuvio-built `Libmpv` 0.41.0 binary (mpv 0.41.0 with
+FFmpeg n8.1.2) plus its companion codec, rendering, and support-library
+binaries:
+<https://github.com/NuvioMedia/MPVKit/releases/tag/0.41.0-n8.1.2-nuvio.2>.
 
-## KSPlayer
-
-The iOS mobile player links the pinned KSPlayer package through Swift Package
-Manager:
-<https://github.com/kingslay/KSPlayer/tree/25c923b70d3d7881275e8f3d917e1e9752416e27>.
-
-KSPlayer is distributed under GPLv3. The pinned package also links its
-FFmpegKit dependency from the 6.1.4 line:
-<https://github.com/kingslay/FFmpegKit/tree/6.1.4>.
-Review the pinned package's license files and all bundled FFmpeg, codec, and
-support-library notices when producing an Apple release. The app-specific
-GPLv3 boundary is documented in [`apps/mobile/iosApp/LICENSE`](apps/mobile/iosApp/LICENSE),
+libmpv and the bundled FFmpeg are GPL-licensed. Review each upstream binary's
+license and bundled-library notices before shipping an iOS distribution. The
+app-specific GPLv3 boundary is documented in [`apps/mobile/iosApp/LICENSE`](apps/mobile/iosApp/LICENSE),
 with the complete terms in
 [`apps/mobile/iosApp/LICENSE-GPL-3.0.txt`](apps/mobile/iosApp/LICENSE-GPL-3.0.txt).
 

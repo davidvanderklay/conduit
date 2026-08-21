@@ -147,8 +147,8 @@ The repository's server, web, desktop, and other components remain licensed
 under the MIT License. See [LICENSE](LICENSE).
 
 The Apple mobile application is distributed under the GNU General Public
-License version 3 because its iOS target links KSPlayer and its bundled media
-runtime. The app-specific boundary and source-distribution notice are in
+License version 3 because its iOS target links MPVKit and its bundled libmpv
+media runtime. The app-specific boundary and source-distribution notice are in
 [`apps/mobile/iosApp/LICENSE`](apps/mobile/iosApp/LICENSE), with the complete
 GPLv3 text in [`apps/mobile/iosApp/LICENSE-GPL-3.0.txt`](apps/mobile/iosApp/LICENSE-GPL-3.0.txt).
 See

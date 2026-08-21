@@ -121,7 +121,7 @@ suspend fun PointerInputScope.detectMovementTolerantPlayerGestures(
 expect val systemPipKeepsAppVisible: Boolean
 
 @Composable
-expect fun PlayerOrientationLock(active: Boolean, iosPlaybackEngine: IosPlaybackEngine = IosPlaybackEngine.KSPlayer)
+expect fun PlayerOrientationLock(active: Boolean)
 
 @Composable
 expect fun NativePlayer(
@@ -143,7 +143,6 @@ expect fun NativePlayer(
     preferredAudioLanguage: String = "System default",
     preferredSubtitleLanguage: String = "English",
     androidPlaybackEngine: AndroidPlaybackEngine = AndroidPlaybackEngine.Automatic,
-    iosPlaybackEngine: IosPlaybackEngine = IosPlaybackEngine.KSPlayer,
     onEpisodes: () -> Unit = {},
     onSources: () -> Unit = {},
     onControlsVisibilityChanged: (Boolean) -> Unit = {},
