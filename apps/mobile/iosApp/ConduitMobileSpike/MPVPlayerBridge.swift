@@ -1357,6 +1357,11 @@ final class ConduitMPVPlayerViewController: UIViewController {
         // example the first PiP window composition) instead of underrunning
         // with an audible crackle.
         setOptionString(mpv, name: "audio-stream-silence", value: "yes")
+        // Default sync compensation duplicates/truncates audio fragments when
+        // video timing wobbles, which is audible as a repeated snippet during
+        // the PiP transition. Resampling shifts speed by fractions of a
+        // percent instead and is imperceptible.
+        setOptionString(mpv, name: "audio-sync", value: "resample")
         setOptionString(mpv, name: "vulkan-swap-mode", value: "fifo")
         setOptionString(mpv, name: "vulkan-queue-count", value: "1")
         setOptionString(mpv, name: "vulkan-async-compute", value: "no")
