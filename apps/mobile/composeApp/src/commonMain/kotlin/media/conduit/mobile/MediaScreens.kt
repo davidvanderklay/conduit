@@ -279,13 +279,26 @@ internal fun MobileContinueWatchingScreen(
             ) {
                 items(items, key = { "${it.mediaType}:${it.mediaId}" }) { progress ->
                     val catalogItem = CatalogItem(progress.mediaId, progress.mediaType, progress.name, poster = progress.poster)
+                    LaunchedEffect(catalogItem.type, catalogItem.id) {
+                        metadataCache.load(catalogItem)
+                    }
+                    val metadata = metadataCache.metadataFor(catalogItem)
+                    val video = metadata?.videos?.firstOrNull { progressMatchesVideo(progress, it) }
                     RichPosterCard(
                         item = catalogItem,
                         caption = progress.videoTitle ?: progress.mediaType,
                         snapshot = snapshot,
                         metadataCache = metadataCache,
                         onClick = { onSelectVideo(catalogItem, progress.videoId) },
-                        onActions = { actionTarget = MediaActionTarget(catalogItem, MediaActionContext.Continue, progress) },
+                        onActions = {
+                            actionTarget = MediaActionTarget(
+                                catalogItem,
+                                MediaActionContext.Continue,
+                                progress,
+                                video,
+                                videos = metadata?.videos.orEmpty(),
+                            )
+                        },
                     )
                 }
             }
@@ -294,6 +307,7 @@ internal fun MobileContinueWatchingScreen(
     MediaActionSheet(
         target = actionTarget,
         snapshot = snapshot,
+        metadataCache = metadataCache,
         onDismiss = { actionTarget = null },
         onPlay = { onSelect(it.item) },
         onDetails = { onSelect(it.item) },
@@ -676,7 +690,6 @@ internal fun MediaDetailsScreen(
     var playerStreamPicker by remember(item.id) { mutableStateOf<PlaybackStreamPickerState?>(null) }
     var playerStreamRequestVersion by remember(item.id) { mutableIntStateOf(0) }
     var playerStreamRequestJob by remember(item.id) { mutableStateOf<Job?>(null) }
-    var consumedQueuedItemKey by remember(item.id) { mutableStateOf<String?>(null) }
     var manualSourceSwitchVideoIds by remember(item.id) { mutableStateOf<Set<String>>(emptySet()) }
     var manualSourceFallbacks by remember(item.id) { mutableStateOf<Map<String, StreamSource>>(emptyMap()) }
     val autoResumeRequested = openMode == MediaOpenMode.AutoResume || openMode == MediaOpenMode.Queue
@@ -1144,6 +1157,10 @@ internal fun MediaDetailsScreen(
         if (!autoResumeRequested || addons.isEmpty()) return@LaunchedEffect
         if (item.type == "series" && effectiveInitialVideoId == null && selectedVideo == null) return@LaunchedEffect
         val targetVideoId = selectedVideo?.id ?: effectiveInitialVideoId ?: item.id
+        val ownsTargetPlayback = playbackSession.state.request?.identity?.let { identity ->
+            identity.mediaId == item.id && identity.videoId == targetVideoId
+        } == true
+        if (ownsTargetPlayback) return@LaunchedEffect
         if (openMode == MediaOpenMode.Queue) {
             if (preferences.autoSelectNextStreams) {
                 if (autoResumeAttemptedKey == "queue:$targetVideoId") return@LaunchedEffect
@@ -1193,8 +1210,14 @@ internal fun MediaDetailsScreen(
         playbackSession.state.playback.videoHeight,
     ) {
         val playback = playbackSession.state.playback
+        val playbackMatchesSelectedStream = playbackRequestMatchesStream(
+            request = playbackSession.state.request,
+            mediaId = item.id,
+            videoId = playingVideoId,
+            url = playing?.url,
+        )
         if (
-            (autoResumeStage == AutoResumeStage.Starting || openMode == MediaOpenMode.Queue) &&
+            playbackMatchesSelectedStream &&
                 !playback.loading &&
                 playback.videoWidth > 0 &&
                 playback.videoHeight > 0
@@ -1204,14 +1227,6 @@ internal fun MediaDetailsScreen(
             autoRecoverySavedSourceVideoIds = autoRecoverySavedSourceVideoIds - playingVideoId
             autoFallbackStreams = autoFallbackStreams - playingVideoId
             autoResumeStage = AutoResumeStage.Inactive
-            if (openMode == MediaOpenMode.Queue && consumedQueuedItemKey != playingVideoId) {
-                val queued = snapshot?.queue.orEmpty()
-                val consumed = queued.firstOrNull { it.videoId == playingVideoId && it.mediaId == item.id }
-                if (consumed != null) {
-                    consumedQueuedItemKey = consumed.key
-                    onMutation(ProfileMutation.SetQueue(queued.removeFromQueue(consumed.key)))
-                }
-            }
         }
     }
     fun currentPlaybackSource(): PlaybackSource? =
@@ -1251,7 +1266,6 @@ internal fun MediaDetailsScreen(
     val nextVideo = selectedVideo?.let { current ->
         playableVideos.firstOrNull { compareEpisodeCoordinates(it, current) > 0 }
     }
-    val queuedNext = snapshot?.queue?.firstOrNull()
     val playerContentTitle = if (selectedVideo != null) {
         val episodeNumber = listOfNotNull(selectedVideo?.season, selectedVideo?.episode)
             .takeIf { it.size == 2 }
@@ -1290,14 +1304,7 @@ internal fun MediaDetailsScreen(
                 }
             },
             playNext = {
-                if (queuedNext != null) {
-                    playbackSession.beginTransition(
-                        title = queuedNext.videoTitle ?: queuedNext.name,
-                        mediaName = queuedNext.name,
-                        artwork = queuedNext.artwork ?: queuedNext.poster,
-                    )
-                    onPlayQueueItem(queuedNext)
-                } else nextVideo?.let { video ->
+                nextVideo?.let { video ->
                     if (preferences.autoSelectNextStreams) {
                         playbackSession.beginTransition(
                             title = video.displayTitle,
@@ -1475,16 +1482,10 @@ internal fun MediaDetailsScreen(
             source = currentPlaybackSource(),
             autoRecoveryAttempt = playingVideoId in autoRecoveryVideoIds,
             manualSourceSwitch = playingVideoId in manualSourceSwitchVideoIds,
-            hasNextEpisode = queuedNext != null || nextVideo != null,
-            nextEpisodeTitle = queuedNext?.let { queued ->
-                if (queued.mediaType == "movie") queued.name else listOfNotNull(
-                    queued.name,
-                    queued.season?.let { season -> "S${season}E${queued.episode ?: 0}" },
-                    queued.videoTitle,
-                ).joinToString(" · ")
-            } ?: nextVideo?.let { "S${it.season ?: 0}E${it.episode ?: 0} · ${it.displayTitle}" },
-            nextEpisodeArtwork = queuedNext?.artwork ?: queuedNext?.poster ?: nextVideo?.thumbnail ?: meta?.background,
-            nextItemQueued = queuedNext != null,
+            hasNextEpisode = nextVideo != null,
+            nextEpisodeTitle = nextVideo?.let { "S${it.season ?: 0}E${it.episode ?: 0} · ${it.displayTitle}" },
+            nextEpisodeArtwork = nextVideo?.thumbnail ?: meta?.background,
+            nextItemQueued = false,
             hasEpisodes = orderedVideos.isNotEmpty(),
             mediaItem = item,
             episodes = orderedVideos,

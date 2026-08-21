@@ -186,4 +186,18 @@ class ProfileMutationTest {
         val removed = saved.applyOptimistically(ProfileMutation.SetLibrary(item, false))
         assertFalse(removed.library.any { it.id == item.id })
     }
+
+    @Test
+    fun queueMutationCanBeReappliedToAStaleSynchronizedSnapshot() {
+        val first = PlaybackQueueItem("movie", "first", "first", "First")
+        val second = PlaybackQueueItem("movie", "second", "second", "Second")
+        val mutation = ProfileMutation.SetQueue(listOf(second))
+        val base = snapshot.copy(queue = listOf(first, second))
+
+        val optimistic = base.applyOptimistically(mutation)
+        val staleSynchronized = base
+
+        assertEquals(listOf(second), optimistic.queue)
+        assertEquals(listOf(second), staleSynchronized.applyOptimistically(mutation).queue)
+    }
 }

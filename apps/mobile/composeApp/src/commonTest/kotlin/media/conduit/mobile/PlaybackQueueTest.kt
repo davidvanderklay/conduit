@@ -2,7 +2,10 @@ package media.conduit.mobile
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 import media.conduit.mobile.account.PlaybackQueueItem
+import media.conduit.mobile.account.VideoItem
 
 class PlaybackQueueTest {
     private val first = PlaybackQueueItem("series", "show", "s1e1", "Show")
@@ -24,5 +27,45 @@ class PlaybackQueueTest {
     @Test
     fun seriesCoversCannotBeQueuedWithoutAnEpisode() {
         assertEquals(null, playbackQueueItem(media.conduit.mobile.account.CatalogItem("show", "series", "Show")))
+    }
+
+    @Test
+    fun unreleasedEpisodesCannotBeQueued() {
+        assertFalse(canQueueEpisode(VideoItem("future", released = "2026-09-01"), today = "2026-08-20"))
+        assertTrue(canQueueEpisode(VideoItem("released", released = "2026-08-19"), today = "2026-08-20"))
+    }
+
+    @Test
+    fun queuedEpisodeUsesShowArtworkInsteadOfEpisodeThumbnail() {
+        val item = media.conduit.mobile.account.CatalogItem(
+            id = "show",
+            type = "series",
+            name = "Show",
+            poster = "https://example.test/poster.jpg",
+            background = "https://example.test/background.jpg",
+        )
+        val video = media.conduit.mobile.account.VideoItem(
+            id = "s1e1",
+            title = "Episode 1",
+            thumbnail = "https://example.test/episode.jpg",
+        )
+
+        assertEquals("https://example.test/background.jpg", playbackQueueItem(item, video)?.artwork)
+    }
+
+    @Test
+    fun successfulPlaybackConsumesMatchingItemEvenWhenOpenedNormally() {
+        assertEquals(
+            listOf(second),
+            queueAfterPlaybackStarted(listOf(first, second), mediaId = "show", videoId = "s1e1"),
+        )
+    }
+
+    @Test
+    fun nextQueuedItemNeverReturnsTheCurrentlyPlayingItem() {
+        assertEquals(
+            second,
+            nextQueuedItem(listOf(first, second), mediaId = "show", videoId = "s1e1"),
+        )
     }
 }

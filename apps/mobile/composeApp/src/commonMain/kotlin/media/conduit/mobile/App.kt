@@ -844,6 +844,7 @@ private fun AppShell(
                         val synchronized = synchronizeProfileData(profile.id)
                         val postMutation = synchronized.snapshot?.let { snapshot ->
                             when (mutation) {
+                                is ProfileMutation.SetQueue,
                                 is ProfileMutation.SetDismissed,
                                 is ProfileMutation.RemoveProgress -> snapshot.applyOptimistically(mutation)
                                 else -> snapshot
@@ -1253,28 +1254,30 @@ private fun DestinationContent(
             }
         }
         if (selectedMedia != null) {
-            MediaDetailsScreen(
-                item = selectedMedia,
-                initialVideoId = selectedVideoId,
-                returnToHomeOnStreamBack = selectedMediaReturnsToOrigin,
-                openMode = selectedMediaOpenMode,
-                addons = profileSync.snapshot?.addons.orEmpty(),
-                api = api,
-                progressOutbox = progressOutbox,
-                profile = activeProfile,
-                snapshot = profileSync.snapshot,
-                baseUrl = state.endpoint!!.baseUrl,
-                token = account.session.token,
-                accountId = account.bootstrap.user?.email ?: account.session.token,
-                preferences = preferences,
-                onPreferencesChanged = onPreferencesChanged,
-                onProgressChanged = onPlaybackProgressChanged,
-                onMutation = onProfileMutation,
-                onBrowse = onBrowse,
-                onPlayQueueItem = onSelectQueuedItem,
-                onBack = onCloseMedia,
-                playbackSession = playbackSession,
-            )
+            key(MediaDetailsInstanceKey(selectedMedia.type, selectedMedia.id, selectedVideoId, selectedMediaOpenMode)) {
+                MediaDetailsScreen(
+                    item = selectedMedia,
+                    initialVideoId = selectedVideoId,
+                    returnToHomeOnStreamBack = selectedMediaReturnsToOrigin,
+                    openMode = selectedMediaOpenMode,
+                    addons = profileSync.snapshot?.addons.orEmpty(),
+                    api = api,
+                    progressOutbox = progressOutbox,
+                    profile = activeProfile,
+                    snapshot = profileSync.snapshot,
+                    baseUrl = state.endpoint!!.baseUrl,
+                    token = account.session.token,
+                    accountId = account.bootstrap.user?.email ?: account.session.token,
+                    preferences = preferences,
+                    onPreferencesChanged = onPreferencesChanged,
+                    onProgressChanged = onPlaybackProgressChanged,
+                    onMutation = onProfileMutation,
+                    onBrowse = onBrowse,
+                    onPlayQueueItem = onSelectQueuedItem,
+                    onBack = onCloseMedia,
+                    playbackSession = playbackSession,
+                )
+            }
         }
         if (profileSync.refreshing) LinearProgressIndicator(Modifier.fillMaxWidth().align(Alignment.TopCenter))
     }
@@ -1292,6 +1295,10 @@ private fun BoxScope.PlaybackSessionHost(
     val scope = rememberCoroutineScope()
     val session = controller.state
     val request = session.request ?: return
+    val upNext = playbackUpNext(request, snapshot?.queue.orEmpty())
+    SideEffect {
+        controller.updateQueuedNext(request.identity, upNext?.queuedItem)
+    }
     val fullScreen = session.presentation == PlaybackPresentation.FullScreen
     val systemPip = session.presentation == PlaybackPresentation.SystemPip
     val pipHandoffVisible = systemPip && systemPipKeepsAppVisible
@@ -1307,6 +1314,7 @@ private fun BoxScope.PlaybackSessionHost(
     var miniDockedTop by remember(request.identity, request.url) { mutableStateOf(false) }
     var miniGestureActive by remember(request.identity, request.url) { mutableStateOf(false) }
     var playbackHasStarted by remember(request.identity, request.url) { mutableStateOf(false) }
+    var consumedQueueItemKey by remember(session.sessionId) { mutableStateOf<String?>(null) }
     var startupRecoveryRequested by remember(session.sessionId) { mutableStateOf(false) }
     var containerSize by remember { mutableStateOf(IntSize.Zero) }
     var miniSize by remember { mutableStateOf(IntSize.Zero) }
@@ -1334,13 +1342,14 @@ private fun BoxScope.PlaybackSessionHost(
     LaunchedEffect(
         request.identity.videoId,
         request.url,
-        request.hasNextEpisode,
+        upNext?.queuedItem?.key,
+        upNext?.nextEpisodeTitle,
         preferences.autoplayNextEpisode,
         session.playback.ended,
     ) {
         if (
             preferences.autoplayNextEpisode &&
-                request.hasNextEpisode &&
+                upNext != null &&
                 session.playback.ended
         ) {
             // Autoplay advances to the next episode's source chooser. A
@@ -1349,10 +1358,15 @@ private fun BoxScope.PlaybackSessionHost(
         }
     }
     LaunchedEffect(
+        session.sessionId,
+        request.identity,
         session.playback.playing,
         session.playback.loading,
         session.playback.buffering,
         playbackSurfaceReady,
+        snapshot?.queue?.firstOrNull { item ->
+            item.mediaId == request.identity.mediaId && item.videoId == request.identity.videoId
+        }?.key,
     ) {
         if (
             session.playback.playing &&
@@ -1361,6 +1375,23 @@ private fun BoxScope.PlaybackSessionHost(
                 playbackSurfaceReady
         ) {
             playbackHasStarted = true
+        }
+        // Queue consumption belongs to the session host because it observes the
+        // authoritative request and playback state for every playback entry point.
+        if (!session.playback.loading && !session.playback.buffering && playbackSurfaceReady) {
+            val queued = snapshot?.queue.orEmpty()
+            val consumed = queued.firstOrNull { item ->
+                item.mediaId == request.identity.mediaId && item.videoId == request.identity.videoId
+            }
+            if (consumed != null && consumedQueueItemKey != consumed.key) {
+                consumedQueueItemKey = consumed.key
+                val remainingQueue = queueAfterPlaybackStarted(
+                    queued,
+                    request.identity.mediaId,
+                    request.identity.videoId,
+                )
+                onMutation(ProfileMutation.SetQueue(remainingQueue))
+            }
         }
         if (!session.playback.playing && session.playback.durationMs > 0) controller.persist()
     }
@@ -1425,6 +1456,13 @@ private fun BoxScope.PlaybackSessionHost(
         session.playback,
         session.autoRecoveryExhausted,
     )
+    val showPlaybackActions = fullScreen &&
+        !pipHandoffVisible &&
+        playbackSurfaceReady &&
+        playbackTransition == null &&
+        !session.playback.loading &&
+        !session.playback.buffering &&
+        !presentPlaybackError
 
     Box(Modifier.fillMaxSize().onSizeChanged { containerSize = it }) {
         // Adaptive iOS hides the native bar, but the mini-player keeps its
@@ -1456,7 +1494,7 @@ private fun BoxScope.PlaybackSessionHost(
             subtitles = request.subtitles,
             contentLogo = request.logo,
             contentTitle = request.title,
-            hasNextEpisode = request.hasNextEpisode,
+            hasNextEpisode = upNext != null,
             onNextEpisode = controller::playNext,
             hasEpisodes = request.hasEpisodes,
             onEpisodes = controller::openEpisodes,
@@ -1530,7 +1568,7 @@ private fun BoxScope.PlaybackSessionHost(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
                     )
-                    if (fullScreen) {
+                    if (showPlaybackActions) {
                         BadgedBox(
                             badge = {
                                 val count = snapshot?.queue?.size ?: 0
@@ -1539,14 +1577,12 @@ private fun BoxScope.PlaybackSessionHost(
                         ) {
                             IconButton(
                                 onClick = controller::openQueue,
-                                modifier = Modifier.background(Color.Black.copy(.55f), androidx.compose.foundation.shape.CircleShape),
                             ) { Icon(Icons.Rounded.QueueMusic, "Queue", tint = Color.White) }
                         }
                     }
-                    if (fullScreen && pipActionReady) {
+                    if (showPlaybackActions && pipActionReady) {
                         IconButton(
                             onClick = { controller.send(PlaybackCommand.EnterSystemPip) },
-                            modifier = Modifier.background(Color.Black.copy(.55f), androidx.compose.foundation.shape.CircleShape),
                         ) { Icon(Icons.Rounded.PictureInPictureAlt, "Picture in Picture", tint = Color.White) }
                     }
                 }
@@ -1612,7 +1648,7 @@ private fun BoxScope.PlaybackSessionHost(
                 }
             }
             if (fullScreen &&
-                request.hasNextEpisode &&
+                upNext != null &&
                 session.playback.durationMs > 0 &&
                 session.playback.durationMs - session.playback.positionMs in 1..30_000
             ) {
@@ -1625,15 +1661,15 @@ private fun BoxScope.PlaybackSessionHost(
                 ) {
                     Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
                         AsyncImage(
-                            request.nextEpisodeArtwork,
+                            upNext.nextEpisodeArtwork,
                             null,
                             Modifier.size(88.dp, 54.dp).clip(RoundedCornerShape(11.dp)),
                             contentScale = ContentScale.Crop,
                         )
                         Spacer(Modifier.width(10.dp))
                         Column(Modifier.weight(1f)) {
-                            Text(if (request.nextItemQueued) "UP NEXT" else "NEXT EPISODE", color = Color.White.copy(.6f), style = MaterialTheme.typography.labelSmall)
-                            Text(request.nextEpisodeTitle.orEmpty(), color = Color.White, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(if (upNext.nextItemQueued) "UP NEXT" else "NEXT EPISODE", color = Color.White.copy(.6f), style = MaterialTheme.typography.labelSmall)
+                            Text(upNext.nextEpisodeTitle.orEmpty(), color = Color.White, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                         FilledTonalIconButton(onClick = controller::playNext) {
                             Icon(Icons.Rounded.PlayArrow, "Play next")

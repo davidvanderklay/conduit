@@ -30,6 +30,7 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.time.Clock
 import media.conduit.mobile.account.*
 
 internal enum class MediaActionContext { Browse, Library, Continue, History, Episode, Season }
@@ -410,12 +411,20 @@ internal fun MediaActionSheet(
     val saved = snapshot?.library.orEmpty().any { it.type == active.item.type && it.id == active.item.id }
     val progress = active.progress
     val queue = snapshot?.queue.orEmpty()
-    val queueItem = playbackQueueItem(active.item, active.video)
-    val queueIndex = queueItem?.let { item -> queue.indexOfFirst { it.key == item.key } } ?: -1
-    val watchProgress = progress?.takeIf { active.video == null || active.video.id == it.videoId }
     val seriesVideos = active.videos.ifEmpty { metadataCache?.videosFor(active.item).orEmpty() }
+    val resolvedVideo = active.video ?: progress?.let { savedProgress ->
+        seriesVideos.firstOrNull { progressMatchesVideo(savedProgress, it) }
+    }
+    val queueItem = playbackQueueItem(active.item, resolvedVideo)
+    val queueIndex = queueItem?.let { item -> queue.indexOfFirst { it.key == item.key } } ?: -1
+    val watchProgress = progress?.takeIf { resolvedVideo == null || progressMatchesVideo(it, resolvedVideo) }
     val releasedVideos = seriesWatchVideos(seriesVideos)
     val releasedIds = releasedVideos.mapTo(mutableSetOf(), VideoItem::id)
+    val today = Clock.System.now().toString().take(10)
+    val canQueueActiveVideo = queueItem != null && (
+        active.item.type != "series" ||
+            resolvedVideo != null && seriesVideos.any { it.id == resolvedVideo.id } && canQueueEpisode(resolvedVideo, today)
+        )
     val seriesProgress = snapshot?.progress.orEmpty().filter {
         it.mediaType == active.item.type && it.mediaId == active.item.id && it.videoId in releasedIds
     }
@@ -443,10 +452,7 @@ internal fun MediaActionSheet(
         episodeSeasonProgress.any { it.videoId == video.id && it.watched }
     }
     LaunchedEffect(active.item.type, active.item.id, active.context, metadataCache) {
-        if (
-            active.item.type == "series" && active.video == null &&
-            (active.context == MediaActionContext.Browse || active.context == MediaActionContext.Library)
-        ) {
+        if (active.item.type == "series" && active.video == null) {
             metadataCache?.load(active.item)
         }
     }
@@ -457,7 +463,8 @@ internal fun MediaActionSheet(
     ) {
         Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = 8.dp)) {
             Text(
-                active.video?.title
+                resolvedVideo?.title
+                    ?: resolvedVideo?.name
                     ?: active.season?.let { if (it == 0) "Specials" else "Season $it" }
                     ?: progress?.videoTitle
                     ?: active.item.name,
@@ -476,23 +483,25 @@ internal fun MediaActionSheet(
             if (active.context != MediaActionContext.Episode && active.context != MediaActionContext.Season) {
                 ActionRow("Details", Icons.Rounded.Info) { onDismiss(); onDetails(active) }
             }
-            if (queueItem != null) {
+            if (queueItem != null && (queueIndex >= 0 || canQueueActiveVideo)) {
                 when {
                     queueIndex == 0 -> ActionRow("Remove from queue", Icons.Rounded.PlaylistRemove) {
                         onDismiss()
                         scope.launch { onMutation(ProfileMutation.SetQueue(queue.removeFromQueue(queueItem.key))) }
                     }
                     queueIndex > 0 -> {
-                        ActionRow("Move to next", Icons.Rounded.VerticalAlignTop) {
-                            onDismiss()
-                            scope.launch { onMutation(ProfileMutation.SetQueue(queue.moveToQueueFront(queueItem))) }
+                        if (canQueueActiveVideo) {
+                            ActionRow("Move to next", Icons.Rounded.VerticalAlignTop) {
+                                onDismiss()
+                                scope.launch { onMutation(ProfileMutation.SetQueue(queue.moveToQueueFront(queueItem))) }
+                            }
                         }
                         ActionRow("Remove from queue", Icons.Rounded.PlaylistRemove) {
                             onDismiss()
                             scope.launch { onMutation(ProfileMutation.SetQueue(queue.removeFromQueue(queueItem.key))) }
                         }
                     }
-                    queue.isNotEmpty() -> {
+                    queue.isNotEmpty() && canQueueActiveVideo -> {
                         ActionRow("Play next", Icons.Rounded.SkipNext) {
                             onDismiss()
                             scope.launch { onMutation(ProfileMutation.SetQueue(queue.moveToQueueFront(queueItem))) }
@@ -502,7 +511,7 @@ internal fun MediaActionSheet(
                             scope.launch { onMutation(ProfileMutation.SetQueue(queue.addToQueue(queueItem))) }
                         }
                     }
-                    else -> ActionRow("Add to queue", Icons.Rounded.PlaylistAdd) {
+                    canQueueActiveVideo -> ActionRow("Add to queue", Icons.Rounded.PlaylistAdd) {
                         onDismiss()
                         scope.launch { onMutation(ProfileMutation.SetQueue(queue.addToQueue(queueItem))) }
                     }

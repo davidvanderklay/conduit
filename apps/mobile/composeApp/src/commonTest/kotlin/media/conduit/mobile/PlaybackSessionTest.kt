@@ -7,10 +7,48 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import media.conduit.mobile.account.VideoItem
 
 class PlaybackSessionTest {
+    @Test
+    fun liveQueueAddsNextToAnActiveMovieWithoutRestartingIt() = runTest {
+        val identity = PlaybackIdentity("profile", "movie", "movie", "movie")
+        val request = PlaybackRequest(
+            identity = identity,
+            url = "https://example.test/movie.mp4",
+            title = "Movie",
+            mediaName = "Movie",
+        )
+        val queued = media.conduit.mobile.account.PlaybackQueueItem(
+            "series", "show", "s1e1", "Show", videoTitle = "Episode 1",
+        )
+        var selected: media.conduit.mobile.account.PlaybackQueueItem? = null
+        val controller = PlaybackSessionController(this)
+        controller.start(
+            request,
+            PlaybackSessionCallbacks(
+                persist = { _, _ -> },
+                playNext = {},
+                openEpisodes = {},
+                playQueueItem = { selected = it },
+                minimized = {},
+                closed = {},
+            ),
+        )
+        val sessionId = controller.state.sessionId
+
+        val upNext = playbackUpNext(request, listOf(queued))
+        assertNotNull(upNext)
+        controller.updateQueuedNext(identity, upNext.queuedItem)
+        controller.playNext()
+
+        assertTrue(upNext.nextItemQueued)
+        assertEquals(queued, selected)
+        assertEquals(sessionId, controller.state.sessionId)
+    }
+
     @Test
     fun nextTransitionImmediatelyReplacesTheVisibleOpeningMetadata() = runTest {
         val controller = PlaybackSessionController(this)
@@ -35,6 +73,26 @@ class PlaybackSessionTest {
     }
 
     @Test
+    fun restartingTheSameStreamClearsThePendingTransition() = runTest {
+        val request = PlaybackRequest(
+            identity = PlaybackIdentity("profile", "series", "show", "s1e1"),
+            url = "https://example.test/one.mp4",
+            title = "Episode 1",
+            mediaName = "Show",
+        )
+        val callbacks = PlaybackSessionCallbacks(
+            persist = { _, _ -> }, playNext = {}, openEpisodes = {}, minimized = {}, closed = {},
+        )
+        val controller = PlaybackSessionController(this)
+        controller.start(request, callbacks)
+        controller.beginTransition("Episode 2", "Show", "https://example.test/background.jpg")
+
+        controller.start(request, callbacks)
+
+        assertEquals(null, controller.state.transition)
+    }
+
+    @Test
     fun savedStreamStartupAcceptsPlaybackOrFirstFrame() {
         val request = PlaybackRequest(
             identity = PlaybackIdentity("profile", "series", "show", "s1e1"),
@@ -54,6 +112,26 @@ class PlaybackSessionTest {
             ),
         )
         assertFalse(savedStreamStartupStalled(request.copy(autoRecoveryAttempt = false), PlaybackState()))
+    }
+
+    @Test
+    fun playbackReadinessRequiresTheSelectedStreamUrl() {
+        val request = PlaybackRequest(
+            identity = PlaybackIdentity("profile", "series", "show", "s1e2"),
+            url = "https://example.com/old.mp4",
+            title = "Episode 2",
+            mediaName = "Show",
+        )
+
+        assertTrue(
+            playbackRequestMatchesStream(request, "show", "s1e2", "https://example.com/old.mp4"),
+        )
+        assertFalse(
+            playbackRequestMatchesStream(request, "show", "s1e2", "https://example.com/new.mp4"),
+        )
+        assertFalse(
+            playbackRequestMatchesStream(request, "show", "s1e1", "https://example.com/old.mp4"),
+        )
     }
 
     @Test
