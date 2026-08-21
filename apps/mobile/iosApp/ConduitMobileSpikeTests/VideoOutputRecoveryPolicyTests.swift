@@ -266,305 +266,40 @@ final class VideoOutputRecoveryPolicyTests: XCTestCase {
         )
     }
 
-    func testPictureInPictureSchedulerFollowsSourceCadence() {
-        var scheduler = ConduitPipFrameScheduler()
-        let clock = ConduitPipPlaybackClockSnapshot(
-            positionMs: 0,
-            durationMs: 60_000,
-            isPlaying: true,
-            playbackRate: 1,
-            videoFrameRate: 24,
-            generation: 1
-        )
-
-        XCTAssertTrue(scheduler.shouldCapture(at: 10, presentationID: 1, clock: clock))
-        XCTAssertFalse(scheduler.shouldCapture(at: 10.02, presentationID: 2, clock: clock))
-        XCTAssertTrue(scheduler.shouldCapture(at: 10.05, presentationID: 3, clock: clock))
-        XCTAssertFalse(scheduler.shouldCapture(at: 10.05, presentationID: 3, clock: clock))
-    }
-
-    func testPictureInPictureSchedulerScalesPlaybackRateAndCapsAtSixtyHertz() {
-        var scheduler = ConduitPipFrameScheduler()
-        let clock = ConduitPipPlaybackClockSnapshot(
-            positionMs: 0,
-            durationMs: 60_000,
-            isPlaying: true,
-            playbackRate: 2,
-            videoFrameRate: 30,
-            generation: 1
-        )
-
-        XCTAssertTrue(scheduler.shouldCapture(at: 10, presentationID: 1, clock: clock))
-        XCTAssertFalse(scheduler.shouldCapture(at: 10.015, presentationID: 2, clock: clock))
-        XCTAssertTrue(scheduler.shouldCapture(at: 10.017, presentationID: 3, clock: clock))
-    }
-
-    func testPictureInPictureSchedulerFallsBackForInvalidFrameRate() {
-        var scheduler = ConduitPipFrameScheduler()
-        let clock = ConduitPipPlaybackClockSnapshot(
-            positionMs: 0,
-            durationMs: 60_000,
-            isPlaying: true,
-            playbackRate: 1,
-            videoFrameRate: 0,
-            generation: 1
-        )
-
-        XCTAssertTrue(scheduler.shouldCapture(at: 10, presentationID: 1, clock: clock))
-        XCTAssertFalse(scheduler.shouldCapture(at: 10.02, presentationID: 2, clock: clock))
-        XCTAssertTrue(scheduler.shouldCapture(at: 10.04, presentationID: 3, clock: clock))
-    }
-
-    func testPictureInPictureTimestampEstimatorUsesPlaybackRate() {
-        var estimator = ConduitPipTimestampEstimator()
+    func testPictureInPictureClockInterpolatesWithPlaybackRate() {
         let clock = ConduitPipPlaybackClockSnapshot(
             positionMs: 1_000,
             durationMs: 60_000,
             isPlaying: true,
             playbackRate: 2,
             videoFrameRate: 24,
+            sampledAtUptime: 10,
             generation: 1
         )
 
-        XCTAssertEqual(
-            CMTimeGetSeconds(estimator.timestamp(for: clock, at: 10)),
-            1,
-            accuracy: 0.001
-        )
-        XCTAssertEqual(
-            CMTimeGetSeconds(estimator.timestamp(for: clock, at: 10.25)),
-            1.5,
-            accuracy: 0.001
-        )
+        XCTAssertEqual(clock.interpolatedPositionSeconds(at: 10), 1, accuracy: 0.001)
+        XCTAssertEqual(clock.interpolatedPositionSeconds(at: 10.25), 1.5, accuracy: 0.001)
     }
 
-    func testPictureInPictureTimestampEstimatorResetsOnClockGeneration() {
-        var estimator = ConduitPipTimestampEstimator()
-        let firstClock = ConduitPipPlaybackClockSnapshot(
-            positionMs: 10_000,
-            durationMs: 60_000,
-            isPlaying: true,
-            playbackRate: 1,
-            videoFrameRate: 24,
-            generation: 1
-        )
-        let seekedClock = ConduitPipPlaybackClockSnapshot(
-            positionMs: 2_000,
-            durationMs: 60_000,
-            isPlaying: true,
-            playbackRate: 1,
-            videoFrameRate: 24,
-            generation: 2
-        )
-
-        _ = estimator.timestamp(for: firstClock, at: 10)
-        XCTAssertEqual(
-            CMTimeGetSeconds(estimator.timestamp(for: seekedClock, at: 11)),
-            2,
-            accuracy: 0.001
-        )
-    }
-
-    func testPictureInPictureTimestampEstimatorResetsOnMaterialBackwardClockJump() {
-        var estimator = ConduitPipTimestampEstimator()
+    func testPictureInPictureClockDoesNotAdvanceWhilePaused() {
         let clock = ConduitPipPlaybackClockSnapshot(
-            positionMs: 10_000,
-            durationMs: 60_000,
-            isPlaying: true,
-            playbackRate: 1,
-            videoFrameRate: 24,
-            generation: 1
-        )
-        let correctedClock = ConduitPipPlaybackClockSnapshot(
-            positionMs: 2_000,
-            durationMs: 60_000,
-            isPlaying: true,
-            playbackRate: 1,
-            videoFrameRate: 24,
-            generation: 1
-        )
-
-        _ = estimator.timestamp(for: clock, at: 10)
-        XCTAssertEqual(
-            CMTimeGetSeconds(estimator.timestamp(for: correctedClock, at: 11)),
-            2,
-            accuracy: 0.001
-        )
-        XCTAssertTrue(estimator.didDetectTimelineDiscontinuity)
-    }
-
-    func testPictureInPictureTimestampEstimatorDoesNotAdvanceWhilePaused() {
-        var estimator = ConduitPipTimestampEstimator()
-        let pausedClock = ConduitPipPlaybackClockSnapshot(
             positionMs: 10_000,
             durationMs: 60_000,
             isPlaying: false,
             playbackRate: 1,
             videoFrameRate: 24,
+            sampledAtUptime: 10,
             generation: 1
         )
 
-        _ = estimator.timestamp(for: pausedClock, at: 10)
+        XCTAssertEqual(clock.interpolatedPositionSeconds(at: 20), 10, accuracy: 0.001)
+    }
+
+    func testPictureInPictureClockHandlesUnsampledClock() {
         XCTAssertEqual(
-            CMTimeGetSeconds(estimator.timestamp(for: pausedClock, at: 20)),
-            10.001,
+            ConduitPipPlaybackClockSnapshot.empty.interpolatedPositionSeconds(at: 100),
+            0,
             accuracy: 0.001
         )
-        XCTAssertFalse(estimator.didDetectTimelineDiscontinuity)
-    }
-
-    func testPictureInPictureSetupAllocationFailuresAreNotBackpressureDrops() {
-        XCTAssertEqual(
-            ConduitPipAllocationPolicy.disposition(
-                for: kCVReturnAllocationFailed,
-                duringSetup: true
-            ),
-            .fail
-        )
-        XCTAssertEqual(
-            ConduitPipAllocationPolicy.disposition(
-                for: kCVReturnAllocationFailed,
-                duringSetup: false
-            ),
-            .drop
-        )
-    }
-
-    func testPictureInPictureRecoveryAllowsOneAttemptForActiveCapture() {
-        var policy = ConduitPipCaptureRecoveryPolicy()
-
-        XCTAssertEqual(
-            policy.action(for: .rePrime, isActive: true),
-            .rePrime(active: true)
-        )
-        XCTAssertEqual(
-            policy.action(for: .rePrime, isActive: true),
-            .fail
-        )
-
-        policy.reset()
-        XCTAssertEqual(
-            policy.action(for: .rePrime, isActive: false),
-            .rePrime(active: false)
-        )
-        XCTAssertEqual(
-            policy.action(for: .fatal, isActive: false),
-            .fail
-        )
-    }
-
-    func testPictureInPictureSeekTimeoutDetachesStaleInFlightGeneration() {
-        var inFlight = ConduitPipCaptureInFlightState()
-
-        XCTAssertTrue(inFlight.claim(41))
-        XCTAssertFalse(inFlight.claim(42))
-
-        XCTAssertEqual(inFlight.detach(), 41)
-        XCTAssertNil(inFlight.detach())
-
-        // A re-armed generation can claim a frame even if the old GPU
-        // completion never arrives.
-        XCTAssertTrue(inFlight.claim(42))
-        XCTAssertTrue(inFlight.finish(42))
-        XCTAssertFalse(inFlight.finish(42))
-    }
-
-    func testPictureInPictureMetricsTrackDropsFailuresAndReprimeAttempts() {
-        let metrics = ConduitPipCaptureMetrics()
-        metrics.recordEnqueuedFrame()
-        metrics.recordDrop()
-        metrics.recordFailure()
-        metrics.recordReprimeAttempt()
-        metrics.recordCaptureContext(
-            sourceFrameRate: 24,
-            effectiveCaptureInterval: 1.0 / 24.0,
-            drawableWidth: 1_920,
-            drawableHeight: 1_080,
-            bufferWidth: 1_920,
-            bufferHeight: 1_080,
-            clockGeneration: 7
-        )
-
-        XCTAssertEqual(
-            metrics.snapshot(),
-            ConduitPipCaptureMetricsSnapshot(
-                enqueuedFrames: 1,
-                droppedFrames: 1,
-                failures: 1,
-                reprimeAttempts: 1,
-                sourceFrameRate: 24,
-                effectiveCaptureInterval: 1.0 / 24.0,
-                drawableWidth: 1_920,
-                drawableHeight: 1_080,
-                bufferWidth: 1_920,
-                bufferHeight: 1_080,
-                clockGeneration: 7
-            )
-        )
-    }
-
-    func testPictureInPictureShutdownFenceRejectsLateCompletionAfterDisarm() {
-        let fence = ConduitPipCaptureShutdownFence()
-        fence.arm(for: 41)
-
-        let enqueueEntered = DispatchSemaphore(value: 0)
-        let releaseEnqueue = DispatchSemaphore(value: 0)
-        let enqueueCompleted = DispatchSemaphore(value: 0)
-
-        DispatchQueue.global(qos: .userInitiated).async {
-            _ = fence.withPermission(for: 41) {
-                enqueueEntered.signal()
-                _ = releaseEnqueue.wait(timeout: .now() + 1)
-            }
-            enqueueCompleted.signal()
-        }
-
-        XCTAssertEqual(
-            enqueueEntered.wait(timeout: .now() + 1),
-            .success
-        )
-
-        let disarmCompleted = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            fence.disarm()
-            disarmCompleted.signal()
-        }
-
-        XCTAssertEqual(
-            disarmCompleted.wait(timeout: .now() + .milliseconds(50)),
-            .success
-        )
-
-        XCTAssertFalse(
-            fence.withPermission(for: 41) {
-                XCTFail("late completion crossed the shutdown fence")
-            }
-        )
-        releaseEnqueue.signal()
-        XCTAssertEqual(
-            enqueueCompleted.wait(timeout: .now() + 1),
-            .success
-        )
-
-        XCTAssertFalse(fence.withPermission(for: 41) {})
-    }
-
-    func testPictureInPictureLifetimeTrackerForceReleasesStuckCompletion() {
-        let tracker = ConduitPipCaptureLifetimeTracker()
-        let stuckCompletion = tracker.begin()
-        let cleanupScheduled = DispatchSemaphore(value: 0)
-
-        tracker.notify(queue: .global(qos: .userInitiated)) {
-            cleanupScheduled.signal()
-        }
-        tracker.forceReleaseAll()
-
-        XCTAssertEqual(
-            cleanupScheduled.wait(timeout: .now() + 1),
-            .success
-        )
-
-        // A late command completion must not over-release the lifetime group.
-        stuckCompletion.release()
     }
 }

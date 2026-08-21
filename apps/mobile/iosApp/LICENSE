@@ -5,7 +5,7 @@ SPDX-License-Identifier: GPL-3.0-only
 Copyright (c) 2026 Conduit contributors.
 
 The Apple mobile application target in this directory, including the
-KSPlayer-based iOS playback integration and the application code linked into
+MPVKit-based iOS playback integration and the application code linked into
 that target, is distributed under the GNU General Public License, version 3
 (GPLv3).
 

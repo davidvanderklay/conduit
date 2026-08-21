@@ -42,8 +42,7 @@ The following are deliberately outside the current mobile release scope:
 
 - media downloads or durable offline playback;
 - casting and remote-control integrations;
-- PiP parity validation across the KSPlayer and MPVKit options until the
-  physical-device matrix is complete;
+- PiP validation across the physical-device matrix;
 - P2P playback;
 - third-party integrations such as Trakt, debrid providers, Jellyfin, or Plex;
 - push notifications and background catalog refresh; and
@@ -66,9 +65,8 @@ name. The product bundle identifier on both platforms is
 
 The shared app uses Kotlin 2.3.0, Compose Multiplatform 1.10.0, Android Gradle
 Plugin 8.10.1, and Ktor 3.5.1. Android playback uses Media3 1.10.1 with an
-experimental libmpv fallback. iOS playback defaults to the pinned KSPlayer
-revision and retains the pinned MPVKit revision as a compatibility-testing
-option in `apps/mobile/iosApp/project.yml`.
+experimental libmpv fallback. iOS playback uses the pinned NuvioMedia MPVKit
+revision in `apps/mobile/iosApp/project.yml`.
 
 ## Platform-neutral checks
 
@@ -148,11 +146,11 @@ xcodegen generate
 open ConduitMobileSpike.xcodeproj
 ```
 
-The generated project resolves the pinned KSPlayer and MPVKit packages through
-Swift Package Manager. The first Xcode build downloads their package and
-binary framework dependencies. The Compose app owns the shared UI and playback
-controls while the Swift/UIKit host owns the selected native player, decoded
-frames, audio session, PiP, and orientation handoff.
+The generated project resolves the pinned MPVKit package through Swift Package
+Manager. The first Xcode build downloads its package and binary framework
+dependencies. The Compose app owns the shared UI and playback controls while
+the Swift/UIKit host owns the native player, decoded frames, audio session,
+PiP, and orientation handoff.
 
 The app requires iOS 15 or newer. The normal app is portrait-oriented; the
 player takes ownership of both landscape orientations and restores portrait
@@ -160,8 +158,7 @@ when playback closes. For a device build, select a development team in Xcode.
 No signing identity is committed to the repository.
 
 Exercise the same account, profile, add-on, catalog, playback, progress,
-subtitle, audio, and OAuth cases as Android with KSPlayer selected, then repeat
-the playback cases with MPVKit selected. Also test background/foreground,
+subtitle, audio, and OAuth cases as Android. Also test background/foreground,
 lock/unlock, rotation, interruptions, repeated player open/close cycles, PiP,
 and memory cleanup on a physical iPhone and iPad. The Apple mobile target is
 GPLv3; see [`apps/mobile/iosApp/LICENSE`](../apps/mobile/iosApp/LICENSE) and

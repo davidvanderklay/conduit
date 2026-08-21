@@ -1516,7 +1516,6 @@ internal fun MediaDetailsScreen(
         active = waitingForSavedPlayback ||
             (playing != null && !ownsPlayback) ||
             (ownsPlayback && playbackSession.state.presentation == PlaybackPresentation.FullScreen),
-        iosPlaybackEngine = preferences.iosPlaybackEngine,
     )
     PlatformBackHandler {
         when {
@@ -2992,9 +2991,7 @@ internal fun ProfileSettingsScreen(
     val licenseNotices = if (platform.name.equals("iOS", ignoreCase = true)) {
         listOf(
             "conduit Apple mobile application - GNU GPLv3",
-            "KSPlayer - GNU GPLv3",
-            "FFmpegKit and bundled FFmpeg libraries - see upstream notices",
-            "MPVKit and bundled libmpv libraries - see upstream notices",
+            "MPVKit and bundled libmpv/FFmpeg libraries - see upstream notices",
             "Ktor - Apache License 2.0",
             "Compose Multiplatform - Apache License 2.0",
             "https://www.gnu.org/licenses/gpl-3.0.html",
@@ -3253,17 +3250,11 @@ private fun PlaybackSettingsScreen(platform: PlatformInfo, preferences: DevicePr
     val languages = listOf("System default", "English", "Spanish", "French", "German", "Japanese", "Korean")
     var picker by remember { mutableStateOf<String?>(null) }
     var enginePicker by remember { mutableStateOf(false) }
-    var iosEnginePicker by remember { mutableStateOf(false) }
     val android = platform.name.equals("Android", ignoreCase = true)
-    val ios = platform.name.equals("iOS", ignoreCase = true)
     SettingsPage("Playback", onBack, modifier) {
         SettingsGroup("PLAYER") {
             if (android) {
                 SettingsAction("Android player engine", preferences.androidPlaybackEngine.description) { enginePicker = true }
-                HorizontalDivider(color = Color.White.copy(.06f))
-            }
-            if (ios) {
-                SettingsAction("iOS player engine", preferences.iosPlaybackEngine.description) { iosEnginePicker = true }
                 HorizontalDivider(color = Color.White.copy(.06f))
             }
             SettingsToggle("Auto-select saved streams", "Reuse the last selected stream when it is available", preferences.autoSelectSavedStreams) { update(preferences.copy(autoSelectSavedStreams = it)) }
@@ -3298,31 +3289,6 @@ private fun PlaybackSettingsScreen(platform: PlatformInfo, preferences: DevicePr
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         RadioButton(engine == preferences.androidPlaybackEngine, null)
-                        Spacer(Modifier.width(8.dp))
-                        Column {
-                            Text(engine.label)
-                            Text(engine.description, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {},
-    )
-    if (iosEnginePicker) AlertDialog(
-        onDismissRequest = { iosEnginePicker = false },
-        title = { Text("iOS player engine") },
-        text = {
-            Column {
-                IosPlaybackEngine.entries.forEach { engine ->
-                    Row(
-                        Modifier.fillMaxWidth().clickable {
-                            update(preferences.copy(iosPlaybackEngine = engine))
-                            iosEnginePicker = false
-                        }.padding(vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        RadioButton(engine == preferences.iosPlaybackEngine, null)
                         Spacer(Modifier.width(8.dp))
                         Column {
                             Text(engine.label)

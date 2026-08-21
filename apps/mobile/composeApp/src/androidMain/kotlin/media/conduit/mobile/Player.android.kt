@@ -63,7 +63,7 @@ import android.net.Uri
 internal const val ANDROID_RESIZE_MODE_ZOOM = -1
 
 @Composable
-actual fun PlayerOrientationLock(active: Boolean, iosPlaybackEngine: IosPlaybackEngine) {
+actual fun PlayerOrientationLock(active: Boolean) {
     val activity = androidx.compose.ui.platform.LocalContext.current as? Activity
     DisposableEffect(activity, active) {
         if (active) activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
@@ -94,7 +94,6 @@ actual fun NativePlayer(
     preferredAudioLanguage: String,
     preferredSubtitleLanguage: String,
     androidPlaybackEngine: AndroidPlaybackEngine,
-    iosPlaybackEngine: IosPlaybackEngine,
     onEpisodes: () -> Unit,
     onSources: () -> Unit,
     onControlsVisibilityChanged: (Boolean) -> Unit,

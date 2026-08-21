@@ -7,12 +7,6 @@ import kotlin.test.assertTrue
 
 class PlaybackEngineTest {
     @Test
-    fun iosEngineReportsTheSelectedNativeEngine() {
-        assertEquals(NativePlaybackEngine.KSPlayer, IosPlaybackEngine.KSPlayer.toNativePlaybackEngine())
-        assertEquals(NativePlaybackEngine.MPVKit, IosPlaybackEngine.MPVKit.toNativePlaybackEngine())
-    }
-
-    @Test
     fun automaticMedia3CanFallbackOnce() {
         assertTrue(canFallbackToLibmpv(AndroidPlaybackEngine.Automatic, NativePlaybackEngine.Media3, false))
         assertFalse(canFallbackToLibmpv(AndroidPlaybackEngine.Automatic, NativePlaybackEngine.Media3, true))

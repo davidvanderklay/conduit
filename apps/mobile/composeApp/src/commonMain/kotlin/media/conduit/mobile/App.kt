@@ -1328,7 +1328,6 @@ private fun BoxScope.PlaybackSessionHost(
 
     PlayerOrientationLock(
         active = session.presentation == PlaybackPresentation.FullScreen,
-        iosPlaybackEngine = preferences.iosPlaybackEngine,
     )
     LaunchedEffect(request.identity, request.url) {
         while (true) {
@@ -1505,7 +1504,6 @@ private fun BoxScope.PlaybackSessionHost(
             preferredAudioLanguage = preferences.preferredAudioLanguage,
             preferredSubtitleLanguage = preferences.preferredSubtitleLanguage,
             androidPlaybackEngine = preferences.androidPlaybackEngine,
-            iosPlaybackEngine = preferences.iosPlaybackEngine,
             onControlsVisibilityChanged = { controlsVisible = it },
             onOverlayVisibilityChanged = { playerOverlayVisible = it },
             onTemporarySpeedChanged = { temporarySpeedActive = it },

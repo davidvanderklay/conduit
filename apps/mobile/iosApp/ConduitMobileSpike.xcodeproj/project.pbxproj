@@ -3,35 +3,45 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 63;
+	objectVersion = 77;
 	objects = {
 
 /* Begin PBXBuildFile section */
 		40AF8847BF8611896E76C9E7 /* MetalLayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99D2F22946D55A7EF71C2DD5 /* MetalLayer.swift */; };
-		4D1E7A1B6C8F4A2EB3C9D003 /* ConduitMetalDrawableBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = 4D1E7A1B6C8F4A2EB3C9D004 /* ConduitMetalDrawableBridge.m */; };
-		5D6E4B1C8A7F4A2EB3C9D001 /* PictureInPictureFrameCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D6E4B1C8A7F4A2EB3C9D002 /* PictureInPictureFrameCapture.swift */; };
 		7A51A1EF48814922E2C08A23 /* MPVPlayerBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1696757C18566865DC5CE890 /* MPVPlayerBridge.swift */; };
 		7CDCF257DBFF434F69BC4080 /* PlatformBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F8980C2E64758A37052A0ED /* PlatformBridge.swift */; };
-		A1B2C3D4E5F60718293A4B5D /* KSPlayerBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B5C /* KSPlayerBridge.swift */; };
+		85E9449084BF12E3E1F87B06 /* VideoOutputRecoveryPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AC979B32D477B1541BBEB1B /* VideoOutputRecoveryPolicyTests.swift */; };
+		996DEB6CFE12E76925C33AD9 /* PictureInPictureFrameCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0DE393F8E1A041E919FC937 /* PictureInPictureFrameCapture.swift */; };
+		A41956040010BB411FC5B410 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = ABFC1C5FF4A79A0A52335D32 /* Assets.xcassets */; };
 		B33594ED17E331E3DC1494DE /* ConduitMobileSpikeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CB31B15E7546FEECDEF1B53 /* ConduitMobileSpikeApp.swift */; };
-		A1B2C3D4E5F60718293A4B60 /* KSPlayer in Frameworks */ = {isa = PBXBuildFile; productRef = A1B2C3D4E5F60718293A4B5E /* KSPlayer */; };
 		B9B43AA3AC1A274208E498A9 /* MPVKit in Frameworks */ = {isa = PBXBuildFile; productRef = 6722BC9818D0FD97D537EA0C /* MPVKit */; };
-		D0E8F6D6E0F4D6B2A0B2A001 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D0E8F6D6E0F4D6B2A0B2A002 /* Assets.xcassets */; };
+		CAF3995C0F724F6D2CC1F554 /* ConduitMetalDrawableBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = B5EA5CBD292E55A8F310F840 /* ConduitMetalDrawableBridge.m */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		36B2D3BD1789B3D1AAEC19E3 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 422C3B3DC6C4530178D13275 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 16E0C0C45F548BE31E9E18EA;
+			remoteInfo = ConduitMobileSpike;
+		};
+/* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
 		1696757C18566865DC5CE890 /* MPVPlayerBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVPlayerBridge.swift; sourceTree = "<group>"; };
 		1CB31B15E7546FEECDEF1B53 /* ConduitMobileSpikeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConduitMobileSpikeApp.swift; sourceTree = "<group>"; };
 		1F8980C2E64758A37052A0ED /* PlatformBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlatformBridge.swift; sourceTree = "<group>"; };
-		4D1E7A1B6C8F4A2EB3C9D004 /* ConduitMetalDrawableBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ConduitMetalDrawableBridge.m; sourceTree = "<group>"; };
-		4D1E7A1B6C8F4A2EB3C9D005 /* ConduitMetalDrawableBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ConduitMetalDrawableBridge.h; sourceTree = "<group>"; };
-		4D1E7A1B6C8F4A2EB3C9D006 /* ConduitMobileSpike-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "ConduitMobileSpike-Bridging-Header.h"; sourceTree = "<group>"; };
-		5D6E4B1C8A7F4A2EB3C9D002 /* PictureInPictureFrameCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PictureInPictureFrameCapture.swift; sourceTree = "<group>"; };
-		8C36451C3657ACC0B4612422 /* ConduitMobileSpike.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ConduitMobileSpike.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		3CEFD8FDE7E40F59DC303C20 /* ConduitMobileSpikeTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = ConduitMobileSpikeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		5AC979B32D477B1541BBEB1B /* VideoOutputRecoveryPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoOutputRecoveryPolicyTests.swift; sourceTree = "<group>"; };
+		78797B88432B747E72D3926B /* ConduitMetalDrawableBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ConduitMetalDrawableBridge.h; sourceTree = "<group>"; };
+		8C36451C3657ACC0B4612422 /* conduit.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = conduit.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		8C4D3715EC258774BDAE0C6F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		99D2F22946D55A7EF71C2DD5 /* MetalLayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetalLayer.swift; sourceTree = "<group>"; };
-		A1B2C3D4E5F60718293A4B5C /* KSPlayerBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KSPlayerBridge.swift; sourceTree = "<group>"; };
-		D0E8F6D6E0F4D6B2A0B2A002 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		ABFC1C5FF4A79A0A52335D32 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		B5EA5CBD292E55A8F310F840 /* ConduitMetalDrawableBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ConduitMetalDrawableBridge.m; sourceTree = "<group>"; };
+		E0DE393F8E1A041E919FC937 /* PictureInPictureFrameCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PictureInPictureFrameCapture.swift; sourceTree = "<group>"; };
+		E77BC1C5E04E13A85CE329BC /* ConduitMobileSpike-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "ConduitMobileSpike-Bridging-Header.h"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -39,29 +49,18 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A1B2C3D4E5F60718293A4B60 /* KSPlayer in Frameworks */,
 				B9B43AA3AC1A274208E498A9 /* MPVKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXFrameworksBuildPhase section */
 
-/* Begin PBXResourcesBuildPhase section */
-		D0E8F6D6E0F4D6B2A0B2A003 /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				D0E8F6D6E0F4D6B2A0B2A001 /* Assets.xcassets in Resources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-/* End PBXResourcesBuildPhase section */
-
 /* Begin PBXGroup section */
 		0CE6CCC24D6415A440B3754A = {
 			isa = PBXGroup;
 			children = (
 				9B9CE5783FD7EEDA2937092F /* ConduitMobileSpike */,
+				5D5FA598108562A3822A2A65 /* ConduitMobileSpikeTests */,
 				13A52ADA6DA781D1722AE43C /* Products */,
 			);
 			sourceTree = "<group>";
@@ -69,25 +68,33 @@
 		13A52ADA6DA781D1722AE43C /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				8C36451C3657ACC0B4612422 /* ConduitMobileSpike.app */,
+				8C36451C3657ACC0B4612422 /* conduit.app */,
+				3CEFD8FDE7E40F59DC303C20 /* ConduitMobileSpikeTests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		5D5FA598108562A3822A2A65 /* ConduitMobileSpikeTests */ = {
+			isa = PBXGroup;
+			children = (
+				5AC979B32D477B1541BBEB1B /* VideoOutputRecoveryPolicyTests.swift */,
+			);
+			path = ConduitMobileSpikeTests;
 			sourceTree = "<group>";
 		};
 		9B9CE5783FD7EEDA2937092F /* ConduitMobileSpike */ = {
 			isa = PBXGroup;
 			children = (
+				ABFC1C5FF4A79A0A52335D32 /* Assets.xcassets */,
+				78797B88432B747E72D3926B /* ConduitMetalDrawableBridge.h */,
+				B5EA5CBD292E55A8F310F840 /* ConduitMetalDrawableBridge.m */,
+				E77BC1C5E04E13A85CE329BC /* ConduitMobileSpike-Bridging-Header.h */,
 				1CB31B15E7546FEECDEF1B53 /* ConduitMobileSpikeApp.swift */,
-				4D1E7A1B6C8F4A2EB3C9D006 /* ConduitMobileSpike-Bridging-Header.h */,
-				4D1E7A1B6C8F4A2EB3C9D005 /* ConduitMetalDrawableBridge.h */,
-				4D1E7A1B6C8F4A2EB3C9D004 /* ConduitMetalDrawableBridge.m */,
 				8C4D3715EC258774BDAE0C6F /* Info.plist */,
 				99D2F22946D55A7EF71C2DD5 /* MetalLayer.swift */,
-				A1B2C3D4E5F60718293A4B5C /* KSPlayerBridge.swift */,
 				1696757C18566865DC5CE890 /* MPVPlayerBridge.swift */,
-				5D6E4B1C8A7F4A2EB3C9D002 /* PictureInPictureFrameCapture.swift */,
+				E0DE393F8E1A041E919FC937 /* PictureInPictureFrameCapture.swift */,
 				1F8980C2E64758A37052A0ED /* PlatformBridge.swift */,
-				D0E8F6D6E0F4D6B2A0B2A002 /* Assets.xcassets */,
 			);
 			path = ConduitMobileSpike;
 			sourceTree = "<group>";
@@ -101,8 +108,8 @@
 			buildPhases = (
 				88B6EDC485BA8EE8081EF044 /* Build Compose framework */,
 				51DC600A8740E217C2F687B4 /* Sources */,
+				533778F253DBC14F4D961499 /* Resources */,
 				1FF4B0A7E803635B28771D8C /* Frameworks */,
-				D0E8F6D6E0F4D6B2A0B2A003 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -110,12 +117,29 @@
 			);
 			name = ConduitMobileSpike;
 			packageProductDependencies = (
-				A1B2C3D4E5F60718293A4B5E /* KSPlayer */,
 				6722BC9818D0FD97D537EA0C /* MPVKit */,
 			);
 			productName = ConduitMobileSpike;
-			productReference = 8C36451C3657ACC0B4612422 /* ConduitMobileSpike.app */;
+			productReference = 8C36451C3657ACC0B4612422 /* conduit.app */;
 			productType = "com.apple.product-type.application";
+		};
+		E66FFF54D36AFF888F918787 /* ConduitMobileSpikeTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 89825BD9E452F8B1609A85B4 /* Build configuration list for PBXNativeTarget "ConduitMobileSpikeTests" */;
+			buildPhases = (
+				D9C3F59B738371531C885AC0 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				2FC9370966DC08F6455A792C /* PBXTargetDependency */,
+			);
+			name = ConduitMobileSpikeTests;
+			packageProductDependencies = (
+			);
+			productName = ConduitMobileSpikeTests;
+			productReference = 3CEFD8FDE7E40F59DC303C20 /* ConduitMobileSpikeTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
 		};
 /* End PBXNativeTarget section */
 
@@ -127,7 +151,6 @@
 				LastUpgradeCheck = 1430;
 			};
 			buildConfigurationList = F9D4FD312848BD7C790199E9 /* Build configuration list for PBXProject "ConduitMobileSpike" */;
-			compatibilityVersion = "Xcode 14.0";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -137,16 +160,29 @@
 			mainGroup = 0CE6CCC24D6415A440B3754A;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				A1B2C3D4E5F60718293A4B5F /* XCRemoteSwiftPackageReference "KSPlayer" */,
-				8FEDB1F5B185E7217AF5E824 /* XCLocalSwiftPackageReference "MPVKit" */,
+				8FEDB1F5B185E7217AF5E824 /* XCRemoteSwiftPackageReference "MPVKit" */,
 			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 13A52ADA6DA781D1722AE43C /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
 				16E0C0C45F548BE31E9E18EA /* ConduitMobileSpike */,
+				E66FFF54D36AFF888F918787 /* ConduitMobileSpikeTests */,
 			);
 		};
 /* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		533778F253DBC14F4D961499 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A41956040010BB411FC5B410 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
 		88B6EDC485BA8EE8081EF044 /* Build Compose framework */ = {
@@ -175,23 +211,37 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				CAF3995C0F724F6D2CC1F554 /* ConduitMetalDrawableBridge.m in Sources */,
 				B33594ED17E331E3DC1494DE /* ConduitMobileSpikeApp.swift in Sources */,
-				A1B2C3D4E5F60718293A4B5D /* KSPlayerBridge.swift in Sources */,
 				7A51A1EF48814922E2C08A23 /* MPVPlayerBridge.swift in Sources */,
 				40AF8847BF8611896E76C9E7 /* MetalLayer.swift in Sources */,
-				4D1E7A1B6C8F4A2EB3C9D003 /* ConduitMetalDrawableBridge.m in Sources */,
-				5D6E4B1C8A7F4A2EB3C9D001 /* PictureInPictureFrameCapture.swift in Sources */,
+				996DEB6CFE12E76925C33AD9 /* PictureInPictureFrameCapture.swift in Sources */,
 				7CDCF257DBFF434F69BC4080 /* PlatformBridge.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D9C3F59B738371531C885AC0 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				85E9449084BF12E3E1F87B06 /* VideoOutputRecoveryPolicyTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		2FC9370966DC08F6455A792C /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 16E0C0C45F548BE31E9E18EA /* ConduitMobileSpike */;
+			targetProxy = 36B2D3BD1789B3D1AAEC19E3 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
 		34AEF5628014EB7B741A7894 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				CURRENT_PROJECT_VERSION = 1;
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
@@ -223,6 +273,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -238,7 +289,7 @@
 				MARKETING_VERSION = 0.1.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
-				PRODUCT_NAME = conduit;
+				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
@@ -246,10 +297,25 @@
 			};
 			name = Release;
 		};
+		4A3C6E13F0800FFCFCDDF796 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = media.conduit.mobile.tests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/conduit.app/conduit";
+			};
+			name = Release;
+		};
 		78B1D2E013D893839BE4FC31 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				CURRENT_PROJECT_VERSION = 1;
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
@@ -281,6 +347,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -303,11 +370,27 @@
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
-				PRODUCT_NAME = conduit;
+				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.10;
+			};
+			name = Debug;
+		};
+		A52DDFEEC9A7B73E4FCAC98C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = media.conduit.mobile.tests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/conduit.app/conduit";
 			};
 			name = Debug;
 		};
@@ -318,13 +401,12 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				DEVELOPMENT_TEAM = PYG6R5S4Q7;
 				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
-				FRAMEWORK_SEARCH_PATHS = "$(SRCROOT)/../composeApp/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME) $(BUILD_DIR)/../../SourcePackages/checkouts/FFmpegKit/Sources";
+				FRAMEWORK_SEARCH_PATHS = "$(SRCROOT)/../composeApp/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)";
 				INFOPLIST_FILE = ConduitMobileSpike/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				SWIFT_OBJC_BRIDGING_HEADER = ConduitMobileSpike/ConduitMobileSpike-Bridging-Header.h;
 				"OTHER_LDFLAGS[sdk=iphoneos*]" = (
 					"-framework",
 					ComposeApp,
@@ -338,6 +420,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = media.conduit.mobile;
 				PRODUCT_NAME = conduit;
 				SDKROOT = iphoneos;
+				SWIFT_OBJC_BRIDGING_HEADER = "ConduitMobileSpike/ConduitMobileSpike-Bridging-Header.h";
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
@@ -349,13 +432,12 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				DEVELOPMENT_TEAM = PYG6R5S4Q7;
 				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
-				FRAMEWORK_SEARCH_PATHS = "$(SRCROOT)/../composeApp/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME) $(BUILD_DIR)/../../SourcePackages/checkouts/FFmpegKit/Sources";
+				FRAMEWORK_SEARCH_PATHS = "$(SRCROOT)/../composeApp/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)";
 				INFOPLIST_FILE = ConduitMobileSpike/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				SWIFT_OBJC_BRIDGING_HEADER = ConduitMobileSpike/ConduitMobileSpike-Bridging-Header.h;
 				"OTHER_LDFLAGS[sdk=iphoneos*]" = (
 					"-framework",
 					ComposeApp,
@@ -369,6 +451,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = media.conduit.mobile;
 				PRODUCT_NAME = conduit;
 				SDKROOT = iphoneos;
+				SWIFT_OBJC_BRIDGING_HEADER = "ConduitMobileSpike/ConduitMobileSpike-Bridging-Header.h";
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
@@ -376,6 +459,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		89825BD9E452F8B1609A85B4 /* Build configuration list for PBXNativeTarget "ConduitMobileSpikeTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A52DDFEEC9A7B73E4FCAC98C /* Debug */,
+				4A3C6E13F0800FFCFCDDF796 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
 		ED148F5725A51B4F5563921C /* Build configuration list for PBXNativeTarget "ConduitMobileSpike" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -397,31 +489,20 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
-		A1B2C3D4E5F60718293A4B5F /* XCRemoteSwiftPackageReference "KSPlayer" */ = {
+		8FEDB1F5B185E7217AF5E824 /* XCRemoteSwiftPackageReference "MPVKit" */ = {
 			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/kingslay/KSPlayer.git";
+			repositoryURL = "https://github.com/NuvioMedia/MPVKit.git";
 			requirement = {
 				kind = revision;
-				revision = 25c923b70d3d7881275e8f3d917e1e9752416e27;
+				revision = d5cf091c80368bbbc1bbf2d195fbc55d926df888;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
 
-/* Begin XCLocalSwiftPackageReference section */
-		8FEDB1F5B185E7217AF5E824 /* XCLocalSwiftPackageReference "MPVKit" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = MPVKitCompat;
-		};
-/* End XCLocalSwiftPackageReference section */
-
 /* Begin XCSwiftPackageProductDependency section */
-		A1B2C3D4E5F60718293A4B5E /* KSPlayer */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = A1B2C3D4E5F60718293A4B5F /* XCRemoteSwiftPackageReference "KSPlayer" */;
-			productName = KSPlayer;
-		};
 		6722BC9818D0FD97D537EA0C /* MPVKit */ = {
 			isa = XCSwiftPackageProductDependency;
+			package = 8FEDB1F5B185E7217AF5E824 /* XCRemoteSwiftPackageReference "MPVKit" */;
 			productName = MPVKit;
 		};
 /* End XCSwiftPackageProductDependency section */

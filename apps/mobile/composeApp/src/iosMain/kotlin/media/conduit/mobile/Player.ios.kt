@@ -65,9 +65,9 @@ private data class IosTrack(
 )
 
 @Composable
-actual fun PlayerOrientationLock(active: Boolean, iosPlaybackEngine: IosPlaybackEngine) {
+actual fun PlayerOrientationLock(active: Boolean) {
     val bridge = remember(active) {
-        if (active) IosPlayerBridgeFactory.create(iosPlaybackEngine) else null
+        if (active) IosPlayerBridgeFactory.create() else null
     }
     DisposableEffect(bridge) {
         bridge?.setImmersivePlayback(true)
@@ -99,7 +99,6 @@ actual fun NativePlayer(
     preferredAudioLanguage: String,
     preferredSubtitleLanguage: String,
     androidPlaybackEngine: AndroidPlaybackEngine,
-    iosPlaybackEngine: IosPlaybackEngine,
     onEpisodes: () -> Unit,
     onSources: () -> Unit,
     onControlsVisibilityChanged: (Boolean) -> Unit,
@@ -116,10 +115,8 @@ actual fun NativePlayer(
     val latestTemporarySpeedCallback by rememberUpdatedState(onTemporarySpeedChanged)
     val latestPipCallback by rememberUpdatedState(onSystemPipChanged)
     val latestPipAvailabilityCallback by rememberUpdatedState(onSystemPipAvailabilityChanged)
-    // The engine is latched when this native player session is created. A
-    // settings change therefore applies to the next session, not an active
-    // playback/PiP surface.
-    val bridge = remember { IosPlayerBridgeFactory.create(iosPlaybackEngine) }
+    // The bridge is latched when this native player session is created.
+    val bridge = remember { IosPlayerBridgeFactory.create() }
     val density = LocalDensity.current
     val windowSize = LocalWindowInfo.current.containerSize
     val isIpad = with(density) {
@@ -131,8 +128,8 @@ actual fun NativePlayer(
             currentCallback(
                 PlaybackState(
                     loading = false,
-                    error = "The selected iOS player is not registered in this build.",
-                    engine = iosPlaybackEngine.toNativePlaybackEngine(),
+                error = "The selected iOS player is not registered in this build.",
+                engine = NativePlaybackEngine.MPVKit,
                 ),
             )
         }
@@ -175,7 +172,7 @@ actual fun NativePlayer(
         resizeMode = 0
         playbackReady = false
         url?.takeIf(String::isNotBlank)?.let {
-            // Set preferences before KSPlayer opens the asset so its initial
+            // Set preferences before mpv opens the asset so its initial
             // stream choice matches the app settings, not the first stream.
             bridge.setPreferredAudioLanguage(preferredAudioLanguage)
             bridge.setPreferredSubtitleLanguage(preferredSubtitleLanguage)
@@ -232,7 +229,7 @@ actual fun NativePlayer(
                 videoHeight = bridge.getVideoHeight(),
                 ended = bridge.getIsEnded(),
                 error = bridge.getErrorMessage().ifBlank { null },
-                engine = iosPlaybackEngine.toNativePlaybackEngine(),
+                engine = NativePlaybackEngine.MPVKit,
                 pipReady = !bridge.getIsLoading() &&
                     bridge.getDurationMs() > 0 &&
                     bridge.getVideoWidth() > 0 &&
