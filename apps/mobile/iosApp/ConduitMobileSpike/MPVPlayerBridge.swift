@@ -1366,7 +1366,6 @@ final class ConduitMPVPlayerViewController: UIViewController {
         setOptionString(mpv, name: "vulkan-queue-count", value: "1")
         setOptionString(mpv, name: "vulkan-async-compute", value: "no")
         setOptionString(mpv, name: "vulkan-async-transfer", value: "no")
-        setOptionString(mpv, name: "vulkan-disable-interop", value: "yes")
         setOptionString(mpv, name: "video-rotate", value: "no")
         setOptionString(mpv, name: "input-default-bindings", value: "no")
         setOptionString(mpv, name: "input-vo-keyboard", value: "no")
