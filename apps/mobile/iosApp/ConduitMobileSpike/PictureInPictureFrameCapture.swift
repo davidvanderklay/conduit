@@ -148,6 +148,12 @@ final class ConduitPictureInPictureFrameCapture {
         return enqueuedFrameCount
     }
 
+    var isArmed: Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return isPriming || isActive || burstFramesRemaining > 0
+    }
+
     // MARK: - Arming
 
     /// Arms capture until the first frame lands in the display layer. For a

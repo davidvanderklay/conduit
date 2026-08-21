@@ -342,8 +342,10 @@ final class ConduitMPVPlayerViewController: UIViewController {
     private var loadStartedAtUptime: TimeInterval = 0
     private var destroyStarted = false
     private var audioSessionActivationRequested = false
+    private var didPrewarmPictureInPictureResources = false
     private var resizeMode = 0
     private var automaticPipHomeSwipeCandidate = false
+    private var automaticPipHomeSwipeEdge: AutomaticPipSwipeEdge?
     private var lastDebugPlaybackSnapshot: String?
     private var videoFrameRate = 30.0
 
@@ -439,33 +441,73 @@ final class ConduitMPVPlayerViewController: UIViewController {
         view.addGestureRecognizer(homeSwipeRecognizer)
     }
 
-    /// Detects the bottom-edge upward swipe that starts the Home transition.
-    /// The system defers the bottom edge to this view, so the first swipe
-    /// lands here and PiP can be started explicitly while the app is still
-    /// active instead of relying on AVKit's inline trigger.
+    /// Detects the Home-transition swipe: up from the bottom edge in
+    /// portrait, inward from the home-indicator side edge in landscape. The
+    /// system defers these edges to this view, so the first swipe lands here
+    /// and PiP can be started explicitly while the app is still active
+    /// instead of relying on AVKit's inline trigger.
     @objc private func handleAutomaticPipHomeSwipe(_ recognizer: UIPanGestureRecognizer) {
         guard UIApplication.shared.applicationState == .active else { return }
 
         switch recognizer.state {
         case .began:
-            let location = recognizer.location(in: view)
-            let activationHeight = max(28.0, view.safeAreaInsets.bottom + 10.0)
-            automaticPipHomeSwipeCandidate =
-                location.y >= view.bounds.maxY - activationHeight
+            automaticPipHomeSwipeEdge = homeIndicatorEdge(
+                at: recognizer.location(in: view)
+            )
+            automaticPipHomeSwipeCandidate = automaticPipHomeSwipeEdge != nil
 
         case .changed:
-            guard automaticPipHomeSwipeCandidate else { return }
-            let translation = recognizer.translation(in: view)
-            guard translation.y <= -18.0, abs(translation.y) > abs(translation.x) * 1.15 else { return }
+            guard automaticPipHomeSwipeCandidate,
+                  let edge = automaticPipHomeSwipeEdge else { return }
+            guard isInwardHomeSwipe(recognizer.translation(in: view), from: edge) else { return }
             automaticPipHomeSwipeCandidate = false
+            automaticPipHomeSwipeEdge = nil
             pictureInPicture?.handleHomeSwipeDetected()
 
         case .ended, .cancelled, .failed:
             automaticPipHomeSwipeCandidate = false
+            automaticPipHomeSwipeEdge = nil
             pictureInPicture?.scheduleAutomaticCancelIfAborted()
 
         default:
             break
+        }
+    }
+
+    private enum AutomaticPipSwipeEdge {
+        case bottom
+        case left
+        case right
+    }
+
+    /// The Home indicator sits on the bottom edge in portrait and on one
+    /// side edge in landscape (right for landscapeLeft, left for
+    /// landscapeRight).
+    private func homeIndicatorEdge(at location: CGPoint) -> AutomaticPipSwipeEdge? {
+        let activationDistance: CGFloat = 28.0
+        let bounds = view.bounds
+        switch view.window?.windowScene?.interfaceOrientation {
+        case .landscapeLeft:
+            return location.x >= bounds.maxX - activationDistance ? .right : nil
+        case .landscapeRight:
+            return location.x <= activationDistance ? .left : nil
+        default:
+            let activationHeight = max(activationDistance, view.safeAreaInsets.bottom + 10.0)
+            return location.y >= bounds.maxY - activationHeight ? .bottom : nil
+        }
+    }
+
+    private func isInwardHomeSwipe(
+        _ translation: CGPoint,
+        from edge: AutomaticPipSwipeEdge
+    ) -> Bool {
+        switch edge {
+        case .bottom:
+            return translation.y <= -18.0 && abs(translation.y) > abs(translation.x) * 1.15
+        case .left:
+            return translation.x >= 18.0 && abs(translation.x) > abs(translation.y) * 1.15
+        case .right:
+            return translation.x <= -18.0 && abs(translation.x) > abs(translation.y) * 1.15
         }
     }
 
@@ -808,6 +850,17 @@ final class ConduitMPVPlayerViewController: UIViewController {
             videoFrameRate: videoFrameRate
         )
         if videoSizeChanged { updateSubtitlePosition() }
+        // Warm the PiP capture resources and keep a fresh frame in the
+        // sample-buffer layer once playback is producing frames. Doing this
+        // here, rather than during a PiP transition, keeps the one-time pool
+        // and layer setup away from the audio render callback.
+        if !didPrewarmPictureInPictureResources,
+           hasLoadedFile,
+           !waitingForInitialVideoFrame,
+           videoWidth > 0 {
+            didPrewarmPictureInPictureResources = true
+            pictureInPicture?.prewarmForAutomaticEntry(requirePlaying: false)
+        }
 #if DEBUG
         debugPlaybackState(
             position: position,
@@ -1401,6 +1454,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
         isPlayerLoading = true
         isPlayerEnded = false
         waitingForInitialVideoFrame = true
+        didPrewarmPictureInPictureResources = false
         preferredSubtitleApplied = false
         pendingExternalSubtitles = request.subtitles
         invalidateExternalSubtitleLoads(clearPending: false)
@@ -2057,6 +2111,7 @@ final class ConduitPictureInPictureCoordinator: NSObject,
     private var starting = false
     private var currentStartSource: String?
     private var transitionBegan = false
+    private var startRequested = false
     private var preservePlaybackDuringStart = false
     private var ignorePauseUntil: CFTimeInterval = 0
     private var resumeAfterRestore = false
@@ -2158,6 +2213,7 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         currentStartSource = "manual-button"
         preservePlaybackDuringStart = owner?.isPlayerPlaying == true
         ignorePauseUntil = 0
+        owner?.suspendVideoOutputWatchdogForPictureInPicture()
         scheduleStartTimeout()
         beginPriming(stopAfterFirstFrame: true) { [weak self] in
             DispatchQueue.main.async {
@@ -2227,18 +2283,26 @@ final class ConduitPictureInPictureCoordinator: NSObject,
 
     // MARK: - Automatic entry (Home swipe)
 
-    /// Keeps a fresh frame in the sample-buffer layer while playback runs so
-    /// the Home gesture can start PiP without waiting on a new render.
-    func prewarmForAutomaticEntry() {
+    /// Arms continuous capture so the sample-buffer layer always holds a
+    /// fresh frame while playback runs. Called once playback produces frames
+    /// and again whenever the app is about to resign active. With the layer
+    /// permanently fed, the Home gesture can start PiP instantly instead of
+    /// priming during the transition.
+    func prewarmForAutomaticEntry(requirePlaying: Bool = true) {
         guard isSupported,
-              owner?.isPlayerPlaying == true,
+              let frameCapture,
               !isActive,
               !starting,
               !automaticArmed,
               !automaticPreparationInFlight
         else { return }
-        if automaticPrepared, CACurrentMediaTime() - automaticPreparedAt < 1.0 { return }
-        debugLog("prewarming automatic entry source")
+        if requirePlaying, owner?.isPlayerPlaying != true { return }
+        if automaticPrepared, frameCapture.isArmed { return }
+
+        debugLog("arming automatic entry source")
+        automaticPrepared = false
+        automaticPreparedAt = 0
+        automaticPreparationInFlight = true
         beginPriming(stopAfterFirstFrame: false) { [weak self] in
             DispatchQueue.main.async {
                 guard let self else { return }
@@ -2267,7 +2331,12 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         controller.invalidatePlaybackState()
 
         let frameAge = automaticPreparedAt > 0 ? CACurrentMediaTime() - automaticPreparedAt : .infinity
-        if automaticPrepared, controller.isPictureInPicturePossible, frameAge <= 1.0 {
+        // Continuous capture keeps the layer fresh by construction; the age
+        // check only matters when capture is not currently armed.
+        let frameIsFresh = automaticPrepared && (
+            frameAge <= 1.0 || frameCapture?.isArmed == true
+        )
+        if frameIsFresh, controller.isPictureInPicturePossible {
             debugLog(String(format: "requesting automatic PiP during gesture frameAgeMs=%.0f", frameAge * 1000))
             requestControllerStart(source: "automatic-home", attempt: 0)
             return
@@ -2325,8 +2394,14 @@ final class ConduitPictureInPictureCoordinator: NSObject,
             return
         }
         if automaticArmed {
-            if transitionBegan {
-                debugLog("background with automatic PiP transition pending")
+            if transitionBegan || startRequested {
+                // AVKit accepted the request (or is about to). The background
+                // task and the automatic timeout own cleanup if the
+                // transition never completes.
+                debugLog(
+                    "background with automatic PiP pending transitionBegan=\(transitionBegan) " +
+                        "startRequested=\(startRequested)"
+                )
                 return
             }
             debugLog("automatic PiP was not accepted before background; suspending video track")
@@ -2402,7 +2477,6 @@ final class ConduitPictureInPictureCoordinator: NSObject,
 
     private func beginPriming(stopAfterFirstFrame: Bool, onFirstFrame: @escaping () -> Void) {
         guard let frameCapture else { return }
-        owner?.suspendVideoOutputWatchdogForPictureInPicture()
         frameCapture.startPriming(
             stopAfterFirstFrame: stopAfterFirstFrame,
             onFirstFrame: onFirstFrame
@@ -2414,6 +2488,7 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         automaticPrepared = false
         automaticPreparedAt = 0
         automaticPreparationInFlight = true
+        owner?.suspendVideoOutputWatchdogForPictureInPicture()
         beginPriming(stopAfterFirstFrame: true) { [weak self] in
             DispatchQueue.main.async {
                 guard let self else { return }
@@ -2434,6 +2509,7 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         guard let controller, !controller.isPictureInPictureActive else { return }
         if controller.isPictureInPicturePossible {
             debugLog("requesting PiP start source=\(source)")
+            startRequested = true
             controller.invalidatePlaybackState()
             CATransaction.flush()
             controller.startPictureInPicture()
@@ -2464,6 +2540,7 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         automaticArmed = false
         currentStartSource = nil
         transitionBegan = false
+        startRequested = false
         automaticPrepared = false
         automaticPreparedAt = 0
         endBackgroundTask()
@@ -2532,6 +2609,7 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         deferredFailureWork = nil
         automaticArmed = false
         automaticPreparationInFlight = false
+        startRequested = false
         endBackgroundTask()
         if !isActive {
             starting = false
@@ -2630,6 +2708,7 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         endBackgroundTask()
         starting = false
         currentStartSource = nil
+        startRequested = false
         frameCapture?.markActive(true)
         preservePlaybackAfterDidStart()
         controller?.invalidatePlaybackState()
@@ -2672,6 +2751,7 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         starting = false
         currentStartSource = nil
         transitionBegan = false
+        startRequested = false
         clearPlaybackPreservation()
         endBackgroundTask()
         frameCapture?.markActive(false)
