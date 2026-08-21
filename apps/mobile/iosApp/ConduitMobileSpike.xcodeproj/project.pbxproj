@@ -402,7 +402,7 @@
 			repositoryURL = "https://github.com/davidvanderklay/KSPlayer.git";
 			requirement = {
 				kind = revision;
-				revision = d7d152119173f5811ef0d5f54e768c26c8fcbc39;
+				revision = aadf0374700fec095c46df3647010318f0c79927;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */

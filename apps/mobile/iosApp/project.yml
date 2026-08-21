@@ -3,10 +3,12 @@ options:
   bundleIdPrefix: media.conduit
 packages:
   KSPlayer:
-    # Fork carrying the iOS 26 tinny-audio workaround (bypass AVAudioUnitTimePitch
-    # at rate 1x). Base: kingslay/KSPlayer 25c923b. Revisit upstream before bumping.
+    # Fork carrying two fixes on top of kingslay/KSPlayer 25c923b:
+    # - iOS 26 tinny audio: bypass AVAudioUnitTimePitch at rate 1x (d7d1521)
+    # - PiP speaker crackle: stereo downmix on built-in-speaker routes (aadf037)
+    # Revisit upstream before bumping.
     url: https://github.com/davidvanderklay/KSPlayer.git
-    revision: d7d152119173f5811ef0d5f54e768c26c8fcbc39
+    revision: aadf0374700fec095c46df3647010318f0c79927
   MPVKit:
     path: MPVKitCompat
 schemes:
