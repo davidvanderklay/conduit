@@ -101,6 +101,14 @@ final class ConduitPictureInPictureFrameCapture {
     private let commandQueue: MTLCommandQueue
     private var textureCache: CVMetalTextureCache?
 
+    /// Serializes sample delivery. GPU completion handlers may run
+    /// concurrently, so this queue is what guarantees frames reach the
+    /// display layer in presentation order.
+    private let captureQueue = DispatchQueue(
+        label: "media.conduit.pip-frame-capture",
+        qos: .userInitiated
+    )
+
     private let stateLock = NSLock()
     private var pixelBufferPool: CVPixelBufferPool?
     private var poolWidth = 0
@@ -116,7 +124,14 @@ final class ConduitPictureInPictureFrameCapture {
     private var lastCaptureTime: CFTimeInterval = 0
     private var enqueuedFrameCount: UInt64 = 0
     private var inFlightCaptures = 0
+    private var hasBlitInFlight = false
     private var loggedUnsupportedFormat = false
+
+#if DEBUG
+    private var lastDeliveredPtsSeconds: Double = 0
+    private var pacingSequence: Int = 0
+    private var lastCompletionUptime: TimeInterval = 0
+#endif
 
     init?(
         displayLayer: AVSampleBufferDisplayLayer,
@@ -247,9 +262,13 @@ final class ConduitPictureInPictureFrameCapture {
 
     /// Submits a retained pre-presented texture. Priming can begin between
     /// two MPV presents (for example while paused), and waiting for a render
-    /// that will not come would stall the PiP start.
+    /// that will not come would stall the PiP start. Routed through the
+    /// capture queue so it lands after any in-flight delivery released the
+    /// blit gate.
     func submitRetainedTexture(_ texture: MTLTexture, presentationID: UInt64) {
-        handlePresentedTexture(texture, presentationID: presentationID, sourceLifetime: nil)
+        captureQueue.async { [self] in
+            handlePresentedTexture(texture, presentationID: presentationID, sourceLifetime: nil)
+        }
     }
 
     // MARK: - Capture
@@ -267,6 +286,14 @@ final class ConduitPictureInPictureFrameCapture {
             stateLock.unlock()
             return
         }
+        // One blit in flight at a time: the previous sample is delivered
+        // before the next capture starts, which makes presentation order and
+        // enqueue order identical by construction. A blit takes well under a
+        // present interval, so skipping while one is in flight costs nothing.
+        guard !hasBlitInFlight else {
+            stateLock.unlock()
+            return
+        }
 
         let now = CACurrentMediaTime()
         let clock = clockProvider()
@@ -278,6 +305,7 @@ final class ConduitPictureInPictureFrameCapture {
         }
         lastCaptureTime = now
         if burstFramesRemaining > 0 { burstFramesRemaining -= 1 }
+        hasBlitInFlight = true
         inFlightCaptures += 1
         stateLock.unlock()
 
@@ -289,16 +317,20 @@ final class ConduitPictureInPictureFrameCapture {
         updateArmedState()
     }
 
+    /// Releases the single-blit gate on paths where no completion handler
+    /// will ever fire.
+    private func abandonBlit() {
+        stateLock.lock()
+        hasBlitInFlight = false
+        inFlightCaptures -= 1
+        stateLock.unlock()
+    }
+
     private func enqueue(
         texture source: MTLTexture,
         sourceLifetime: AnyObject?,
         clock: ConduitPipPlaybackClockSnapshot
     ) {
-        defer {
-            stateLock.lock()
-            inFlightCaptures -= 1
-            stateLock.unlock()
-        }
         withExtendedLifetime(sourceLifetime) {}
 
         guard let pixelFormat = Self.pixelBufferFormat(for: source.pixelFormat) else {
@@ -312,6 +344,7 @@ final class ConduitPictureInPictureFrameCapture {
                         "\(source.pixelFormat.rawValue) for capture"
                 )
             }
+            abandonBlit()
             return
         }
 
@@ -326,6 +359,7 @@ final class ConduitPictureInPictureFrameCapture {
             let commandBuffer = commandQueue.makeCommandBuffer(),
             let blit = commandBuffer.makeBlitCommandEncoder()
         else {
+            abandonBlit()
             return
         }
 
@@ -342,7 +376,20 @@ final class ConduitPictureInPictureFrameCapture {
         )
         blit.endEncoding()
         commandBuffer.addCompletedHandler { [weak self] _ in
-            self?.enqueueSampleBuffer(for: pixelBuffer, clock: clock)
+            // The blit gate stays held until delivery finishes on the serial
+            // capture queue, so the next captured frame can never overtake
+            // this one and appear in the PiP window before it.
+            guard let self else { return }
+            #if DEBUG
+            let completedAt = ProcessInfo.processInfo.systemUptime
+            #endif
+            self.captureQueue.async {
+                #if DEBUG
+                self.lastCompletionUptime = completedAt
+                #endif
+                self.enqueueSampleBuffer(for: pixelBuffer, clock: clock)
+                self.abandonBlit()
+            }
         }
         commandBuffer.commit()
     }
@@ -442,13 +489,17 @@ final class ConduitPictureInPictureFrameCapture {
             )
         }
 
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            self.enqueueOnMain(sampleBuffer)
-        }
+        // Deliver from the capture queue, not the main thread. Main-thread
+        // congestion (Compose UI, CA transactions) arrives as irregular
+        // enqueue spacing that DisplayImmediately shows literally, which is
+        // visible as PiP-only frame-pacing jitter. The sample-buffer layer's
+        // enqueue paths are thread-safe.
+        deliverSample(sampleBuffer)
     }
 
-    private func enqueueOnMain(_ sampleBuffer: CMSampleBuffer) {
+    private func deliverSample(_ sampleBuffer: CMSampleBuffer) {
+        let deliveredAt = ProcessInfo.processInfo.systemUptime
+
         if displayLayer.status == .failed {
             logCapture("display layer failed; flushing before retry")
             flushDisplayLayer(removeImage: true)
@@ -456,10 +507,16 @@ final class ConduitPictureInPictureFrameCapture {
 
         if #available(iOS 18.0, *) {
             let renderer = displayLayer.sampleBufferRenderer
-            guard renderer.isReadyForMoreMediaData else { return }
+            guard renderer.isReadyForMoreMediaData else {
+                recordPacing(sampleBuffer, deliveredAt: deliveredAt, dropped: true)
+                return
+            }
             renderer.enqueue(sampleBuffer)
         } else {
-            guard displayLayer.isReadyForMoreMediaData else { return }
+            guard displayLayer.isReadyForMoreMediaData else {
+                recordPacing(sampleBuffer, deliveredAt: deliveredAt, dropped: true)
+                return
+            }
             displayLayer.enqueue(sampleBuffer)
         }
 
@@ -472,7 +529,39 @@ final class ConduitPictureInPictureFrameCapture {
         stateLock.unlock()
 
         handler?()
-        updateArmedState()
+
+        recordPacing(sampleBuffer, deliveredAt: deliveredAt, dropped: false)
+    }
+
+    /// DEBUG-only cadence telemetry: PTS deltas and delivery gaps make frame
+    /// pacing measurable instead of eyeball-confirmed.
+    private func recordPacing(
+        _ sampleBuffer: CMSampleBuffer,
+        deliveredAt: TimeInterval,
+        dropped: Bool
+    ) {
+        #if DEBUG
+        let pts = CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sampleBuffer))
+        stateLock.lock()
+        let previousPts = lastDeliveredPtsSeconds
+        lastDeliveredPtsSeconds = pts
+        pacingSequence &+= 1
+        let sequence = pacingSequence
+        stateLock.unlock()
+
+        let shouldLog = sequence <= 40 || sequence % 30 == 0 || dropped
+        guard shouldLog else { return }
+        let ptsDelta = previousPts > 0 ? (pts - previousPts) * 1_000 : 0
+        logCapture(
+            String(
+                format: "pacing seq=%d %@ ptsDelta=%.1fms gap=%.1fms",
+                sequence,
+                dropped ? "DROPPED" : "enqueued",
+                ptsDelta,
+                (deliveredAt - lastCompletionUptime) * 1_000
+            )
+        )
+        #endif
     }
 
     private func flushDisplayLayer(removeImage: Bool) {
