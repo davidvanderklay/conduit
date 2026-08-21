@@ -11,9 +11,14 @@ import UIKit
 /// Conduit in a multitasking window.
 enum ConduitAudioSession {
     private static let mixingOptions: AVAudioSession.CategoryOptions = [.mixWithOthers]
+    /// The default ~21ms IO buffer cannot absorb transient system stalls
+    /// (PiP window composition, screenshot flashes) without audible
+    /// underruns. 60ms of headroom is imperceptible for video playback.
+    private static let ioBufferDuration: TimeInterval = 0.06
 
     static func configureForPlayback(_ session: AVAudioSession = AVAudioSession.sharedInstance()) throws {
         try session.setCategory(.playback, mode: .moviePlayback, options: mixingOptions)
+        try session.setPreferredIOBufferDuration(ioBufferDuration)
     }
 
     static func activateForPlayback() throws {

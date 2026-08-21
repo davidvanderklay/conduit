@@ -455,11 +455,13 @@ final class ConduitMPVPlayerViewController: UIViewController {
                 at: recognizer.location(in: view)
             )
             automaticPipHomeSwipeCandidate = automaticPipHomeSwipeEdge != nil
+            debugLog("home swipe began edge=\(automaticPipHomeSwipeEdge.map(String.init(describing:)) ?? "none")")
 
         case .changed:
             guard automaticPipHomeSwipeCandidate,
                   let edge = automaticPipHomeSwipeEdge else { return }
             guard isInwardHomeSwipe(recognizer.translation(in: view), from: edge) else { return }
+            debugLog("home swipe inward confirmed edge=\(edge)")
             automaticPipHomeSwipeCandidate = false
             automaticPipHomeSwipeEdge = nil
             pictureInPicture?.handleHomeSwipeDetected()
@@ -1351,6 +1353,10 @@ final class ConduitMPVPlayerViewController: UIViewController {
         setOptionString(mpv, name: "ao", value: Self.audioOutput)
         setOptionString(mpv, name: "audio-channels", value: "auto")
         setOptionString(mpv, name: "audio-fallback-to-null", value: "yes")
+        // Keep the audio unit fed through transient system stalls (for
+        // example the first PiP window composition) instead of underrunning
+        // with an audible crackle.
+        setOptionString(mpv, name: "audio-stream-silence", value: "yes")
         setOptionString(mpv, name: "vulkan-swap-mode", value: "fifo")
         setOptionString(mpv, name: "vulkan-queue-count", value: "1")
         setOptionString(mpv, name: "vulkan-async-compute", value: "no")
@@ -2125,7 +2131,6 @@ final class ConduitPictureInPictureCoordinator: NSObject,
     private var startTimeoutWork: DispatchWorkItem?
     private var automaticTimeoutWork: DispatchWorkItem?
     private var startRetryWork: DispatchWorkItem?
-    private var deferredFailureWork: DispatchWorkItem?
     private var restoreResumeWork: DispatchWorkItem?
     private var abortCancelWork: DispatchWorkItem?
     private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
@@ -2389,30 +2394,17 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         metalLayer.releasePendingDrawable()
         frameCapture?.setBackgrounded(true)
 
-        if isActive {
-            debugLog("background with PiP active; keeping primary pipeline alive")
-            return
-        }
-        if automaticArmed {
-            if transitionBegan || startRequested {
-                // AVKit accepted the request (or is about to). The background
-                // task and the automatic timeout own cleanup if the
-                // transition never completes.
-                debugLog(
-                    "background with automatic PiP pending transitionBegan=\(transitionBegan) " +
-                        "startRequested=\(startRequested)"
-                )
-                return
-            }
-            debugLog("automatic PiP was not accepted before background; suspending video track")
-            controller?.stopPictureInPicture()
-            cancelAutomaticEntry(stopPriming: true)
-            resumePlaybackAfterBackground = owner?.isPlayerPlaying == true
-            owner?.suspendVideoTrackForBackground(reason: "automatic-start-rejected")
-            return
-        }
-        if starting {
-            debugLog("background with manual PiP start pending; keeping pipeline alive")
+        // Any in-flight start signal keeps the pipeline alive. Lifecycle
+        // delivery around a Home-swipe PiP transition is racy: the background
+        // notification can land while AVKit is still working on a start whose
+        // bookkeeping flags have partially unwound.
+        let startInFlight = transitionBegan || startRequested || starting || automaticArmed
+        debugLog(
+            "enterBackground active=\(isActive) transitionBegan=\(transitionBegan) " +
+                "startRequested=\(startRequested) starting=\(starting) automaticArmed=\(automaticArmed)"
+        )
+        if isActive || startInFlight {
+            debugLog("background with PiP pending/active; keeping primary pipeline alive")
             return
         }
         resumePlaybackAfterBackground = owner?.isPlayerPlaying == true
@@ -2443,8 +2435,6 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         cancelAutomaticTimeout()
         startRetryWork?.cancel()
         startRetryWork = nil
-        deferredFailureWork?.cancel()
-        deferredFailureWork = nil
         restoreResumeWork?.cancel()
         restoreResumeWork = nil
         abortCancelWork?.cancel()
@@ -2511,7 +2501,6 @@ final class ConduitPictureInPictureCoordinator: NSObject,
             debugLog("requesting PiP start source=\(source)")
             startRequested = true
             controller.invalidatePlaybackState()
-            CATransaction.flush()
             controller.startPictureInPicture()
             return
         }
@@ -2531,6 +2520,9 @@ final class ConduitPictureInPictureCoordinator: NSObject,
 
     private func handleStartFailure(source: String) {
         debugLog("PiP start failed source=\(source)")
+        // A transition that already began owns its own outcome through
+        // didStop; tearing down underneath it would blank live content.
+        guard !transitionBegan else { return }
         let wasPreserved = preservePlaybackDuringStart
         cancelStartTimeout()
         cancelAutomaticTimeout()
@@ -2582,7 +2574,8 @@ final class ConduitPictureInPictureCoordinator: NSObject,
     private func scheduleAutomaticTimeout() {
         automaticTimeoutWork?.cancel()
         let work = DispatchWorkItem { [weak self] in
-            guard let self, self.automaticArmed else { return }
+            guard let self,
+                  self.automaticArmed || self.starting || self.startRequested else { return }
             guard !self.isActive else {
                 self.cancelAutomaticEntry(stopPriming: false)
                 return
@@ -2605,8 +2598,6 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         automaticTimeoutWork = nil
         startRetryWork?.cancel()
         startRetryWork = nil
-        deferredFailureWork?.cancel()
-        deferredFailureWork = nil
         automaticArmed = false
         automaticPreparationInFlight = false
         startRequested = false
@@ -2688,8 +2679,6 @@ final class ConduitPictureInPictureCoordinator: NSObject,
     func pictureInPictureControllerWillStartPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
         debugLog("will start")
         transitionBegan = true
-        deferredFailureWork?.cancel()
-        deferredFailureWork = nil
         owner?.setInlineVideoHiddenForPictureInPicture(true)
     }
 
@@ -2699,8 +2688,6 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         cancelAutomaticTimeout()
         startRetryWork?.cancel()
         startRetryWork = nil
-        deferredFailureWork?.cancel()
-        deferredFailureWork = nil
         automaticArmed = false
         automaticPreparationInFlight = false
         automaticPrepared = false
@@ -2722,18 +2709,13 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         debugLog("start failed")
 
         // AVKit provisionally reports failure for starts issued during the
-        // Home gesture even when the transition then succeeds. Wait briefly
-        // before tearing anything down.
-        if currentStartSource == "automatic-home" && !transitionBegan {
-            deferredFailureWork?.cancel()
-            let work = DispatchWorkItem { [weak self] in
-                guard let self else { return }
-                self.deferredFailureWork = nil
-                guard !self.isActive else { return }
-                self.handleStartFailure(source: "automatic-home-rejected")
-            }
-            deferredFailureWork = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.25, execute: work)
+        // Home gesture even when the transition then succeeds, and the first
+        // transition of a session can take longer than any safe wait. The
+        // automatic timeout owns real failure cleanup for this path; tearing
+        // down here would pause MPV and detach the video track underneath a
+        // transition that is about to succeed.
+        if currentStartSource == "automatic-home" {
+            debugLog("ignoring provisional automatic start failure; timeout owns cleanup")
             return
         }
         handleStartFailure(source: currentStartSource ?? "unknown")
@@ -2745,8 +2727,6 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         cancelAutomaticTimeout()
         startRetryWork?.cancel()
         startRetryWork = nil
-        deferredFailureWork?.cancel()
-        deferredFailureWork = nil
         automaticArmed = false
         starting = false
         currentStartSource = nil
@@ -2826,6 +2806,9 @@ final class ConduitPictureInPictureCoordinator: NSObject,
             clearPlaybackPreservation()
             owner?.pausePlayback()
         } else {
+            // A previous failed transition may have suspended the video
+            // track; restore it before resuming so PiP video keeps moving.
+            owner?.restoreVideoTrackAfterBackgroundIfNeeded()
             owner?.playPlayback()
         }
         DispatchQueue.main.async { [weak self] in
