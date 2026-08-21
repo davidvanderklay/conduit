@@ -1456,6 +1456,13 @@ private fun BoxScope.PlaybackSessionHost(
         session.playback,
         session.autoRecoveryExhausted,
     )
+    val showPlaybackActions = fullScreen &&
+        !pipHandoffVisible &&
+        playbackSurfaceReady &&
+        playbackTransition == null &&
+        !session.playback.loading &&
+        !session.playback.buffering &&
+        !presentPlaybackError
 
     Box(Modifier.fillMaxSize().onSizeChanged { containerSize = it }) {
         // Adaptive iOS hides the native bar, but the mini-player keeps its
@@ -1561,7 +1568,7 @@ private fun BoxScope.PlaybackSessionHost(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
                     )
-                    if (fullScreen) {
+                    if (showPlaybackActions) {
                         BadgedBox(
                             badge = {
                                 val count = snapshot?.queue?.size ?: 0
@@ -1570,14 +1577,12 @@ private fun BoxScope.PlaybackSessionHost(
                         ) {
                             IconButton(
                                 onClick = controller::openQueue,
-                                modifier = Modifier.background(Color.Black.copy(.55f), androidx.compose.foundation.shape.CircleShape),
                             ) { Icon(Icons.Rounded.QueueMusic, "Queue", tint = Color.White) }
                         }
                     }
-                    if (fullScreen && pipActionReady) {
+                    if (showPlaybackActions && pipActionReady) {
                         IconButton(
                             onClick = { controller.send(PlaybackCommand.EnterSystemPip) },
-                            modifier = Modifier.background(Color.Black.copy(.55f), androidx.compose.foundation.shape.CircleShape),
                         ) { Icon(Icons.Rounded.PictureInPictureAlt, "Picture in Picture", tint = Color.White) }
                     }
                 }
