@@ -1,7 +1,8 @@
 import AVFoundation
 import CoreMedia
+import CoreVideo
+import Foundation
 import Metal
-import os
 
 struct ConduitPipPlaybackClockSnapshot: Equatable {
     let positionMs: Int64
@@ -9,6 +10,7 @@ struct ConduitPipPlaybackClockSnapshot: Equatable {
     let isPlaying: Bool
     let playbackRate: Double
     let videoFrameRate: Double
+    let sampledAtUptime: TimeInterval
     let generation: UInt64
 
     static let empty = ConduitPipPlaybackClockSnapshot(
@@ -17,8 +19,18 @@ struct ConduitPipPlaybackClockSnapshot: Equatable {
         isPlaying: false,
         playbackRate: 1,
         videoFrameRate: 30,
+        sampledAtUptime: 0,
         generation: 0
     )
+
+    /// MPV's clock advances between refresh polls, so capture timestamps are
+    /// extrapolated from the last poll instead of stepping at poll cadence.
+    func interpolatedPositionSeconds(at uptime: TimeInterval) -> Double {
+        guard sampledAtUptime > 0 else { return Double(positionMs) / 1_000 }
+        let elapsed = max(0, uptime - sampledAtUptime)
+        guard isPlaying, playbackRate > 0 else { return Double(positionMs) / 1_000 }
+        return (Double(positionMs) + elapsed * 1_000 * playbackRate) / 1_000
+    }
 }
 
 /// Publishes the MPV clock to the Metal presentation thread without exposing
@@ -36,12 +48,14 @@ final class ConduitPipPlaybackClock {
         videoFrameRate: Double
     ) {
         lock.lock()
+        generation &+= 1
         value = ConduitPipPlaybackClockSnapshot(
             positionMs: max(positionMs, 0),
             durationMs: max(durationMs, 0),
             isPlaying: isPlaying,
             playbackRate: playbackRate > 0 ? playbackRate : 1,
             videoFrameRate: videoFrameRate > 0 ? videoFrameRate : 30,
+            sampledAtUptime: ProcessInfo.processInfo.systemUptime,
             generation: generation
         )
         lock.unlock()
@@ -56,6 +70,7 @@ final class ConduitPipPlaybackClock {
             isPlaying: value.isPlaying,
             playbackRate: value.playbackRate,
             videoFrameRate: value.videoFrameRate,
+            sampledAtUptime: ProcessInfo.processInfo.systemUptime,
             generation: generation
         )
         lock.unlock()
@@ -68,1228 +83,515 @@ final class ConduitPipPlaybackClock {
     }
 }
 
-struct ConduitPipFrameScheduler {
-    private(set) var lastCaptureUptime: TimeInterval = 0
-    private(set) var lastPresentationID: UInt64 = 0
-
-    mutating func reset() {
-        lastCaptureUptime = 0
-        lastPresentationID = 0
-    }
-
-    mutating func shouldCapture(
-        at uptime: TimeInterval,
-        presentationID: UInt64,
-        clock: ConduitPipPlaybackClockSnapshot
-    ) -> Bool {
-        guard presentationID != lastPresentationID else { return false }
-
-        let minimumInterval = Self.effectiveCaptureInterval(for: clock)
-        guard lastCaptureUptime == 0 || uptime - lastCaptureUptime >= minimumInterval else {
-            return false
-        }
-
-        lastCaptureUptime = uptime
-        lastPresentationID = presentationID
-        return true
-    }
-
-    static func effectiveCaptureInterval(for clock: ConduitPipPlaybackClockSnapshot) -> TimeInterval {
-        let frameRate = min(max(clock.videoFrameRate > 0 ? clock.videoFrameRate : 30, 1), 60)
-        let playbackRate = min(max(clock.playbackRate > 0 ? clock.playbackRate : 1, 0.25), 4)
-        return 1 / min(frameRate * playbackRate, 60)
-    }
-}
-
-struct ConduitPipTimestampEstimator {
-    private(set) var lastTimestamp = CMTime.invalid
-    private(set) var didDetectTimelineDiscontinuity = false
-
-    private var generation: UInt64?
-    private var anchorPositionMs: Int64 = 0
-    private var anchorUptime: TimeInterval = 0
-    private var anchorIsPlaying = false
-    private var anchorRate = 1.0
-
-    mutating func reset() {
-        lastTimestamp = .invalid
-        didDetectTimelineDiscontinuity = false
-        generation = nil
-        anchorPositionMs = 0
-        anchorUptime = 0
-        anchorIsPlaying = false
-        anchorRate = 1
-    }
-
-    mutating func timestamp(
-        for clock: ConduitPipPlaybackClockSnapshot,
-        at uptime: TimeInterval
-    ) -> CMTime {
-        didDetectTimelineDiscontinuity = false
-        let predictedElapsedMs = anchorIsPlaying
-            ? max(0, uptime - anchorUptime) * 1_000 * anchorRate
-            : 0
-        let predictedPositionMs = anchorPositionMs + Int64(predictedElapsedMs)
-        let generationChanged = generation != nil && generation != clock.generation
-        let materialBackwardJump = anchorUptime > 0 &&
-            clock.positionMs + 750 < predictedPositionMs
-        let needsNewAnchor = generation != clock.generation
-            || anchorUptime == 0
-            || anchorIsPlaying != clock.isPlaying
-            || abs(clock.playbackRate - anchorRate) > 0.01
-            || abs(clock.positionMs - predictedPositionMs) > 750
-
-        if needsNewAnchor {
-            if generationChanged || materialBackwardJump {
-                lastTimestamp = .invalid
-                didDetectTimelineDiscontinuity = materialBackwardJump
-            }
-            generation = clock.generation
-            anchorPositionMs = max(clock.positionMs, 0)
-            anchorUptime = uptime
-            anchorIsPlaying = clock.isPlaying
-            anchorRate = min(max(clock.playbackRate > 0 ? clock.playbackRate : 1, 0.25), 4)
-        }
-
-        let elapsedMs = anchorIsPlaying
-            ? Int64(max(0, uptime - anchorUptime) * 1_000 * anchorRate)
-            : 0
-        let positionMs = max(anchorPositionMs + elapsedMs, 0)
-        var timestamp = CMTime(value: positionMs, timescale: 1_000)
-
-        if lastTimestamp.isValid && CMTimeCompare(timestamp, lastTimestamp) <= 0 {
-            timestamp = CMTimeAdd(lastTimestamp, CMTime(value: 1, timescale: 1_000))
-        }
-
-        lastTimestamp = timestamp
-        return timestamp
-    }
-}
-
 /// Copies presented MPV textures into IOSurface-backed sample buffers without
-/// involving Core Image or the main thread's render loop.
-enum ConduitPipCaptureFailureKind: Equatable {
-    case fatal
-    case rePrime
-}
-
-enum ConduitPipCaptureRecoveryAction: Equatable {
-    case rePrime(active: Bool)
-    case fail
-}
-
-struct ConduitPipCaptureRecoveryPolicy {
-    private(set) var attempts = 0
-    private let maximumAttempts = 1
-
-    mutating func reset() {
-        attempts = 0
-    }
-
-    mutating func action(
-        for failureKind: ConduitPipCaptureFailureKind,
-        isActive: Bool
-    ) -> ConduitPipCaptureRecoveryAction {
-        guard failureKind == .rePrime, attempts < maximumAttempts else {
-            return .fail
-        }
-        attempts += 1
-        return .rePrime(active: isActive)
-    }
-}
-
-/// Owns the single capture admitted for a presentation generation. Detaching
-/// is idempotent so a timeout can release the gate before a late completion.
-struct ConduitPipCaptureInFlightState {
-    private(set) var generation: UInt64?
-
-    mutating func claim(_ candidate: UInt64) -> Bool {
-        guard generation == nil else { return false }
-        generation = candidate
-        return true
-    }
-
-    @discardableResult
-    mutating func finish(_ candidate: UInt64) -> Bool {
-        guard generation == candidate else { return false }
-        generation = nil
-        return true
-    }
-
-    @discardableResult
-    mutating func detach() -> UInt64? {
-        defer { generation = nil }
-        return generation
-    }
-}
-
-struct ConduitPipCaptureMetricsSnapshot: Equatable {
-    let enqueuedFrames: UInt64
-    let droppedFrames: UInt64
-    let failures: UInt64
-    let reprimeAttempts: UInt64
-    let sourceFrameRate: Double
-    let effectiveCaptureInterval: TimeInterval
-    let drawableWidth: Int
-    let drawableHeight: Int
-    let bufferWidth: Int
-    let bufferHeight: Int
-    let clockGeneration: UInt64
-}
-
-final class ConduitPipCaptureMetrics {
-    private let lock = NSLock()
-    private var enqueuedFrames: UInt64 = 0
-    private var droppedFrames: UInt64 = 0
-    private var failures: UInt64 = 0
-    private var reprimeAttempts: UInt64 = 0
-    private var sourceFrameRate = 0.0
-    private var effectiveCaptureInterval = 0.0
-    private var drawableWidth = 0
-    private var drawableHeight = 0
-    private var bufferWidth = 0
-    private var bufferHeight = 0
-    private var clockGeneration: UInt64 = 0
-
-    func reset() {
-        lock.lock()
-        enqueuedFrames = 0
-        droppedFrames = 0
-        failures = 0
-        reprimeAttempts = 0
-        sourceFrameRate = 0
-        effectiveCaptureInterval = 0
-        drawableWidth = 0
-        drawableHeight = 0
-        bufferWidth = 0
-        bufferHeight = 0
-        clockGeneration = 0
-        lock.unlock()
-    }
-
-    func recordEnqueuedFrame() {
-        lock.lock()
-        enqueuedFrames &+= 1
-        lock.unlock()
-    }
-
-    func recordDrop() {
-        lock.lock()
-        droppedFrames &+= 1
-        lock.unlock()
-    }
-
-    func recordFailure() {
-        lock.lock()
-        failures &+= 1
-        lock.unlock()
-    }
-
-    func recordReprimeAttempt() {
-        lock.lock()
-        reprimeAttempts &+= 1
-        lock.unlock()
-    }
-
-    func recordCaptureContext(
-        sourceFrameRate: Double,
-        effectiveCaptureInterval: TimeInterval,
-        drawableWidth: Int,
-        drawableHeight: Int,
-        bufferWidth: Int,
-        bufferHeight: Int,
-        clockGeneration: UInt64
-    ) {
-        lock.lock()
-        self.sourceFrameRate = sourceFrameRate
-        self.effectiveCaptureInterval = effectiveCaptureInterval
-        self.drawableWidth = drawableWidth
-        self.drawableHeight = drawableHeight
-        self.bufferWidth = bufferWidth
-        self.bufferHeight = bufferHeight
-        self.clockGeneration = clockGeneration
-        lock.unlock()
-    }
-
-    func snapshot() -> ConduitPipCaptureMetricsSnapshot {
-        lock.lock()
-        defer { lock.unlock() }
-        return ConduitPipCaptureMetricsSnapshot(
-            enqueuedFrames: enqueuedFrames,
-            droppedFrames: droppedFrames,
-            failures: failures,
-            reprimeAttempts: reprimeAttempts,
-            sourceFrameRate: sourceFrameRate,
-            effectiveCaptureInterval: effectiveCaptureInterval,
-            drawableWidth: drawableWidth,
-            drawableHeight: drawableHeight,
-            bufferWidth: bufferWidth,
-            bufferHeight: bufferHeight,
-            clockGeneration: clockGeneration
-        )
-    }
-}
-
-enum ConduitPipAllocationDisposition: Equatable {
-    case drop
-    case fail
-}
-
-enum ConduitPipAllocationPolicy {
-    static func disposition(
-        for status: CVReturn,
-        duringSetup: Bool
-    ) -> ConduitPipAllocationDisposition {
-        guard !duringSetup else { return .fail }
-        return isBackpressure(status) ? .drop : .fail
-    }
-
-    static func isBackpressure(_ status: CVReturn) -> Bool {
-        status == kCVReturnAllocationFailed
-            || status == kCVReturnWouldExceedAllocationThreshold
-            || status == kCVReturnPoolAllocationFailed
-    }
-}
-
-final class ConduitPipCaptureLifetimeToken {
-    private let lock = NSLock()
-    private var isReleased = false
-    private let onRelease: () -> Void
-
-    init(onRelease: @escaping () -> Void) {
-        self.onRelease = onRelease
-    }
-
-    func release() {
-        lock.lock()
-        guard !isReleased else {
-            lock.unlock()
-            return
-        }
-        isReleased = true
-        lock.unlock()
-        onRelease()
-    }
-}
-
-final class ConduitPipCaptureLifetimeTracker {
-    private let lock = NSLock()
-    private let group = DispatchGroup()
-    private var tokens: [UUID: ConduitPipCaptureLifetimeToken] = [:]
-
-    func begin() -> ConduitPipCaptureLifetimeToken {
-        let id = UUID()
-        let token = ConduitPipCaptureLifetimeToken { [weak self] in
-            self?.release(id: id)
-        }
-        lock.lock()
-        tokens[id] = token
-        group.enter()
-        lock.unlock()
-        return token
-    }
-
-    func notify(queue: DispatchQueue, execute: @escaping () -> Void) {
-        group.notify(queue: queue, execute: execute)
-    }
-
-    func forceReleaseAll() {
-        lock.lock()
-        let activeTokens = Array(tokens.values)
-        lock.unlock()
-        activeTokens.forEach { $0.release() }
-    }
-
-    private func release(id: UUID) {
-        lock.lock()
-        guard tokens.removeValue(forKey: id) != nil else {
-            lock.unlock()
-            return
-        }
-        lock.unlock()
-        group.leave()
-    }
-}
-
-final class ConduitPipCaptureTimeoutState {
-    private let lock = NSLock()
-    private var didTimeout = false
-
-    func markTimedOut() {
-        lock.lock()
-        didTimeout = true
-        lock.unlock()
-    }
-
-    var timedOut: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return didTimeout
-    }
-}
-
-final class ConduitPipCaptureShutdownFence {
-    private let lock = NSLock()
-    private let activeOperationGroup = DispatchGroup()
-    private var generation: UInt64 = 0
-    private var isArmed = false
-    private var failedGeneration: UInt64?
-
-    func arm(for generation: UInt64) {
-        lock.lock()
-        self.generation = generation
-        isArmed = true
-        failedGeneration = nil
-        lock.unlock()
-    }
-
-    func disarm() {
-        lock.lock()
-        isArmed = false
-        lock.unlock()
-    }
-
-    func fail(for generation: UInt64) {
-        lock.lock()
-        if self.generation == generation {
-            failedGeneration = generation
-        }
-        lock.unlock()
-    }
-
-    @discardableResult
-    func withPermission(
-        for generation: UInt64,
-        _ action: () -> Void
-    ) -> Bool {
-        lock.lock()
-        guard isArmed,
-              self.generation == generation,
-              failedGeneration != generation
-        else {
-            lock.unlock()
-            return false
-        }
-        activeOperationGroup.enter()
-        lock.unlock()
-
-        // The capture lifetime group keeps teardown deferred for an operation
-        // admitted here. Keep this lock out of the potentially blocking AVKit
-        // call so disarm remains bounded.
-        defer { activeOperationGroup.leave() }
-        action()
-        return true
-    }
-
-    func notifyOperationsIdle(queue: DispatchQueue, execute: @escaping () -> Void) {
-        activeOperationGroup.notify(queue: queue, execute: execute)
-    }
-}
-
-enum ConduitPipInstrumentation {
-    static let log = OSLog(subsystem: "media.conduit.mobile", category: "PiP")
-
-    static func event(_ name: StaticString, reason: String) {
-        os_signpost(.event, log: log, name: name, "%{public}s", reason)
-    }
-}
-
+/// creating a second decoder or reading pixels back through the CPU.
+///
+/// Capture is armed only when it is needed: while priming a PiP start, while
+/// PiP is active, or for a short render burst after layout/seek/pause/
+/// foreground changes. Every armed frame is marked DisplayImmediately so the
+/// sample-buffer layer shows each sample on arrival instead of pacing against
+/// extrapolated presentation timestamps.
 final class ConduitPictureInPictureFrameCapture {
-    private static let captureShutdownTimeout: DispatchTimeInterval = .milliseconds(250)
-
-    typealias ClockProvider = () -> ConduitPipPlaybackClockSnapshot
-    typealias FrameEnqueuedHandler = () -> Void
-    typealias CaptureFailureHandler = (_ reason: String, _ kind: ConduitPipCaptureFailureKind) -> Void
-
+    private let displayLayer: AVSampleBufferDisplayLayer
     private let metalLayer: ConduitMetalLayer
-    private weak var displayLayer: AVSampleBufferDisplayLayer?
-    private let clockProvider: ClockProvider
-    private let metrics: ConduitPipCaptureMetrics
-    private var onFrameEnqueued: FrameEnqueuedHandler
-    private let captureQueue = DispatchQueue(
-        label: "media.conduit.pip-frame-capture",
-        qos: .userInitiated
-    )
-    private let captureQueueKey = DispatchSpecificKey<Void>()
-    private let captureIdleGroup = DispatchGroup()
-    private let captureLifetimeTracker = ConduitPipCaptureLifetimeTracker()
-    private let shutdownFence = ConduitPipCaptureShutdownFence()
-    private var commandQueue: MTLCommandQueue?
+    private let clockProvider: () -> ConduitPipPlaybackClockSnapshot
+    private let videoSizeProvider: () -> CGSize
+
+    private let device: MTLDevice
+    private let commandQueue: MTLCommandQueue
     private var textureCache: CVMetalTextureCache?
+
     private let stateLock = NSLock()
-    private var onCaptureFailure: CaptureFailureHandler
-
-    private var isArmed = false
-    private var generation: UInt64 = 0
-    private var inFlightState = ConduitPipCaptureInFlightState()
-    private var failedGeneration: UInt64?
-
-    private var scheduler = ConduitPipFrameScheduler()
-    private var timestampEstimator = ConduitPipTimestampEstimator()
     private var pixelBufferPool: CVPixelBufferPool?
+    private var poolWidth = 0
+    private var poolHeight = 0
+    private var poolPixelFormat: OSType = 0
     private var formatDescription: CMVideoFormatDescription?
-    private var poolSize = CGSize.zero
-    private var destinationPixelFormat: MTLPixelFormat = .bgra8Unorm
-    private var droppedFrameCount: UInt64 = 0
-    private var lastDropLogUptime: TimeInterval = 0
 
-    init(
-        metalLayer: ConduitMetalLayer,
+    private var isPriming = false
+    private var isActive = false
+    private var stopPrimingAfterFirstFrame = false
+    private var burstFramesRemaining = 0
+    private var firstFrameHandler: (() -> Void)?
+    private var lastCaptureTime: CFTimeInterval = 0
+    private var enqueuedFrameCount: UInt64 = 0
+    private var inFlightCaptures = 0
+    private var loggedUnsupportedFormat = false
+
+    init?(
         displayLayer: AVSampleBufferDisplayLayer,
-        clockProvider: @escaping ClockProvider,
-        onFrameEnqueued: @escaping FrameEnqueuedHandler,
-        metrics: ConduitPipCaptureMetrics = ConduitPipCaptureMetrics(),
-        onCaptureFailure: @escaping CaptureFailureHandler = { _, _ in }
+        metalLayer: ConduitMetalLayer,
+        clockProvider: @escaping () -> ConduitPipPlaybackClockSnapshot,
+        videoSizeProvider: @escaping () -> CGSize
     ) {
-        self.metalLayer = metalLayer
+        guard
+            let device = metalLayer.device ?? MTLCreateSystemDefaultDevice(),
+            let queue = device.makeCommandQueue()
+        else {
+            print("[Conduit PiP] Unable to create Metal device/queue for capture")
+            return nil
+        }
+
         self.displayLayer = displayLayer
+        self.metalLayer = metalLayer
         self.clockProvider = clockProvider
-        self.metrics = metrics
-        self.onFrameEnqueued = onFrameEnqueued
-        self.onCaptureFailure = onCaptureFailure
-        captureQueue.setSpecific(key: captureQueueKey, value: ())
+        self.videoSizeProvider = videoSizeProvider
+        self.device = device
+        self.commandQueue = queue
+
+        CVMetalTextureCacheCreate(kCFAllocatorDefault, nil, device, nil, &textureCache)
     }
 
-    var metricsSnapshot: ConduitPipCaptureMetricsSnapshot { metrics.snapshot() }
-
-    func setOnFrameEnqueued(_ handler: @escaping FrameEnqueuedHandler) {
-        onFrameEnqueued = handler
-    }
-
-    func setOnCaptureFailure(_ handler: @escaping CaptureFailureHandler) {
-        onCaptureFailure = handler
-    }
-
-    /// Builds the expensive Core Video and Metal capture resources while the
-    /// player is still in its initial, paused-frame path. This keeps the first
-    /// PiP transition from competing with a live AudioUnit render callback.
-    func prewarmResources() {
-        guard let latest = metalLayer.latestDrawableTextureSnapshot() else {
-#if DEBUG
-            print("[Conduit PiP][diagnostic] prewarm skipped: no drawable")
-#endif
-            return
-        }
-
-        let sourceTexture = latest.texture
-        captureQueue.async { [weak self] in
-            guard let self else { return }
-            let startedAt = ProcessInfo.processInfo.systemUptime
-            guard let destinationFormat = Self.destinationFormat(for: sourceTexture.pixelFormat) else {
-#if DEBUG
-                print("[Conduit PiP][diagnostic] prewarm skipped: unsupported format \(sourceTexture.pixelFormat.rawValue)")
-#endif
-                return
-            }
-
-            switch self.ensureMetalResources() {
-            case .failure(let reason):
-#if DEBUG
-                print("[Conduit PiP][diagnostic] prewarm failed: \(reason)")
-#endif
-                return
-            case .ready:
-                break
-            }
-            switch self.ensurePool(
-                width: sourceTexture.width,
-                height: sourceTexture.height,
-                pixelFormat: destinationFormat
-            ) {
-            case .failure(let reason):
-#if DEBUG
-                print("[Conduit PiP][diagnostic] prewarm failed: \(reason)")
-#endif
-                return
-            case .ready:
-                break
-            }
-
-#if DEBUG
-            let elapsed = ProcessInfo.processInfo.systemUptime - startedAt
-            print(
-                "[Conduit PiP][diagnostic] prewarm ready " +
-                    "\(sourceTexture.width)x\(sourceTexture.height) " +
-                    "format=\(destinationFormat.rawValue) " +
-                    String(format: "in %.3fs", elapsed)
-            )
-#endif
-        }
-    }
-
-    func start(onReady: (() -> Void)? = nil) {
-        shutdownFence.disarm()
+    var enqueuedFrames: UInt64 {
         stateLock.lock()
-        generation &+= 1
-        isArmed = false
-        failedGeneration = nil
-        let captureGeneration = generation
-        stateLock.unlock()
-
-        captureLifetimeTracker.notify(queue: captureQueue) { [self] in
-            self.shutdownFence.notifyOperationsIdle(queue: self.captureQueue) {
-                self.stateLock.lock()
-                guard self.generation == captureGeneration, !self.isArmed else {
-                    self.stateLock.unlock()
-                    return
-                }
-                self.scheduler.reset()
-                self.timestampEstimator.reset()
-                self.droppedFrameCount = 0
-                self.lastDropLogUptime = 0
-                self.isArmed = true
-                self.stateLock.unlock()
-                self.shutdownFence.arm(for: captureGeneration)
-                onReady?()
-            }
-        }
+        defer { stateLock.unlock() }
+        return enqueuedFrameCount
     }
 
-    func stop(completion: (() -> Void)? = nil) {
-        shutdownFence.disarm()
-        stateLock.lock()
-        generation &+= 1
-        isArmed = false
-        let stoppedGeneration = generation
-        stateLock.unlock()
+    // MARK: - Arming
 
-        if DispatchQueue.getSpecific(key: captureQueueKey) == nil {
-            let deadline = DispatchTime.now() + Self.captureShutdownTimeout
-            if captureIdleGroup.wait(timeout: deadline) == .success {
-                scheduleResetWhenCaptureLifetimeIsIdle(
-                    stoppedGeneration: stoppedGeneration,
-                    completion: completion
-                )
-            } else {
-                detachTimedOutCapture()
-                captureLifetimeTracker.forceReleaseAll()
-                ConduitPipInstrumentation.event("shutdownDeferred", reason: "capture completion timeout")
-                scheduleResetWhenCaptureLifetimeIsIdle(
-                    stoppedGeneration: stoppedGeneration,
-                    completion: completion,
-                    abandonMetalResources: true
-                )
-            }
-        } else {
-            scheduleResetWhenCaptureLifetimeIsIdle(
-                stoppedGeneration: stoppedGeneration,
-                completion: completion
-            )
-        }
+    /// Arms capture until the first frame lands in the display layer. For a
+    /// manual PiP start the handler fires once and priming stops; automatic
+    /// prewarm keeps capturing so the layer always holds a fresh frame.
+    func startPriming(stopAfterFirstFrame: Bool, onFirstFrame: @escaping () -> Void) {
+        stateLock.lock()
+        isPriming = true
+        stopPrimingAfterFirstFrame = stopAfterFirstFrame
+        firstFrameHandler = onFirstFrame
+        burstFramesRemaining = max(burstFramesRemaining, 3)
+        stateLock.unlock()
+        updateArmedState()
     }
 
-    func resetTimeline(completion: (() -> Void)? = nil) {
-        shutdownFence.disarm()
+    func markActive(_ active: Bool) {
         stateLock.lock()
-        generation &+= 1
-        let captureGeneration = generation
-        let shouldRearm = isArmed
-        isArmed = false
-        failedGeneration = nil
-        stateLock.unlock()
-
-        let timeoutState = ConduitPipCaptureTimeoutState()
-        let timeoutWork = DispatchWorkItem { [weak self, timeoutState] in
-            guard let self else { return }
-            self.stateLock.lock()
-            let isCurrentTimeline = self.generation == captureGeneration && !self.isArmed
-            self.stateLock.unlock()
-            guard isCurrentTimeline else { return }
-            timeoutState.markTimedOut()
-            self.detachTimedOutCapture()
-            self.captureLifetimeTracker.forceReleaseAll()
-            ConduitPipInstrumentation.event(
-                "seekResetForced",
-                reason: "capture completion timeout"
-            )
+        isActive = active
+        if active {
+            isPriming = false
+            firstFrameHandler = nil
+            stopPrimingAfterFirstFrame = false
         }
-        DispatchQueue.global(qos: .utility).asyncAfter(
-            deadline: .now() + Self.captureShutdownTimeout,
-            execute: timeoutWork
+        stateLock.unlock()
+        updateArmedState()
+    }
+
+    func setPaused(_ paused: Bool) {
+        if paused { requestRenderBurst(count: 2) }
+    }
+
+    func didSeek() {
+        requestRenderBurst(count: 3)
+    }
+
+    func setBackgrounded(_ backgrounded: Bool) {
+        metalLayer.capturesWithoutPresentation = backgrounded
+        metalLayer.releasePendingDrawable()
+        logCapture(
+            "PiP capture mode=\(backgrounded ? "deferred" : "presented") enqueued=\(enqueuedFrames)"
         )
-        captureLifetimeTracker.notify(queue: captureQueue) { [self] in
-            self.shutdownFence.notifyOperationsIdle(queue: self.captureQueue) {
-                timeoutWork.cancel()
-                self.stateLock.lock()
-                let isCurrentTimeline = self.generation == captureGeneration
-                self.stateLock.unlock()
-                guard isCurrentTimeline else { return }
+        if backgrounded { requestRenderBurst(count: 4) }
+    }
 
-                self.scheduler.reset()
-                self.timestampEstimator.reset()
-                completion?()
+    func requestRenderBurst(count: Int) {
+        stateLock.lock()
+        burstFramesRemaining = max(burstFramesRemaining, count)
+        stateLock.unlock()
+        updateArmedState()
+    }
 
-                if timeoutState.timedOut {
-                    self.abandonCaptureResources()
-                }
+    /// Disarms every capture source. The completion runs once no blit that
+    /// borrowed an MPV drawable is still in flight, bounded by a short
+    /// timeout so player teardown never hangs on a stuck GPU submission.
+    func stopRendering(removeDisplayedImage: Bool, completion: (() -> Void)? = nil) {
+        stateLock.lock()
+        isPriming = false
+        isActive = false
+        stopPrimingAfterFirstFrame = false
+        burstFramesRemaining = 0
+        firstFrameHandler = nil
+        stateLock.unlock()
+        updateArmedState()
 
-                guard shouldRearm else { return }
-                self.stateLock.lock()
-                guard self.generation == captureGeneration, !self.isArmed else {
-                    self.stateLock.unlock()
-                    return
-                }
-                self.isArmed = true
-                self.stateLock.unlock()
-                self.shutdownFence.arm(for: captureGeneration)
+        let finish = { [weak self] in
+            if removeDisplayedImage {
+                self?.flushDisplayLayer(removeImage: true)
             }
+            completion?()
+        }
+        waitUntilIdle(timeout: .milliseconds(250), completion: finish)
+    }
+
+    func waitUntilIdle(timeout: DispatchTimeInterval, completion: @escaping () -> Void) {
+        let deadline = DispatchTime.now() + timeout
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else {
+                completion()
+                return
+            }
+            while true {
+                self.stateLock.lock()
+                let inFlight = self.inFlightCaptures
+                self.stateLock.unlock()
+                if inFlight == 0 || DispatchTime.now() >= deadline { break }
+                Thread.sleep(forTimeInterval: 0.005)
+            }
+            completion()
         }
     }
 
-    @discardableResult
+    /// Submits a retained pre-presented texture. Priming can begin between
+    /// two MPV presents (for example while paused), and waiting for a render
+    /// that will not come would stall the PiP start.
+    func submitRetainedTexture(_ texture: MTLTexture, presentationID: UInt64) {
+        handlePresentedTexture(texture, presentationID: presentationID, sourceLifetime: nil)
+    }
+
+    // MARK: - Capture
+
     func handlePresentedTexture(
         _ sourceTexture: MTLTexture,
         presentationID: UInt64,
-        sourceLifetime: AnyObject? = nil
-    ) -> Bool {
-        capturePresentedTexture(
-            sourceTexture,
-            presentationID: presentationID,
-            sourceLifetime: sourceLifetime
-        )
-    }
-
-    private func capturePresentedTexture(
-        _ sourceTexture: MTLTexture,
-        presentationID: UInt64,
         sourceLifetime: AnyObject?
-    ) -> Bool {
-        let clock = clockProvider()
+    ) {
+        guard !metalLayer.isSuspended else { return }
 
         stateLock.lock()
-        guard isArmed else {
+        let shouldCapture = isPriming || isActive || burstFramesRemaining > 0
+        guard shouldCapture else {
             stateLock.unlock()
-            return false
+            return
         }
-        ConduitPipInstrumentation.event("presented", reason: "drawable")
-        let captureGeneration = generation
-        guard inFlightState.claim(captureGeneration) else {
-            metrics.recordDrop()
-            ConduitPipInstrumentation.event("inFlightDrop", reason: "copy already in flight")
+
+        let now = CACurrentMediaTime()
+        let clock = clockProvider()
+        let frameRate = max(12.0, clock.videoFrameRate)
+        let minimumInterval = 1.0 / (frameRate * max(0.5, clock.playbackRate))
+        if burstFramesRemaining == 0 && (now - lastCaptureTime) < minimumInterval * 0.5 {
             stateLock.unlock()
-            return false
+            return
         }
-        captureIdleGroup.enter()
-        let captureLifetime = captureLifetimeTracker.begin()
+        lastCaptureTime = now
+        if burstFramesRemaining > 0 { burstFramesRemaining -= 1 }
+        inFlightCaptures += 1
         stateLock.unlock()
 
-        captureQueue.async { [self, captureLifetime, sourceLifetime] in
-            _ = sourceLifetime
-            defer { captureLifetime.release() }
-            guard self.isCurrentGeneration(captureGeneration) else {
-                self.finishCapture(for: captureGeneration)
-                return
-            }
-            self.capture(
-                sourceTexture: sourceTexture,
-                presentationID: presentationID,
-                clock: clock,
-                generation: captureGeneration
-            )
-        }
-        return true
+        enqueue(
+            texture: sourceTexture,
+            sourceLifetime: sourceLifetime,
+            clock: clock
+        )
+        updateArmedState()
     }
 
-    private func capture(
-        sourceTexture: MTLTexture,
-        presentationID: UInt64,
-        clock: ConduitPipPlaybackClockSnapshot,
-        generation: UInt64
+    private func enqueue(
+        texture source: MTLTexture,
+        sourceLifetime: AnyObject?,
+        clock: ConduitPipPlaybackClockSnapshot
     ) {
-        guard isCurrentGeneration(generation) else {
-            finishCapture(for: generation)
-            return
+        defer {
+            stateLock.lock()
+            inFlightCaptures -= 1
+            stateLock.unlock()
         }
-        guard let displayLayer else {
-            failCapture(for: generation, reason: "PiP display layer is unavailable")
-            return
-        }
-        guard displayLayer.status != .failed else {
-            failCapture(
-                for: generation,
-                reason: "AVSampleBufferDisplayLayer is in a failed state",
-                kind: .rePrime
-            )
-            return
-        }
-        guard displayLayer.isReadyForMoreMediaData else {
-            ConduitPipInstrumentation.event("displayNotReady", reason: "before copy")
-            recordDrop(for: generation, reason: "display layer is not ready for more media")
-            return
-        }
-        guard scheduler.shouldCapture(
-            at: ProcessInfo.processInfo.systemUptime,
-            presentationID: presentationID,
-            clock: clock
-        ) else {
-            ConduitPipInstrumentation.event("throttled", reason: "source cadence")
-            finishCapture(for: generation)
-            return
-        }
-        ConduitPipInstrumentation.event("due", reason: "source cadence")
+        withExtendedLifetime(sourceLifetime) {}
 
-        guard sourceTexture.width > 1, sourceTexture.height > 1 else {
-            failCapture(for: generation, reason: "MPV produced an invalid PiP drawable size")
-            return
-        }
-        guard let destinationFormat = Self.destinationFormat(for: sourceTexture.pixelFormat),
-              Self.pixelBufferFormat(for: destinationFormat) != nil
-        else {
-            failCapture(
-                for: generation,
-                reason: "Unsupported MPV PiP drawable format \(sourceTexture.pixelFormat.rawValue)"
-            )
-            return
-        }
-        switch ensureMetalResources() {
-        case .ready:
-            break
-        case .failure(let reason):
-            failCapture(for: generation, reason: reason)
-            return
-        }
-        switch ensurePool(
-            width: sourceTexture.width,
-            height: sourceTexture.height,
-            pixelFormat: destinationFormat
-        ) {
-        case .ready:
-            break
-        case .failure(let reason):
-            failCapture(for: generation, reason: reason)
-            return
-        }
-        guard let pixelBufferPool,
-              let textureCache,
-              let commandQueue,
-              let formatDescription
-        else {
-            failCapture(for: generation, reason: "PiP capture resources were not initialized")
-            return
-        }
-
-        var pixelBuffer: CVPixelBuffer?
-        let allocationAttributes: CFDictionary = [
-            kCVPixelBufferPoolAllocationThresholdKey: 4,
-        ] as CFDictionary
-        let pixelBufferStatus = CVPixelBufferPoolCreatePixelBufferWithAuxAttributes(
-            nil,
-            pixelBufferPool,
-            allocationAttributes,
-            &pixelBuffer
-        )
-        guard pixelBufferStatus == kCVReturnSuccess, let pixelBuffer else {
-            if ConduitPipAllocationPolicy.disposition(
-                for: pixelBufferStatus,
-                duringSetup: false
-            ) == .drop {
-                ConduitPipInstrumentation.event("poolDrop", reason: "pixel buffer allocation")
-                recordDrop(
-                    for: generation,
-                    reason: "pixel buffer allocation returned CVReturn \(pixelBufferStatus)"
-                )
-            } else {
-                failCapture(
-                    for: generation,
-                    reason: "Unable to allocate a PiP pixel buffer (CVReturn \(pixelBufferStatus))"
+        guard let pixelFormat = Self.pixelBufferFormat(for: source.pixelFormat) else {
+            stateLock.lock()
+            let alreadyLogged = loggedUnsupportedFormat
+            loggedUnsupportedFormat = true
+            stateLock.unlock()
+            if !alreadyLogged {
+                print(
+                    "[Conduit PiP] Unsupported drawable pixel format " +
+                        "\(source.pixelFormat.rawValue) for capture"
                 )
             }
             return
         }
 
-        var destinationTexture: CVMetalTexture?
-        let textureStatus = CVMetalTextureCacheCreateTextureFromImage(
-            nil,
-            textureCache,
-            pixelBuffer,
-            nil,
-            destinationFormat,
-            sourceTexture.width,
-            sourceTexture.height,
-            0,
-            &destinationTexture
-        )
-        guard textureStatus == kCVReturnSuccess else {
-            if ConduitPipAllocationPolicy.disposition(
-                for: textureStatus,
-                duringSetup: false
-            ) == .drop {
-                ConduitPipInstrumentation.event("poolDrop", reason: "Metal texture allocation")
-                recordDrop(
-                    for: generation,
-                    reason: "Metal texture allocation returned CVReturn \(textureStatus)"
-                )
-            } else {
-                failCapture(
-                    for: generation,
-                    reason: "Unable to create a Metal texture for the PiP pixel buffer (CVReturn \(textureStatus))"
-                )
-            }
-            return
-        }
-        guard let destinationTexture,
-              let texture = CVMetalTextureGetTexture(destinationTexture),
-              texture.width == sourceTexture.width,
-              texture.height == sourceTexture.height
+        let region = videoRegion(in: source)
+        guard
+            let pixelBuffer = makePixelBuffer(
+                width: region.size.width,
+                height: region.size.height,
+                format: pixelFormat
+            ),
+            let destination = makeTexture(from: pixelBuffer, pixelFormat: source.pixelFormat),
+            let commandBuffer = commandQueue.makeCommandBuffer(),
+            let blit = commandBuffer.makeBlitCommandEncoder()
         else {
-            failCapture(
-                for: generation,
-                reason: "Metal texture dimensions do not match the PiP drawable"
-            )
-            return
-        }
-        metrics.recordCaptureContext(
-            sourceFrameRate: clock.videoFrameRate,
-            effectiveCaptureInterval: ConduitPipFrameScheduler.effectiveCaptureInterval(for: clock),
-            drawableWidth: sourceTexture.width,
-            drawableHeight: sourceTexture.height,
-            bufferWidth: texture.width,
-            bufferHeight: texture.height,
-            clockGeneration: clock.generation
-        )
-        guard let commandBuffer = commandQueue.makeCommandBuffer() else {
-            ConduitPipInstrumentation.event("blitFailed", reason: "command buffer")
-            failCapture(
-                for: generation,
-                reason: "Unable to create a Metal command buffer for PiP capture",
-                kind: .rePrime
-            )
-            return
-        }
-        guard let blit = commandBuffer.makeBlitCommandEncoder() else {
-            ConduitPipInstrumentation.event("blitFailed", reason: "blit encoder")
-            failCapture(
-                for: generation,
-                reason: "Unable to create a Metal blit encoder for PiP capture",
-                kind: .rePrime
-            )
             return
         }
 
         blit.copy(
-            from: sourceTexture,
+            from: source,
             sourceSlice: 0,
             sourceLevel: 0,
-            sourceOrigin: MTLOrigin(x: 0, y: 0, z: 0),
-            sourceSize: MTLSize(width: sourceTexture.width, height: sourceTexture.height, depth: 1),
-            to: texture,
+            sourceOrigin: region.origin,
+            sourceSize: region.size,
+            to: destination,
             destinationSlice: 0,
             destinationLevel: 0,
             destinationOrigin: MTLOrigin(x: 0, y: 0, z: 0)
         )
         blit.endEncoding()
-
-        let timestamp = timestampEstimator.timestamp(
-            for: clock,
-            at: ProcessInfo.processInfo.systemUptime
-        )
-        if timestampEstimator.didDetectTimelineDiscontinuity {
-            ConduitPipInstrumentation.event("timestampReset", reason: "timeline discontinuity")
-            displayLayer.flush()
-            scheduler.reset()
+        commandBuffer.addCompletedHandler { [weak self] _ in
+            self?.enqueueSampleBuffer(for: pixelBuffer, clock: clock)
         }
-        let duration = CMTimeMakeWithSeconds(
-            1 / min(max(clock.videoFrameRate > 0 ? clock.videoFrameRate : 30, 1), 60),
-            preferredTimescale: 600
-        )
-
-        let completionLifetime = captureLifetimeTracker.begin()
-        commandBuffer.addCompletedHandler { [self, completionLifetime] commandBuffer in
-            self.captureQueue.async {
-                defer { completionLifetime.release() }
-                guard self.isCurrentGeneration(generation),
-                      let displayLayer = self.displayLayer
-                else {
-                    self.finishCapture(for: generation)
-                    return
-                }
-                guard commandBuffer.status == .completed else {
-                    ConduitPipInstrumentation.event("blitFailed", reason: "command completion")
-                    self.failCapture(
-                        for: generation,
-                        reason: "Metal PiP capture command ended with status \(commandBuffer.status.rawValue)",
-                        kind: .rePrime
-                    )
-                    return
-                }
-
-                var timing = CMSampleTimingInfo(
-                    duration: duration,
-                    presentationTimeStamp: timestamp,
-                    decodeTimeStamp: .invalid
-                )
-                var sample: CMSampleBuffer?
-                let sampleStatus = CMSampleBufferCreateReadyWithImageBuffer(
-                    allocator: kCFAllocatorDefault,
-                    imageBuffer: pixelBuffer,
-                    formatDescription: formatDescription,
-                    sampleTiming: &timing,
-                    sampleBufferOut: &sample
-                )
-                guard sampleStatus == noErr, let sample else {
-                    self.failCapture(
-                        for: generation,
-                        reason: "Unable to create the PiP sample buffer (OSStatus \(sampleStatus))"
-                    )
-                    return
-                }
-
-                guard displayLayer.status != .failed else {
-                    self.failCapture(
-                        for: generation,
-                        reason: "AVSampleBufferDisplayLayer rejected the PiP sample format",
-                        kind: .rePrime
-                    )
-                    return
-                }
-                guard displayLayer.isReadyForMoreMediaData else {
-                    ConduitPipInstrumentation.event("displayNotReady", reason: "before enqueue")
-                    self.recordDrop(for: generation, reason: "display layer stopped accepting media")
-                    return
-                }
-
-                guard self.shutdownFence.withPermission(for: generation, {
-                    displayLayer.enqueue(sample)
-                }) else {
-                    self.finishCapture(for: generation)
-                    return
-                }
-                guard displayLayer.status != .failed else {
-                    self.failCapture(
-                        for: generation,
-                        reason: "AVSampleBufferDisplayLayer rejected the enqueued PiP sample",
-                        kind: .rePrime
-                    )
-                    return
-                }
-                ConduitPipInstrumentation.event("enqueued", reason: "sample buffer")
-                self.metrics.recordEnqueuedFrame()
-                self.onFrameEnqueued()
-                self.finishCapture(for: generation)
-            }
-        }
-        ConduitPipInstrumentation.event("blitSubmitted", reason: "drawable copy")
         commandBuffer.commit()
     }
 
-    private enum PoolPreparationResult {
-        case ready
-        case failure(String)
-    }
-
-    private func ensurePool(
-        width: Int,
-        height: Int,
-        pixelFormat: MTLPixelFormat
-    ) -> PoolPreparationResult {
-        let size = CGSize(width: width, height: height)
-        guard poolSize != size || destinationPixelFormat != pixelFormat else { return .ready }
-        guard let pixelFormatType = Self.pixelBufferFormat(for: pixelFormat) else {
-            return .failure("No Core Video format is available for PiP Metal format \(pixelFormat)")
-        }
-
-        let poolAttributes: [CFString: Any] = [
-            kCVPixelBufferPoolMinimumBufferCountKey: 4,
-        ]
-        let pixelBufferAttributes: [CFString: Any] = [
-            kCVPixelBufferPixelFormatTypeKey: pixelFormatType,
-            kCVPixelBufferWidthKey: width,
-            kCVPixelBufferHeightKey: height,
-            kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary,
-            kCVPixelBufferMetalCompatibilityKey: true,
-        ]
-
-        var pool: CVPixelBufferPool?
-        let poolStatus = CVPixelBufferPoolCreate(
-            nil,
-            poolAttributes as CFDictionary,
-            pixelBufferAttributes as CFDictionary,
-            &pool
+    /// Center-crops the aspect-fitted video region so the PiP buffer carries
+    /// the picture rather than the inline surface's letterbox bars.
+    private func videoRegion(in texture: MTLTexture) -> (origin: MTLOrigin, size: MTLSize) {
+        let whole = (
+            origin: MTLOrigin(x: 0, y: 0, z: 0),
+            size: MTLSize(width: texture.width, height: texture.height, depth: 1)
         )
-        guard poolStatus == kCVReturnSuccess, let pool else {
-            return .failure("Unable to create a PiP pixel-buffer pool (CVReturn \(poolStatus))")
+
+        let video = videoSizeProvider()
+        guard video.width > 0, video.height > 0, texture.width > 0, texture.height > 0 else {
+            return whole
         }
 
-        var buffer: CVPixelBuffer?
-        let bufferStatus = CVPixelBufferPoolCreatePixelBuffer(nil, pool, &buffer)
-        guard bufferStatus == kCVReturnSuccess, let buffer else {
-            return .failure("Unable to allocate the PiP pool's format buffer (CVReturn \(bufferStatus))")
+        let videoAspect = Double(video.width) / Double(video.height)
+        let textureAspect = Double(texture.width) / Double(texture.height)
+        var fittedWidth = Double(texture.width)
+        var fittedHeight = Double(texture.height)
+        if videoAspect > textureAspect {
+            fittedHeight = fittedWidth / videoAspect
+        } else if videoAspect < textureAspect {
+            fittedWidth = fittedHeight * videoAspect
         }
 
-        var description: CMVideoFormatDescription?
-        guard CMVideoFormatDescriptionCreateForImageBuffer(
+        let width = max(2, Int(fittedWidth.rounded(.down)) & ~1)
+        let height = max(2, Int(fittedHeight.rounded(.down)) & ~1)
+        guard width <= texture.width, height <= texture.height else { return whole }
+
+        return (
+            origin: MTLOrigin(x: (texture.width - width) / 2, y: (texture.height - height) / 2, z: 0),
+            size: MTLSize(width: width, height: height, depth: 1)
+        )
+    }
+
+    private func enqueueSampleBuffer(
+        for pixelBuffer: CVPixelBuffer,
+        clock: ConduitPipPlaybackClockSnapshot
+    ) {
+        attachColorAttributes(to: pixelBuffer)
+
+        stateLock.lock()
+        var description = formatDescription
+        if description == nil ||
+            !CMVideoFormatDescriptionMatchesImageBuffer(description!, imageBuffer: pixelBuffer) {
+            var created: CMVideoFormatDescription?
+            CMVideoFormatDescriptionCreateForImageBuffer(
+                allocator: kCFAllocatorDefault,
+                imageBuffer: pixelBuffer,
+                formatDescriptionOut: &created
+            )
+            formatDescription = created
+            description = created
+        }
+        stateLock.unlock()
+
+        guard let description else { return }
+
+        let positionSeconds = clock.interpolatedPositionSeconds(
+            at: ProcessInfo.processInfo.systemUptime
+        )
+        let presentationTime = positionSeconds.isFinite && positionSeconds >= 0
+            ? CMTime(seconds: positionSeconds, preferredTimescale: 90_000)
+            : CMTime(seconds: CACurrentMediaTime(), preferredTimescale: 90_000)
+
+        var timing = CMSampleTimingInfo(
+            duration: CMTime(
+                value: 1,
+                timescale: Int32(max(12.0, clock.videoFrameRate))
+            ),
+            presentationTimeStamp: presentationTime,
+            decodeTimeStamp: .invalid
+        )
+
+        var sampleBuffer: CMSampleBuffer?
+        let status = CMSampleBufferCreateReadyWithImageBuffer(
             allocator: kCFAllocatorDefault,
-            imageBuffer: buffer,
-            formatDescriptionOut: &description
-        ) == noErr,
-        let description
-        else { return .failure("Unable to create the PiP video format description") }
+            imageBuffer: pixelBuffer,
+            formatDescription: description,
+            sampleTiming: &timing,
+            sampleBufferOut: &sampleBuffer
+        )
+        guard status == noErr, let sampleBuffer else { return }
 
-        pixelBufferPool = pool
-        formatDescription = description
-        poolSize = size
-        destinationPixelFormat = pixelFormat
-        displayLayer?.flush()
-        if let textureCache { CVMetalTextureCacheFlush(textureCache, 0) }
-        return .ready
+        if let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: true),
+           CFArrayGetCount(attachments) > 0 {
+            let dictionary = unsafeBitCast(
+                CFArrayGetValueAtIndex(attachments, 0),
+                to: CFMutableDictionary.self
+            )
+            CFDictionarySetValue(
+                dictionary,
+                Unmanaged.passUnretained(kCMSampleAttachmentKey_DisplayImmediately).toOpaque(),
+                Unmanaged.passUnretained(kCFBooleanTrue).toOpaque()
+            )
+        }
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.enqueueOnMain(sampleBuffer)
+        }
     }
 
-    private func clearPool() {
-        pixelBufferPool = nil
-        formatDescription = nil
-        poolSize = .zero
-        destinationPixelFormat = .bgra8Unorm
-        if let textureCache { CVMetalTextureCacheFlush(textureCache, 0) }
-    }
-
-    private enum MetalResourcePreparationResult {
-        case ready
-        case failure(String)
-    }
-
-    private func ensureMetalResources() -> MetalResourcePreparationResult {
-        guard let device = metalLayer.device else {
-            return .failure("Metal device is unavailable for PiP capture")
+    private func enqueueOnMain(_ sampleBuffer: CMSampleBuffer) {
+        if displayLayer.status == .failed {
+            logCapture("display layer failed; flushing before retry")
+            flushDisplayLayer(removeImage: true)
         }
 
-        if commandQueue == nil {
-            commandQueue = device.makeCommandQueue()
+        if #available(iOS 18.0, *) {
+            let renderer = displayLayer.sampleBufferRenderer
+            guard renderer.isReadyForMoreMediaData else { return }
+            renderer.enqueue(sampleBuffer)
+        } else {
+            guard displayLayer.isReadyForMoreMediaData else { return }
+            displayLayer.enqueue(sampleBuffer)
         }
-        guard commandQueue != nil else {
-            return .failure("Unable to create a Metal command queue for PiP capture")
-        }
-        if textureCache == nil {
-            var cache: CVMetalTextureCache?
-            let status = CVMetalTextureCacheCreate(nil, nil, device, nil, &cache)
-            guard status == kCVReturnSuccess else {
-                return .failure("Unable to create a Metal texture cache (CVReturn \(status))")
-            }
-            textureCache = cache
-        }
-        guard textureCache != nil else {
-            return .failure("Metal texture cache was not initialized for PiP capture")
-        }
-        return .ready
-    }
 
-    private func finishCapture(for candidate: UInt64) {
         stateLock.lock()
-        if inFlightState.finish(candidate) {
-            captureIdleGroup.leave()
-        }
+        enqueuedFrameCount &+= 1
+        let handler = firstFrameHandler
+        let shouldStop = stopPrimingAfterFirstFrame
+        firstFrameHandler = nil
+        if shouldStop { isPriming = false }
         stateLock.unlock()
+
+        handler?()
+        updateArmedState()
     }
 
-    private func resetCaptureResources() {
-        scheduler.reset()
-        timestampEstimator.reset()
-        clearPool()
-    }
-
-    private func abandonCaptureResources() {
-        scheduler.reset()
-        timestampEstimator.reset()
-        pixelBufferPool = nil
-        formatDescription = nil
-        poolSize = .zero
-        destinationPixelFormat = .bgra8Unorm
-        commandQueue = nil
-        textureCache = nil
-    }
-
-    private func scheduleResetWhenCaptureLifetimeIsIdle(
-        stoppedGeneration: UInt64,
-        completion: (() -> Void)?,
-        abandonMetalResources: Bool = false
-    ) {
-        captureLifetimeTracker.notify(queue: captureQueue) { [self] in
-            self.shutdownFence.notifyOperationsIdle(queue: self.captureQueue) {
-                self.stateLock.lock()
-                let canReset = !self.isArmed && self.generation == stoppedGeneration
-                self.stateLock.unlock()
-                if canReset {
-                    if abandonMetalResources {
-                        self.abandonCaptureResources()
-                    } else {
-                        self.resetCaptureResources()
-                    }
-                }
-                completion?()
+    private func flushDisplayLayer(removeImage: Bool) {
+        if Thread.isMainThread {
+            flushNow(removeImage: removeImage)
+        } else {
+            DispatchQueue.main.async { [weak self] in
+                self?.flushNow(removeImage: removeImage)
             }
         }
     }
 
-    private func detachTimedOutCapture() {
-        stateLock.lock()
-        if inFlightState.detach() != nil {
-            captureIdleGroup.leave()
+    private func flushNow(removeImage: Bool) {
+        if #available(iOS 18.0, *) {
+            displayLayer.sampleBufferRenderer.flush(
+                removingDisplayedImage: removeImage,
+                completionHandler: nil
+            )
+        } else if removeImage {
+            displayLayer.flushAndRemoveImage()
+        } else {
+            displayLayer.flush()
         }
+    }
+
+    private func updateArmedState() {
+        stateLock.lock()
+        let armed = isPriming || isActive || burstFramesRemaining > 0
         stateLock.unlock()
+        metalLayer.isDrawableCaptureArmed = armed
     }
 
-    private func failCapture(
-        for candidate: UInt64,
-        reason: String,
-        kind: ConduitPipCaptureFailureKind = .fatal
-    ) {
-        shutdownFence.fail(for: candidate)
+    // MARK: - Resources
+
+    private func makePixelBuffer(width: Int, height: Int, format: OSType) -> CVPixelBuffer? {
         stateLock.lock()
-        guard isArmed, generation == candidate, failedGeneration != candidate else {
-            stateLock.unlock()
-            finishCapture(for: candidate)
-            return
+        if pixelBufferPool == nil || poolWidth != width || poolHeight != height || poolPixelFormat != format {
+            poolWidth = width
+            poolHeight = height
+            poolPixelFormat = format
+            formatDescription = nil
+            let attributes: [CFString: Any] = [
+                kCVPixelBufferPixelFormatTypeKey: format,
+                kCVPixelBufferWidthKey: width,
+                kCVPixelBufferHeightKey: height,
+                kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary,
+                kCVPixelBufferMetalCompatibilityKey: true,
+            ]
+            var pool: CVPixelBufferPool?
+            let poolAttributes: [CFString: Any] = [
+                kCVPixelBufferPoolMinimumBufferCountKey: 4,
+            ]
+            if CVPixelBufferPoolCreate(
+                kCFAllocatorDefault,
+                poolAttributes as CFDictionary,
+                attributes as CFDictionary,
+                &pool
+            ) == kCVReturnSuccess {
+                pixelBufferPool = pool
+            } else {
+                logCapture("pixel buffer pool creation failed \(width)x\(height)")
+            }
         }
-        failedGeneration = candidate
+        let pool = pixelBufferPool
         stateLock.unlock()
 
-        finishCapture(for: candidate)
-        metrics.recordFailure()
-        ConduitPipInstrumentation.event("CaptureFailure", reason: reason)
-        onCaptureFailure(reason, kind)
-    }
-
-    private func recordDrop(for candidate: UInt64, reason: String) {
-        guard isCurrentGeneration(candidate) else {
-            finishCapture(for: candidate)
-            return
-        }
-
-        droppedFrameCount &+= 1
-        metrics.recordDrop()
-        let now = ProcessInfo.processInfo.systemUptime
-        if droppedFrameCount == 1 || now - lastDropLogUptime >= 1 {
-            lastDropLogUptime = now
-            ConduitPipInstrumentation.event("FrameDrop", reason: reason)
-            print("[Conduit PiP] Dropped capture frame (\(reason)); total=\(droppedFrameCount)")
-        }
-        finishCapture(for: candidate)
-    }
-
-    private func isCurrentGeneration(_ candidate: UInt64) -> Bool {
-        stateLock.lock()
-        defer { stateLock.unlock() }
-        return isArmed && generation == candidate && failedGeneration != candidate
-    }
-
-    private static func destinationFormat(for sourceFormat: MTLPixelFormat) -> MTLPixelFormat? {
-        // Keep the capture buffer in the drawable's native format so the
-        // fast path remains a direct Metal blit. The physical iPhone renderer
-        // uses BGR10A2 for wide-color output even though the layer is
-        // configured for RGBA16Float.
-        switch sourceFormat {
-        case .rgba16Float:
-            return .rgba16Float
-        case .bgr10a2Unorm:
-            return .bgr10a2Unorm
-        case .bgra8Unorm, .bgra8Unorm_srgb:
-            return sourceFormat
-        default:
+        guard let pool else { return nil }
+        var pixelBuffer: CVPixelBuffer?
+        guard CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &pixelBuffer) == kCVReturnSuccess else {
             return nil
         }
+        return pixelBuffer
     }
 
-    private static func pixelBufferFormat(for metalFormat: MTLPixelFormat) -> OSType? {
-        switch metalFormat {
+    private func makeTexture(from pixelBuffer: CVPixelBuffer, pixelFormat: MTLPixelFormat) -> MTLTexture? {
+        guard let textureCache else { return nil }
+        var cvTexture: CVMetalTexture?
+        let status = CVMetalTextureCacheCreateTextureFromImage(
+            kCFAllocatorDefault,
+            textureCache,
+            pixelBuffer,
+            nil,
+            pixelFormat,
+            CVPixelBufferGetWidth(pixelBuffer),
+            CVPixelBufferGetHeight(pixelBuffer),
+            0,
+            &cvTexture
+        )
+        guard status == kCVReturnSuccess, let cvTexture else { return nil }
+        return CVMetalTextureGetTexture(cvTexture)
+    }
+
+    private func attachColorAttributes(to pixelBuffer: CVPixelBuffer) {
+        if let colorSpace = metalLayer.colorspace {
+            CVBufferSetAttachment(
+                pixelBuffer,
+                kCVImageBufferCGColorSpaceKey,
+                colorSpace,
+                .shouldPropagate
+            )
+            return
+        }
+
+        CVBufferSetAttachment(
+            pixelBuffer,
+            kCVImageBufferColorPrimariesKey,
+            kCVImageBufferColorPrimaries_ITU_R_709_2,
+            .shouldPropagate
+        )
+        CVBufferSetAttachment(
+            pixelBuffer,
+            kCVImageBufferTransferFunctionKey,
+            kCVImageBufferTransferFunction_ITU_R_709_2,
+            .shouldPropagate
+        )
+        CVBufferSetAttachment(
+            pixelBuffer,
+            kCVImageBufferYCbCrMatrixKey,
+            kCVImageBufferYCbCrMatrix_ITU_R_709_2,
+            .shouldPropagate
+        )
+    }
+
+    private static func pixelBufferFormat(for format: MTLPixelFormat) -> OSType? {
+        switch format {
         case .rgba16Float:
             return kCVPixelFormatType_64RGBAHalf
         case .bgr10a2Unorm:
@@ -1301,4 +603,9 @@ final class ConduitPictureInPictureFrameCapture {
         }
     }
 
+    private func logCapture(_ message: String) {
+        #if DEBUG
+        print("[Conduit PiP][capture] \(message)")
+        #endif
+    }
 }

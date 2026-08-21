@@ -310,12 +310,10 @@ final class ConduitMPVPlayerViewController: UIViewController {
     private var preferredAudioLanguage = "System default"
     private var preferredSubtitleLanguage = "English"
     private var preferredSubtitleApplied = false
-    private var hasLoadedFile = false
+    fileprivate var hasLoadedFile = false
     private var shouldPlay = false
-    private var resumeAfterForeground = false
     private var resumeAfterAudioInterruption = false
-    private var backgroundedWithPictureInPicture = false
-    private var pendingForegroundRestore = false
+    fileprivate var videoTrackSuspendedForBackground = false
     private var lastDrawableSize: CGSize = .zero
     private var videoSurfaceSize: CGSize = .zero
     private var settledMetalBounds: CGRect = .zero
@@ -335,7 +333,6 @@ final class ConduitMPVPlayerViewController: UIViewController {
     private var lastWatchedMediaPositionMs: Int64?
     private var lastMediaClockProgressUptime: TimeInterval = 0
     private var hasVideoStream = false
-    private var pendingBackgroundPause: DispatchWorkItem?
     private var lifecycleObservers: [NSObjectProtocol] = []
     private var recentErrors: [String] = []
     private var playbackError: String?
@@ -345,8 +342,8 @@ final class ConduitMPVPlayerViewController: UIViewController {
     private var loadStartedAtUptime: TimeInterval = 0
     private var destroyStarted = false
     private var audioSessionActivationRequested = false
-    private var didPrewarmPictureInPictureResources = false
     private var resizeMode = 0
+    private var automaticPipHomeSwipeCandidate = false
     private var lastDebugPlaybackSnapshot: String?
     private var videoFrameRate = 30.0
 
@@ -399,7 +396,14 @@ final class ConduitMPVPlayerViewController: UIViewController {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.pictureInPicture?.prepareForAutomaticEntry()
+            self?.pictureInPicture?.prewarmForAutomaticEntry()
+        })
+        lifecycleObservers.append(NotificationCenter.default.addObserver(
+            forName: UIApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.pictureInPicture?.cancelAutomaticEntryIfForegrounded()
         })
         lifecycleObservers.append(NotificationCenter.default.addObserver(
             forName: UIApplication.didEnterBackgroundNotification,
@@ -425,6 +429,44 @@ final class ConduitMPVPlayerViewController: UIViewController {
         ) { [weak self] notification in
             self?.handleAudioRouteChange(notification)
         })
+
+        let homeSwipeRecognizer = UIPanGestureRecognizer(
+            target: self,
+            action: #selector(handleAutomaticPipHomeSwipe(_:))
+        )
+        homeSwipeRecognizer.delegate = self
+        homeSwipeRecognizer.cancelsTouchesInView = false
+        view.addGestureRecognizer(homeSwipeRecognizer)
+    }
+
+    /// Detects the bottom-edge upward swipe that starts the Home transition.
+    /// The system defers the bottom edge to this view, so the first swipe
+    /// lands here and PiP can be started explicitly while the app is still
+    /// active instead of relying on AVKit's inline trigger.
+    @objc private func handleAutomaticPipHomeSwipe(_ recognizer: UIPanGestureRecognizer) {
+        guard UIApplication.shared.applicationState == .active else { return }
+
+        switch recognizer.state {
+        case .began:
+            let location = recognizer.location(in: view)
+            let activationHeight = max(28.0, view.safeAreaInsets.bottom + 10.0)
+            automaticPipHomeSwipeCandidate =
+                location.y >= view.bounds.maxY - activationHeight
+
+        case .changed:
+            guard automaticPipHomeSwipeCandidate else { return }
+            let translation = recognizer.translation(in: view)
+            guard translation.y <= -18.0, abs(translation.y) > abs(translation.x) * 1.15 else { return }
+            automaticPipHomeSwipeCandidate = false
+            pictureInPicture?.handleHomeSwipeDetected()
+
+        case .ended, .cancelled, .failed:
+            automaticPipHomeSwipeCandidate = false
+            pictureInPicture?.scheduleAutomaticCancelIfAborted()
+
+        default:
+            break
+        }
     }
 
     override func viewDidLayoutSubviews() {
@@ -702,10 +744,6 @@ final class ConduitMPVPlayerViewController: UIViewController {
             print(String(format: "[Conduit MPV][startup] first video frame in %.2fs", elapsed))
 #endif
             loadPendingExternalSubtitles()
-            if !didPrewarmPictureInPictureResources {
-                didPrewarmPictureInPictureResources = true
-                pictureInPicture?.prewarmCaptureResources()
-            }
             if shouldPlay { setFlag("pause", false) }
             scheduleVideoOutputWatchdog()
         }
@@ -838,8 +876,6 @@ final class ConduitMPVPlayerViewController: UIViewController {
         pendingDrawableBounds = nil
         cancelVideoOutputWatchdog()
         cancelVideoOutputRecovery(resetAttempts: true)
-        pendingBackgroundPause?.cancel()
-        pendingBackgroundPause = nil
         // UIKit can deliver one or more layout passes after this controller is
         // removed. Do not let teardown shrink the drawable while MPV's render
         // thread is still draining its previous swapchain.
@@ -886,78 +922,42 @@ final class ConduitMPVPlayerViewController: UIViewController {
 
     private func enterBackground() {
         guard mpv != nil else { return }
-        if pictureInPicture?.isStartingOrActive == true {
-            backgroundedWithPictureInPicture = true
-            resumeAfterForeground = false
-            pendingBackgroundPause?.cancel()
-            let work = DispatchWorkItem { [weak self] in
-                guard let self,
-                      !self.destroyStarted,
-                      self.pictureInPicture?.isActive != true,
-                      UIApplication.shared.applicationState != .active
-                else { return }
-                self.pendingBackgroundPause = nil
-                self.backgroundedWithPictureInPicture = false
-                self.resumeAfterForeground = self.isPlayerPlaying || self.shouldPlay
-                self.pausePlayback()
-                self.setStringProperty("vid", "no")
-            }
-            pendingBackgroundPause = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5, execute: work)
-            return
-        }
-        pendingBackgroundPause?.cancel()
-        pendingBackgroundPause = nil
-        backgroundedWithPictureInPicture = false
-        resumeAfterForeground = isPlayerPlaying || shouldPlay
-        pendingRetry?.cancel()
-        pendingRetry = nil
-        pendingSurfaceLayoutWorkItems.forEach { $0.cancel() }
-        pendingSurfaceLayoutWorkItems.removeAll()
-        pendingSurfaceTransitionEnd?.cancel()
-        pendingSurfaceTransitionEnd = nil
-        pendingDrawableResize?.cancel()
-        pendingDrawableResize = nil
-        pendingDrawableSize = nil
-        cancelVideoOutputWatchdog()
-        cancelVideoOutputRecovery(resetAttempts: true)
-        pausePlayback()
-        setStringProperty("vid", "no")
+        // The PiP coordinator decides whether this backgrounding keeps the
+        // primary pipeline alive (PiP active or a start in flight) or
+        // suspends the video track (no accepted PiP transition).
+        pictureInPicture?.handleEnterBackground()
     }
 
     private func enterForeground() {
         guard mpv != nil else { return }
-        pendingBackgroundPause?.cancel()
-        pendingBackgroundPause = nil
-        if backgroundedWithPictureInPicture && pictureInPicture?.isActive == true {
-            // AVKit owns the stop transition. Do not rebind MPV's video
-            // output until the PiP delegate has stopped capture and restored
-            // the watchdog.
-            pendingForegroundRestore = true
-            pictureInPicture?.stop()
-            return
-        }
-        backgroundedWithPictureInPicture = false
+        pictureInPicture?.handleEnterForeground()
         syncVideoSurfaceLayout()
         attemptStartPendingLoad()
-        setStringProperty("vid", "auto")
-        if resumeAfterForeground {
-            playPlayback()
-        }
-        resumeAfterForeground = false
     }
 
-    fileprivate func restoreVideoAfterPictureInPictureStopIfNeeded() {
-        guard pendingForegroundRestore, !destroyStarted else { return }
-        pendingForegroundRestore = false
-        backgroundedWithPictureInPicture = false
-        syncVideoSurfaceLayout()
-        attemptStartPendingLoad()
-        setStringProperty("vid", "auto")
-        if resumeAfterForeground {
-            playPlayback(scheduleWatchdog: false)
+    /// Suspends MPV's video track once the app is truly backgrounded without
+    /// an accepted PiP transition. VideoToolbox keeps decoding otherwise and
+    /// can hold the decoder open indefinitely.
+    fileprivate func suspendVideoTrackForBackground(reason: String) {
+        guard UIApplication.shared.applicationState == .background else {
+            debugLog("ignoring video-track suspension while not background reason=\(reason)")
+            return
         }
-        resumeAfterForeground = false
+        pausePlayback()
+        guard !videoTrackSuspendedForBackground else { return }
+        setStringProperty("vid", "no")
+        videoTrackSuspendedForBackground = true
+        debugLog("video track suspended for background reason=\(reason)")
+    }
+
+    fileprivate func restoreVideoTrackAfterBackgroundIfNeeded(reloadDecoder: Bool = true) {
+        guard videoTrackSuspendedForBackground, !destroyStarted else { return }
+        videoTrackSuspendedForBackground = false
+        setStringProperty("vid", "auto")
+        if reloadDecoder {
+            command("video-reload", checkForErrors: false)
+        }
+        debugLog("video track restored after background reloadDecoder=\(reloadDecoder)")
     }
 
     private func handleAudioInterruption(_ notification: Notification) {
@@ -1401,7 +1401,6 @@ final class ConduitMPVPlayerViewController: UIViewController {
         isPlayerLoading = true
         isPlayerEnded = false
         waitingForInitialVideoFrame = true
-        didPrewarmPictureInPictureResources = false
         preferredSubtitleApplied = false
         pendingExternalSubtitles = request.subtitles
         invalidateExternalSubtitleLoads(clearPending: false)
@@ -2027,157 +2026,186 @@ final class ConduitMPVPlayerViewController: UIViewController {
     }
 }
 
-/// Mirrors MPV's final Metal drawable into AVKit without creating a second decoder.
-/// Frame copying and cadence scheduling live in ConduitPictureInPictureFrameCapture.
+extension ConduitMPVPlayerViewController: UIGestureRecognizerDelegate {
+    func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+    ) -> Bool {
+        true
+    }
+}
+
+/// Mirrors MPV's final Metal drawable into AVKit without creating a second
+/// decoder. Frame copying lives in ConduitPictureInPictureFrameCapture; this
+/// coordinator owns the AVKit session and the start/stop state machine.
+///
+/// PiP is never started "and prayed for": every path primes capture, waits
+/// for the first frame to land in the sample-buffer layer, and only then
+/// asks AVKit to start. Automatic entry on the Home gesture is managed here
+/// instead of via canStartPictureInPictureAutomaticallyFromInline, because a
+/// prewarmed layer plus an explicit start during the gesture is what keeps
+/// the transition from opening onto a black or frozen window.
 final class ConduitPictureInPictureCoordinator: NSObject,
     AVPictureInPictureControllerDelegate,
     AVPictureInPictureSampleBufferPlaybackDelegate {
     private weak var owner: ConduitMPVPlayerViewController?
     private let metalLayer: ConduitMetalLayer
     private let displayLayer = AVSampleBufferDisplayLayer()
-    private var frameCapture: ConduitPictureInPictureFrameCapture!
+    private var frameCapture: ConduitPictureInPictureFrameCapture?
     private var controller: AVPictureInPictureController?
-    private var pictureInPicturePossibleObservation: NSKeyValueObservation?
-    private var priming = false
-    private var startRequested = false
-    private var startAttempts = 0
-    private var startAttemptWorkItem: DispatchWorkItem?
-    private var enqueuedFrameCount = 0
-    private var primingStartHopScheduled = false
-    private let primingStateLock = NSLock()
-    private var primingTimeout: DispatchWorkItem?
-    private var activeCaptureReprimeTimeout: DispatchWorkItem?
-    private var activeCaptureReprimePending = false
-    private var initialPlaybackPauseSuppression: DispatchWorkItem?
-    private var captureRecoveryPolicy = ConduitPipCaptureRecoveryPolicy()
-    private let captureMetrics = ConduitPipCaptureMetrics()
+
+    private var starting = false
+    private var currentStartSource: String?
+    private var transitionBegan = false
+    private var preservePlaybackDuringStart = false
+    private var ignorePauseUntil: CFTimeInterval = 0
+    private var resumeAfterRestore = false
+
+    private var automaticArmed = false
+    private var automaticPrepared = false
+    private var automaticPreparedAt: CFTimeInterval = 0
+    private var automaticPreparationInFlight = false
+    private var resumePlaybackAfterBackground = false
+
+    private var startTimeoutWork: DispatchWorkItem?
+    private var automaticTimeoutWork: DispatchWorkItem?
+    private var startRetryWork: DispatchWorkItem?
+    private var deferredFailureWork: DispatchWorkItem?
+    private var restoreResumeWork: DispatchWorkItem?
+    private var abortCancelWork: DispatchWorkItem?
+    private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
+    private var lastLayoutSize: CGSize = .zero
 
     init(owner: ConduitMPVPlayerViewController, metalLayer: ConduitMetalLayer) {
         self.owner = owner
         self.metalLayer = metalLayer
         super.init()
+
         displayLayer.videoGravity = .resizeAspect
         displayLayer.backgroundColor = UIColor.black.cgColor
+        if #available(iOS 17.0, *) {
+            displayLayer.wantsExtendedDynamicRangeContent = false
+        }
         owner.view.layer.insertSublayer(displayLayer, at: 0)
+
+        frameCapture = ConduitPictureInPictureFrameCapture(
+            displayLayer: displayLayer,
+            metalLayer: metalLayer,
+            clockProvider: { [weak owner] in
+                owner?.pictureInPictureClock.snapshot() ?? .empty
+            },
+            videoSizeProvider: { [weak owner] in
+                owner?.videoContentSize ?? .zero
+            }
+        )
+        if frameCapture == nil {
+            debugLog("frame capture unavailable; PiP disabled")
+        }
+        metalLayer.onDrawablePresented = { [weak self] texture, presentationID, lifetime in
+            self?.frameCapture?.handlePresentedTexture(
+                texture,
+                presentationID: presentationID,
+                sourceLifetime: lifetime
+            )
+        }
+        metalLayer.onRenderingSuspensionChanged = { [weak self] suspended in
+            guard let self, !suspended else { return }
+            self.frameCapture?.requestRenderBurst(count: 4)
+        }
+
         let source = AVPictureInPictureController.ContentSource(
             sampleBufferDisplayLayer: displayLayer,
             playbackDelegate: self
         )
         let controller = AVPictureInPictureController(contentSource: source)
         controller.delegate = self
-        controller.canStartPictureInPictureAutomaticallyFromInline = true
+        controller.requiresLinearPlayback = false
+        // Automatic entry is managed by this coordinator: a prewarmed layer
+        // plus an explicit start during the Home gesture replaces AVKit's
+        // inline trigger, which fires after presentations have stopped.
+        controller.canStartPictureInPictureAutomaticallyFromInline = false
         self.controller = controller
-        frameCapture = ConduitPictureInPictureFrameCapture(
-            metalLayer: metalLayer,
-            displayLayer: displayLayer,
-            clockProvider: { [weak owner] in
-                owner?.pictureInPictureClock.snapshot() ?? .empty
-            },
-            onFrameEnqueued: {},
-            metrics: captureMetrics
-        )
-        frameCapture.setOnFrameEnqueued { [weak self] in
-            self?.frameWasEnqueued()
-        }
-        frameCapture.setOnCaptureFailure { [weak self] reason, kind in
-            self?.frameCaptureFailed(reason, kind: kind)
-        }
-        metalLayer.onDrawablePresented = { [weak self] sourceTexture, presentationID, sourceLifetime in
-            guard let self else { return }
-            if self.frameCapture.handlePresentedTexture(
-                sourceTexture,
-                presentationID: presentationID,
-                sourceLifetime: sourceLifetime
-            ) {
-                self.metalLayer.discardLatestDrawableTexture(upTo: presentationID)
-            }
-        }
-        pictureInPicturePossibleObservation = controller.observe(
-            \.isPictureInPicturePossible,
-            options: [.initial, .new]
-        ) { [weak self] _, change in
-            guard change.newValue == true else { return }
-            DispatchQueue.main.async { self?.attemptStart() }
-        }
     }
 
-    var isSupported: Bool { AVPictureInPictureController.isPictureInPictureSupported() }
+    var isSupported: Bool {
+        AVPictureInPictureController.isPictureInPictureSupported() && controller != nil
+    }
+
     var isActive: Bool {
         controller?.isPictureInPictureActive == true || controller?.isPictureInPictureSuspended == true
     }
-    var isStartingOrActive: Bool { priming || isActive }
+
+    var isStartingOrActive: Bool { starting || automaticArmed || isActive }
 
     func layout(in bounds: CGRect) {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         displayLayer.frame = bounds
         CATransaction.commit()
+        if lastLayoutSize != bounds.size {
+            lastLayoutSize = bounds.size
+            frameCapture?.requestRenderBurst(count: 2)
+        }
     }
+
+    // MARK: - Manual start (PiP button)
 
     func start() {
-        guard isSupported, !isActive, !priming else { return }
-        debugLog("start requested")
-        initialPlaybackPauseSuppression?.cancel()
-        initialPlaybackPauseSuppression = nil
-        if owner?.isPlayerPlaying == true {
-            let clearSuppression = DispatchWorkItem { [weak self] in
-                self?.initialPlaybackPauseSuppression = nil
+        guard isSupported, !isActive, !starting else { return }
+        debugLog("manual start requested")
+        cancelAutomaticEntry(stopPriming: false)
+        starting = true
+        currentStartSource = "manual-button"
+        preservePlaybackDuringStart = owner?.isPlayerPlaying == true
+        ignorePauseUntil = 0
+        scheduleStartTimeout()
+        beginPriming(stopAfterFirstFrame: true) { [weak self] in
+            DispatchQueue.main.async {
+                guard let self, self.starting else { return }
+                self.requestControllerStart(source: self.currentStartSource ?? "manual", attempt: 0)
             }
-            initialPlaybackPauseSuppression = clearSuppression
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1, execute: clearSuppression)
         }
-        captureRecoveryPolicy.reset()
-        captureMetrics.reset()
-        setStartRequested(true)
-        beginPriming()
-        attemptStart()
-    }
-
-    func prepareForAutomaticEntry() {
-        guard isSupported, owner?.isPlayerPlaying == true, !isActive, !priming else { return }
-        captureRecoveryPolicy.reset()
-        captureMetrics.reset()
-        setStartRequested(false)
-        beginPriming(capturesWithoutPresentation: true)
+        // Priming can begin between two presents (for example while paused);
+        // submit the retained last-presented texture so the start does not
+        // wait for a render that will not come.
+        if let latest = metalLayer.latestDrawableTextureSnapshot() {
+            frameCapture?.submitRetainedTexture(latest.texture, presentationID: latest.presentationID)
+        }
     }
 
     func stop() {
-        initialPlaybackPauseSuppression?.cancel()
-        initialPlaybackPauseSuppression = nil
-        if priming && !isActive {
-            priming = false
-            setStartRequested(false)
-            stopCapture { [weak self] in
-                DispatchQueue.main.async {
-                    self?.owner?.restoreVideoAfterPictureInPictureStopIfNeeded()
-                    self?.owner?.resumeVideoOutputWatchdogAfterPictureInPicture()
-                }
-            }
-        }
+        debugLog("stop requested")
+        cancelStartTimeout()
+        cancelAutomaticEntry(stopPriming: false)
+        starting = false
+        currentStartSource = nil
+        clearPlaybackPreservation()
+        endBackgroundTask()
+        frameCapture?.stopRendering(removeDisplayedImage: true)
+        flushDisplayLayer(removeImage: true)
         controller?.stopPictureInPicture()
+        if !isActive {
+            owner?.setInlineVideoHiddenForPictureInPicture(false)
+            owner?.resumeVideoOutputWatchdogAfterPictureInPicture()
+        }
     }
 
-    func stopForNewLoad(completion: @escaping () -> Void = {}) {
-        initialPlaybackPauseSuppression?.cancel()
-        initialPlaybackPauseSuppression = nil
-        let wasActive = isActive
-        let wasPriming = priming
-        captureRecoveryPolicy.reset()
-        captureMetrics.reset()
-        priming = false
-        setStartRequested(false)
-        stopCapture { [weak self] in
+    func stopForNewLoad(completion: @escaping () -> Void) {
+        cancelStartTimeout()
+        cancelAutomaticEntry(stopPriming: false)
+        starting = false
+        currentStartSource = nil
+        clearPlaybackPreservation()
+        endBackgroundTask()
+        frameCapture?.stopRendering(removeDisplayedImage: false) { [weak self] in
             DispatchQueue.main.async {
                 guard let self else {
                     completion()
                     return
                 }
-                self.displayLayer.flushAndRemoveImage()
-                if wasPriming && !wasActive {
-                    self.owner?.setInlineVideoHiddenForPictureInPicture(false)
-                    self.owner?.restoreVideoAfterPictureInPictureStopIfNeeded()
-                    self.owner?.resumeVideoOutputWatchdogAfterPictureInPicture()
-                }
+                self.flushDisplayLayer(removeImage: true)
+                self.owner?.setInlineVideoHiddenForPictureInPicture(false)
+                self.owner?.resumeVideoOutputWatchdogAfterPictureInPicture()
                 completion()
             }
         }
@@ -2186,26 +2214,176 @@ final class ConduitPictureInPictureCoordinator: NSObject,
 
     func playbackStateChanged() {
         controller?.invalidatePlaybackState()
-    }
-
-    func prewarmCaptureResources() {
-        frameCapture.prewarmResources()
+        // A pause leaves the PiP window showing the previous frame; a short
+        // burst refreshes it with the final rendered one.
+        if owner?.isPlayerPlaying == false {
+            frameCapture?.requestRenderBurst(count: 2)
+        }
     }
 
     func timelineDidSeek() {
-        resetPrimingFrameState()
-        frameCapture.resetTimeline { [weak self] in
-            self?.displayLayer.flush()
+        frameCapture?.didSeek()
+    }
+
+    // MARK: - Automatic entry (Home swipe)
+
+    /// Keeps a fresh frame in the sample-buffer layer while playback runs so
+    /// the Home gesture can start PiP without waiting on a new render.
+    func prewarmForAutomaticEntry() {
+        guard isSupported,
+              owner?.isPlayerPlaying == true,
+              !isActive,
+              !starting,
+              !automaticArmed,
+              !automaticPreparationInFlight
+        else { return }
+        if automaticPrepared, CACurrentMediaTime() - automaticPreparedAt < 1.0 { return }
+        debugLog("prewarming automatic entry source")
+        beginPriming(stopAfterFirstFrame: false) { [weak self] in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.automaticPreparationInFlight = false
+                guard !self.isActive, !self.starting, !self.automaticArmed else { return }
+                self.automaticPrepared = true
+                self.automaticPreparedAt = CACurrentMediaTime()
+                self.controller?.invalidatePlaybackState()
+            }
+        }
+    }
+
+    func handleHomeSwipeDetected() {
+        guard let owner, owner.hasLoadedFile, !isActive, !starting, !automaticArmed else { return }
+        guard owner.isPlayerPlaying, !owner.isPlayerEnded else { return }
+        guard let controller else { return }
+
+        debugLog("home swipe detected")
+        automaticArmed = true
+        starting = true
+        currentStartSource = "automatic-home"
+        preservePlaybackDuringStart = owner.isPlayerPlaying
+        ignorePauseUntil = 0
+        beginBackgroundTask()
+        scheduleAutomaticTimeout()
+        controller.invalidatePlaybackState()
+
+        let frameAge = automaticPreparedAt > 0 ? CACurrentMediaTime() - automaticPreparedAt : .infinity
+        if automaticPrepared, controller.isPictureInPicturePossible, frameAge <= 1.0 {
+            debugLog(String(format: "requesting automatic PiP during gesture frameAgeMs=%.0f", frameAge * 1000))
+            requestControllerStart(source: "automatic-home", attempt: 0)
+            return
+        }
+
+        debugLog("refreshing automatic PiP frame while app is active")
+        prepareFreshAutomaticFrame()
+    }
+
+    /// The swipe aborted before the app left the foreground; unwind the armed
+    /// transition and put the inline surface back.
+    func scheduleAutomaticCancelIfAborted() {
+        guard automaticArmed else { return }
+        abortCancelWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            guard UIApplication.shared.applicationState == .active, self.automaticArmed else { return }
+            self.debugLog("cancelling automatic PiP because the Home gesture was aborted")
+            self.controller?.stopPictureInPicture()
+            let shouldResume = self.preservePlaybackDuringStart
+            self.cancelAutomaticEntry(stopPriming: true)
+            if shouldResume { self.owner?.playPlayback() }
+            self.frameCapture?.requestRenderBurst(count: 3)
+        }
+        abortCancelWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.75, execute: work)
+    }
+
+    /// The app became active again without entering the background, so the
+    /// system never accepted the automatic transition.
+    func cancelAutomaticEntryIfForegrounded() {
+        metalLayer.setRenderingSuspended(false, reason: "did-become-active")
+        defer {
+            if !isActive, !starting {
+                clearPlaybackPreservation()
+                frameCapture?.requestRenderBurst(count: 4)
+            }
+        }
+        guard automaticArmed, !isActive else { return }
+
+        let shouldResume = preservePlaybackDuringStart
+        debugLog("automatic PiP cancelled because the app returned to the foreground")
+        controller?.stopPictureInPicture()
+        cancelAutomaticEntry(stopPriming: false)
+        owner?.restoreVideoTrackAfterBackgroundIfNeeded(reloadDecoder: false)
+        if shouldResume { owner?.playPlayback() }
+    }
+
+    func handleEnterBackground() {
+        metalLayer.releasePendingDrawable()
+        frameCapture?.setBackgrounded(true)
+
+        if isActive {
+            debugLog("background with PiP active; keeping primary pipeline alive")
+            return
+        }
+        if automaticArmed {
+            if transitionBegan {
+                debugLog("background with automatic PiP transition pending")
+                return
+            }
+            debugLog("automatic PiP was not accepted before background; suspending video track")
+            controller?.stopPictureInPicture()
+            cancelAutomaticEntry(stopPriming: true)
+            resumePlaybackAfterBackground = owner?.isPlayerPlaying == true
+            owner?.suspendVideoTrackForBackground(reason: "automatic-start-rejected")
+            return
+        }
+        if starting {
+            debugLog("background with manual PiP start pending; keeping pipeline alive")
+            return
+        }
+        resumePlaybackAfterBackground = owner?.isPlayerPlaying == true
+        owner?.suspendVideoTrackForBackground(reason: "background-without-pip")
+    }
+
+    func handleEnterForeground() {
+        metalLayer.setRenderingSuspended(false, reason: "enter-foreground")
+        frameCapture?.setBackgrounded(false)
+
+        if isActive || starting { return }
+        owner?.restoreVideoTrackAfterBackgroundIfNeeded()
+        owner?.resumeVideoOutputWatchdogAfterPictureInPicture()
+        frameCapture?.requestRenderBurst(count: 4)
+        if resumePlaybackAfterBackground {
+            resumePlaybackAfterBackground = false
+            owner?.playPlayback()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+            self?.prewarmForAutomaticEntry()
         }
     }
 
     func invalidate(completion: (() -> Void)? = nil) {
-        pictureInPicturePossibleObservation?.invalidate()
-        pictureInPicturePossibleObservation = nil
+        metalLayer.onDrawablePresented = nil
+        metalLayer.onRenderingSuspensionChanged = nil
+        cancelStartTimeout()
+        cancelAutomaticTimeout()
+        startRetryWork?.cancel()
+        startRetryWork = nil
+        deferredFailureWork?.cancel()
+        deferredFailureWork = nil
+        restoreResumeWork?.cancel()
+        restoreResumeWork = nil
+        abortCancelWork?.cancel()
+        abortCancelWork = nil
+        endBackgroundTask()
+
         let displayLayer = self.displayLayer
-        stopCapture { [displayLayer] in
+        frameCapture?.stopRendering(removeDisplayedImage: true) {
             let cleanup = {
-                displayLayer.flushAndRemoveImage()
+                if #available(iOS 18.0, *) {
+                    displayLayer.sampleBufferRenderer.flush(removingDisplayedImage: true, completionHandler: nil)
+                } else {
+                    displayLayer.flushAndRemoveImage()
+                }
                 displayLayer.removeFromSuperlayer()
                 completion?()
             }
@@ -2215,375 +2393,371 @@ final class ConduitPictureInPictureCoordinator: NSObject,
                 DispatchQueue.main.async(execute: cleanup)
             }
         }
-        metalLayer.onDrawablePresented = nil
         controller?.stopPictureInPicture()
         controller?.delegate = nil
         controller = nil
     }
 
-    private func beginPriming(capturesWithoutPresentation: Bool = false) {
-        guard !priming else { return }
+    // MARK: - Start machinery
+
+    private func beginPriming(stopAfterFirstFrame: Bool, onFirstFrame: @escaping () -> Void) {
+        guard let frameCapture else { return }
         owner?.suspendVideoOutputWatchdogForPictureInPicture()
-        priming = true
-        startAttempts = 0
-        resetPrimingFrameState()
-        startAttemptWorkItem?.cancel()
-        startAttemptWorkItem = nil
-        displayLayer.flush()
-        // This selector is a contract for a future/patched MPVKit renderer.
-        // The pinned package still requires normal drawable presentation, so
-        // automatic background entry cannot be considered fully supported.
-        metalLayer.capturesWithoutPresentation = capturesWithoutPresentation
-        metalLayer.isDrawableCaptureArmed = true
-        frameCapture.start { [weak self] in
+        frameCapture.startPriming(
+            stopAfterFirstFrame: stopAfterFirstFrame,
+            onFirstFrame: onFirstFrame
+        )
+    }
+
+    private func prepareFreshAutomaticFrame() {
+        guard automaticArmed, !automaticPreparationInFlight else { return }
+        automaticPrepared = false
+        automaticPreparedAt = 0
+        automaticPreparationInFlight = true
+        beginPriming(stopAfterFirstFrame: true) { [weak self] in
             DispatchQueue.main.async {
-                self?.primeLatestDrawableTexture()
+                guard let self else { return }
+                self.automaticPreparationInFlight = false
+                guard self.automaticArmed, !self.isActive else { return }
+                self.automaticPrepared = true
+                self.automaticPreparedAt = CACurrentMediaTime()
+                self.controller?.invalidatePlaybackState()
+                self.requestControllerStart(source: "automatic-home", attempt: 0)
             }
         }
-        schedulePrimingTimeout()
-    }
-
-    /// If startup races a presentation, the callback may be delivered before
-    /// the capture generation finishes arming. Re-submit that already-presented
-    /// texture so PiP does not wait for a second render that may never happen.
-    private func primeLatestDrawableTexture() {
-        guard priming || isActive,
-              let latest = metalLayer.latestDrawableTextureSnapshot()
-        else { return }
-        if frameCapture.handlePresentedTexture(
-            latest.texture,
-            presentationID: latest.presentationID
-        ) {
-            metalLayer.discardLatestDrawableTexture(upTo: latest.presentationID)
+        if let latest = metalLayer.latestDrawableTextureSnapshot() {
+            frameCapture?.submitRetainedTexture(latest.texture, presentationID: latest.presentationID)
         }
     }
 
-    private func beginActiveCaptureReprime() {
-        guard isActive else { return }
-        priming = false
-        stopCapture { [weak self] in
-            let restart = {
-                guard let self, self.isActive else { return }
-                self.displayLayer.flush()
-                self.setActiveCaptureReprimePending(true)
-                self.metalLayer.capturesWithoutPresentation = true
-                self.metalLayer.isDrawableCaptureArmed = true
-                self.frameCapture.start()
-                self.scheduleActiveCaptureReprimeTimeout()
-            }
-            if Thread.isMainThread {
-                restart()
-            } else {
-                DispatchQueue.main.async(execute: restart)
-            }
-        }
-    }
-
-    private func stopCapture(completion: (() -> Void)? = nil) {
-        primingTimeout?.cancel()
-        primingTimeout = nil
-        activeCaptureReprimeTimeout?.cancel()
-        activeCaptureReprimeTimeout = nil
-        setActiveCaptureReprimePending(false)
-        startAttemptWorkItem?.cancel()
-        startAttemptWorkItem = nil
-        resetPrimingFrameState()
-        metalLayer.isDrawableCaptureArmed = false
-        metalLayer.capturesWithoutPresentation = false
-        metalLayer.discardLatestDrawableTexture(upTo: UInt64.max)
-        guard let completion else {
-            frameCapture.stop()
+    private func requestControllerStart(source: String, attempt: Int) {
+        guard let controller, !controller.isPictureInPictureActive else { return }
+        if controller.isPictureInPicturePossible {
+            debugLog("requesting PiP start source=\(source)")
+            controller.invalidatePlaybackState()
+            CATransaction.flush()
+            controller.startPictureInPicture()
             return
         }
-        frameCapture.stop {
-            if Thread.isMainThread {
-                completion()
-            } else {
-                DispatchQueue.main.async(execute: completion)
-            }
+        guard attempt < 40 else {
+            debugLog("PiP never became possible source=\(source)")
+            handleStartFailure(source: source)
+            return
         }
-    }
-
-    private func scheduleActiveCaptureReprimeTimeout() {
-        activeCaptureReprimeTimeout?.cancel()
+        startRetryWork?.cancel()
         let work = DispatchWorkItem { [weak self] in
-            guard let self,
-                  self.consumeActiveCaptureReprimeFrame(),
-                  self.isActive
-            else { return }
-            print("[Conduit PiP] Timed out waiting for active capture re-prime")
-            self.captureMetrics.recordFailure()
-            ConduitPipInstrumentation.event("ReprimeTimeout", reason: "no frames")
-            self.activeCaptureReprimeTimeout = nil
-            self.stopCapture { [weak self] in
-                self?.controller?.stopPictureInPicture()
-            }
+            guard let self, self.starting || self.automaticArmed else { return }
+            self.requestControllerStart(source: source, attempt: attempt + 1)
         }
-        activeCaptureReprimeTimeout = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: work)
+        startRetryWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.025, execute: work)
     }
 
-    private func completeActiveCaptureReprime() {
-        guard isActive else { return }
-        activeCaptureReprimeTimeout?.cancel()
-        activeCaptureReprimeTimeout = nil
+    private func handleStartFailure(source: String) {
+        debugLog("PiP start failed source=\(source)")
+        let wasPreserved = preservePlaybackDuringStart
+        cancelStartTimeout()
+        cancelAutomaticTimeout()
+        startRetryWork?.cancel()
+        startRetryWork = nil
+        starting = false
+        automaticArmed = false
+        currentStartSource = nil
+        transitionBegan = false
+        automaticPrepared = false
+        automaticPreparedAt = 0
+        endBackgroundTask()
+        clearPlaybackPreservation()
+        frameCapture?.markActive(false)
+        frameCapture?.stopRendering(removeDisplayedImage: false)
+        flushDisplayLayer(removeImage: true)
+
+        guard let owner else { return }
+        if UIApplication.shared.applicationState == .background {
+            owner.suspendVideoTrackForBackground(reason: "pip-start-failed")
+            return
+        }
+        owner.setInlineVideoHiddenForPictureInPicture(false)
+        if wasPreserved {
+            ignorePauseUntil = CACurrentMediaTime() + 1.0
+            owner.playPlayback()
+        }
+        frameCapture?.requestRenderBurst(count: 4)
+        owner.resumeVideoOutputWatchdogAfterPictureInPicture()
     }
 
-    private func setActiveCaptureReprimePending(_ pending: Bool) {
-        primingStateLock.lock()
-        activeCaptureReprimePending = pending
-        primingStateLock.unlock()
-    }
-
-    private func consumeActiveCaptureReprimeFrame() -> Bool {
-        primingStateLock.lock()
-        defer { primingStateLock.unlock() }
-        guard activeCaptureReprimePending else { return false }
-        activeCaptureReprimePending = false
-        return true
-    }
-
-    private func schedulePrimingTimeout() {
-        primingTimeout?.cancel()
+    private func scheduleStartTimeout() {
+        startTimeoutWork?.cancel()
         let work = DispatchWorkItem { [weak self] in
-            guard let self, self.priming, !self.isActive else { return }
-            print("[Conduit PiP] Timed out waiting for priming frames")
-            self.captureMetrics.recordFailure()
-            ConduitPipInstrumentation.event("PrimingTimeout", reason: "no frames")
-            self.priming = false
-            self.setStartRequested(false)
-            self.stopCapture { [weak self] in
-                self?.owner?.restoreVideoAfterPictureInPictureStopIfNeeded()
-                self?.owner?.resumeVideoOutputWatchdogAfterPictureInPicture()
-            }
+            guard let self, self.starting, !self.isActive else { return }
+            self.debugLog("PiP start timed out before activation")
+            self.handleStartFailure(source: "start-timeout")
         }
-        primingTimeout = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: work)
+        startTimeoutWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 10.0, execute: work)
     }
 
-    private func frameCaptureFailed(_ reason: String, kind: ConduitPipCaptureFailureKind) {
-        let work = { [weak self] in
-            guard let self, self.priming || self.isActive else { return }
-            print("[Conduit PiP] Frame capture failed: \(reason)")
-            let wasActive = self.isActive
+    private func cancelStartTimeout() {
+        startTimeoutWork?.cancel()
+        startTimeoutWork = nil
+    }
 
-            if case .rePrime(let active) = self.captureRecoveryPolicy.action(
-                for: kind,
-                isActive: wasActive
-            ) {
-                self.captureMetrics.recordReprimeAttempt()
-                ConduitPipInstrumentation.event("CaptureReprime", reason: reason)
-                if active {
-                    self.beginActiveCaptureReprime()
-                } else {
-                    let capturesWithoutPresentation = self.metalLayer.capturesWithoutPresentation
-                    self.priming = false
-                    self.stopCapture { [weak self] in
-                        self?.beginPriming(capturesWithoutPresentation: capturesWithoutPresentation)
-                    }
-                }
+    private func scheduleAutomaticTimeout() {
+        automaticTimeoutWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.automaticArmed else { return }
+            guard !self.isActive else {
+                self.cancelAutomaticEntry(stopPriming: false)
                 return
             }
+            self.debugLog("automatic PiP did not activate before timeout")
+            self.controller?.stopPictureInPicture()
+            self.handleStartFailure(source: "automatic-start-timeout")
+        }
+        automaticTimeoutWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4.0, execute: work)
+    }
 
-            self.priming = false
-            self.setStartRequested(false)
-            self.stopCapture { [weak self] in
+    private func cancelAutomaticTimeout() {
+        automaticTimeoutWork?.cancel()
+        automaticTimeoutWork = nil
+    }
+
+    private func cancelAutomaticEntry(stopPriming: Bool) {
+        automaticTimeoutWork?.cancel()
+        automaticTimeoutWork = nil
+        startRetryWork?.cancel()
+        startRetryWork = nil
+        deferredFailureWork?.cancel()
+        deferredFailureWork = nil
+        automaticArmed = false
+        automaticPreparationInFlight = false
+        endBackgroundTask()
+        if !isActive {
+            starting = false
+            clearPlaybackPreservation()
+        }
+        if stopPriming {
+            automaticPrepared = false
+            automaticPreparedAt = 0
+            frameCapture?.stopRendering(removeDisplayedImage: true)
+            flushDisplayLayer(removeImage: true)
+        }
+    }
+
+    private func beginBackgroundTask() {
+        guard backgroundTask == .invalid else { return }
+        backgroundTask = UIApplication.shared.beginBackgroundTask(
+            withName: "ConduitAutomaticPictureInPicture"
+        ) { [weak self] in
+            DispatchQueue.main.async {
                 guard let self else { return }
-                self.owner?.setInlineVideoHiddenForPictureInPicture(false)
-                if wasActive {
+                if !self.isActive {
                     self.controller?.stopPictureInPicture()
-                } else {
-                    self.owner?.restoreVideoAfterPictureInPictureStopIfNeeded()
-                    self.owner?.resumeVideoOutputWatchdogAfterPictureInPicture()
+                    self.handleStartFailure(source: "background-task-expired")
                 }
+                self.endBackgroundTask()
+            }
+        }
+    }
+
+    private func endBackgroundTask() {
+        guard backgroundTask != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(backgroundTask)
+        backgroundTask = .invalid
+    }
+
+    private func preservePlaybackAfterDidStart() {
+        guard preservePlaybackDuringStart else { return }
+        ignorePauseUntil = CACurrentMediaTime() + 0.45
+        owner?.playPlayback()
+        controller?.invalidatePlaybackState()
+        debugLog("preserving playback through PiP start graceMs=450")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self, CACurrentMediaTime() >= self.ignorePauseUntil else { return }
+            self.preservePlaybackDuringStart = false
+            self.ignorePauseUntil = 0
+        }
+    }
+
+    private func clearPlaybackPreservation() {
+        preservePlaybackDuringStart = false
+        ignorePauseUntil = 0
+    }
+
+    private func flushDisplayLayer(removeImage: Bool) {
+        let flush = {
+            if #available(iOS 18.0, *) {
+                self.displayLayer.sampleBufferRenderer.flush(
+                    removingDisplayedImage: removeImage,
+                    completionHandler: nil
+                )
+            } else if removeImage {
+                self.displayLayer.flushAndRemoveImage()
+            } else {
+                self.displayLayer.flush()
             }
         }
         if Thread.isMainThread {
-            work()
+            flush()
         } else {
-            DispatchQueue.main.async(execute: work)
+            DispatchQueue.main.async(execute: flush)
         }
     }
 
-    private func frameWasEnqueued() {
-        if consumeActiveCaptureReprimeFrame() {
-            DispatchQueue.main.async { [weak self] in
-                self?.completeActiveCaptureReprime()
-            }
-            return
-        }
-        guard shouldSchedulePrimingStart() else { return }
-        // AVKit start requests must run on main, but this hop happens only
-        // once when the second priming frame arrives, never for active PiP
-        // frames.
-        DispatchQueue.main.async { [weak self] in
-            self?.attemptStart()
-        }
-    }
-
-    private var isStartRequested: Bool {
-        primingStateLock.lock()
-        defer { primingStateLock.unlock() }
-        return startRequested
-    }
-
-    private func setStartRequested(_ requested: Bool) {
-        primingStateLock.lock()
-        startRequested = requested
-        if !requested { primingStartHopScheduled = false }
-        primingStateLock.unlock()
-    }
-
-    private func resetPrimingFrameState() {
-        primingStateLock.lock()
-        enqueuedFrameCount = 0
-        primingStartHopScheduled = false
-        primingStateLock.unlock()
-    }
-
-    private func shouldSchedulePrimingStart() -> Bool {
-        primingStateLock.lock()
-        enqueuedFrameCount += 1
-        let shouldSchedule = startRequested
-            && enqueuedFrameCount == 2
-            && !primingStartHopScheduled
-        if shouldSchedule { primingStartHopScheduled = true }
-        primingStateLock.unlock()
-        return shouldSchedule
-    }
-
-    private func clearPrimingStartHop() {
-        primingStateLock.lock()
-        primingStartHopScheduled = false
-        primingStateLock.unlock()
-    }
-
-    private func primingFrameState() -> (startRequested: Bool, enqueuedFrameCount: Int) {
-        primingStateLock.lock()
-        defer { primingStateLock.unlock() }
-        return (startRequested, enqueuedFrameCount)
-    }
-
-    private func attemptStart() {
-        clearPrimingStartHop()
-        let (startRequested, enqueuedFrameCount) = primingFrameState()
-        guard startRequested, let controller, !controller.isPictureInPictureActive else { return }
-        guard enqueuedFrameCount >= 2 else { return }
-        guard startAttemptWorkItem == nil else { return }
-        if controller.isPictureInPicturePossible {
-            let work = DispatchWorkItem { [weak self, weak controller] in
-                guard let self, let controller else { return }
-                self.startAttemptWorkItem = nil
-                guard self.isStartRequested,
-                      controller.isPictureInPicturePossible,
-                      !controller.isPictureInPictureActive
-                else {
-                    self.attemptStart()
-                    return
-                }
-                self.setStartRequested(false)
-                self.debugLog("invalidating PiP playback state before start")
-                controller.invalidatePlaybackState()
-                CATransaction.flush()
-                controller.startPictureInPicture()
-            }
-            startAttemptWorkItem = work
-            // Let the second priming frame commit before asking Pegasus to
-            // detach the display layer into its system window.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: work)
-            return
-        }
-        guard startAttempts < 20 else {
-            setStartRequested(false)
-            priming = false
-            stopCapture { [weak self] in
-                self?.owner?.resumeVideoOutputWatchdogAfterPictureInPicture()
-            }
-            return
-        }
-        let work = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            self.startAttemptWorkItem = nil
-            self.startAttempts += 1
-            self.attemptStart()
-        }
-        startAttemptWorkItem = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: work)
-    }
+    // MARK: - AVPictureInPictureControllerDelegate
 
     func pictureInPictureControllerWillStartPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
         debugLog("will start")
-        primingTimeout?.cancel()
-        primingTimeout = nil
-        metalLayer.capturesWithoutPresentation = true
+        transitionBegan = true
+        deferredFailureWork?.cancel()
+        deferredFailureWork = nil
         owner?.setInlineVideoHiddenForPictureInPicture(true)
     }
 
     func pictureInPictureControllerDidStartPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
         debugLog("did start")
-        priming = false
-        captureRecoveryPolicy.reset()
+        cancelStartTimeout()
+        cancelAutomaticTimeout()
+        startRetryWork?.cancel()
+        startRetryWork = nil
+        deferredFailureWork?.cancel()
+        deferredFailureWork = nil
+        automaticArmed = false
+        automaticPreparationInFlight = false
+        automaticPrepared = false
+        automaticPreparedAt = 0
+        endBackgroundTask()
+        starting = false
+        currentStartSource = nil
+        frameCapture?.markActive(true)
+        preservePlaybackAfterDidStart()
+        controller?.invalidatePlaybackState()
     }
 
     func pictureInPictureController(
         _ pictureInPictureController: AVPictureInPictureController,
         failedToStartPictureInPictureWithError error: Error
     ) {
-        print("[Conduit PiP] Failed to start: \(error)")
+        print("[Conduit PiP] Failed to start (\(currentStartSource ?? "unknown")): \(error)")
         debugLog("start failed")
-        priming = false
-        setStartRequested(false)
-        stopCapture { [weak self] in
-            self?.owner?.setInlineVideoHiddenForPictureInPicture(false)
-            self?.owner?.restoreVideoAfterPictureInPictureStopIfNeeded()
-            self?.owner?.resumeVideoOutputWatchdogAfterPictureInPicture()
+
+        // AVKit provisionally reports failure for starts issued during the
+        // Home gesture even when the transition then succeeds. Wait briefly
+        // before tearing anything down.
+        if currentStartSource == "automatic-home" && !transitionBegan {
+            deferredFailureWork?.cancel()
+            let work = DispatchWorkItem { [weak self] in
+                guard let self else { return }
+                self.deferredFailureWork = nil
+                guard !self.isActive else { return }
+                self.handleStartFailure(source: "automatic-home-rejected")
+            }
+            deferredFailureWork = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.25, execute: work)
+            return
         }
+        handleStartFailure(source: currentStartSource ?? "unknown")
     }
 
     func pictureInPictureControllerDidStopPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
-        initialPlaybackPauseSuppression?.cancel()
-        initialPlaybackPauseSuppression = nil
         debugLog("did stop")
-        priming = false
-        setStartRequested(false)
-        stopCapture { [weak self] in
-            self?.owner?.setInlineVideoHiddenForPictureInPicture(false)
-            self?.owner?.restoreVideoAfterPictureInPictureStopIfNeeded()
-            self?.owner?.resumeVideoOutputWatchdogAfterPictureInPicture()
+        cancelStartTimeout()
+        cancelAutomaticTimeout()
+        startRetryWork?.cancel()
+        startRetryWork = nil
+        deferredFailureWork?.cancel()
+        deferredFailureWork = nil
+        automaticArmed = false
+        starting = false
+        currentStartSource = nil
+        transitionBegan = false
+        clearPlaybackPreservation()
+        endBackgroundTask()
+        frameCapture?.markActive(false)
+        frameCapture?.stopRendering(removeDisplayedImage: true)
+        flushDisplayLayer(removeImage: true)
+        owner?.setInlineVideoHiddenForPictureInPicture(false)
+        // Dismissing PiP from the home screen keeps MPV running as audio
+        // only; the video-output watchdog must stay suspended there or it
+        // would flag the absent swapchain as a failure.
+        if UIApplication.shared.applicationState != .background {
+            owner?.resumeVideoOutputWatchdogAfterPictureInPicture()
         }
+
+        if resumeAfterRestore {
+            restoreResumeWork?.cancel()
+            let work = DispatchWorkItem { [weak self] in
+                guard let self else { return }
+                self.restoreResumeWork = nil
+                guard self.resumeAfterRestore else { return }
+                self.resumeAfterRestore = false
+                self.owner?.playPlayback()
+                self.controller?.invalidatePlaybackState()
+            }
+            restoreResumeWork = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: work)
+        }
+        if UIApplication.shared.applicationState == .active, owner?.isPlayerPlaying == true {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+                self?.prewarmForAutomaticEntry()
+            }
+        }
+    }
+
+    func pictureInPictureControllerWillStopPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
+        debugLog("will stop")
+        transitionBegan = false
+        frameCapture?.markActive(false)
     }
 
     func pictureInPictureController(
         _ pictureInPictureController: AVPictureInPictureController,
         restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler: @escaping (Bool) -> Void
     ) {
+        debugLog("restoring inline UI from PiP")
+        resumeAfterRestore = true
+        owner?.playPlayback()
         completionHandler(true)
     }
+
+    // MARK: - AVPictureInPictureSampleBufferPlaybackDelegate
 
     func pictureInPictureController(
         _ pictureInPictureController: AVPictureInPictureController,
         setPlaying playing: Bool
     ) {
         debugLog(
-            "AVKit setPlaying=\(playing) priming=\(priming) active=\(isActive) " +
+            "AVKit setPlaying=\(playing) starting=\(starting) active=\(isActive) " +
                 "ownerPlaying=\(owner?.isPlayerPlaying == true)"
         )
-        if !playing, initialPlaybackPauseSuppression != nil {
-            debugLog("ignored transient PiP pause during startup")
-            initialPlaybackPauseSuppression?.cancel()
-            initialPlaybackPauseSuppression = nil
-            return
+        if !playing {
+            if resumeAfterRestore {
+                debugLog("ignored transient pause callback during PiP restore")
+                return
+            }
+            let withinGrace = CACurrentMediaTime() < ignorePauseUntil
+            if preservePlaybackDuringStart, starting || withinGrace {
+                debugLog("ignored transient pause callback during PiP start")
+                owner?.playPlayback()
+                controller?.invalidatePlaybackState()
+                return
+            }
+            clearPlaybackPreservation()
+            owner?.pausePlayback()
+        } else {
+            owner?.playPlayback()
         }
-        initialPlaybackPauseSuppression?.cancel()
-        initialPlaybackPauseSuppression = nil
-        playing ? owner?.playPlayback() : owner?.pausePlayback()
+        DispatchQueue.main.async { [weak self] in
+            self?.controller?.invalidatePlaybackState()
+        }
     }
 
     func pictureInPictureControllerTimeRangeForPlayback(
         _ pictureInPictureController: AVPictureInPictureController
     ) -> CMTimeRange {
-        let duration = CMTime(value: max(owner?.durationMs ?? 0, 1), timescale: 1_000)
-        return CMTimeRange(start: .zero, duration: duration)
+        let times = sanitizedPlaybackTimes()
+        return CMTimeRange(start: .zero, duration: CMTime(seconds: times.duration, preferredTimescale: 1_000))
     }
 
     func pictureInPictureControllerIsPlaybackPaused(
@@ -2608,16 +2782,31 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         skipByInterval skipInterval: CMTime,
         completion completionHandler: @escaping () -> Void
     ) {
-        owner?.seekByMs(Int64(CMTimeGetSeconds(skipInterval) * 1_000))
+        let seconds = CMTimeGetSeconds(skipInterval)
+        guard seconds.isFinite else {
+            completionHandler()
+            return
+        }
+        owner?.seekByMs(Int64(seconds * 1_000))
         completionHandler()
     }
 
+    /// AVKit renders nonsense scrubbers when the media clock has not settled;
+    /// clamp both ends to something finite and plausible.
+    private func sanitizedPlaybackTimes() -> (current: Double, duration: Double) {
+        let rawCurrent = Double(owner?.positionMs ?? 0) / 1_000
+        let rawDuration = Double(owner?.durationMs ?? 0) / 1_000
+        let current = rawCurrent.isFinite ? max(0, rawCurrent) : 0
+        let duration = rawDuration.isFinite && rawDuration > max(5, current + 1)
+            ? rawDuration
+            : max(600, current + 600)
+        return (min(current, max(0, duration - 0.5)), duration)
+    }
+
     private func debugLog(_ message: String) {
-#if DEBUG
+        #if DEBUG
         print("[Conduit PiP][diagnostic] \(message)")
-#else
-        _ = message
-#endif
+        #endif
     }
 }
 
