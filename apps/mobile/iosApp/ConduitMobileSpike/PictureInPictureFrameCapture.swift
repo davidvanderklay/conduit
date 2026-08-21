@@ -126,11 +126,15 @@ final class ConduitPictureInPictureFrameCapture {
     private var inFlightCaptures = 0
     private var hasBlitInFlight = false
     private var loggedUnsupportedFormat = false
+    private var smoothedPtsSeconds: Double = 0
+    private var smoothedPtsUptime: TimeInterval = 0
 
 #if DEBUG
     private var lastDeliveredPtsSeconds: Double = 0
     private var pacingSequence: Int = 0
     private var lastCompletionUptime: TimeInterval = 0
+    private var lastClaimInterval: CFTimeInterval = 0
+    private var previousCaptureTime: CFTimeInterval = 0
 #endif
 
     init?(
@@ -185,6 +189,7 @@ final class ConduitPictureInPictureFrameCapture {
     }
 
     func markActive(_ active: Bool) {
+        if active { resyncPresentationClock() }
         stateLock.lock()
         isActive = active
         if active {
@@ -201,6 +206,7 @@ final class ConduitPictureInPictureFrameCapture {
     }
 
     func didSeek() {
+        resyncPresentationClock()
         requestRenderBurst(count: 3)
     }
 
@@ -304,17 +310,47 @@ final class ConduitPictureInPictureFrameCapture {
             return
         }
         lastCaptureTime = now
+        #if DEBUG
+        lastClaimInterval = clock.isPlaying ? now - previousCaptureTime : 0
+        previousCaptureTime = now
+        #endif
         if burstFramesRemaining > 0 { burstFramesRemaining -= 1 }
         hasBlitInFlight = true
         inFlightCaptures += 1
+        let ptsSeconds = nextPresentationSeconds(for: clock, at: ProcessInfo.processInfo.systemUptime)
         stateLock.unlock()
 
         enqueue(
             texture: sourceTexture,
             sourceLifetime: sourceLifetime,
-            clock: clock
+            clock: clock,
+            ptsSeconds: ptsSeconds
         )
         updateArmedState()
+    }
+
+    /// Integrates wall-clock playback time between captures instead of
+    /// re-reading MPV's quantized position per frame, so consecutive sample
+    /// timestamps advance smoothly with the real capture cadence.
+    private func nextPresentationSeconds(
+        for clock: ConduitPipPlaybackClockSnapshot,
+        at uptime: TimeInterval
+    ) -> Double {
+        let rate = clock.isPlaying ? min(max(clock.playbackRate, 0.25), 4.0) : 0
+        if smoothedPtsUptime == 0 {
+            smoothedPtsSeconds = clock.interpolatedPositionSeconds(at: uptime)
+        } else {
+            smoothedPtsSeconds += max(0, uptime - smoothedPtsUptime) * rate
+        }
+        smoothedPtsUptime = uptime
+        return max(smoothedPtsSeconds, 0)
+    }
+
+    /// Re-anchors the integrated timestamp after a timeline jump.
+    private func resyncPresentationClock() {
+        stateLock.lock()
+        smoothedPtsUptime = 0
+        stateLock.unlock()
     }
 
     /// Releases the single-blit gate on paths where no completion handler
@@ -329,7 +365,8 @@ final class ConduitPictureInPictureFrameCapture {
     private func enqueue(
         texture source: MTLTexture,
         sourceLifetime: AnyObject?,
-        clock: ConduitPipPlaybackClockSnapshot
+        clock: ConduitPipPlaybackClockSnapshot,
+        ptsSeconds: Double
     ) {
         withExtendedLifetime(sourceLifetime) {}
 
@@ -387,7 +424,11 @@ final class ConduitPictureInPictureFrameCapture {
                 #if DEBUG
                 self.lastCompletionUptime = completedAt
                 #endif
-                self.enqueueSampleBuffer(for: pixelBuffer, clock: clock)
+                self.enqueueSampleBuffer(
+                    for: pixelBuffer,
+                    clock: clock,
+                    ptsSeconds: ptsSeconds
+                )
                 self.abandonBlit()
             }
         }
@@ -429,7 +470,8 @@ final class ConduitPictureInPictureFrameCapture {
 
     private func enqueueSampleBuffer(
         for pixelBuffer: CVPixelBuffer,
-        clock: ConduitPipPlaybackClockSnapshot
+        clock: ConduitPipPlaybackClockSnapshot,
+        ptsSeconds: Double
     ) {
         attachColorAttributes(to: pixelBuffer)
 
@@ -450,12 +492,7 @@ final class ConduitPictureInPictureFrameCapture {
 
         guard let description else { return }
 
-        let positionSeconds = clock.interpolatedPositionSeconds(
-            at: ProcessInfo.processInfo.systemUptime
-        )
-        let presentationTime = positionSeconds.isFinite && positionSeconds >= 0
-            ? CMTime(seconds: positionSeconds, preferredTimescale: 90_000)
-            : CMTime(seconds: CACurrentMediaTime(), preferredTimescale: 90_000)
+        let presentationTime = CMTime(seconds: ptsSeconds, preferredTimescale: 90_000)
 
         var timing = CMSampleTimingInfo(
             duration: CMTime(
@@ -552,12 +589,16 @@ final class ConduitPictureInPictureFrameCapture {
         let shouldLog = sequence <= 40 || sequence % 30 == 0 || dropped
         guard shouldLog else { return }
         let ptsDelta = previousPts > 0 ? (pts - previousPts) * 1_000 : 0
+        stateLock.lock()
+        let claimInterval = lastClaimInterval * 1_000
+        stateLock.unlock()
         logCapture(
             String(
-                format: "pacing seq=%d %@ ptsDelta=%.1fms gap=%.1fms",
+                format: "pacing seq=%d %@ ptsDelta=%.1fms captureDelta=%.1fms gap=%.1fms",
                 sequence,
                 dropped ? "DROPPED" : "enqueued",
                 ptsDelta,
+                claimInterval,
                 (deliveredAt - lastCompletionUptime) * 1_000
             )
         )

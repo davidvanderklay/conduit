@@ -343,6 +343,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
     private var destroyStarted = false
     private var audioSessionActivationRequested = false
     private var didPrewarmPictureInPictureResources = false
+    private var frameRateDisplayLink: CADisplayLink?
     private var resizeMode = 0
     private var automaticPipHomeSwipeCandidate = false
     private var automaticPipHomeSwipeEdge: AutomaticPipSwipeEdge?
@@ -919,6 +920,8 @@ final class ConduitMPVPlayerViewController: UIViewController {
 
         lifecycleObservers.forEach(NotificationCenter.default.removeObserver)
         lifecycleObservers.removeAll()
+        frameRateDisplayLink?.invalidate()
+        frameRateDisplayLink = nil
         pendingRetry?.cancel()
         pendingRetry = nil
         pendingSurfaceLayoutWorkItems.forEach { $0.cancel() }
@@ -1362,6 +1365,11 @@ final class ConduitMPVPlayerViewController: UIViewController {
         // the PiP transition. Resampling shifts speed by fractions of a
         // percent instead and is imperceptible.
         setOptionString(mpv, name: "audio-sync", value: "resample")
+        // NOTE: video-sync=display-resample is not usable on this stack -
+        // the MoltenVK/vulkan context exposes no present-timing feedback
+        // (estimated-display-fps stays 0), so mpv has no display clock to
+        // resample against. Frame pacing relies on the scene running at the
+        // panel's native rate instead (see applyPreferredRefreshRate).
         setOptionString(mpv, name: "vulkan-swap-mode", value: "fifo")
         setOptionString(mpv, name: "vulkan-queue-count", value: "1")
         setOptionString(mpv, name: "vulkan-async-compute", value: "no")
@@ -1555,6 +1563,12 @@ final class ConduitMPVPlayerViewController: UIViewController {
             width: (bounds.width * scale).rounded(),
             height: (bounds.height * scale).rounded()
         )
+        // ProMotion devices default scenes to 60Hz, which forces 24fps video
+        // into uneven 2:3 pulldown (33/50ms frame gaps). A display link whose
+        // preferred range requests the panel's native rate keeps the whole
+        // scene at high refresh while playback runs, letting 24fps map to
+        // uniform intervals.
+        applyPreferredRefreshRate()
         if lastDrawableSize != .zero && size != lastDrawableSize {
             noteSurfaceGeometryChange()
         }
@@ -1980,6 +1994,9 @@ final class ConduitMPVPlayerViewController: UIViewController {
             "rebind=\(videoOutputRecoveryState.result.rawValue)",
             "recoveryAttempts=\(videoOutputRecoveryState.attempts)",
             "recoveryElapsed=\(recoveryElapsedDescription)",
+            String(format: "displayFps=%.2f", getDouble("estimated-display-fps")),
+            String(format: "vsyncJitter=%.4f", getDouble("estimated-vsync-jitter")),
+            String(format: "vsyncRatio=%.3f", getDouble("vsync-ratio")),
         ].joined(separator: " ")
         guard snapshot != lastDebugPlaybackSnapshot else { return }
         lastDebugPlaybackSnapshot = snapshot
@@ -1993,6 +2010,24 @@ final class ConduitMPVPlayerViewController: UIViewController {
         _ = message
 #endif
     }
+
+    private func applyPreferredRefreshRate() {
+        guard frameRateDisplayLink == nil, view.window != nil else { return }
+        let maxFps = Float(view.window?.screen.maximumFramesPerSecond ?? 60)
+        let link = CADisplayLink(target: self, selector: #selector(frameRatePump(_:)))
+        if #available(iOS 15.0, *) {
+            link.preferredFrameRateRange = CAFrameRateRange(
+                minimum: 24,
+                maximum: maxFps,
+                preferred: maxFps
+            )
+        }
+        link.add(to: .main, forMode: .common)
+        frameRateDisplayLink = link
+        debugLog("refresh rate request applied max=\(Int(maxFps))")
+    }
+
+    @objc private func frameRatePump(_ link: CADisplayLink) {}
 
     private var recoveryElapsedDescription: String {
         guard let started = videoOutputRecoveryState.startedAt else { return "none" }
