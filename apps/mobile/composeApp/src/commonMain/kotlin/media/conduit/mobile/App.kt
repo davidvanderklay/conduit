@@ -844,6 +844,7 @@ private fun AppShell(
                         val synchronized = synchronizeProfileData(profile.id)
                         val postMutation = synchronized.snapshot?.let { snapshot ->
                             when (mutation) {
+                                is ProfileMutation.SetQueue,
                                 is ProfileMutation.SetDismissed,
                                 is ProfileMutation.RemoveProgress -> snapshot.applyOptimistically(mutation)
                                 else -> snapshot

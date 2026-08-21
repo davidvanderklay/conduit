@@ -447,6 +447,17 @@ internal fun PlaybackRequest.streamKeyForPlayback(): String =
         append(subtitles)
     }
 
+internal fun playbackRequestMatchesStream(
+    request: PlaybackRequest?,
+    mediaId: String,
+    videoId: String,
+    url: String?,
+): Boolean = request?.let {
+    it.identity.mediaId == mediaId &&
+        it.identity.videoId == videoId &&
+        it.url == url
+} == true
+
 internal fun savedStreamStartupStalled(
     request: PlaybackRequest,
     playback: PlaybackState,

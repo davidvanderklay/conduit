@@ -115,6 +115,26 @@ class PlaybackSessionTest {
     }
 
     @Test
+    fun playbackReadinessRequiresTheSelectedStreamUrl() {
+        val request = PlaybackRequest(
+            identity = PlaybackIdentity("profile", "series", "show", "s1e2"),
+            url = "https://example.com/old.mp4",
+            title = "Episode 2",
+            mediaName = "Show",
+        )
+
+        assertTrue(
+            playbackRequestMatchesStream(request, "show", "s1e2", "https://example.com/old.mp4"),
+        )
+        assertFalse(
+            playbackRequestMatchesStream(request, "show", "s1e2", "https://example.com/new.mp4"),
+        )
+        assertFalse(
+            playbackRequestMatchesStream(request, "show", "s1e1", "https://example.com/old.mp4"),
+        )
+    }
+
+    @Test
     fun recoverableStartupErrorKeepsTheLoadingSurfaceVisible() {
         val request = PlaybackRequest(
             identity = PlaybackIdentity("profile", "series", "show", "s1e2"),

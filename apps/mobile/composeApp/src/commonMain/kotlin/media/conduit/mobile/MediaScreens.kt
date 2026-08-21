@@ -1144,6 +1144,10 @@ internal fun MediaDetailsScreen(
         if (!autoResumeRequested || addons.isEmpty()) return@LaunchedEffect
         if (item.type == "series" && effectiveInitialVideoId == null && selectedVideo == null) return@LaunchedEffect
         val targetVideoId = selectedVideo?.id ?: effectiveInitialVideoId ?: item.id
+        val ownsTargetPlayback = playbackSession.state.request?.identity?.let { identity ->
+            identity.mediaId == item.id && identity.videoId == targetVideoId
+        } == true
+        if (ownsTargetPlayback) return@LaunchedEffect
         if (openMode == MediaOpenMode.Queue) {
             if (preferences.autoSelectNextStreams) {
                 if (autoResumeAttemptedKey == "queue:$targetVideoId") return@LaunchedEffect
@@ -1193,13 +1197,14 @@ internal fun MediaDetailsScreen(
         playbackSession.state.playback.videoHeight,
     ) {
         val playback = playbackSession.state.playback
+        val playbackMatchesSelectedStream = playbackRequestMatchesStream(
+            request = playbackSession.state.request,
+            mediaId = item.id,
+            videoId = playingVideoId,
+            url = playing?.url,
+        )
         if (
-            (
-                autoResumeStage == AutoResumeStage.Starting ||
-                    playbackSession.state.request?.identity?.let { identity ->
-                        identity.mediaId == item.id && identity.videoId == playingVideoId
-                    } == true
-                ) &&
+            playbackMatchesSelectedStream &&
                 !playback.loading &&
                 playback.videoWidth > 0 &&
                 playback.videoHeight > 0
