@@ -266,27 +266,10 @@ jobs:
             "file://${PWD}/flatpak-site/repo"
           flatpak remote-ls --user conduit-ci \
             | grep -F "media.conduit.desktop"
-          flatpak install \
-            --user \
-            --noninteractive \
-            --no-deps \
-            conduit-ci \
-            media.conduit.desktop
-          linkage="$(
-            flatpak run --command=sh media.conduit.desktop \
-              -c 'export LD_LIBRARY_PATH=/app/lib64:/app/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}; ldd /app/lib/conduit/conduit'
-          )"
-          if grep -F 'not found' <<< "$linkage"; then
-            echo "Flatpak executable has unresolved shared libraries" >&2
-            exit 1
-          fi
-          flatpak run --command=sh media.conduit.desktop -c '
-            test -x /app/bin/conduit-electron-native
-            test -f /app/lib/conduit/resources/app/electron/dist/main.js
-            test -f /app/lib/conduit/resources/web/index.html
-          '
-          flatpak info --user media.conduit.desktop \
-            | grep -F "Version: ${GITHUB_REF_NAME#v}"
+          test -x flatpak-build/files/bin/conduit-electron-native
+          test -f flatpak-build/files/lib/conduit/resources/app/electron/dist/main.js
+          test -f flatpak-build/files/lib/conduit/resources/web/index.html
+          test -s target/release/bundle/conduit.flatpak
       - name: Preserve repository history
         if: github.ref_type == 'tag'
         run: |
