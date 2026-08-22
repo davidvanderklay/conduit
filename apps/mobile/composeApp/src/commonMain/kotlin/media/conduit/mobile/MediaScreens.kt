@@ -83,9 +83,6 @@ private val VideoItem.displayTitle: String
         ?: overview?.lineSequence()?.firstOrNull()?.take(80)?.takeIf(String::isNotBlank)
         ?: "Episode ${episode ?: ""}".trim()
 
-// Details screen outer list layout: hero, actions panel, and season chips precede each episode row.
-private const val DETAILS_EPISODE_BASE_INDEX = 3
-
 private const val AUTO_RESUME_TIMEOUT_MS = 8_000L
 private class AutoResumeTimeoutException : IllegalStateException("Saved source lookup timed out")
 
@@ -681,10 +678,6 @@ internal fun MediaDetailsScreen(
     var externalSubtitlesLoaded by remember(item.id) { mutableStateOf(false) }
     var selectedSeason by remember(item.id) { mutableStateOf<Int?>(null) }
     var detailsSeasonManuallySelected by remember(item.id) { mutableStateOf(false) }
-    var detailsEpisodeAutoPositioned by remember(item.id) { mutableStateOf(false) }
-    var detailsEpisodePositionedWithoutSnapshot by remember(item.id) { mutableStateOf(false) }
-    var detailsEpisodeManualInteraction by remember(item.id) { mutableStateOf(false) }
-    var detailsEpisodeAutoPositioning by remember(item.id) { mutableStateOf(false) }
     var autoResumeAttemptedKey by remember(item.id) { mutableStateOf<String?>(null) }
     var selectedPlaybackSources by remember(item.id) { mutableStateOf<Map<String, PlaybackSource>>(emptyMap()) }
     var autoRecoveryVideoIds by remember(item.id) { mutableStateOf<Set<String>>(emptySet()) }
@@ -724,19 +717,6 @@ internal fun MediaDetailsScreen(
     val uriHandler = LocalUriHandler.current
     val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
     var actionTarget by remember(item.id) { mutableStateOf<MediaActionTarget?>(null) }
-
-    LaunchedEffect(detailsListState) {
-        snapshotFlow { detailsListState.isScrollInProgress }.collect { scrolling ->
-            // Only gestures that reach the season/episode zone count as manual interaction.
-            if (
-                scrolling &&
-                !detailsEpisodeAutoPositioning &&
-                detailsListState.firstVisibleItemIndex >= DETAILS_EPISODE_BASE_INDEX - 1
-            ) {
-                detailsEpisodeManualInteraction = true
-            }
-        }
-    }
 
     fun cancelStreamRequest() {
         streamRequestVersion += 1
@@ -1676,33 +1656,6 @@ internal fun MediaDetailsScreen(
             selectedSeason = targetSeason
         }
     }
-    LaunchedEffect(playTarget.video?.id, selectedSeason, details?.videos, snapshot?.profileId) {
-        if (detailsEpisodeManualInteraction) return@LaunchedEffect
-        if (snapshot != null && detailsEpisodeAutoPositioned) return@LaunchedEffect
-        if (snapshot == null && detailsEpisodePositionedWithoutSnapshot) return@LaunchedEffect
-        val target = playTarget.video ?: return@LaunchedEffect
-        val seasonVideos = details?.videos.orEmpty()
-            .filter { it.season == selectedSeason }
-            .sortedWith(compareBy<VideoItem> { it.episode ?: 0 })
-        val positionTarget = target.takeIf {
-            it.season != null &&
-                it.episode != null &&
-                it.season == selectedSeason
-        } ?: seasonVideos.firstOrNull()
-        val index = positionTarget?.let { targetVideo ->
-            seasonVideos.indexOfFirst { it.id == targetVideo.id }
-        } ?: -1
-        if (index >= 0) {
-            detailsEpisodeAutoPositioning = true
-            try {
-                detailsListState.scrollToItem(DETAILS_EPISODE_BASE_INDEX + index)
-            } finally {
-                detailsEpisodeAutoPositioning = false
-            }
-            if (snapshot == null) detailsEpisodePositionedWithoutSnapshot = true
-            else detailsEpisodeAutoPositioned = true
-        }
-    }
     val heroPullDp = with(LocalDensity.current) { heroPull.floatValue.toDp() }
     val heroScale = 1f + (heroPull.floatValue / maxHeroPullPx) * HeroMotion.expansionScale
     val heroHeight = if (item.type == "movie") 390.dp else 350.dp
@@ -1889,7 +1842,6 @@ internal fun MediaDetailsScreen(
                             label = if (season == 0) "Specials" else "Season $season",
                             onClick = {
                                 detailsSeasonManuallySelected = true
-                                detailsEpisodeManualInteraction = true
                                 selectedSeason = season
                             },
                             onLongClick = {
@@ -1905,7 +1857,6 @@ internal fun MediaDetailsScreen(
                     }
                 }
             }
-            // Episode rows live in this outer list; DETAILS_EPISODE_BASE_INDEX must match the items above.
             val seasonVideos = videos
                 .filter { it.season == selectedSeason }
                 .sortedWith(compareBy<VideoItem> { it.episode ?: 0 })
