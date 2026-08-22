@@ -17,7 +17,9 @@ finish-args:
 
 build-options:
   no-debuginfo: true
-  strip: true
+  # The bundled Rust compiler is used by later modules and cannot be stripped
+  # safely by flatpak-builder.
+  strip: false
   append-path: /app/rust/bin:/usr/lib/sdk/node24/bin
   env:
     CARGO_NET_OFFLINE: "true"
@@ -28,9 +30,6 @@ build-options:
 modules:
   - name: rust-toolchain
     buildsystem: simple
-    build-options:
-      # flatpak-builder's generic stripping breaks rustc and librustc_driver.
-      strip: false
     build-commands:
       - ./install.sh --prefix=/app/rust --disable-ldconfig
     sources:
