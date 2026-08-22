@@ -2,6 +2,7 @@ app-id: media.conduit.desktop
 runtime: org.gnome.Platform
 runtime-version: "50"
 sdk: org.gnome.Sdk
+appstream-compose: false
 sdk-extensions:
   - org.freedesktop.Sdk.Extension.node24
 command: conduit
