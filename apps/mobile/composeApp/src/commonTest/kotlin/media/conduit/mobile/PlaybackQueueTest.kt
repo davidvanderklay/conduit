@@ -36,7 +36,7 @@ class PlaybackQueueTest {
     }
 
     @Test
-    fun queuedEpisodeUsesShowArtworkInsteadOfEpisodeThumbnail() {
+    fun queuedEpisodesPreferEpisodeThumbnailAndFallBackToShowBackground() {
         val item = media.conduit.mobile.account.CatalogItem(
             id = "show",
             type = "series",
@@ -44,13 +44,15 @@ class PlaybackQueueTest {
             poster = "https://example.test/poster.jpg",
             background = "https://example.test/background.jpg",
         )
-        val video = media.conduit.mobile.account.VideoItem(
+        val thumbnailed = media.conduit.mobile.account.VideoItem(
             id = "s1e1",
             title = "Episode 1",
             thumbnail = "https://example.test/episode.jpg",
         )
+        val plain = media.conduit.mobile.account.VideoItem(id = "s1e2", title = "Episode 2")
 
-        assertEquals("https://example.test/background.jpg", playbackQueueItem(item, video)?.artwork)
+        assertEquals("https://example.test/episode.jpg", playbackQueueItem(item, thumbnailed)?.artwork)
+        assertEquals("https://example.test/background.jpg", playbackQueueItem(item, plain)?.artwork)
     }
 
     @Test
