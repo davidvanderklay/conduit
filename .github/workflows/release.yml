@@ -274,7 +274,7 @@ jobs:
             media.conduit.desktop
           linkage="$(
             flatpak run --command=sh media.conduit.desktop \
-              -c 'ldd /app/lib/conduit/conduit'
+              -c 'export LD_LIBRARY_PATH=/app/lib64:/app/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}; ldd /app/lib/conduit/conduit'
           )"
           if grep -F 'not found' <<< "$linkage"; then
             echo "Flatpak executable has unresolved shared libraries" >&2
