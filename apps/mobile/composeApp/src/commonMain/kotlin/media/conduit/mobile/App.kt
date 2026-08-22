@@ -1684,25 +1684,43 @@ private fun BoxScope.PlaybackSessionHost(
                 session.playback.durationMs > 0 &&
                 session.playback.durationMs - session.playback.positionMs in 1..30_000
             ) {
-                val upNextBottomPadding = if (controlsVisible) 102.dp else 18.dp
+                val compactUpNext = with(density) {
+                    containerSize.width.toDp() < 600.dp || containerSize.height.toDp() < 600.dp
+                }
+                val upNextBottomPadding = when {
+                    !controlsVisible -> 18.dp
+                    compactUpNext -> 132.dp
+                    else -> 102.dp
+                }
                 Surface(
                     Modifier
                         .align(Alignment.BottomEnd)
                         .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.End))
                         .padding(end = 18.dp, bottom = upNextBottomPadding)
-                        .widthIn(min = 300.dp, max = 365.dp),
+                        .widthIn(
+                            min = if (compactUpNext) 280.dp else 300.dp,
+                            max = if (compactUpNext) 320.dp else 365.dp,
+                        ),
                     color = Color(0xE619191B),
-                    shape = RoundedCornerShape(20.dp),
+                    shape = RoundedCornerShape(if (compactUpNext) 16.dp else 20.dp),
                     border = BorderStroke(1.dp, Color.White.copy(.16f)),
                 ) {
-                    Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        Modifier.padding(if (compactUpNext) 8.dp else 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                         AsyncImage(
                             upNext.nextEpisodeArtwork,
                             null,
-                            Modifier.size(88.dp, 54.dp).clip(RoundedCornerShape(11.dp)),
+                            Modifier
+                                .size(
+                                    width = if (compactUpNext) 76.dp else 88.dp,
+                                    height = if (compactUpNext) 48.dp else 54.dp,
+                                )
+                                .clip(RoundedCornerShape(if (compactUpNext) 9.dp else 11.dp)),
                             contentScale = ContentScale.Crop,
                         )
-                        Spacer(Modifier.width(10.dp))
+                        Spacer(Modifier.width(if (compactUpNext) 8.dp else 10.dp))
                         Column(Modifier.weight(1f)) {
                             Text(if (upNext.nextItemQueued) "UP NEXT" else "NEXT EPISODE", color = Color.White.copy(.6f), style = MaterialTheme.typography.labelSmall)
                             Text(upNext.nextEpisodeTitle.orEmpty(), color = Color.White, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
