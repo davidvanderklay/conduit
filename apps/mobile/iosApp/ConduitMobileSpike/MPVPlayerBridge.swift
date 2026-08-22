@@ -313,7 +313,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
     fileprivate var hasLoadedFile = false
     private var shouldPlay = false
     private var resumeAfterAudioInterruption = false
-    fileprivate var videoTrackSuspendedForBackground = false
+    private var videoTrackSuspendedForBackground = false
     private var lastDrawableSize: CGSize = .zero
     private var videoSurfaceSize: CGSize = .zero
     private var settledMetalBounds: CGRect = .zero
@@ -344,7 +344,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
     private var audioSessionActivationRequested = false
     private var didPrewarmPictureInPictureResources = false
     private var frameRateDisplayLink: CADisplayLink?
-    private var resizeMode = 0
+    fileprivate var resizeMode = 0
     private var automaticPipHomeSwipeCandidate = false
     private var automaticPipHomeSwipeEdge: AutomaticPipSwipeEdge?
     private var lastDebugPlaybackSnapshot: String?
@@ -801,12 +801,23 @@ final class ConduitMPVPlayerViewController: UIViewController {
         let seeking = getFlag("seeking")
         let buffering = getFlag("paused-for-cache")
         let videoCodec = getString("video-codec")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let outputWidth = getInt("video-out-params/w")
-        let outputHeight = getInt("video-out-params/h")
         let activeFrameRate = getDouble("video-params/fps")
         let containerFrameRate = getDouble("container-fps")
-        let decodedWidth = outputWidth > 0 ? outputWidth : getInt("video-params/w")
-        let decodedHeight = outputHeight > 0 ? outputHeight : getInt("video-params/h")
+        // Display dimensions account for sample aspect ratio and rotation, so
+        // PiP cropping and subtitle positioning see the picture viewers see
+        // rather than the storage grid.
+        var displayWidth = getInt("video-out-params/dw")
+        var displayHeight = getInt("video-out-params/dh")
+        if displayWidth <= 0 || displayHeight <= 0 {
+            displayWidth = getInt("video-out-params/w")
+            displayHeight = getInt("video-out-params/h")
+        }
+        if displayWidth <= 0 || displayHeight <= 0 {
+            displayWidth = getInt("video-params/w")
+            displayHeight = getInt("video-params/h")
+        }
+        let decodedWidth = displayWidth
+        let decodedHeight = displayHeight
         let nextVideoWidth = max(decodedWidth, 0)
         let nextVideoHeight = max(decodedHeight, 0)
         let videoSizeChanged = videoWidth != nextVideoWidth || videoHeight != nextVideoHeight
@@ -1320,11 +1331,28 @@ final class ConduitMPVPlayerViewController: UIViewController {
         }
     }
 
+    /// Covers the inline surface while PiP owns the picture. The Metal layer
+    /// itself must stay visible and presenting: hiding it stops Core Animation
+    /// from recycling drawables, which starves MoltenVK's swapchain within a
+    /// few frames and freezes MPV's video output while audio continues.
+    ///
+    /// The refresh-rate pump is released while covered: its panel-native rate
+    /// exists to keep inline pulldown uniform, which does not apply to a
+    /// surface nobody can see, and dropping it removes the forced max-refresh
+    /// scene churn while PiP floats over the app. Playback pacing is
+    /// unaffected (MPV has no display clock on this stack; the PiP capture
+    /// path paces itself).
     fileprivate func setInlineVideoHiddenForPictureInPicture(_ hidden: Bool) {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         pictureInPicturePlaceholderLayer.opacity = hidden ? 1 : 0
         CATransaction.commit()
+        if hidden {
+            frameRateDisplayLink?.invalidate()
+            frameRateDisplayLink = nil
+        } else {
+            applyPreferredRefreshRate()
+        }
     }
 
     private func setupMpv() {
@@ -2195,6 +2223,12 @@ final class ConduitPictureInPictureCoordinator: NSObject,
             },
             videoSizeProvider: { [weak owner] in
                 owner?.videoContentSize ?? .zero
+            },
+            fillsSurfaceProvider: { [weak owner] in
+                // Fill/Zoom render the picture edge-to-edge (panscan/zoom), so
+                // the whole drawable is the picture and must not be re-cropped.
+                guard let owner else { return false }
+                return owner.resizeMode == 1 || owner.resizeMode == 2
             }
         )
         if frameCapture == nil {

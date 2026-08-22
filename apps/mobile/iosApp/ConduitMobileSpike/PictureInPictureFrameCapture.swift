@@ -83,6 +83,48 @@ final class ConduitPipPlaybackClock {
     }
 }
 
+/// Pure geometry policy mapping MPV's drawable onto a PiP sample buffer.
+///
+/// - Aspect-fit modes letterbox the video inside the surface, so the buffer
+///   center-crops the fitted video rect. Publishing the whole surface would
+///   bake the inline bars - and therefore the window's aspect - into the PiP
+///   window.
+/// - Fill/Zoom modes render edge-to-edge, so the whole surface is the picture.
+/// - An unknown video size has no defined crop, so frames are skipped rather
+///   than published with a device-shaped aspect.
+enum ConduitPipVideoRegionPolicy: Equatable {
+    case fullSurface
+    case centeredCrop(width: Int, height: Int)
+    case skip
+
+    static func decision(
+        textureWidth: Int,
+        textureHeight: Int,
+        videoWidth: Double,
+        videoHeight: Double,
+        videoFillsSurface: Bool
+    ) -> ConduitPipVideoRegionPolicy {
+        if videoFillsSurface { return .fullSurface }
+        guard videoWidth > 0, videoHeight > 0, textureWidth > 0, textureHeight > 0 else { return .skip }
+
+        let videoAspect = videoWidth / videoHeight
+        let textureAspect = Double(textureWidth) / Double(textureHeight)
+        var fittedWidth = Double(textureWidth)
+        var fittedHeight = Double(textureHeight)
+        if videoAspect > textureAspect {
+            fittedHeight = fittedWidth / videoAspect
+        } else if videoAspect < textureAspect {
+            fittedWidth = fittedHeight * videoAspect
+        }
+
+        let width = max(2, Int(fittedWidth.rounded(.down)) & ~1)
+        let height = max(2, Int(fittedHeight.rounded(.down)) & ~1)
+        guard width <= textureWidth, height <= textureHeight else { return .skip }
+        if width == textureWidth, height == textureHeight { return .fullSurface }
+        return .centeredCrop(width: width, height: height)
+    }
+}
+
 /// Copies presented MPV textures into IOSurface-backed sample buffers without
 /// creating a second decoder or reading pixels back through the CPU.
 ///
@@ -96,6 +138,7 @@ final class ConduitPictureInPictureFrameCapture {
     private let metalLayer: ConduitMetalLayer
     private let clockProvider: () -> ConduitPipPlaybackClockSnapshot
     private let videoSizeProvider: () -> CGSize
+    private let fillsSurfaceProvider: () -> Bool
 
     private let device: MTLDevice
     private let commandQueue: MTLCommandQueue
@@ -141,7 +184,8 @@ final class ConduitPictureInPictureFrameCapture {
         displayLayer: AVSampleBufferDisplayLayer,
         metalLayer: ConduitMetalLayer,
         clockProvider: @escaping () -> ConduitPipPlaybackClockSnapshot,
-        videoSizeProvider: @escaping () -> CGSize
+        videoSizeProvider: @escaping () -> CGSize,
+        fillsSurfaceProvider: @escaping () -> Bool
     ) {
         guard
             let device = metalLayer.device ?? MTLCreateSystemDefaultDevice(),
@@ -155,6 +199,7 @@ final class ConduitPictureInPictureFrameCapture {
         self.metalLayer = metalLayer
         self.clockProvider = clockProvider
         self.videoSizeProvider = videoSizeProvider
+        self.fillsSurfaceProvider = fillsSurfaceProvider
         self.device = device
         self.commandQueue = queue
 
@@ -301,6 +346,17 @@ final class ConduitPictureInPictureFrameCapture {
             return
         }
 
+        // Until MPV reports the video size there is no defined crop (for
+        // example across a vid rebind), and capture must not publish a
+        // window-shaped frame with baked-in bars. Skip before claiming any
+        // burst or blit budget so recovery refills the layer immediately.
+        let videoSize = videoSizeProvider()
+        guard fillsSurfaceProvider() || (videoSize.width > 0 && videoSize.height > 0) else {
+            stateLock.unlock()
+            logCapture("skipping frame with unknown video size")
+            return
+        }
+
         let now = CACurrentMediaTime()
         let clock = clockProvider()
         let frameRate = max(12.0, clock.videoFrameRate)
@@ -387,6 +443,7 @@ final class ConduitPictureInPictureFrameCapture {
 
         let region = videoRegion(in: source)
         guard
+            let region,
             let pixelBuffer = makePixelBuffer(
                 width: region.size.width,
                 height: region.size.height,
@@ -435,37 +492,32 @@ final class ConduitPictureInPictureFrameCapture {
         commandBuffer.commit()
     }
 
-    /// Center-crops the aspect-fitted video region so the PiP buffer carries
-    /// the picture rather than the inline surface's letterbox bars.
-    private func videoRegion(in texture: MTLTexture) -> (origin: MTLOrigin, size: MTLSize) {
-        let whole = (
-            origin: MTLOrigin(x: 0, y: 0, z: 0),
-            size: MTLSize(width: texture.width, height: texture.height, depth: 1)
-        )
-
+    /// Maps the drawable onto the picture region via ConduitPipVideoRegionPolicy.
+    /// Returns nil when no correct region exists (unknown video size in an
+    /// aspect-fit mode); the caller skips the frame instead of publishing a
+    /// wrong-aspect buffer.
+    private func videoRegion(in texture: MTLTexture) -> (origin: MTLOrigin, size: MTLSize)? {
         let video = videoSizeProvider()
-        guard video.width > 0, video.height > 0, texture.width > 0, texture.height > 0 else {
-            return whole
+        switch ConduitPipVideoRegionPolicy.decision(
+            textureWidth: texture.width,
+            textureHeight: texture.height,
+            videoWidth: video.width,
+            videoHeight: video.height,
+            videoFillsSurface: fillsSurfaceProvider()
+        ) {
+        case .fullSurface:
+            return (
+                origin: MTLOrigin(x: 0, y: 0, z: 0),
+                size: MTLSize(width: texture.width, height: texture.height, depth: 1)
+            )
+        case .centeredCrop(let width, let height):
+            return (
+                origin: MTLOrigin(x: (texture.width - width) / 2, y: (texture.height - height) / 2, z: 0),
+                size: MTLSize(width: width, height: height, depth: 1)
+            )
+        case .skip:
+            return nil
         }
-
-        let videoAspect = Double(video.width) / Double(video.height)
-        let textureAspect = Double(texture.width) / Double(texture.height)
-        var fittedWidth = Double(texture.width)
-        var fittedHeight = Double(texture.height)
-        if videoAspect > textureAspect {
-            fittedHeight = fittedWidth / videoAspect
-        } else if videoAspect < textureAspect {
-            fittedWidth = fittedHeight * videoAspect
-        }
-
-        let width = max(2, Int(fittedWidth.rounded(.down)) & ~1)
-        let height = max(2, Int(fittedHeight.rounded(.down)) & ~1)
-        guard width <= texture.width, height <= texture.height else { return whole }
-
-        return (
-            origin: MTLOrigin(x: (texture.width - width) / 2, y: (texture.height - height) / 2, z: 0),
-            size: MTLSize(width: width, height: height, depth: 1)
-        )
     }
 
     private func enqueueSampleBuffer(
