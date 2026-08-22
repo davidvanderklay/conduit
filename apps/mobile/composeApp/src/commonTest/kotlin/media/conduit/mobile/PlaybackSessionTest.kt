@@ -73,6 +73,37 @@ class PlaybackSessionTest {
     }
 
     @Test
+    fun nextTransitionIgnoresRepeatedNextPresses() = runTest {
+        lateinit var controller: PlaybackSessionController
+        var advanceRequests = 0
+        controller = PlaybackSessionController(this)
+        controller.start(
+            PlaybackRequest(
+                identity = PlaybackIdentity("profile", "series", "show", "s1e1"),
+                url = "https://example.test/one.mp4",
+                title = "Episode 1",
+                mediaName = "Show",
+            ),
+            PlaybackSessionCallbacks(
+                persist = { _, _ -> },
+                playNext = {
+                    advanceRequests += 1
+                    controller.beginTransition("Episode 2", "Show", null)
+                },
+                openEpisodes = {},
+                minimized = {},
+                closed = {},
+            ),
+        )
+
+        controller.playNext()
+        controller.playNext()
+
+        assertEquals(1, advanceRequests)
+        assertEquals("Episode 2", controller.state.transition?.title)
+    }
+
+    @Test
     fun restartingTheSameStreamClearsThePendingTransition() = runTest {
         val request = PlaybackRequest(
             identity = PlaybackIdentity("profile", "series", "show", "s1e1"),

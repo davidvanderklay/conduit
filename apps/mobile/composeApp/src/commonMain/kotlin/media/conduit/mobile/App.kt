@@ -1510,42 +1510,46 @@ private fun BoxScope.PlaybackSessionHost(
         } else {
             miniLayout.clip(RoundedCornerShape(10.dp))
         }
-        NativePlayer(
-            url = request.url,
-            active = true,
-            presentation = session.presentation,
-            command = session.command,
-            startPositionMs = request.startPositionMs,
-            requestHeaders = request.requestHeaders,
-            subtitles = request.subtitles,
-            contentLogo = request.logo,
-            contentTitle = request.title,
-            hasNextEpisode = upNext != null,
-            onNextEpisode = controller::playNext,
-            hasEpisodes = request.hasEpisodes,
-            onEpisodes = controller::openEpisodes,
-            hasSources = true,
-            onSources = controller::openSources,
-            touchGestures = preferences.touchGestures,
-            holdToSpeed = preferences.holdToSpeed,
-            preferredAudioLanguage = preferences.preferredAudioLanguage,
-            preferredSubtitleLanguage = preferences.preferredSubtitleLanguage,
-            androidPlaybackEngine = preferences.androidPlaybackEngine,
-            onControlsVisibilityChanged = { controlsVisible = it },
-            onOverlayVisibilityChanged = { playerOverlayVisible = it },
-            onTemporarySpeedChanged = { temporarySpeedActive = it },
-            onSystemPipChanged = controller::systemPipChanged,
-            onSystemPipAvailabilityChanged = controller::systemPipAvailabilityChanged,
-            interactiveResize = miniGestureActive,
-            modifier = playerModifier,
-            onState = { playback ->
-                controller.updatePlayback(
-                    session.sessionId,
-                    request.streamKeyForPlayback(),
-                    playback,
-                )
-            },
-        )
+        // Dispose the old native player before resolving the next episode. On iOS,
+        // this prevents slow external-subtitle commands from blocking the new load.
+        if (playbackTransition == null) {
+            NativePlayer(
+                url = request.url,
+                active = true,
+                presentation = session.presentation,
+                command = session.command,
+                startPositionMs = request.startPositionMs,
+                requestHeaders = request.requestHeaders,
+                subtitles = request.subtitles,
+                contentLogo = request.logo,
+                contentTitle = request.title,
+                hasNextEpisode = upNext != null,
+                onNextEpisode = controller::playNext,
+                hasEpisodes = request.hasEpisodes,
+                onEpisodes = controller::openEpisodes,
+                hasSources = true,
+                onSources = controller::openSources,
+                touchGestures = preferences.touchGestures,
+                holdToSpeed = preferences.holdToSpeed,
+                preferredAudioLanguage = preferences.preferredAudioLanguage,
+                preferredSubtitleLanguage = preferences.preferredSubtitleLanguage,
+                androidPlaybackEngine = preferences.androidPlaybackEngine,
+                onControlsVisibilityChanged = { controlsVisible = it },
+                onOverlayVisibilityChanged = { playerOverlayVisible = it },
+                onTemporarySpeedChanged = { temporarySpeedActive = it },
+                onSystemPipChanged = controller::systemPipChanged,
+                onSystemPipAvailabilityChanged = controller::systemPipAvailabilityChanged,
+                interactiveResize = miniGestureActive,
+                modifier = playerModifier,
+                onState = { playback ->
+                    controller.updatePlayback(
+                        session.sessionId,
+                        request.streamKeyForPlayback(),
+                        playback,
+                    )
+                },
+            )
+        }
 
         if (systemPip) {
             // The native player must keep decoding for PiP, but its inline
@@ -1582,12 +1586,13 @@ private fun BoxScope.PlaybackSessionHost(
                         ) { Icon(Icons.Rounded.Close, "Close player", tint = Color.White) }
                     } else {
                         PlayerBackButton {
-                            controller.leaveFullScreen(preferences.miniplayerOnBack)
+                            if (playbackTransition != null) controller.close()
+                            else controller.leaveFullScreen(preferences.miniplayerOnBack)
                         }
                     }
                     Spacer(Modifier.width(10.dp))
                     Text(
-                        request.title,
+                        playbackTransition?.title ?: request.title,
                         color = Color.White,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 1,

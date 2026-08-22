@@ -1435,6 +1435,7 @@ internal fun MediaDetailsScreen(
             },
             minimized = onBack,
             closed = {
+                cancelStreamRequest()
                 playing = null
                 openingPlayback = false
                 autoResumeStage = AutoResumeStage.Inactive
