@@ -216,7 +216,8 @@ private struct ConduitRootView: View {
             // iPadOS 26 reports zero safe-area insets to the embedded Compose
             // view, which draws app chrome under the system status bar.
             // Publish the real inset so Compose can compensate; idempotent.
-            PlatformSafeArea.shared.publish(topInsetPt: Float(geometry.safeAreaInsets.top))
+            // Discardable binding because ViewBuilder only takes views/lets.
+            let _ = PlatformSafeArea.shared.publish(topInsetPt: Float(geometry.safeAreaInsets.top))
             ZStack(alignment: .bottom) {
                 Color.black.ignoresSafeArea()
                 ComposeView().ignoresSafeArea()
