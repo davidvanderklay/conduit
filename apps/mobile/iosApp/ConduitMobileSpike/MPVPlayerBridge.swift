@@ -592,8 +592,12 @@ final class ConduitMPVPlayerViewController: UIViewController {
             guard let self else { return }
             self.debugLog("playback command=play source=app-or-pip")
             self.shouldPlay = true
-            guard self.mpv != nil, !self.waitingForInitialVideoFrame else { return }
+            guard self.mpv != nil else { return }
+            // Claim the session before the first-frame gate: activation is
+            // idempotent, and waiting would leave mpv's AudioUnit init as the
+            // de facto owner of the shared session.
             self.activateAudioSession()
+            guard !self.waitingForInitialVideoFrame else { return }
             self.setFlag("pause", false)
             self.isPlayerPlaying = true
             self.refreshPlaybackState()
@@ -938,6 +942,10 @@ final class ConduitMPVPlayerViewController: UIViewController {
             return
         }
         pausePlayback()
+        // Release the audio session alongside the video track. Holding an
+        // active .playback claim across suspension is what wedges other
+        // apps' audio on iPadOS until a reboot; playPlayback re-activates.
+        deactivateAudioSession()
         guard !videoTrackSuspendedForBackground else { return }
         setStringProperty("vid", "no")
         videoTrackSuspendedForBackground = true
@@ -1398,12 +1406,12 @@ final class ConduitMPVPlayerViewController: UIViewController {
         setOptionString(mpv, name: "hwdec-software-fallback", value: "yes")
 #endif
         setOptionString(mpv, name: "ao", value: Self.audioOutput)
-        setOptionString(mpv, name: "audio-channels", value: "auto")
+        // Stereo keeps the AudioUnit away from multichannel route
+        // reconfigurations (mpv calls setPreferredOutputNumberOfChannels from
+        // the track's channel count), which are implicated in system-wide
+        // audio degradation on iPadOS until reboot.
+        setOptionString(mpv, name: "audio-channels", value: "stereo")
         setOptionString(mpv, name: "audio-fallback-to-null", value: "yes")
-        // Keep the audio unit fed through transient system stalls (for
-        // example the first PiP window composition) instead of underrunning
-        // with an audible crackle.
-        setOptionString(mpv, name: "audio-stream-silence", value: "yes")
         // Default sync compensation duplicates/truncates audio fragments when
         // video timing wobbles. Resampling shifts speed by fractions of a
         // percent instead and is imperceptible.
@@ -1938,6 +1946,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
     }
 
     private func deactivateAudioSession() {
+        audioSessionActivationRequested = false
         let session = AVAudioSession.sharedInstance()
         Self.audioSessionQueue.async {
             do {
