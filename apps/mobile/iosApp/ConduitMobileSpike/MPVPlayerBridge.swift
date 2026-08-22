@@ -1406,11 +1406,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
         setOptionString(mpv, name: "hwdec-software-fallback", value: "yes")
 #endif
         setOptionString(mpv, name: "ao", value: Self.audioOutput)
-        // Stereo keeps the AudioUnit away from multichannel route
-        // reconfigurations (mpv calls setPreferredOutputNumberOfChannels from
-        // the track's channel count), which are implicated in system-wide
-        // audio degradation on iPadOS until reboot.
-        setOptionString(mpv, name: "audio-channels", value: "stereo")
+        setOptionString(mpv, name: "audio-channels", value: "auto")
         setOptionString(mpv, name: "audio-fallback-to-null", value: "yes")
         // Default sync compensation duplicates/truncates audio fragments when
         // video timing wobbles. Resampling shifts speed by fractions of a
