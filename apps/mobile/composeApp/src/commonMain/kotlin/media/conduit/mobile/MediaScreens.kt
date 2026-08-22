@@ -1,7 +1,12 @@
 package media.conduit.mobile
 
 import androidx.compose.foundation.background
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.*
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -2172,6 +2177,7 @@ internal fun PlayerEpisodeDrawer(
     onDismiss: () -> Unit,
     onSelect: (VideoItem) -> Unit,
     fullscreen: Boolean = false,
+    onPlayQueuedItem: (PlaybackQueueItem) -> Unit = {},
 ) {
     val seasons = videos.mapNotNull(VideoItem::season)
         .distinct()
@@ -2219,6 +2225,9 @@ internal fun PlayerEpisodeDrawer(
         }
     }
     var dragDistance by remember { mutableFloatStateOf(0f) }
+    val queueItems = snapshot?.queue.orEmpty()
+    var confirmClearQueue by remember { mutableStateOf(false) }
+    val queueScope = rememberCoroutineScope()
     Box(Modifier.fillMaxSize()) {
         Box(
             Modifier
@@ -2272,6 +2281,57 @@ internal fun PlayerEpisodeDrawer(
                         Icon(Icons.Rounded.Close, "Close", tint = Color.White)
                     }
                 }
+                Row(Modifier.weight(1f)) {
+                AnimatedVisibility(
+                    visible = queueItems.isNotEmpty(),
+                    enter = slideInHorizontally { -it / 4 } + fadeIn(),
+                    exit = slideOutHorizontally { -it / 4 } + fadeOut(),
+                    modifier = Modifier.fillMaxHeight(),
+                ) {
+                    Column(
+                        Modifier
+                            .width(if (fullscreen) 250.dp else 132.dp)
+                            .fillMaxHeight()
+                            .padding(end = 12.dp),
+                    ) {
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                "Queue",
+                                color = Color.White.copy(.9f),
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                            )
+                            Text(
+                                " · ${queueItems.size}",
+                                color = Color.White.copy(.5f),
+                                style = MaterialTheme.typography.labelMedium,
+                            )
+                            Spacer(Modifier.weight(1f))
+                            TextButton(
+                                onClick = { confirmClearQueue = true },
+                                modifier = Modifier.height(28.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp),
+                            ) {
+                                Text("Clear", color = Color.White.copy(.75f), style = MaterialTheme.typography.labelMedium)
+                            }
+                        }
+                        QueueList(
+                            items = queueItems,
+                            compact = !fullscreen,
+                            modifier = Modifier.fillMaxWidth().weight(1f),
+                            contentPadding = PaddingValues(top = 6.dp),
+                            onPlay = { queued ->
+                                onDismiss()
+                                onPlayQueuedItem(queued)
+                            },
+                            onCommit = { changed -> onMutation(ProfileMutation.SetQueue(changed)) },
+                        )
+                    }
+                }
+                Column(Modifier.weight(1f)) {
                 LazyRow(
                     state = seasonListState,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -2431,8 +2491,19 @@ internal fun PlayerEpisodeDrawer(
                         }
                     }
                 }
+                }
+                }
             }
         }
+        ClearQueueDialog(
+            visible = confirmClearQueue,
+            onConfirm = {
+                confirmClearQueue = false
+                QueueToasts.emit("Queue cleared")
+                queueScope.launch { onMutation(ProfileMutation.SetQueue(emptyList())) }
+            },
+            onDismiss = { confirmClearQueue = false },
+        )
         MediaActionSheet(
             target = actionTarget,
             snapshot = snapshot,

@@ -144,6 +144,7 @@ actual fun NativePlayer(
     }
 
     var controlsVisible by remember(bridge) { mutableStateOf(true) }
+    val seekFeedback = remember(bridge) { DoubleTapSeekFeedback() }
     var dragging by remember(bridge) { mutableStateOf(false) }
     var draggedPosition by remember(bridge) { mutableLongStateOf(0L) }
     var positionMs by remember(bridge) { mutableLongStateOf(0L) }
@@ -321,8 +322,9 @@ actual fun NativePlayer(
                     onTemporarySpeedChanged = latestTemporarySpeedCallback,
                     onTap = { controlsVisible = !controlsVisible },
                     onDoubleTap = { offset ->
-                        if (offset.x < size.width / 2f) bridge.seekBy(-10_000) else bridge.seekBy(10_000)
-                        controlsVisible = true
+                        val forwardTap = offset.x >= size.width / 2f
+                        seekFeedback.record(forwardTap)
+                        bridge.seekBy(if (forwardTap) 10_000 else -10_000)
                     },
                 )
             },
@@ -535,6 +537,11 @@ actual fun NativePlayer(
                 )
             }
         }
+
+        DoubleTapSeekOverlay(
+            feedback = seekFeedback,
+            modifier = Modifier.matchParentSize(),
+        )
     }
 }
 

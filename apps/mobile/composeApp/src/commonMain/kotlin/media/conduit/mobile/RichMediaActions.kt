@@ -484,36 +484,51 @@ internal fun MediaActionSheet(
                 ActionRow("Details", Icons.Rounded.Info) { onDismiss(); onDetails(active) }
             }
             if (queueItem != null && (queueIndex >= 0 || canQueueActiveVideo)) {
+                suspend fun addToQueueWithFeedback() {
+                    val next = queue.addToQueue(queueItem)
+                    val result = onMutation(ProfileMutation.SetQueue(next))
+                    if (!result.isSuccess) return
+                    val rank = next.indexOfFirst { it.key == queueItem.key } + 1
+                    QueueToasts.emit(if (rank <= 1) "Up next" else "Added to queue · #$rank")
+                }
+                suspend fun moveToFrontWithFeedback() {
+                    val result = onMutation(ProfileMutation.SetQueue(queue.moveToQueueFront(queueItem)))
+                    if (result.isSuccess) QueueToasts.emit("Playing next")
+                }
+                suspend fun removeFromQueueWithFeedback() {
+                    val result = onMutation(ProfileMutation.SetQueue(queue.removeFromQueue(queueItem.key)))
+                    if (result.isSuccess) QueueToasts.emit("Removed from queue")
+                }
                 when {
                     queueIndex == 0 -> ActionRow("Remove from queue", Icons.Rounded.PlaylistRemove) {
                         onDismiss()
-                        scope.launch { onMutation(ProfileMutation.SetQueue(queue.removeFromQueue(queueItem.key))) }
+                        scope.launch { removeFromQueueWithFeedback() }
                     }
                     queueIndex > 0 -> {
                         if (canQueueActiveVideo) {
                             ActionRow("Move to next", Icons.Rounded.VerticalAlignTop) {
                                 onDismiss()
-                                scope.launch { onMutation(ProfileMutation.SetQueue(queue.moveToQueueFront(queueItem))) }
+                                scope.launch { moveToFrontWithFeedback() }
                             }
                         }
                         ActionRow("Remove from queue", Icons.Rounded.PlaylistRemove) {
                             onDismiss()
-                            scope.launch { onMutation(ProfileMutation.SetQueue(queue.removeFromQueue(queueItem.key))) }
+                            scope.launch { removeFromQueueWithFeedback() }
                         }
                     }
                     queue.isNotEmpty() && canQueueActiveVideo -> {
                         ActionRow("Play next", Icons.Rounded.SkipNext) {
                             onDismiss()
-                            scope.launch { onMutation(ProfileMutation.SetQueue(queue.moveToQueueFront(queueItem))) }
+                            scope.launch { moveToFrontWithFeedback() }
                         }
                         ActionRow("Add to queue", Icons.Rounded.PlaylistAdd) {
                             onDismiss()
-                            scope.launch { onMutation(ProfileMutation.SetQueue(queue.addToQueue(queueItem))) }
+                            scope.launch { addToQueueWithFeedback() }
                         }
                     }
                     canQueueActiveVideo -> ActionRow("Add to queue", Icons.Rounded.PlaylistAdd) {
                         onDismiss()
-                        scope.launch { onMutation(ProfileMutation.SetQueue(queue.addToQueue(queueItem))) }
+                        scope.launch { addToQueueWithFeedback() }
                     }
                 }
             }

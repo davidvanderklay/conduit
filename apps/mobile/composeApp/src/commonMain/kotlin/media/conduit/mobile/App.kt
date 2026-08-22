@@ -7,7 +7,6 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculatePan
@@ -39,7 +38,6 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Explore
 import androidx.compose.material.icons.rounded.Extension
 import androidx.compose.material.icons.rounded.DeleteOutline
-import androidx.compose.material.icons.rounded.DragHandle
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.QueueMusic
 import androidx.compose.runtime.*
@@ -966,6 +964,11 @@ private fun AppShell(
                 dispatch(AppAction.DismissNotice)
             }
         }
+        LaunchedEffect(Unit) {
+            QueueToasts.notices.collect { notice ->
+                snackbarHostState.showSnackbar(notice)
+            }
+        }
         Scaffold(
             snackbarHost = {
                 SnackbarHost(snackbarHostState) { data -> ConduitSnackbar(data) }
@@ -1543,6 +1546,7 @@ private fun BoxScope.PlaybackSessionHost(
                     modifier = Modifier
                         .align(Alignment.TopStart)
                         .statusBarsPadding()
+                        .padding(top = windowedIpadTopInset())
                         .fillMaxWidth()
                         .padding(12.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -1684,6 +1688,10 @@ private fun BoxScope.PlaybackSessionHost(
                     onMutation = onMutation,
                     onDismiss = controller::closeEpisodes,
                     onSelect = { controller.selectEpisode(it.id) },
+                    onPlayQueuedItem = { queued ->
+                        controller.closeEpisodes()
+                        controller.playQueueItem(queued)
+                    },
                     fullscreen = false,
                 )
             }
@@ -1859,12 +1867,6 @@ private fun BoxScope.PlaybackQueueDrawer(
     onChange: suspend (List<PlaybackQueueItem>) -> Result<Unit>,
 ) {
     val scope = rememberCoroutineScope()
-    val density = LocalDensity.current
-    val reorderThreshold = with(density) { 54.dp.toPx() }
-    var displayed by remember(items) { mutableStateOf(items) }
-    var draggingKey by remember { mutableStateOf<String?>(null) }
-    var dragDistance by remember { mutableFloatStateOf(0f) }
-    var menuKey by remember { mutableStateOf<String?>(null) }
     var confirmClear by remember { mutableStateOf(false) }
 
     Box(Modifier.matchParentSize().background(Color.Black.copy(.32f))) {
@@ -1878,16 +1880,16 @@ private fun BoxScope.PlaybackQueueDrawer(
             Column(Modifier.statusBarsPadding().navigationBarsPadding().padding(18.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Queue", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                    if (displayed.isNotEmpty()) {
-                        Text("  ·  ${displayed.size}", color = Color.White.copy(.55f), style = MaterialTheme.typography.titleMedium)
+                    if (items.isNotEmpty()) {
+                        Text("  ·  ${items.size}", color = Color.White.copy(.55f), style = MaterialTheme.typography.titleMedium)
                     }
                     Spacer(Modifier.weight(1f))
-                    if (displayed.isNotEmpty()) {
+                    if (items.isNotEmpty()) {
                         TextButton(onClick = { confirmClear = true }) { Text("Clear") }
                     }
                     IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, "Close queue", tint = Color.White) }
                 }
-                if (displayed.isEmpty()) {
+                if (items.isEmpty()) {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Icon(Icons.Rounded.QueueMusic, null, tint = Color.White.copy(.45f), modifier = Modifier.size(34.dp))
@@ -1896,118 +1898,27 @@ private fun BoxScope.PlaybackQueueDrawer(
                         }
                     }
                 } else {
-                    Column(
-                        Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        displayed.forEach { item ->
-                            Row(
-                                Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(16.dp))
-                                    .background(Color.White.copy(.05f))
-                                    .clickable { onPlay(item) }
-                                    .padding(10.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Icon(
-                                    Icons.Rounded.DragHandle,
-                                    "Hold and drag to reorder",
-                                    tint = Color.White.copy(.42f),
-                                    modifier = Modifier.size(34.dp).pointerInput(item.key, displayed) {
-                                        detectDragGesturesAfterLongPress(
-                                            onDragStart = { draggingKey = item.key; dragDistance = 0f },
-                                            onDragCancel = { draggingKey = null; dragDistance = 0f },
-                                            onDragEnd = {
-                                                draggingKey = null
-                                                dragDistance = 0f
-                                                if (displayed != items) scope.launch { onChange(displayed) }
-                                            },
-                                            onDrag = { change, amount ->
-                                                change.consume()
-                                                dragDistance += amount.y
-                                                val current = displayed.indexOfFirst { it.key == item.key }
-                                                val target = when {
-                                                    dragDistance > reorderThreshold -> current + 1
-                                                    dragDistance < -reorderThreshold -> current - 1
-                                                    else -> current
-                                                }
-                                                if (target in displayed.indices && target != current) {
-                                                    displayed = displayed.moveQueueItem(current, target)
-                                                    dragDistance = 0f
-                                                }
-                                            },
-                                        )
-                                    },
-                                )
-                                AsyncImage(
-                                    model = item.artwork ?: item.poster,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(76.dp, 46.dp).clip(RoundedCornerShape(7.dp)),
-                                    contentScale = ContentScale.Crop,
-                                )
-                                Spacer(Modifier.width(10.dp))
-                                Column(Modifier.weight(1f)) {
-                                    Text(
-                                        if (item.mediaType == "movie") item.name else listOfNotNull(
-                                            item.name,
-                                            item.season?.let { "S${it}E${item.episode ?: 0}" },
-                                        ).joinToString(" · "),
-                                        color = Color.White,
-                                        fontWeight = FontWeight.SemiBold,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                    item.videoTitle?.let {
-                                        Text(it, color = Color.White.copy(.56f), style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    }
-                                }
-                                Box {
-                                    IconButton(onClick = { menuKey = item.key }) { Icon(Icons.Rounded.MoreVert, "Queue item options", tint = Color.White) }
-                                    DropdownMenu(
-                                        expanded = menuKey == item.key,
-                                        onDismissRequest = { menuKey = null },
-                                        containerColor = Color(0xFF171719),
-                                    ) {
-                                        DropdownMenuItem(
-                                            text = { Text("Play now") },
-                                            leadingIcon = { Icon(Icons.Rounded.PlayArrow, null) },
-                                            onClick = { menuKey = null; onPlay(item) },
-                                        )
-                                        DropdownMenuItem(
-                                            text = { Text("Remove") },
-                                            leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null) },
-                                            onClick = {
-                                                menuKey = null
-                                                val next = displayed.removeFromQueue(item.key)
-                                                displayed = next
-                                                scope.launch { onChange(next) }
-                                            },
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    QueueList(
+                        items = items,
+                        compact = false,
+                        modifier = Modifier.fillMaxWidth().weight(1f),
+                        contentPadding = PaddingValues(top = 10.dp),
+                        onPlay = onPlay,
+                        onCommit = { changed -> onChange(changed) },
+                    )
                 }
             }
         }
     }
-    if (confirmClear) {
-        AlertDialog(
-            onDismissRequest = { confirmClear = false },
-            title = { Text("Clear queue?") },
-            text = { Text("This removes every waiting movie and episode. Current playback will continue.") },
-            dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Cancel") } },
-            confirmButton = {
-                TextButton(onClick = {
-                    confirmClear = false
-                    displayed = emptyList()
-                    scope.launch { onChange(emptyList()) }
-                }) { Text("Clear", color = MaterialTheme.colorScheme.error) }
-            },
-        )
-    }
+    ClearQueueDialog(
+        visible = confirmClear,
+        onConfirm = {
+            confirmClear = false
+            QueueToasts.emit("Queue cleared")
+            scope.launch { onChange(emptyList()) }
+        },
+        onDismiss = { confirmClear = false },
+    )
 }
 
 @Composable
