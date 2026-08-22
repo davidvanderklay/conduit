@@ -203,6 +203,13 @@ jobs:
           appstreamcli validate --no-net flatpak/media.conduit.desktop.metainfo.xml
           flatpak remote-add --user --if-not-exists flathub \
             https://dl.flathub.org/repo/flathub.flatpakrepo
+          flatpak install \
+            --user \
+            --noninteractive \
+            --no-static-deltas \
+            flathub \
+            org.freedesktop.Sdk.Extension.node24/x86_64/25.08 \
+            org.freedesktop.Sdk.Extension.rust-stable/x86_64/25.08
           flatpak-builder \
             --force-clean \
             --user \
