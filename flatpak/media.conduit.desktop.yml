@@ -103,8 +103,8 @@ modules:
       - make install
     sources:
       - type: archive
-        url: https://gitlab.freedesktop.org/xorg/lib/libXpresent/-/archive/libXpresent-1.0.1/libXpresent-libXpresent-1.0.1.tar.gz
-        sha256: 68eb1942164ef6285c577cb21e9f4c5a1a8cd9ffa87f0bf5776059db21d0bfaf
+        url: https://xorg.freedesktop.org/archive/individual/lib/libXpresent-1.0.1.tar.xz
+        sha256: b964df9e5a066daa5e08d2dc82692c57ca27d00b8cc257e8e960c9f1cf26231
 
   - name: libmpv
     buildsystem: meson
