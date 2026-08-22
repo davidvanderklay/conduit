@@ -1680,6 +1680,7 @@ private fun BoxScope.PlaybackSessionHost(
             }
             if (fullScreen &&
                 upNext != null &&
+                playbackTransition == null &&
                 session.playback.durationMs > 0 &&
                 session.playback.durationMs - session.playback.positionMs in 1..30_000
             ) {
