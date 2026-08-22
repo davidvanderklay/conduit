@@ -2322,6 +2322,7 @@ internal fun PlayerEpisodeDrawer(
                         }
                         QueueList(
                             items = queueItems,
+                            compact = true,
                             modifier = Modifier.fillMaxWidth().weight(1f),
                             contentPadding = PaddingValues(top = 6.dp),
                             onPlay = { queued ->

@@ -82,9 +82,12 @@ internal object QueueToasts {
 }
 
 /**
- * The queue cards, shared by the player drawer, the library queue manager,
- * and the condensed episode-drawer column. Owns reorder-by-long-press-drag
- * with a lifted, finger-tracking dragged card and animated neighbors.
+ * Queue items, shared by the player drawer, the library queue manager, and
+ * the condensed episode-drawer column. Owns reorder-by-long-press-drag with a
+ * lifted, finger-tracking dragged item and animated neighbors.
+ *
+ * [compact] renders poster-style cards for narrow panes; otherwise full rows
+ * with room for titles and series info.
  *
  * [onCommit] receives the new list after a drop or removal; pure reorders are
  * silent, removals emit their own toast.
@@ -92,6 +95,7 @@ internal object QueueToasts {
 @Composable
 internal fun QueueList(
     items: List<PlaybackQueueItem>,
+    compact: Boolean,
     modifier: Modifier = Modifier,
     contentPadding: PaddingValues = PaddingValues(0.dp),
     onPlay: (PlaybackQueueItem) -> Unit,
@@ -106,11 +110,11 @@ internal fun QueueList(
     var dragTranslationY by remember { mutableFloatStateOf(0f) }
     var rowHeightPx by remember { mutableStateOf(0) }
     var menuKey by remember { mutableStateOf<String?>(null) }
-    val spacingDp = 6.dp
+    val spacingDp = if (compact) 6.dp else 10.dp
     val spacingPx = with(density) { spacingDp.toPx() }
-    // Measured cards keep swap thresholds honest under font scaling; this is
+    // Measured items keep swap thresholds honest under font scaling; this is
     // only the pre-first-layout estimate.
-    val fallbackRowPx = with(density) { 120.dp.toPx() }
+    val fallbackRowPx = with(density) { (if (compact) 120.dp else 68.dp).toPx() }
 
     LazyColumn(
         modifier = modifier,
@@ -127,8 +131,9 @@ internal fun QueueList(
             // Placement animation fights manual drag tracking, so the dragged
             // row opts out while its neighbors glide.
             val placement = if (isDragging) Modifier else Modifier.animateItem()
-            QueueItemCard(
+            QueueItem(
                 item = item,
+                compact = compact,
                 isDragging = isDragging,
                 lift = lift,
                 dragTranslationY = dragTranslationY,
@@ -181,13 +186,10 @@ internal fun QueueList(
     }
 }
 
-/**
- * A queue card: cover art fills the tile with the title overlaid and the
- * drag/menu controls floating on the artwork.
- */
 @Composable
-private fun QueueItemCard(
+private fun QueueItem(
     item: PlaybackQueueItem,
+    compact: Boolean,
     isDragging: Boolean,
     lift: Float,
     dragTranslationY: Float,
@@ -203,52 +205,144 @@ private fun QueueItemCard(
     onDrag: (Float) -> Unit,
     onRemove: () -> Unit,
 ) {
-    val cornerShape = RoundedCornerShape(14.dp)
-    Box(
-        placement
-            .fillMaxWidth()
-            .onSizeChanged { onMeasure(it.height) }
-            .zIndex(if (isDragging) 1f else 0f)
-            .graphicsLayer {
-                translationY = if (isDragging) dragTranslationY else 0f
-                scaleX = 1f + .04f * lift
-                scaleY = 1f + .04f * lift
-                alpha = 1f - .25f * lift
-                shape = cornerShape
-                shadowElevation = lift * 16f * density
-                clip = false
-            }
-            .aspectRatio(16f / 9f)
-            .clip(cornerShape)
-            .background(Color.White.copy(.06f))
-            .clickable { onPlay(item) },
-    ) {
-        AsyncImage(
-            model = item.artwork ?: item.poster,
-            contentDescription = null,
-            modifier = Modifier.matchParentSize(),
-            contentScale = ContentScale.Crop,
-        )
+    val cornerShape = RoundedCornerShape(if (compact) 14.dp else 16.dp)
+    val baseModifier = placement
+        .fillMaxWidth()
+        .onSizeChanged { onMeasure(it.height) }
+        .zIndex(if (isDragging) 1f else 0f)
+        .graphicsLayer {
+            translationY = if (isDragging) dragTranslationY else 0f
+            scaleX = 1f + .04f * lift
+            scaleY = 1f + .04f * lift
+            alpha = 1f - .25f * lift
+            shape = cornerShape
+            shadowElevation = lift * (if (compact) 16f else 22f) * density
+            clip = false
+        }
+
+    if (compact) {
         Box(
-            Modifier
-                .matchParentSize()
-                .background(
-                    Brush.verticalGradient(
-                        0f to Color.Black.copy(.34f),
-                        .42f to Color.Transparent,
-                        1f to Color.Black.copy(.88f),
-                    ),
-                ),
-        )
-        Row(
-            Modifier.fillMaxWidth().padding(6.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.Top,
+            baseModifier
+                .aspectRatio(16f / 9f)
+                .clip(cornerShape)
+                .background(Color.White.copy(.06f))
+                .clickable { onPlay(item) },
         ) {
+            AsyncImage(
+                model = item.artwork ?: item.poster,
+                contentDescription = null,
+                modifier = Modifier.matchParentSize(),
+                contentScale = ContentScale.Crop,
+            )
             Box(
                 Modifier
-                    .clip(CircleShape)
-                    .background(Color.Black.copy(.55f))
+                    .matchParentSize()
+                    .background(
+                        Brush.verticalGradient(
+                            0f to Color.Black.copy(.34f),
+                            .42f to Color.Transparent,
+                            1f to Color.Black.copy(.88f),
+                        ),
+                    ),
+            )
+            Row(
+                Modifier.fillMaxWidth().padding(6.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top,
+            ) {
+                Box(
+                    Modifier
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(.55f))
+                        .pointerInput(item.key) {
+                            detectDragGesturesAfterLongPress(
+                                onDragStart = { onDragStart() },
+                                onDragCancel = { onDragCancel() },
+                                onDragEnd = { onDragEnd() },
+                                onDrag = { change, amount ->
+                                    change.consume()
+                                    onDrag(amount.y)
+                                },
+                            )
+                        }
+                        .padding(3.dp),
+                ) {
+                    Icon(
+                        Icons.Rounded.DragHandle,
+                        "Hold and drag to reorder",
+                        tint = Color.White.copy(.85f),
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+                Box(
+                    Modifier
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(.55f))
+                        .clickable(onClick = onOpenMenu)
+                        .padding(3.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.Rounded.MoreVert,
+                        "Queue item options",
+                        tint = Color.White,
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
+            }
+            DropdownMenu(
+                expanded = menuExpanded,
+                onDismissRequest = onMenuDismiss,
+                containerColor = Color(0xFF171719),
+            ) {
+                QueueItemMenuItems(
+                    onPlay = { onMenuDismiss(); onPlay(item) },
+                    onRemove = onRemove,
+                )
+            }
+            Column(
+                Modifier
+                    .align(Alignment.BottomStart)
+                    .fillMaxWidth()
+                    .padding(horizontal = 9.dp, vertical = 8.dp),
+            ) {
+                Text(
+                    text = item.name,
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.labelLarge,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                listOfNotNull(
+                    item.season?.let { season -> "S${season}E${item.episode ?: 0}" },
+                    item.videoTitle,
+                ).takeIf { it.isNotEmpty() }?.joinToString(" · ")?.let { meta ->
+                    Text(
+                        meta,
+                        color = Color.White.copy(.78f),
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+    } else {
+        Row(
+            baseModifier
+                .clip(cornerShape)
+                .background(Color.White.copy(.05f))
+                .clickable { onPlay(item) }
+                .padding(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                Icons.Rounded.DragHandle,
+                "Hold and drag to reorder",
+                tint = Color.White.copy(.42f),
+                modifier = Modifier
+                    .size(32.dp)
                     .pointerInput(item.key) {
                         detectDragGesturesAfterLongPress(
                             onDragStart = { onDragStart() },
@@ -259,71 +353,62 @@ private fun QueueItemCard(
                                 onDrag(amount.y)
                             },
                         )
-                    }
-                    .padding(3.dp),
-            ) {
-                Icon(
-                    Icons.Rounded.DragHandle,
-                    "Hold and drag to reorder",
-                    tint = Color.White.copy(.85f),
-                    modifier = Modifier.size(18.dp),
-                )
-            }
-            Box(
-                Modifier
-                    .clip(CircleShape)
-                    .background(Color.Black.copy(.55f))
-                    .clickable(onClick = onOpenMenu)
-                    .padding(3.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    Icons.Rounded.MoreVert,
-                    "Queue item options",
-                    tint = Color.White,
-                    modifier = Modifier.size(16.dp),
-                )
-            }
-        }
-        DropdownMenu(
-            expanded = menuExpanded,
-            onDismissRequest = onMenuDismiss,
-            containerColor = Color(0xFF171719),
-        ) {
-            QueueItemMenuItems(
-                onPlay = { onMenuDismiss(); onPlay(item) },
-                onRemove = onRemove,
+                    },
             )
-        }
-        Column(
-            Modifier
-                .align(Alignment.BottomStart)
-                .fillMaxWidth()
-                .padding(horizontal = 9.dp, vertical = 8.dp),
-        ) {
-            Text(
-                text = item.name,
-                color = Color.White,
-                fontWeight = FontWeight.Bold,
-                style = MaterialTheme.typography.labelLarge,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
+            AsyncImage(
+                model = item.artwork ?: item.poster,
+                contentDescription = null,
+                modifier = Modifier.size(76.dp, 46.dp).clip(RoundedCornerShape(7.dp)),
+                contentScale = ContentScale.Crop,
             )
-            listOfNotNull(
-                item.season?.let { season -> "S${season}E${item.episode ?: 0}" },
-                item.videoTitle,
-            ).takeIf { it.isNotEmpty() }?.joinToString(" · ")?.let { meta ->
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
                 Text(
-                    meta,
-                    color = Color.White.copy(.78f),
-                    style = MaterialTheme.typography.labelSmall,
+                    text = queueItemTitle(item),
+                    color = Color.White,
+                    fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.bodyMedium,
                 )
+                item.videoTitle?.let {
+                    Text(
+                        it,
+                        color = Color.White.copy(.56f),
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            Box {
+                IconButton(onClick = onOpenMenu, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Rounded.MoreVert, "Queue item options", tint = Color.White, modifier = Modifier.size(22.dp))
+                }
+                DropdownMenu(
+                    expanded = menuExpanded,
+                    onDismissRequest = onMenuDismiss,
+                    containerColor = Color(0xFF171719),
+                ) {
+                    QueueItemMenuItems(
+                        onPlay = { onMenuDismiss(); onPlay(item) },
+                        onRemove = onRemove,
+                    )
+                }
             }
         }
     }
 }
+
+private fun queueItemTitle(item: PlaybackQueueItem): String =
+    if (item.mediaType == "movie") {
+        item.name
+    } else {
+        listOfNotNull(
+            item.name,
+            item.season?.let { "S${it}E${item.episode ?: 0}" },
+        ).joinToString(" · ")
+    }
 
 @Composable
 private fun QueueItemMenuItems(onPlay: () -> Unit, onRemove: () -> Unit) {

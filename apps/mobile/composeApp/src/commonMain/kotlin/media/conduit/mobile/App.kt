@@ -1905,7 +1905,8 @@ private fun BoxScope.PlaybackQueueDrawer(
                 } else {
                     QueueList(
                         items = items,
-                        modifier = Modifier.fillMaxWidth().widthIn(max = 300.dp).weight(1f),
+                        compact = false,
+                        modifier = Modifier.fillMaxWidth().weight(1f),
                         contentPadding = PaddingValues(top = 10.dp),
                         onPlay = onPlay,
                         onCommit = { changed -> onChange(changed) },
