@@ -213,6 +213,10 @@ private struct ConduitRootView: View {
             // Keep the floating bar close to the home-indicator edge. The
             // native tab bar already owns its internal bottom spacing.
             let floatingBottomInset = max(geometry.safeAreaInsets.bottom - 32, 0)
+            // iPadOS 26 reports zero safe-area insets to the embedded Compose
+            // view, which draws app chrome under the system status bar.
+            // Publish the real inset so Compose can compensate; idempotent.
+            PlatformSafeArea.shared.publish(topInsetPt: Float(geometry.safeAreaInsets.top))
             ZStack(alignment: .bottom) {
                 Color.black.ignoresSafeArea()
                 ComposeView().ignoresSafeArea()
@@ -222,7 +226,7 @@ private struct ConduitRootView: View {
                         .frame(
                             width: bottomNavigation.classic
                                 ? geometry.size.width
-                                : geometry.size.width - 48
+                                : min(geometry.size.width - 48, 480)
                         )
                         .frame(height: 88)
                         .padding(.bottom, bottomNavigation.classic ? geometry.safeAreaInsets.bottom : floatingBottomInset)

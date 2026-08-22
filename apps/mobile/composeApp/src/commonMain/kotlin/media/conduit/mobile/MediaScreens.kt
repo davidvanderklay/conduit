@@ -98,6 +98,7 @@ internal fun MobileLibraryScreen(
     snapshot: ProfileSnapshot?,
     api: ConduitApi,
     onMutation: suspend (ProfileMutation) -> Result<Unit>,
+    onOpenHistory: () -> Unit,
     onOpenCalendar: () -> Unit,
     onSelect: (CatalogItem) -> Unit,
     onSelectVideo: (CatalogItem, String?) -> Unit,
@@ -136,6 +137,9 @@ internal fun MobileLibraryScreen(
         Column(Modifier.padding(horizontal = 10.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Library", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                IconButton(onClick = onOpenHistory) {
+                    Icon(Icons.Rounded.History, "Open watch history")
+                }
                 IconButton(onClick = onOpenCalendar) {
                     Icon(Icons.Rounded.CalendarMonth, "Open release calendar")
                 }
@@ -3026,11 +3030,12 @@ private fun StreamSelectionScreen(
     }
 }
 
-internal enum class ProfileLaunchTarget { Settings, Addons, Manage }
+internal enum class ProfileLaunchTarget { Settings, Addons, Manage, History }
 
 internal data class ProfileLaunchRequest(
     val target: ProfileLaunchTarget,
     val sequence: Int,
+    val returnToLibrary: Boolean = false,
 )
 
 @Composable
@@ -3056,11 +3061,26 @@ internal fun ProfileSettingsScreen(
     modifier: Modifier = Modifier,
 ) {
     var route by remember { mutableStateOf<ProfileRoute>(ProfileRoute.Settings) }
+    // True while watch history was opened from the library header, so Back
+    // returns to Library instead of the settings root.
+    var historyFromLibrary by remember { mutableStateOf(false) }
+    val closeHistory: () -> Unit = {
+        val wasFromLibrary = historyFromLibrary
+        historyFromLibrary = false
+        if (wasFromLibrary) dispatch(AppAction.Navigate(AppDestination.Library)) else route = ProfileRoute.Settings
+    }
     LaunchedEffect(launchRequest) {
-        route = when (launchRequest?.target) {
-            ProfileLaunchTarget.Addons -> ProfileRoute.Addons
-            ProfileLaunchTarget.Manage -> ProfileRoute.Switcher
-            ProfileLaunchTarget.Settings, null -> ProfileRoute.Settings
+        when (launchRequest?.target) {
+            ProfileLaunchTarget.Addons -> route = ProfileRoute.Addons
+            ProfileLaunchTarget.Manage -> route = ProfileRoute.Switcher
+            ProfileLaunchTarget.History -> {
+                historyFromLibrary = launchRequest.returnToLibrary
+                route = ProfileRoute.History
+            }
+            ProfileLaunchTarget.Settings, null -> {
+                if (route == ProfileRoute.History) historyFromLibrary = false
+                route = ProfileRoute.Settings
+            }
         }
     }
     LaunchedEffect(route) { onProfileFlowChanged(route != ProfileRoute.Settings) }
@@ -3088,13 +3108,13 @@ internal fun ProfileSettingsScreen(
     PlatformBackHandler(enabled = active && route != ProfileRoute.Settings) {
         when (route) {
             ProfileRoute.Settings -> Unit
+            ProfileRoute.History -> closeHistory()
             ProfileRoute.Overview -> route = ProfileRoute.Settings
             ProfileRoute.Switcher -> route = ProfileRoute.Overview
             ProfileRoute.Create -> route = ProfileRoute.Switcher
             is ProfileRoute.Edit -> route = ProfileRoute.Overview
             ProfileRoute.Diagnostics -> route = ProfileRoute.Advanced
             ProfileRoute.Addons,
-            ProfileRoute.History,
             ProfileRoute.Account,
             ProfileRoute.Appearance,
             ProfileRoute.Content,
@@ -3112,7 +3132,7 @@ internal fun ProfileSettingsScreen(
         ProfileRoute.Create -> return ProfileEditorScreen(null, activeProfile, api, state, account, { route = ProfileRoute.Switcher }, onProfilesChanged, modifier)
         is ProfileRoute.Edit -> return ProfileEditorScreen(current.profile, activeProfile, api, state, account, { route = ProfileRoute.Overview }, onProfilesChanged, modifier)
         ProfileRoute.Addons -> return AddonManagerScreen(activeProfile, profileSync.snapshot?.addons.orEmpty(), api, state, account, { route = ProfileRoute.Settings }, onProfileDataChanged, modifier)
-        ProfileRoute.History -> return WatchHistoryScreen(profileSync.snapshot, { route = ProfileRoute.Settings }, onSelectMedia, onProfileMutation, modifier)
+        ProfileRoute.History -> return WatchHistoryScreen(profileSync.snapshot, closeHistory, onSelectMedia, onProfileMutation, modifier)
         ProfileRoute.Account -> return AccountSettingsScreen(state, account, api, onSignOut, { route = ProfileRoute.Settings }, modifier)
         ProfileRoute.Appearance -> return AppearanceSettingsScreen(platform, preferences, onPreferencesChanged, { route = ProfileRoute.Settings }, modifier)
         ProfileRoute.Content -> return ContentSettingsScreen({ route = ProfileRoute.Settings }, { route = ProfileRoute.Addons }, modifier)
@@ -3197,7 +3217,10 @@ internal fun ProfileSettingsScreen(
                     modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable { when (entry.title) {
                         "Profile" -> route = ProfileRoute.Overview
                         "Account" -> route = ProfileRoute.Account
-                        "Watch history" -> route = ProfileRoute.History
+                        "Watch history" -> {
+                            historyFromLibrary = false
+                            route = ProfileRoute.History
+                        }
                         "Appearance & layout" -> route = ProfileRoute.Appearance
                         "Content & discovery" -> route = ProfileRoute.Content
                         "Playback" -> route = ProfileRoute.Playback
@@ -3292,6 +3315,7 @@ private fun AccountSettingsScreen(state: AppState, account: AccountStatus.Signed
 @Composable
 private fun AppearanceSettingsScreen(platform: PlatformInfo, preferences: DevicePreferences, update: (DevicePreferences) -> Unit, onBack: () -> Unit, modifier: Modifier) {
     var showNavigation by remember { mutableStateOf(false) }
+    var showPlacement by remember { mutableStateOf(false) }
     val isIos = platform.name.equals("iOS", ignoreCase = true)
     val navigationStyles = if (isIos) {
         listOf(NavigationStyle.Adaptive, NavigationStyle.Expanded, NavigationStyle.Classic)
@@ -3311,9 +3335,26 @@ private fun AppearanceSettingsScreen(platform: PlatformInfo, preferences: Device
             SettingsAction("App language", "System default") { }
             HorizontalDivider(color = Color.White.copy(.06f))
             SettingsAction("Navigation style", effectiveNavigationStyle.description) { showNavigation = true }
+            HorizontalDivider(color = Color.White.copy(.06f))
+            SettingsAction("Navigation placement", if (preferences.railOnTablets) "Left rail" else "Bottom bar") { showPlacement = true }
         }
     }
     if (showNavigation) AlertDialog(onDismissRequest = { showNavigation = false }, title = { Text("Navigation style") }, text = { Column { navigationStyles.forEach { style -> Row(Modifier.fillMaxWidth().clickable { update(preferences.copy(navigationStyle = style)); showNavigation = false }.padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) { RadioButton(style == effectiveNavigationStyle, null); Spacer(Modifier.width(8.dp)); Column { Text(style.label); Text(style.description, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) } } } } }, confirmButton = {})
+    if (showPlacement) AlertDialog(onDismissRequest = { showPlacement = false }, title = { Text("Navigation placement") }, text = {
+        Column {
+            listOf(
+                false to "Bottom bar",
+                true to "Left rail",
+            ).forEach { (rail, label) ->
+                Row(Modifier.fillMaxWidth().clickable { update(preferences.copy(railOnTablets = rail)); showPlacement = false }.padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    RadioButton(rail == preferences.railOnTablets, null)
+                    Spacer(Modifier.width(8.dp))
+                    Text(label)
+                }
+            }
+            Text("Applies on tablets and other large screens. Small windows always use the bottom bar.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+        }
+    }, confirmButton = {})
 }
 
 @Composable

@@ -766,9 +766,9 @@ private fun AppShell(
     var adaptiveScrolledDown by remember { mutableStateOf(false) }
     var profileLaunchRequest by remember { mutableStateOf<ProfileLaunchRequest?>(null) }
     var profileLaunchSequence by remember { mutableIntStateOf(0) }
-    fun openProfile(target: ProfileLaunchTarget) {
+    fun openProfile(target: ProfileLaunchTarget, returnToLibrary: Boolean = false) {
         profileLaunchSequence += 1
-        profileLaunchRequest = ProfileLaunchRequest(target, profileLaunchSequence)
+        profileLaunchRequest = ProfileLaunchRequest(target, profileLaunchSequence, returnToLibrary)
         dispatch(AppAction.Navigate(AppDestination.Profile))
     }
     val refreshProfileData: () -> Unit = {
@@ -819,12 +819,21 @@ private fun AppShell(
         selectedMediaReturnsToOrigin = false
         selectedMediaOpenMode = MediaOpenMode.Details
     }
-    BoxWithConstraints(Modifier.fillMaxSize()) {
+        // Some platforms (iPadOS 26) report zero status-bar insets to the
+        // embedded Compose view. The shell publishes the real value; pad by
+        // whatever Compose does not already know about.
+        val density = LocalDensity.current
+        val bridgedTopPx = with(density) { PlatformSafeArea.topInset.toPx() }
+        val systemTopPx = WindowInsets.statusBars.getTop(density)
+        val missingTopInset = with(density) { (bridgedTopPx - systemTopPx).coerceAtLeast(0f).toDp() }
+        BoxWithConstraints(Modifier.fillMaxSize().padding(top = missingTopInset)) {
         // A rotated phone can be wider than 720dp while still having very little
         // vertical room. Treat only genuinely large windows as the expanded
         // layout so rotation does not move the active screen to a new branch and
-        // discard transient state such as the selected playback stream.
-        val expanded = maxWidth >= 720.dp && maxHeight >= 600.dp
+        // discard transient state such as the selected playback stream. Large
+        // windows default to the bottom bar; the side rail returns only when
+        // opted into via preferences, and small windows always fall back to it.
+        val expanded = maxWidth >= 720.dp && maxHeight >= 600.dp && preferences.railOnTablets
         val snackbarHostState = remember { SnackbarHostState() }
         suspend fun mutateProfile(mutation: ProfileMutation): Result<Unit> {
             val profile = activeProfile ?: return Result.failure(IllegalStateException("No active profile"))
@@ -1003,6 +1012,7 @@ private fun AppShell(
                             onPlaybackProgressChanged,
                             ::mutateProfile,
                             browseQuery, { browseQuery = it }, discoverSelection, { discoverSelection = it }, openBrowse,
+                            { openProfile(ProfileLaunchTarget.History, returnToLibrary = true) },
                             preferences, onPreferencesChanged, homeListState, searchListState, discoverGridState, libraryGridState, continueWatchingGridState, settingsListState,
                             profileLaunchRequest,
                             playbackSession,
@@ -1022,6 +1032,7 @@ private fun AppShell(
                             onPlaybackProgressChanged,
                     ::mutateProfile,
                     browseQuery, { browseQuery = it }, discoverSelection, { discoverSelection = it }, openBrowse,
+                    { openProfile(ProfileLaunchTarget.History, returnToLibrary = true) },
                     preferences, onPreferencesChanged, homeListState, searchListState, discoverGridState, libraryGridState, continueWatchingGridState, settingsListState,
                     profileLaunchRequest,
                     playbackSession,
@@ -1075,10 +1086,21 @@ private fun AppShell(
             val compact = preferences.navigationStyle == NavigationStyle.Compact ||
                 (preferences.navigationStyle == NavigationStyle.Adaptive && adaptiveScrolledDown)
             val destinations = AppDestination.entries.filter(AppDestination::showInNavigation)
+            // Keep the originating tab highlighted on contextual screens such as
+            // watch history: Library when opened from the library header,
+            // otherwise the default Home fallback.
+            val fromLibraryHistory = state.destination == AppDestination.Profile &&
+                profileFlowActive &&
+                profileLaunchRequest?.let {
+                    it.target == ProfileLaunchTarget.History && it.returnToLibrary
+                } == true
             PlatformBottomNavigation(
                 destinations = destinations,
-                // Keep the Home tab highlighted on contextual screens such as history.
-                selected = state.destination.takeIf { it.showInNavigation } ?: AppDestination.Home,
+                selected = if (fromLibraryHistory) {
+                    AppDestination.Library
+                } else {
+                    state.destination.takeIf { it.showInNavigation } ?: AppDestination.Home
+                },
                 compact = compact,
                 classic = classic,
                 adaptive = preferences.navigationStyle == NavigationStyle.Adaptive,
@@ -1188,6 +1210,7 @@ private fun DestinationContent(
     discoverSelection: DiscoverSelection,
     onDiscoverSelectionChange: (DiscoverSelection) -> Unit,
     onBrowse: (MobileBrowseTarget) -> Unit,
+    onOpenHistoryFromLibrary: () -> Unit,
     preferences: DevicePreferences,
     onPreferencesChanged: (DevicePreferences) -> Unit,
     homeListState: androidx.compose.foundation.lazy.LazyListState,
@@ -1228,6 +1251,7 @@ private fun DestinationContent(
                 )
                 AppDestination.Library -> MobileLibraryScreen(
                     snapshot = profileSync.snapshot, api = api, onMutation = onProfileMutation,
+                    onOpenHistory = onOpenHistoryFromLibrary,
                     onOpenCalendar = { dispatch(AppAction.Navigate(AppDestination.Calendar)) },
                     onSelect = { onSelectMedia(it, null) }, onSelectVideo = onSelectLibraryEntry,
                     gridState = libraryGridState, modifier = tabModifier,
