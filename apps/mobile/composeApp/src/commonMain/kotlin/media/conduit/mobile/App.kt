@@ -1684,8 +1684,12 @@ private fun BoxScope.PlaybackSessionHost(
                 session.playback.durationMs > 0 &&
                 session.playback.durationMs - session.playback.positionMs in 1..30_000
             ) {
+                val upNextBottomPadding = if (controlsVisible) 102.dp else 18.dp
                 Surface(
-                    Modifier.align(Alignment.BottomEnd).padding(end = 18.dp, bottom = 112.dp)
+                    Modifier
+                        .align(Alignment.BottomEnd)
+                        .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.End))
+                        .padding(end = 18.dp, bottom = upNextBottomPadding)
                         .widthIn(min = 300.dp, max = 365.dp),
                     color = Color(0xE619191B),
                     shape = RoundedCornerShape(20.dp),
