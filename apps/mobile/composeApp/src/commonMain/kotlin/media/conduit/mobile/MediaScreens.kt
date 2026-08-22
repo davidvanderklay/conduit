@@ -1,7 +1,12 @@
 package media.conduit.mobile
 
 import androidx.compose.foundation.background
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.*
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -2172,6 +2177,7 @@ internal fun PlayerEpisodeDrawer(
     onDismiss: () -> Unit,
     onSelect: (VideoItem) -> Unit,
     fullscreen: Boolean = false,
+    onPlayQueuedItem: (PlaybackQueueItem) -> Unit = {},
 ) {
     val seasons = videos.mapNotNull(VideoItem::season)
         .distinct()
@@ -2219,6 +2225,9 @@ internal fun PlayerEpisodeDrawer(
         }
     }
     var dragDistance by remember { mutableFloatStateOf(0f) }
+    val queueItems = snapshot?.queue.orEmpty()
+    var confirmClearQueue by remember { mutableStateOf(false) }
+    val queueScope = rememberCoroutineScope()
     Box(Modifier.fillMaxSize()) {
         Box(
             Modifier
@@ -2251,6 +2260,8 @@ internal fun PlayerEpisodeDrawer(
             shape = if (fullscreen) RoundedCornerShape(0.dp) else RoundedCornerShape(topStart = 28.dp, bottomStart = 28.dp),
             shadowElevation = if (fullscreen) 0.dp else 20.dp,
         ) {
+            BoxWithConstraints(Modifier.fillMaxSize()) {
+            val queueWidth = if (fullscreen) 200.dp else (maxWidth * .34f).coerceIn(136.dp, 220.dp)
             Column(
                 Modifier
                     .fillMaxSize()
@@ -2272,6 +2283,59 @@ internal fun PlayerEpisodeDrawer(
                         Icon(Icons.Rounded.Close, "Close", tint = Color.White)
                     }
                 }
+                Row(Modifier.weight(1f)) {
+                AnimatedVisibility(
+                    visible = queueItems.isNotEmpty(),
+                    enter = slideInHorizontally { -it / 4 } + fadeIn(),
+                    exit = slideOutHorizontally { -it / 4 } + fadeOut(),
+                    modifier = Modifier.fillMaxHeight(),
+                ) {
+                    Column(
+                        Modifier
+                            .width(queueWidth)
+                            .fillMaxHeight()
+                            .padding(end = 12.dp),
+                    ) {
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                "Queue",
+                                color = Color.White.copy(.9f),
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                            )
+                            Text(
+                                " · ${queueItems.size}",
+                                color = Color.White.copy(.5f),
+                                style = MaterialTheme.typography.labelMedium,
+                            )
+                            Spacer(Modifier.weight(1f))
+                            TextButton(
+                                onClick = { confirmClearQueue = true },
+                                modifier = Modifier.height(28.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp),
+                            ) {
+                                Text("Clear", color = Color.White.copy(.75f), style = MaterialTheme.typography.labelMedium)
+                            }
+                        }
+                        QueueList(
+                            items = queueItems,
+                            compact = true,
+                            modifier = Modifier.fillMaxWidth().weight(1f),
+                            contentPadding = PaddingValues(top = 6.dp),
+                            onPlay = { queued ->
+                                onDismiss()
+                                onPlayQueuedItem(queued)
+                            },
+                            onCommit = { changed -> onMutation(ProfileMutation.SetQueue(changed)) },
+                        )
+                    }
+                }
+                BoxWithConstraints(Modifier.weight(1f)) {
+                val episodeThumbWidth = (maxWidth * .44f).coerceIn(56.dp, if (fullscreen) 128.dp else 120.dp)
+                Column(Modifier.fillMaxSize()) {
                 LazyRow(
                     state = seasonListState,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -2346,7 +2410,7 @@ internal fun PlayerEpisodeDrawer(
                                 ) {
                                     Box(
                                         Modifier
-                                            .width(if (fullscreen) 128.dp else 120.dp)
+                                            .width(episodeThumbWidth)
                                             .aspectRatio(16f / 9f)
                                             .clip(RoundedCornerShape(10.dp)),
                                     ) {
@@ -2431,8 +2495,21 @@ internal fun PlayerEpisodeDrawer(
                         }
                     }
                 }
+                }
+                }
+                }
+                }
             }
         }
+        ClearQueueDialog(
+            visible = confirmClearQueue,
+            onConfirm = {
+                confirmClearQueue = false
+                QueueToasts.emit("Queue cleared")
+                queueScope.launch { onMutation(ProfileMutation.SetQueue(emptyList())) }
+            },
+            onDismiss = { confirmClearQueue = false },
+        )
         MediaActionSheet(
             target = actionTarget,
             snapshot = snapshot,

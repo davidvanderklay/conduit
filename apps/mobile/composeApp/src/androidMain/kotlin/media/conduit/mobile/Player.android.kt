@@ -582,6 +582,7 @@ actual fun NativePlayer(
     val setPlaybackSpeed: (Float) -> Unit = { speed -> if (activeEngine == NativePlaybackEngine.Media3) player.setPlaybackSpeed(speed) else mpvView?.setPlaybackSpeed(speed) }
     val seekTo: (Long) -> Unit = { position -> if (activeEngine == NativePlaybackEngine.Media3) player.seekTo(position) else mpvView?.seekTo(position) }
     val seekBy: (Long) -> Unit = { offset -> if (activeEngine == NativePlaybackEngine.Media3) player.seekTo((player.currentPosition + offset).coerceAtLeast(0L)) else mpvView?.seekBy(offset) }
+    val seekFeedback = remember(player) { DoubleTapSeekFeedback() }
     val togglePlayback: () -> Unit = {
         if (activeEngine == NativePlaybackEngine.Media3) {
             if (playing) player.pause() else player.play()
@@ -650,8 +651,9 @@ actual fun NativePlayer(
                         onTemporarySpeedChanged = temporarySpeedChanged,
                         onTap = { controlsVisible = !controlsVisible },
                         onDoubleTap = { offset ->
-                            seekBy(if (offset.x < size.width / 2f) -10_000L else 10_000L)
-                            controlsVisible = true
+                            val forwardTap = offset.x >= size.width / 2f
+                            seekFeedback.record(forwardTap)
+                            seekBy(if (forwardTap) 10_000L else -10_000L)
                         },
                     )
                 },
@@ -802,6 +804,11 @@ actual fun NativePlayer(
                 )
             }
         }
+
+        DoubleTapSeekOverlay(
+            feedback = seekFeedback,
+            modifier = Modifier.matchParentSize(),
+        )
     }
 }
 
