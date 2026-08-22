@@ -28,6 +28,9 @@ build-options:
 modules:
   - name: rust-toolchain
     buildsystem: simple
+    build-options:
+      # flatpak-builder's generic stripping breaks rustc and librustc_driver.
+      strip: false
     build-commands:
       - ./install.sh --prefix=/app/rust --disable-ldconfig
     sources:
