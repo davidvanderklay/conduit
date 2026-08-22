@@ -82,9 +82,9 @@ internal object QueueToasts {
 }
 
 /**
- * The queue rows themselves, shared by the full drawer and the condensed
- * episode-drawer column. Owns reorder-by-long-press-drag with a lifted,
- * finger-tracking dragged row and animated neighbors.
+ * The queue cards, shared by the player drawer, the library queue manager,
+ * and the condensed episode-drawer column. Owns reorder-by-long-press-drag
+ * with a lifted, finger-tracking dragged card and animated neighbors.
  *
  * [onCommit] receives the new list after a drop or removal; pure reorders are
  * silent, removals emit their own toast.
@@ -92,7 +92,6 @@ internal object QueueToasts {
 @Composable
 internal fun QueueList(
     items: List<PlaybackQueueItem>,
-    compact: Boolean,
     modifier: Modifier = Modifier,
     contentPadding: PaddingValues = PaddingValues(0.dp),
     onPlay: (PlaybackQueueItem) -> Unit,
@@ -107,11 +106,11 @@ internal fun QueueList(
     var dragTranslationY by remember { mutableFloatStateOf(0f) }
     var rowHeightPx by remember { mutableStateOf(0) }
     var menuKey by remember { mutableStateOf<String?>(null) }
-    val spacingDp = if (compact) 6.dp else 10.dp
+    val spacingDp = 6.dp
     val spacingPx = with(density) { spacingDp.toPx() }
-    // Measured rows keep swap thresholds honest under font scaling; this is
+    // Measured cards keep swap thresholds honest under font scaling; this is
     // only the pre-first-layout estimate.
-    val fallbackRowPx = with(density) { (if (compact) 52.dp else 68.dp).toPx() }
+    val fallbackRowPx = with(density) { 120.dp.toPx() }
 
     LazyColumn(
         modifier = modifier,
@@ -128,9 +127,8 @@ internal fun QueueList(
             // Placement animation fights manual drag tracking, so the dragged
             // row opts out while its neighbors glide.
             val placement = if (isDragging) Modifier else Modifier.animateItem()
-            QueueItemRow(
+            QueueItemCard(
                 item = item,
-                compact = compact,
                 isDragging = isDragging,
                 lift = lift,
                 dragTranslationY = dragTranslationY,
@@ -183,10 +181,13 @@ internal fun QueueList(
     }
 }
 
+/**
+ * A queue card: cover art fills the tile with the title overlaid and the
+ * drag/menu controls floating on the artwork.
+ */
 @Composable
-private fun QueueItemRow(
+private fun QueueItemCard(
     item: PlaybackQueueItem,
-    compact: Boolean,
     isDragging: Boolean,
     lift: Float,
     dragTranslationY: Float,
@@ -202,126 +203,21 @@ private fun QueueItemRow(
     onDrag: (Float) -> Unit,
     onRemove: () -> Unit,
 ) {
-    val cornerShape = RoundedCornerShape(if (compact) 14.dp else 16.dp)
-    val baseModifier = placement
-        .fillMaxWidth()
-        .onSizeChanged { onMeasure(it.height) }
-        .zIndex(if (isDragging) 1f else 0f)
-        .graphicsLayer {
-            translationY = if (isDragging) dragTranslationY else 0f
-            scaleX = 1f + .04f * lift
-            scaleY = 1f + .04f * lift
-            alpha = 1f - .25f * lift
-            shape = cornerShape
-            shadowElevation = lift * (if (compact) 16f else 22f) * density
-            clip = false
-        }
-
-    if (compact) {
-        QueueItemCard(
-            item = item,
-            baseModifier = baseModifier,
-            cornerShape = cornerShape,
-            menuExpanded = menuExpanded,
-            onMenuDismiss = onMenuDismiss,
-            onPlay = onPlay,
-            onOpenMenu = onOpenMenu,
-            onDragStart = onDragStart,
-            onDragEnd = onDragEnd,
-            onDragCancel = onDragCancel,
-            onDrag = onDrag,
-            onRemove = onRemove,
-        )
-    } else {
-        Row(
-            baseModifier
-                .clip(cornerShape)
-                .background(Color.White.copy(.05f))
-                .clickable { onPlay(item) }
-                .padding(10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                Icons.Rounded.DragHandle,
-                "Hold and drag to reorder",
-                tint = Color.White.copy(.42f),
-                modifier = Modifier
-                    .size(32.dp)
-                    .pointerInput(item.key) {
-                        detectDragGesturesAfterLongPress(
-                            onDragStart = { onDragStart() },
-                            onDragCancel = { onDragCancel() },
-                            onDragEnd = { onDragEnd() },
-                            onDrag = { change, amount ->
-                                change.consume()
-                                onDrag(amount.y)
-                            },
-                        )
-                    },
-            )
-            AsyncImage(
-                model = item.artwork ?: item.poster,
-                contentDescription = null,
-                modifier = Modifier.size(76.dp, 46.dp).clip(RoundedCornerShape(7.dp)),
-                contentScale = ContentScale.Crop,
-            )
-            Spacer(Modifier.width(10.dp))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    text = queueItemTitle(item),
-                    color = Color.White,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                item.videoTitle?.let {
-                    Text(
-                        it,
-                        color = Color.White.copy(.56f),
-                        style = MaterialTheme.typography.bodySmall,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            }
-            Box {
-                IconButton(onClick = onOpenMenu, modifier = Modifier.size(36.dp)) {
-                    Icon(Icons.Rounded.MoreVert, "Queue item options", tint = Color.White, modifier = Modifier.size(22.dp))
-                }
-                QueueItemMenu(
-                    expanded = menuExpanded,
-                    onDismiss = onMenuDismiss,
-                    onPlay = { onMenuDismiss(); onPlay(item) },
-                    onRemove = onRemove,
-                )
-            }
-        }
-    }
-}
-
-/**
- * Compact variant used in the episode drawer: a poster-style tile whose cover
- * art fills the card, with the title overlaid and the drag/menu controls
- * floating on the artwork.
- */
-@Composable
-private fun QueueItemCard(
-    item: PlaybackQueueItem,
-    baseModifier: Modifier,
-    cornerShape: RoundedCornerShape,
-    menuExpanded: Boolean,
-    onMenuDismiss: () -> Unit,
-    onPlay: (PlaybackQueueItem) -> Unit,
-    onOpenMenu: () -> Unit,
-    onDragStart: () -> Unit,
-    onDragEnd: () -> Unit,
-    onDragCancel: () -> Unit,
-    onDrag: (Float) -> Unit,
-    onRemove: () -> Unit,
-) {
+    val cornerShape = RoundedCornerShape(14.dp)
     Box(
-        baseModifier
+        placement
+            .fillMaxWidth()
+            .onSizeChanged { onMeasure(it.height) }
+            .zIndex(if (isDragging) 1f else 0f)
+            .graphicsLayer {
+                translationY = if (isDragging) dragTranslationY else 0f
+                scaleX = 1f + .04f * lift
+                scaleY = 1f + .04f * lift
+                alpha = 1f - .25f * lift
+                shape = cornerShape
+                shadowElevation = lift * 16f * density
+                clip = false
+            }
             .aspectRatio(16f / 9f)
             .clip(cornerShape)
             .background(Color.White.copy(.06f))
@@ -430,22 +326,6 @@ private fun QueueItemCard(
 }
 
 @Composable
-private fun QueueItemMenu(
-    expanded: Boolean,
-    onDismiss: () -> Unit,
-    onPlay: () -> Unit,
-    onRemove: () -> Unit,
-) {
-    DropdownMenu(
-        expanded = expanded,
-        onDismissRequest = onDismiss,
-        containerColor = Color(0xFF171719),
-    ) {
-        QueueItemMenuItems(onPlay = onPlay, onRemove = onRemove)
-    }
-}
-
-@Composable
 private fun QueueItemMenuItems(onPlay: () -> Unit, onRemove: () -> Unit) {
     DropdownMenuItem(
         text = { Text("Play now") },
@@ -458,16 +338,6 @@ private fun QueueItemMenuItems(onPlay: () -> Unit, onRemove: () -> Unit) {
         onClick = onRemove,
     )
 }
-
-private fun queueItemTitle(item: PlaybackQueueItem): String =
-    if (item.mediaType == "movie") {
-        item.name
-    } else {
-        listOfNotNull(
-            item.name,
-            item.season?.let { "S${it}E${item.episode ?: 0}" },
-        ).joinToString(" · ")
-    }
 
 /** Shared confirmation for wiping every queued item; playback continues regardless. */
 @Composable

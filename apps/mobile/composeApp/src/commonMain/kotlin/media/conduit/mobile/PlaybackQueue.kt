@@ -14,7 +14,9 @@ internal fun playbackQueueItem(item: CatalogItem, video: VideoItem? = null): Pla
         videoId = video?.id ?: item.id,
         name = item.name,
         poster = item.poster,
-        artwork = item.background,
+        // Episodes carry their own still so every queue surface matches what
+        // the episode selector shows instead of the series backdrop.
+        artwork = video?.thumbnail ?: item.background,
         videoTitle = video?.title ?: video?.name,
         season = video?.season,
         episode = video?.episode,
