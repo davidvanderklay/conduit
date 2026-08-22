@@ -83,6 +83,9 @@ private val VideoItem.displayTitle: String
         ?: overview?.lineSequence()?.firstOrNull()?.take(80)?.takeIf(String::isNotBlank)
         ?: "Episode ${episode ?: ""}".trim()
 
+// Details screen outer list layout: hero, actions panel, and season chips precede each episode row.
+private const val DETAILS_EPISODE_BASE_INDEX = 3
+
 private const val AUTO_RESUME_TIMEOUT_MS = 8_000L
 private class AutoResumeTimeoutException : IllegalStateException("Saved source lookup timed out")
 
@@ -717,15 +720,21 @@ internal fun MediaDetailsScreen(
         )
     }
     val detailsSeasonListState = rememberLazyListState()
-    val detailsEpisodeListState = key(item.id) { rememberLazyListState() }
     val scope = rememberCoroutineScope()
     val uriHandler = LocalUriHandler.current
     val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
     var actionTarget by remember(item.id) { mutableStateOf<MediaActionTarget?>(null) }
 
-    LaunchedEffect(detailsEpisodeListState) {
-        snapshotFlow { detailsEpisodeListState.isScrollInProgress }.collect { scrolling ->
-            if (scrolling && !detailsEpisodeAutoPositioning) detailsEpisodeManualInteraction = true
+    LaunchedEffect(detailsListState) {
+        snapshotFlow { detailsListState.isScrollInProgress }.collect { scrolling ->
+            // Only gestures that reach the season/episode zone count as manual interaction.
+            if (
+                scrolling &&
+                !detailsEpisodeAutoPositioning &&
+                detailsListState.firstVisibleItemIndex >= DETAILS_EPISODE_BASE_INDEX - 1
+            ) {
+                detailsEpisodeManualInteraction = true
+            }
         }
     }
 
@@ -1686,7 +1695,7 @@ internal fun MediaDetailsScreen(
         if (index >= 0) {
             detailsEpisodeAutoPositioning = true
             try {
-                detailsEpisodeListState.scrollToItem(index)
+                detailsListState.scrollToItem(DETAILS_EPISODE_BASE_INDEX + index)
             } finally {
                 detailsEpisodeAutoPositioning = false
             }
@@ -1871,157 +1880,136 @@ internal fun MediaDetailsScreen(
         }
         details?.videos?.takeIf { it.isNotEmpty() }?.let { videos ->
             val seasons = detailSeasons
-            item {
-                Column(Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    LaunchedEffect(selectedSeason, seasons) { seasons.indexOf(selectedSeason).takeIf { it >= 0 }?.let { detailsSeasonListState.animateScrollToItem(it) } }
-                    Text("Seasons", modifier = Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                    LazyRow(state = detailsSeasonListState, contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(seasons) { season ->
-                            WatchableSeasonChip(
-                                selected = selectedSeason == season,
-                                label = if (season == 0) "Specials" else "Season $season",
-                                onClick = {
-                                    detailsSeasonManuallySelected = true
-                                    detailsEpisodeManualInteraction = true
-                                    selectedSeason = season
-                                },
-                                onLongClick = {
-                                    haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
-                                    actionTarget = MediaActionTarget(
-                                        actionItem,
-                                        MediaActionContext.Season,
-                                        season = season,
-                                        videos = videos,
-                                    )
-                                },
-                            )
-                        }
+            item(key = "season-chips") {
+                LaunchedEffect(selectedSeason, seasons) { seasons.indexOf(selectedSeason).takeIf { it >= 0 }?.let { detailsSeasonListState.animateScrollToItem(it) } }
+                LazyRow(state = detailsSeasonListState, contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(seasons) { season ->
+                        WatchableSeasonChip(
+                            selected = selectedSeason == season,
+                            label = if (season == 0) "Specials" else "Season $season",
+                            onClick = {
+                                detailsSeasonManuallySelected = true
+                                detailsEpisodeManualInteraction = true
+                                selectedSeason = season
+                            },
+                            onLongClick = {
+                                haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                actionTarget = MediaActionTarget(
+                                    actionItem,
+                                    MediaActionContext.Season,
+                                    season = season,
+                                    videos = videos,
+                                )
+                            },
+                        )
                     }
-                    Text(if (selectedSeason == 0) "Specials" else "Season ${selectedSeason ?: 1}", modifier = Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    val seasonVideos = videos
-                        .filter { it.season == selectedSeason }
-                        .sortedWith(compareBy<VideoItem> { it.episode ?: 0 })
-                    LazyRow(
-                        state = detailsEpisodeListState,
-                        contentPadding = PaddingValues(horizontal = 20.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                }
+            }
+            // Episode rows live in this outer list; DETAILS_EPISODE_BASE_INDEX must match the items above.
+            val seasonVideos = videos
+                .filter { it.season == selectedSeason }
+                .sortedWith(compareBy<VideoItem> { it.episode ?: 0 })
+            items(seasonVideos, key = VideoItem::id) { video ->
+                val progress = progressForVideo(snapshot?.progress.orEmpty(), actionItem, video)
+                val watchState = episodeWatchState(progress)
+                val percent = episodeProgressFraction(progress)
+                val showProgress = watchState == EpisodeWatchState.Watched || percent > 0f
+                val namedTitle = video.title?.takeIf(String::isNotBlank)
+                    ?: video.name?.takeIf(String::isNotBlank)
+                val episodeTitle =
+                    if (namedTitle != null && video.episode != null) "${video.episode}. $namedTitle"
+                    else video.displayTitle
+                Column(Modifier.fillMaxWidth().padding(vertical = 8.dp, horizontal = 20.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().combinedClickable(
+                            onClickLabel = "Play ${video.displayTitle}",
+                            onLongClickLabel = "More actions for ${video.displayTitle}",
+                            onClick = {
+                                selectVideo(
+                                    video,
+                                    preferredSource = savedPlaybackSourceFor(video.id)
+                                        ?: currentPlaybackSource(),
+                                    streamBackToHome = false,
+                                )
+                            },
+                            onLongClick = {
+                                haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                actionTarget = MediaActionTarget(actionItem, MediaActionContext.Episode, progress, video, videos = videos)
+                            },
+                        ),
+                        horizontalArrangement = Arrangement.spacedBy(13.dp),
                     ) {
-                        items(seasonVideos, key = VideoItem::id) { video ->
-                            val progress = progressForVideo(snapshot?.progress.orEmpty(), actionItem, video)
-                            val watchState = episodeWatchState(progress)
-                            val episodeNumber = listOfNotNull(
-                                video.season?.let { "S$it" },
-                                video.episode?.let { "E$it" },
-                            ).joinToString(" ")
-                            Surface(
-                                modifier = Modifier.width(320.dp).height(180.dp).combinedClickable(
-                                    onClickLabel = "Play ${video.displayTitle}",
-                                    onLongClickLabel = "More actions for ${video.displayTitle}",
-                                    onClick = {
-                                        selectVideo(
-                                            video,
-                                            preferredSource = savedPlaybackSourceFor(video.id)
-                                                ?: currentPlaybackSource(),
-                                            streamBackToHome = false,
-                                        )
-                                    },
-                                    onLongClick = {
-                                        haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
-                                        actionTarget = MediaActionTarget(actionItem, MediaActionContext.Episode, progress, video, videos = videos)
-                                    },
+                        Box(
+                            Modifier
+                                .width(122.dp)
+                                .aspectRatio(16f / 9f)
+                                .clip(RoundedCornerShape(9.dp))
+                                .background(MaterialTheme.colorScheme.surfaceContainerLow),
+                        ) {
+                            AsyncImage(
+                                video.thumbnail,
+                                null,
+                                Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop,
+                            )
+                            Box(
+                                Modifier.fillMaxSize().background(
+                                    Brush.verticalGradient(
+                                        listOf(Color.Transparent, Color.Black.copy(.75f)),
+                                    ),
                                 ),
-                                shape = RoundedCornerShape(16.dp),
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(.65f),
-                            ) {
-                                Column {
-                                    Box(Modifier.fillMaxSize()) {
-                                        AsyncImage(
-                                            video.thumbnail ?: details.background,
-                                            null,
-                                            Modifier.fillMaxSize(),
-                                            contentScale = ContentScale.Crop,
-                                        )
-                                        Box(
-                                            Modifier.fillMaxSize().background(
-                                                Brush.verticalGradient(
-                                                    listOf(Color.Transparent, Color.Black.copy(.92f)),
-                                                ),
-                                            ),
-                                        )
-                                        if (watchState == EpisodeWatchState.Watched) {
-                                            Icon(
-                                                Icons.Rounded.CheckCircle,
-                                                null,
-                                                tint = MaterialTheme.colorScheme.primary,
-                                                modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
-                                            )
-                                        }
-                                        if (episodeNumber.isNotBlank()) {
-                                            Surface(
-                                                Modifier.align(Alignment.TopStart).padding(8.dp),
-                                                color = Color.Black.copy(.65f),
-                                                shape = RoundedCornerShape(8.dp),
-                                            ) {
-                                                Text(
-                                                    episodeNumber,
-                                                    color = Color.White,
-                                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                )
-                                            }
-                                        }
-                                        Column(
-                                            Modifier
-                                                .align(Alignment.BottomStart)
-                                                .fillMaxWidth()
-                                                .padding(start = 12.dp, end = 12.dp, bottom = 14.dp),
-                                            verticalArrangement = Arrangement.spacedBy(3.dp),
-                                        ) {
-                                            Text(
-                                                video.displayTitle,
-                                                color = Color.White,
-                                                fontWeight = FontWeight.Bold,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
-                                                modifier = Modifier.fillMaxWidth().height(22.dp),
-                                            )
-                                            Box(Modifier.fillMaxWidth().height(34.dp)) {
-                                                (video.overview ?: video.description)?.let {
-                                                    Text(
-                                                        it,
-                                                        color = Color.White.copy(.78f),
-                                                        maxLines = 2,
-                                                        overflow = TextOverflow.Ellipsis,
-                                                        style = MaterialTheme.typography.bodySmall,
-                                                    )
-                                                }
-                                            }
-                                            Box(
-                                                Modifier.fillMaxWidth().height(18.dp),
-                                                contentAlignment = Alignment.CenterEnd,
-                                            ) {
-                                                video.released?.let { released ->
-                                                    Text(
-                                                        episodeReleaseDateLabel(released) ?: released,
-                                                        color = Color.White,
-                                                        style = MaterialTheme.typography.labelSmall,
-                                                    )
-                                                }
-                                            }
-                                        }
-                                        LinearProgressIndicator(
-                                            {
-                                                if (watchState == EpisodeWatchState.Watched) 1f
-                                                else episodeProgressFraction(progress)
-                                            },
-                                            Modifier.align(Alignment.BottomStart).fillMaxWidth().height(4.dp),
-                                            color = MaterialTheme.colorScheme.primary,
-                                            trackColor = Color.White.copy(.22f),
-                                        )
-                                    }
-                                }
+                            )
+                            if (watchState == EpisodeWatchState.Watched) {
+                                Icon(
+                                    Icons.Rounded.CheckCircle,
+                                    null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.align(Alignment.TopEnd).padding(6.dp).size(20.dp),
+                                )
                             }
                         }
+                        Column(Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    episodeTitle,
+                                    color = Color.White,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                video.released?.let { released ->
+                                    Text(
+                                        episodeReleaseDateLabel(released) ?: released,
+                                        color = Color.White.copy(.55f),
+                                        style = MaterialTheme.typography.labelMedium,
+                                        modifier = Modifier.padding(start = 10.dp),
+                                    )
+                                }
+                            }
+                            (video.overview ?: video.description)?.takeIf(String::isNotBlank)?.let {
+                                Text(
+                                    it,
+                                    color = Color.White.copy(.62f),
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    modifier = Modifier.padding(top = 4.dp),
+                                )
+                            }
+                        }
+                    }
+                    if (showProgress) {
+                        Spacer(Modifier.height(8.dp))
+                        LinearProgressIndicator(
+                            {
+                                if (watchState == EpisodeWatchState.Watched) 1f
+                                else percent
+                            },
+                            Modifier.fillMaxWidth().height(3.dp),
+                            color = MaterialTheme.colorScheme.primary,
+                            trackColor = Color.White.copy(.14f),
+                        )
                     }
                 }
             }
