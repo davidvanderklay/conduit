@@ -1833,28 +1833,34 @@ internal fun MediaDetailsScreen(
         }
         details?.videos?.takeIf { it.isNotEmpty() }?.let { videos ->
             val seasons = detailSeasons
+            item(key = "season-selector-spacing") {
+                Spacer(Modifier.height(24.dp))
+            }
             item(key = "season-chips") {
-                LaunchedEffect(selectedSeason, seasons) { seasons.indexOf(selectedSeason).takeIf { it >= 0 }?.let { detailsSeasonListState.animateScrollToItem(it) } }
-                LazyRow(state = detailsSeasonListState, contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(seasons) { season ->
-                        WatchableSeasonChip(
-                            selected = selectedSeason == season,
-                            label = if (season == 0) "Specials" else "Season $season",
-                            onClick = {
-                                detailsSeasonManuallySelected = true
-                                selectedSeason = season
-                            },
-                            onLongClick = {
-                                haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
-                                actionTarget = MediaActionTarget(
-                                    actionItem,
-                                    MediaActionContext.Season,
-                                    season = season,
-                                    videos = videos,
-                                )
-                            },
-                        )
+                Column {
+                    LaunchedEffect(selectedSeason, seasons) { seasons.indexOf(selectedSeason).takeIf { it >= 0 }?.let { detailsSeasonListState.animateScrollToItem(it) } }
+                    LazyRow(state = detailsSeasonListState, contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(seasons) { season ->
+                            WatchableSeasonChip(
+                                selected = selectedSeason == season,
+                                label = if (season == 0) "Specials" else "Season $season",
+                                onClick = {
+                                    detailsSeasonManuallySelected = true
+                                    selectedSeason = season
+                                },
+                                onLongClick = {
+                                    haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                    actionTarget = MediaActionTarget(
+                                        actionItem,
+                                        MediaActionContext.Season,
+                                        season = season,
+                                        videos = videos,
+                                    )
+                                },
+                            )
+                        }
                     }
+                    Spacer(Modifier.height(16.dp))
                 }
             }
             val seasonVideos = videos
