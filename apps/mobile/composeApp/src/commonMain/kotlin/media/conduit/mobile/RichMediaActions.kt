@@ -484,51 +484,53 @@ internal fun MediaActionSheet(
                 ActionRow("Details", Icons.Rounded.Info) { onDismiss(); onDetails(active) }
             }
             if (queueItem != null && (queueIndex >= 0 || canQueueActiveVideo)) {
-                suspend fun addToQueueWithFeedback() {
+                // Toasts fire before the mutation launches: dismissing this
+                // sheet cancels its composition scope mid-network, and an emit
+                // placed after the await would never run.
+                fun addToQueueWithFeedback() {
                     val next = queue.addToQueue(queueItem)
-                    val result = onMutation(ProfileMutation.SetQueue(next))
-                    if (!result.isSuccess) return
                     val rank = next.indexOfFirst { it.key == queueItem.key } + 1
                     QueueToasts.emit(if (rank <= 1) "Up next" else "Added to queue · #$rank")
+                    scope.launch { onMutation(ProfileMutation.SetQueue(next)) }
                 }
-                suspend fun moveToFrontWithFeedback() {
-                    val result = onMutation(ProfileMutation.SetQueue(queue.moveToQueueFront(queueItem)))
-                    if (result.isSuccess) QueueToasts.emit("Playing next")
+                fun moveToFrontWithFeedback() {
+                    QueueToasts.emit("Playing next")
+                    scope.launch { onMutation(ProfileMutation.SetQueue(queue.moveToQueueFront(queueItem))) }
                 }
-                suspend fun removeFromQueueWithFeedback() {
-                    val result = onMutation(ProfileMutation.SetQueue(queue.removeFromQueue(queueItem.key)))
-                    if (result.isSuccess) QueueToasts.emit("Removed from queue")
+                fun removeFromQueueWithFeedback() {
+                    QueueToasts.emit("Removed from queue")
+                    scope.launch { onMutation(ProfileMutation.SetQueue(queue.removeFromQueue(queueItem.key))) }
                 }
                 when {
                     queueIndex == 0 -> ActionRow("Remove from queue", Icons.Rounded.PlaylistRemove) {
                         onDismiss()
-                        scope.launch { removeFromQueueWithFeedback() }
+                        removeFromQueueWithFeedback()
                     }
                     queueIndex > 0 -> {
                         if (canQueueActiveVideo) {
                             ActionRow("Move to next", Icons.Rounded.VerticalAlignTop) {
                                 onDismiss()
-                                scope.launch { moveToFrontWithFeedback() }
+                                moveToFrontWithFeedback()
                             }
                         }
                         ActionRow("Remove from queue", Icons.Rounded.PlaylistRemove) {
                             onDismiss()
-                            scope.launch { removeFromQueueWithFeedback() }
+                            removeFromQueueWithFeedback()
                         }
                     }
                     queue.isNotEmpty() && canQueueActiveVideo -> {
                         ActionRow("Play next", Icons.Rounded.SkipNext) {
                             onDismiss()
-                            scope.launch { moveToFrontWithFeedback() }
+                            moveToFrontWithFeedback()
                         }
                         ActionRow("Add to queue", Icons.Rounded.PlaylistAdd) {
                             onDismiss()
-                            scope.launch { addToQueueWithFeedback() }
+                            addToQueueWithFeedback()
                         }
                     }
                     canQueueActiveVideo -> ActionRow("Add to queue", Icons.Rounded.PlaylistAdd) {
                         onDismiss()
-                        scope.launch { addToQueueWithFeedback() }
+                        addToQueueWithFeedback()
                     }
                 }
             }

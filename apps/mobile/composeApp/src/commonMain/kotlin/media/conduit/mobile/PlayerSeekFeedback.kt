@@ -3,15 +3,12 @@ package media.conduit.mobile
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.KeyboardDoubleArrowLeft
 import androidx.compose.material.icons.rounded.KeyboardDoubleArrowRight
@@ -26,9 +23,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -86,19 +81,19 @@ private const val PulseDurationMillis = 650
 @Composable
 internal fun DoubleTapSeekOverlay(feedback: DoubleTapSeekFeedback, modifier: Modifier = Modifier) {
     Row(modifier) {
-        Box(Modifier.weight(1f)) {
-            SeekPulseIndicator(
-                pulse = feedback.forward,
-                icon = Icons.Rounded.KeyboardDoubleArrowRight,
-                label = { seconds -> "+$seconds" },
-                modifier = Modifier.align(Alignment.Center),
-            )
-        }
-        Box(Modifier.weight(1f)) {
+        Box(Modifier.weight(1f).fillMaxHeight()) {
             SeekPulseIndicator(
                 pulse = feedback.backward,
                 icon = Icons.Rounded.KeyboardDoubleArrowLeft,
                 label = { seconds -> "-$seconds" },
+                modifier = Modifier.align(Alignment.Center),
+            )
+        }
+        Box(Modifier.weight(1f).fillMaxHeight()) {
+            SeekPulseIndicator(
+                pulse = feedback.forward,
+                icon = Icons.Rounded.KeyboardDoubleArrowRight,
+                label = { seconds -> "+$seconds" },
                 modifier = Modifier.align(Alignment.Center),
             )
         }
@@ -124,30 +119,21 @@ private fun SeekPulseIndicator(
     val fadeOut = ((time - .55f) / .45f).coerceIn(0f, 1f)
     val alpha = appear * (1f - fadeOut)
     if (alpha <= .01f) return
-    val enterScale = lerp(.62f, 1f, (time / .2f).coerceIn(0f, 1f))
+    val enterScale = lerp(.72f, 1f, (time / .18f).coerceIn(0f, 1f))
 
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        Box(
-            Modifier
-                .size(104.dp)
+        Icon(
+            icon,
+            null,
+            tint = Color.White.copy(alpha = alpha),
+            modifier = Modifier
+                .size(52.dp)
                 .graphicsLayer {
-                    this.alpha = alpha
                     scaleX = enterScale
                     scaleY = enterScale
                 },
-            contentAlignment = Alignment.Center,
-        ) {
-            Canvas(Modifier.fillMaxSize()) {
-                drawCircle(
-                    color = Color.White.copy(alpha = .55f * (1f - time)),
-                    radius = size.minDimension / 2f,
-                    style = Stroke(width = 2.dp.toPx()),
-                )
-            }
-            Box(Modifier.fillMaxSize().clip(CircleShape).background(Color.Black.copy(alpha = .48f)))
-            Icon(icon, null, tint = Color.White, modifier = Modifier.size(46.dp))
-        }
-        Spacer(Modifier.size(6.dp))
+        )
+        Spacer(Modifier.size(4.dp))
         Text(
             label(pulse.seconds),
             color = Color.White,

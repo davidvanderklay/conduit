@@ -1721,6 +1721,11 @@ private fun BoxScope.PlaybackSessionHost(
                     )
                 }
             }
+            // Queue notices render inside the player: the scaffold snackbar
+            // host sits below this overlay stack during fullscreen playback.
+            if (fullScreen) {
+                PlayerQueueToast(modifier = Modifier.align(Alignment.TopCenter))
+            }
         } else if (!systemPip) {
             val edgePaddingPx = with(density) { 12.dp.roundToPx() }
             val bottomPaddingPx = with(density) { miniBottomPadding.roundToPx() }
@@ -1919,6 +1924,49 @@ private fun BoxScope.PlaybackQueueDrawer(
         },
         onDismiss = { confirmClear = false },
     )
+}
+
+/**
+ * Queue feedback pill for fullscreen playback. Collected from the shared bus
+ * here because the scaffold snackbar renders underneath the player overlay.
+ */
+@Composable
+private fun BoxScope.PlayerQueueToast(modifier: Modifier = Modifier) {
+    var message by remember { mutableStateOf("") }
+    var visible by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        QueueToasts.notices.collect { notice ->
+            message = notice
+            visible = true
+        }
+    }
+    LaunchedEffect(visible) {
+        if (visible) {
+            kotlinx.coroutines.delay(2_200)
+            visible = false
+        }
+    }
+    androidx.compose.animation.AnimatedVisibility(
+        visible = visible,
+        enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.slideInVertically { -it },
+        exit = androidx.compose.animation.fadeOut(),
+        modifier = modifier
+            .statusBarsPadding()
+            .padding(top = 64.dp),
+    ) {
+        Surface(
+            color = Color.Black.copy(alpha = .82f),
+            contentColor = Color.White,
+            shape = RoundedCornerShape(20.dp),
+            border = BorderStroke(1.dp, Color.White.copy(alpha = .14f)),
+        ) {
+            Text(
+                message,
+                style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+            )
+        }
+    }
 }
 
 @Composable

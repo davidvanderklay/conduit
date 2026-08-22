@@ -2260,6 +2260,8 @@ internal fun PlayerEpisodeDrawer(
             shape = if (fullscreen) RoundedCornerShape(0.dp) else RoundedCornerShape(topStart = 28.dp, bottomStart = 28.dp),
             shadowElevation = if (fullscreen) 0.dp else 20.dp,
         ) {
+            BoxWithConstraints(Modifier.fillMaxSize()) {
+            val queueWidth = if (fullscreen) 200.dp else (maxWidth * .34f).coerceIn(136.dp, 220.dp)
             Column(
                 Modifier
                     .fillMaxSize()
@@ -2290,7 +2292,7 @@ internal fun PlayerEpisodeDrawer(
                 ) {
                     Column(
                         Modifier
-                            .width(if (fullscreen) 250.dp else 132.dp)
+                            .width(queueWidth)
                             .fillMaxHeight()
                             .padding(end = 12.dp),
                     ) {
@@ -2331,7 +2333,9 @@ internal fun PlayerEpisodeDrawer(
                         )
                     }
                 }
-                Column(Modifier.weight(1f)) {
+                BoxWithConstraints(Modifier.weight(1f)) {
+                val episodeThumbWidth = (maxWidth * .44f).coerceIn(56.dp, if (fullscreen) 128.dp else 120.dp)
+                Column(Modifier.fillMaxSize()) {
                 LazyRow(
                     state = seasonListState,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -2406,7 +2410,7 @@ internal fun PlayerEpisodeDrawer(
                                 ) {
                                     Box(
                                         Modifier
-                                            .width(if (fullscreen) 128.dp else 120.dp)
+                                            .width(episodeThumbWidth)
                                             .aspectRatio(16f / 9f)
                                             .clip(RoundedCornerShape(10.dp)),
                                     ) {
@@ -2490,6 +2494,8 @@ internal fun PlayerEpisodeDrawer(
                             }
                         }
                     }
+                }
+                }
                 }
                 }
                 }

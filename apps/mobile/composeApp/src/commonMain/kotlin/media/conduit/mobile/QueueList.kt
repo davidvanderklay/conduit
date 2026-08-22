@@ -11,12 +11,14 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.DeleteOutline
@@ -42,6 +44,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -199,47 +202,63 @@ private fun QueueItemRow(
     onDrag: (Float) -> Unit,
     onRemove: () -> Unit,
 ) {
-    val cornerShape = RoundedCornerShape(if (compact) 12.dp else 16.dp)
+    val cornerShape = RoundedCornerShape(if (compact) 14.dp else 16.dp)
+    val baseModifier = placement
+        .fillMaxWidth()
+        .onSizeChanged { onMeasure(it.height) }
+        .zIndex(if (isDragging) 1f else 0f)
+        .graphicsLayer {
+            translationY = if (isDragging) dragTranslationY else 0f
+            scaleX = 1f + .04f * lift
+            scaleY = 1f + .04f * lift
+            alpha = 1f - .25f * lift
+            shape = cornerShape
+            shadowElevation = lift * (if (compact) 16f else 22f) * density
+            clip = false
+        }
 
-    Row(
-        placement
-            .fillMaxWidth()
-            .onSizeChanged { onMeasure(it.height) }
-            .zIndex(if (isDragging) 1f else 0f)
-            .graphicsLayer {
-                translationY = if (isDragging) dragTranslationY else 0f
-                scaleX = 1f + .04f * lift
-                scaleY = 1f + .04f * lift
-                alpha = 1f - .25f * lift
-                shape = cornerShape
-                shadowElevation = lift * (if (compact) 14f else 22f) * density
-                clip = false
-            }
-            .clip(cornerShape)
-            .background(Color.White.copy(.05f))
-            .clickable { onPlay(item) }
-            .padding(if (compact) 6.dp else 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            Icons.Rounded.DragHandle,
-            "Hold and drag to reorder",
-            tint = Color.White.copy(.42f),
-            modifier = Modifier
-                .size(if (compact) 24.dp else 32.dp)
-                .pointerInput(item.key) {
-                    detectDragGesturesAfterLongPress(
-                        onDragStart = { onDragStart() },
-                        onDragCancel = { onDragCancel() },
-                        onDragEnd = { onDragEnd() },
-                        onDrag = { change, amount ->
-                            change.consume()
-                            onDrag(amount.y)
-                        },
-                    )
-                },
+    if (compact) {
+        QueueItemCard(
+            item = item,
+            baseModifier = baseModifier,
+            cornerShape = cornerShape,
+            menuExpanded = menuExpanded,
+            onMenuDismiss = onMenuDismiss,
+            onPlay = onPlay,
+            onOpenMenu = onOpenMenu,
+            onDragStart = onDragStart,
+            onDragEnd = onDragEnd,
+            onDragCancel = onDragCancel,
+            onDrag = onDrag,
+            onRemove = onRemove,
         )
-        if (!compact) {
+    } else {
+        Row(
+            baseModifier
+                .clip(cornerShape)
+                .background(Color.White.copy(.05f))
+                .clickable { onPlay(item) }
+                .padding(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                Icons.Rounded.DragHandle,
+                "Hold and drag to reorder",
+                tint = Color.White.copy(.42f),
+                modifier = Modifier
+                    .size(32.dp)
+                    .pointerInput(item.key) {
+                        detectDragGesturesAfterLongPress(
+                            onDragStart = { onDragStart() },
+                            onDragCancel = { onDragCancel() },
+                            onDragEnd = { onDragEnd() },
+                            onDrag = { change, amount ->
+                                change.consume()
+                                onDrag(amount.y)
+                            },
+                        )
+                    },
+            )
             AsyncImage(
                 model = item.artwork ?: item.poster,
                 contentDescription = null,
@@ -247,17 +266,15 @@ private fun QueueItemRow(
                 contentScale = ContentScale.Crop,
             )
             Spacer(Modifier.width(10.dp))
-        }
-        Column(Modifier.weight(1f)) {
-            Text(
-                text = queueItemTitle(item),
-                color = Color.White,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            if (!compact) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = queueItemTitle(item),
+                    color = Color.White,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
                 item.videoTitle?.let {
                     Text(
                         it,
@@ -268,34 +285,178 @@ private fun QueueItemRow(
                     )
                 }
             }
-        }
-        Box {
-            IconButton(onClick = onOpenMenu, modifier = Modifier.size(if (compact) 30.dp else 36.dp)) {
-                Icon(
-                    Icons.Rounded.MoreVert,
-                    "Queue item options",
-                    tint = Color.White,
-                    modifier = Modifier.size(if (compact) 18.dp else 22.dp),
-                )
-            }
-            DropdownMenu(
-                expanded = menuExpanded,
-                onDismissRequest = onMenuDismiss,
-                containerColor = Color(0xFF171719),
-            ) {
-                DropdownMenuItem(
-                    text = { Text("Play now") },
-                    leadingIcon = { Icon(Icons.Rounded.PlayArrow, null) },
-                    onClick = { onMenuDismiss(); onPlay(item) },
-                )
-                DropdownMenuItem(
-                    text = { Text("Remove") },
-                    leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null) },
-                    onClick = onRemove,
+            Box {
+                IconButton(onClick = onOpenMenu, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Rounded.MoreVert, "Queue item options", tint = Color.White, modifier = Modifier.size(22.dp))
+                }
+                QueueItemMenu(
+                    expanded = menuExpanded,
+                    onDismiss = onMenuDismiss,
+                    onPlay = { onMenuDismiss(); onPlay(item) },
+                    onRemove = onRemove,
                 )
             }
         }
     }
+}
+
+/**
+ * Compact variant used in the episode drawer: a poster-style tile whose cover
+ * art fills the card, with the title overlaid and the drag/menu controls
+ * floating on the artwork.
+ */
+@Composable
+private fun QueueItemCard(
+    item: PlaybackQueueItem,
+    baseModifier: Modifier,
+    cornerShape: RoundedCornerShape,
+    menuExpanded: Boolean,
+    onMenuDismiss: () -> Unit,
+    onPlay: (PlaybackQueueItem) -> Unit,
+    onOpenMenu: () -> Unit,
+    onDragStart: () -> Unit,
+    onDragEnd: () -> Unit,
+    onDragCancel: () -> Unit,
+    onDrag: (Float) -> Unit,
+    onRemove: () -> Unit,
+) {
+    Box(
+        baseModifier
+            .aspectRatio(16f / 9f)
+            .clip(cornerShape)
+            .background(Color.White.copy(.06f))
+            .clickable { onPlay(item) },
+    ) {
+        AsyncImage(
+            model = item.artwork ?: item.poster,
+            contentDescription = null,
+            modifier = Modifier.matchParentSize(),
+            contentScale = ContentScale.Crop,
+        )
+        Box(
+            Modifier
+                .matchParentSize()
+                .background(
+                    Brush.verticalGradient(
+                        0f to Color.Black.copy(.34f),
+                        .42f to Color.Transparent,
+                        1f to Color.Black.copy(.88f),
+                    ),
+                ),
+        )
+        Row(
+            Modifier.fillMaxWidth().padding(6.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.Top,
+        ) {
+            Box(
+                Modifier
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(.55f))
+                    .pointerInput(item.key) {
+                        detectDragGesturesAfterLongPress(
+                            onDragStart = { onDragStart() },
+                            onDragCancel = { onDragCancel() },
+                            onDragEnd = { onDragEnd() },
+                            onDrag = { change, amount ->
+                                change.consume()
+                                onDrag(amount.y)
+                            },
+                        )
+                    }
+                    .padding(3.dp),
+            ) {
+                Icon(
+                    Icons.Rounded.DragHandle,
+                    "Hold and drag to reorder",
+                    tint = Color.White.copy(.85f),
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+            Box(
+                Modifier
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(.55f))
+                    .clickable(onClick = onOpenMenu)
+                    .padding(3.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    Icons.Rounded.MoreVert,
+                    "Queue item options",
+                    tint = Color.White,
+                    modifier = Modifier.size(16.dp),
+                )
+            }
+        }
+        DropdownMenu(
+            expanded = menuExpanded,
+            onDismissRequest = onMenuDismiss,
+            containerColor = Color(0xFF171719),
+        ) {
+            QueueItemMenuItems(
+                onPlay = { onMenuDismiss(); onPlay(item) },
+                onRemove = onRemove,
+            )
+        }
+        Column(
+            Modifier
+                .align(Alignment.BottomStart)
+                .fillMaxWidth()
+                .padding(horizontal = 9.dp, vertical = 8.dp),
+        ) {
+            Text(
+                text = item.name,
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+                style = MaterialTheme.typography.labelLarge,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            listOfNotNull(
+                item.season?.let { season -> "S${season}E${item.episode ?: 0}" },
+                item.videoTitle,
+            ).takeIf { it.isNotEmpty() }?.joinToString(" · ")?.let { meta ->
+                Text(
+                    meta,
+                    color = Color.White.copy(.78f),
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun QueueItemMenu(
+    expanded: Boolean,
+    onDismiss: () -> Unit,
+    onPlay: () -> Unit,
+    onRemove: () -> Unit,
+) {
+    DropdownMenu(
+        expanded = expanded,
+        onDismissRequest = onDismiss,
+        containerColor = Color(0xFF171719),
+    ) {
+        QueueItemMenuItems(onPlay = onPlay, onRemove = onRemove)
+    }
+}
+
+@Composable
+private fun QueueItemMenuItems(onPlay: () -> Unit, onRemove: () -> Unit) {
+    DropdownMenuItem(
+        text = { Text("Play now") },
+        leadingIcon = { Icon(Icons.Rounded.PlayArrow, null) },
+        onClick = onPlay,
+    )
+    DropdownMenuItem(
+        text = { Text("Remove") },
+        leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null) },
+        onClick = onRemove,
+    )
 }
 
 private fun queueItemTitle(item: PlaybackQueueItem): String =
