@@ -16,6 +16,9 @@ finish-args:
   - --device=dri
   - --filesystem=xdg-download
 
+cleanup:
+  - /rust
+
 build-options:
   no-debuginfo: true
   # The bundled Rust compiler is used by later modules and cannot be stripped
