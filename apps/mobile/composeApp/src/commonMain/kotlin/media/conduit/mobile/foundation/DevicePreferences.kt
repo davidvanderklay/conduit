@@ -12,6 +12,7 @@ enum class NavigationStyle(val label: String, val description: String) {
 data class DevicePreferences(
     val amoledBlack: Boolean = false,
     val navigationStyle: NavigationStyle = NavigationStyle.Adaptive,
+    val railOnTablets: Boolean = false,
     val reduceAnimations: Boolean = false,
     val preferredAudioLanguage: String = "System default",
     val preferredSubtitleLanguage: String = "English",
@@ -44,6 +45,7 @@ class DevicePreferencesRepository(private val store: SettingsStore) {
     fun load() = DevicePreferences(
         amoledBlack = bool("amoled", false),
         navigationStyle = store.get(prefix + "navigation")?.let { runCatching { NavigationStyle.valueOf(it) }.getOrNull() } ?: NavigationStyle.Adaptive,
+        railOnTablets = bool("rail-on-tablets", false),
         reduceAnimations = bool("reduce-animations", false),
         preferredAudioLanguage = text("audio-language", "System default"),
         preferredSubtitleLanguage = text("subtitle-language", "English"),
@@ -68,6 +70,7 @@ class DevicePreferencesRepository(private val store: SettingsStore) {
     fun save(value: DevicePreferences): DevicePreferences {
         store.put(prefix + "amoled", value.amoledBlack.toString())
         store.put(prefix + "navigation", value.navigationStyle.name)
+        store.put(prefix + "rail-on-tablets", value.railOnTablets.toString())
         store.put(prefix + "reduce-animations", value.reduceAnimations.toString())
         store.put(prefix + "audio-language", value.preferredAudioLanguage)
         store.put(prefix + "subtitle-language", value.preferredSubtitleLanguage)
