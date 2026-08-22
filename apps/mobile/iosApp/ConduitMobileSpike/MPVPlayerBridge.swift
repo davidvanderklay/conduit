@@ -34,8 +34,10 @@ fileprivate struct ConduitTrack {
 /// The Swift half of the Kotlin/iOS player boundary.
 ///
 /// This follows the same shape as Nuvio's iOS integration: Compose owns the
-/// screen and controls, while UIKit owns libmpv, decoded frames, and the
-/// CAMetalLayer used by MPVKit's MoltenVK video output.
+/// screen and controls, while libmpv's software render API draws each frame
+/// into a pixel buffer that feeds one AVSampleBufferDisplayLayer. That single
+/// surface serves both inline display and PiP, so there is no Metal swapchain
+/// and no second pipeline to keep in sync.
 final class ConduitMPVPlayerBridge: NSObject, IosPlayerBridge {
     private var playerViewController: ConduitMPVPlayerViewController?
     private var holdsLandscapeLock = false
@@ -285,25 +287,40 @@ enum ConduitPlayerRegistration {
 
 final class ConduitMPVPlayerViewController: UIViewController {
     private static let audioOutput = "audiounit"
-    private static let surfaceSettleDelay: TimeInterval = 0.22
-    private static let videoOutputWatchdogInterval: TimeInterval = 0.5
-    private static let videoOutputRecoveryDelay: TimeInterval = 0.4
-    private static let mediaClockStallTimeout: TimeInterval = 1.5
-    private static let videoOutputRecoveryTimeout: TimeInterval = 1.5
-    private static let maxVideoOutputRecoveryAttempts = 2
+    /// Long-side cap for the software render target. Bounds the per-frame CPU
+    /// cost of the libmpv software renderer; the display layer upscales to the
+    /// screen. PiP windows are far smaller than this budget.
+    private static let maxRenderLongSide = 1440
     // Audio route changes can block. Serialize them across player instances
     // without making the Compose/UIKit thread wait for the system audio route.
     private static let audioSessionQueue = DispatchQueue(label: "media.conduit.audio-session", qos: .userInitiated)
 
     private let eventQueue = DispatchQueue(label: "media.conduit.mpv-events", qos: .userInitiated)
     private let subtitleQueue = DispatchQueue(label: "media.conduit.mpv-subtitles", qos: .utility)
+    /// Serializes mpv_render_context_render calls and sample-buffer delivery.
+    private let renderQueue = DispatchQueue(label: "media.conduit.mpv-render", qos: .userInitiated)
     private let subtitleLock = NSLock()
     private let errorLock = NSLock()
     fileprivate let pictureInPictureClock = ConduitPipPlaybackClock()
-    private var metalLayer = ConduitMetalLayer()
+    /// The single video surface: rendered frames flow here for inline display,
+    /// and AVKit mirrors this layer into the PiP window. One render path feeds
+    /// both, so there is no second pipeline to keep in sync.
+    fileprivate let displayLayer = AVSampleBufferDisplayLayer()
     private let pictureInPicturePlaceholderLayer = CALayer()
     private var pictureInPicture: ConduitPictureInPictureCoordinator?
     private var mpv: OpaquePointer?
+
+    // MARK: Software renderer state (guarded by renderStateLock unless noted)
+    private let renderStateLock = NSLock()
+    private var renderContext: OpaquePointer?
+    private var renderInProgress = false
+    private var renderNeedsAnotherPass = false
+    private var pixelBufferPool: CVPixelBufferPool?
+    private var poolWidth = 0
+    private var poolHeight = 0
+    private var formatDescription: CMVideoFormatDescription?
+    private var enqueuedFrameCount: UInt64 = 0
+
     private var pendingLoad: ConduitPendingLoad?
     private var pendingRetry: DispatchWorkItem?
     private var activeHeaders: [String: String] = [:]
@@ -313,25 +330,10 @@ final class ConduitMPVPlayerViewController: UIViewController {
     fileprivate var hasLoadedFile = false
     private var shouldPlay = false
     private var resumeAfterAudioInterruption = false
-    fileprivate var videoTrackSuspendedForBackground = false
-    private var lastDrawableSize: CGSize = .zero
+    private var videoTrackSuspendedForBackground = false
     private var videoSurfaceSize: CGSize = .zero
-    private var settledMetalBounds: CGRect = .zero
     private var externallyManagedViewSize: CGSize?
     private var pendingSurfaceLayoutWorkItems: [DispatchWorkItem] = []
-    private var pendingDrawableResize: DispatchWorkItem?
-    private var pendingDrawableSize: CGSize?
-    private var pendingDrawableBounds: CGRect?
-    private var interactiveResizeActive = false
-    private var surfaceTransitionActive = false
-    private var coordinatorSurfaceTransitionActive = false
-    private var pendingSurfaceTransitionEnd: DispatchWorkItem?
-    private var pendingVideoOutputRecovery: DispatchWorkItem?
-    private var pendingVideoOutputWatchdog: DispatchWorkItem?
-    private var videoOutputRecoveryState = ConduitVideoOutputRecoveryState()
-    private var lastObservedDrawableHeartbeat: UInt64 = 0
-    private var lastWatchedMediaPositionMs: Int64?
-    private var lastMediaClockProgressUptime: TimeInterval = 0
     private var hasVideoStream = false
     private var lifecycleObservers: [NSObjectProtocol] = []
     private var recentErrors: [String] = []
@@ -342,9 +344,8 @@ final class ConduitMPVPlayerViewController: UIViewController {
     private var loadStartedAtUptime: TimeInterval = 0
     private var destroyStarted = false
     private var audioSessionActivationRequested = false
-    private var didPrewarmPictureInPictureResources = false
     private var frameRateDisplayLink: CADisplayLink?
-    private var resizeMode = 0
+    fileprivate var resizeMode = 0
     private var automaticPipHomeSwipeCandidate = false
     private var automaticPipHomeSwipeEdge: AutomaticPipSwipeEdge?
     private var lastDebugPlaybackSnapshot: String?
@@ -379,28 +380,19 @@ final class ConduitMPVPlayerViewController: UIViewController {
         view.backgroundColor = .black
         view.layer.masksToBounds = true
 
-        metalLayer.contentsGravity = .resize
-        metalLayer.contentsScale = UIScreen.main.nativeScale
-        metalLayer.pixelFormat = .rgba16Float
-        metalLayer.framebufferOnly = false
-        metalLayer.backgroundColor = UIColor.black.cgColor
-        metalLayer.anchorPoint = CGPoint(x: 0, y: 0)
-        metalLayer.position = .zero
-        view.layer.addSublayer(metalLayer)
-        pictureInPicture = ConduitPictureInPictureCoordinator(owner: self, metalLayer: metalLayer)
+        displayLayer.videoGravity = .resizeAspect
+        displayLayer.backgroundColor = UIColor.black.cgColor
+        if #available(iOS 17.0, *) {
+            displayLayer.wantsExtendedDynamicRangeContent = false
+        }
+        view.layer.addSublayer(displayLayer)
         pictureInPicturePlaceholderLayer.backgroundColor = UIColor.black.cgColor
         pictureInPicturePlaceholderLayer.opacity = 0
         view.layer.addSublayer(pictureInPicturePlaceholderLayer)
+        pictureInPicture = ConduitPictureInPictureCoordinator(owner: self)
 
         setupMpv()
         configureAudioSession()
-        lifecycleObservers.append(NotificationCenter.default.addObserver(
-            forName: UIApplication.willResignActiveNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            self?.pictureInPicture?.prewarmForAutomaticEntry()
-        })
         lifecycleObservers.append(NotificationCenter.default.addObserver(
             forName: UIApplication.didBecomeActiveNotification,
             object: nil,
@@ -516,8 +508,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        layoutMetalLayer()
-        pictureInPicture?.layout(in: view.bounds)
+        layoutDisplayLayer()
         pictureInPicturePlaceholderLayer.frame = view.bounds
         attemptStartPendingLoad()
     }
@@ -540,12 +531,10 @@ final class ConduitMPVPlayerViewController: UIViewController {
     ) {
         super.viewWillTransition(to: size, with: coordinator)
 
-        setSurfaceTransitionActive(true)
         syncVideoSurfaceLayoutNow(scheduleDeferredPasses: false)
         coordinator.animate(alongsideTransition: { [weak self] _ in
             self?.syncVideoSurfaceLayoutNow(scheduleDeferredPasses: false)
         }, completion: { [weak self] _ in
-            self?.setSurfaceTransitionActive(false)
             self?.syncVideoSurfaceLayout()
             self?.attemptStartPendingLoad()
         })
@@ -557,31 +546,14 @@ final class ConduitMPVPlayerViewController: UIViewController {
         }
     }
 
-    func setInteractiveResize(_ active: Bool) {
-        runOnMain { [weak self] in
-            guard let self, !self.destroyStarted, self.interactiveResizeActive != active else { return }
-            self.interactiveResizeActive = active
-            self.pendingDrawableResize?.cancel()
-            self.pendingDrawableResize = nil
-            self.pendingSurfaceTransitionEnd?.cancel()
-            self.pendingSurfaceTransitionEnd = nil
-            if active {
-                if !self.coordinatorSurfaceTransitionActive {
-                    self.surfaceTransitionActive = true
-                }
-                self.cancelVideoOutputRecovery(resetAttempts: true)
-            } else if !self.coordinatorSurfaceTransitionActive {
-                self.surfaceTransitionActive = false
-            }
-            self.updateLiveResizeState()
-            if !active {
-                self.layoutMetalLayer()
-                self.updateLiveResizeState()
-                self.resetVideoOutputObservations()
-                self.scheduleVideoOutputWatchdog()
-            }
-        }
+    private func syncVideoSurfaceLayout() {
+        syncVideoSurfaceLayoutNow(scheduleDeferredPasses: true)
     }
+
+    /// The software render target follows the surface every frame, so pinch
+    /// resizes need no swapchain protection; kept as a no-op for the shared
+    /// player contract.
+    func setInteractiveResize(_ active: Bool) {}
 
     fileprivate func loadFile(
         _ url: String,
@@ -616,26 +588,19 @@ final class ConduitMPVPlayerViewController: UIViewController {
     }
 
     func playPlayback() {
-        playPlayback(scheduleWatchdog: true)
-    }
-
-    private func playPlayback(scheduleWatchdog: Bool) {
         runOnMain { [weak self] in
             guard let self else { return }
             self.debugLog("playback command=play source=app-or-pip")
             self.shouldPlay = true
-            guard self.mpv != nil, !self.waitingForInitialVideoFrame else { return }
-            if self.videoOutputRecoveryState.failed {
-                self.retryVideoOutputOnMain()
-                return
-            }
+            guard self.mpv != nil else { return }
+            // Claim the session before the first-frame gate: activation is
+            // idempotent, and waiting would leave mpv's AudioUnit init as the
+            // de facto owner of the shared session.
             self.activateAudioSession()
+            guard !self.waitingForInitialVideoFrame else { return }
             self.setFlag("pause", false)
             self.isPlayerPlaying = true
             self.refreshPlaybackState()
-            if scheduleWatchdog {
-                self.scheduleVideoOutputWatchdog()
-            }
             self.pictureInPicture?.playbackStateChanged()
         }
     }
@@ -645,9 +610,6 @@ final class ConduitMPVPlayerViewController: UIViewController {
             guard let self else { return }
             self.debugLog("playback command=pause source=app-or-pip")
             self.shouldPlay = false
-            self.resetMediaClockObservation()
-            self.cancelVideoOutputWatchdog()
-            self.cancelVideoOutputRecovery(resetAttempts: true)
             guard self.mpv != nil else { return }
             self.setFlag("pause", true)
             self.isPlayerPlaying = false
@@ -659,7 +621,6 @@ final class ConduitMPVPlayerViewController: UIViewController {
     func seekToMs(_ milliseconds: Int64) {
         runOnMain { [weak self] in
             guard let self, self.mpv != nil else { return }
-            self.resetMediaClockObservation()
             self.pictureInPictureClock.reset(positionMs: milliseconds)
             self.pictureInPicture?.timelineDidSeek()
             self.command("seek", args: [String(format: "%.3f", Double(milliseconds) / 1000.0), "absolute"])
@@ -670,7 +631,6 @@ final class ConduitMPVPlayerViewController: UIViewController {
     func seekByMs(_ milliseconds: Int64) {
         runOnMain { [weak self] in
             guard let self, self.mpv != nil else { return }
-            self.resetMediaClockObservation()
             self.pictureInPictureClock.reset(positionMs: self.positionMs + milliseconds)
             self.pictureInPicture?.timelineDidSeek()
             self.command("seek", args: [String(format: "%.3f", Double(milliseconds) / 1000.0), "relative"])
@@ -715,7 +675,6 @@ final class ConduitMPVPlayerViewController: UIViewController {
             guard let self else { return }
             self.resizeMode = mode
             guard self.mpv != nil else { return }
-            if self.hasLoadedFile { self.noteSurfaceGeometryChange() }
             switch mode {
             case 1, 2:
                 self.setStringProperty("keepaspect", "yes")
@@ -734,27 +693,20 @@ final class ConduitMPVPlayerViewController: UIViewController {
                 self.setStringProperty("video-zoom", "0.0")
             }
             self.setStringProperty("video-unscaled", "no")
+            // Fill/Zoom change which aspect the render target follows.
+            self.updateRenderTarget()
             self.updateSubtitlePosition()
         }
     }
 
     func retryVideoOutput() {
         runOnMain { [weak self] in
-            self?.retryVideoOutputOnMain()
+            guard let self, self.mpv != nil else { return }
+            self.debugLog("retry video output requested")
+            self.clearError()
+            self.kickRender()
+            self.refreshPlaybackState()
         }
-    }
-
-    private func retryVideoOutputOnMain() {
-        guard mpv != nil, hasLoadedFile else { return }
-        videoOutputRecoveryState.beginRetry(at: ProcessInfo.processInfo.systemUptime)
-        resetVideoOutputObservations()
-        clearError()
-        shouldPlay = true
-        setStringProperty("vid", "no")
-        setStringProperty("vid", "auto")
-        setFlag("pause", false)
-        refreshPlaybackState()
-        scheduleVideoOutputWatchdog()
     }
 
     func selectAudio(_ trackId: Int) {
@@ -790,7 +742,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
 #endif
             loadPendingExternalSubtitles()
             if shouldPlay { setFlag("pause", false) }
-            scheduleVideoOutputWatchdog()
+            kickRender()
         }
         let duration = getDouble("duration")
         let position = getDouble("time-pos")
@@ -801,28 +753,35 @@ final class ConduitMPVPlayerViewController: UIViewController {
         let seeking = getFlag("seeking")
         let buffering = getFlag("paused-for-cache")
         let videoCodec = getString("video-codec")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let outputWidth = getInt("video-out-params/w")
-        let outputHeight = getInt("video-out-params/h")
         let activeFrameRate = getDouble("video-params/fps")
         let containerFrameRate = getDouble("container-fps")
-        let decodedWidth = outputWidth > 0 ? outputWidth : getInt("video-params/w")
-        let decodedHeight = outputHeight > 0 ? outputHeight : getInt("video-params/h")
+        // Display dimensions account for sample aspect ratio and rotation, so
+        // PiP cropping and subtitle positioning see the picture viewers see
+        // rather than the storage grid.
+        var displayWidth = getInt("video-out-params/dw")
+        var displayHeight = getInt("video-out-params/dh")
+        if displayWidth <= 0 || displayHeight <= 0 {
+            displayWidth = getInt("video-out-params/w")
+            displayHeight = getInt("video-out-params/h")
+        }
+        if displayWidth <= 0 || displayHeight <= 0 {
+            displayWidth = getInt("video-params/w")
+            displayHeight = getInt("video-params/h")
+        }
+        let decodedWidth = displayWidth
+        let decodedHeight = displayHeight
         let nextVideoWidth = max(decodedWidth, 0)
         let nextVideoHeight = max(decodedHeight, 0)
         let videoSizeChanged = videoWidth != nextVideoWidth || videoHeight != nextVideoHeight
         if !videoCodec.isEmpty { hasVideoStream = true }
 
         _ = mpv
-        // A surface transition can make MPV briefly idle while the Metal
-        // drawable is being replaced. That is not media buffering and should
-        // not cover the last good frame with the buffering overlay.
         let mediaBuffering = buffering || seeking
         isPlayerBuffering = hasLoadedFile
             && !waitingForInitialVideoFrame
             && shouldPlay
             && !paused
             && !eofReached
-            && !isSurfaceTransitionInProgress
             && mediaBuffering
         isPlayerLoading = waitingForInitialVideoFrame || !hasLoadedFile
 
@@ -852,17 +811,10 @@ final class ConduitMPVPlayerViewController: UIViewController {
             playbackRate: Double(currentSpeed),
             videoFrameRate: videoFrameRate
         )
-        if videoSizeChanged { updateSubtitlePosition() }
-        // Warm the PiP capture resources and keep a fresh frame in the
-        // sample-buffer layer once playback is producing frames. Doing this
-        // here, rather than during a PiP transition, keeps the one-time pool
-        // and layer setup away from the audio render callback.
-        if !didPrewarmPictureInPictureResources,
-           hasLoadedFile,
-           !waitingForInitialVideoFrame,
-           videoWidth > 0 {
-            didPrewarmPictureInPictureResources = true
-            pictureInPicture?.prewarmForAutomaticEntry(requirePlaying: false)
+        if videoSizeChanged {
+            // The render target follows the video aspect in Fit mode.
+            updateRenderTarget()
+            updateSubtitlePosition()
         }
 #if DEBUG
         debugPlaybackState(
@@ -870,8 +822,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
             paused: paused,
             cachePaused: buffering,
             coreIdle: idle,
-            seeking: seeking,
-            drawable: metalLayer.drawableHeartbeatSnapshot()
+            seeking: seeking
         )
 #endif
     }
@@ -896,19 +847,6 @@ final class ConduitMPVPlayerViewController: UIViewController {
         pictureInPicture?.stop()
     }
 
-    fileprivate func suspendVideoOutputWatchdogForPictureInPicture() {
-        cancelVideoOutputWatchdog()
-        cancelVideoOutputRecovery(resetAttempts: true)
-        debugLog("video output watchdog suspended for PiP")
-    }
-
-    fileprivate func resumeVideoOutputWatchdogAfterPictureInPicture() {
-        guard !destroyStarted else { return }
-        resetVideoOutputObservations()
-        debugLog("video output watchdog resumed after PiP")
-        scheduleVideoOutputWatchdog()
-    }
-
     func destroyPlayer() {
         if !Thread.isMainThread {
             DispatchQueue.main.sync { [weak self] in self?.destroyPlayer() }
@@ -926,19 +864,6 @@ final class ConduitMPVPlayerViewController: UIViewController {
         pendingRetry = nil
         pendingSurfaceLayoutWorkItems.forEach { $0.cancel() }
         pendingSurfaceLayoutWorkItems.removeAll()
-        pendingSurfaceTransitionEnd?.cancel()
-        pendingSurfaceTransitionEnd = nil
-        pendingDrawableResize?.cancel()
-        pendingDrawableResize = nil
-        pendingDrawableSize = nil
-        pendingDrawableBounds = nil
-        cancelVideoOutputWatchdog()
-        cancelVideoOutputRecovery(resetAttempts: true)
-        // UIKit can deliver one or more layout passes after this controller is
-        // removed. Do not let teardown shrink the drawable while MPV's render
-        // thread is still draining its previous swapchain.
-        metalLayer.isNuvioLiveResize = true
-        metalLayer.isHidden = true
         pendingLoad = nil
         shouldPlay = false
         let pictureInPictureCoordinator = pictureInPicture
@@ -947,6 +872,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
         guard let context = mpv else {
             pictureInPictureCoordinator?.invalidate()
             pictureInPicture = nil
+            teardownRenderContext()
             return
         }
         mpv = nil
@@ -954,24 +880,38 @@ final class ConduitMPVPlayerViewController: UIViewController {
 
         let terminateMpv = { [self] in
             // All wakeup callbacks enqueue work on these queues. Drain them
-            // before terminating libmpv, but keep both the wait and MoltenVK
-            // teardown off the main thread so leaving the player can update
-            // the UI immediately.
+            // before terminating libmpv, but keep the wait and teardown off
+            // the main thread so leaving the player can update the UI
+            // immediately. The render queue drains last: no render may touch
+            // the context after it is freed.
             DispatchQueue.global(qos: .userInitiated).async { [self] in
                 subtitleQueue.sync {}
                 eventQueue.sync {}
+                renderQueue.sync {}
+                teardownRenderContext()
                 mpv_terminate_destroy(context)
             }
         }
-        // The capture coordinator owns the last references to MPV drawables.
-        // Do not tear down the libmpv/MoltenVK context until any capture that
-        // entered before shutdown has exited its final enqueue fence.
         if let pictureInPictureCoordinator {
             pictureInPictureCoordinator.invalidate(completion: terminateMpv)
         } else {
             terminateMpv()
         }
         pictureInPicture = nil
+    }
+
+    private func teardownRenderContext() {
+        renderStateLock.lock()
+        let context = renderContext
+        renderContext = nil
+        pixelBufferPool = nil
+        poolWidth = 0
+        poolHeight = 0
+        formatDescription = nil
+        renderStateLock.unlock()
+        guard let context else { return }
+        mpv_render_context_set_update_callback(context, nil, nil)
+        mpv_render_context_free(context)
     }
 
     deinit {
@@ -1002,6 +942,10 @@ final class ConduitMPVPlayerViewController: UIViewController {
             return
         }
         pausePlayback()
+        // Release the audio session alongside the video track. Holding an
+        // active .playback claim across suspension is what wedges other
+        // apps' audio on iPadOS until a reboot; playPlayback re-activates.
+        deactivateAudioSession()
         guard !videoTrackSuspendedForBackground else { return }
         setStringProperty("vid", "no")
         videoTrackSuspendedForBackground = true
@@ -1053,278 +997,386 @@ final class ConduitMPVPlayerViewController: UIViewController {
         )
     }
 
-    private func setSurfaceTransitionActive(_ active: Bool) {
-        guard !destroyStarted else { return }
-        pendingSurfaceTransitionEnd?.cancel()
-        pendingSurfaceTransitionEnd = nil
-        coordinatorSurfaceTransitionActive = active
-        surfaceTransitionActive = active
-        if active {
-            pendingDrawableResize?.cancel()
-            pendingDrawableResize = nil
-            pendingDrawableSize = nil
-            pendingDrawableBounds = nil
-            cancelVideoOutputRecovery(resetAttempts: true)
+    // MARK: - Display surface and software renderer
+
+    /// Sizes the display layer to the view. The render target is independent
+    /// of screen scale: it follows the picture aspect (or the surface aspect
+    /// in Fill/Zoom) capped at maxRenderLongSide, and the layer upscales it.
+    private func layoutDisplayLayer() {
+        guard !destroyStarted, isViewLoaded else { return }
+        let bounds = CGRect(origin: .zero, size: view.bounds.size)
+        guard bounds.width > 1, bounds.height > 1 else { return }
+        if videoSurfaceSize != bounds.size {
+            videoSurfaceSize = bounds.size
+            updateSubtitlePosition()
+            updateRenderTarget()
         }
-        updateLiveResizeState()
-        if !active {
-            if !applyPendingDrawableResizeIfSettled() {
-                layoutMetalLayer()
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        displayLayer.frame = bounds
+        CATransaction.commit()
+    }
+
+    private func syncVideoSurfaceLayoutNow(
+        size: CGSize? = nil,
+        scheduleDeferredPasses: Bool
+    ) {
+        guard isViewLoaded, !destroyStarted else { return }
+        if let size, size.width > 1, size.height > 1 {
+            externallyManagedViewSize = size
+            videoSurfaceSize = size
+        } else if view.bounds.width > 1, view.bounds.height > 1 {
+            videoSurfaceSize = view.bounds.size
+        }
+        updateSubtitlePosition()
+        updateRenderTarget()
+        // Compose owns the embedded controller's view geometry. Forcing its
+        // frame or an immediate UIKit layout here can recursively lay out
+        // Compose's hidden input view while the app is entering the foreground.
+        view.setNeedsLayout()
+        layoutDisplayLayer()
+
+        guard scheduleDeferredPasses else { return }
+        pendingSurfaceLayoutWorkItems.forEach { $0.cancel() }
+        pendingSurfaceLayoutWorkItems.removeAll(keepingCapacity: true)
+        [0.0, 0.05, 0.15, 0.35].forEach { delay in
+            let workItem = DispatchWorkItem { [weak self] in
+                self?.layoutDisplayLayer()
             }
-            resetVideoOutputObservations()
-            scheduleVideoOutputWatchdog()
+            pendingSurfaceLayoutWorkItems.append(workItem)
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
         }
     }
 
-    private var isSurfaceTransitionInProgress: Bool {
-        interactiveResizeActive || surfaceTransitionActive || pendingDrawableResize != nil
-    }
-
-    /// UIKit does not always call viewWillTransition for Split View and Stage
-    /// Manager divider movement. Treat a changing drawable target as a short
-    /// surface transition so renderer churn never becomes media buffering.
-    private func noteSurfaceGeometryChange() {
-        guard !destroyStarted, !interactiveResizeActive, !coordinatorSurfaceTransitionActive else { return }
-        if !surfaceTransitionActive {
-            surfaceTransitionActive = true
-            cancelVideoOutputRecovery(resetAttempts: true)
-            updateLiveResizeState()
+    /// Recomputes the pixel-buffer dimensions on the render queue. A size
+    /// change recreates the pool and the format description before the next
+    /// frame renders, so buffers never mix dimensions.
+    fileprivate func updateRenderTarget() {
+        let surface = videoSurfaceSize
+        let video = videoContentSize
+        runOnRenderQueue { [weak self] in
+            self?.applyRenderTarget(
+                surfaceWidth: surface.width,
+                surfaceHeight: surface.height,
+                videoWidth: Double(video.width),
+                videoHeight: Double(video.height)
+            )
         }
-        pendingSurfaceTransitionEnd?.cancel()
-        let work = DispatchWorkItem { [weak self] in
-            guard let self, !self.destroyStarted else { return }
-            self.pendingSurfaceTransitionEnd = nil
-            self.surfaceTransitionActive = false
-            self.updateLiveResizeState()
-            if !self.applyPendingDrawableResizeIfSettled() {
-                self.layoutMetalLayer()
-            }
-            self.resetVideoOutputObservations()
-            self.scheduleVideoOutputWatchdog()
-            self.debugLog("surface transition settled")
-        }
-        pendingSurfaceTransitionEnd = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.surfaceSettleDelay, execute: work)
-        debugLog("surface transition began")
     }
 
-    private func updateLiveResizeState() {
-        let active = isSurfaceTransitionInProgress
-        metalLayer.isNuvioLiveResize = active
-    }
-
-    /// Applies the coalesced drawable only after every transition owner has
-    /// released the surface. The delayed work item may fire while a UIKit
-    /// transition is still active, so the transition end path must own the
-    /// final application as well.
-    @discardableResult
-    private func applyPendingDrawableResizeIfSettled() -> Bool {
-        guard !destroyStarted,
-              ConduitSurfaceTransitionPolicy.canApplyDrawable(
-                  interactiveResizeActive: interactiveResizeActive,
-                  surfaceTransitionActive: surfaceTransitionActive,
-                  coordinatorSurfaceTransitionActive: coordinatorSurfaceTransitionActive
-              ),
-              let size = pendingDrawableSize,
-              let bounds = pendingDrawableBounds
-        else { return false }
-
-        pendingDrawableResize?.cancel()
-        pendingDrawableResize = nil
-        pendingDrawableSize = nil
-        pendingDrawableBounds = nil
-        applyDrawableSize(size, bounds: bounds)
-        updateLiveResizeState()
-        return true
-    }
-
-    private func scheduleVideoOutputWatchdog() {
-        guard shouldWatchVideoOutput else { return }
-        pendingVideoOutputWatchdog?.cancel()
-        let work = DispatchWorkItem { [weak self] in
-            self?.checkVideoOutputHeartbeat()
-        }
-        pendingVideoOutputWatchdog = work
-        DispatchQueue.main.asyncAfter(
-            deadline: .now() + Self.videoOutputWatchdogInterval,
-            execute: work
-        )
-    }
-
-    private func cancelVideoOutputWatchdog() {
-        pendingVideoOutputWatchdog?.cancel()
-        pendingVideoOutputWatchdog = nil
-    }
-
-    private var shouldWatchVideoOutput: Bool {
-        ConduitVideoOutputWatchdogPolicy.shouldWatch(
-            hasLoadedFile: hasLoadedFile,
-            hasVideoStream: hasVideoStream,
-            shouldPlay: shouldPlay,
-            waitingForInitialVideoFrame: waitingForInitialVideoFrame,
-            recoveryFailed: videoOutputRecoveryState.failed,
-            pictureInPictureActive: pictureInPicture?.isStartingOrActive == true,
-            destroyStarted: destroyStarted,
-        )
-    }
-
-    private func checkVideoOutputHeartbeat() {
-        pendingVideoOutputWatchdog = nil
-        guard shouldWatchVideoOutput else { return }
-
-        refreshPlaybackState()
-        guard shouldWatchVideoOutput else { return }
-
-        // A genuine cache wait or seek is owned by MPV. Rebinding the video
-        // output while the demuxer is waiting would only add more churn.
-        guard !getFlag("paused-for-cache"),
-              !getFlag("core-idle"),
-              !getFlag("seeking"),
-              !getFlag("pause"),
-              !getFlag("eof-reached")
-        else {
-            scheduleVideoOutputWatchdog()
-            return
-        }
-
-        let heartbeat = metalLayer.drawableHeartbeatSnapshot()
-        let now = ProcessInfo.processInfo.systemUptime
-        let heartbeatIsFresh = heartbeat.uptime > 0 &&
-            now - heartbeat.uptime < Self.videoOutputWatchdogInterval * 1.5
-        let recoveryWasActive = videoOutputRecoveryState.isActive ||
-            pendingVideoOutputRecovery != nil ||
-            videoOutputRecoveryState.result == .retrying
-        switch ConduitVideoOutputWatchdogPolicy.decision(
-            surfaceTransitionInProgress: isSurfaceTransitionInProgress,
-            mediaClockAdvancing: mediaClockIsAdvancing(),
-            heartbeatFresh: heartbeatIsFresh,
-            heartbeatChanged: heartbeat.count != lastObservedDrawableHeartbeat,
-            recoveryAttempts: videoOutputRecoveryState.attempts,
-            maxRecoveryAttempts: Self.maxVideoOutputRecoveryAttempts,
-            recoveryStarted: recoveryWasActive,
-            recoveryElapsed: videoOutputRecoveryState.startedAt.map { now - $0 },
-            recoveryTimeout: Self.videoOutputRecoveryTimeout,
+    private func applyRenderTarget(surfaceWidth: Double, surfaceHeight: Double, videoWidth: Double, videoHeight: Double) {
+        let fills = resizeMode == 1 || resizeMode == 2
+        switch ConduitRenderSizePolicy.decision(
+            surfaceWidth: surfaceWidth,
+            surfaceHeight: surfaceHeight,
+            videoWidth: videoWidth,
+            videoHeight: videoHeight,
+            videoFillsSurface: fills,
+            maxLongSide: Self.maxRenderLongSide
         ) {
-        case .wait:
-            scheduleVideoOutputWatchdog()
-        case .healthy:
-            lastObservedDrawableHeartbeat = heartbeat.count
-            if recoveryWasActive, let started = videoOutputRecoveryState.startedAt {
-                debugLog(
-                    "video output rebind succeeded after " +
-                        String(format: "%.2f", now - started) +
-                        "s"
-                )
-            }
-            if recoveryWasActive { videoOutputRecoveryState.succeed() }
-            cancelVideoOutputRecovery(resetAttempts: true)
-            scheduleVideoOutputWatchdog()
-        case .recover:
-            debugLog("video output heartbeat stale count=\(heartbeat.count) age=\(String(format: "%.2f", ProcessInfo.processInfo.systemUptime - heartbeat.uptime))s")
-            scheduleVideoOutputRecovery()
-            scheduleVideoOutputWatchdog()
-        case .pause:
-            pauseForVideoOutputFailure()
+        case .size(let width, let height):
+            setPixelBufferPoolSize(width: width, height: height)
+        case .skip:
+            break
         }
     }
 
-    private func cancelVideoOutputRecovery(resetAttempts: Bool) {
-        pendingVideoOutputRecovery?.cancel()
-        pendingVideoOutputRecovery = nil
-        videoOutputRecoveryState.cancel(resetAttempts: resetAttempts)
+    /// Nudges the renderer even when mpv reports no new frame (retry button,
+    /// first-frame edge cases). Harmless when a frame arrives anyway.
+    fileprivate func kickRender() {
+        scheduleRender()
     }
 
-    private func resetMediaClockObservation() {
-        lastWatchedMediaPositionMs = nil
-        lastMediaClockProgressUptime = 0
-    }
-
-    private func resetVideoOutputObservations() {
-        lastObservedDrawableHeartbeat = metalLayer.drawableHeartbeatSnapshot().count
-        resetMediaClockObservation()
-    }
-
-    private func mediaClockIsAdvancing() -> Bool {
-        let now = ProcessInfo.processInfo.systemUptime
-        let position = positionMs
-        if let lastPosition = lastWatchedMediaPositionMs,
-           position > lastPosition + 50 {
-            lastMediaClockProgressUptime = now
-        }
-        lastWatchedMediaPositionMs = position
-        return lastMediaClockProgressUptime > 0 &&
-            now - lastMediaClockProgressUptime < Self.mediaClockStallTimeout
-    }
-
-    private func scheduleVideoOutputRecovery() {
-        guard shouldWatchVideoOutput,
-              !isSurfaceTransitionInProgress,
-              pendingVideoOutputRecovery == nil
-        else { return }
-
-        guard videoOutputRecoveryState.attempts < Self.maxVideoOutputRecoveryAttempts else {
-            pauseForVideoOutputFailure()
+    private func setupRenderContext() {
+        guard let mpv else { return }
+        let api = UnsafeMutableRawPointer(mutating: (MPV_RENDER_API_TYPE_SW as NSString).utf8String)
+        var params = [
+            mpv_render_param(type: MPV_RENDER_PARAM_API_TYPE, data: api),
+            mpv_render_param()
+        ]
+        var context: OpaquePointer?
+        guard mpv_render_context_create(&context, mpv, &params) >= 0, let context else {
+            print("[Conduit MPV] Software render context unavailable")
             return
         }
+        renderStateLock.lock()
+        renderContext = context
+        renderStateLock.unlock()
 
-        let recoveryGeneration = videoOutputRecoveryState.schedule(
-            at: ProcessInfo.processInfo.systemUptime
+        mpv_render_context_set_update_callback(
+            context,
+            { rawContext in
+                guard let rawContext else { return }
+                let controller = Unmanaged<ConduitMPVPlayerViewController>
+                    .fromOpaque(rawContext)
+                    .takeUnretainedValue()
+                controller.scheduleRender()
+            },
+            Unmanaged.passUnretained(self).toOpaque()
         )
-        let work = DispatchWorkItem { [weak self] in
-            guard let self,
-                  self.videoOutputRecoveryState.isCurrent(recoveryGeneration),
-                  !self.destroyStarted,
-                  self.hasLoadedFile,
-                  self.shouldPlay,
-                  self.pictureInPicture?.isStartingOrActive != true
-            else { return }
-            self.pendingVideoOutputRecovery = nil
-            guard !self.isSurfaceTransitionInProgress else {
-                self.videoOutputRecoveryState.deferAfterTransition()
-                self.scheduleVideoOutputWatchdog()
-                return
-            }
-            guard self.videoOutputRecoveryState.markAttempt(maxAttempts: Self.maxVideoOutputRecoveryAttempts) else {
-                self.pauseForVideoOutputFailure()
-                return
-            }
-            self.debugLog("video output recovery attempt \(self.videoOutputRecoveryState.attempts)")
-            self.setStringProperty("vid", "no")
-            self.setStringProperty("vid", "auto")
-            self.debugLog("video output rebind requested")
-            self.refreshPlaybackState()
-            self.scheduleVideoOutputWatchdog()
-        }
-        pendingVideoOutputRecovery = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.videoOutputRecoveryDelay, execute: work)
     }
 
-    private func pauseForVideoOutputFailure() {
-        guard !videoOutputRecoveryState.failed, !destroyStarted else { return }
-        videoOutputRecoveryState.fail()
-        shouldPlay = false
-        resetMediaClockObservation()
-        let elapsed = videoOutputRecoveryState.startedAt.map {
-            ProcessInfo.processInfo.systemUptime - $0
+    /// Coalesces render requests: at most one render in flight, with a
+    /// follow-up pass whenever updates arrive while one is running.
+    fileprivate func scheduleRender() {
+        renderStateLock.lock()
+        guard renderContext != nil else {
+            renderStateLock.unlock()
+            return
         }
-        cancelVideoOutputWatchdog()
-        cancelVideoOutputRecovery(resetAttempts: false)
-        setFlag("pause", true)
-        isPlayerPlaying = false
-        recordError("Video output stopped responding. Retry playback to reconnect the picture.")
-        refreshPlaybackState()
-        if let elapsed {
-            debugLog("video output recovery failed after \(String(format: "%.2f", elapsed))s; paused audio and video")
+        renderNeedsAnotherPass = true
+        guard !renderInProgress else {
+            renderStateLock.unlock()
+            return
+        }
+        renderInProgress = true
+        renderNeedsAnotherPass = false
+        renderStateLock.unlock()
+
+        renderQueue.async { [weak self] in
+            self?.performRender()
+        }
+    }
+
+    private func performRender() {
+        defer {
+            let shouldContinue: Bool
+            renderStateLock.lock()
+            shouldContinue = renderNeedsAnotherPass
+            renderNeedsAnotherPass = false
+            renderInProgress = false
+            renderStateLock.unlock()
+            if shouldContinue {
+                scheduleRender()
+            }
+        }
+
+        renderStateLock.lock()
+        let context = renderContext
+        let width = poolWidth
+        let height = poolHeight
+        renderStateLock.unlock()
+        guard let context, width > 1, height > 1 else { return }
+
+        let updateFlags = mpv_render_context_update(context)
+        guard updateFlags & UInt64(MPV_RENDER_UPDATE_FRAME.rawValue) != 0 else { return }
+        guard let pixelBuffer = makeRenderPixelBuffer(width: width, height: height) else { return }
+
+        CVPixelBufferLockBaseAddress(pixelBuffer, [])
+        defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, []) }
+        guard let baseAddress = CVPixelBufferGetBaseAddress(pixelBuffer) else { return }
+
+        var size = [Int32(width), Int32(height)]
+        var stride = CVPixelBufferGetBytesPerRow(pixelBuffer)
+        var blockForTargetTime: CInt = 0
+        var format = UnsafeMutableRawPointer(mutating: ("bgr0" as NSString).utf8String)
+        size.withUnsafeMutableBufferPointer { sizePtr in
+            withUnsafeMutablePointer(to: &stride) { stridePtr in
+                withUnsafeMutablePointer(to: &blockForTargetTime) { blockPtr in
+                    var params = [
+                        mpv_render_param(type: MPV_RENDER_PARAM_SW_SIZE, data: sizePtr.baseAddress),
+                        mpv_render_param(type: MPV_RENDER_PARAM_SW_FORMAT, data: format),
+                        mpv_render_param(type: MPV_RENDER_PARAM_SW_STRIDE, data: stridePtr),
+                        mpv_render_param(type: MPV_RENDER_PARAM_SW_POINTER, data: baseAddress),
+                        mpv_render_param(type: MPV_RENDER_PARAM_BLOCK_FOR_TARGET_TIME, data: blockPtr),
+                        mpv_render_param()
+                    ]
+                    _ = mpv_render_context_render(context, &params)
+                }
+            }
+        }
+
+        enqueueFrame(pixelBuffer)
+    }
+
+    private func runOnRenderQueue(_ action: @escaping () -> Void) {
+        renderQueue.async(execute: action)
+    }
+
+    private func setPixelBufferPoolSize(width: Int, height: Int) {
+        renderStateLock.lock()
+        if poolWidth == width, poolHeight == height, pixelBufferPool != nil {
+            renderStateLock.unlock()
+            return
+        }
+        poolWidth = width
+        poolHeight = height
+        formatDescription = nil
+        let attributes: [CFString: Any] = [
+            kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_32BGRA,
+            kCVPixelBufferWidthKey: width,
+            kCVPixelBufferHeightKey: height,
+            kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary,
+            kCVPixelBufferCGImageCompatibilityKey: true,
+        ]
+        var pool: CVPixelBufferPool?
+        let poolAttributes: [CFString: Any] = [
+            kCVPixelBufferPoolMinimumBufferCountKey: 4,
+        ]
+        if CVPixelBufferPoolCreate(
+            kCFAllocatorDefault,
+            poolAttributes as CFDictionary,
+            attributes as CFDictionary,
+            &pool
+        ) == kCVReturnSuccess {
+            pixelBufferPool = pool
         } else {
-            debugLog("video output recovery failed; paused audio and video")
+            pixelBufferPool = nil
+            print("[Conduit MPV] pixel buffer pool creation failed \(width)x\(height)")
+        }
+        renderStateLock.unlock()
+
+        // Drop the stale last frame rather than stretching old-size content.
+        flushDisplayLayer(removeImage: true)
+    }
+
+    private func makeRenderPixelBuffer(width: Int, height: Int) -> CVPixelBuffer? {
+        renderStateLock.lock()
+        let pool = pixelBufferPool
+        let matchesPool = poolWidth == width && poolHeight == height
+        renderStateLock.unlock()
+        guard let pool, matchesPool else { return nil }
+        var pixelBuffer: CVPixelBuffer?
+        guard CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &pixelBuffer) == kCVReturnSuccess else {
+            return nil
+        }
+        return pixelBuffer
+    }
+
+    /// Hands a freshly rendered buffer to AVKit. The PTS comes from the
+    /// interpolated playback clock, and DisplayImmediately shows each sample
+    /// on arrival; both inline and the PiP window read this same layer.
+    private func enqueueFrame(_ pixelBuffer: CVPixelBuffer) {
+        attachColorAttributes(to: pixelBuffer)
+
+        renderStateLock.lock()
+        var description = formatDescription
+        if description == nil ||
+            !CMVideoFormatDescriptionMatchesImageBuffer(description!, imageBuffer: pixelBuffer) {
+            var created: CMVideoFormatDescription?
+            CMVideoFormatDescriptionCreateForImageBuffer(
+                allocator: kCFAllocatorDefault,
+                imageBuffer: pixelBuffer,
+                formatDescriptionOut: &created
+            )
+            formatDescription = created
+            description = created
+        }
+        enqueuedFrameCount &+= 1
+        renderStateLock.unlock()
+
+        guard let description else { return }
+        let clock = pictureInPictureClock.snapshot()
+        let ptsSeconds = clock.interpolatedPositionSeconds(at: ProcessInfo.processInfo.systemUptime)
+        let presentationTime = CMTime(seconds: max(ptsSeconds, 0), preferredTimescale: 90_000)
+        var timing = CMSampleTimingInfo(
+            duration: CMTime(value: 1, timescale: Int32(max(12.0, clock.videoFrameRate))),
+            presentationTimeStamp: presentationTime,
+            decodeTimeStamp: .invalid
+        )
+
+        var sampleBuffer: CMSampleBuffer?
+        let status = CMSampleBufferCreateReadyWithImageBuffer(
+            allocator: kCFAllocatorDefault,
+            imageBuffer: pixelBuffer,
+            formatDescription: description,
+            sampleTiming: &timing,
+            sampleBufferOut: &sampleBuffer
+        )
+        guard status == noErr, let sampleBuffer else { return }
+
+        if let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: true),
+           CFArrayGetCount(attachments) > 0 {
+            let dictionary = unsafeBitCast(
+                CFArrayGetValueAtIndex(attachments, 0),
+                to: CFMutableDictionary.self
+            )
+            CFDictionarySetValue(
+                dictionary,
+                Unmanaged.passUnretained(kCMSampleAttachmentKey_DisplayImmediately).toOpaque(),
+                Unmanaged.passUnretained(kCFBooleanTrue).toOpaque()
+            )
+        }
+
+        deliverSample(sampleBuffer)
+    }
+
+    private func deliverSample(_ sampleBuffer: CMSampleBuffer) {
+        if displayLayer.status == .failed {
+            flushDisplayLayer(removeImage: true)
+        }
+
+        if #available(iOS 18.0, *) {
+            let renderer = displayLayer.sampleBufferRenderer
+            guard renderer.isReadyForMoreMediaData else { return }
+            renderer.enqueue(sampleBuffer)
+        } else {
+            guard displayLayer.isReadyForMoreMediaData else { return }
+            displayLayer.enqueue(sampleBuffer)
         }
     }
 
+    fileprivate func flushDisplayLayer(removeImage: Bool) {
+        let flush = {
+            if #available(iOS 18.0, *) {
+                self.displayLayer.sampleBufferRenderer.flush(
+                    removingDisplayedImage: removeImage,
+                    completionHandler: nil
+                )
+            } else if removeImage {
+                self.displayLayer.flushAndRemoveImage()
+            } else {
+                self.displayLayer.flush()
+            }
+        }
+        if Thread.isMainThread {
+            flush()
+        } else {
+            DispatchQueue.main.async(execute: flush)
+        }
+    }
+
+    /// SDR color tags for the software-rendered buffers. The SW path outputs
+    /// standard dynamic range only.
+    private func attachColorAttributes(to pixelBuffer: CVPixelBuffer) {
+        CVBufferSetAttachment(
+            pixelBuffer,
+            kCVImageBufferColorPrimariesKey,
+            kCVImageBufferColorPrimaries_ITU_R_709_2,
+            .shouldPropagate
+        )
+        CVBufferSetAttachment(
+            pixelBuffer,
+            kCVImageBufferTransferFunctionKey,
+            kCVImageBufferTransferFunction_ITU_R_709_2,
+            .shouldPropagate
+        )
+        CVBufferSetAttachment(
+            pixelBuffer,
+            kCVImageBufferYCbCrMatrixKey,
+            kCVImageBufferYCbCrMatrix_ITU_R_709_2,
+            .shouldPropagate
+        )
+    }
+
+    /// Covers the video surface while PiP owns the picture. The layer itself
+    /// keeps receiving rendered frames either way - it is the PiP source, so
+    /// nothing here may stop or starve it. Releasing the refresh-rate pump
+    /// removes the forced max-refresh scene churn while PiP floats over the
+    /// app; playback pacing is unaffected because sample delivery paces
+    /// itself off MPV's frame updates.
     fileprivate func setInlineVideoHiddenForPictureInPicture(_ hidden: Bool) {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         pictureInPicturePlaceholderLayer.opacity = hidden ? 1 : 0
         CATransaction.commit()
+        if hidden {
+            frameRateDisplayLink?.invalidate()
+            frameRateDisplayLink = nil
+        } else {
+            applyPreferredRefreshRate()
+        }
     }
 
     private func setupMpv() {
@@ -1339,15 +1391,15 @@ final class ConduitMPVPlayerViewController: UIViewController {
 #else
         checkError(mpv_request_log_messages(mpv, "warn"))
 #endif
-        var layerPointer = Int64(Int(bitPattern: Unmanaged.passUnretained(metalLayer).toOpaque()))
-        checkError(mpv_set_option(mpv, "wid", MPV_FORMAT_INT64, &layerPointer))
-        setOptionString(mpv, name: "vo", value: "gpu-next")
-        setOptionString(mpv, name: "gpu-api", value: "vulkan")
-        setOptionString(mpv, name: "gpu-context", value: "moltenvk")
+        // vo=libmpv hands rendering to this app: the software render API draws
+        // each frame into a pixel buffer that feeds one AVSampleBufferDisplayLayer
+        // for both inline display and PiP. There is no Metal swapchain, so none
+        // of the MoltenVK present/rebuild hazards apply.
+        setOptionString(mpv, name: "vo", value: "libmpv")
 #if targetEnvironment(simulator)
         // VideoToolbox in the simulator can report success without producing
         // displayable frames. Software decoding still exercises the real
-        // MPV/MoltenVK presentation path used by the app.
+        // decode-and-render path used by the app.
         setOptionString(mpv, name: "hwdec", value: "no")
 #else
         setOptionString(mpv, name: "hwdec", value: "videotoolbox")
@@ -1356,24 +1408,10 @@ final class ConduitMPVPlayerViewController: UIViewController {
         setOptionString(mpv, name: "ao", value: Self.audioOutput)
         setOptionString(mpv, name: "audio-channels", value: "auto")
         setOptionString(mpv, name: "audio-fallback-to-null", value: "yes")
-        // Keep the audio unit fed through transient system stalls (for
-        // example the first PiP window composition) instead of underrunning
-        // with an audible crackle.
-        setOptionString(mpv, name: "audio-stream-silence", value: "yes")
         // Default sync compensation duplicates/truncates audio fragments when
-        // video timing wobbles, which is audible as a repeated snippet during
-        // the PiP transition. Resampling shifts speed by fractions of a
+        // video timing wobbles. Resampling shifts speed by fractions of a
         // percent instead and is imperceptible.
         setOptionString(mpv, name: "audio-sync", value: "resample")
-        // NOTE: video-sync=display-resample is not usable on this stack -
-        // the MoltenVK/vulkan context exposes no present-timing feedback
-        // (estimated-display-fps stays 0), so mpv has no display clock to
-        // resample against. Frame pacing relies on the scene running at the
-        // panel's native rate instead (see applyPreferredRefreshRate).
-        setOptionString(mpv, name: "vulkan-swap-mode", value: "fifo")
-        setOptionString(mpv, name: "vulkan-queue-count", value: "1")
-        setOptionString(mpv, name: "vulkan-async-compute", value: "no")
-        setOptionString(mpv, name: "vulkan-async-transfer", value: "no")
         setOptionString(mpv, name: "video-rotate", value: "no")
         setOptionString(mpv, name: "input-default-bindings", value: "no")
         setOptionString(mpv, name: "input-vo-keyboard", value: "no")
@@ -1381,13 +1419,11 @@ final class ConduitMPVPlayerViewController: UIViewController {
         setOptionString(mpv, name: "keep-open", value: "yes")
         setOptionString(mpv, name: "subs-match-os-language", value: "yes")
         setOptionString(mpv, name: "subs-fallback", value: "yes")
-        setOptionString(mpv, name: "target-colorspace-hint", value: "yes")
-        setOptionString(mpv, name: "tone-mapping", value: "auto")
-        setOptionString(mpv, name: "hdr-compute-peak", value: "yes")
 
         let initializeStatus = mpv_initialize(mpv)
         checkError(initializeStatus)
         guard initializeStatus >= 0 else { return }
+        setupRenderContext()
         applyPreferredAudioLanguage()
 
         for (index, property) in [
@@ -1446,10 +1482,10 @@ final class ConduitMPVPlayerViewController: UIViewController {
             return
         }
 
-        // Full-screen playback waits for landscape to settle before MPV creates
-        // its video output. iPad multitasking windows may legitimately remain
-        // taller than wide, so their current drawable is already the final one.
-        layoutMetalLayer()
+        // Full-screen playback waits for landscape to settle before playback
+        // begins. iPad multitasking windows may legitimately remain taller
+        // than wide, so their surface is already the final one.
+        layoutDisplayLayer()
         pendingLoad = nil
         pendingRetry?.cancel()
         pendingRetry = nil
@@ -1458,21 +1494,16 @@ final class ConduitMPVPlayerViewController: UIViewController {
 
     private func startLoad(_ request: ConduitPendingLoad) {
         guard mpv != nil else { return }
-        layoutMetalLayer()
+        layoutDisplayLayer()
         pictureInPictureClock.reset(positionMs: request.initialPositionMs)
         clearError()
         activeHeaders = sanitizeHeaders(request.headers)
         applyRequestHeaders(activeHeaders)
-        cancelVideoOutputWatchdog()
-        cancelVideoOutputRecovery(resetAttempts: true)
-        videoOutputRecoveryState = ConduitVideoOutputRecoveryState()
-        resetVideoOutputObservations()
         hasLoadedFile = false
         hasVideoStream = false
         isPlayerLoading = true
         isPlayerEnded = false
         waitingForInitialVideoFrame = true
-        didPrewarmPictureInPictureResources = false
         preferredSubtitleApplied = false
         pendingExternalSubtitles = request.subtitles
         invalidateExternalSubtitleLoads(clearPending: false)
@@ -1544,156 +1575,6 @@ final class ConduitMPVPlayerViewController: UIViewController {
         if clearPending { pendingExternalSubtitles.removeAll(keepingCapacity: true) }
     }
 
-    private func layoutMetalLayer() {
-        guard !destroyStarted else { return }
-
-        // The Compose size callback is expressed through Compose density, which
-        // can differ slightly from UIKit's native pixel scale. Using it for the
-        // Metal drawable can therefore make MPV's render target a few pixels
-        // larger than the CAMetalDrawable attachment during interactive resize.
-        // UIKit's bounds are the authoritative dimensions of the embedded view.
-        let bounds = CGRect(origin: .zero, size: view.bounds.size)
-        guard bounds.width > 1, bounds.height > 1 else { return }
-        if videoSurfaceSize != bounds.size {
-            videoSurfaceSize = bounds.size
-            updateSubtitlePosition()
-        }
-        let scale = view.window?.screen.nativeScale ?? UIScreen.main.nativeScale
-        let size = CGSize(
-            width: (bounds.width * scale).rounded(),
-            height: (bounds.height * scale).rounded()
-        )
-        // ProMotion devices default scenes to 60Hz, which forces 24fps video
-        // into uneven 2:3 pulldown (33/50ms frame gaps). A display link whose
-        // preferred range requests the panel's native rate keeps the whole
-        // scene at high refresh while playback runs, letting 24fps map to
-        // uniform intervals.
-        applyPreferredRefreshRate()
-        if lastDrawableSize != .zero && size != lastDrawableSize {
-            noteSurfaceGeometryChange()
-        }
-
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        metalLayer.contentsScale = scale
-        metalLayer.position = .zero
-        if lastDrawableSize == .zero {
-            applyDrawableSize(size, bounds: bounds)
-        } else if size == lastDrawableSize {
-            pendingDrawableResize?.cancel()
-            pendingDrawableResize = nil
-            pendingDrawableSize = nil
-            pendingDrawableBounds = nil
-            settleMetalBounds(bounds)
-            updateLiveResizeState()
-        } else if interactiveResizeActive {
-            pendingDrawableResize?.cancel()
-            pendingDrawableResize = nil
-            pendingDrawableSize = size
-            pendingDrawableBounds = bounds
-            showStableSurface(in: bounds)
-            updateLiveResizeState()
-        } else if ConduitSurfaceTransitionPolicy.shouldScheduleDrawableResize(
-            size: size,
-            pendingSize: pendingDrawableSize,
-            hasPendingResize: pendingDrawableResize != nil
-        ) {
-            pendingDrawableResize?.cancel()
-            pendingDrawableSize = size
-            pendingDrawableBounds = bounds
-            showStableSurface(in: bounds)
-            updateLiveResizeState()
-            let resize = DispatchWorkItem { [weak self] in
-                guard let self,
-                      self.pendingDrawableSize == size,
-                      self.pendingDrawableBounds == bounds
-                else { return }
-                // Transition ownership, rather than this timer, decides when
-                // the new drawable may be handed to MoltenVK.
-                _ = self.applyPendingDrawableResizeIfSettled()
-            }
-            pendingDrawableResize = resize
-            // MoltenVK must rebuild its swapchain before rendering at the new
-            // attachment size. Coalescing interactive changes prevents it from
-            // rendering a previous, larger target into a newer small drawable.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.18, execute: resize)
-        }
-        CATransaction.commit()
-    }
-
-    private func showStableSurface(in desiredBounds: CGRect) {
-        guard settledMetalBounds.width > 1, settledMetalBounds.height > 1 else { return }
-        let scaleX = desiredBounds.width / settledMetalBounds.width
-        let scaleY = desiredBounds.height / settledMetalBounds.height
-        metalLayer.bounds = settledMetalBounds
-        metalLayer.setAffineTransform(CGAffineTransform(scaleX: scaleX, y: scaleY))
-    }
-
-    private func settleMetalBounds(_ bounds: CGRect) {
-        metalLayer.setAffineTransform(.identity)
-        metalLayer.bounds = bounds
-        settledMetalBounds = bounds
-    }
-
-    private func applyDrawableSize(_ size: CGSize, bounds: CGRect) {
-#if DEBUG
-        print(
-            "[Conduit MPV][surface] points=\(Int(bounds.width))x\(Int(bounds.height)) " +
-            "drawable=\(Int(size.width))x\(Int(size.height))"
-        )
-#endif
-        settleMetalBounds(bounds)
-        metalLayer.drawableSize = size
-        lastDrawableSize = size
-        lastObservedDrawableHeartbeat = metalLayer.drawableHeartbeatSnapshot().count
-        debugLog(
-            "surface applied points=\(Int(bounds.width))x\(Int(bounds.height)) " +
-                "drawable=\(Int(size.width))x\(Int(size.height))"
-        )
-        scheduleVideoOutputWatchdog()
-    }
-
-    private func syncVideoSurfaceLayout() {
-        runOnMain { [weak self] in
-            self?.syncVideoSurfaceLayoutNow(scheduleDeferredPasses: true)
-        }
-    }
-
-    private func syncVideoSurfaceLayoutNow(
-        size: CGSize? = nil,
-        scheduleDeferredPasses: Bool
-    ) {
-        guard isViewLoaded, !destroyStarted else { return }
-        if let size, size.width > 1, size.height > 1 {
-            externallyManagedViewSize = size
-            videoSurfaceSize = size
-        } else if view.bounds.width > 1, view.bounds.height > 1 {
-            videoSurfaceSize = view.bounds.size
-        }
-        updateSubtitlePosition()
-        // Compose owns the embedded controller's view geometry. Forcing its
-        // frame or an immediate UIKit layout here can recursively lay out
-        // Compose's hidden input view while the app is entering the foreground.
-        view.setNeedsLayout()
-        layoutMetalLayer()
-
-        guard scheduleDeferredPasses else { return }
-        pendingSurfaceLayoutWorkItems.forEach { $0.cancel() }
-        pendingSurfaceLayoutWorkItems.removeAll(keepingCapacity: true)
-        [0.0, 0.05, 0.15, 0.35].forEach { delay in
-            let workItem = DispatchWorkItem { [weak self] in
-                self?.layoutMetalLayer()
-            }
-            pendingSurfaceLayoutWorkItems.append(workItem)
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
-        }
-    }
-
-    /// MPV's crop modes enlarge the video rectangle, which can move bottom
-    /// subtitles outside the visible surface. Keep the subtitle's source
-    /// position inside that cropped rectangle by translating it upward by the
-    /// amount of vertical crop. `video-zoom` is logarithmic in MPV, so mode 2
-    /// uses the corresponding power-of-two scale factor.
     private func updateSubtitlePosition() {
         guard mpv != nil else { return }
         let position: CGFloat
@@ -1755,12 +1636,10 @@ final class ConduitMPVPlayerViewController: UIViewController {
                             self.waitingForInitialVideoFrame = false
                             if self.shouldPlay { self.setFlag("pause", false) }
                         }
-                        self.scheduleVideoOutputWatchdog()
                     }
                 case MPV_EVENT_PLAYBACK_RESTART:
                     DispatchQueue.main.async { [weak self] in
                         self?.refreshPlaybackState()
-                        self?.scheduleVideoOutputWatchdog()
                     }
                 case MPV_EVENT_END_FILE:
                     guard let data = event.pointee.data else { continue }
@@ -1975,28 +1854,24 @@ final class ConduitMPVPlayerViewController: UIViewController {
         paused: Bool,
         cachePaused: Bool,
         coreIdle: Bool,
-        seeking: Bool,
-        drawable: (count: UInt64, uptime: TimeInterval)
+        seeking: Bool
     ) {
+        renderStateLock.lock()
+        let frames = enqueuedFrameCount
+        let target = "\(poolWidth)x\(poolHeight)"
+        renderStateLock.unlock()
         let snapshot = [
             String(format: "position=%.3f", position),
             "paused=\(paused)",
             "cachePaused=\(cachePaused)",
             "coreIdle=\(coreIdle)",
             "seeking=\(seeking)",
-            "transition=\(isSurfaceTransitionInProgress)",
-            "drawable=\(drawable.count)",
             "playingIntent=\(shouldPlay)",
             "video=\(videoWidth)x\(videoHeight)",
             "errorPresent=\(!currentErrorMessage.isEmpty)",
-            "settled=\(Int(settledMetalBounds.width))x\(Int(settledMetalBounds.height))",
-            "scale=\(String(format: "%.2f", Double(metalLayer.contentsScale)))",
-            "rebind=\(videoOutputRecoveryState.result.rawValue)",
-            "recoveryAttempts=\(videoOutputRecoveryState.attempts)",
-            "recoveryElapsed=\(recoveryElapsedDescription)",
-            String(format: "displayFps=%.2f", getDouble("estimated-display-fps")),
-            String(format: "vsyncJitter=%.4f", getDouble("estimated-vsync-jitter")),
-            String(format: "vsyncRatio=%.3f", getDouble("vsync-ratio")),
+            "renderTarget=\(target)",
+            String(format: "frames=%llu", frames),
+            "surface=\(Int(videoSurfaceSize.width))x\(Int(videoSurfaceSize.height))",
         ].joined(separator: " ")
         guard snapshot != lastDebugPlaybackSnapshot else { return }
         lastDebugPlaybackSnapshot = snapshot
@@ -2028,11 +1903,6 @@ final class ConduitMPVPlayerViewController: UIViewController {
     }
 
     @objc private func frameRatePump(_ link: CADisplayLink) {}
-
-    private var recoveryElapsedDescription: String {
-        guard let started = videoOutputRecoveryState.startedAt else { return "none" }
-        return String(format: "%.2f", ProcessInfo.processInfo.systemUptime - started)
-    }
 
     private func runOnMain(_ action: @escaping () -> Void) {
         if Thread.isMainThread { action() } else { DispatchQueue.main.async(execute: action) }
@@ -2072,6 +1942,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
     }
 
     private func deactivateAudioSession() {
+        audioSessionActivationRequested = false
         let session = AVAudioSession.sharedInstance()
         Self.audioSessionQueue.async {
             do {
@@ -2134,23 +2005,18 @@ extension ConduitMPVPlayerViewController: UIGestureRecognizerDelegate {
     }
 }
 
-/// Mirrors MPV's final Metal drawable into AVKit without creating a second
-/// decoder. Frame copying lives in ConduitPictureInPictureFrameCapture; this
-/// coordinator owns the AVKit session and the start/stop state machine.
+/// Owns the AVKit PiP session on top of the shared sample-buffer surface.
 ///
-/// PiP is never started "and prayed for": every path primes capture, waits
-/// for the first frame to land in the sample-buffer layer, and only then
-/// asks AVKit to start. Automatic entry on the Home gesture is managed here
-/// instead of via canStartPictureInPictureAutomaticallyFromInline, because a
-/// prewarmed layer plus an explicit start during the gesture is what keeps
-/// the transition from opening onto a black or frozen window.
+/// Because the software renderer continuously feeds `displayLayer`, the
+/// layer always holds current frames - there is no capture priming, no
+/// burst refreshing, and no second pipeline. Every path still waits for
+/// AVKit to confirm the transition before flipping bookkeeping, and the
+/// automatic Home-swipe entry keeps its explicit-start approach, which is
+/// what avoids opening onto a black or frozen window.
 final class ConduitPictureInPictureCoordinator: NSObject,
     AVPictureInPictureControllerDelegate,
     AVPictureInPictureSampleBufferPlaybackDelegate {
     private weak var owner: ConduitMPVPlayerViewController?
-    private let metalLayer: ConduitMetalLayer
-    private let displayLayer = AVSampleBufferDisplayLayer()
-    private var frameCapture: ConduitPictureInPictureFrameCapture?
     private var controller: AVPictureInPictureController?
 
     private var starting = false
@@ -2162,9 +2028,6 @@ final class ConduitPictureInPictureCoordinator: NSObject,
     private var resumeAfterRestore = false
 
     private var automaticArmed = false
-    private var automaticPrepared = false
-    private var automaticPreparedAt: CFTimeInterval = 0
-    private var automaticPreparationInFlight = false
     private var resumePlaybackAfterBackground = false
 
     private var startTimeoutWork: DispatchWorkItem?
@@ -2173,55 +2036,20 @@ final class ConduitPictureInPictureCoordinator: NSObject,
     private var restoreResumeWork: DispatchWorkItem?
     private var abortCancelWork: DispatchWorkItem?
     private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
-    private var lastLayoutSize: CGSize = .zero
 
-    init(owner: ConduitMPVPlayerViewController, metalLayer: ConduitMetalLayer) {
+    init(owner: ConduitMPVPlayerViewController) {
         self.owner = owner
-        self.metalLayer = metalLayer
         super.init()
 
-        displayLayer.videoGravity = .resizeAspect
-        displayLayer.backgroundColor = UIColor.black.cgColor
-        if #available(iOS 17.0, *) {
-            displayLayer.wantsExtendedDynamicRangeContent = false
-        }
-        owner.view.layer.insertSublayer(displayLayer, at: 0)
-
-        frameCapture = ConduitPictureInPictureFrameCapture(
-            displayLayer: displayLayer,
-            metalLayer: metalLayer,
-            clockProvider: { [weak owner] in
-                owner?.pictureInPictureClock.snapshot() ?? .empty
-            },
-            videoSizeProvider: { [weak owner] in
-                owner?.videoContentSize ?? .zero
-            }
-        )
-        if frameCapture == nil {
-            debugLog("frame capture unavailable; PiP disabled")
-        }
-        metalLayer.onDrawablePresented = { [weak self] texture, presentationID, lifetime in
-            self?.frameCapture?.handlePresentedTexture(
-                texture,
-                presentationID: presentationID,
-                sourceLifetime: lifetime
-            )
-        }
-        metalLayer.onRenderingSuspensionChanged = { [weak self] suspended in
-            guard let self, !suspended else { return }
-            self.frameCapture?.requestRenderBurst(count: 4)
-        }
-
         let source = AVPictureInPictureController.ContentSource(
-            sampleBufferDisplayLayer: displayLayer,
+            sampleBufferDisplayLayer: owner.displayLayer,
             playbackDelegate: self
         )
         let controller = AVPictureInPictureController(contentSource: source)
         controller.delegate = self
         controller.requiresLinearPlayback = false
-        // Automatic entry is managed by this coordinator: a prewarmed layer
-        // plus an explicit start during the Home gesture replaces AVKit's
-        // inline trigger, which fires after presentations have stopped.
+        // Automatic entry is managed by this coordinator: an explicit start
+        // during the Home gesture replaces AVKit's inline trigger.
         controller.canStartPictureInPictureAutomaticallyFromInline = false
         self.controller = controller
     }
@@ -2236,129 +2064,59 @@ final class ConduitPictureInPictureCoordinator: NSObject,
 
     var isStartingOrActive: Bool { starting || automaticArmed || isActive }
 
-    func layout(in bounds: CGRect) {
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        displayLayer.frame = bounds
-        CATransaction.commit()
-        if lastLayoutSize != bounds.size {
-            lastLayoutSize = bounds.size
-            frameCapture?.requestRenderBurst(count: 2)
-        }
-    }
-
     // MARK: - Manual start (PiP button)
 
     func start() {
         guard isSupported, !isActive, !starting else { return }
         debugLog("manual start requested")
-        cancelAutomaticEntry(stopPriming: false)
+        cancelAutomaticEntry()
         starting = true
         currentStartSource = "manual-button"
         preservePlaybackDuringStart = owner?.isPlayerPlaying == true
         ignorePauseUntil = 0
-        owner?.suspendVideoOutputWatchdogForPictureInPicture()
         scheduleStartTimeout()
-        beginPriming(stopAfterFirstFrame: true) { [weak self] in
-            DispatchQueue.main.async {
-                guard let self, self.starting else { return }
-                self.requestControllerStart(source: self.currentStartSource ?? "manual", attempt: 0)
-            }
-        }
-        // Priming can begin between two presents (for example while paused);
-        // submit the retained last-presented texture so the start does not
-        // wait for a render that will not come.
-        if let latest = metalLayer.latestDrawableTextureSnapshot() {
-            frameCapture?.submitRetainedTexture(latest.texture, presentationID: latest.presentationID)
-        }
+        requestControllerStart(source: currentStartSource ?? "manual", attempt: 0)
     }
 
     func stop() {
         debugLog("stop requested")
         cancelStartTimeout()
-        cancelAutomaticEntry(stopPriming: false)
+        cancelAutomaticEntry()
         starting = false
         currentStartSource = nil
         clearPlaybackPreservation()
         endBackgroundTask()
-        frameCapture?.stopRendering(removeDisplayedImage: true)
-        flushDisplayLayer(removeImage: true)
         controller?.stopPictureInPicture()
         if !isActive {
             owner?.setInlineVideoHiddenForPictureInPicture(false)
-            owner?.resumeVideoOutputWatchdogAfterPictureInPicture()
         }
     }
 
     func stopForNewLoad(completion: @escaping () -> Void) {
         cancelStartTimeout()
-        cancelAutomaticEntry(stopPriming: false)
+        cancelAutomaticEntry()
         starting = false
         currentStartSource = nil
         clearPlaybackPreservation()
         endBackgroundTask()
-        frameCapture?.stopRendering(removeDisplayedImage: false) { [weak self] in
-            DispatchQueue.main.async {
-                guard let self else {
-                    completion()
-                    return
-                }
-                self.flushDisplayLayer(removeImage: true)
-                self.owner?.setInlineVideoHiddenForPictureInPicture(false)
-                self.owner?.resumeVideoOutputWatchdogAfterPictureInPicture()
-                completion()
-            }
-        }
         controller?.stopPictureInPicture()
+        owner?.setInlineVideoHiddenForPictureInPicture(false)
+        completion()
     }
 
     func playbackStateChanged() {
         controller?.invalidatePlaybackState()
-        // A pause leaves the PiP window showing the previous frame; a short
-        // burst refreshes it with the final rendered one.
-        if owner?.isPlayerPlaying == false {
-            frameCapture?.requestRenderBurst(count: 2)
-        }
     }
 
     func timelineDidSeek() {
-        frameCapture?.didSeek()
+        controller?.invalidatePlaybackState()
     }
 
     // MARK: - Automatic entry (Home swipe)
 
-    /// Arms continuous capture so the sample-buffer layer always holds a
-    /// fresh frame while playback runs. Called once playback produces frames
-    /// and again whenever the app is about to resign active. With the layer
-    /// permanently fed, the Home gesture can start PiP instantly instead of
-    /// priming during the transition.
-    func prewarmForAutomaticEntry(requirePlaying: Bool = true) {
-        guard isSupported,
-              let frameCapture,
-              !isActive,
-              !starting,
-              !automaticArmed,
-              !automaticPreparationInFlight
-        else { return }
-        if requirePlaying, owner?.isPlayerPlaying != true { return }
-        if automaticPrepared, frameCapture.isArmed { return }
-
-        debugLog("arming automatic entry source")
-        automaticPrepared = false
-        automaticPreparedAt = 0
-        automaticPreparationInFlight = true
-        beginPriming(stopAfterFirstFrame: false) { [weak self] in
-            DispatchQueue.main.async {
-                guard let self else { return }
-                self.automaticPreparationInFlight = false
-                guard !self.isActive, !self.starting, !self.automaticArmed else { return }
-                self.automaticPrepared = true
-                self.automaticPreparedAt = CACurrentMediaTime()
-                self.controller?.invalidatePlaybackState()
-            }
-        }
-    }
-
+    /// With the renderer continuously feeding the shared surface, arming the
+    /// Home-swipe path only needs bookkeeping; the layer is fresh by
+    /// construction whenever playback is running.
     func handleHomeSwipeDetected() {
         guard let owner, owner.hasLoadedFile, !isActive, !starting, !automaticArmed else { return }
         guard owner.isPlayerPlaying, !owner.isPlayerEnded else { return }
@@ -2373,21 +2131,7 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         beginBackgroundTask()
         scheduleAutomaticTimeout()
         controller.invalidatePlaybackState()
-
-        let frameAge = automaticPreparedAt > 0 ? CACurrentMediaTime() - automaticPreparedAt : .infinity
-        // Continuous capture keeps the layer fresh by construction; the age
-        // check only matters when capture is not currently armed.
-        let frameIsFresh = automaticPrepared && (
-            frameAge <= 1.0 || frameCapture?.isArmed == true
-        )
-        if frameIsFresh, controller.isPictureInPicturePossible {
-            debugLog(String(format: "requesting automatic PiP during gesture frameAgeMs=%.0f", frameAge * 1000))
-            requestControllerStart(source: "automatic-home", attempt: 0)
-            return
-        }
-
-        debugLog("refreshing automatic PiP frame while app is active")
-        prepareFreshAutomaticFrame()
+        requestControllerStart(source: "automatic-home", attempt: 0)
     }
 
     /// The swipe aborted before the app left the foreground; unwind the armed
@@ -2401,9 +2145,8 @@ final class ConduitPictureInPictureCoordinator: NSObject,
             self.debugLog("cancelling automatic PiP because the Home gesture was aborted")
             self.controller?.stopPictureInPicture()
             let shouldResume = self.preservePlaybackDuringStart
-            self.cancelAutomaticEntry(stopPriming: true)
+            self.cancelAutomaticEntry()
             if shouldResume { self.owner?.playPlayback() }
-            self.frameCapture?.requestRenderBurst(count: 3)
         }
         abortCancelWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.75, execute: work)
@@ -2412,11 +2155,9 @@ final class ConduitPictureInPictureCoordinator: NSObject,
     /// The app became active again without entering the background, so the
     /// system never accepted the automatic transition.
     func cancelAutomaticEntryIfForegrounded() {
-        metalLayer.setRenderingSuspended(false, reason: "did-become-active")
         defer {
             if !isActive, !starting {
                 clearPlaybackPreservation()
-                frameCapture?.requestRenderBurst(count: 4)
             }
         }
         guard automaticArmed, !isActive else { return }
@@ -2424,15 +2165,12 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         let shouldResume = preservePlaybackDuringStart
         debugLog("automatic PiP cancelled because the app returned to the foreground")
         controller?.stopPictureInPicture()
-        cancelAutomaticEntry(stopPriming: false)
+        cancelAutomaticEntry()
         owner?.restoreVideoTrackAfterBackgroundIfNeeded(reloadDecoder: false)
         if shouldResume { owner?.playPlayback() }
     }
 
     func handleEnterBackground() {
-        metalLayer.releasePendingDrawable()
-        frameCapture?.setBackgrounded(true)
-
         // Any in-flight start signal keeps the pipeline alive. Lifecycle
         // delivery around a Home-swipe PiP transition is racy: the background
         // notification can land while AVKit is still working on a start whose
@@ -2451,25 +2189,15 @@ final class ConduitPictureInPictureCoordinator: NSObject,
     }
 
     func handleEnterForeground() {
-        metalLayer.setRenderingSuspended(false, reason: "enter-foreground")
-        frameCapture?.setBackgrounded(false)
-
         if isActive || starting { return }
         owner?.restoreVideoTrackAfterBackgroundIfNeeded()
-        owner?.resumeVideoOutputWatchdogAfterPictureInPicture()
-        frameCapture?.requestRenderBurst(count: 4)
         if resumePlaybackAfterBackground {
             resumePlaybackAfterBackground = false
             owner?.playPlayback()
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
-            self?.prewarmForAutomaticEntry()
-        }
     }
 
     func invalidate(completion: (() -> Void)? = nil) {
-        metalLayer.onDrawablePresented = nil
-        metalLayer.onRenderingSuspensionChanged = nil
         cancelStartTimeout()
         cancelAutomaticTimeout()
         startRetryWork?.cancel()
@@ -2480,59 +2208,27 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         abortCancelWork = nil
         endBackgroundTask()
 
-        let displayLayer = self.displayLayer
-        frameCapture?.stopRendering(removeDisplayedImage: true) {
-            let cleanup = {
-                if #available(iOS 18.0, *) {
-                    displayLayer.sampleBufferRenderer.flush(removingDisplayedImage: true, completionHandler: nil)
-                } else {
-                    displayLayer.flushAndRemoveImage()
-                }
-                displayLayer.removeFromSuperlayer()
-                completion?()
-            }
-            if Thread.isMainThread {
-                cleanup()
-            } else {
-                DispatchQueue.main.async(execute: cleanup)
-            }
-        }
         controller?.stopPictureInPicture()
         controller?.delegate = nil
         controller = nil
+
+        let displayLayer = owner?.displayLayer
+        let cleanup = { () -> Void in
+            if #available(iOS 18.0, *) {
+                displayLayer?.sampleBufferRenderer.flush(removingDisplayedImage: true, completionHandler: nil)
+            } else {
+                displayLayer?.flushAndRemoveImage()
+            }
+        }
+        if Thread.isMainThread {
+            cleanup()
+        } else {
+            DispatchQueue.main.async(execute: cleanup)
+        }
+        completion?()
     }
 
     // MARK: - Start machinery
-
-    private func beginPriming(stopAfterFirstFrame: Bool, onFirstFrame: @escaping () -> Void) {
-        guard let frameCapture else { return }
-        frameCapture.startPriming(
-            stopAfterFirstFrame: stopAfterFirstFrame,
-            onFirstFrame: onFirstFrame
-        )
-    }
-
-    private func prepareFreshAutomaticFrame() {
-        guard automaticArmed, !automaticPreparationInFlight else { return }
-        automaticPrepared = false
-        automaticPreparedAt = 0
-        automaticPreparationInFlight = true
-        owner?.suspendVideoOutputWatchdogForPictureInPicture()
-        beginPriming(stopAfterFirstFrame: true) { [weak self] in
-            DispatchQueue.main.async {
-                guard let self else { return }
-                self.automaticPreparationInFlight = false
-                guard self.automaticArmed, !self.isActive else { return }
-                self.automaticPrepared = true
-                self.automaticPreparedAt = CACurrentMediaTime()
-                self.controller?.invalidatePlaybackState()
-                self.requestControllerStart(source: "automatic-home", attempt: 0)
-            }
-        }
-        if let latest = metalLayer.latestDrawableTextureSnapshot() {
-            frameCapture?.submitRetainedTexture(latest.texture, presentationID: latest.presentationID)
-        }
-    }
 
     private func requestControllerStart(source: String, attempt: Int) {
         guard let controller, !controller.isPictureInPictureActive else { return }
@@ -2572,13 +2268,8 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         currentStartSource = nil
         transitionBegan = false
         startRequested = false
-        automaticPrepared = false
-        automaticPreparedAt = 0
         endBackgroundTask()
         clearPlaybackPreservation()
-        frameCapture?.markActive(false)
-        frameCapture?.stopRendering(removeDisplayedImage: false)
-        flushDisplayLayer(removeImage: true)
 
         guard let owner else { return }
         if UIApplication.shared.applicationState == .background {
@@ -2590,8 +2281,6 @@ final class ConduitPictureInPictureCoordinator: NSObject,
             ignorePauseUntil = CACurrentMediaTime() + 1.0
             owner.playPlayback()
         }
-        frameCapture?.requestRenderBurst(count: 4)
-        owner.resumeVideoOutputWatchdogAfterPictureInPicture()
     }
 
     private func scheduleStartTimeout() {
@@ -2616,7 +2305,7 @@ final class ConduitPictureInPictureCoordinator: NSObject,
             guard let self,
                   self.automaticArmed || self.starting || self.startRequested else { return }
             guard !self.isActive else {
-                self.cancelAutomaticEntry(stopPriming: false)
+                self.cancelAutomaticEntry()
                 return
             }
             self.debugLog("automatic PiP did not activate before timeout")
@@ -2632,24 +2321,17 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         automaticTimeoutWork = nil
     }
 
-    private func cancelAutomaticEntry(stopPriming: Bool) {
+    private func cancelAutomaticEntry() {
         automaticTimeoutWork?.cancel()
         automaticTimeoutWork = nil
         startRetryWork?.cancel()
         startRetryWork = nil
         automaticArmed = false
-        automaticPreparationInFlight = false
         startRequested = false
         endBackgroundTask()
         if !isActive {
             starting = false
             clearPlaybackPreservation()
-        }
-        if stopPriming {
-            automaticPrepared = false
-            automaticPreparedAt = 0
-            frameCapture?.stopRendering(removeDisplayedImage: true)
-            flushDisplayLayer(removeImage: true)
         }
     }
 
@@ -2693,26 +2375,6 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         ignorePauseUntil = 0
     }
 
-    private func flushDisplayLayer(removeImage: Bool) {
-        let flush = {
-            if #available(iOS 18.0, *) {
-                self.displayLayer.sampleBufferRenderer.flush(
-                    removingDisplayedImage: removeImage,
-                    completionHandler: nil
-                )
-            } else if removeImage {
-                self.displayLayer.flushAndRemoveImage()
-            } else {
-                self.displayLayer.flush()
-            }
-        }
-        if Thread.isMainThread {
-            flush()
-        } else {
-            DispatchQueue.main.async(execute: flush)
-        }
-    }
-
     // MARK: - AVPictureInPictureControllerDelegate
 
     func pictureInPictureControllerWillStartPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
@@ -2728,14 +2390,10 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         startRetryWork?.cancel()
         startRetryWork = nil
         automaticArmed = false
-        automaticPreparationInFlight = false
-        automaticPrepared = false
-        automaticPreparedAt = 0
         endBackgroundTask()
         starting = false
         currentStartSource = nil
         startRequested = false
-        frameCapture?.markActive(true)
         preservePlaybackAfterDidStart()
         controller?.invalidatePlaybackState()
     }
@@ -2748,11 +2406,9 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         debugLog("start failed")
 
         // AVKit provisionally reports failure for starts issued during the
-        // Home gesture even when the transition then succeeds, and the first
-        // transition of a session can take longer than any safe wait. The
-        // automatic timeout owns real failure cleanup for this path; tearing
-        // down here would pause MPV and detach the video track underneath a
-        // transition that is about to succeed.
+        // Home gesture even when the transition then succeeds. The automatic
+        // timeout owns real failure cleanup for this path; tearing down here
+        // would pause MPV underneath a transition that is about to succeed.
         if currentStartSource == "automatic-home" {
             debugLog("ignoring provisional automatic start failure; timeout owns cleanup")
             return
@@ -2773,16 +2429,7 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         startRequested = false
         clearPlaybackPreservation()
         endBackgroundTask()
-        frameCapture?.markActive(false)
-        frameCapture?.stopRendering(removeDisplayedImage: true)
-        flushDisplayLayer(removeImage: true)
         owner?.setInlineVideoHiddenForPictureInPicture(false)
-        // Dismissing PiP from the home screen keeps MPV running as audio
-        // only; the video-output watchdog must stay suspended there or it
-        // would flag the absent swapchain as a failure.
-        if UIApplication.shared.applicationState != .background {
-            owner?.resumeVideoOutputWatchdogAfterPictureInPicture()
-        }
 
         if resumeAfterRestore {
             restoreResumeWork?.cancel()
@@ -2797,17 +2444,11 @@ final class ConduitPictureInPictureCoordinator: NSObject,
             restoreResumeWork = work
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: work)
         }
-        if UIApplication.shared.applicationState == .active, owner?.isPlayerPlaying == true {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
-                self?.prewarmForAutomaticEntry()
-            }
-        }
     }
 
     func pictureInPictureControllerWillStopPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
         debugLog("will stop")
         transitionBegan = false
-        frameCapture?.markActive(false)
     }
 
     func pictureInPictureController(
@@ -2911,6 +2552,7 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         #endif
     }
 }
+
 
 enum ConduitVideoOutputRecoveryResult: String, Equatable {
     case none

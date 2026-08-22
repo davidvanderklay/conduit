@@ -19,6 +19,9 @@ settings:
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
     SWIFT_VERSION: "5.10"
+    # The Compose/MPVKit simulator artifacts are arm64-only; every target
+    # that links or imports them must skip the x86_64 simulator slice.
+    "EXCLUDED_ARCHS[sdk=iphonesimulator*]": x86_64
 targets:
   ConduitMobileSpike:
     type: application
@@ -30,11 +33,11 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: media.conduit.mobile
         PRODUCT_NAME: conduit
+        DEVELOPMENT_TEAM: PYG6R5S4Q7
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         INFOPLIST_FILE: ConduitMobileSpike/Info.plist
         SWIFT_OBJC_BRIDGING_HEADER: ConduitMobileSpike/ConduitMobileSpike-Bridging-Header.h
         FRAMEWORK_SEARCH_PATHS: "$(SRCROOT)/../composeApp/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)"
-        "EXCLUDED_ARCHS[sdk=iphonesimulator*]": x86_64
         "OTHER_LDFLAGS[sdk=iphoneos*]": "-framework ComposeApp $(SRCROOT)/../native/ios/iosArm64/libconduit_mobile.a"
         "OTHER_LDFLAGS[sdk=iphonesimulator*]": "-framework ComposeApp $(SRCROOT)/../native/ios/iosSimulatorArm64/libconduit_mobile.a"
     preBuildScripts:
@@ -52,5 +55,6 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: media.conduit.mobile.tests
+        GENERATE_INFOPLIST_FILE: YES
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/conduit.app/conduit"
         BUNDLE_LOADER: "$(TEST_HOST)"
