@@ -29,8 +29,7 @@ modules:
   - name: rust-toolchain
     buildsystem: simple
     build-commands:
-      - install -d /app/rust
-      - cp -a ./* /app/rust/
+      - ./install.sh --prefix=/app/rust --disable-ldconfig
     sources:
       - type: archive
         url: https://static.rust-lang.org/dist/2026-07-16/rust-1.97.1-x86_64-unknown-linux-gnu.tar.xz
