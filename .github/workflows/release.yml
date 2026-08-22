@@ -208,8 +208,7 @@ jobs:
             --noninteractive \
             --no-static-deltas \
             flathub \
-            org.freedesktop.Sdk.Extension.node24/x86_64/25.08 \
-            org.freedesktop.Sdk.Extension.rust-stable/x86_64/25.08
+            org.freedesktop.Sdk.Extension.node24/x86_64/25.08
           flatpak-builder \
             --force-clean \
             --user \

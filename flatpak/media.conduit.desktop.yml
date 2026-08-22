@@ -4,7 +4,6 @@ runtime-version: "50"
 sdk: org.gnome.Sdk
 sdk-extensions:
   - org.freedesktop.Sdk.Extension.node24
-  - org.freedesktop.Sdk.Extension.rust-stable
 command: conduit
 
 finish-args:
@@ -19,7 +18,7 @@ finish-args:
 build-options:
   no-debuginfo: true
   strip: true
-  append-path: /usr/lib/sdk/node24/bin:/usr/lib/sdk/rust-stable/bin
+  append-path: /app/rust/bin:/usr/lib/sdk/node24/bin
   env:
     CARGO_NET_OFFLINE: "true"
     LIBRARY_PATH: /app/lib
@@ -27,6 +26,16 @@ build-options:
     CARGO_BUILD_JOBS: "2"
 
 modules:
+  - name: rust-toolchain
+    buildsystem: simple
+    build-commands:
+      - install -d /app/rust
+      - cp -a ./* /app/rust/
+    sources:
+      - type: archive
+        url: https://static.rust-lang.org/dist/2026-07-16/rust-1.97.1-x86_64-unknown-linux-gnu.tar.xz
+        sha256: 88f28fa9af20594179f85d6df67078dfd6fa93e2f6da5e1e9b0ac4997988ca4f
+
   - name: libplacebo
     buildsystem: meson
     config-opts:
@@ -163,7 +172,7 @@ modules:
       - /lib/*.la
       - /lib/pkgconfig
     build-commands:
-      - cp -a /usr/lib/sdk/rust-stable rust-toolchain
+      - cp -a /app/rust rust-toolchain
       - rust-std-wasm32-unknown-unknown/install.sh --prefix="$PWD/rust-toolchain" --disable-ldconfig
       - mv rust-toolchain/bin/rustc rust-toolchain/bin/rustc-real
       - install -Dm755 rustc-wrapper rust-toolchain/bin/rustc
