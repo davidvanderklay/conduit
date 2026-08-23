@@ -88,6 +88,7 @@ internal fun HomeScreen(
                             watchedVideoIds = watchedVideoIds,
                         )
                         val displayItem = catalogItem.copy(
+                            name = progressDisplayTitle(item, metadata?.name),
                             poster = metadata?.poster ?: catalogItem.poster,
                             background = metadata?.background,
                         )

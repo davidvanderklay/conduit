@@ -288,7 +288,12 @@ internal fun MobileContinueWatchingScreen(
                 verticalArrangement = Arrangement.spacedBy(20.dp),
             ) {
                 items(items, key = { "${it.mediaType}:${it.mediaId}" }) { progress ->
-                    val catalogItem = CatalogItem(progress.mediaId, progress.mediaType, progress.name, poster = progress.poster)
+                    val catalogItem = CatalogItem(
+                        progress.mediaId,
+                        progress.mediaType,
+                        progressDisplayTitle(progress),
+                        poster = progress.poster,
+                    )
                     LaunchedEffect(catalogItem.type, catalogItem.id) {
                         metadataCache.load(catalogItem)
                     }
