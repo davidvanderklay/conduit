@@ -221,7 +221,7 @@ class IncrementalProgressRepository(
                 is ProgressOperation.RestoreTitle -> projection.keys.toList().forEach { key -> projection[key] = projection.getValue(key).let { if (titleKey(it.identity()) == titleKey(operation.identity)) it.copy(dismissed = false) else it } }
             }
         }
-        return projection.values.toList()
+        return progressByRecency(projection.values)
     }
 }
 
