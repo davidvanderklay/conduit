@@ -40,6 +40,7 @@ import androidx.compose.material.icons.rounded.Extension
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.QueueMusic
+import androidx.compose.material.icons.rounded.FastForward
 import androidx.compose.runtime.*
 import androidx.compose.animation.core.animateIntOffsetAsState
 import androidx.compose.animation.core.spring
@@ -1117,6 +1118,7 @@ private fun AppShell(
                 (!profileFlowActive || state.destination == AppDestination.Profile),
             snapshot = profileSync.snapshot,
             onMutation = ::mutateProfile,
+            skipSegmentsRepository = remember { SkipSegmentsRepository() },
         )
         if (queueManagerOpen && playbackSession.state.request == null) {
             PlaybackQueueDrawer(
@@ -1318,6 +1320,7 @@ private fun BoxScope.PlaybackSessionHost(
     bottomNavigationVisible: Boolean,
     snapshot: ProfileSnapshot?,
     onMutation: suspend (ProfileMutation) -> Result<Unit>,
+    skipSegmentsRepository: SkipSegmentsRepository,
 ) {
     val scope = rememberCoroutineScope()
     val session = controller.state
@@ -1325,6 +1328,16 @@ private fun BoxScope.PlaybackSessionHost(
     val upNext = playbackUpNext(request, snapshot?.queue.orEmpty())
     SideEffect {
         controller.updateQueuedNext(request.identity, upNext?.queuedItem)
+    }
+    var skipSegments by remember(request.identity.mediaId, request.season, request.episode) {
+        mutableStateOf<List<SkipSegment>>(emptyList())
+    }
+    LaunchedEffect(request.identity.mediaId, request.season, request.episode) {
+        skipSegments = skipSegmentsRepository.forEpisode(
+            mediaId = request.identity.mediaId,
+            season = request.season,
+            episode = request.episode,
+        )
     }
     val fullScreen = session.presentation == PlaybackPresentation.FullScreen
     val systemPip = session.presentation == PlaybackPresentation.SystemPip
@@ -1489,6 +1502,19 @@ private fun BoxScope.PlaybackSessionHost(
         !session.playback.loading &&
         !session.playback.buffering &&
         !presentPlaybackError
+    val upNextVisible = fullScreen &&
+        upNext != null &&
+        playbackTransition == null &&
+        shouldShowUpNextBanner(
+            positionMs = session.playback.positionMs,
+            durationMs = session.playback.durationMs,
+            segments = skipSegments,
+        )
+    LaunchedEffect(upNextVisible, session.sessionId, request.identity.videoId) {
+        // Start resolving the next episode while credits roll so tapping Play
+        // next (or autoplay at the end) swaps streams without waiting.
+        if (upNextVisible) controller.prefetchUpNext()
+    }
 
     Box(Modifier.fillMaxSize().onSizeChanged { containerSize = it }) {
         // Adaptive iOS hides the native bar, but the mini-player keeps its
@@ -1678,25 +1704,20 @@ private fun BoxScope.PlaybackSessionHost(
                     }
                 }
             }
-            if (fullScreen &&
-                upNext != null &&
-                playbackTransition == null &&
-                session.playback.durationMs > 0 &&
-                session.playback.durationMs - session.playback.positionMs in 1..30_000
-            ) {
-                val compactUpNext = with(density) {
-                    containerSize.width.toDp() < 600.dp || containerSize.height.toDp() < 600.dp
-                }
-                val upNextBottomPadding = when {
-                    !controlsVisible -> 18.dp
-                    compactUpNext -> 132.dp
-                    else -> 102.dp
-                }
+            val compactUpNext = with(density) {
+                containerSize.width.toDp() < 600.dp || containerSize.height.toDp() < 600.dp
+            }
+            val overlayBottomPadding = when {
+                !controlsVisible -> 18.dp
+                compactUpNext -> 132.dp
+                else -> 102.dp
+            }
+            if (upNextVisible) {
                 Surface(
                     Modifier
                         .align(Alignment.BottomEnd)
                         .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.End))
-                        .padding(end = 18.dp, bottom = upNextBottomPadding)
+                        .padding(end = 18.dp, bottom = overlayBottomPadding)
                         .widthIn(
                             min = if (compactUpNext) 280.dp else 300.dp,
                             max = if (compactUpNext) 320.dp else 365.dp,
@@ -1728,6 +1749,40 @@ private fun BoxScope.PlaybackSessionHost(
                         FilledTonalIconButton(onClick = controller::playNext) {
                             Icon(Icons.Rounded.PlayArrow, "Play next")
                         }
+                    }
+                }
+            }
+            val activeSkip = if (fullScreen && playbackTransition == null && preferences.skipSegments) {
+                activeSkipSegment(session.playback.positionMs, skipSegments)
+            } else null
+            if (activeSkip != null) {
+                Surface(
+                    onClick = { controller.send(PlaybackCommand.SeekTo(activeSkip.endMs)) },
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Start))
+                        .padding(start = 18.dp, bottom = overlayBottomPadding),
+                    color = Color(0xE619191B),
+                    contentColor = Color.White,
+                    shape = RoundedCornerShape(if (compactUpNext) 14.dp else 16.dp),
+                    border = BorderStroke(1.dp, Color.White.copy(.16f)),
+                ) {
+                    Row(
+                        Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            Icons.Rounded.FastForward,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            skipSegmentLabel(activeSkip.type),
+                            fontWeight = FontWeight.SemiBold,
+                            style = MaterialTheme.typography.labelLarge,
+                        )
                     }
                 }
             }

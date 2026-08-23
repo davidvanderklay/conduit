@@ -29,6 +29,16 @@ class DevicePreferencesTest {
     }
 
     @Test
+    fun skipSegmentsDefaultsToEnabledAndRoundTrips() {
+        val store = MemorySettingsStore()
+        val repository = DevicePreferencesRepository(store)
+
+        assertEquals(true, repository.load().skipSegments)
+        repository.save(repository.load().copy(skipSegments = false))
+        assertEquals(false, repository.load().skipSegments)
+    }
+
+    @Test
     fun miniplayerOnBackRoundTripsAsADevicePreference() {
         val store = MemorySettingsStore()
         val repository = DevicePreferencesRepository(store)

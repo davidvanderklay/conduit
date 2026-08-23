@@ -124,6 +124,34 @@ class PlaybackSessionTest {
     }
 
     @Test
+    fun prefetchIsSuppressedWhileATransitionIsUnderway() = runTest {
+        var prefetchRequests = 0
+        val controller = PlaybackSessionController(this)
+        controller.start(
+            PlaybackRequest(
+                identity = PlaybackIdentity("profile", "series", "show", "s1e1"),
+                url = "https://example.test/one.mp4",
+                title = "Episode 1",
+                mediaName = "Show",
+            ),
+            PlaybackSessionCallbacks(
+                persist = { _, _ -> },
+                playNext = {},
+                prefetchUpNext = { prefetchRequests += 1 },
+                openEpisodes = {},
+                minimized = {},
+                closed = {},
+            ),
+        )
+
+        controller.prefetchUpNext()
+        controller.beginTransition("Episode 2", "Show", null)
+        controller.prefetchUpNext()
+
+        assertEquals(1, prefetchRequests)
+    }
+
+    @Test
     fun savedStreamStartupAcceptsPlaybackOrFirstFrame() {
         val request = PlaybackRequest(
             identity = PlaybackIdentity("profile", "series", "show", "s1e1"),

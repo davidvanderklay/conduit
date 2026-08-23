@@ -698,6 +698,8 @@ internal fun MediaDetailsScreen(
     var playerStreamRequestJob by remember(item.id) { mutableStateOf<Job?>(null) }
     var manualSourceSwitchVideoIds by remember(item.id) { mutableStateOf<Set<String>>(emptySet()) }
     var manualSourceFallbacks by remember(item.id) { mutableStateOf<Map<String, StreamSource>>(emptyMap()) }
+    var prefetchedStreams by remember(item.id) { mutableStateOf<Map<String, Result<List<StreamSource>>>>(emptyMap()) }
+    var prefetchedStreamVideoIds by remember(item.id) { mutableStateOf<Set<String>>(emptySet()) }
     fun transitionDiagnostic(stage: String, detail: String = "") {
         if (!preferences.debugLogging) return
         val suffix = detail.takeIf(String::isNotBlank)?.let { " $it" }.orEmpty()
@@ -866,10 +868,38 @@ internal fun MediaDetailsScreen(
         }
 
         return if (autoResume) {
+            // The up-next banner prefetches with the same all-addons request the
+            // automatic path uses, so its warm result can replace the network hop.
+            val prefetched = prefetchedStreams[videoId]
+            if (prefetched != null) {
+                prefetchedStreams = prefetchedStreams - videoId
+                return prefetched
+            }
             withTimeoutOrNull(AUTO_RESUME_TIMEOUT_MS) { loadWithRetry() }
                 ?: Result.failure(AutoResumeTimeoutException())
         } else {
             loadWithRetry()
+        }
+    }
+
+    /** Resolves streams ahead of time so the next episode can start immediately. */
+    fun prefetchStreamsFor(video: VideoItem?) {
+        val videoId = video?.id.orEmpty()
+        if (videoId.isEmpty() || videoId in prefetchedStreamVideoIds) return
+        prefetchedStreamVideoIds = prefetchedStreamVideoIds + videoId
+        val compatibleAddons = addons.filter { it.enabled && it.supportsResource("stream", item.type, videoId) }
+        scope.launch {
+            val result = runCatching {
+                api.loadStreams(
+                    compatibleAddons,
+                    item.type,
+                    videoId,
+                    debugLogging = preferences.debugLogging,
+                )
+            }
+            if (result.isSuccess && result.getOrThrow().isNotEmpty()) {
+                prefetchedStreams = prefetchedStreams + (videoId to result)
+            }
         }
     }
 
@@ -1358,6 +1388,9 @@ internal fun MediaDetailsScreen(
                         openPlayerStreamPicker(video)
                     }
                 }
+            },
+            prefetchUpNext = {
+                if (preferences.autoSelectNextStreams) prefetchStreamsFor(nextVideo)
             },
             openEpisodes = {},
             openSources = {
@@ -3362,6 +3395,7 @@ private fun PlaybackSettingsScreen(platform: PlatformInfo, preferences: DevicePr
             }
             SettingsToggle("Auto-select saved streams", "Reuse the last selected stream when it is available", preferences.autoSelectSavedStreams) { update(preferences.copy(autoSelectSavedStreams = it)) }
             SettingsToggle("Automatically select streams", "Choose sources for Next and queued playback", preferences.autoSelectNextStreams) { update(preferences.copy(autoSelectNextStreams = it)) }
+            SettingsToggle("Skip intro and credits", "Show skip buttons for intros, recaps, and outros when timestamps are available", preferences.skipSegments) { update(preferences.copy(skipSegments = it)) }
             SettingsToggle("Miniplayer on back", "Minimize playback instead of closing it when you press Back", preferences.miniplayerOnBack) { update(preferences.copy(miniplayerOnBack = it)) }
             SettingsToggle("Touch gestures", "Double-tap seeking and player gestures", preferences.touchGestures) { update(preferences.copy(touchGestures = it)) }
             SettingsToggle("Hold to speed", "Hold the player to temporarily speed up", preferences.holdToSpeed) { update(preferences.copy(holdToSpeed = it)) }

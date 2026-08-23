@@ -26,6 +26,7 @@ data class DevicePreferences(
     val lastStreamAddonId: String? = null,
     val miniplayerOnBack: Boolean = true,
     val autoplayNextEpisode: Boolean = false,
+    val skipSegments: Boolean = true,
     val p2pEnabled: Boolean = false,
     val androidPlaybackEngine: AndroidPlaybackEngine = AndroidPlaybackEngine.Automatic,
     val rememberLastProfile: Boolean = true,
@@ -59,6 +60,7 @@ class DevicePreferencesRepository(private val store: SettingsStore) {
         lastStreamAddonId = store.get(prefix + "last-stream-addon-id")?.takeIf(String::isNotBlank),
         miniplayerOnBack = bool("miniplayer-on-back", true),
         autoplayNextEpisode = bool("autoplay-next", false),
+        skipSegments = bool("skip-segments", true),
         p2pEnabled = bool("p2p", false),
         androidPlaybackEngine = store.get(prefix + "android-playback-engine")
             ?.let { runCatching { AndroidPlaybackEngine.valueOf(it) }.getOrNull() }
@@ -84,6 +86,7 @@ class DevicePreferencesRepository(private val store: SettingsStore) {
         store.put(prefix + "last-stream-addon-id", value.lastStreamAddonId.orEmpty())
         store.put(prefix + "miniplayer-on-back", value.miniplayerOnBack.toString())
         store.put(prefix + "autoplay-next", value.autoplayNextEpisode.toString())
+        store.put(prefix + "skip-segments", value.skipSegments.toString())
         store.put(prefix + "p2p", value.p2pEnabled.toString())
         store.put(prefix + "android-playback-engine", value.androidPlaybackEngine.name)
         store.put(prefix + "remember-profile", value.rememberLastProfile.toString())
