@@ -11,6 +11,7 @@ import io.ktor.http.content.OutgoingContent
 import io.ktor.http.headersOf
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -82,6 +83,45 @@ class IncrementalProgressRepositoryTest {
         val progress = repository.synchronize(Server, "token", Account, Profile)
 
         assertTrue(progress.isEmpty())
+    }
+
+    @Test
+    fun projectionIsOrderedByMostRecentActivityForHistory() = runTest {
+        val database = database()
+        val scope = scopeKey(Server, Account, Profile)
+        val older = ProgressSummary(
+            videoId = "show:1:1",
+            mediaType = "series",
+            mediaId = "show",
+            name = "Show",
+            videoTitle = "Older episode",
+            season = 1,
+            episode = 1,
+            positionMs = 60_000,
+            durationMs = 60_000,
+            watched = true,
+            updatedAt = "2026-08-23T08:00:00Z",
+            canonicalTitleId = "title-1",
+            canonicalEpisodeKey = "s1:e1",
+            revision = 1,
+        )
+        val newer = older.copy(
+            videoId = "show:1:2",
+            videoTitle = "Newer episode",
+            episode = 2,
+            updatedAt = "2026-08-23T09:00:00Z",
+            canonicalEpisodeKey = "s1:e2",
+            revision = 2,
+        )
+        val json = Json { encodeDefaults = true; explicitNulls = false }
+        database.progressQueries.upsertScope(scope, generation = 1, cursor = 0, initialized = 1)
+        database.progressQueries.upsertProjection(scope, "s1:e1", "title-1", 1, json.encodeToString(older))
+        database.progressQueries.upsertProjection(scope, "s1:e2", "title-1", 2, json.encodeToString(newer))
+
+        val progress = IncrementalProgressRepository(api(mutableListOf()), database)
+            .synchronize(Server, "token", Account, Profile)
+
+        assertEquals(listOf("show:1:2", "show:1:1"), progress.map(ProgressSummary::videoId))
     }
 
     private fun database(): ProgressDatabase {

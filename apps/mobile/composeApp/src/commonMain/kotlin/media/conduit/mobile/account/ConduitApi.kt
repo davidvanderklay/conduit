@@ -151,12 +151,16 @@ private val progressRecencyComparator = compareBy<ProgressSummary> { it.updatedA
     .thenBy { it.revision }
     .thenBy { it.videoId }
 
+/** Orders progress rows the same way history and Continue Watching present recent activity. */
+internal fun progressByRecency(items: Iterable<ProgressSummary>): List<ProgressSummary> =
+    items.sortedWith(progressRecencyComparator.reversed())
+
 /** Keeps the newest progress row for each canonical title and orders titles by recent activity. */
 internal fun latestProgressByTitle(items: Iterable<ProgressSummary>): List<ProgressSummary> = items
     .groupBy { item -> item.canonicalTitleId ?: "${item.mediaType}\u001f${item.mediaId}" }
     .values
     .mapNotNull { entries -> entries.maxWithOrNull(progressRecencyComparator) }
-    .sortedWith(progressRecencyComparator.reversed())
+    .let(::progressByRecency)
 
 @Serializable
 data class ProgressResponse(val items: List<ProgressSummary>)
