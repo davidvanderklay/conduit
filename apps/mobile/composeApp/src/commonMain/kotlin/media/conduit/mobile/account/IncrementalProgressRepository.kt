@@ -195,14 +195,25 @@ class IncrementalProgressRepository(
     private fun overlay(scope: String): List<ProgressSummary> {
         val projection = linkedMapOf<String, ProgressSummary>()
         queries.selectProjection(scope).executeAsList().forEach { payload ->
-            val item = json.decodeFromString<ProgressSummary>(payload)
+            val item = runCatching { json.decodeFromString<ProgressSummary>(payload) }.getOrElse {
+                LifecycleDiagnostics.event("progress.projection.invalid")
+                return@forEach
+            }
             projection[projectionKey(item)] = item
         }
         queries.selectOperations(scope).executeAsList().filter { it.failed == 0L }.forEach { row ->
-            when (val operation = json.decodeFromString<ProgressOperation>(row.payload)) {
+            val operation = runCatching { json.decodeFromString<ProgressOperation>(row.payload) }.getOrElse {
+                LifecycleDiagnostics.event("progress.operation.invalid")
+                return@forEach
+            }
+            when (operation) {
                 is ProgressOperation.Upsert -> {
-                    projection.keys.filter { key -> sameEpisode(projection.getValue(key), operation.identity) }.forEach(projection::remove)
-                    projection[episodeKey(operation.identity)] = operation.toSummary()
+                    if (operation.identity.videoId == null) {
+                        LifecycleDiagnostics.event("progress.operation.invalid")
+                    } else {
+                        projection.keys.filter { key -> sameEpisode(projection.getValue(key), operation.identity) }.forEach(projection::remove)
+                        projection[episodeKey(operation.identity)] = operation.toSummary()
+                    }
                 }
                 is ProgressOperation.DeleteEpisode -> projection.remove(episodeKey(operation.identity))
                 is ProgressOperation.DeleteTitle -> projection.keys.filter { key -> titleKey(projection.getValue(key).identity()) == titleKey(operation.identity) }.forEach(projection::remove)

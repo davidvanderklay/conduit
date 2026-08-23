@@ -35,6 +35,17 @@ class ContinueWatchingTest {
     }
 
     @Test
+    fun progressTitleDoesNotReuseAnEpisodeName() {
+        val progress = progress(videoId = "s2e8").copy(
+            name = "Psych  ·  And Down the Stretch Comes Murder",
+            videoTitle = "Rob-a-Bye Baby",
+        )
+
+        assertEquals("Psych", progressDisplayTitle(progress))
+        assertEquals("Psych", progressDisplayTitle(progress, "Psych"))
+    }
+
+    @Test
     fun unfinishedEpisodeUsesItsOwnArtwork() {
         assertEquals(
             ContinueWatchingPresentation(ContinueWatchingKind.InProgress, videos[1]),
