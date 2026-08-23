@@ -25,6 +25,16 @@ class ContinueWatchingTest {
     }
 
     @Test
+    fun canonicalTitleUsesRevisionWhenProgressTimestampsTie() {
+        val older = progress(videoId = "s1e1", updatedAt = "2026-08-12T08:00:00Z")
+            .copy(canonicalTitleId = "show", canonicalEpisodeKey = "s1:e1", revision = 10)
+        val newer = progress(videoId = "s2e8", episode = 8, updatedAt = older.updatedAt)
+            .copy(canonicalTitleId = "show", canonicalEpisodeKey = "s2:e8", revision = 11)
+
+        assertEquals(listOf("s2e8"), groupContinueWatching(listOf(older, newer)).map(ProgressSummary::videoId))
+    }
+
+    @Test
     fun unfinishedEpisodeUsesItsOwnArtwork() {
         assertEquals(
             ContinueWatchingPresentation(ContinueWatchingKind.InProgress, videos[1]),

@@ -23,14 +23,15 @@ internal fun ProfileSnapshot.withProgressUpdates(updates: Collection<ProgressSum
             val current = merged[item.videoId]
             if (current == null || item.updatedAt >= current.updatedAt) merged[item.videoId] = item
         }
-        return merged.values.sortedByDescending(ProgressSummary::updatedAt)
+        return merged.values.sortedWith(compareByDescending<ProgressSummary> { it.updatedAt }.thenByDescending { it.revision })
     }
 
     return copy(
         progress = merge(progress),
         history = merge(history),
-        continueWatching = merge(continueWatching)
-            .filter { it.continueWatching && !it.dismissed },
+        continueWatching = latestProgressByTitle(
+            merge(continueWatching).filter { it.continueWatching && !it.dismissed },
+        ),
     )
 }
 
@@ -71,9 +72,9 @@ class ProfileSyncRepository(
                     snapshot.copy(
                         progress = progress,
                         history = progress,
-                        continueWatching = progress
-                            .filter { it.continueWatching && !it.dismissed }
-                            .distinctBy { it.canonicalTitleId ?: "${it.mediaType}\u001f${it.mediaId}" },
+                        continueWatching = latestProgressByTitle(
+                            progress.filter { it.continueWatching && !it.dismissed },
+                        ),
                     )
                 } ?: snapshot.withProgressUpdates(preservedProgress)
             }
