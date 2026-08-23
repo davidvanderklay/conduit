@@ -99,6 +99,7 @@ class PlaybackSessionCallbacks(
     val persistCheckpoint: suspend (PlaybackRequest, PlaybackState, PlaybackCheckpointIdentity) -> Unit =
         { request, playback, _ -> persist(request, playback) },
     val playNext: () -> Unit,
+    val prefetchUpNext: () -> Unit = {},
     val openEpisodes: () -> Unit,
     val openSources: () -> Unit = {},
     val playQueueItem: (PlaybackQueueItem) -> Unit = {},
@@ -281,6 +282,12 @@ class PlaybackSessionController(
 
     fun updateQueuedNext(identity: PlaybackIdentity, item: PlaybackQueueItem?) {
         if (state.request?.identity == identity) queuedNext = item
+    }
+
+    /** Warm stream resolution for the next episode while the up-next banner is visible. */
+    fun prefetchUpNext() {
+        if (state.request == null || state.transition != null) return
+        callbacks?.prefetchUpNext?.invoke()
     }
 
     fun beginTransition(title: String, mediaName: String, artwork: String?, logo: String? = null) {

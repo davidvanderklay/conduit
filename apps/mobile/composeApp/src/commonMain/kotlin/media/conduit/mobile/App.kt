@@ -13,6 +13,7 @@ import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.*
@@ -40,12 +41,17 @@ import androidx.compose.material.icons.rounded.Extension
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.QueueMusic
+import androidx.compose.material.icons.rounded.FastForward
 import androidx.compose.runtime.*
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateIntOffsetAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -68,6 +74,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import media.conduit.mobile.foundation.*
 import media.conduit.mobile.account.ConduitApi
@@ -1117,6 +1124,7 @@ private fun AppShell(
                 (!profileFlowActive || state.destination == AppDestination.Profile),
             snapshot = profileSync.snapshot,
             onMutation = ::mutateProfile,
+            skipSegmentsRepository = remember { SkipSegmentsRepository() },
         )
         if (queueManagerOpen && playbackSession.state.request == null) {
             PlaybackQueueDrawer(
@@ -1318,6 +1326,7 @@ private fun BoxScope.PlaybackSessionHost(
     bottomNavigationVisible: Boolean,
     snapshot: ProfileSnapshot?,
     onMutation: suspend (ProfileMutation) -> Result<Unit>,
+    skipSegmentsRepository: SkipSegmentsRepository,
 ) {
     val scope = rememberCoroutineScope()
     val session = controller.state
@@ -1326,11 +1335,33 @@ private fun BoxScope.PlaybackSessionHost(
     SideEffect {
         controller.updateQueuedNext(request.identity, upNext?.queuedItem)
     }
+    var skipSegments by remember(request.identity.mediaId, request.season, request.episode) {
+        mutableStateOf<List<SkipSegment>>(emptyList())
+    }
+    LaunchedEffect(request.identity.mediaId, request.season, request.episode) {
+        skipSegments = skipSegmentsRepository.forEpisode(
+            mediaId = request.identity.mediaId,
+            season = request.season,
+            episode = request.episode,
+        )
+    }
     val fullScreen = session.presentation == PlaybackPresentation.FullScreen
     val systemPip = session.presentation == PlaybackPresentation.SystemPip
     val pipHandoffVisible = systemPip && systemPipKeepsAppVisible
     val pipActionReady = isSystemPipActionReady(session.systemPipAvailable, session.playback)
     var controlsVisible by remember(request.identity, request.url) { mutableStateOf(true) }
+    var upNextDismissed by remember(request.identity.mediaId, request.identity.videoId) {
+        mutableStateOf(false)
+    }
+    var skipPromptReveal by remember(request.identity.mediaId, request.identity.videoId) {
+        mutableIntStateOf(0)
+    }
+    var skipPromptVisible by remember(request.identity.mediaId, request.identity.videoId) {
+        mutableStateOf(false)
+    }
+    val skipPromptProgress = remember(request.identity.mediaId, request.identity.videoId) {
+        Animatable(1f)
+    }
     var playerOverlayVisible by remember(request.identity, request.url) { mutableStateOf(false) }
     var temporarySpeedActive by remember(request.identity, request.url) { mutableStateOf(false) }
     var miniOffset by remember(request.identity, request.url) { mutableStateOf(IntOffset.Zero) }
@@ -1489,6 +1520,43 @@ private fun BoxScope.PlaybackSessionHost(
         !session.playback.loading &&
         !session.playback.buffering &&
         !presentPlaybackError
+    val upNextAvailable = fullScreen &&
+        upNext != null &&
+        playbackTransition == null &&
+        shouldShowUpNextBanner(
+            positionMs = session.playback.positionMs,
+            durationMs = session.playback.durationMs,
+            segments = skipSegments,
+        )
+    val upNextVisible = upNextAvailable && !upNextDismissed
+    LaunchedEffect(upNextAvailable, session.sessionId, request.identity.videoId) {
+        // Start resolving the next episode while credits roll so tapping Play
+        // next (or autoplay at the end) swaps streams without waiting.
+        if (upNextAvailable) controller.prefetchUpNext()
+    }
+    val activeSkip = if (fullScreen && playbackTransition == null && preferences.skipSegments) {
+        activeSkipSegment(session.playback.positionMs, skipSegments)
+    } else null
+    LaunchedEffect(activeSkip) {
+        if (activeSkip == null) {
+            skipPromptVisible = false
+        } else {
+            skipPromptReveal += 1
+        }
+    }
+    LaunchedEffect(controlsVisible) {
+        if (controlsVisible && activeSkip != null) skipPromptReveal += 1
+    }
+    LaunchedEffect(skipPromptReveal) {
+        if (skipPromptReveal == 0) return@LaunchedEffect
+        skipPromptVisible = true
+        skipPromptProgress.snapTo(1f)
+        skipPromptProgress.animateTo(
+            targetValue = 0f,
+            animationSpec = tween(SKIP_PROMPT_VISIBLE_MS.toInt(), easing = LinearEasing),
+        )
+        skipPromptVisible = false
+    }
 
     Box(Modifier.fillMaxSize().onSizeChanged { containerSize = it }) {
         // Adaptive iOS hides the native bar, but the mini-player keeps its
@@ -1678,25 +1746,20 @@ private fun BoxScope.PlaybackSessionHost(
                     }
                 }
             }
-            if (fullScreen &&
-                upNext != null &&
-                playbackTransition == null &&
-                session.playback.durationMs > 0 &&
-                session.playback.durationMs - session.playback.positionMs in 1..30_000
-            ) {
-                val compactUpNext = with(density) {
-                    containerSize.width.toDp() < 600.dp || containerSize.height.toDp() < 600.dp
-                }
-                val upNextBottomPadding = when {
-                    !controlsVisible -> 18.dp
-                    compactUpNext -> 132.dp
-                    else -> 102.dp
-                }
+            val compactUpNext = with(density) {
+                containerSize.width.toDp() < 600.dp || containerSize.height.toDp() < 600.dp
+            }
+            val overlayBottomPadding = when {
+                !controlsVisible -> 18.dp
+                compactUpNext -> 132.dp
+                else -> 102.dp
+            }
+            if (upNextVisible) {
                 Surface(
                     Modifier
                         .align(Alignment.BottomEnd)
                         .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.End))
-                        .padding(end = 18.dp, bottom = upNextBottomPadding)
+                        .padding(end = 18.dp, bottom = overlayBottomPadding)
                         .widthIn(
                             min = if (compactUpNext) 280.dp else 300.dp,
                             max = if (compactUpNext) 320.dp else 365.dp,
@@ -1705,28 +1768,113 @@ private fun BoxScope.PlaybackSessionHost(
                     shape = RoundedCornerShape(if (compactUpNext) 16.dp else 20.dp),
                     border = BorderStroke(1.dp, Color.White.copy(.16f)),
                 ) {
-                    Row(
-                        Modifier.padding(if (compactUpNext) 8.dp else 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        AsyncImage(
-                            upNext.nextEpisodeArtwork,
-                            null,
-                            Modifier
-                                .size(
-                                    width = if (compactUpNext) 76.dp else 88.dp,
-                                    height = if (compactUpNext) 48.dp else 54.dp,
+                    Box {
+                        Row(
+                            Modifier.padding(
+                                start = if (compactUpNext) 8.dp else 10.dp,
+                                top = if (compactUpNext) 8.dp else 10.dp,
+                                end = if (compactUpNext) 40.dp else 44.dp,
+                                bottom = if (compactUpNext) 8.dp else 10.dp,
+                            ),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            AsyncImage(
+                                upNext.nextEpisodeArtwork,
+                                null,
+                                Modifier
+                                    .size(
+                                        width = if (compactUpNext) 68.dp else 80.dp,
+                                        height = if (compactUpNext) 46.dp else 52.dp,
+                                    )
+                                    .clip(RoundedCornerShape(if (compactUpNext) 9.dp else 11.dp)),
+                                contentScale = ContentScale.Crop,
+                            )
+                            Spacer(Modifier.width(if (compactUpNext) 8.dp else 10.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    listOfNotNull(
+                                        if (upNext.nextItemQueued) "UP NEXT" else "NEXT EPISODE",
+                                        upNext.episodeLabel,
+                                    ).joinToString(" · "),
+                                    color = Color.White.copy(.6f),
+                                    style = MaterialTheme.typography.labelSmall,
                                 )
-                                .clip(RoundedCornerShape(if (compactUpNext) 9.dp else 11.dp)),
-                            contentScale = ContentScale.Crop,
-                        )
-                        Spacer(Modifier.width(if (compactUpNext) 8.dp else 10.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(if (upNext.nextItemQueued) "UP NEXT" else "NEXT EPISODE", color = Color.White.copy(.6f), style = MaterialTheme.typography.labelSmall)
-                            Text(upNext.nextEpisodeTitle.orEmpty(), color = Color.White, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(
+                                    upNext.nextEpisodeTitle.orEmpty(),
+                                    color = Color.White,
+                                    fontSize = if (compactUpNext) 14.sp else 15.sp,
+                                    lineHeight = if (compactUpNext) 16.sp else 18.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            FilledTonalIconButton(
+                                onClick = controller::playNext,
+                                modifier = Modifier.size(36.dp),
+                            ) {
+                                Icon(Icons.Rounded.PlayArrow, "Play next")
+                            }
                         }
-                        FilledTonalIconButton(onClick = controller::playNext) {
-                            Icon(Icons.Rounded.PlayArrow, "Play next")
+                        Surface(
+                            onClick = { upNextDismissed = true },
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(6.dp)
+                                .size(28.dp),
+                            color = Color.White.copy(.10f),
+                            contentColor = Color.White,
+                            shape = CircleShape,
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    Icons.Rounded.Close,
+                                    "Dismiss next episode",
+                                    modifier = Modifier.size(16.dp),
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            if (activeSkip != null && skipPromptVisible) {
+                Surface(
+                    onClick = { controller.send(PlaybackCommand.SeekTo(activeSkip.endMs)) },
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Start))
+                        .padding(start = 18.dp, bottom = overlayBottomPadding),
+                    color = Color(0xE619191B),
+                    contentColor = Color.White,
+                    shape = RoundedCornerShape(if (compactUpNext) 14.dp else 16.dp),
+                    border = BorderStroke(1.dp, Color.White.copy(.16f)),
+                ) {
+                    Box {
+                        Canvas(Modifier.matchParentSize()) {
+                            drawRect(
+                                color = Color.White.copy(.12f),
+                                size = Size(
+                                    this.size.width * skipPromptProgress.value,
+                                    this.size.height,
+                                ),
+                            )
+                        }
+                        Row(
+                            Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                Icons.Rounded.FastForward,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                skipSegmentLabel(activeSkip.type),
+                                fontWeight = FontWeight.SemiBold,
+                                style = MaterialTheme.typography.labelLarge,
+                            )
                         }
                     }
                 }
