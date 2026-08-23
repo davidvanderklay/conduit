@@ -22,7 +22,7 @@ class PlaybackSessionTest {
             mediaName = "Movie",
         )
         val queued = media.conduit.mobile.account.PlaybackQueueItem(
-            "series", "show", "s1e1", "Show", videoTitle = "Episode 1",
+            "series", "show", "s1e1", "Show", videoTitle = "Episode 1", season = 1, episode = 1,
         )
         var selected: media.conduit.mobile.account.PlaybackQueueItem? = null
         val controller = PlaybackSessionController(this)
@@ -45,8 +45,27 @@ class PlaybackSessionTest {
         controller.playNext()
 
         assertTrue(upNext.nextItemQueued)
+        assertEquals("S1E1", upNext.episodeLabel)
+        assertEquals("Show · Episode 1", upNext.nextEpisodeTitle)
         assertEquals(queued, selected)
         assertEquals(sessionId, controller.state.sessionId)
+    }
+
+    @Test
+    fun upNextSeparatesEpisodeMetadataFromTheTitle() {
+        val request = PlaybackRequest(
+            identity = PlaybackIdentity("profile", "series", "show", "s1e2"),
+            url = "https://example.test/episode.mp4",
+            title = "Episode 2",
+            mediaName = "Show",
+            hasNextEpisode = true,
+            nextEpisodeTitle = "S1E3 · The Extraordinary Machines We Built Together",
+        )
+
+        val upNext = assertNotNull(playbackUpNext(request, emptyList()))
+
+        assertEquals("S1E3", upNext.episodeLabel)
+        assertEquals("The Extraordinary Machines We Built Together", upNext.nextEpisodeTitle)
     }
 
     @Test

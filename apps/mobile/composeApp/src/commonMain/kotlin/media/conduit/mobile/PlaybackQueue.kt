@@ -46,6 +46,7 @@ internal data class PlaybackUpNext(
     val nextEpisodeTitle: String?,
     val nextEpisodeArtwork: String?,
     val nextItemQueued: Boolean,
+    val episodeLabel: String? = null,
     val queuedItem: PlaybackQueueItem? = null,
 )
 
@@ -55,20 +56,22 @@ internal fun playbackUpNext(
 ): PlaybackUpNext? {
     val queued = nextQueuedItem(queue, request.identity.mediaId, request.identity.videoId)
     if (queued != null) {
-        val title = if (queued.mediaType == "movie") {
-            queued.name
-        } else {
-            listOfNotNull(
-                queued.name,
-                queued.season?.let { season -> "S${season}E${queued.episode ?: 0}" },
-                queued.videoTitle,
-            ).joinToString(" · ")
+        val episodeLabel = queued.season?.let { season -> "S${season}E${queued.episode ?: 0}" }
+        val title = if (queued.mediaType == "movie") queued.name else {
+            listOfNotNull(queued.name, queued.videoTitle).joinToString(" · ")
         }
-        return PlaybackUpNext(title, queued.artwork ?: queued.poster, true, queued)
+        return PlaybackUpNext(title, queued.artwork ?: queued.poster, true, episodeLabel, queued)
     }
 
     return if (request.hasNextEpisode) {
-        PlaybackUpNext(request.nextEpisodeTitle, request.nextEpisodeArtwork, false)
+        val parts = request.nextEpisodeTitle?.split(" · ", limit = 2).orEmpty()
+        val episodeLabel = parts.firstOrNull()?.takeIf { it.matches(Regex("S\\d+E\\d+")) }
+        PlaybackUpNext(
+            nextEpisodeTitle = if (episodeLabel != null) parts.getOrNull(1) else request.nextEpisodeTitle,
+            nextEpisodeArtwork = request.nextEpisodeArtwork,
+            nextItemQueued = false,
+            episodeLabel = episodeLabel,
+        )
     } else {
         null
     }

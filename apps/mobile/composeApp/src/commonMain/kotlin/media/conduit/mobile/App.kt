@@ -74,6 +74,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import media.conduit.mobile.foundation.*
 import media.conduit.mobile.account.ConduitApi
@@ -1782,20 +1783,35 @@ private fun BoxScope.PlaybackSessionHost(
                                 null,
                                 Modifier
                                     .size(
-                                        width = if (compactUpNext) 76.dp else 88.dp,
-                                        height = if (compactUpNext) 48.dp else 54.dp,
+                                        width = if (compactUpNext) 68.dp else 80.dp,
+                                        height = if (compactUpNext) 46.dp else 52.dp,
                                     )
                                     .clip(RoundedCornerShape(if (compactUpNext) 9.dp else 11.dp)),
                                 contentScale = ContentScale.Crop,
                             )
                             Spacer(Modifier.width(if (compactUpNext) 8.dp else 10.dp))
                             Column(Modifier.weight(1f)) {
-                                Text(if (upNext.nextItemQueued) "UP NEXT" else "NEXT EPISODE", color = Color.White.copy(.6f), style = MaterialTheme.typography.labelSmall)
-                                Text(upNext.nextEpisodeTitle.orEmpty(), color = Color.White, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(
+                                    listOfNotNull(
+                                        if (upNext.nextItemQueued) "UP NEXT" else "NEXT EPISODE",
+                                        upNext.episodeLabel,
+                                    ).joinToString(" · "),
+                                    color = Color.White.copy(.6f),
+                                    style = MaterialTheme.typography.labelSmall,
+                                )
+                                Text(
+                                    upNext.nextEpisodeTitle.orEmpty(),
+                                    color = Color.White,
+                                    fontSize = if (compactUpNext) 14.sp else 15.sp,
+                                    lineHeight = if (compactUpNext) 16.sp else 18.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
                             }
                             FilledTonalIconButton(
                                 onClick = controller::playNext,
-                                modifier = Modifier.size(40.dp),
+                                modifier = Modifier.size(36.dp),
                             ) {
                                 Icon(Icons.Rounded.PlayArrow, "Play next")
                             }
