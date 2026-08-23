@@ -42,11 +42,15 @@ import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.FastForward
 import androidx.compose.runtime.*
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateIntOffsetAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -1344,6 +1348,18 @@ private fun BoxScope.PlaybackSessionHost(
     val pipHandoffVisible = systemPip && systemPipKeepsAppVisible
     val pipActionReady = isSystemPipActionReady(session.systemPipAvailable, session.playback)
     var controlsVisible by remember(request.identity, request.url) { mutableStateOf(true) }
+    var upNextDismissed by remember(request.identity.mediaId, request.identity.videoId) {
+        mutableStateOf(false)
+    }
+    var skipPromptReveal by remember(request.identity.mediaId, request.identity.videoId) {
+        mutableIntStateOf(0)
+    }
+    var skipPromptVisible by remember(request.identity.mediaId, request.identity.videoId) {
+        mutableStateOf(false)
+    }
+    val skipPromptProgress = remember(request.identity.mediaId, request.identity.videoId) {
+        Animatable(1f)
+    }
     var playerOverlayVisible by remember(request.identity, request.url) { mutableStateOf(false) }
     var temporarySpeedActive by remember(request.identity, request.url) { mutableStateOf(false) }
     var miniOffset by remember(request.identity, request.url) { mutableStateOf(IntOffset.Zero) }
@@ -1502,7 +1518,7 @@ private fun BoxScope.PlaybackSessionHost(
         !session.playback.loading &&
         !session.playback.buffering &&
         !presentPlaybackError
-    val upNextVisible = fullScreen &&
+    val upNextAvailable = fullScreen &&
         upNext != null &&
         playbackTransition == null &&
         shouldShowUpNextBanner(
@@ -1510,10 +1526,34 @@ private fun BoxScope.PlaybackSessionHost(
             durationMs = session.playback.durationMs,
             segments = skipSegments,
         )
-    LaunchedEffect(upNextVisible, session.sessionId, request.identity.videoId) {
+    val upNextVisible = upNextAvailable && !upNextDismissed
+    LaunchedEffect(upNextAvailable, session.sessionId, request.identity.videoId) {
         // Start resolving the next episode while credits roll so tapping Play
         // next (or autoplay at the end) swaps streams without waiting.
-        if (upNextVisible) controller.prefetchUpNext()
+        if (upNextAvailable) controller.prefetchUpNext()
+    }
+    val activeSkip = if (fullScreen && playbackTransition == null && preferences.skipSegments) {
+        activeSkipSegment(session.playback.positionMs, skipSegments)
+    } else null
+    LaunchedEffect(activeSkip) {
+        if (activeSkip == null) {
+            skipPromptVisible = false
+        } else {
+            skipPromptReveal += 1
+        }
+    }
+    LaunchedEffect(controlsVisible) {
+        if (controlsVisible && activeSkip != null) skipPromptReveal += 1
+    }
+    LaunchedEffect(skipPromptReveal) {
+        if (skipPromptReveal == 0) return@LaunchedEffect
+        skipPromptVisible = true
+        skipPromptProgress.snapTo(1f)
+        skipPromptProgress.animateTo(
+            targetValue = 0f,
+            animationSpec = tween(SKIP_PROMPT_VISIBLE_MS.toInt(), easing = LinearEasing),
+        )
+        skipPromptVisible = false
     }
 
     Box(Modifier.fillMaxSize().onSizeChanged { containerSize = it }) {
@@ -1746,16 +1786,28 @@ private fun BoxScope.PlaybackSessionHost(
                             Text(if (upNext.nextItemQueued) "UP NEXT" else "NEXT EPISODE", color = Color.White.copy(.6f), style = MaterialTheme.typography.labelSmall)
                             Text(upNext.nextEpisodeTitle.orEmpty(), color = Color.White, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
-                        FilledTonalIconButton(onClick = controller::playNext) {
-                            Icon(Icons.Rounded.PlayArrow, "Play next")
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            IconButton(
+                                onClick = { upNextDismissed = true },
+                                modifier = Modifier.size(28.dp),
+                            ) {
+                                Icon(
+                                    Icons.Rounded.Close,
+                                    "Dismiss next episode",
+                                    modifier = Modifier.size(17.dp),
+                                )
+                            }
+                            FilledTonalIconButton(
+                                onClick = controller::playNext,
+                                modifier = Modifier.size(40.dp),
+                            ) {
+                                Icon(Icons.Rounded.PlayArrow, "Play next")
+                            }
                         }
                     }
                 }
             }
-            val activeSkip = if (fullScreen && playbackTransition == null && preferences.skipSegments) {
-                activeSkipSegment(session.playback.positionMs, skipSegments)
-            } else null
-            if (activeSkip != null) {
+            if (activeSkip != null && skipPromptVisible) {
                 Surface(
                     onClick = { controller.send(PlaybackCommand.SeekTo(activeSkip.endMs)) },
                     modifier = Modifier
@@ -1767,22 +1819,33 @@ private fun BoxScope.PlaybackSessionHost(
                     shape = RoundedCornerShape(if (compactUpNext) 14.dp else 16.dp),
                     border = BorderStroke(1.dp, Color.White.copy(.16f)),
                 ) {
-                    Row(
-                        Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(
-                            Icons.Rounded.FastForward,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(18.dp),
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            skipSegmentLabel(activeSkip.type),
-                            fontWeight = FontWeight.SemiBold,
-                            style = MaterialTheme.typography.labelLarge,
-                        )
+                    Box {
+                        Canvas(Modifier.matchParentSize()) {
+                            drawRect(
+                                color = Color.White.copy(.12f),
+                                size = Size(
+                                    this.size.width * skipPromptProgress.value,
+                                    this.size.height,
+                                ),
+                            )
+                        }
+                        Row(
+                            Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                Icons.Rounded.FastForward,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                skipSegmentLabel(activeSkip.type),
+                                fontWeight = FontWeight.SemiBold,
+                                style = MaterialTheme.typography.labelLarge,
+                            )
+                        }
                     }
                 }
             }

@@ -19,6 +19,9 @@ data class SkipSegment(
 /** How long before the end of an episode the up-next banner normally appears. */
 const val UP_NEXT_BANNER_WINDOW_MS = 30_000L
 
+/** How long a skip button stays visible before player controls can reveal it again. */
+const val SKIP_PROMPT_VISIBLE_MS = 10_000L
+
 fun activeSkipSegment(positionMs: Long, segments: List<SkipSegment>): SkipSegment? =
     segments.firstOrNull { positionMs >= it.startMs && positionMs < it.endMs }
 
