@@ -5249,6 +5249,13 @@
     },
     {
         "type": "file",
+        "url": "https://registry.npmjs.org/yaml/-/yaml-2.9.0.tgz",
+        "sha512": "d80be1357de66fccdde99cbb20d4ed4a9975175e475ba5a7aa3d2cad696428b729625fe03083098b2b86ab629e236605c543e376507edcb735d2c78c2ed2f870",
+        "dest-filename": "yaml-2.9.0.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
         "url": "https://registry.npmjs.org/yargs-parser/-/yargs-parser-21.1.1.tgz",
         "sha512": "b55a6c256ec376379c0221696c80757b7ab1210b04e8da0f739fde4ddadb6c80b88742d5b16867a1ade0fa6d87725048ba31f3b31678549540f8652e736fcb07",
         "dest-filename": "yargs-parser-21.1.1.tgz",
