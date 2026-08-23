@@ -38,8 +38,8 @@ targets:
         INFOPLIST_FILE: ConduitMobileSpike/Info.plist
         SWIFT_OBJC_BRIDGING_HEADER: ConduitMobileSpike/ConduitMobileSpike-Bridging-Header.h
         FRAMEWORK_SEARCH_PATHS: "$(SRCROOT)/../composeApp/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)"
-        "OTHER_LDFLAGS[sdk=iphoneos*]": "-framework ComposeApp $(SRCROOT)/../native/ios/iosArm64/libconduit_mobile.a"
-        "OTHER_LDFLAGS[sdk=iphonesimulator*]": "-framework ComposeApp $(SRCROOT)/../native/ios/iosSimulatorArm64/libconduit_mobile.a"
+        "OTHER_LDFLAGS[sdk=iphoneos*]": "-framework ComposeApp -lsqlite3 $(SRCROOT)/../native/ios/iosArm64/libconduit_mobile.a"
+        "OTHER_LDFLAGS[sdk=iphonesimulator*]": "-framework ComposeApp -lsqlite3 $(SRCROOT)/../native/ios/iosSimulatorArm64/libconduit_mobile.a"
     preBuildScripts:
       - name: Build Compose framework
         script: |
