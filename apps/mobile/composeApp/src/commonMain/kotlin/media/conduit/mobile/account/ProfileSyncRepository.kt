@@ -11,6 +11,13 @@ data class ProfileSyncState(
     val error: String? = null,
 )
 
+internal fun profileSyncFailureState(snapshot: ProfileSnapshot?, cause: Throwable): ProfileSyncState =
+    ProfileSyncState(
+        snapshot = snapshot,
+        offline = snapshot != null,
+        error = cause.message ?: "Unable to synchronize this profile",
+    )
+
 internal fun ProfileSnapshot.withProgressUpdate(update: ProgressSummary): ProfileSnapshot =
     withProgressUpdates(listOf(update))
 

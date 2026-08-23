@@ -17,6 +17,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import media.conduit.mobile.progressdb.ProgressDatabase
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class IncrementalProgressRepositoryTest {
     @Test
@@ -70,6 +71,19 @@ class IncrementalProgressRepositoryTest {
         assertEquals(1, repository.diagnostics(Server, "account-b", Profile).size)
     }
 
+    @Test
+    fun malformedPersistedProjectionDoesNotCrashSynchronization() = runTest {
+        val database = database()
+        val scope = scopeKey(Server, Account, Profile)
+        database.progressQueries.upsertScope(scope, generation = 1, cursor = 0, initialized = 1)
+        database.progressQueries.upsertProjection(scope, "s1:e1", "title-1", 1, "not-json")
+
+        val repository = IncrementalProgressRepository(api(mutableListOf()), database)
+        val progress = repository.synchronize(Server, "token", Account, Profile)
+
+        assertTrue(progress.isEmpty())
+    }
+
     private fun database(): ProgressDatabase {
         val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
         ProgressDatabase.Schema.create(driver)
@@ -104,6 +118,9 @@ class IncrementalProgressRepositoryTest {
         }
         return ConduitApi(HttpClient(engine) { install(ContentNegotiation) { json() } })
     }
+
+    private fun scopeKey(baseUrl: String, accountId: String, profileId: String): String =
+        listOf(baseUrl, accountId, profileId).joinToString("\u001f") { "${it.length}:$it" }
 
     private fun upsert() = ProgressOperation.Upsert(
         identity = ProgressIdentity("series", "kitsu:1", videoId = "kitsu:1:1:1", season = 1, episode = 1),

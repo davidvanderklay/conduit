@@ -81,6 +81,7 @@ import media.conduit.mobile.account.ConduitApi
 import media.conduit.mobile.account.SessionVault
 import media.conduit.mobile.account.*
 import media.conduit.mobile.progressdb.ProgressDatabase
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Mutex
@@ -742,11 +743,26 @@ private fun AppShell(
         )
         return result
     }
+    suspend fun synchronizeProfileDataSafely(profileId: String, fullResync: Boolean = false): ProfileSyncState {
+        return try {
+            synchronizeProfileData(profileId, fullResync)
+        } catch (cause: Throwable) {
+            if (cause is CancellationException) throw cause
+            LifecycleDiagnostics.event(
+                "profile.sync.failed",
+                "type=${cause::class.simpleName ?: "unknown"}",
+            )
+            profileSyncFailureState(
+                snapshot = runCatching { syncRepository.cached(profileId) }.getOrNull() ?: profileSync.snapshot,
+                cause = cause,
+            )
+        }
+    }
     LaunchedEffect(activeProfile?.id, account.session.token) {
         val profile = activeProfile ?: return@LaunchedEffect
         profileSync = profileSync.copy(refreshing = true)
         profileSyncMutex.withLock {
-            profileSync = synchronizeProfileData(profile.id)
+            profileSync = synchronizeProfileDataSafely(profile.id)
         }
     }
     LaunchedEffect(activeProfile?.id, state.activeProfileId) {
@@ -780,7 +796,7 @@ private fun AppShell(
         activeProfile?.let { profile ->
             appScope.launch {
                 profileSyncMutex.withLock {
-                    profileSync = synchronizeProfileData(profile.id, fullResync = true)
+                    profileSync = synchronizeProfileDataSafely(profile.id, fullResync = true)
                 }
             }
         }
@@ -789,7 +805,7 @@ private fun AppShell(
         activeProfile?.let { profile ->
             appScope.launch {
                 profileSyncMutex.withLock {
-                    profileSync = synchronizeProfileData(profile.id)
+                    profileSync = synchronizeProfileDataSafely(profile.id)
                 }
             }
         }
