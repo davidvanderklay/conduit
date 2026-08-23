@@ -41,7 +41,7 @@ import {
   trailerUrl,
 } from "../lib/metadata"
 import { readPreferences, writePreferences } from "../lib/preferences"
-import { progressPath } from "../lib/progress"
+import { applyProgressOperation, progressIdentity } from "../lib/progress"
 import {
   AUTO_SELECTION_STARTUP_TIMEOUT_MS,
   playbackSourceForStream,
@@ -171,27 +171,24 @@ export function MediaDetails({
   })
   const seriesProgressReady = progress.isSuccess || progress.isError
   const seriesProgress = [
-    ...(initialProgress && initialProgress.mediaType === item.type && initialProgress.mediaId === item.id
+    ...(initialProgress &&
+    initialProgress.mediaType === item.type &&
+    initialProgress.mediaId === item.id
       ? [initialProgress]
       : []),
-    ...(progress.data ?? []).filter((entry) =>
-      entry.mediaType === item.type && entry.mediaId === item.id,
+    ...(progress.data ?? []).filter(
+      (entry) => entry.mediaType === item.type && entry.mediaId === item.id,
     ),
   ]
   const seriesSelectorTarget = useMemo(() => {
-    if (item.type !== "series" || selectedVideoId || !videos.length || !seriesProgressReady) return undefined
-    return selectSeriesVideo(
-      videos,
-      seriesProgress,
-      undefined,
-      undefined,
-      meta.defaultVideoId,
-    )
+    if (item.type !== "series" || selectedVideoId || !videos.length || !seriesProgressReady)
+      return undefined
+    return selectSeriesVideo(videos, seriesProgress, undefined, undefined, meta.defaultVideoId)
   }, [item.type, meta.defaultVideoId, selectedVideoId, seriesProgress, seriesProgressReady, videos])
   const activeProgress = activeVideoId
-    ? (initialProgress?.videoId === activeVideoId
-        ? initialProgress
-        : progress.data?.find((entry) => entry.videoId === activeVideoId))
+    ? initialProgress?.videoId === activeVideoId
+      ? initialProgress
+      : progress.data?.find((entry) => entry.videoId === activeVideoId)
     : undefined
   const resumeFrom = resumePositionLabel(activeProgress)
   const streams = useQuery({
@@ -304,10 +301,7 @@ export function MediaDetails({
       .then((resolved) => {
         if (requestVersion !== autoResumeRequestVersion.current) return
         autoResolutionPending.current = false
-        queryClient.setQueryData(
-          ["streams", item.type, activeVideoId, addonIds, "all"],
-          resolved,
-        )
+        queryClient.setQueryData(["streams", item.type, activeVideoId, addonIds, "all"], resolved)
         if (autoRecoveryFailurePending.current) {
           autoRecoveryFailurePending.current = false
           const fallback = selectSingleAutoStream(resolved, autoRecoveryFailedStream.current)
@@ -319,7 +313,9 @@ export function MediaDetails({
           } else {
             setPlaying(undefined)
             setAutoResumeStage("picker")
-            setStreamResolutionError("The source could not be started. Choose another source below.")
+            setStreamResolutionError(
+              "The source could not be started. Choose another source below.",
+            )
           }
           return
         }
@@ -382,11 +378,13 @@ export function MediaDetails({
     const fallbackSeason = sortSeasons(videos.map((video) => video.season ?? 1))[0] ?? 1
     const returnedVideo = videos.find((video) => video.id === seriesReturnVideoId.current)
     const targetSeason = seriesProgressReady
-      ? returnedVideo?.season ?? seriesSelectorTarget?.season ?? fallbackSeason
+      ? (returnedVideo?.season ?? seriesSelectorTarget?.season ?? fallbackSeason)
       : fallbackSeason
     if (
       selectedSeason == null ||
-      (seriesProgressReady && !seriesSeasonManuallySelected.current && selectedSeason !== targetSeason)
+      (seriesProgressReady &&
+        !seriesSeasonManuallySelected.current &&
+        selectedSeason !== targetSeason)
     ) {
       setSelectedSeason(targetSeason)
     }
@@ -443,21 +441,18 @@ export function MediaDetails({
         ? initialProgress
         : undefined
     if (!progressToClear?.playbackSource || !activeVideoId) return
-    void api(progressPath(profileId, activeVideoId), {
-      method: "PUT",
-      body: JSON.stringify({
-        mediaType: progressToClear.mediaType,
-        mediaId: progressToClear.mediaId,
-        name: progressToClear.name,
-        ...(progressToClear.poster ? { poster: progressToClear.poster } : {}),
-        ...(progressToClear.videoTitle ? { videoTitle: progressToClear.videoTitle } : {}),
-        ...(progressToClear.season !== undefined ? { season: progressToClear.season } : {}),
-        ...(progressToClear.episode !== undefined ? { episode: progressToClear.episode } : {}),
-        positionMs: progressToClear.positionMs,
-        durationMs: progressToClear.durationMs,
-        watched: progressToClear.watched,
-        playbackSource: null,
-      }),
+    void applyProgressOperation(profileId, {
+      type: "upsert",
+      identity: { ...progressIdentity(progressToClear), videoId: activeVideoId },
+      name: progressToClear.name,
+      ...(progressToClear.poster ? { poster: progressToClear.poster } : {}),
+      ...(progressToClear.videoTitle ? { videoTitle: progressToClear.videoTitle } : {}),
+      positionMs: progressToClear.positionMs,
+      durationMs: progressToClear.durationMs,
+      watched: progressToClear.watched,
+      playbackSource: null,
+      checkpointSessionId: crypto.randomUUID(),
+      checkpointSequence: 1,
     })
       .then(() =>
         Promise.all([
@@ -1390,7 +1385,10 @@ async function resolveStreamsProgressively(
   const candidates = addonsForResource(addons, "stream", type, videoId)
   const pending = candidates.map((addon, index) => ({
     index,
-    promise: withTimeout(loadStreams(addon.manifestUrl, type, videoId), AUTO_SELECTION_STARTUP_TIMEOUT_MS)
+    promise: withTimeout(
+      loadStreams(addon.manifestUrl, type, videoId),
+      AUTO_SELECTION_STARTUP_TIMEOUT_MS,
+    )
       .then((streams) => ({ addon, streams }))
       .catch(() => ({ addon, streams: [] })),
   }))
@@ -1423,7 +1421,10 @@ function resolvedStreamsForAddon(addon: InstalledAddon, streams: Stream[]): Reso
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   return new Promise((resolve, reject) => {
-    const timeout = window.setTimeout(() => reject(new Error("Stream request timed out")), timeoutMs)
+    const timeout = window.setTimeout(
+      () => reject(new Error("Stream request timed out")),
+      timeoutMs,
+    )
     promise.then(
       (value) => {
         window.clearTimeout(timeout)

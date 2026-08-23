@@ -1,5 +1,5 @@
 import type { WatchProgress } from "./api"
-import { api } from "./api"
+import { applyProgressOperation, progressIdentity } from "./progress"
 import type { CatalogItem, Video } from "./core"
 
 export interface WatchActionMedia {
@@ -18,28 +18,39 @@ export async function setEpisodeWatched(
 ): Promise<void> {
   if (!progress && !watched) return
   const videoId = progress?.videoId ?? video.id
-  const path = `/v1/profiles/${profileId}/progress/${encodeURIComponent(videoId)}`
   if (progress) {
-    await api(path, {
-      method: "PATCH",
-      body: JSON.stringify({ watched }),
+    await applyProgressOperation(profileId, {
+      type: "upsert",
+      identity: { ...progressIdentity(progress), videoId },
+      name: progress.name,
+      ...(progress.poster ? { poster: progress.poster } : {}),
+      ...(progress.videoTitle ? { videoTitle: progress.videoTitle } : {}),
+      positionMs: watched ? progress.durationMs || progress.positionMs : progress.positionMs,
+      durationMs: progress.durationMs,
+      watched,
+      ...(progress.playbackSource ? { playbackSource: progress.playbackSource } : {}),
+      checkpointSessionId: crypto.randomUUID(),
+      checkpointSequence: 1,
     })
     return
   }
-  await api(path, {
-    method: "PUT",
-    body: JSON.stringify({
+  await applyProgressOperation(profileId, {
+    type: "upsert",
+    identity: {
       mediaType: media.type,
       mediaId: media.id,
-      name: media.name,
-      poster: media.poster,
-      videoTitle: video.title,
-      season: video.season,
-      episode: video.episode,
-      positionMs: 0,
-      durationMs: 0,
-      watched: true,
-    }),
+      videoId,
+      ...(video.season !== undefined ? { season: video.season } : {}),
+      ...(video.episode !== undefined ? { episode: video.episode } : {}),
+    },
+    name: media.name,
+    ...(media.poster ? { poster: media.poster } : {}),
+    ...(video.title ? { videoTitle: video.title } : {}),
+    positionMs: 0,
+    durationMs: 0,
+    watched: true,
+    checkpointSessionId: crypto.randomUUID(),
+    checkpointSequence: 1,
   })
 }
 
@@ -51,15 +62,15 @@ export async function setVideosWatched(
   watched: boolean,
 ): Promise<void> {
   const progressByVideoId = new Map(progress.map((entry) => [entry.videoId, entry]))
-  const targets = watched
-    ? videos
-    : videos.filter((video) => progressByVideoId.has(video.id))
+  const targets = watched ? videos : videos.filter((video) => progressByVideoId.has(video.id))
   const results = await Promise.allSettled(
     targets.map((video) =>
       setEpisodeWatched(profileId, media, video, progressByVideoId.get(video.id), watched),
     ),
   )
-  const failure = results.find((result): result is PromiseRejectedResult => result.status === "rejected")
+  const failure = results.find(
+    (result): result is PromiseRejectedResult => result.status === "rejected",
+  )
   if (failure) throw failure.reason
 }
 

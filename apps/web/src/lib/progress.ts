@@ -8,6 +8,7 @@ const CONTINUE_WATCHING_POSITION_MS = 30_000
 const PROGRESS_OUTBOX_STORAGE_PREFIX = "conduit.progress.outbox.v1"
 
 type PendingProgressCheckpoint = ProgressMetadata & {
+  operationId: string
   profileId: string
   videoId: string
   positionMs: number
@@ -16,6 +17,42 @@ type PendingProgressCheckpoint = ProgressMetadata & {
   checkpointSessionId: string
   checkpointSequence: number
   checkpointUpdatedAt: string
+}
+
+export interface ProgressIdentity {
+  canonicalTitleId?: string
+  mediaType: string
+  mediaId: string
+  aliases?: string[]
+  videoId?: string
+  season?: number
+  episode?: number
+}
+
+export type ProgressOperation =
+  | {
+      type: "upsert"
+      identity: ProgressIdentity & { videoId: string }
+      name: string
+      poster?: string
+      videoTitle?: string
+      positionMs: number
+      durationMs: number
+      watched: boolean
+      playbackSource?: PlaybackSource | null
+      checkpointSessionId: string
+      checkpointSequence: number
+    }
+  | {
+      type: "dismissTitle" | "restoreTitle" | "deleteEpisode" | "deleteTitle"
+      identity: ProgressIdentity
+    }
+
+interface ProgressOperationResult {
+  accepted: boolean
+  reason?: "staleCheckpoint"
+  generation: number
+  revision: number
 }
 
 const flushPromises = new Map<string, Promise<void>>()
@@ -36,8 +73,8 @@ export function usePlaybackProgress(
   const progress = useQuery({
     queryKey: progressKey,
     queryFn: () =>
-      api<{ item: WatchProgress | null }>(progressPath(profileId, videoId)).then(
-        (result) => withPendingProgress(result.item, readPendingCheckpoint(accountId, profileId, videoId)),
+      api<{ item: WatchProgress | null }>(progressPath(profileId, videoId)).then((result) =>
+        withPendingProgress(result.item, readPendingCheckpoint(accountId, profileId, videoId)),
       ),
   })
   const latest = useRef({ position: 0, duration: 0 })
@@ -59,6 +96,7 @@ export function usePlaybackProgress(
 
       const checkpoint: PendingProgressCheckpoint = {
         ...metadataRef.current,
+        operationId: createOperationId(),
         profileId,
         videoId,
         positionMs: Math.max(0, Math.round(position * 1000)),
@@ -120,25 +158,24 @@ export function flushProgressOutbox(accountId: string): Promise<void> {
       const next = readPendingCheckpoints(accountId)[0]
       if (!next) return
       try {
-        await api<{ item: WatchProgress }>(progressPath(next.profileId, next.videoId), {
-          method: "PUT",
-          body: JSON.stringify({
-            mediaType: next.mediaType,
-            mediaId: next.mediaId,
+        await applyProgressOperation(
+          next.profileId,
+          {
+            type: "upsert",
+            identity: checkpointIdentity(next),
             name: next.name,
             ...(next.poster ? { poster: next.poster } : {}),
             ...(next.videoTitle ? { videoTitle: next.videoTitle } : {}),
-            ...(next.season !== undefined ? { season: next.season } : {}),
-            ...(next.episode !== undefined ? { episode: next.episode } : {}),
-            ...(next.playbackSource ? { playbackSource: next.playbackSource } : {}),
             positionMs: next.positionMs,
             durationMs: next.durationMs,
+            watched: isPlaybackComplete(next.positionMs, next.durationMs),
+            ...(next.playbackSource ? { playbackSource: next.playbackSource } : {}),
             checkpointSessionId: next.checkpointSessionId,
             checkpointSequence: next.checkpointSequence,
-            checkpointUpdatedAt: next.checkpointUpdatedAt,
-          }),
-          keepalive: true,
-        })
+          },
+          next.operationId,
+          true,
+        )
         removePendingCheckpoint(accountId, next)
       } catch {
         return
@@ -149,6 +186,35 @@ export function flushProgressOutbox(accountId: string): Promise<void> {
   })
   flushPromises.set(accountId, promise)
   return promise
+}
+
+export function applyProgressOperation(
+  profileId: string,
+  operation: ProgressOperation,
+  operationId = createOperationId(),
+  keepalive = false,
+) {
+  return api<ProgressOperationResult>(`/v1/profiles/${profileId}/progress/operations`, {
+    method: "POST",
+    body: JSON.stringify({ operationId, operation }),
+    keepalive,
+  })
+}
+
+export function progressIdentity(
+  progress: Pick<
+    WatchProgress,
+    "canonicalTitleId" | "mediaType" | "mediaId" | "videoId" | "season" | "episode"
+  >,
+): ProgressIdentity {
+  return {
+    ...(progress.canonicalTitleId ? { canonicalTitleId: progress.canonicalTitleId } : {}),
+    mediaType: progress.mediaType,
+    mediaId: progress.mediaId,
+    videoId: progress.videoId,
+    ...(progress.season !== undefined ? { season: progress.season } : {}),
+    ...(progress.episode !== undefined ? { episode: progress.episode } : {}),
+  }
 }
 
 export function clearProgressOutbox(accountId: string) {
@@ -177,12 +243,39 @@ function createSessionId() {
   return `web-${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
 
+function createOperationId(): string {
+  return globalThis.crypto.randomUUID()
+}
+
+function checkpointIdentity(
+  checkpoint: PendingProgressCheckpoint,
+): ProgressIdentity & { videoId: string } {
+  return {
+    mediaType: checkpoint.mediaType,
+    mediaId: checkpoint.mediaId,
+    videoId: checkpoint.videoId,
+    ...(checkpoint.season !== undefined ? { season: checkpoint.season } : {}),
+    ...(checkpoint.episode !== undefined ? { episode: checkpoint.episode } : {}),
+  }
+}
+
 function readPendingCheckpoints(accountId: string): PendingProgressCheckpoint[] {
   if (typeof window === "undefined") return []
   try {
-    const value: unknown = JSON.parse(window.localStorage.getItem(progressOutboxStorageKey(accountId)) ?? "[]")
+    const value: unknown = JSON.parse(
+      window.localStorage.getItem(progressOutboxStorageKey(accountId)) ?? "[]",
+    )
     if (!Array.isArray(value)) return []
-    return value.filter(isPendingProgressCheckpoint)
+    const checkpoints = value.filter(isPendingProgressCheckpoint).map((checkpoint) => ({
+      ...checkpoint,
+      operationId: checkpoint.operationId ?? createOperationId(),
+    }))
+    if (
+      checkpoints.some((checkpoint, index) => checkpoint.operationId !== value[index]?.operationId)
+    ) {
+      writePendingCheckpoints(accountId, checkpoints)
+    }
+    return checkpoints
   } catch {
     return []
   }
@@ -197,10 +290,12 @@ function readPendingCheckpoint(accountId: string, profileId: string, videoId: st
 function enqueuePendingCheckpoint(accountId: string, checkpoint: PendingProgressCheckpoint) {
   const checkpoints = readPendingCheckpoints(accountId)
   const index = checkpoints.findIndex(
-    (current) => current.profileId === checkpoint.profileId && current.videoId === checkpoint.videoId,
+    (current) =>
+      current.profileId === checkpoint.profileId && current.videoId === checkpoint.videoId,
   )
   if (index === -1) checkpoints.push(checkpoint)
-  else if (checkpoints[index].checkpointUpdatedAt <= checkpoint.checkpointUpdatedAt) checkpoints[index] = checkpoint
+  else if (checkpoints[index].checkpointUpdatedAt <= checkpoint.checkpointUpdatedAt)
+    checkpoints[index] = checkpoint
   writePendingCheckpoints(accountId, checkpoints)
 }
 
@@ -229,10 +324,13 @@ function writePendingCheckpoints(accountId: string, checkpoints: PendingProgress
   }
 }
 
-function isPendingProgressCheckpoint(value: unknown): value is PendingProgressCheckpoint {
+function isPendingProgressCheckpoint(
+  value: unknown,
+): value is Omit<PendingProgressCheckpoint, "operationId"> & { operationId?: string } {
   if (!value || typeof value !== "object") return false
   const checkpoint = value as Partial<PendingProgressCheckpoint>
   return (
+    (checkpoint.operationId === undefined || typeof checkpoint.operationId === "string") &&
     typeof checkpoint.profileId === "string" &&
     typeof checkpoint.videoId === "string" &&
     typeof checkpoint.mediaType === "string" &&
@@ -277,8 +375,15 @@ function withPendingProgress(
 }
 
 function isPlaybackComplete(positionMs: number, durationMs: number) {
-  if (!Number.isFinite(positionMs) || !Number.isFinite(durationMs) || positionMs < 0 || durationMs <= 0) {
+  if (
+    !Number.isFinite(positionMs) ||
+    !Number.isFinite(durationMs) ||
+    positionMs < 0 ||
+    durationMs <= 0
+  ) {
     return false
   }
-  return positionMs / durationMs >= 0.9 || (durationMs >= 600_000 && durationMs - positionMs <= 120_000)
+  return (
+    positionMs / durationMs >= 0.9 || (durationMs >= 600_000 && durationMs - positionMs <= 120_000)
+  )
 }
