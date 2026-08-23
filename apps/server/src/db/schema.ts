@@ -1,5 +1,6 @@
 import {
   boolean,
+  bigint,
   check,
   index,
   integer,
@@ -235,6 +236,9 @@ export const watchProgress = pgTable(
       .notNull()
       .references(() => profiles.id, { onDelete: "cascade" }),
     videoId: text("video_id").notNull(),
+    canonicalTitleId: uuid("canonical_title_id"),
+    canonicalEpisodeKey: text("canonical_episode_key"),
+    revision: bigint("revision", { mode: "number" }).notNull().default(0),
     mediaType: text("media_type").notNull(),
     mediaId: text("media_id").notNull(),
     name: text("name").notNull(),
@@ -256,6 +260,99 @@ export const watchProgress = pgTable(
   (table) => [
     primaryKey({ columns: [table.profileId, table.videoId] }),
     index("watch_progress_updated_idx").on(table.profileId, table.updatedAt),
+    uniqueIndex("watch_progress_canonical_episode_idx")
+      .on(table.profileId, table.canonicalTitleId, table.canonicalEpisodeKey)
+      .where(
+        sql`${table.canonicalTitleId} is not null and ${table.canonicalEpisodeKey} is not null`,
+      ),
+  ],
+)
+
+export const progressSyncState = pgTable("progress_sync_state", {
+  profileId: uuid("profile_id")
+    .primaryKey()
+    .references(() => profiles.id, { onDelete: "cascade" }),
+  revision: bigint("revision", { mode: "number" }).notNull().default(0),
+  generation: integer("generation").notNull().default(1),
+})
+
+export const progressCanonicalTitles = pgTable("progress_canonical_title", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  profileId: uuid("profile_id")
+    .notNull()
+    .references(() => profiles.id, { onDelete: "cascade" }),
+  mediaType: text("media_type").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+})
+
+export const progressTitleAliases = pgTable(
+  "progress_title_alias",
+  {
+    profileId: uuid("profile_id")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "cascade" }),
+    mediaType: text("media_type").notNull(),
+    alias: text("alias").notNull(),
+    canonicalTitleId: uuid("canonical_title_id")
+      .notNull()
+      .references(() => progressCanonicalTitles.id, { onDelete: "cascade" }),
+  },
+  (table) => [
+    primaryKey({ columns: [table.profileId, table.mediaType, table.alias] }),
+    index("progress_title_alias_canonical_idx").on(table.profileId, table.canonicalTitleId),
+  ],
+)
+
+export const progressTitleDismissals = pgTable(
+  "progress_title_dismissal",
+  {
+    profileId: uuid("profile_id")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "cascade" }),
+    canonicalTitleId: uuid("canonical_title_id")
+      .notNull()
+      .references(() => progressCanonicalTitles.id, { onDelete: "cascade" }),
+    dismissed: boolean("dismissed").notNull(),
+    revision: bigint("revision", { mode: "number" }).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.profileId, table.canonicalTitleId] })],
+)
+
+export const progressEvents = pgTable(
+  "progress_event",
+  {
+    profileId: uuid("profile_id")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "cascade" }),
+    revision: bigint("revision", { mode: "number" }).notNull(),
+    generation: integer("generation").notNull(),
+    operationId: uuid("operation_id").notNull(),
+    type: text("type").notNull(),
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.profileId, table.revision] }),
+    uniqueIndex("progress_event_operation_idx").on(table.profileId, table.operationId),
+  ],
+)
+
+export const progressAppliedOperations = pgTable(
+  "progress_applied_operation",
+  {
+    profileId: uuid("profile_id")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "cascade" }),
+    operationId: uuid("operation_id").notNull(),
+    revision: bigint("revision", { mode: "number" }).notNull(),
+    generation: integer("generation").notNull(),
+    result: jsonb("result").$type<Record<string, unknown>>().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.profileId, table.operationId] }),
+    index("progress_applied_operation_revision_idx").on(table.profileId, table.revision),
   ],
 )
 

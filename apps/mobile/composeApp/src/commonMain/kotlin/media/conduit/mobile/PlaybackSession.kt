@@ -36,6 +36,7 @@ data class PlaybackRequest(
     val subtitles: List<SubtitleItem> = emptyList(),
     val title: String,
     val mediaName: String,
+    val mediaAliases: List<String> = emptyList(),
     val artwork: String? = null,
     val logo: String? = null,
     val poster: String? = null,

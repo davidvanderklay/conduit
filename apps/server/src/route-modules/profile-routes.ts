@@ -1,5 +1,5 @@
 import { Type } from "@sinclair/typebox"
-import { and, asc, eq } from "drizzle-orm"
+import { and, asc, eq, sql } from "drizzle-orm"
 import type { FastifyInstance } from "fastify"
 import { decryptSecret, encryptSecret, stableSecretHash } from "../crypto.js"
 import { defaultAddonInstallations } from "../default-addons.js"
@@ -9,6 +9,11 @@ import {
   households,
   libraryItems,
   profiles,
+  progressAppliedOperations,
+  progressCanonicalTitles,
+  progressEvents,
+  progressSyncState,
+  progressTitleAliases,
   watchProgress,
 } from "../db/schema.js"
 import {
@@ -100,10 +105,7 @@ export function registerProfileRoutes(app: FastifyInstance, context: RouteContex
         .select({ householdId: householdMembers.householdId })
         .from(householdMembers)
         .where(
-          and(
-            eq(householdMembers.householdId, householdId),
-            eq(householdMembers.userId, user.id),
-          ),
+          and(eq(householdMembers.householdId, householdId), eq(householdMembers.userId, user.id)),
         )
         .limit(1)
       if (!membership) return reply.forbidden()
@@ -136,7 +138,14 @@ export function registerProfileRoutes(app: FastifyInstance, context: RouteContex
             avatarColor: body.avatarColor,
             avatarUrl: body.avatarUrl,
           })
-          .returning({ id: profiles.id, name: profiles.name, isKids: profiles.isKids, usesPrimaryAddons: profiles.usesPrimaryAddons, avatarColor: profiles.avatarColor, avatarUrl: profiles.avatarUrl })
+          .returning({
+            id: profiles.id,
+            name: profiles.name,
+            isKids: profiles.isKids,
+            usesPrimaryAddons: profiles.usesPrimaryAddons,
+            avatarColor: profiles.avatarColor,
+            avatarUrl: profiles.avatarUrl,
+          })
 
         if (body.usesPrimaryAddons) {
           return created!
@@ -175,8 +184,12 @@ export function registerProfileRoutes(app: FastifyInstance, context: RouteContex
             name: Type.Optional(Type.String({ minLength: 1, maxLength: 80 })),
             isKids: Type.Optional(Type.Boolean()),
             usesPrimaryAddons: Type.Optional(Type.Boolean()),
-            avatarColor: Type.Optional(Type.Union([Type.String({ pattern: "^#[0-9A-Fa-f]{6}$" }), Type.Null()])),
-            avatarUrl: Type.Optional(Type.Union([Type.String({ maxLength: 2048, pattern: "^https?://" }), Type.Null()])),
+            avatarColor: Type.Optional(
+              Type.Union([Type.String({ pattern: "^#[0-9A-Fa-f]{6}$" }), Type.Null()]),
+            ),
+            avatarUrl: Type.Optional(
+              Type.Union([Type.String({ maxLength: 2048, pattern: "^https?://" }), Type.Null()]),
+            ),
           },
           { minProperties: 1 },
         ),
@@ -186,7 +199,13 @@ export function registerProfileRoutes(app: FastifyInstance, context: RouteContex
       const user = await requireUser(request, reply, auth)
       if (!user) return
       const { profileId } = request.params as { profileId: string }
-      const body = request.body as { name?: string; isKids?: boolean; usesPrimaryAddons?: boolean; avatarColor?: string | null; avatarUrl?: string | null }
+      const body = request.body as {
+        name?: string
+        isKids?: boolean
+        usesPrimaryAddons?: boolean
+        avatarColor?: string | null
+        avatarUrl?: string | null
+      }
       if (!(await canAccessProfile(db, user.id, profileId))) return reply.forbidden()
 
       const [profile] = await db
@@ -194,13 +213,22 @@ export function registerProfileRoutes(app: FastifyInstance, context: RouteContex
         .set({
           ...(body.name !== undefined ? { name: body.name.trim() } : {}),
           ...(body.isKids !== undefined ? { isKids: body.isKids } : {}),
-          ...(body.usesPrimaryAddons !== undefined ? { usesPrimaryAddons: body.usesPrimaryAddons } : {}),
+          ...(body.usesPrimaryAddons !== undefined
+            ? { usesPrimaryAddons: body.usesPrimaryAddons }
+            : {}),
           ...(body.avatarColor !== undefined ? { avatarColor: body.avatarColor } : {}),
           ...(body.avatarUrl !== undefined ? { avatarUrl: body.avatarUrl } : {}),
           updatedAt: new Date(),
         })
         .where(eq(profiles.id, profileId))
-        .returning({ id: profiles.id, name: profiles.name, isKids: profiles.isKids, usesPrimaryAddons: profiles.usesPrimaryAddons, avatarColor: profiles.avatarColor, avatarUrl: profiles.avatarUrl })
+        .returning({
+          id: profiles.id,
+          name: profiles.name,
+          isKids: profiles.isKids,
+          usesPrimaryAddons: profiles.usesPrimaryAddons,
+          avatarColor: profiles.avatarColor,
+          avatarUrl: profiles.avatarUrl,
+        })
       return { profile }
     },
   )
@@ -318,11 +346,18 @@ export function registerProfileRoutes(app: FastifyInstance, context: RouteContex
         if (body.mode === "replace") {
           await tx.delete(addonInstallations).where(eq(addonInstallations.profileId, profileId))
           await tx.delete(watchProgress).where(eq(watchProgress.profileId, profileId))
+          await tx
+            .delete(progressCanonicalTitles)
+            .where(eq(progressCanonicalTitles.profileId, profileId))
           await tx.delete(libraryItems).where(eq(libraryItems.profileId, profileId))
         }
         await tx
           .update(profiles)
-          .set({ name: data.profile.name.trim(), isKids: data.profile.isKids, updatedAt: new Date() })
+          .set({
+            name: data.profile.name.trim(),
+            isKids: data.profile.isKids,
+            updatedAt: new Date(),
+          })
           .where(eq(profiles.id, profileId))
         for (const item of data.library) {
           const values = {
@@ -346,10 +381,48 @@ export function registerProfileRoutes(app: FastifyInstance, context: RouteContex
               set: values,
             })
         }
+        const importedCanonicalTitles = new Map<string, string>()
         for (const item of data.progress) {
+          const titleKey = `${item.mediaType}\u0000${item.mediaId}`
+          let canonicalTitleId = importedCanonicalTitles.get(titleKey)
+          if (!canonicalTitleId) {
+            const [alias] = await tx
+              .select({ canonicalTitleId: progressTitleAliases.canonicalTitleId })
+              .from(progressTitleAliases)
+              .where(
+                and(
+                  eq(progressTitleAliases.profileId, profileId),
+                  eq(progressTitleAliases.mediaType, item.mediaType),
+                  eq(progressTitleAliases.alias, item.mediaId),
+                ),
+              )
+              .limit(1)
+            canonicalTitleId = alias?.canonicalTitleId
+            if (!canonicalTitleId) {
+              const [canonical] = await tx
+                .insert(progressCanonicalTitles)
+                .values({ profileId, mediaType: item.mediaType })
+                .returning({ id: progressCanonicalTitles.id })
+              if (!canonical) throw new Error("Unable to create imported progress identity")
+              canonicalTitleId = canonical.id
+              await tx.insert(progressTitleAliases).values({
+                profileId,
+                mediaType: item.mediaType,
+                alias: item.mediaId,
+                canonicalTitleId,
+              })
+            }
+            importedCanonicalTitles.set(titleKey, canonicalTitleId)
+          }
           const values = {
             profileId,
             videoId: item.videoId,
+            canonicalTitleId,
+            canonicalEpisodeKey:
+              item.season === undefined && item.episode === undefined
+                ? "movie"
+                : `s${item.season ?? 0}:e${item.episode ?? 0}`,
+            revision: 0,
             mediaType: item.mediaType,
             mediaId: item.mediaId,
             name: item.name.trim(),
@@ -361,9 +434,9 @@ export function registerProfileRoutes(app: FastifyInstance, context: RouteContex
             durationMs: item.durationMs,
             watched: item.watched,
             dismissed: item.dismissed ?? false,
-            continueWatching: item.continueWatching ?? (
-              item.watched || item.positionMs >= CONTINUE_WATCHING_ENTRY_POSITION_MS
-            ),
+            continueWatching:
+              item.continueWatching ??
+              (item.watched || item.positionMs >= CONTINUE_WATCHING_ENTRY_POSITION_MS),
             playbackSource: item.playbackSource,
             updatedAt: new Date(item.updatedAt),
           }
@@ -396,6 +469,17 @@ export function registerProfileRoutes(app: FastifyInstance, context: RouteContex
               set: values,
             })
         }
+        await tx.delete(progressEvents).where(eq(progressEvents.profileId, profileId))
+        await tx
+          .delete(progressAppliedOperations)
+          .where(eq(progressAppliedOperations.profileId, profileId))
+        await tx
+          .insert(progressSyncState)
+          .values({ profileId, revision: 0, generation: 2 })
+          .onConflictDoUpdate({
+            target: progressSyncState.profileId,
+            set: { revision: 0, generation: sql`${progressSyncState.generation} + 1` },
+          })
       })
       return { imported: previewPortableData(data), mode: body.mode }
     },
