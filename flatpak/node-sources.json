@@ -5297,6 +5297,726 @@
         "dest": "flatpak-node/pnpm-tarballs"
     },
     {
+        "type": "file",
+        "url": "https://registry.npmjs.org/@balena/dockerignore/-/dockerignore-1.0.2.tgz",
+        "sha512": "c0cb9ed92cb818055393a21ce2d2557277dd6aefa0c761271bb4beb8011ef9358916a13862858de3f1fc3122e3e1e6092b11a0dba959c1ba049e2362370650e9",
+        "dest-filename": "@balena__dockerignore-1.0.2.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/@grpc/grpc-js/-/grpc-js-1.14.4.tgz",
+        "sha512": "93d0e3dc357f8ad2bd0f4e98f1fd7dd10828a7bfd48be0f49e3155dcb1cc3f03d3ef90e95cb428844f569b3d10125ac99f3b2307b28f5a22896ce97b20f0c0ad",
+        "dest-filename": "@grpc__grpc-js-1.14.4.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/@grpc/proto-loader/-/proto-loader-0.7.15.tgz",
+        "sha512": "b4c5dd4427d8562c63b852be1e4d10d6cdfc815f730e20c97d62f7875aefe10737f6820b0aed534530edefe7c6508f0ae06d458f5db91f1febbb76b3102593c9",
+        "dest-filename": "@grpc__proto-loader-0.7.15.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/@grpc/proto-loader/-/proto-loader-0.8.1.tgz",
+        "sha512": "c2d17a87e0d8e8cdd868304f026beeb80ea357c4a27fd323b4e2397ae2855918020e5e4f783a4fb0747dbb697a4ade5c798f00660a0d0f0c39f87bc4b1716c1a",
+        "dest-filename": "@grpc__proto-loader-0.8.1.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/@isaacs/cliui/-/cliui-8.0.2.tgz",
+        "sha512": "3bc8dc8da6d76a578e1bd0d0d3e0115d66414df9cfe16340ab3ba224aee5978e009b118abff2763384cf8f18d8df39c109fbc15c5cee726d6dc1dc85c9b16a10",
+        "dest-filename": "@isaacs__cliui-8.0.2.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/@js-sdsl/ordered-map/-/ordered-map-4.4.2.tgz",
+        "sha512": "8942a09b9d93f07384fe66a44b18eaa1685ef79649035fc6d6c62c19ebf6243294492d78280820d4b1dbf816be20fa30d317e56e74a43ac65c3b4f02ef0d6063",
+        "dest-filename": "@js-sdsl__ordered-map-4.4.2.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/@kwsites/file-exists/-/file-exists-1.1.1.tgz",
+        "sha512": "9bdff9606475f25230c52143c1f137a00edb5aeabd91d6aeeae80de07dab25eca115065c1bd020487910b520f5e5af16bd381fcfd6a291932b28f1ef6e9a858b",
+        "dest-filename": "@kwsites__file-exists-1.1.1.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/@pkgjs/parseargs/-/parseargs-0.11.0.tgz",
+        "sha512": "fb55648dd0f44012cfa1d1ab2547aa6ab1fc54022f40e0c86f087d5e93f94b28ac7fb628420b0928f345a2aa8b425bbe550fed552b21311ea5a0f327f14f9d3e",
+        "dest-filename": "@pkgjs__parseargs-0.11.0.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/@protobufjs/aspromise/-/aspromise-1.1.2.tgz",
+        "sha512": "8fe80a13112e2e62b0bf3dce811397b6b276506db1f028766195316a187eb351761d9fb001c79434b92fcbacca08f551914fbe65642b771b147905e6720e2ea1",
+        "dest-filename": "@protobufjs__aspromise-1.1.2.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/@protobufjs/base64/-/base64-1.1.2.tgz",
+        "sha512": "01991c000e6f9cdfefe0f0ea2b2311e65c7b859b6d3c380296ff3713ffc530d851d9331c2d485f4540470a64a5d288bdccc8030ea4542644b13b7c26f39f972e",
+        "dest-filename": "@protobufjs__base64-1.1.2.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/@protobufjs/codegen/-/codegen-2.0.5.tgz",
+        "sha512": "ce05c52f35b7029df77ba7745a58f8306226e827bc3bcf67fdaa54686341fe3c7e870fabb96129ec4c0652c85d2ca5510b1656d767e9f6be34135990adfff7e2",
+        "dest-filename": "@protobufjs__codegen-2.0.5.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/@protobufjs/eventemitter/-/eventemitter-1.1.1.tgz",
+        "sha512": "bd6d469b03193672fe80c45aa2f961f72657ef891cf934d4dc539b924baba4c691b417cb3f795d8d2f4a416970660ada444d3e76178412803177370943c79766",
+        "dest-filename": "@protobufjs__eventemitter-1.1.1.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/@protobufjs/fetch/-/fetch-1.1.1.tgz",
+        "sha512": "1a9a6d2ebb39eda74c4ae1e2dd5363d26005f1dc21dfa2cc69817a5f227a24c5a556c73eb78dad9b51d210398eb3703c7c2f72c9e8ac80b86c4d542890e674cf",
+        "dest-filename": "@protobufjs__fetch-1.1.1.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/@protobufjs/float/-/float-1.0.2.tgz",
+        "sha512": "0dd6fe9155e55ecb7d77e47d3df4c8c61d4474d920a117b9b4e5fab74d5fd656163af26748f0c1946db8d502f37323dda0d4ec6e52d476e8c6484e11ceb4d919",
+        "dest-filename": "@protobufjs__float-1.0.2.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/@protobufjs/path/-/path-1.1.2.tgz",
+        "sha512": "e8939c2794e6d3c74e1c06dd4771abbcffb25147e48c6e5e3ec1d87333052eadd998c9000fdf1c0e0713da2035949f4d57015de2d1ff8924a87b8e185a496d10",
+        "dest-filename": "@protobufjs__path-1.1.2.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/@protobufjs/pool/-/pool-1.1.0.tgz",
+        "sha512": "d2410b6864880c12af7204b8ce48f3d4f79d75ab6b8d87263163a502e00fc0079c714acf1dd52aa3f27a2e2ca61c7122253e4dac5d54570c58d787fe7f2e1643",
+        "dest-filename": "@protobufjs__pool-1.1.0.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/@protobufjs/utf8/-/utf8-1.1.2.tgz",
+        "sha512": "6f5510c1c119e320a73020fc0c02f55656ef04913dfc85f8153229ec11b5c58a5fdbd48b6b32d2aea5248f8c3b639cbb70254fe84e6d72aa9c234c5e98f907ba",
+        "dest-filename": "@protobufjs__utf8-1.1.2.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/@testcontainers/postgresql/-/postgresql-12.1.0.tgz",
+        "sha512": "3e37f655254d8ab10f7f3dfa9e2772ad502766f7366216a33b39d8e1583212cbdf4dde6a88c34eb8fabde9dad112fc4052d5e5e5214b5fbbd78fbb12ab869370",
+        "dest-filename": "@testcontainers__postgresql-12.1.0.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/@types/docker-modem/-/docker-modem-3.0.6.tgz",
+        "sha512": "c8aa40184b8a4524bcc30c748e89275b1b262e16bbf3034c7bd4764b750db153a465d79df14a8ead5f0aa1e0d7a17b239ddc70c85dde221c829466ced5212112",
+        "dest-filename": "@types__docker-modem-3.0.6.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/@types/dockerode/-/dockerode-4.0.1.tgz",
+        "sha512": "72652907e74f37de793f1044b971377fa94a3b5847888198240e3a215177049a4db191afb410dc46796b1d81ed387fc1eafb433b2976919d92840bb79a0736ed",
+        "dest-filename": "@types__dockerode-4.0.1.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/@types/node/-/node-18.19.130.tgz",
+        "sha512": "191697431ea319f2fcb0a7da2030fa3aea5b20706bf63bfb2676a697db41ee5e2fd3af0f00e5ea7dcba330ca393e16c8b3a8204755ce0c42ea6a14f647cbf47e",
+        "dest-filename": "@types__node-18.19.130.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/@types/ssh2-streams/-/ssh2-streams-0.1.13.tgz",
+        "sha512": "7da1f26376eb3bda0b100d1095c3bc376c13ed1d3ed6c1d666f43ecb7acc2f0758d59c92d73d16dedeb98fd3ea4f81e643a00bccd7bb45994db82344d3005258",
+        "dest-filename": "@types__ssh2-streams-0.1.13.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/@types/ssh2/-/ssh2-0.5.52.tgz",
+        "sha512": "95b2cb957c5d09939224c0889ca1f6fbd57fefb113d89e8d3d01e9148d2475aeb50ddd4a82526cf9f3d005c862ce6cd848e24181d4da8e13ea04ed71c4bcb0be",
+        "dest-filename": "@types__ssh2-0.5.52.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/@types/ssh2/-/ssh2-1.15.5.tgz",
+        "sha512": "3750128e9fe75c7de8bc11dd751269962e28ce993a51d0d8217e1125615af4bd582a7cdd8539559a21879b80d99e3fe32dba99a5eb3869e477d0414642dbe141",
+        "dest-filename": "@types__ssh2-1.15.5.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/abort-controller/-/abort-controller-3.0.0.tgz",
+        "sha512": "87c950f2d69c6589d1def3504e089b8feb4e0c7239ffe974e80bb63dcae2bff1a67add1e6a3e13c161f8d6c3bdc271c3890b048f5f6ad1daf375675e007b707a",
+        "dest-filename": "abort-controller-3.0.0.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/ansi-regex/-/ansi-regex-6.3.0.tgz",
+        "sha512": "5a90df2fb34eea3eed1fcf080c13557542710e1f67982b5e0155bd76c7a9f38e977701789da0812befed18b5f728981ca603115c21654ccda1286a0af45b1dad",
+        "dest-filename": "ansi-regex-6.3.0.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/ansi-styles/-/ansi-styles-6.2.3.tgz",
+        "sha512": "e038fa336f0907ea001fc9059132d4a3e6b68f038592ea9bdf2b9c53408035c45151bc52d1c3f49d96021a371cdc1357c1122c5159831a0cdac267bbcef247be",
+        "dest-filename": "ansi-styles-6.2.3.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/archiver-utils/-/archiver-utils-5.0.2.tgz",
+        "sha512": "c2e2c93262014180ac1998182d3cb9148076a45e8b7dbe9c5cc485f10cb0c24deddb4cd69c08bbccb71015d29098807cc32669639111dfcc74f066f0b51d9c2c",
+        "dest-filename": "archiver-utils-5.0.2.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/archiver/-/archiver-7.0.1.tgz",
+        "sha512": "65c6d3688a8939f09cd374300f8ebc527cffe48afc013b6f007b0af857576c321b19f8a1aa1f66aef75c62e9d0cea9f81ebbd659a1726b12611996a06892693d",
+        "dest-filename": "archiver-7.0.1.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/asn1/-/asn1-0.2.6.tgz",
+        "sha512": "8b1fc5c4f9f43038dec89ee2ff2a07185b7f117e8bc8d6f148484f3d73833cbf8a07454f93ce9461f2f494c772f8a0a7bfe7e6bc8cf24b068ae423b0a956d64d",
+        "dest-filename": "asn1-0.2.6.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/async-lock/-/async-lock-1.4.1.tgz",
+        "sha512": "033d994e9bb2b6bb6a10dba55f03b7186bf5073b6e831e934f7ecd228ee29abfd0a3482c6221ad49d05ad81e9fb17853a5564335fbb5427de9939df57b7abe9d",
+        "dest-filename": "async-lock-1.4.1.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/b4a/-/b4a-1.8.1.tgz",
+        "sha512": "6a2aab7b536bd01ffa0e0136379bf04dcfb6fe8419e16875b783739d8638134d32f0b0ade8da9d46ff35b28d34a28dbb0fc315293a546bf330514b412d70a80f",
+        "dest-filename": "b4a-1.8.1.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/bare-events/-/bare-events-2.9.1.tgz",
+        "sha512": "674a071070050d991f7cdf10737f733598d094c0e43c9472cb2662794d551fbbbc7394bea876764bc8b174a200c448df1ceec52715e625682d78e82155a9c8b2",
+        "dest-filename": "bare-events-2.9.1.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/bare-fs/-/bare-fs-4.8.0.tgz",
+        "sha512": "7ccf8c842bdd42167b355e92f796b4ee03d2aa32182a7ea615a5dfc76ebac0ddda8d91a5ffed40cc7fae6e45d0d1f159bce7b69e4f551e4cdd624404e73315dd",
+        "dest-filename": "bare-fs-4.8.0.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/bare-path/-/bare-path-3.1.1.tgz",
+        "sha512": "269ad496f797dd08c0a42d5c4e9b143a2b1c0037ed0865569338ad6c7b11aaff38873630607c3699b96e75db2ae53bc8f261fff0ebf57f806230075c074a189d",
+        "dest-filename": "bare-path-3.1.1.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/bare-stream/-/bare-stream-2.13.3.tgz",
+        "sha512": "29cf9bacbaaf12a1a48f27e2c099889803aa2d92fb3aca0b2ae6afc7e8498e0555de72d33a39682723cc1718d43deac6187acd1f47cb534ea38f290c2d6ac445",
+        "dest-filename": "bare-stream-2.13.3.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/bare-url/-/bare-url-2.5.2.tgz",
+        "sha512": "2f5dcf089cca1bc446bf1f15d7f0dd322d76111842deda6bafbffc6bde01c699a746c16ac61e5764d761b4cc6ee473e446c85838e591198f250cfed98691bd0a",
+        "dest-filename": "bare-url-2.5.2.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/bcrypt-pbkdf/-/bcrypt-pbkdf-1.0.2.tgz",
+        "sha512": "a9e1485ed3f8312a22e8d2ea3b5d967ea011596b822a2d919fff6124b126b41e724cdafd0ea1569094427f6a92856ccf7803119ce802aead2c83f28bbf9112f7",
+        "dest-filename": "bcrypt-pbkdf-1.0.2.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/bl/-/bl-4.1.0.tgz",
+        "sha512": "d56d3b70cf604ba0dc2e97ab65f1528fe6d62ed68f1923875a13e21b35e6bd525b44b746f36b07fca9fc12d5b556a595039e0029fda1e64e416e721bc05de1eb",
+        "dest-filename": "bl-4.1.0.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/buffer-crc32/-/buffer-crc32-1.0.0.tgz",
+        "sha512": "0dbd526e0052fdf83fdfdd806e5acc264f7b2a0826bd886be290796483135ad6a2bc23cc58b9266fb9b6d5c26fa6f80af89de7b14d829a68b1341671e2f163ff",
+        "dest-filename": "buffer-crc32-1.0.0.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/buffer/-/buffer-5.7.1.tgz",
+        "sha512": "10773220f050e0148696f8c1d7a9392a0009dbb088b0763fd8906609145ea38f32f6b43731a533597dca56505ae14eccc97d361dd563d0aec2dd6681de3bbb15",
+        "dest-filename": "buffer-5.7.1.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/buffer/-/buffer-6.0.3.tgz",
+        "sha512": "153882a4dc6dc226591c465b71b4c87198c44552029fdcaafe90c591397de7f031cc3d6768172d37b60eebcae233f80b48363bb1dacc6f2f21a1f00362ebaa38",
+        "dest-filename": "buffer-6.0.3.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/buildcheck/-/buildcheck-0.0.7.tgz",
+        "sha512": "9476e5cf86a16a6c694e69ec93e30d4d15ac8d82aff7ae4cc0ead2272783e7cf2b47725cbbbb3013ed3037917e3db2f972382effd39b9217f310fba87c43302c",
+        "dest-filename": "buildcheck-0.0.7.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/byline/-/byline-5.0.0.tgz",
+        "sha512": "b3ac1e6c0cbe478491f1756e256b76576ac6be19eb87137ef52d7918db932b7c0a3ce5c517a44d73ef2e8365e11fedace1ffaeb9d1b891455899839058bda0d1",
+        "dest-filename": "byline-5.0.0.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/chownr/-/chownr-1.1.4.tgz",
+        "sha512": "8c9d1bab36b296626d567360cd37923acf033dabe96d8804aff6f460bf3fd863b7c4912122716684a3149c42508d9ba62bb297185854cbcf4faec25695a90156",
+        "dest-filename": "chownr-1.1.4.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/compress-commons/-/compress-commons-6.0.2.tgz",
+        "sha512": "e85a955de113a963e819c7f3ad76f7ec4e7434fd0b5d3f2400cbb9a2865aca1596760118e2504411c6d0357b64b8a42c19dbb1888708e20393b314e6baafdb4a",
+        "dest-filename": "compress-commons-6.0.2.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/cpu-features/-/cpu-features-0.0.10.tgz",
+        "sha512": "f48918aad5f76073c2ce8560d4fcbea3dd39edade2d1fa7b4b9df4516a2409268555373b0b05cf4623a3463050435f1908d69fc7bf187e71be1c02f1b5598e18",
+        "dest-filename": "cpu-features-0.0.10.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/crc-32/-/crc-32-1.2.2.tgz",
+        "sha512": "44e9b308aad39cec326cf709029000e960568a3db71d57c654d2aaaab669bb264e1ea2b60b01d2be91aecadfd434dbda22311df17e48146a78321f887b520725",
+        "dest-filename": "crc-32-1.2.2.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/crc32-stream/-/crc32-stream-6.0.0.tgz",
+        "sha512": "a62202501e9e8b82254efd7eeb9df2ab9f8aa2a7c16268fd6f0e8ba97a0e9de4cc0d79399ccd6ab75da6156d5c686dcb9495c4296d41a745a08049887d0077e2",
+        "dest-filename": "crc32-stream-6.0.0.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/docker-compose/-/docker-compose-1.4.2.tgz",
+        "sha512": "acf1e28132866841e991499f77af5081a3a9f8eb39bc62701bf472f2572bf16ff7f3602623ecff0fbaa86bd0726ca224a8da696886ecf1161e1d27af7508d6c3",
+        "dest-filename": "docker-compose-1.4.2.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/docker-modem/-/docker-modem-5.0.7.tgz",
+        "sha512": "5c980686847f08ba6ab219b87772fbaf31fab7c3600c5508229ced6252c7200a5e26331929824ccf6cf13ec6319de8eae61dc42d84b0fd106c8b7b7987b80d4c",
+        "dest-filename": "docker-modem-5.0.7.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/dockerode/-/dockerode-5.0.1.tgz",
+        "sha512": "6afb2aff193860f22b9f40a095e5f96e34fd63c213d69f4fc6b350fbe441436584c857c70930ec4fd926cb1cfe1ff6b19e303083cc0958422e3c6394b8dba988",
+        "dest-filename": "dockerode-5.0.1.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/eastasianwidth/-/eastasianwidth-0.2.0.tgz",
+        "sha512": "23cf1361959cf578981d1438ff7739ae38df8248e12f25b696e18885e18445b350e8e63bc93c9b6a74a90d765af32ed550ff589837186be7b2ab871aee22ea58",
+        "dest-filename": "eastasianwidth-0.2.0.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/emoji-regex/-/emoji-regex-9.2.2.tgz",
+        "sha512": "2f5f03689b17494936fb8da9bfc98bb398c94f686a164144e23db5c0e9a06d4aac67684bef636c514efce60f515e0a37b3464d815978d93887a7766d3affd5ca",
+        "dest-filename": "emoji-regex-9.2.2.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/event-target-shim/-/event-target-shim-5.0.1.tgz",
+        "sha512": "8bfd976e74b3feec51094ebe35d54980a5834cce36efe32a61b910cc3df6d43b8240952a3ae24a200d08336f96db1b581dd28e999e1d47a7c4c6c7784972fe59",
+        "dest-filename": "event-target-shim-5.0.1.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/events-universal/-/events-universal-1.0.1.tgz",
+        "sha512": "2d47797aebdb30ba70385f26ea2bcf09b85079289854d6fc56cd1f43c4235e8d094e4107a73f29c5d41fd204ad96d68fa70d0271af1bdfd2b1bcaf5c7ca46203",
+        "dest-filename": "events-universal-1.0.1.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/events/-/events-3.3.0.tgz",
+        "sha512": "990c3ed9f9106c02f343b574318d08a9d9d734e793b4fe2bd2537dcfb0006b009782a79aedb0e28b6d0062b201ac577f1f1d0cd8e733e92d75d4268591471bd1",
+        "dest-filename": "events-3.3.0.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/fast-fifo/-/fast-fifo-1.3.2.tgz",
+        "sha512": "fddf6c7e8b38cb1ce9c240e4b8dee4d92a852ad60d9824f381f129cfcdb1df820cf7fcdcf0a1b14285e0d6588d0bf8b3a5133f30176de38366c78d595aa93e15",
+        "dest-filename": "fast-fifo-1.3.2.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/foreground-child/-/foreground-child-3.3.1.tgz",
+        "sha512": "8085e32aab45b96120cc544903d58241e4892d90e380950e302333c6dbc5abfdfb2a88ccd41146b9faac0b2d2be2a4909982ec65831ec91ab321638cba9d37b3",
+        "dest-filename": "foreground-child-3.3.1.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/fs-constants/-/fs-constants-1.0.0.tgz",
+        "sha512": "cba380c284887fb1728cc22ff78bbe6f9add85e6448f347adc64f26499b9aa1e018bed988302c2708fdf3c56642f93d28b13ade9934a9bec3e1dfa7f05c8b0a3",
+        "dest-filename": "fs-constants-1.0.0.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/get-port/-/get-port-5.1.1.tgz",
+        "sha512": "83f4356934833b11697215c2e22f195afc40d659cfab1fc91ea729230d3f2d7f53f31fc605b8ba62794de6785a2881644fca05b2c7142a00c96317f07d2e90b1",
+        "dest-filename": "get-port-5.1.1.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/glob/-/glob-10.5.0.tgz",
+        "sha512": "0df5cdf037e127b347dce7bb7059aedcd0aed7029b911789f13a2bcd20056d22ab94d69048a7c8cea62a558f3395bb3634b05b5a9462539d865f63db68154d92",
+        "dest-filename": "glob-10.5.0.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/ieee754/-/ieee754-1.2.1.tgz",
+        "sha512": "75ccaa843bd7d42e3a95765c56a0a92be16d31141574830debf0dfe63b36ce8b94b2a1bb23ab05c62b480beeca60adbd29d5ce2c776ef732f8b059e85509ea68",
+        "dest-filename": "ieee754-1.2.1.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/is-stream/-/is-stream-2.0.1.tgz",
+        "sha512": "845a222624e5eb79e7fa4b2d1c606d7b05922a740ba726f5e7928785e035977f6ebed3bd9d6228a75a77b9da8f71477fc5b17554b30ee27ece23aa7b45b9e00e",
+        "dest-filename": "is-stream-2.0.1.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/jackspeak/-/jackspeak-3.4.3.tgz",
+        "sha512": "386959429cf6c9f6a103f45dd58f0277d48812caaf5e42d5a12c3f720c219e114c0dbb1015e658a0927b6c86414bd05c6a6516f7a6acabf9e93d6ba033e45007",
+        "dest-filename": "jackspeak-3.4.3.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/lazystream/-/lazystream-1.0.1.tgz",
+        "sha512": "6fde0688d1d0372e89353aede70eb33727df32b3645d96f72939026496f6575c5a1060a4d3ddef919da3937b6969e3f7dff3a25c2f96bcaf40c5479b9dfe676f",
+        "dest-filename": "lazystream-1.0.1.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/lodash.camelcase/-/lodash.camelcase-4.3.0.tgz",
+        "sha512": "4f0b849c29f16dcdeb02f85ffcb6c6eed2540f386a5f2167bf776dccb38f8021bf84e0cbed6167b1bc24b640fbc9457446bade3ff9753c02eafd84a0e95be394",
+        "dest-filename": "lodash.camelcase-4.3.0.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/long/-/long-5.3.2.tgz",
+        "sha512": "98d0206751a6c8d843ec0baa9d31b7fd5436ea8efad3e65804f2a33efba03bcfa72db61f5fa4d5a493ec781be8a5b758faaa59fe52949e611cd4b799612dd000",
+        "dest-filename": "long-5.3.2.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/lru-cache/-/lru-cache-10.4.3.tgz",
+        "sha512": "24d03365c5eb0ade365462ee633d337c0cc37c0bc9596e807d8943050c835790c2948da6e6c0262be3883bbb39f577ec46c587a74da3009ad169d3d1193b7a49",
+        "dest-filename": "lru-cache-10.4.3.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/mkdirp-classic/-/mkdirp-classic-0.5.3.tgz",
+        "sha512": "80a2dc444321b6e651c1101fa8fdd1156f932b826a029541b4e21fb55823b8006902da7184f19a0dc7ef6e136f0f407c883d6852bfedc57df936371a63a36cfc",
+        "dest-filename": "mkdirp-classic-0.5.3.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/mkdirp/-/mkdirp-3.0.1.tgz",
+        "sha512": "f8db325140190e6a3a6151f32ffb2dc52bb7b7d612d62963962cb70520eb5c9fdd927d4a61d9ad64e0c61a32dc73d5cb8155691f82ac84707c5e66603216815e",
+        "dest-filename": "mkdirp-3.0.1.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/nan/-/nan-2.28.0.tgz",
+        "sha512": "7d3b03cfdf4e4eadac55e3e119da78a9086081916d2abeb864d57255a8d12ad30e909c587a4a65061e7becf889075daffc3decd84e5c1ad388e392d6a7aae72d",
+        "dest-filename": "nan-2.28.0.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/normalize-path/-/normalize-path-3.0.0.tgz",
+        "sha512": "e9e66ce4bb375ad0a2b075a9f52d86532f1daa4a468b80554b3dc66aa884e9ecee6f4e75d844b3b57530501e82e8829b4246363e76ff983e166288c24707302c",
+        "dest-filename": "normalize-path-3.0.0.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/package-json-from-dist/-/package-json-from-dist-1.0.1.tgz",
+        "sha512": "5046484b7fdbcb8382f2f2f73f67535d1113a5e6cb236362239bc8ae3683ff952dae4157fed35bc234d2440182ffeec2028da921c05a4605a670104772c68223",
+        "dest-filename": "package-json-from-dist-1.0.1.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/path-scurry/-/path-scurry-1.11.1.tgz",
+        "sha512": "5dae0dc35ec54bd02940527dba62e2252e28ac68e6ed9cf052bc1a99c190b874b30f2b61f5ba0a0dac9c61d0dc643baa6004d7c381c55e06aa59372d5bfbf51c",
+        "dest-filename": "path-scurry-1.11.1.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/process/-/process-0.11.10.tgz",
+        "sha512": "71d19e7ff76b585a32743d49b0ccee15ff35d349d997e193fb269c7366c471e7797fd463938cfe5ad1544c1bbd3e13a2f63fe37e604fbb498c118e3021d005f0",
+        "dest-filename": "process-0.11.10.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/properties-reader/-/properties-reader-3.0.1.tgz",
+        "sha512": "58f9fe87d446104c4e29dbb86ec1781e4b06feecddddc16adcc16dabc3ec15e1313ec7b91dafd53a340dc878636e8045c065c67afea6b8961348f00e9113aada",
+        "dest-filename": "properties-reader-3.0.1.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/protobufjs/-/protobufjs-7.6.5.tgz",
+        "sha512": "fc53c3d2751cf631faadf1638e2f4806a3b3e297121370ac4f59bb129e8c75bd0bc5250c8fc86097a1a898ebd9ce936902aa866970343f7552ad92c5cc8850af",
+        "dest-filename": "protobufjs-7.6.5.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/readable-stream/-/readable-stream-3.6.2.tgz",
+        "sha512": "f6efec9e20ab6370f959db04447cc71381b66025eaa06e454c7522082e1221bafa5dc2d9058d39c9af442a361e93d3b9c4e0308c6abed497460404bb43d49ca0",
+        "dest-filename": "readable-stream-3.6.2.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/readable-stream/-/readable-stream-4.7.0.tgz",
+        "sha512": "a0818699ca532f03e06bc067ebf67be5255a1f5cf9754badda26d2c80315866520816a660e7d9d6a90749fb7fc9f0692891b5ea40b1f2727d720ee4309500e0e",
+        "dest-filename": "readable-stream-4.7.0.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/readdir-glob/-/readdir-glob-1.1.3.tgz",
+        "sha512": "bf4e48da4ef137ccd7bcf0fd37ecffba15cf6a3d2c50509edab716648a41b2ac5f3fbc57150d2d8a901dff08e3d58c56c96b544b9203269386f3624ab7610054",
+        "dest-filename": "readdir-glob-1.1.3.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/safe-buffer/-/safe-buffer-5.2.1.tgz",
+        "sha512": "ae9dd2a34eca71d9a629b1af81a37141226bedb1954959394bd12ad45fa9a5b468ef4f9879a0f1930e4377c34f37e183e9b8e7626d95b8fb825e6a6e62f9825d",
+        "dest-filename": "safe-buffer-5.2.1.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/safer-buffer/-/safer-buffer-2.1.2.tgz",
+        "sha512": "619a372bcd920fb462ca2d04d4440fa232f3ee4a5ea6749023d2323db1c78355d75debdbe5d248eeda72376003c467106c71bbbdcc911e4d1c6f0a9c42b894b6",
+        "dest-filename": "safer-buffer-2.1.2.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/signal-exit/-/signal-exit-4.1.0.tgz",
+        "sha512": "6f3c99d5ef3cc3d3b588d25b2a73a5bd84eb58f0e5e3a3b56c6d03dd7227bfef6d90faf1acdf235144e21650e4926296827d4ce827c8035dd2b86a8e6bd2a8af",
+        "dest-filename": "signal-exit-4.1.0.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/split-ca/-/split-ca-1.0.1.tgz",
+        "sha512": "439b61052c69e6df163d34c9412e7d2eb1aa399a8eb2b843183566f1acc2a8806348177b9ddf68d8f33e983ba5410921f21fffe14ea11599dcfe6ba5f2de6959",
+        "dest-filename": "split-ca-1.0.1.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/ssh-remote-port-forward/-/ssh-remote-port-forward-1.0.4.tgz",
+        "sha512": "c742d5d5e543c237f58261bb4d39dfa88cdffb754f473eefacd2235faa182db782adffcf79563a8644faf0c83eab4daa5f1421acb8c1d237e0be17afa024662d",
+        "dest-filename": "ssh-remote-port-forward-1.0.4.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/ssh2/-/ssh2-1.17.0.tgz",
+        "sha512": "c0f95d0a4ddab226c08d0fe4ce259042dd568773e00c5a42d17a70725cca71d4f5bea97a29e6317f92c8b789e516451e47c5aea6160c2aa500e7a5f8ae36df81",
+        "dest-filename": "ssh2-1.17.0.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/streamx/-/streamx-2.28.0.tgz",
+        "sha512": "d58a308738dfd22bc632b4c8918f616afe53c686cef6a215a94138d5f88218c1a073708b95fe0c63ef401e666a0568034ee7b47d8f735a36055727fa0e2ba86f",
+        "dest-filename": "streamx-2.28.0.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/string-width/-/string-width-5.1.2.tgz",
+        "sha512": "1e72ce091def8dc63c6dea0d2ed723679fe7c67d9a7e6304ea586b0eb79ba24a8c6a9f976de5bc9fd4d7a4f0cea9d18ae6a708de84f418a4d6eb00bb10c895a8",
+        "dest-filename": "string-width-5.1.2.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/string_decoder/-/string_decoder-1.3.0.tgz",
+        "sha512": "864457f14d568c915df0bb03276c90ff0596c5aa2912c0015355df90cf00fa3d3ef392401a9a6dd7a72bd56860e8a21b6f8a2453a32a97a04e8febaea7fc0a78",
+        "dest-filename": "string_decoder-1.3.0.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/strip-ansi/-/strip-ansi-7.2.0.tgz",
+        "sha512": "c833cc363a785b27d80641e78c844b7dc6b58ba28cc860adb1582829eff3d7eeafba481a10d76018166df9998a3dce206afbc46793a01df1ddadace180dc86ef",
+        "dest-filename": "strip-ansi-7.2.0.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/tar-fs/-/tar-fs-2.1.5.tgz",
+        "sha512": "39ba1377c9a632164334f57e52341c2bdc8a01ab57bb6689fabd70e229b53ad7783387e5da1c2f7685d4c486071531d62bfdf2dc56ab04fef4bf7bf098694ec7",
+        "dest-filename": "tar-fs-2.1.5.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/tar-fs/-/tar-fs-3.1.3.tgz",
+        "sha512": "fe15380179c8759bbe1af975a64d282397f91f15ac08946d636685689764f55bf22f8f03594ea253958020f1bec088b562f580e9e4c9bc8be23ffb4c01964dc1",
+        "dest-filename": "tar-fs-3.1.3.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/tar-stream/-/tar-stream-2.2.0.tgz",
+        "sha512": "ba37aa6dc780060c0c6711099e4d870d8d83967519fbda0471bd4acd355f6078a8d1413a746ef59fad1df03d88e2a36f95e5abad7a668e9b7bbd9785d4b9cc65",
+        "dest-filename": "tar-stream-2.2.0.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/tar-stream/-/tar-stream-3.2.0.tgz",
+        "sha512": "a23cef0af55a369e9a3931661bb8da443d267a8c0802e3dcddc30c85280a8955b0b351b21db19dff1be7cae44a70a94ca6ddeabf1c7aaf486b7823484cff6122",
+        "dest-filename": "tar-stream-3.2.0.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/teex/-/teex-1.0.1.tgz",
+        "sha512": "79813a88423ad8d8b51fca086bb2a50d4eae401b6aaf811a8e78b7c17eeba5f5c3f32b05c7ccf4f9dae2f8a5843d6a41b315dfc6ee7cc7fd23bd3553d5e90e4a",
+        "dest-filename": "teex-1.0.1.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/testcontainers/-/testcontainers-12.1.0.tgz",
+        "sha512": "6230cba88213ba118b327335d32860de857a9481b920ca73d51d433c166838e92cf37abb8bb215a5e4964538b297bae8a338e2c8b9b02282cafca63c3a766620",
+        "dest-filename": "testcontainers-12.1.0.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/text-decoder/-/text-decoder-1.2.7.tgz",
+        "sha512": "be52f2b5791e3f8c6f12ada8b477897d24084725b1a3fa191846d7aed10417d1e79ab765cb9f6c51bcd9fd08325ae2d81dcb421f1145e2d45064d43d93ad04c5",
+        "dest-filename": "text-decoder-1.2.7.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/tweetnacl/-/tweetnacl-0.14.5.tgz",
+        "sha512": "2975c515d01b15763881e148c28c8d2be7f96756fbb307d70017cbec75c29a821630a5377664b6ebaef603811e42d0f32cacbb49799f06ee7526896f10ac2d18",
+        "dest-filename": "tweetnacl-0.14.5.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/undici-types/-/undici-types-5.26.5.tgz",
+        "sha512": "26508c3be7a174420aaa517193a21f568014566833edc53bcc3fe1f57674ab37a8b121e650954ecd242fbd84985979055c2f887cb29221f7e1bf4b1566ea7aa4",
+        "dest-filename": "undici-types-5.26.5.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/wrap-ansi/-/wrap-ansi-8.1.0.tgz",
+        "sha512": "b22ed0588eb350cab9e9b11216f6a0b66ccc7463ada317d1f927b3d753286df73bb66f9591472493d6d6d9479f7d319551b3a4b31992c34000da0b3c83bd4d09",
+        "dest-filename": "wrap-ansi-8.1.0.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/zip-stream/-/zip-stream-6.0.1.tgz",
+        "sha512": "ccaed81c7cf8657a56f3d0075d43db41518a23bbaf91dde1ceeb13768b42835531c9a56d834cc52524df5bf0eae5fece041567aba71921a0bc4e2e216fa76d08",
+        "dest-filename": "zip-stream-6.0.1.tgz",
+        "dest": "flatpak-node/pnpm-tarballs"
+    },
+    {
+        "type": "file",
+        "path": "pnpm-extra-packages.json",
+        "dest-filename": "pnpm-extra-packages.json",
+        "dest": "flatpak-node"
+    },
+    {
         "type": "inline",
         "contents": "from __future__ import annotations\n\nimport base64\nimport contextlib\nimport hashlib\nimport json\nimport os\nimport re\nimport sqlite3\nimport struct\nimport sys\nimport tarfile\nimport time\nfrom collections.abc import Mapping\n\n_SANITIZE_RE = re.compile(r'[\\\\/:*?\"<>|]')\n_MAX_LENGTH_WITHOUT_HASH = 120\n\n\ndef _msgpack_pack(obj: object) -> bytes:\n    \"\"\"Minimal msgpack packer matching msgpackr with useRecords: true.\n\n    msgpackr reserves the byte range 0x40-0x7F for record IDs when useRecords\n    is enabled (pnpm's config).  Standard msgpack uses 0x00-0x7F for positive\n    fixints, but this packer caps them at 0x3F and emits a uint 8 prefix (0xcc)\n    for 64-255 to avoid aliasing with record ID bytes.\n    \"\"\"\n\n    def _pack_int(val: int) -> bytes:\n        # Positive fixint capped at 0x3F \u2014 0x40-0x7F are msgpackr record IDs\n        if 0 <= val <= 0x3F:\n            return val.to_bytes(1, 'big')\n        if -32 <= val < 0:\n            return val.to_bytes(1, 'big', signed=True)\n        if val >= 0:\n            if val <= 0xFF:\n                return b'\\xcc' + val.to_bytes(1, 'big')\n            if val <= 0xFFFF:\n                return b'\\xcd' + val.to_bytes(2, 'big')\n            if val <= 0xFFFFFFFF:\n                return b'\\xce' + val.to_bytes(4, 'big')\n            return b'\\xcf' + val.to_bytes(8, 'big')\n        if val >= -0x80:\n            return b'\\xd0' + val.to_bytes(1, 'big', signed=True)\n        if val >= -0x8000:\n            return b'\\xd1' + val.to_bytes(2, 'big', signed=True)\n        if val >= -0x80000000:\n            return b'\\xd2' + val.to_bytes(4, 'big', signed=True)\n        return b'\\xd3' + val.to_bytes(8, 'big', signed=True)\n\n    def _pack_str(val: str) -> bytes:\n        data = val.encode('utf-8')\n        length = len(data)\n        if length <= 0x1F:\n            return (0xA0 | length).to_bytes(1, 'big') + data\n        if length <= 0xFF:\n            return b'\\xd9' + length.to_bytes(1, 'big') + data\n        if length <= 0xFFFF:\n            return b'\\xda' + length.to_bytes(2, 'big') + data\n        return b'\\xdb' + length.to_bytes(4, 'big') + data\n\n    if obj is None:\n        return b'\\xc0'\n    if isinstance(obj, bool):\n        return b'\\xc3' if obj else b'\\xc2'\n    if isinstance(obj, int):\n        return _pack_int(obj)\n    if isinstance(obj, float):\n        return b'\\xcb' + struct.pack('>d', obj)\n    if isinstance(obj, str):\n        return _pack_str(obj)\n    if isinstance(obj, dict):\n        length = len(obj)\n        if length <= 0x0F:\n            result = (0x80 | length).to_bytes(1, 'big')\n        elif length <= 0xFFFF:\n            result = b'\\xde' + length.to_bytes(2, 'big')\n        else:\n            result = b'\\xdf' + length.to_bytes(4, 'big')\n        for key, val in obj.items():\n            result += _msgpack_pack(key) + _msgpack_pack(val)\n        return result\n    if isinstance(obj, (list, tuple)):\n        length = len(obj)\n        if length <= 0x0F:\n            result = (0x90 | length).to_bytes(1, 'big')\n        elif length <= 0xFFFF:\n            result = b'\\xdc' + length.to_bytes(2, 'big')\n        else:\n            result = b'\\xdd' + length.to_bytes(4, 'big')\n        for item in obj:\n            result += _msgpack_pack(item)\n        return result\n    raise TypeError(f'Unsupported type for msgpack: {type(obj)}')\n\n\nRECORD_HEADER = b'\\xd4\\x72'\n\n\ndef _pack_v11_store_entry(\n    files: dict[str, dict[str, object]],\n    manifest: dict[str, str] | None = None,\n) -> bytes:\n    \"\"\"Encode a store v11 entry using msgpackr-compatible record extensions.\n\n    msgpackr with ``useRecords: true, moreTypes: true`` decodes:\n\n    - standard msgpack maps (0x80/0xde/0xdf) as JavaScript ``Map`` objects\n      (iterable, supports ``for..of``)\n    - record extensions (0x72) as plain objects (dot-notation access)\n\n    The ``files`` field must be a Map so pnpm can iterate it with ``for..of``.\n    Everything else must use record extensions so dot-notation works\n    (e.g. ``pkgIndex.algo``, ``info.digest``, ``manifest.name``).\n    \"\"\"\n\n    def _record(obj: Mapping[str, object], struct_id: int) -> bytes:\n        keys = list(obj.keys())\n        result = RECORD_HEADER + struct_id.to_bytes(1, 'big')\n        result += _msgpack_pack(keys)\n        for k in keys:\n            result += _msgpack_pack(obj[k])\n        return result\n\n    def _fixmap(length: int) -> bytes:\n        if length <= 0x0F:\n            return (0x80 | length).to_bytes(1, 'big')\n        if length <= 0xFFFF:\n            return b'\\xde' + length.to_bytes(2, 'big')\n        return b'\\xdf' + length.to_bytes(4, 'big')\n\n    # Pack file entries as records, build files map as standard msgpack map\n    files_map_bytes = _fixmap(len(files))\n    for fname, finfo in files.items():\n        files_map_bytes += _msgpack_pack(fname) + _record(finfo, 0x41)\n\n    # Outer store_entry as record (struct_id 0x40)\n    store_entry_keys = ['algo', 'requiresBuild', 'files']\n    if manifest is not None:\n        store_entry_keys.append('manifest')\n\n    # Record with fixed entries\n    result = RECORD_HEADER + b'\\x40' + _msgpack_pack(store_entry_keys)\n    # This is hardcoded to use sha512 per pnpm's behavior, see @pnpm/store.cafs/index and\n    # file digest logic below\n    result += _msgpack_pack('sha512')  # algo\n    result += _msgpack_pack(False)  # requiresBuild\n    result += files_map_bytes  # files (standard map \u2192 iterable Map in JS)\n\n    if manifest is not None:\n        result += _record(manifest, 0x42)\n    return result\n\n\ndef populate_store(manifest_path: str, tarball_dir: str, store_dir: str) -> None:\n    with open(manifest_path, encoding='utf-8') as f:\n        manifest = json.load(f)\n\n    store_version = manifest['store_version']\n    packages = manifest['packages']\n\n    index_db: sqlite3.Connection | None = None\n\n    store = os.path.join(store_dir, store_version)\n    os.makedirs(os.path.join(store, 'files'), exist_ok=True)\n    if store_version == 'v11':\n        index_db = sqlite3.connect(os.path.join(store, 'index.db'))\n        index_db.execute('PRAGMA busy_timeout=5000')\n        index_db.execute('PRAGMA journal_mode=WAL')\n        index_db.execute('PRAGMA synchronous=NORMAL')\n        index_db.execute('PRAGMA temp_store=MEMORY')\n        index_db.execute(\n            'CREATE TABLE IF NOT EXISTS package_index ('\n            '  key TEXT PRIMARY KEY,'\n            '  data BLOB NOT NULL'\n            ') WITHOUT ROWID'\n        )\n    else:\n        os.makedirs(os.path.join(store, 'index'), exist_ok=True)\n\n    now = int(time.time() * 1000)\n\n    for tarball_name, info in packages.items():\n        tarball_path = os.path.join(tarball_dir, tarball_name)\n        if not os.path.isfile(tarball_path):\n            raise FileNotFoundError(tarball_path)\n\n        _process_tarball(\n            tarball_path=tarball_path,\n            pkg_name=info['name'],\n            pkg_version=info['version'],\n            integrity=info['integrity'],\n            integrity_digest=info['integrity_digest'],\n            integrity_algo=info['integrity_algo'],\n            store=store,\n            now=now,\n            tarball_url=info.get('tarball_url'),\n            store_version=store_version,\n            index_db=index_db,\n        )\n\n    if index_db is not None:\n        index_db.commit()\n        index_db.close()\n\n\ndef _process_tarball(\n    *,\n    tarball_path: str,\n    pkg_name: str,\n    pkg_version: str,\n    integrity: str,\n    integrity_digest: str,\n    integrity_algo: str,\n    store: str,\n    now: int,\n    tarball_url: str | None = None,\n    store_version: str = 'v3',\n    index_db: sqlite3.Connection | None = None,\n) -> None:\n    index_files: dict[str, dict[str, object]] = {}\n    file_digests: dict[str, str] = {}\n    real_pkg_name = pkg_name\n    real_pkg_version = pkg_version\n\n    with tarfile.open(tarball_path, 'r:gz') as tf:\n        for member in tf.getmembers():\n            if not member.isfile():\n                continue\n            fobj = tf.extractfile(member)\n            if fobj is None:\n                continue\n            data = fobj.read()\n\n            if member.name.endswith('package.json') and member.name.count('/') <= 1:\n                with contextlib.suppress(ValueError, TypeError, UnicodeDecodeError):\n                    pkg_data = json.loads(data.decode('utf-8'))\n                    if isinstance(pkg_data, dict):\n                        if 'name' in pkg_data and isinstance(pkg_data['name'], str):\n                            real_pkg_name = pkg_data['name']\n                        if 'version' in pkg_data and isinstance(\n                            pkg_data['version'], str\n                        ):\n                            real_pkg_version = pkg_data['version']\n\n            digest = hashlib.sha512(data).digest()\n            file_hex = digest.hex()\n            is_exec = bool(member.mode & 0o111)\n\n            cas_dir = os.path.join(store, 'files', file_hex[:2])\n            cas_name = file_hex[2:] + ('-exec' if is_exec else '')\n            cas_path = os.path.join(cas_dir, cas_name)\n            if not os.path.exists(cas_path):\n                os.makedirs(cas_dir, exist_ok=True)\n                with open(cas_path, 'wb') as out:\n                    out.write(data)\n                if is_exec:\n                    os.chmod(cas_path, 0o755)\n\n            rel_name = member.name\n            if '/' in rel_name:\n                rel_name = rel_name.split('/', 1)[1]\n\n            b64 = base64.b64encode(digest).decode()\n            index_files[rel_name] = {\n                'checkedAt': now,\n                'integrity': f'sha512-{b64}',\n                'mode': member.mode,\n                'size': len(data),\n            }\n            file_digests[rel_name] = file_hex\n\n    if store_version == 'v11':\n        assert index_db is not None\n        # pnpm v11 store index keys use the raw package name (e.g. @scope/pkg),\n        # not the filesystem-sanitized form (@scope+pkg), since keys are stored\n        # in SQLite, not as filenames.\n        raw_pkg_id = f'{pkg_name}@{pkg_version}'\n        key = f'{integrity_algo}-{integrity}\\t{raw_pkg_id}'\n\n        v11_files: dict[str, dict[str, object]] = {}\n        for rel_name, finfo in index_files.items():\n            checked_at = finfo['checkedAt']\n            assert isinstance(checked_at, int)\n            v11_files[rel_name] = {\n                'checkedAt': float(checked_at),  # float64 avoids msgpackr BigInt\n                'digest': file_digests[rel_name],\n                'mode': finfo['mode'],\n                'size': finfo['size'],\n            }\n\n        manifest = None\n        if real_pkg_name or real_pkg_version:\n            manifest = {\n                'name': real_pkg_name,\n                'version': real_pkg_version,\n            }\n\n        entry_bytes = _pack_v11_store_entry(v11_files, manifest)\n\n        # It's currently not possible to fully determine which store key pnpm will use,\n        # so we insert multiple keys to ensure pnpm can find the entry it wants.\n\n        index_db.execute(\n            'INSERT OR REPLACE INTO package_index (key, data) VALUES (?, ?)',\n            (key, entry_bytes),\n        )\n\n        if tarball_url:\n            url_key = f'{tarball_url}\\t{raw_pkg_id}'\n            index_db.execute(\n                'INSERT OR REPLACE INTO package_index (key, data) VALUES (?, ?)',\n                (url_key, entry_bytes),\n            )\n\n            # pnpm looks up git-hosted tarballs (codeload.github.com,\n            # bitbucket.org, gitlab.com) and tarballs without integrity by\n            # {tarball_url}\\tbuilt(not-built) \u2014 see pickStoreIndexKey in @pnpm/store.index.\n            pkgid_key = f'{tarball_url}\\t'\n            index_db.execute(\n                'INSERT OR REPLACE INTO package_index (key, data) VALUES (?, ?)',\n                (pkgid_key + 'built', entry_bytes),\n            )\n            index_db.execute(\n                'INSERT OR REPLACE INTO package_index (key, data) VALUES (?, ?)',\n                (pkgid_key + 'not-built', entry_bytes),\n            )\n    else:\n        pkg_id = _SANITIZE_RE.sub('+', f'{pkg_name}@{pkg_version}')\n\n        index_data = {\n            'name': real_pkg_name,\n            'version': real_pkg_version,\n            'requiresBuild': False,\n            'files': index_files,\n        }\n\n        idx_prefix = integrity_digest[:2]\n        idx_rest = integrity_digest[2:64]\n        idx_dir = os.path.join(store, 'index', idx_prefix)\n        os.makedirs(idx_dir, exist_ok=True)\n        idx_path = os.path.join(idx_dir, f'{idx_rest}-{pkg_id}.json')\n        with open(idx_path, 'w', encoding='utf-8') as out:\n            json.dump(index_data, out)\n\n        # For tarball-URL packages, also create an index entry keyed by the URL hash\n        # this is how pnpm looks up tarball deps without integrity\n        if tarball_url:\n            if store_version == 'v3':\n                url_hash = hashlib.sha256(tarball_url.encode()).hexdigest()\n                url_idx_prefix = url_hash[:2]\n                url_idx_rest = url_hash[2:64]\n                url_idx_dir = os.path.join(store, 'index', url_idx_prefix)\n                os.makedirs(url_idx_dir, exist_ok=True)\n                url_idx_path = os.path.join(\n                    url_idx_dir, f'{url_idx_rest}-{pkg_id}.json'\n                )\n                with open(url_idx_path, 'w', encoding='utf-8') as out:\n                    json.dump(index_data, out)\n            else:\n                url_dir_name = re.sub(r'[:/]', '+', tarball_url)\n                if (\n                    len(url_dir_name) > _MAX_LENGTH_WITHOUT_HASH\n                    or url_dir_name != url_dir_name.lower()\n                ):\n                    url_dir_name = f'{url_dir_name[: _MAX_LENGTH_WITHOUT_HASH - 33]}_{hashlib.sha256(url_dir_name.encode()).hexdigest()[:32]}'\n                url_idx_dir = os.path.join(store, url_dir_name)\n                os.makedirs(url_idx_dir, exist_ok=True)\n                url_idx_path = os.path.join(url_idx_dir, 'integrity.json')\n                with open(url_idx_path, 'w', encoding='utf-8') as out:\n                    json.dump(index_data, out)\n\n\nif __name__ == '__main__':\n    if len(sys.argv) != 4:\n        print(\n            f'Usage: {sys.argv[0]} <manifest.json> <tarball-dir> <store-dir>',\n            file=sys.stderr,\n        )\n        sys.exit(1)\n    populate_store(sys.argv[1], sys.argv[2], sys.argv[3])\n",
         "dest-filename": "populate_pnpm_store.py",
@@ -5514,7 +6234,7 @@
     {
         "type": "shell",
         "commands": [
-            "python3 -c 'import json; from pathlib import Path; p=Path(\"flatpak-node/pnpm-manifest.json\"); d=json.loads(p.read_text()); d[\"packages\"][\"yaml-2.9.0.tgz\"]={\"integrity\":\"2AvhNX3mb8zd6Zy7INTtSpl1F15HW6Wnqj0srWlkKLcpYl/gMIMJiyuGq2KeI2YFxUPjdlB+3Lc10seMLtL4cA==\",\"integrity_algo\":\"sha512\",\"integrity_digest\":\"d80be1357de66fccdde99cbb20d4ed4a9975175e475ba5a7aa3d2cad696428b729625fe03083098b2b86ab629e236605c543e376507edcb735d2c78c2ed2f870\",\"name\":\"yaml\",\"version\":\"2.9.0\"}; p.write_text(json.dumps(d, separators=(\",\", \":\")))'",
+            "python3 -c 'import json; from pathlib import Path; p=Path(\"flatpak-node/pnpm-manifest.json\"); d=json.loads(p.read_text()); extra=json.loads(Path(\"flatpak-node/pnpm-extra-packages.json\").read_text()); d[\"packages\"].update(extra); p.write_text(json.dumps(d, separators=(\",\", \":\")))'",
             "python3 flatpak-node/populate_pnpm_store.py flatpak-node/pnpm-manifest.json flatpak-node/pnpm-tarballs flatpak-node/pnpm-store",
             "echo \"store-dir=$PWD/flatpak-node/pnpm-store\" >> .npmrc",
             "bash flatpak-node/setup_sdk_node_headers.sh"
