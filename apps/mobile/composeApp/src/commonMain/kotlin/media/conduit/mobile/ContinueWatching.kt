@@ -6,6 +6,7 @@ import kotlin.time.Duration.Companion.days
 import kotlin.time.Instant
 import media.conduit.mobile.account.ProgressSummary
 import media.conduit.mobile.account.VideoItem
+import media.conduit.mobile.account.latestProgressByTitle
 
 internal enum class ContinueWatchingKind { InProgress, NewEpisode, NextUp, Scheduled, CaughtUp }
 
@@ -16,17 +17,7 @@ internal data class ContinueWatchingPresentation(
 )
 
 internal fun groupContinueWatching(items: List<ProgressSummary>): List<ProgressSummary> {
-    val grouped = linkedMapOf<String, ProgressSummary>()
-    items.forEach { item ->
-        val key = if (item.mediaType == "series") {
-            "${item.mediaType}:${item.mediaId}"
-        } else {
-            "${item.mediaType}:${item.mediaId}:${item.videoId}"
-        }
-        val current = grouped[key]
-        if (current == null || item.updatedAt > current.updatedAt) grouped[key] = item
-    }
-    return grouped.values.toList()
+    return latestProgressByTitle(items)
 }
 
 internal fun continueWatchingPresentation(

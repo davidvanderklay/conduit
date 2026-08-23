@@ -147,6 +147,17 @@ data class ProgressSummary(
     val revision: Long = 0,
 )
 
+private val progressRecencyComparator = compareBy<ProgressSummary> { it.updatedAt }
+    .thenBy { it.revision }
+    .thenBy { it.videoId }
+
+/** Keeps the newest progress row for each canonical title and orders titles by recent activity. */
+internal fun latestProgressByTitle(items: Iterable<ProgressSummary>): List<ProgressSummary> = items
+    .groupBy { item -> item.canonicalTitleId ?: "${item.mediaType}\u001f${item.mediaId}" }
+    .values
+    .mapNotNull { entries -> entries.maxWithOrNull(progressRecencyComparator) }
+    .sortedWith(progressRecencyComparator.reversed())
+
 @Serializable
 data class ProgressResponse(val items: List<ProgressSummary>)
 @Serializable private data class ProgressItemResponse(val item: ProgressSummary? = null)
@@ -927,9 +938,21 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
             suspend fun get(path: String) = client.get("$baseUrl$path") { bearerAuth(token) }
             val addons = async { get("/v1/profiles/$profileId/addons") }
             val library = async { get("/v1/profiles/$profileId/library") }
-            val progress = progressOverride?.let { null } ?: async { get("/v1/profiles/$profileId/progress?view=status&limit=1000") }
-            val history = progressOverride?.let { null } ?: async { get("/v1/profiles/$profileId/progress?view=history&limit=1000") }
-            val continueWatching = progressOverride?.let { null } ?: async { get("/v1/profiles/$profileId/progress?view=continue&limit=50") }
+            val progress = if (progressOverride == null) {
+                async { get("/v1/profiles/$profileId/progress?view=status&limit=1000") }
+            } else {
+                null
+            }
+            val history = if (progressOverride == null) {
+                async { get("/v1/profiles/$profileId/progress?view=history&limit=1000") }
+            } else {
+                null
+            }
+            val continueWatching = if (progressOverride == null) {
+                async { get("/v1/profiles/$profileId/progress?view=continue&limit=50") }
+            } else {
+                null
+            }
             val queue = async { get("/v1/profiles/$profileId/queue") }
             val queueResponse = queue.await()
             val progressResponses = listOfNotNull(progress?.await(), history?.await(), continueWatching?.await())
@@ -947,9 +970,10 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
                 library = responses[1].body<LibraryResponse>().items,
                 progress = progressOverride ?: responses[2].body<ProgressResponse>().items,
                 history = progressOverride ?: responses[3].body<ProgressResponse>().items,
-                continueWatching = (progressOverride ?: responses[4].body<ProgressResponse>().items)
-                    .filter { it.continueWatching && !it.dismissed }
-                    .distinctBy { it.canonicalTitleId ?: "${it.mediaType}\u001f${it.mediaId}" },
+                continueWatching = latestProgressByTitle(
+                    (progressOverride ?: responses[4].body<ProgressResponse>().items)
+                        .filter { it.continueWatching && !it.dismissed },
+                ),
                 queue = if (queueResponse.status.value == 404) emptyList() else {
                     if (!queueResponse.status.isSuccess()) {
                         throw ServerRequestException("Profile synchronization returned HTTP ${queueResponse.status.value}", queueResponse.status.value)

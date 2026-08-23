@@ -46,6 +46,60 @@ class ConduitApiTest {
     }
 
     @Test
+    fun profileSyncKeepsTheNewestContinueWatchingEpisodeForATitle() = runTest {
+        val requestedProgressViews = mutableSetOf<String>()
+        val engine = MockEngine { request ->
+            request.url.parameters["view"]?.let(requestedProgressViews::add)
+            val body = when {
+                request.url.encodedPath.endsWith("/addons") -> """{"addons":[]}"""
+                request.url.encodedPath.endsWith("/library") -> """{"items":[]}"""
+                request.url.encodedPath.endsWith("/queue") -> """{"items":[]}"""
+                else -> error("Unexpected path ${request.url.encodedPath} ${request.method}")
+            }
+            respond(body, HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "application/json"))
+        }
+        val canonicalTitleId = "psych"
+        val pilot = ProgressSummary(
+            videoId = "pilot",
+            mediaType = "series",
+            mediaId = "tt0491738",
+            name = "Psych",
+            season = 1,
+            episode = 1,
+            positionMs = 3_966_921,
+            durationMs = 3_966_921,
+            watched = true,
+            continueWatching = true,
+            updatedAt = "2026-08-22T07:35:12Z",
+            canonicalTitleId = canonicalTitleId,
+            canonicalEpisodeKey = "s1:e1",
+        )
+        val latest = pilot.copy(
+            videoId = "s2e8",
+            season = 2,
+            episode = 8,
+            positionMs = 140_599,
+            durationMs = 2_585_541,
+            watched = false,
+            updatedAt = "2026-08-23T08:24:20Z",
+            canonicalEpisodeKey = "s2:e8",
+            revision = 111,
+        )
+
+        val snapshot = ConduitApi(
+            HttpClient(engine) { install(ContentNegotiation) { json() } },
+        ).synchronizeProfile(
+            baseUrl = "https://conduit.example",
+            token = "token",
+            profileId = "p1",
+            progressOverride = listOf(pilot, latest),
+        )
+
+        assertEquals(listOf("s2e8"), snapshot.continueWatching.map(ProgressSummary::videoId))
+        assertTrue(requestedProgressViews.isEmpty())
+    }
+
+    @Test
     fun validatesHealthAndAuthenticationConfiguration() = runTest {
         val client = mockClient { path, _ ->
             when (path) {

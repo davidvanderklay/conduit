@@ -413,8 +413,8 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				"OTHER_LDFLAGS[sdk=iphoneos*]" = "-framework ComposeApp $(SRCROOT)/../native/ios/iosArm64/libconduit_mobile.a";
-				"OTHER_LDFLAGS[sdk=iphonesimulator*]" = "-framework ComposeApp $(SRCROOT)/../native/ios/iosSimulatorArm64/libconduit_mobile.a";
+				"OTHER_LDFLAGS[sdk=iphoneos*]" = "-framework ComposeApp -lsqlite3 $(SRCROOT)/../native/ios/iosArm64/libconduit_mobile.a";
+				"OTHER_LDFLAGS[sdk=iphonesimulator*]" = "-framework ComposeApp -lsqlite3 $(SRCROOT)/../native/ios/iosSimulatorArm64/libconduit_mobile.a";
 				PRODUCT_BUNDLE_IDENTIFIER = media.conduit.mobile;
 				PRODUCT_NAME = conduit;
 				SDKROOT = iphoneos;
@@ -435,8 +435,8 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				"OTHER_LDFLAGS[sdk=iphoneos*]" = "-framework ComposeApp $(SRCROOT)/../native/ios/iosArm64/libconduit_mobile.a";
-				"OTHER_LDFLAGS[sdk=iphonesimulator*]" = "-framework ComposeApp $(SRCROOT)/../native/ios/iosSimulatorArm64/libconduit_mobile.a";
+				"OTHER_LDFLAGS[sdk=iphoneos*]" = "-framework ComposeApp -lsqlite3 $(SRCROOT)/../native/ios/iosArm64/libconduit_mobile.a";
+				"OTHER_LDFLAGS[sdk=iphonesimulator*]" = "-framework ComposeApp -lsqlite3 $(SRCROOT)/../native/ios/iosSimulatorArm64/libconduit_mobile.a";
 				PRODUCT_BUNDLE_IDENTIFIER = media.conduit.mobile;
 				PRODUCT_NAME = conduit;
 				SDKROOT = iphoneos;
