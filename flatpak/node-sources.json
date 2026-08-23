@@ -5514,6 +5514,7 @@
     {
         "type": "shell",
         "commands": [
+            "python3 -c 'import json; from pathlib import Path; p=Path(\"flatpak-node/pnpm-manifest.json\"); d=json.loads(p.read_text()); d[\"packages\"][\"yaml-2.9.0.tgz\"]={\"integrity\":\"2AvhNX3mb8zd6Zy7INTtSpl1F15HW6Wnqj0srWlkKLcpYl/gMIMJiyuGq2KeI2YFxUPjdlB+3Lc10seMLtL4cA==\",\"integrity_algo\":\"sha512\",\"integrity_digest\":\"d80be1357de66fccdde99cbb20d4ed4a9975175e475ba5a7aa3d2cad696428b729625fe03083098b2b86ab629e236605c543e376507edcb735d2c78c2ed2f870\",\"name\":\"yaml\",\"version\":\"2.9.0\"}; p.write_text(json.dumps(d, separators=(\",\", \":\")))'",
             "python3 flatpak-node/populate_pnpm_store.py flatpak-node/pnpm-manifest.json flatpak-node/pnpm-tarballs flatpak-node/pnpm-store",
             "echo \"store-dir=$PWD/flatpak-node/pnpm-store\" >> .npmrc",
             "bash flatpak-node/setup_sdk_node_headers.sh"
