@@ -97,6 +97,10 @@ internal class WatchMetadataCache(
     fun videosFor(item: CatalogItem): List<VideoItem> = metadataFor(item)?.videos.orEmpty()
 }
 
+internal fun progressDisplayTitle(progress: ProgressSummary, metadataName: String? = null): String =
+    metadataName?.takeIf(String::isNotBlank)
+        ?: progress.name.substringBefore("  ·  ").substringBefore(" · ").trim()
+
 @Composable
 internal fun rememberWatchMetadataCache(
     api: ConduitApi,
@@ -115,6 +119,7 @@ internal fun ContinueWatchingCard(
     onActions: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val displayTitle = progressDisplayTitle(progress, metadata?.name)
     val presentation = continueWatchingPresentation(
         progress = progress,
         videos = metadata?.videos.orEmpty(),
@@ -145,13 +150,13 @@ internal fun ContinueWatchingCard(
                 interactionSource = interaction,
                 indication = null,
                 onClickLabel = when (presentation.kind) {
-                    ContinueWatchingKind.InProgress -> "Resume ${progress.name}"
-                    ContinueWatchingKind.NewEpisode -> "Play the new episode of ${progress.name}"
-                    ContinueWatchingKind.NextUp -> "Play the next episode of ${progress.name}"
-                    ContinueWatchingKind.Scheduled -> "View ${progress.name}, next episode ${presentation.label}"
-                    ContinueWatchingKind.CaughtUp -> "View ${progress.name}, caught up"
+                    ContinueWatchingKind.InProgress -> "Resume $displayTitle"
+                    ContinueWatchingKind.NewEpisode -> "Play the new episode of $displayTitle"
+                    ContinueWatchingKind.NextUp -> "Play the next episode of $displayTitle"
+                    ContinueWatchingKind.Scheduled -> "View $displayTitle, next episode ${presentation.label}"
+                    ContinueWatchingKind.CaughtUp -> "View $displayTitle, caught up"
                 },
-                onLongClickLabel = "More actions for ${progress.name}",
+                onLongClickLabel = "More actions for $displayTitle",
                 onClick = onClick,
                 onLongClick = {
                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -170,14 +175,14 @@ internal fun ContinueWatchingCard(
         }
         AsyncImage(
             model = artwork?.first,
-            contentDescription = progress.name,
+            contentDescription = displayTitle,
             contentScale = artwork?.second ?: ContentScale.Crop,
             modifier = Modifier.fillMaxSize(),
             onError = { artworkIndex += 1 },
         )
         if (artwork == null) {
             Text(
-                progress.name.take(1),
+                displayTitle.take(1),
                 modifier = Modifier.align(Alignment.Center),
                 style = MaterialTheme.typography.displayMedium,
                 color = Color.White.copy(alpha = .24f),
@@ -221,7 +226,7 @@ internal fun ContinueWatchingCard(
                 )
             }
             Text(
-                progress.name,
+                displayTitle,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 color = Color.White,
@@ -261,12 +266,14 @@ internal fun RichPosterCard(
     val cardScale by animateFloatAsState(if (pressed) .97f else 1f, label = "media-card-press")
     val haptics = LocalHapticFeedback.current
     val progress = latestProgress(snapshot, item)
+    val displayTitle = progress?.let { progressDisplayTitle(it, metadataCache.metadataFor(item)?.name) }
+        ?: item.name
     Column(
         modifier.scale(cardScale).combinedClickable(
             interactionSource = interaction,
             indication = null,
-            onClickLabel = "Open ${item.name}",
-            onLongClickLabel = "More actions for ${item.name}",
+            onClickLabel = "Open $displayTitle",
+            onLongClickLabel = "More actions for $displayTitle",
             onClick = onClick,
             onLongClick = {
                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -281,7 +288,7 @@ internal fun RichPosterCard(
         ) {
             AsyncImage(
                 model = item.poster,
-                contentDescription = item.name,
+                contentDescription = displayTitle,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
             )
@@ -294,7 +301,7 @@ internal fun RichPosterCard(
         }
         if (showLabels) {
             Text(
-                item.name,
+                displayTitle,
                 minLines = 2,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
@@ -315,6 +322,7 @@ internal fun RichProgressCard(
     onActions: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val displayTitle = progressDisplayTitle(progress)
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val cardScale by animateFloatAsState(if (pressed) .98f else 1f, label = "progress-card-press")
@@ -323,8 +331,8 @@ internal fun RichProgressCard(
         modifier.scale(cardScale).combinedClickable(
             interactionSource = interaction,
             indication = null,
-            onClickLabel = "Resume ${progress.name}",
-            onLongClickLabel = "More actions for ${progress.name}",
+            onClickLabel = "Resume $displayTitle",
+            onLongClickLabel = "More actions for $displayTitle",
             onClick = onClick,
             onLongClick = {
                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -335,14 +343,14 @@ internal fun RichProgressCard(
     ) {
         Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceVariant)) {
             Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(Color(0xFF342B55), Color(0xFF17151E)))))
-            AsyncImage(progress.poster, progress.name, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            AsyncImage(progress.poster, displayTitle, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
             if (progress.poster == null) {
-                Text(progress.name.take(1), modifier = Modifier.align(Alignment.Center), style = MaterialTheme.typography.displayMedium, color = Color.White.copy(alpha = .24f))
+                Text(displayTitle.take(1), modifier = Modifier.align(Alignment.Center), style = MaterialTheme.typography.displayMedium, color = Color.White.copy(alpha = .24f))
             }
             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = .45f)))))
             ProgressRail(progress, Modifier.align(Alignment.BottomCenter))
         }
-        Text(progress.name, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
+        Text(displayTitle, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
         Text(
             progress.videoTitle ?: listOfNotNull(progress.season?.let { "S$it" }, progress.episode?.let { "E$it" })
                 .joinToString(" · ").ifBlank { "${progress.positionMs / 60_000} min watched" },
