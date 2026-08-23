@@ -13,6 +13,7 @@ import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.*
@@ -1766,42 +1767,55 @@ private fun BoxScope.PlaybackSessionHost(
                     shape = RoundedCornerShape(if (compactUpNext) 16.dp else 20.dp),
                     border = BorderStroke(1.dp, Color.White.copy(.16f)),
                 ) {
-                    Row(
-                        Modifier.padding(if (compactUpNext) 8.dp else 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        AsyncImage(
-                            upNext.nextEpisodeArtwork,
-                            null,
-                            Modifier
-                                .size(
-                                    width = if (compactUpNext) 76.dp else 88.dp,
-                                    height = if (compactUpNext) 48.dp else 54.dp,
-                                )
-                                .clip(RoundedCornerShape(if (compactUpNext) 9.dp else 11.dp)),
-                            contentScale = ContentScale.Crop,
-                        )
-                        Spacer(Modifier.width(if (compactUpNext) 8.dp else 10.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(if (upNext.nextItemQueued) "UP NEXT" else "NEXT EPISODE", color = Color.White.copy(.6f), style = MaterialTheme.typography.labelSmall)
-                            Text(upNext.nextEpisodeTitle.orEmpty(), color = Color.White, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        }
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            IconButton(
-                                onClick = { upNextDismissed = true },
-                                modifier = Modifier.size(28.dp),
-                            ) {
-                                Icon(
-                                    Icons.Rounded.Close,
-                                    "Dismiss next episode",
-                                    modifier = Modifier.size(17.dp),
-                                )
+                    Box {
+                        Row(
+                            Modifier.padding(
+                                start = if (compactUpNext) 8.dp else 10.dp,
+                                top = if (compactUpNext) 8.dp else 10.dp,
+                                end = if (compactUpNext) 40.dp else 44.dp,
+                                bottom = if (compactUpNext) 8.dp else 10.dp,
+                            ),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            AsyncImage(
+                                upNext.nextEpisodeArtwork,
+                                null,
+                                Modifier
+                                    .size(
+                                        width = if (compactUpNext) 76.dp else 88.dp,
+                                        height = if (compactUpNext) 48.dp else 54.dp,
+                                    )
+                                    .clip(RoundedCornerShape(if (compactUpNext) 9.dp else 11.dp)),
+                                contentScale = ContentScale.Crop,
+                            )
+                            Spacer(Modifier.width(if (compactUpNext) 8.dp else 10.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(if (upNext.nextItemQueued) "UP NEXT" else "NEXT EPISODE", color = Color.White.copy(.6f), style = MaterialTheme.typography.labelSmall)
+                                Text(upNext.nextEpisodeTitle.orEmpty(), color = Color.White, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                             FilledTonalIconButton(
                                 onClick = controller::playNext,
                                 modifier = Modifier.size(40.dp),
                             ) {
                                 Icon(Icons.Rounded.PlayArrow, "Play next")
+                            }
+                        }
+                        Surface(
+                            onClick = { upNextDismissed = true },
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(6.dp)
+                                .size(28.dp),
+                            color = Color.White.copy(.10f),
+                            contentColor = Color.White,
+                            shape = CircleShape,
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    Icons.Rounded.Close,
+                                    "Dismiss next episode",
+                                    modifier = Modifier.size(16.dp),
+                                )
                             }
                         }
                     }
