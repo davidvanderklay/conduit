@@ -855,6 +855,10 @@ final class ConduitMPVPlayerViewController: UIViewController {
 
         guard !destroyStarted else { return }
         destroyStarted = true
+        debugLog(
+            "destroy player id=\(ObjectIdentifier(self)) subtitleGeneration=\(subtitleLoadGeneration) " +
+            "pendingSubtitles=\(pendingExternalSubtitles.count)"
+        )
 
         lifecycleObservers.forEach(NotificationCenter.default.removeObserver)
         lifecycleObservers.removeAll()
@@ -1494,6 +1498,10 @@ final class ConduitMPVPlayerViewController: UIViewController {
 
     private func startLoad(_ request: ConduitPendingLoad) {
         guard mpv != nil else { return }
+        debugLog(
+            "start load id=\(ObjectIdentifier(self)) " +
+            "externalSubtitles=\(request.subtitles.count)"
+        )
         layoutDisplayLayer()
         pictureInPictureClock.reset(positionMs: request.initialPositionMs)
         clearError()

@@ -270,7 +270,7 @@ class PlaybackSessionController(
     }
 
     fun playNext() {
-        if (state.request == null) return
+        if (state.request == null || state.transition != null) return
         queuedNext?.let {
             playQueueItem(it)
             return

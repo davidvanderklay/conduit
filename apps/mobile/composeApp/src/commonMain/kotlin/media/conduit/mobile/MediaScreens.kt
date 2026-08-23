@@ -84,6 +84,7 @@ private val VideoItem.displayTitle: String
         ?: "Episode ${episode ?: ""}".trim()
 
 private const val AUTO_RESUME_TIMEOUT_MS = 8_000L
+private const val SUBTITLE_LOOKUP_TIMEOUT_MS = 8_000L
 private class AutoResumeTimeoutException : IllegalStateException("Saved source lookup timed out")
 
 private enum class AutoResumeStage {
@@ -697,6 +698,11 @@ internal fun MediaDetailsScreen(
     var playerStreamRequestJob by remember(item.id) { mutableStateOf<Job?>(null) }
     var manualSourceSwitchVideoIds by remember(item.id) { mutableStateOf<Set<String>>(emptySet()) }
     var manualSourceFallbacks by remember(item.id) { mutableStateOf<Map<String, StreamSource>>(emptyMap()) }
+    fun transitionDiagnostic(stage: String, detail: String = "") {
+        if (!preferences.debugLogging) return
+        val suffix = detail.takeIf(String::isNotBlank)?.let { " $it" }.orEmpty()
+        println("[DEBUG-next-transition-42f1] $stage$suffix")
+    }
     val autoResumeRequested = openMode == MediaOpenMode.AutoResume || openMode == MediaOpenMode.Queue
     val effectiveInitialVideoId = effectiveResumeVideoId(
         initialVideoId,
@@ -998,9 +1004,11 @@ internal fun MediaDetailsScreen(
         if (!autoPlaySavedSource) streamsError = null
         val videoId = video?.id ?: videoIdOverride ?: item.id
         val requestVersion = ++streamRequestVersion
+        val transitionRequest = playbackSession.state.transition != null
         streams = null
         streamVideoId = videoId
         val requestJob = scope.launch(start = CoroutineStart.LAZY) {
+            val requestStarted = kotlin.time.TimeSource.Monotonic.markNow()
             val compatibleAddons = addons.filter { it.enabled && it.supportsResource("stream", item.type, videoId) }
             val requestedAddonId = if (autoPlaySavedSource) null else addonId ?: selectedStreamAddonId
             val effectiveAddonId = requestedAddonId?.takeIf { selectedId ->
@@ -1011,9 +1019,18 @@ internal fun MediaDetailsScreen(
             val result = loadStreamsForRequest(
                 videoId,
                 requestedAddons,
-                autoResume = autoPlaySavedSource && preferredSource == null,
+                autoResume = autoPlaySavedSource,
             )
+            if (transitionRequest) {
+                transitionDiagnostic(
+                    "streams.finished",
+                    "outcome=${if (result.isSuccess) "success" else "failure"} " +
+                        "count=${result.getOrNull()?.size ?: 0} " +
+                        "durationMs=${requestStarted.elapsedNow().inWholeMilliseconds}",
+                )
+            }
             if (requestVersion != streamRequestVersion) return@launch
+            var closeFailedTransition = false
             result
                 .onSuccess { choices ->
                     streams = choices
@@ -1057,6 +1074,7 @@ internal fun MediaDetailsScreen(
                             if (autoPlaySavedSource) autoResumeAttemptedKey = autoResumeAttemptKey(selectedSource)
                             autoResumeStage = AutoResumeStage.Starting
                             playing = choice.stream
+                            if (transitionRequest) transitionDiagnostic("streams.selected")
                         } else {
                             streamsError = if (choices.isEmpty()) {
                                 "No sources were returned. Choose another source below."
@@ -1065,6 +1083,7 @@ internal fun MediaDetailsScreen(
                             }
                             autoResumeStage = AutoResumeStage.Picker
                             streamPageOpen = true
+                            closeFailedTransition = transitionRequest
                         }
                     }
                 }
@@ -1083,10 +1102,15 @@ internal fun MediaDetailsScreen(
                     }
                     if (autoPlaySavedSource) streamPageOpen = true
                     if (autoPlaySavedSource) autoResumeStage = AutoResumeStage.Picker
+                    closeFailedTransition = transitionRequest
                 }
             if (requestVersion == streamRequestVersion) {
                 streamsLoading = false
                 streamRequestJob = null
+                if (closeFailedTransition) {
+                    transitionDiagnostic("streams.failed.exit-loading")
+                    playbackSession.close(saveProgress = false)
+                }
             }
         }
         streamRequestJob = requestJob
@@ -1140,9 +1164,20 @@ internal fun MediaDetailsScreen(
         }
     }
     LaunchedEffect(playingVideoId, addons) {
+        val transitionLookup = playbackSession.state.transition != null
+        val lookupStarted = kotlin.time.TimeSource.Monotonic.markNow()
+        if (transitionLookup) transitionDiagnostic("subtitles.started")
         externalSubtitlesLoaded = false
-        externalSubtitles = runCatching { api.loadSubtitles(addons, item.type, playingVideoId) }.getOrDefault(emptyList())
+        externalSubtitles = withTimeoutOrNull(SUBTITLE_LOOKUP_TIMEOUT_MS) {
+            runCatching { api.loadSubtitles(addons, item.type, playingVideoId) }.getOrDefault(emptyList())
+        }.orEmpty()
         externalSubtitlesLoaded = true
+        if (transitionLookup) {
+            transitionDiagnostic(
+                "subtitles.finished",
+                "count=${externalSubtitles.size} durationMs=${lookupStarted.elapsedNow().inWholeMilliseconds}",
+            )
+        }
     }
     LaunchedEffect(playingVideoId, profile?.id) {
         resumePosition = progressForVideoId(playingVideoId)?.takeUnless { it.watched }?.positionMs
@@ -1304,6 +1339,7 @@ internal fun MediaDetailsScreen(
             playNext = {
                 nextVideo?.let { video ->
                     if (preferences.autoSelectNextStreams) {
+                        transitionDiagnostic("requested")
                         playbackSession.beginTransition(
                             title = video.displayTitle,
                             mediaName = meta?.name ?: item.name,
@@ -1435,6 +1471,7 @@ internal fun MediaDetailsScreen(
             },
             minimized = onBack,
             closed = {
+                cancelStreamRequest()
                 playing = null
                 openingPlayback = false
                 autoResumeStage = AutoResumeStage.Inactive
@@ -1488,6 +1525,9 @@ internal fun MediaDetailsScreen(
             mediaItem = item,
             episodes = orderedVideos,
         )
+        if (playbackSession.state.transition != null) {
+            transitionDiagnostic("request.published", "subtitleCount=${externalSubtitles.size}")
+        }
         playbackSession.start(request, callbacks)
         openingPlayback = false
     }
