@@ -20,6 +20,56 @@ import media.conduit.mobile.foundation.MemorySecureStore
 
 class PlaybackProgressOutboxTest {
     @Test
+    fun rejectedCheckpointDoesNotBlockLaterTitles() = runTest {
+        var online = false
+        val attemptedVideos = mutableListOf<String>()
+        val engine = MockEngine { request ->
+            val videoId = request.url.encodedPath.substringAfterLast('/')
+            attemptedVideos += videoId
+            if (!online) {
+                respond("offline", HttpStatusCode.ServiceUnavailable)
+            } else {
+                val positionMs = if (videoId == "video-1") 1_000 else 20_000
+                respond(
+                    """{"item":{"videoId":"$videoId","mediaType":"movie","mediaId":"movie-$videoId","name":"Movie","positionMs":$positionMs,"durationMs":100000,"watched":false,"dismissed":false,"continueWatching":true,"updatedAt":"2026-08-14T12:00:00Z"}}""",
+                    HttpStatusCode.OK,
+                    headersOf("Content-Type", ContentType.Application.Json.toString()),
+                )
+            }
+        }
+        val api = ConduitApi(HttpClient(engine) { install(ContentNegotiation) { json() } })
+        val outbox = PlaybackProgressOutbox(api, MemorySecureStore())
+
+        suspend fun enqueue(videoNumber: Int) {
+            val request = PlaybackRequest(
+                identity = PlaybackIdentity("profile-1", "movie", "movie-$videoNumber", "video-$videoNumber"),
+                url = "https://example.test/movie.mp4",
+                title = "Movie",
+                mediaName = "Movie",
+            )
+            outbox.enqueue(
+                "https://conduit.example", "token", "account-1", request,
+                PlaybackState(loading = false, positionMs = videoNumber * 10_000L, durationMs = 100_000),
+                PlaybackCheckpointIdentity("session-$videoNumber", 1), null,
+            )
+        }
+
+        enqueue(1)
+        enqueue(2)
+        attemptedVideos.clear()
+        online = true
+
+        val flushed = outbox.flush("https://conduit.example", "token", "account-1")
+
+        assertEquals(listOf("video-1", "video-2"), attemptedVideos)
+        assertEquals(listOf("video-2"), flushed.map { it.progress.videoId })
+        assertEquals(
+            listOf("video-1"),
+            outbox.pendingSummaries("https://conduit.example", "account-1", "profile-1").map { it.videoId },
+        )
+    }
+
+    @Test
     fun failedCheckpointIsRetainedAndRetried() = runTest {
         var online = false
         val engine = MockEngine {

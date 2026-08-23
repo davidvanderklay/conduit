@@ -121,6 +121,9 @@ function progressRow(
   return {
     profileId,
     videoId,
+    canonicalTitleId: null,
+    canonicalEpisodeKey: null,
+    revision: 0,
     mediaType: "series",
     mediaId,
     name: mediaId === "show" ? "Show" : "Other show",

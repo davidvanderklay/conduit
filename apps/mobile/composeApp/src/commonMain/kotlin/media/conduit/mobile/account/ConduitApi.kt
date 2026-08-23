@@ -142,11 +142,83 @@ data class ProgressSummary(
     val continueWatching: Boolean = false,
     val playbackSource: PlaybackSource? = null,
     val updatedAt: String,
+    val canonicalTitleId: String? = null,
+    val canonicalEpisodeKey: String? = null,
+    val revision: Long = 0,
 )
 
 @Serializable
 data class ProgressResponse(val items: List<ProgressSummary>)
 @Serializable private data class ProgressItemResponse(val item: ProgressSummary? = null)
+
+@Serializable
+data class ProgressIdentity(
+    val mediaType: String,
+    val mediaId: String,
+    val canonicalTitleId: String? = null,
+    val aliases: List<String> = emptyList(),
+    val videoId: String? = null,
+    val season: Int? = null,
+    val episode: Int? = null,
+)
+
+@Serializable
+sealed interface ProgressOperation {
+    val identity: ProgressIdentity
+
+    @Serializable
+    @kotlinx.serialization.SerialName("upsert")
+    data class Upsert(
+        override val identity: ProgressIdentity,
+        val name: String,
+        val poster: String? = null,
+        val videoTitle: String? = null,
+        val positionMs: Long,
+        val durationMs: Long,
+        val watched: Boolean,
+        val playbackSource: PlaybackSource? = null,
+        val checkpointSessionId: String,
+        val checkpointSequence: Long,
+    ) : ProgressOperation
+
+    @Serializable
+    @kotlinx.serialization.SerialName("dismissTitle")
+    data class DismissTitle(override val identity: ProgressIdentity) : ProgressOperation
+
+    @Serializable
+    @kotlinx.serialization.SerialName("restoreTitle")
+    data class RestoreTitle(override val identity: ProgressIdentity) : ProgressOperation
+
+    @Serializable
+    @kotlinx.serialization.SerialName("deleteEpisode")
+    data class DeleteEpisode(override val identity: ProgressIdentity) : ProgressOperation
+
+    @Serializable
+    @kotlinx.serialization.SerialName("deleteTitle")
+    data class DeleteTitle(override val identity: ProgressIdentity) : ProgressOperation
+}
+
+@Serializable data class ProgressOperationRequest(val operationId: String, val operation: ProgressOperation)
+@Serializable data class ProgressEvent(val revision: Long, val type: String, val payload: JsonObject)
+@Serializable data class ProgressOperationResult(
+    val accepted: Boolean,
+    val reason: String? = null,
+    val generation: Long,
+    val revision: Long,
+    val event: ProgressEvent? = null,
+)
+@Serializable data class ProgressSnapshotPage(
+    val generation: Long,
+    val boundary: Long,
+    val items: List<ProgressSummary>,
+    val nextAfterVideoId: String? = null,
+)
+@Serializable data class ProgressChangesPage(
+    val generation: Long,
+    val events: List<ProgressEvent>,
+    val nextCursor: Long,
+    val hasMore: Boolean,
+)
 
 @Serializable
 data class ProfileSnapshot(
@@ -232,7 +304,20 @@ data class MetaItem(
     val trailers: List<TrailerItem> = emptyList(),
     val trailerStreams: List<TrailerStreamItem> = emptyList(),
     val videos: List<VideoItem> = emptyList(),
+    @kotlinx.serialization.SerialName("imdb_id") val imdbId: String? = null,
+    val externalIds: JsonObject = JsonObject(emptyMap()),
 )
+
+fun MetaItem.progressAliases(): List<String> = buildList {
+    add(id)
+    imdbId?.let(::add)
+    externalIds.forEach { (provider, value) ->
+        value.jsonPrimitive.contentOrNull?.let { id ->
+            add(if (id.contains(':')) id else "$provider:$id")
+            if (provider.equals("imdb", ignoreCase = true)) add(id)
+        }
+    }
+}.distinct()
 
 @Serializable
 data class StreamProxyHeaders(val request: Map<String, JsonElement> = emptyMap())
@@ -645,6 +730,57 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
         return response.body()
     }
 
+    suspend fun applyProgressOperation(
+        baseUrl: String,
+        token: String,
+        profileId: String,
+        operationId: String,
+        operation: ProgressOperation,
+    ): ProgressOperationResult {
+        val response = client.post("$baseUrl/v1/profiles/$profileId/progress/operations") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody(ProgressOperationRequest(operationId, operation))
+        }
+        if (!response.status.isSuccess()) {
+            throw ServerRequestException(response.bodyAsText().ifBlank { "Progress operation returned HTTP ${response.status.value}" }, response.status.value)
+        }
+        return response.body()
+    }
+
+    suspend fun progressSnapshotPage(
+        baseUrl: String,
+        token: String,
+        profileId: String,
+        boundary: Long? = null,
+        generation: Long? = null,
+        afterVideoId: String? = null,
+        limit: Int = 200,
+    ): ProgressSnapshotPage {
+        val parameters = buildList {
+            add("limit=$limit")
+            boundary?.let { add("boundary=$it") }
+            generation?.let { add("generation=$it") }
+            afterVideoId?.let { add("afterVideoId=${it.encodeURLPathPart()}") }
+        }.joinToString("&")
+        val response = client.get("$baseUrl/v1/profiles/$profileId/progress/snapshot?$parameters") { bearerAuth(token) }
+        if (!response.status.isSuccess()) throw ServerRequestException(response.bodyAsText().ifBlank { "Progress snapshot returned HTTP ${response.status.value}" }, response.status.value)
+        return response.body()
+    }
+
+    suspend fun progressChanges(
+        baseUrl: String,
+        token: String,
+        profileId: String,
+        generation: Long,
+        after: Long,
+        limit: Int = 200,
+    ): ProgressChangesPage {
+        val response = client.get("$baseUrl/v1/profiles/$profileId/progress/changes?generation=$generation&after=$after&limit=$limit") { bearerAuth(token) }
+        if (!response.status.isSuccess()) throw ServerRequestException(response.bodyAsText().ifBlank { "Progress changes returned HTTP ${response.status.value}" }, response.status.value)
+        return response.body()
+    }
+
     suspend fun signIn(baseUrl: String, email: String, password: String): AuthenticatedSession {
         return authenticate(
             "$baseUrl/api/auth/sign-in/email",
@@ -781,17 +917,23 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
         if (!response.status.isSuccess()) throw ServerRequestException("Unable to remove add-on", response.status.value)
     }
 
-    suspend fun synchronizeProfile(baseUrl: String, token: String, profileId: String): ProfileSnapshot =
+    suspend fun synchronizeProfile(
+        baseUrl: String,
+        token: String,
+        profileId: String,
+        progressOverride: List<ProgressSummary>? = null,
+    ): ProfileSnapshot =
         coroutineScope {
             suspend fun get(path: String) = client.get("$baseUrl$path") { bearerAuth(token) }
             val addons = async { get("/v1/profiles/$profileId/addons") }
             val library = async { get("/v1/profiles/$profileId/library") }
-            val progress = async { get("/v1/profiles/$profileId/progress?view=status&limit=1000") }
-            val history = async { get("/v1/profiles/$profileId/progress?view=history&limit=1000") }
-            val continueWatching = async { get("/v1/profiles/$profileId/progress?view=continue&limit=50") }
+            val progress = progressOverride?.let { null } ?: async { get("/v1/profiles/$profileId/progress?view=status&limit=1000") }
+            val history = progressOverride?.let { null } ?: async { get("/v1/profiles/$profileId/progress?view=history&limit=1000") }
+            val continueWatching = progressOverride?.let { null } ?: async { get("/v1/profiles/$profileId/progress?view=continue&limit=50") }
             val queue = async { get("/v1/profiles/$profileId/queue") }
             val queueResponse = queue.await()
-            val responses = listOf(addons.await(), library.await(), progress.await(), history.await(), continueWatching.await())
+            val progressResponses = listOfNotNull(progress?.await(), history?.await(), continueWatching?.await())
+            val responses = listOf(addons.await(), library.await()) + progressResponses
             responses.firstOrNull { !it.status.isSuccess() }?.let { response ->
                 throw ServerRequestException(
                     if (response.status.value == 401) "Your session has expired" else
@@ -803,9 +945,11 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
                 profileId = profileId,
                 addons = responses[0].body<AddonsResponse>().addons,
                 library = responses[1].body<LibraryResponse>().items,
-                progress = responses[2].body<ProgressResponse>().items,
-                history = responses[3].body<ProgressResponse>().items,
-                continueWatching = responses[4].body<ProgressResponse>().items,
+                progress = progressOverride ?: responses[2].body<ProgressResponse>().items,
+                history = progressOverride ?: responses[3].body<ProgressResponse>().items,
+                continueWatching = (progressOverride ?: responses[4].body<ProgressResponse>().items)
+                    .filter { it.continueWatching && !it.dismissed }
+                    .distinctBy { it.canonicalTitleId ?: "${it.mediaType}\u001f${it.mediaId}" },
                 queue = if (queueResponse.status.value == 404) emptyList() else {
                     if (!queueResponse.status.isSuccess()) {
                         throw ServerRequestException("Profile synchronization returned HTTP ${queueResponse.status.value}", queueResponse.status.value)

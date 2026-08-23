@@ -12,6 +12,7 @@ plugins {
     id("org.jetbrains.compose")
     id("org.jetbrains.kotlin.plugin.compose")
     id("com.android.application")
+    id("app.cash.sqldelight")
 }
 
 kotlin {
@@ -27,6 +28,7 @@ kotlin {
                 "native/ios/${target.name}/libconduit_mobile.a",
             )
             linkerOpts(
+                "-lsqlite3",
                 "-Wl,-force_load,${mobileBridge.absolutePath}",
             )
         }
@@ -56,6 +58,7 @@ kotlin {
             implementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
         }
         androidMain.dependencies {
+            implementation("app.cash.sqldelight:android-driver:2.3.2")
             implementation("androidx.activity:activity-compose:1.10.1")
             implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.1")
             implementation("androidx.media3:media3-exoplayer:1.10.1")
@@ -71,8 +74,20 @@ kotlin {
             implementation("androidx.test.ext:junit:1.2.1")
             implementation("androidx.test:runner:1.6.2")
         }
+        androidUnitTest.dependencies {
+            implementation("app.cash.sqldelight:sqlite-driver:2.3.2")
+        }
         iosMain.dependencies {
+            implementation("app.cash.sqldelight:native-driver:2.3.2")
             implementation("io.ktor:ktor-client-darwin:3.5.1")
+        }
+    }
+}
+
+sqldelight {
+    databases {
+        create("ProgressDatabase") {
+            packageName.set("media.conduit.mobile.progressdb")
         }
     }
 }

@@ -80,6 +80,7 @@ import media.conduit.mobile.foundation.*
 import media.conduit.mobile.account.ConduitApi
 import media.conduit.mobile.account.SessionVault
 import media.conduit.mobile.account.*
+import media.conduit.mobile.progressdb.ProgressDatabase
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Mutex
@@ -87,6 +88,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
+import kotlin.time.Clock
 import coil3.compose.AsyncImage
 
 @Composable
@@ -124,11 +126,11 @@ private fun AccountGate(
     onPreferencesChanged: (DevicePreferences) -> Unit,
     dispatch: (AppAction) -> Unit,
 ) {
+    val progressDatabase = rememberProgressDatabase()
     val endpoint = state.endpoint ?: return
     val api = remember(endpoint.baseUrl) { ConduitApi() }
     val sessionVault = remember(services.secure) { SessionVault(services.secure) }
     val repository = remember(api, sessionVault) { AccountRepository(api, sessionVault) }
-    val progressOutbox = remember(api, services.secure) { PlaybackProgressOutbox(api, services.secure) }
     val authenticationCache = remember(services.settings) { AuthenticationConfigurationCache(services.settings) }
     val cachedAuthentication = remember(endpoint.baseUrl) { authenticationCache.load(endpoint.baseUrl) }
     val hasStoredSession = remember(endpoint.baseUrl) { repository.hasStoredSession(endpoint.baseUrl) }
@@ -307,12 +309,12 @@ private fun AccountGate(
                     account = current,
                     api = api,
                     secureStore = services.secure,
+                    progressDatabase = progressDatabase,
                     preferences = preferences,
                     onPreferencesChanged = onPreferencesChanged,
                     dispatch = dispatch,
                     onSignOut = {
                         accountScope.launch {
-                            progressOutbox.clear(endpoint.baseUrl, current.bootstrap.user?.email ?: current.session.token)
                             account = repository.signOut(endpoint, current.session)
                             (account as? AccountStatus.SignedOut)?.authentication?.let { configuration ->
                                 authenticationCache.save(endpoint.baseUrl, configuration)
@@ -696,6 +698,7 @@ private fun AppShell(
     account: AccountStatus.SignedIn,
     api: ConduitApi,
     secureStore: SecureStore,
+    progressDatabase: ProgressDatabase,
     preferences: DevicePreferences,
     onPreferencesChanged: (DevicePreferences) -> Unit,
     dispatch: (AppAction) -> Unit,
@@ -704,8 +707,12 @@ private fun AppShell(
 ) {
     val profiles = account.bootstrap.households.flatMap { it.profiles }
     val activeProfile = profiles.firstOrNull { it.id == state.activeProfileId } ?: profiles.firstOrNull()
-    val syncRepository = remember(api, secureStore) { ProfileSyncRepository(api, secureStore) }
-    val progressOutbox = remember(api, secureStore) { PlaybackProgressOutbox(api, secureStore) }
+    val endpoint = checkNotNull(state.endpoint)
+    val accountId = account.bootstrap.user?.email ?: account.session.token
+    val profileCacheScope = "${endpoint.baseUrl.length}:${endpoint.baseUrl}${accountId.length}:$accountId"
+    val syncRepository = remember(api, secureStore, profileCacheScope) { ProfileSyncRepository(api, secureStore, profileCacheScope) }
+    val incrementalProgress = remember(api, progressDatabase) { IncrementalProgressRepository(api, progressDatabase) }
+    val progressOutbox = remember(api, secureStore, incrementalProgress) { PlaybackProgressOutbox(api, secureStore, incrementalProgress) }
     val mutationMutex = remember { Mutex() }
     val profileSyncMutex = remember { Mutex() }
     val appScope = rememberCoroutineScope()
@@ -720,29 +727,20 @@ private fun AppShell(
         )
     }
     var queueManagerOpen by remember(activeProfile?.id) { mutableStateOf(false) }
-    var acknowledgedProgress by remember(activeProfile?.id, account.session.token) {
-        mutableStateOf<Map<String, ProgressSummary>>(emptyMap())
-    }
-    val endpoint = checkNotNull(state.endpoint)
-    val accountId = account.bootstrap.user?.email ?: account.session.token
-    suspend fun synchronizeProfileData(profileId: String): ProfileSyncState {
+    suspend fun synchronizeProfileData(profileId: String, fullResync: Boolean = false): ProfileSyncState {
         progressOutbox.flush(endpoint.baseUrl, account.session.token, accountId)
-        val preserved = progressOutbox.pendingSummaries(endpoint.baseUrl, accountId, profileId) +
-            acknowledgedProgress.values
+        val progress = if (fullResync) {
+            incrementalProgress.fullResync(endpoint.baseUrl, account.session.token, accountId, profileId)
+        } else {
+            incrementalProgress.synchronize(endpoint.baseUrl, account.session.token, accountId, profileId)
+        }
         val result = syncRepository.synchronize(
             endpoint.baseUrl,
             account.session.token,
             profileId,
-            preserved,
+            progressOverride = progress,
         )
-        val latestSnapshot = result.snapshot?.withProgressUpdates(
-            acknowledgedProgress.values +
-                progressOutbox.pendingSummaries(endpoint.baseUrl, accountId, profileId),
-        )
-        if (latestSnapshot != null && latestSnapshot != result.snapshot) {
-            syncRepository.save(latestSnapshot)
-        }
-        return result.copy(snapshot = latestSnapshot)
+        return result
     }
     LaunchedEffect(activeProfile?.id, account.session.token) {
         val profile = activeProfile ?: return@LaunchedEffect
@@ -782,12 +780,20 @@ private fun AppShell(
         activeProfile?.let { profile ->
             appScope.launch {
                 profileSyncMutex.withLock {
+                    profileSync = synchronizeProfileData(profile.id, fullResync = true)
+                }
+            }
+        }
+    }
+    rememberAppRecoveryTriggers {
+        activeProfile?.let { profile ->
+            appScope.launch {
+                profileSyncMutex.withLock {
                     profileSync = synchronizeProfileData(profile.id)
                 }
             }
         }
     }
-    rememberAppRecoveryTriggers(refreshProfileData)
     LaunchedEffect(
         state.destination,
         browseQuery,
@@ -851,9 +857,15 @@ private fun AppShell(
                 profileSync = profileSync.copy(snapshot = optimistic, offline = false, error = null)
                 syncRepository.save(optimistic)
                 runCatching {
-                    api.executeMutation(state.endpoint!!.baseUrl, account.session.token, profile.id, mutation)
+                    val progressOperations = mutation.progressOperations()
+                    if (progressOperations.isEmpty()) {
+                        api.executeMutation(state.endpoint!!.baseUrl, account.session.token, profile.id, mutation)
+                    } else {
+                        progressOperations.forEach { operation ->
+                            incrementalProgress.enqueue(endpoint.baseUrl, accountId, profile.id, operation)
+                        }
+                    }
                     if (mutation is ProfileMutation.SetQueue) syncRepository.clearPendingQueue(profile.id)
-                    acknowledgedProgress = acknowledgedProgressAfterMutation(acknowledgedProgress, mutation)
                     profileSyncMutex.withLock {
                         val synchronized = synchronizeProfileData(profile.id)
                         val postMutation = synchronized.snapshot?.let { snapshot ->
@@ -897,7 +909,6 @@ private fun AppShell(
             return result
         }
         val onPlaybackProgressChanged: (ProgressSummary) -> Unit = { saved ->
-            acknowledgedProgress = acknowledgedProgress + (saved.videoId to saved)
             val current = profileSync.snapshot
             if (current != null) {
                 val updated = current.withProgressUpdate(saved)
@@ -1136,6 +1147,62 @@ private fun AppShell(
         }
     }
 }
+
+private fun ProfileMutation.progressOperations(): List<ProgressOperation> = when (this) {
+    is ProfileMutation.SetDismissed -> listOf(
+        if (dismissed) ProgressOperation.DismissTitle(progress.identity())
+        else ProgressOperation.RestoreTitle(progress.identity()),
+    )
+    is ProfileMutation.RemoveProgress -> listOf(ProgressOperation.DeleteEpisode(progress.identity()))
+    is ProfileMutation.SetWatched -> {
+        val current = progress
+        val videoId = current?.videoId ?: video?.id ?: item.id
+        val duration = current?.durationMs ?: 0
+        listOf(
+            ProgressOperation.Upsert(
+                identity = ProgressIdentity(item.type, item.id, videoId = videoId, season = video?.season ?: current?.season, episode = video?.episode ?: current?.episode),
+                name = item.name,
+                poster = item.poster,
+                videoTitle = video?.title ?: current?.videoTitle,
+                positionMs = if (watched) duration else 0,
+                durationMs = duration,
+                watched = watched,
+                playbackSource = current?.playbackSource,
+                checkpointSessionId = "manual:${Clock.System.now()}",
+                checkpointSequence = 1,
+            ),
+        )
+    }
+    is ProfileMutation.SetSeriesWatched -> videos
+        .filter { video -> watched || progress.any { it.videoId == video.id } }
+        .map { video ->
+            val current = progress.firstOrNull { it.videoId == video.id }
+            val duration = current?.durationMs ?: 0
+            ProgressOperation.Upsert(
+                identity = ProgressIdentity(item.type, item.id, videoId = video.id, season = video.season, episode = video.episode),
+                name = item.name,
+                poster = item.poster,
+                videoTitle = video.title,
+                positionMs = if (watched) duration else 0,
+                durationMs = duration,
+                watched = watched,
+                playbackSource = current?.playbackSource,
+                checkpointSessionId = "manual:${Clock.System.now()}:${video.id}",
+                checkpointSequence = 1,
+            )
+        }
+    is ProfileMutation.SetLibrary,
+    is ProfileMutation.SetQueue -> emptyList()
+}
+
+private fun ProgressSummary.identity() = ProgressIdentity(
+    canonicalTitleId = canonicalTitleId,
+    mediaType = mediaType,
+    mediaId = mediaId,
+    videoId = videoId,
+    season = season,
+    episode = episode,
+)
 
 @Composable
 private fun ConduitSnackbar(data: SnackbarData) {

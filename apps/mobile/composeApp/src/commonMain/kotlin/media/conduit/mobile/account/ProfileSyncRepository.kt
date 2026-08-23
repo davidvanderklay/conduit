@@ -37,6 +37,7 @@ internal fun ProfileSnapshot.withProgressUpdates(updates: Collection<ProgressSum
 class ProfileSyncRepository(
     private val api: ConduitApi,
     private val secureStore: SecureStore,
+    private val scope: String = "legacy",
 ) {
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -52,6 +53,7 @@ class ProfileSyncRepository(
         token: String,
         profileId: String,
         preservedProgress: Collection<ProgressSummary> = emptyList(),
+        progressOverride: List<ProgressSummary>? = null,
     ): ProfileSyncState {
         val cached = cached(profileId)
         return try {
@@ -59,13 +61,24 @@ class ProfileSyncRepository(
                 api.replaceQueue(baseUrl, token, profileId, pending)
                 clearPendingQueue(profileId)
             }
-            val snapshot = api.synchronizeProfile(baseUrl, token, profileId)
+            val snapshot = api.synchronizeProfile(baseUrl, token, profileId, progressOverride)
                 .withProgressUpdates(preservedProgress)
             secureStore.put(cacheKey(profileId), json.encodeToString(snapshot))
             ProfileSyncState(snapshot = snapshot)
         } catch (cause: Exception) {
+            val offlineSnapshot = cached?.let { snapshot ->
+                progressOverride?.let { progress ->
+                    snapshot.copy(
+                        progress = progress,
+                        history = progress,
+                        continueWatching = progress
+                            .filter { it.continueWatching && !it.dismissed }
+                            .distinctBy { it.canonicalTitleId ?: "${it.mediaType}\u001f${it.mediaId}" },
+                    )
+                } ?: snapshot.withProgressUpdates(preservedProgress)
+            }
             ProfileSyncState(
-                snapshot = cached?.withProgressUpdates(preservedProgress),
+                snapshot = offlineSnapshot,
                 offline = cached != null,
                 error = cause.message ?: "Unable to synchronize this profile",
             )
@@ -87,6 +100,6 @@ class ProfileSyncRepository(
 
     fun clear(profileId: String) = secureStore.remove(cacheKey(profileId))
 
-    private fun cacheKey(profileId: String) = "profile.snapshot.v1.$profileId"
-    private fun pendingQueueKey(profileId: String) = "profile.queue.pending.v1.$profileId"
+    private fun cacheKey(profileId: String) = "profile.snapshot.v2.${scope.length}:$scope.$profileId"
+    private fun pendingQueueKey(profileId: String) = "profile.queue.pending.v2.${scope.length}:$scope.$profileId"
 }

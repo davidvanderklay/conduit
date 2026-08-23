@@ -14,6 +14,7 @@ import {
   shouldPersistProgressUpdate,
   shouldKeepContinueWatching,
 } from "./route-modules/progress-routes.js"
+import { registerProgressSyncRoutes } from "./route-modules/progress-sync-routes.js"
 
 export async function registerRoutes(app: FastifyInstance, context: RouteContext) {
   await rehashAddonInstallationUrls(context.db, context.config.addonEncryptionKey)
@@ -33,6 +34,7 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
   registerAddonRoutes(app, context)
   registerLibraryRoutes(app, context)
   registerProgressRoutes(app, context)
+  registerProgressSyncRoutes(app, context)
   registerQueueRoutes(app, context)
 }
 

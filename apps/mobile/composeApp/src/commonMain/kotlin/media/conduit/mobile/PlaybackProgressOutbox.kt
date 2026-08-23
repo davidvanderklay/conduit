@@ -10,6 +10,9 @@ import kotlin.time.Clock
 import media.conduit.mobile.account.ConduitApi
 import media.conduit.mobile.account.PlaybackSource
 import media.conduit.mobile.account.ProgressSummary
+import media.conduit.mobile.account.IncrementalProgressRepository
+import media.conduit.mobile.account.ProgressIdentity
+import media.conduit.mobile.account.ProgressOperation
 import media.conduit.mobile.foundation.SecureStore
 
 private const val ProgressOutboxKeyPrefix = "playback.progress.outbox.v1"
@@ -53,6 +56,7 @@ private data class PersistedProgressCheckpoint(
 internal class PlaybackProgressOutbox(
     private val api: ConduitApi,
     private val secureStore: SecureStore,
+    private val incremental: IncrementalProgressRepository? = null,
 ) {
     private val json = Json {
         encodeDefaults = true
@@ -78,6 +82,42 @@ internal class PlaybackProgressOutbox(
         val checkpoint = checkpoint(request, playback, identity, watchedOverride)
         val local = checkpoint.toSummary(existing)
         if (!local.watched && checkpoint.positionMs < ProgressStoreThresholdPositionMs) return null
+        incremental?.let { repository ->
+            val operationId = repository.enqueue(
+                baseUrl,
+                accountId,
+                request.identity.profileId,
+                ProgressOperation.Upsert(
+                    identity = ProgressIdentity(
+                        mediaType = request.identity.mediaType,
+                        mediaId = request.identity.mediaId,
+                        canonicalTitleId = existing?.canonicalTitleId,
+                        aliases = request.mediaAliases,
+                        videoId = request.identity.videoId,
+                        season = request.season,
+                        episode = request.episode,
+                    ),
+                    name = request.mediaName,
+                    poster = request.poster,
+                    videoTitle = request.episodeTitle,
+                    positionMs = local.positionMs,
+                    durationMs = local.durationMs,
+                    watched = local.watched,
+                    playbackSource = local.playbackSource,
+                    checkpointSessionId = identity.sessionId,
+                    checkpointSequence = identity.sequence,
+                ),
+            )
+            val projection = repository.synchronize(baseUrl, token, accountId, request.identity.profileId)
+            val saved = projection.firstOrNull {
+                it.videoId == request.identity.videoId ||
+                    (it.mediaType == request.identity.mediaType && it.mediaId == request.identity.mediaId &&
+                        it.season == request.season && it.episode == request.episode)
+            } ?: local
+            val synced = repository.diagnostics(baseUrl, accountId, request.identity.profileId)
+                .none { it.operationId == operationId }
+            return ProgressWriteOutcome(preserveNewerLocalProgress(local, saved), synced)
+        }
         val storageKey = storageKey(baseUrl, accountId)
         stateMutex.withLock {
             loadLocked(storageKey)
@@ -96,12 +136,51 @@ internal class PlaybackProgressOutbox(
     suspend fun flush(baseUrl: String, token: String, accountId: String): List<FlushedProgress> =
         drainMutex.withLock {
             val storageKey = storageKey(baseUrl, accountId)
-            val flushed = mutableListOf<FlushedProgress>()
-            while (true) {
-                val next = stateMutex.withLock {
+            incremental?.let { repository ->
+                val legacy = stateMutex.withLock {
                     loadLocked(storageKey)
-                    pending.values.firstOrNull()
-                } ?: break
+                    pending.values.toList()
+                }
+                legacy.forEach { checkpoint ->
+                    repository.enqueue(
+                        baseUrl,
+                        accountId,
+                        checkpoint.profileId,
+                        ProgressOperation.Upsert(
+                            identity = ProgressIdentity(
+                                checkpoint.mediaType,
+                                checkpoint.mediaId,
+                                videoId = checkpoint.videoId,
+                                season = checkpoint.season,
+                                episode = checkpoint.episode,
+                            ),
+                            name = checkpoint.name,
+                            poster = checkpoint.poster,
+                            videoTitle = checkpoint.videoTitle,
+                            positionMs = checkpoint.positionMs,
+                            durationMs = checkpoint.durationMs,
+                            watched = checkpoint.toSummary(null).watched,
+                            playbackSource = checkpoint.playbackSource,
+                            checkpointSessionId = checkpoint.sessionId,
+                            checkpointSequence = checkpoint.sequence,
+                        ),
+                    )
+                    stateMutex.withLock {
+                        loadLocked(storageKey)
+                        if (pending[checkpoint.key()]?.identity() == checkpoint.identity()) {
+                            pending.remove(checkpoint.key())
+                            persistLocked(storageKey)
+                        }
+                    }
+                }
+                return@withLock emptyList()
+            }
+            val flushed = mutableListOf<FlushedProgress>()
+            val candidates = stateMutex.withLock {
+                loadLocked(storageKey)
+                pending.values.toList()
+            }
+            for (next in candidates) {
 
                 val saved = try {
                     api.saveProgress(
@@ -128,14 +207,14 @@ internal class PlaybackProgressOutbox(
                     if (cause is CancellationException) throw cause
                     // Leave the checkpoint in place. The next foreground or
                     // playback checkpoint will retry it without user action.
-                    break
+                    continue
                 }
 
                 if (!isProgressCheckpointAccepted(next.toSummary(existing = null), saved)) {
                     // A successful HTTP response can still be the existing row
                     // when the server coalesces a small update. Keep the newer
                     // checkpoint queued so a later checkpoint can retry it.
-                    break
+                    continue
                 }
 
                 stateMutex.withLock {

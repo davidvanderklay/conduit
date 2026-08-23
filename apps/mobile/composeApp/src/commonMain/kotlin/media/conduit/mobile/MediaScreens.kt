@@ -689,7 +689,6 @@ internal fun MediaDetailsScreen(
     var autoRecoverySavedSourceVideoIds by remember(item.id) { mutableStateOf<Set<String>>(emptySet()) }
     var autoResumeStage by remember(item.id) { mutableStateOf(AutoResumeStage.Inactive) }
     var autoFallbackStreams by remember(item.id) { mutableStateOf<Map<String, List<StreamSource>>>(emptyMap()) }
-    var migratedProgressIds by remember(item.id) { mutableStateOf<Set<String>>(emptySet()) }
     var streamSelectionReturnsHome by remember(item.id) { mutableStateOf(returnToHomeOnStreamBack) }
     var streamRequestVersion by remember(item.id) { mutableIntStateOf(0) }
     var streamRequestJob by remember(item.id) { mutableStateOf<Job?>(null) }
@@ -809,41 +808,6 @@ internal fun MediaDetailsScreen(
         if (selectedVideo?.id == requestedVideo.id) return@LaunchedEffect
         if (selection.shouldResetPlayback) resetPlaybackForVideoChange()
         selectedVideo = requestedVideo
-    }
-    LaunchedEffect(selectedVideo?.id, requestedProgress?.videoId, profile?.id) {
-        val canonical = selectedVideo ?: return@LaunchedEffect
-        val legacy = requestedProgress ?: return@LaunchedEffect
-        val activeProfile = profile ?: return@LaunchedEffect
-        if (
-            canonical.id == legacy.videoId ||
-            legacy.videoId in migratedProgressIds ||
-            !progressMatchesVideo(legacy, canonical)
-        ) return@LaunchedEffect
-        migratedProgressIds = migratedProgressIds + legacy.videoId
-        runCatching {
-            api.saveProgress(
-                baseUrl = baseUrl,
-                token = token,
-                profileId = activeProfile.id,
-                videoId = canonical.id,
-                mediaType = legacy.mediaType,
-                mediaId = legacy.mediaId,
-                name = legacy.name,
-                poster = legacy.poster,
-                videoTitle = canonical.displayTitle,
-                season = canonical.season,
-                episode = canonical.episode,
-                positionMs = legacy.positionMs,
-                durationMs = legacy.durationMs,
-                playbackSource = legacy.playbackSource,
-                watched = legacy.watched,
-            )
-        }.getOrNull()?.let { migrated ->
-            onProgressChanged(migrated)
-            runCatching {
-                api.deleteProgress(baseUrl, token, activeProfile.id, legacy.videoId)
-            }
-        }
     }
     suspend fun loadStreamsForRequest(
         videoId: String,
@@ -1479,25 +1443,26 @@ internal fun MediaDetailsScreen(
                     }
                     if (savedSourceWasUsed && failedProgress?.playbackSource != null) {
                         scope.launch {
-                            runCatching {
-                                api.saveProgress(
-                                    baseUrl = baseUrl,
-                                    token = token,
-                                    profileId = activeProfile.id,
-                                    videoId = failedProgress.videoId,
-                                    mediaType = failedProgress.mediaType,
-                                    mediaId = failedProgress.mediaId,
-                                    name = failedProgress.name,
+                            progressOutbox.enqueue(
+                                baseUrl = baseUrl,
+                                token = token,
+                                accountId = accountId,
+                                request = PlaybackRequest(
+                                    identity = PlaybackIdentity(activeProfile.id, failedProgress.mediaType, failedProgress.mediaId, failedProgress.videoId),
+                                    url = "",
+                                    title = failedProgress.videoTitle ?: failedProgress.name,
+                                    mediaName = failedProgress.name,
                                     poster = failedProgress.poster,
-                                    videoTitle = failedProgress.videoTitle,
+                                    episodeTitle = failedProgress.videoTitle,
                                     season = failedProgress.season,
                                     episode = failedProgress.episode,
-                                    positionMs = failedProgress.positionMs,
-                                    durationMs = failedProgress.durationMs,
-                                    clearPlaybackSource = true,
-                                    watched = failedProgress.watched,
-                                )
-                            }.getOrNull()?.let(onProgressChanged)
+                                    source = null,
+                                ),
+                                playback = PlaybackState(loading = false, positionMs = failedProgress.positionMs, durationMs = failedProgress.durationMs),
+                                identity = PlaybackCheckpointIdentity("clear-source:${failedProgress.videoId}", 1),
+                                existing = failedProgress,
+                                watchedOverride = failedProgress.watched,
+                            )?.progress?.let(onProgressChanged)
                         }
                     }
                 }
@@ -1540,6 +1505,7 @@ internal fun MediaDetailsScreen(
             } else {
                 meta?.name ?: item.name
             },
+            mediaAliases = meta?.progressAliases().orEmpty(),
             artwork = meta?.background ?: item.background ?: meta?.poster ?: item.poster,
             logo = meta?.logo,
             poster = meta?.poster ?: item.poster,

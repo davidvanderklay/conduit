@@ -74,6 +74,9 @@ export interface LibraryItem {
 }
 
 export interface WatchProgress {
+  canonicalTitleId?: string
+  canonicalEpisodeKey?: string
+  revision?: number
   videoId: string
   mediaType: string
   mediaId: string

@@ -1,15 +1,6 @@
 import { useEffect, useMemo, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import {
-  Check,
-  ChevronDown,
-  EyeOff,
-  Film,
-  History,
-  Info,
-  Play,
-  Trash2,
-} from "lucide-react"
+import { Check, ChevronDown, EyeOff, Film, History, Info, Play, Trash2 } from "lucide-react"
 import { api, type InstalledAddon, type WatchProgress } from "../lib/api"
 import { addonsForResource } from "../lib/addons"
 import {
@@ -22,6 +13,7 @@ import { loadMeta, type CatalogItem, type MetaItem } from "../lib/core"
 import { useLibrary, useLibraryToggle } from "../lib/library"
 import { normalizeMetaItem } from "../lib/metadata"
 import { posterCoverClass, posterTitleSlotClass } from "../lib/poster-layout"
+import { applyProgressOperation, progressIdentity } from "../lib/progress"
 import { Card } from "./ui/card"
 import { PaginationControls } from "./pagination-controls"
 import { PosterActionMenu, type PosterAction } from "./poster-action-menu"
@@ -33,7 +25,11 @@ type Sort = "recent" | "title-asc" | "title-desc"
 const PAGE_SIZE = 48
 type ContinueWatchingOpenMode = "resume" | "details"
 
-export function useProgressList(profileId: string, view: "continue" | "history" | "status", limit = 50) {
+export function useProgressList(
+  profileId: string,
+  view: "continue" | "history" | "status",
+  limit = 50,
+) {
   return useQuery({
     queryKey: ["progress", profileId, view],
     queryFn: () =>
@@ -129,7 +125,12 @@ function ContinueWatchingCard({
     staleTime: 5 * 60 * 1000,
   })
   const meta = metadata.data ?? fallback
-  const state = continueWatchingState(item, metadata.data?.videos ?? [], new Date(), watchedVideoIds)
+  const state = continueWatchingState(
+    item,
+    metadata.data?.videos ?? [],
+    new Date(),
+    watchedVideoIds,
+  )
   const targetVideoId =
     state.kind === "in-progress"
       ? item.videoId
@@ -210,8 +211,12 @@ function ContinueWatchingCard({
           onOpen={() => open("resume")}
           onDetails={() => open("details")}
           history={false}
-          playable={state.kind === "in-progress" || state.kind === "new-episode" || state.kind === "next-up"}
-          showWatchAction={state.kind !== "new-episode" && state.kind !== "next-up" && state.kind !== "scheduled"}
+          playable={
+            state.kind === "in-progress" || state.kind === "new-episode" || state.kind === "next-up"
+          }
+          showWatchAction={
+            state.kind !== "new-episode" && state.kind !== "next-up" && state.kind !== "scheduled"
+          }
         />
       </div>
     </article>
@@ -258,7 +263,11 @@ export function ContinueWatchingView({
         <ProgressSelect
           label="Media type"
           value={filter}
-          options={[["all", "All types"], ["movie", "Movies"], ["series", "Series"]]}
+          options={[
+            ["all", "All types"],
+            ["movie", "Movies"],
+            ["series", "Series"],
+          ]}
           onChange={(value) => setFilter(value as Filter)}
         />
         <ProgressSelect
@@ -286,11 +295,18 @@ export function ContinueWatchingView({
         <Card className="mt-8 grid min-h-64 place-items-center border-dashed text-zinc-500">
           <div className="text-center">
             <History className="mx-auto mb-3 text-zinc-700" />
-            {progress.isLoading ? "Loading Continue Watching…" : "Nothing to continue watching yet."}
+            {progress.isLoading
+              ? "Loading Continue Watching…"
+              : "Nothing to continue watching yet."}
           </div>
         </Card>
       )}
-      <PaginationControls page={page} pageSize={PAGE_SIZE} total={grouped.length} onChange={setPage} />
+      <PaginationControls
+        page={page}
+        pageSize={PAGE_SIZE}
+        total={grouped.length}
+        onChange={setPage}
+      />
     </main>
   )
 }
@@ -326,7 +342,9 @@ function ProgressCard({
           {item.poster ? (
             <img className="h-full w-full object-cover" src={item.poster} alt="" loading="lazy" />
           ) : (
-            <div className="grid h-full place-items-center text-zinc-700"><Film /></div>
+            <div className="grid h-full place-items-center text-zinc-700">
+              <Film />
+            </div>
           )}
         </button>
         {percent > 0 && (
@@ -376,18 +394,36 @@ function ProgressMenu({
   const saved = library.data?.items.some(
     (entry) => entry.type === item.mediaType && entry.id === item.mediaId,
   )
-  const patch = useMutation({
-    mutationFn: (body: { watched?: boolean; dismissed?: boolean }) =>
-      api(`/v1/profiles/${profileId}/progress/${encodeURIComponent(item.videoId)}`, {
-        method: "PATCH",
-        body: JSON.stringify(body),
+  const setWatched = useMutation({
+    mutationFn: (watched: boolean) =>
+      applyProgressOperation(profileId, {
+        type: "upsert",
+        identity: { ...progressIdentity(item), videoId: item.videoId },
+        name: item.name,
+        ...(item.poster ? { poster: item.poster } : {}),
+        ...(item.videoTitle ? { videoTitle: item.videoTitle } : {}),
+        positionMs: watched ? item.durationMs || item.positionMs : item.positionMs,
+        durationMs: item.durationMs,
+        watched,
+        ...(item.playbackSource ? { playbackSource: item.playbackSource } : {}),
+        checkpointSessionId: crypto.randomUUID(),
+        checkpointSequence: 1,
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["progress", profileId] }),
+  })
+  const dismiss = useMutation({
+    mutationFn: () =>
+      applyProgressOperation(profileId, {
+        type: "dismissTitle",
+        identity: progressIdentity(item),
       }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["progress", profileId] }),
   })
   const remove = useMutation({
     mutationFn: () =>
-      api(`/v1/profiles/${profileId}/progress/${encodeURIComponent(item.videoId)}`, {
-        method: "DELETE",
+      applyProgressOperation(profileId, {
+        type: "deleteEpisode",
+        identity: progressIdentity(item),
       }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["progress", profileId] }),
   })
@@ -411,8 +447,8 @@ function ProgressMenu({
                 ? "Mark episode watched"
                 : "Mark watched",
             icon: <Check size={16} />,
-            onSelect: () => patch.mutate({ watched: !item.watched }),
-            disabled: patch.isPending,
+            onSelect: () => setWatched.mutate(!item.watched),
+            disabled: setWatched.isPending,
           },
         ]
       : []),
@@ -438,8 +474,8 @@ function ProgressMenu({
     actions.push({
       label: "Remove from Continue Watching",
       icon: <EyeOff size={16} />,
-      onSelect: () => patch.mutate({ dismissed: true }),
-      disabled: patch.isPending,
+      onSelect: () => dismiss.mutate(),
+      disabled: dismiss.isPending,
     })
   }
   return <PosterActionMenu title={item.name} actions={actions} />
@@ -465,9 +501,16 @@ function ProgressSelect({
         value={value}
         onChange={(event) => onChange(event.target.value)}
       >
-        {options.map(([option, name]) => <option value={option} key={option}>{name}</option>)}
+        {options.map(([option, name]) => (
+          <option value={option} key={option}>
+            {name}
+          </option>
+        ))}
       </select>
-      <ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400" size={16} />
+      <ChevronDown
+        className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400"
+        size={16}
+      />
     </label>
   )
 }
@@ -492,9 +535,8 @@ function PreviewImage({
   alt: string
 }) {
   const [failed, setFailed] = useState<string[]>([])
-  const source = sources.find(
-    (candidate): candidate is { src: string; fit: "cover" | "contain" } =>
-      Boolean(candidate.src && !failed.includes(candidate.src)),
+  const source = sources.find((candidate): candidate is { src: string; fit: "cover" | "contain" } =>
+    Boolean(candidate.src && !failed.includes(candidate.src)),
   )
   if (!source)
     return (
