@@ -90,7 +90,7 @@ class DevicePreferencesTest {
 
     @Test
     fun ipadOsIsRecognizedAsAnIosTablet() {
-        assertTrue(isIosPlatformName("iPadOS"))
+        assertTrue("iPadOS".isIosPlatformName())
         assertTrue(PlatformInfo("iPadOS", "26.0", "iPad", isTablet = true).isIpad())
     }
 
