@@ -1,6 +1,7 @@
 import AVFoundation
 import AVKit
 import ComposeApp
+import CoreText
 import Foundation
 import Libmpv
 import UIKit
@@ -308,6 +309,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
     fileprivate let displayLayer = AVSampleBufferDisplayLayer()
     private let pictureInPicturePlaceholderLayer = CALayer()
     private var pictureInPicture: ConduitPictureInPictureCoordinator?
+    private lazy var subtitleFontController = ConduitSubtitleFontController()
     private var mpv: OpaquePointer?
 
     // MARK: Software renderer state (guarded by renderStateLock unless noted)
@@ -664,6 +666,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
     func setPreferredSubtitleLanguage(_ language: String) {
         runOnMain { [weak self] in
             guard let self else { return }
+            guard self.preferredSubtitleLanguage != language else { return }
             self.preferredSubtitleLanguage = language
             self.preferredSubtitleApplied = false
             self.applyPreferredSubtitleSelection()
@@ -720,6 +723,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
     func selectSubtitle(_ trackId: Int) {
         runOnMain { [weak self] in
             guard let self, self.mpv != nil else { return }
+            // Manual choices must win over the initial preferred-language pass.
             self.preferredSubtitleApplied = true
             if trackId < 0 {
                 self.setStringProperty("sid", "no")
@@ -727,6 +731,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
                 var id = Int64(trackId)
                 checkError(mpv_set_property(self.mpv, "sid", MPV_FORMAT_INT64, &id))
             }
+            self.refreshTracks()
         }
     }
 
@@ -1423,6 +1428,9 @@ final class ConduitMPVPlayerViewController: UIViewController {
         setOptionString(mpv, name: "keep-open", value: "yes")
         setOptionString(mpv, name: "subs-match-os-language", value: "yes")
         setOptionString(mpv, name: "subs-fallback", value: "yes")
+        subtitleFontController.applySetupOptions { [weak self] name, value in
+            self?.setOptionString(mpv, name: name, value: value)
+        }
 
         let initializeStatus = mpv_initialize(mpv)
         checkError(initializeStatus)
@@ -1437,8 +1445,12 @@ final class ConduitMPVPlayerViewController: UIViewController {
             (4, "eof-reached"),
             (5, "seeking"),
             (6, "track-list/count"),
+            (7, "sid"),
         ] {
-            mpv_observe_property(mpv, UInt64(index), property, property == "track-list/count" ? MPV_FORMAT_INT64 : MPV_FORMAT_FLAG)
+            let format = property == "track-list/count" || property == "sid"
+                ? MPV_FORMAT_INT64
+                : MPV_FORMAT_FLAG
+            mpv_observe_property(mpv, UInt64(index), property, format)
         }
 
         mpv_set_wakeup_callback(
@@ -1622,7 +1634,8 @@ final class ConduitMPVPlayerViewController: UIViewController {
 
                 switch eventId {
                 case MPV_EVENT_PROPERTY_CHANGE:
-                    let tracksChanged = event.pointee.reply_userdata == 6
+                    let tracksChanged = event.pointee.reply_userdata == 6 ||
+                        event.pointee.reply_userdata == 7
                     DispatchQueue.main.async { [weak self] in
                         self?.refreshPlaybackState()
                         if tracksChanged { self?.refreshTracks() }
@@ -1688,6 +1701,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
         var audio: [ConduitTrack] = []
         var subtitles: [ConduitTrack] = []
         let count = getInt("track-list/count")
+        let selectedSubtitleId = getInt("sid")
         var audioIndex = 0
         var subtitleIndex = 0
 
@@ -1707,7 +1721,9 @@ final class ConduitMPVPlayerViewController: UIViewController {
                 sampleRate: getInt("track-list/\(index)/demux-samplerate"),
                 bitrate: Int64(getInt("track-list/\(index)/demux-bitrate")),
                 external: getFlag("track-list/\(index)/external"),
-                selected: getFlag("track-list/\(index)/selected")
+                selected: type == "sub"
+                    ? id == selectedSubtitleId
+                    : getFlag("track-list/\(index)/selected")
             )
             if type == "audio" {
                 audio.append(track)
@@ -2707,6 +2723,52 @@ enum ConduitSurfaceTransitionPolicy {
         !interactiveResizeActive &&
             !surfaceTransitionActive &&
             !coordinatorSurfaceTransitionActive
+    }
+}
+
+/// Registers a known FreeType-readable CJK font before libmpv starts. iOS
+/// system fonts are available to CoreText but are not reliably discoverable by
+/// the FreeType/libass provider used by the bundled MPVKit build, which can
+/// turn Han glyphs into boxes and make fallback work happen repeatedly.
+final class ConduitSubtitleFontController {
+    private static let family = "Noto Sans CJK SC"
+    private var registered = false
+
+    func applySetupOptions(_ setOption: (String, String) -> Void) {
+        guard registerBundledFont() else { return }
+        setOption("sub-font", Self.family)
+    }
+
+    private func registerBundledFont() -> Bool {
+        if registered { return true }
+        guard let url = Bundle.main.url(
+            forResource: "NotoSansCJKsc-Regular",
+            withExtension: "otf",
+            subdirectory: "SubtitleFonts",
+        ) ?? Bundle.main.url(
+            forResource: "NotoSansCJKsc-Regular",
+            withExtension: "otf",
+        ) else {
+            print("[Conduit MPV] CJK subtitle font resource is missing")
+            return false
+        }
+
+        var error: Unmanaged<CFError>?
+        let didRegister = CTFontManagerRegisterFontsForURL(url as CFURL, .process, &error)
+        if !didRegister {
+            let message = error?.takeRetainedValue().localizedDescription ?? "unknown error"
+            // A second player can legitimately see the process-wide font as
+            // already registered. Verify the family before treating it as a
+            // failure so the player still uses the known-good font.
+            let font = CTFontCreateWithName(Self.family as CFString, 12, nil)
+            if (CTFontCopyFamilyName(font) as String) != Self.family {
+                print("[Conduit MPV] CJK subtitle font registration failed: \(message)")
+                return false
+            }
+        }
+
+        registered = true
+        return true
     }
 }
 

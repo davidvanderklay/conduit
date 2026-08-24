@@ -347,6 +347,11 @@ final class ConduitBackGestureCoordinator: NSObject, IosBackGestureBridge, UIGes
     private weak var gestureView: UIView?
     private var edgeGesture: UIScreenEdgePanGestureRecognizer?
     private var activationObserver: NSObjectProtocol?
+    private weak var snapshotHostView: UIView?
+    private var interactiveSnapshot: UIView?
+    private var interactiveAnimator: UIViewPropertyAnimator?
+    private var interactiveHandler: IosBackGestureHandler?
+    private var interactiveBackCommitted = false
 
     private override init() {
         super.init()
@@ -356,7 +361,9 @@ final class ConduitBackGestureCoordinator: NSObject, IosBackGestureBridge, UIGes
             queue: .main
         ) { [weak self] _ in
             self?.installGestureIfNeeded()
-            self?.edgeGesture?.isEnabled = self?.handler != nil
+            if self?.interactiveSnapshot == nil {
+                self?.edgeGesture?.isEnabled = self?.handler != nil
+            }
         }
     }
 
@@ -371,7 +378,13 @@ final class ConduitBackGestureCoordinator: NSObject, IosBackGestureBridge, UIGes
             guard let self else { return }
             self.handler = handler
             self.installGestureIfNeeded()
-            self.edgeGesture?.isEnabled = handler != nil
+            // Starting an interactive back removes the current Compose
+            // handler. Do not disable the recognizer while that gesture is
+            // active, or UIKit cancels it and the rollback path restores the
+            // page we were trying to leave.
+            if self.interactiveSnapshot == nil {
+                self.edgeGesture?.isEnabled = handler != nil
+            }
         }
         if Thread.isMainThread { apply() } else { DispatchQueue.main.async(execute: apply) }
     }
@@ -394,6 +407,7 @@ final class ConduitBackGestureCoordinator: NSObject, IosBackGestureBridge, UIGes
         gesture.delegate = self
         view.addGestureRecognizer(gesture)
         gestureView = view
+        snapshotHostView = view.superview ?? window
         edgeGesture = gesture
     }
 
@@ -403,12 +417,137 @@ final class ConduitBackGestureCoordinator: NSObject, IosBackGestureBridge, UIGes
     }
 
     @objc private func handleEdgePan(_ gesture: UIScreenEdgePanGestureRecognizer) {
-        guard gesture.state == .ended,
-              let view = gestureView,
-              let handler,
-              gesture.translation(in: view).x >= 80 || gesture.velocity(in: view).x >= 500
-        else { return }
-        handler.onBack()
+        guard let view = gestureView else { return }
+        let translation = max(0, gesture.translation(in: view).x)
+        let threshold = max(80, view.bounds.width * 0.32)
+
+        switch gesture.state {
+        case .began:
+            guard let handler,
+                  let hostView = view.superview ?? self.snapshotHostView,
+                  let snapshot = view.snapshotView(afterScreenUpdates: false)
+            else { return }
+            self.snapshotHostView = hostView
+            snapshot.frame = hostView.convert(view.bounds, from: view)
+            snapshot.autoresizingMask = []
+            snapshot.layer.shadowColor = UIColor.black.cgColor
+            snapshot.layer.shadowOpacity = 0.3
+            snapshot.layer.shadowRadius = 18
+            snapshot.layer.shadowOffset = CGSize(width: -8, height: 0)
+            // UIHostingController rejects its snapshot replicant as a child.
+            // Put the outgoing page above the hosting view in their common
+            // superview so the newly-rendered destination can appear below it.
+            hostView.addSubview(snapshot)
+            let animator = UIViewPropertyAnimator(
+                duration: 0.35,
+                timingParameters: UISpringTimingParameters(dampingRatio: 1.0)
+            )
+            animator.scrubsLinearly = true
+            animator.addAnimations { [weak snapshot] in
+                snapshot?.transform = CGAffineTransform(
+                    translationX: view.bounds.width,
+                    y: 0
+                )
+            }
+            animator.startAnimation()
+            animator.pauseAnimation()
+            interactiveSnapshot = snapshot
+            interactiveAnimator = animator
+            interactiveHandler = handler
+            interactiveBackCommitted = false
+            if handler.supportsInteractiveBack() {
+                // A native back transition exposes the destination under the
+                // outgoing snapshot from the first point of the gesture. The
+                // Compose handler provides a rollback action if the gesture
+                // is cancelled.
+                interactiveBackCommitted = true
+                handler.onBack()
+            }
+        case .changed:
+            let progress = min(translation / max(view.bounds.width, 1), 1)
+            if let interactiveAnimator {
+                interactiveAnimator.fractionComplete = progress
+            } else {
+                interactiveSnapshot?.transform = CGAffineTransform(
+                    translationX: min(translation, view.bounds.width),
+                    y: 0
+                )
+            }
+            if !interactiveBackCommitted &&
+                interactiveHandler?.supportsInteractiveBack() != true &&
+                (translation >= threshold || gesture.velocity(in: view).x >= 500)
+            {
+                interactiveBackCommitted = true
+                interactiveHandler?.onBack()
+            }
+        case .ended:
+            let interactive = interactiveHandler?.supportsInteractiveBack() == true
+            let shouldCommit = interactiveBackCommitted ||
+                translation >= threshold ||
+                gesture.velocity(in: view).x >= 500
+            if shouldCommit && !interactiveBackCommitted {
+                interactiveBackCommitted = true
+                interactiveHandler?.onBack()
+            }
+            finishInteractiveBack(on: view, committed: shouldCommit)
+        case .cancelled, .failed:
+            let interactive = interactiveHandler?.supportsInteractiveBack() == true
+            finishInteractiveBack(
+                on: view,
+                committed: interactive ? false : interactiveBackCommitted,
+            )
+        default:
+            break
+        }
+    }
+
+    private func finishInteractiveBack(on view: UIView, committed: Bool) {
+        guard let snapshot = interactiveSnapshot else {
+            interactiveHandler = nil
+            interactiveBackCommitted = false
+            edgeGesture?.isEnabled = handler != nil
+            return
+        }
+        guard let animator = interactiveAnimator else {
+            snapshot.removeFromSuperview()
+            interactiveSnapshot = nil
+            interactiveHandler = nil
+            interactiveBackCommitted = false
+            edgeGesture?.isEnabled = handler != nil
+            return
+        }
+
+        let finish = { [weak self, weak snapshot, weak animator] in
+            guard let animator else { return }
+            self?.snapshotHostView?.layoutIfNeeded()
+            animator.isReversed = !committed
+            animator.addCompletion { [weak self, weak snapshot] _ in
+                snapshot?.removeFromSuperview()
+                self?.interactiveSnapshot = nil
+                self?.interactiveAnimator = nil
+                self?.interactiveHandler = nil
+                self?.interactiveBackCommitted = false
+                self?.edgeGesture?.isEnabled = self?.handler != nil
+            }
+            animator.continueAnimation(withTimingParameters: nil, durationFactor: 0.8)
+        }
+        let interactive = interactiveHandler?.supportsInteractiveBack() == true
+        if interactive && !committed {
+            // The destination was rendered at the beginning of the gesture.
+            // Restore the source route before reversing the snapshot so a
+            // cancelled swipe also has the correct page underneath it.
+            interactiveHandler?.onBackCancelled()
+        }
+        if interactive || committed {
+            // Compose needs a couple of render passes to put the destination
+            // underneath the outgoing snapshot. Keep the animator paused
+            // while that happens, then hand control to UIKit's spring.
+            DispatchQueue.main.async {
+                DispatchQueue.main.async(execute: finish)
+            }
+        } else {
+            finish()
+        }
     }
 }
 

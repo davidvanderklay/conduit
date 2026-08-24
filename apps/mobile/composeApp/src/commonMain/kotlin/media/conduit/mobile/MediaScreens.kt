@@ -77,7 +77,7 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 
-private val VideoItem.displayTitle: String
+internal val VideoItem.displayTitle: String
     get() = title?.takeIf(String::isNotBlank)
         ?: name?.takeIf(String::isNotBlank)
         ?: overview?.lineSequence()?.firstOrNull()?.take(80)?.takeIf(String::isNotBlank)
@@ -214,6 +214,7 @@ internal fun MobileContinueWatchingScreen(
     onMutation: suspend (ProfileMutation) -> Result<Unit>,
     active: Boolean,
     onBack: () -> Unit,
+    onBackCancelled: (() -> Unit)? = null,
     onSelect: (CatalogItem) -> Unit,
     onSelectVideo: (CatalogItem, String?) -> Unit,
     gridState: androidx.compose.foundation.lazy.grid.LazyGridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState(),
@@ -246,7 +247,12 @@ internal fun MobileContinueWatchingScreen(
             }
         }
 
-    PlatformBackHandler(enabled = active, onBack = onBack)
+    PlatformBackHandler(
+        enabled = active,
+        onBack = onBack,
+        onBackCancelled = onBackCancelled,
+        interactiveBack = onBackCancelled != null,
+    )
     Column(modifier.fillMaxSize()) {
         ProfileHeader("Continue Watching", onBack)
         Column(Modifier.padding(horizontal = 10.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -665,6 +671,8 @@ internal fun MediaDetailsScreen(
     onBrowse: (MobileBrowseTarget) -> Unit,
     onPlayQueueItem: (PlaybackQueueItem) -> Unit,
     onBack: () -> Unit,
+    onInteractiveBack: (() -> Unit)? = null,
+    onBackCancelled: (() -> Unit)? = null,
     returnToHomeOnStreamBack: Boolean,
     openMode: MediaOpenMode,
     playbackSession: PlaybackSessionController,
@@ -700,10 +708,12 @@ internal fun MediaDetailsScreen(
     var playerStreamPicker by remember(item.id) { mutableStateOf<PlaybackStreamPickerState?>(null) }
     var playerStreamRequestVersion by remember(item.id) { mutableIntStateOf(0) }
     var playerStreamRequestJob by remember(item.id) { mutableStateOf<Job?>(null) }
+    var playbackReloadKey by remember(item.id) { mutableLongStateOf(0L) }
     var manualSourceSwitchVideoIds by remember(item.id) { mutableStateOf<Set<String>>(emptySet()) }
     var manualSourceFallbacks by remember(item.id) { mutableStateOf<Map<String, StreamSource>>(emptyMap()) }
     var prefetchedStreams by remember(item.id) { mutableStateOf<Map<String, Result<List<StreamSource>>>>(emptyMap()) }
     var prefetchedStreamVideoIds by remember(item.id) { mutableStateOf<Set<String>>(emptySet()) }
+    var interactiveBackRestore by remember(item.id) { mutableStateOf<(() -> Unit)?>(null) }
     fun transitionDiagnostic(stage: String, detail: String = "") {
         if (!preferences.debugLogging) return
         val suffix = detail.takeIf(String::isNotBlank)?.let { " $it" }.orEmpty()
@@ -1162,7 +1172,7 @@ internal fun MediaDetailsScreen(
             }
         }
     }
-    LaunchedEffect(playingVideoId, addons) {
+    LaunchedEffect(playingVideoId, addons, playbackReloadKey) {
         val transitionLookup = playbackSession.state.transition != null
         val lookupStarted = kotlin.time.TimeSource.Monotonic.markNow()
         if (transitionLookup) transitionDiagnostic("subtitles.started")
@@ -1268,6 +1278,13 @@ internal fun MediaDetailsScreen(
         val picker = playerStreamPicker ?: return
         if (source.stream.url == null) return
         val switchingCurrentSource = picker.episode.id == playingVideoId
+        val previousResumePosition = resumePosition
+        val retainedPosition = if (switchingCurrentSource) {
+            playbackSession.state.playback.positionMs.takeIf { playbackSession.state.playback.durationMs > 0 }
+                ?: previousResumePosition
+        } else {
+            0L
+        }
         if (switchingCurrentSource && currentAddonId != null && currentAddonName != null && playing != null) {
             manualSourceSwitchVideoIds = manualSourceSwitchVideoIds + picker.episode.id
             manualSourceFallbacks = manualSourceFallbacks + (
@@ -1288,6 +1305,8 @@ internal fun MediaDetailsScreen(
         autoFallbackStreams = autoFallbackStreams - picker.episode.id
         autoResumeStage = AutoResumeStage.Inactive
         playing = source.stream
+        resumePosition = retainedPosition
+        playbackReloadKey += 1L
         openingPlayback = true
     }
 
@@ -1492,6 +1511,7 @@ internal fun MediaDetailsScreen(
         externalSubtitles,
         playerContentTitle,
         nextVideo?.id,
+        playbackReloadKey,
     ) {
         val streamUrl = selectedStream?.url ?: return@LaunchedEffect
         if (!externalSubtitlesLoaded) return@LaunchedEffect
@@ -1521,6 +1541,7 @@ internal fun MediaDetailsScreen(
             source = currentPlaybackSource(),
             autoRecoveryAttempt = playingVideoId in autoRecoveryVideoIds,
             manualSourceSwitch = playingVideoId in manualSourceSwitchVideoIds,
+            reloadKey = playbackReloadKey,
             hasNextEpisode = nextVideo != null,
             nextEpisodeTitle = nextVideo?.let { "S${it.season ?: 0}E${it.episode ?: 0} · ${it.displayTitle}" },
             nextEpisodeArtwork = nextVideo?.thumbnail ?: meta?.background,
@@ -1554,22 +1575,77 @@ internal fun MediaDetailsScreen(
         onBack()
     }
     val ownsPlayback = requestIdentity != null && playbackSession.state.request?.identity == requestIdentity
+    val interactiveBackAvailable = !waitingForSavedPlayback &&
+        !openingPlayback &&
+        onInteractiveBack != null
+
+    fun performNativeBack() {
+        val session = playbackSession.state
+        when {
+            session.streamPicker != null -> {
+                val picker = session.streamPicker
+                interactiveBackRestore = { playbackSession.showStreamPicker(picker) }
+                playbackSession.closeStreamPicker()
+            }
+            session.episodePickerOpen -> {
+                interactiveBackRestore = { playbackSession.openEpisodes() }
+                playbackSession.closeEpisodes()
+            }
+            session.queueOpen -> {
+                interactiveBackRestore = { playbackSession.openQueue() }
+                playbackSession.closeQueue()
+            }
+            streamEpisodesOpen -> {
+                interactiveBackRestore = { streamEpisodesOpen = true }
+                streamEpisodesOpen = false
+            }
+            streamPageOpen -> {
+                val previousStreams = streams
+                val previousLoading = streamsLoading
+                val previousError = streamsError
+                val previousVideoId = streamVideoId
+                interactiveBackRestore = {
+                    streamPageOpen = true
+                    streams = previousStreams
+                    streamsLoading = previousLoading
+                    streamsError = previousError
+                    streamVideoId = previousVideoId
+                }
+                closeStreamSelection()
+            }
+            waitingForSavedPlayback -> cancelAutoResume()
+            ownsPlayback && playbackSession.state.presentation == PlaybackPresentation.FullScreen -> {
+                playbackSession.leaveFullScreen(preferences.miniplayerOnBack)
+            }
+            else -> {
+                interactiveBackRestore = onBackCancelled
+                if (interactiveBackAvailable) requireNotNull(onInteractiveBack).invoke() else onBack()
+            }
+        }
+    }
+    fun cancelNativeBack() {
+        interactiveBackRestore?.invoke()
+        interactiveBackRestore = null
+    }
     PlayerOrientationLock(
         active = waitingForSavedPlayback ||
             (playing != null && !ownsPlayback) ||
             (ownsPlayback && playbackSession.state.presentation == PlaybackPresentation.FullScreen),
     )
-    PlatformBackHandler {
-        when {
-            ownsPlayback && playbackSession.state.presentation == PlaybackPresentation.FullScreen -> {
-                playbackSession.leaveFullScreen(preferences.miniplayerOnBack)
-            }
-            streamEpisodesOpen -> streamEpisodesOpen = false
-            streamPageOpen -> closeStreamSelection()
-            waitingForSavedPlayback -> cancelAutoResume()
-            else -> onBack()
-        }
-    }
+    PlatformBackHandler(
+        enabled = !ownsPlayback ||
+            playbackSession.state.presentation != PlaybackPresentation.FullScreen ||
+            playbackSession.state.streamPicker != null ||
+            playbackSession.state.episodePickerOpen ||
+            playbackSession.state.queueOpen ||
+            streamEpisodesOpen ||
+            streamPageOpen ||
+            waitingForSavedPlayback ||
+            (platformBackIncludesFullscreenPlayer && playbackSession.state.presentation == PlaybackPresentation.FullScreen),
+        onBack = ::performNativeBack,
+        onBackCancelled = ::cancelNativeBack,
+        interactiveBack = interactiveBackAvailable,
+    )
     if (waitingForSavedPlayback || openingPlayback) {
         Box(Modifier.fillMaxSize()) {
             PlayerOpeningOverlay(
@@ -1618,10 +1694,26 @@ internal fun MediaDetailsScreen(
                 onRetry = { requestStreams(selectedVideo, addonId = selectedStreamAddonId) },
             ) { source ->
                 if (source.stream.url != null) {
+                    val videoId = selectedVideo?.id ?: streamVideoId ?: item.id
+                    val switchingCurrentSource = videoId == playingVideoId
+                    val previousResumePosition = resumePosition
+                    val retainedPosition = if (switchingCurrentSource) {
+                        playbackSession.state.playback.positionMs.takeIf { playbackSession.state.playback.durationMs > 0 }
+                            ?: previousResumePosition
+                    } else {
+                        0L
+                    }
+                    if (playbackSession.state.request != null) {
+                        playbackSession.beginTransition(
+                            title = selectedVideo?.displayTitle ?: meta?.name ?: item.name,
+                            mediaName = meta?.name ?: item.name,
+                            artwork = selectedVideo?.thumbnail ?: meta?.background ?: item.background ?: item.poster,
+                            logo = meta?.logo,
+                        )
+                    }
                     currentAddonId = source.addonId
                     currentAddonName = source.addonName
                     val selectedSource = playbackSourceForStream(source.addonId, source.stream)
-                    val videoId = selectedVideo?.id ?: streamVideoId ?: item.id
                     selectedPlaybackSources = selectedPlaybackSources + (videoId to selectedSource)
                     autoRecoveryVideoIds = autoRecoveryVideoIds - videoId
                     autoRecoverySavedSourceVideoIds = autoRecoverySavedSourceVideoIds - videoId
@@ -1631,6 +1723,8 @@ internal fun MediaDetailsScreen(
                     streamsError = null
                     openingPlayback = true
                     playing = source.stream
+                    resumePosition = retainedPosition
+                    playbackReloadKey += 1L
                 }
             }
             MobileBackButton(
@@ -2236,7 +2330,7 @@ internal fun PlayerEpisodeDrawer(
             Modifier
                 .align(Alignment.CenterEnd)
                 .fillMaxHeight()
-                .fillMaxWidth(.68f)
+                .fillMaxWidth(if (queueItems.isEmpty()) .68f else .84f)
                 .pointerInput(Unit) {
                     detectHorizontalDragGestures(
                         onDragEnd = { if (dragDistance > 100f) onDismiss(); dragDistance = 0f },
@@ -2254,7 +2348,11 @@ internal fun PlayerEpisodeDrawer(
             shadowElevation = if (fullscreen) 0.dp else 20.dp,
         ) {
             BoxWithConstraints(Modifier.fillMaxSize()) {
-            val queueWidth = if (fullscreen) 200.dp else (maxWidth * .34f).coerceIn(136.dp, 220.dp)
+            val queueWidth = when {
+                fullscreen -> 200.dp
+                queueItems.isNotEmpty() -> (maxWidth * .23f).coerceIn(112.dp, 180.dp)
+                else -> (maxWidth * .34f).coerceIn(136.dp, 220.dp)
+            }
             Column(
                 Modifier
                     .fillMaxSize()
@@ -3053,6 +3151,9 @@ internal fun ProfileSettingsScreen(
     // True while watch history was opened from the library header, so Back
     // returns to Library instead of the settings root.
     var historyFromLibrary by remember { mutableStateOf(false) }
+    var interactiveBackRoute by remember { mutableStateOf<ProfileRoute?>(null) }
+    var interactiveBackHistoryFromLibrary by remember { mutableStateOf(false) }
+    var interactiveBackDestination by remember { mutableStateOf<AppDestination?>(null) }
     val closeHistory: () -> Unit = {
         val wasFromLibrary = historyFromLibrary
         historyFromLibrary = false
@@ -3094,7 +3195,10 @@ internal fun ProfileSettingsScreen(
             "https://github.com/davidvanderklay/conduit/blob/main/THIRD_PARTY_NOTICES.md",
         )
     }
-    PlatformBackHandler(enabled = active && route != ProfileRoute.Settings) {
+    fun navigateBack() {
+        interactiveBackRoute = route
+        interactiveBackHistoryFromLibrary = historyFromLibrary
+        interactiveBackDestination = state.destination
         when (route) {
             ProfileRoute.Settings -> Unit
             ProfileRoute.History -> closeHistory()
@@ -3115,6 +3219,21 @@ internal fun ProfileSettingsScreen(
             ProfileRoute.Licenses -> route = ProfileRoute.Settings
         }
     }
+    fun cancelInteractiveBack() {
+        interactiveBackDestination?.let { destination ->
+            if (state.destination != destination) dispatch(AppAction.Navigate(destination))
+        }
+        interactiveBackRoute?.let { route = it }
+        historyFromLibrary = interactiveBackHistoryFromLibrary
+        interactiveBackRoute = null
+        interactiveBackDestination = null
+    }
+    PlatformBackHandler(
+        enabled = active && route != ProfileRoute.Settings,
+        onBack = ::navigateBack,
+        onBackCancelled = ::cancelInteractiveBack,
+        interactiveBack = true,
+    )
     when (val current = route) {
         ProfileRoute.Overview -> return ProfileOverviewScreen(activeProfile, profileSync.snapshot, { route = ProfileRoute.Settings }, { route = ProfileRoute.Switcher }, { activeProfile?.let { route = ProfileRoute.Edit(it) } }, modifier)
         ProfileRoute.Switcher -> return ProfileSwitcherScreen(account.bootstrap.households.flatMap { it.profiles }, activeProfile, { route = ProfileRoute.Overview }, { route = ProfileRoute.Edit(it) }, { route = ProfileRoute.Create }, { dispatch(AppAction.SelectProfile(it.id)); route = ProfileRoute.Overview }, modifier)

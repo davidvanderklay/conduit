@@ -14,6 +14,7 @@
 		7A51A1EF48814922E2C08A23 /* MPVPlayerBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1696757C18566865DC5CE890 /* MPVPlayerBridge.swift */; };
 		7CDCF257DBFF434F69BC4080 /* PlatformBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F8980C2E64758A37052A0ED /* PlatformBridge.swift */; };
 		A41956040010BB411FC5B410 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = ABFC1C5FF4A79A0A52335D32 /* Assets.xcassets */; };
+		A6F4A9C7D12B4E8F9012D6F4 /* NotoSansCJKsc-Regular.otf in Resources */ = {isa = PBXBuildFile; fileRef = D3B9E8A1F04C4B2EA6E7C901 /* NotoSansCJKsc-Regular.otf */; };
 		B33594ED17E331E3DC1494DE /* ConduitMobileSpikeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CB31B15E7546FEECDEF1B53 /* ConduitMobileSpikeApp.swift */; };
 		B9B43AA3AC1A274208E498A9 /* MPVKit in Frameworks */ = {isa = PBXBuildFile; productRef = 6722BC9818D0FD97D537EA0C /* MPVKit */; };
 /* End PBXBuildFile section */
@@ -39,6 +40,7 @@
 		8C4D3715EC258774BDAE0C6F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		A6B8D7EBE9A9B8716440E54F /* ConduitRenderSizePolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConduitRenderSizePolicyTests.swift; sourceTree = "<group>"; };
 		ABFC1C5FF4A79A0A52335D32 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		D3B9E8A1F04C4B2EA6E7C901 /* NotoSansCJKsc-Regular.otf */ = {isa = PBXFileReference; lastKnownFileType = file; path = NotoSansCJKsc-Regular.otf; sourceTree = "<group>"; };
 		E77BC1C5E04E13A85CE329BC /* ConduitMobileSpike-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "ConduitMobileSpike-Bridging-Header.h"; sourceTree = "<group>"; };
 		FFED6A56BB8C29CF926FE18E /* ConduitPipPlaybackClock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConduitPipPlaybackClock.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -86,6 +88,7 @@
 			isa = PBXGroup;
 			children = (
 				ABFC1C5FF4A79A0A52335D32 /* Assets.xcassets */,
+				E4C6F1A8B27D4D5FA903C7B2 /* SubtitleFonts */,
 				E77BC1C5E04E13A85CE329BC /* ConduitMobileSpike-Bridging-Header.h */,
 				1CB31B15E7546FEECDEF1B53 /* ConduitMobileSpikeApp.swift */,
 				FFED6A56BB8C29CF926FE18E /* ConduitPipPlaybackClock.swift */,
@@ -95,6 +98,14 @@
 				1F8980C2E64758A37052A0ED /* PlatformBridge.swift */,
 			);
 			path = ConduitMobileSpike;
+			sourceTree = "<group>";
+		};
+		E4C6F1A8B27D4D5FA903C7B2 /* SubtitleFonts */ = {
+			isa = PBXGroup;
+			children = (
+				D3B9E8A1F04C4B2EA6E7C901 /* NotoSansCJKsc-Regular.otf */,
+			);
+			path = SubtitleFonts;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -182,6 +193,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A41956040010BB411FC5B410 /* Assets.xcassets in Resources */,
+				A6F4A9C7D12B4E8F9012D6F4 /* NotoSansCJKsc-Regular.otf in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

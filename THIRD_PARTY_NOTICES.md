@@ -48,6 +48,12 @@ source and build instructions, including the pinned Swift package revisions.
 The root repository MIT license does not relicense the GPL-covered Apple
 mobile application.
 
+## Noto Sans CJK SC
+
+The iOS player bundles `NotoSansCJKsc-Regular.otf` for CJK subtitle fallback.
+It is Copyright 2022 Google LLC and is distributed under the SIL Open Font
+License 1.1: <https://scripts.sil.org/OFL>.
+
 ## Android libmpv
 
 The Android mobile player uses the pinned `mpv-android-lib` AAR during the

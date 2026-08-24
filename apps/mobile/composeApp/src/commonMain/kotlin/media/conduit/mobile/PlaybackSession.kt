@@ -47,6 +47,8 @@ data class PlaybackRequest(
     val source: PlaybackSource? = null,
     val autoRecoveryAttempt: Boolean = false,
     val manualSourceSwitch: Boolean = false,
+    /** Changes for an intentional reload, even when the stream URL is unchanged. */
+    val reloadKey: Long = 0L,
     val hasNextEpisode: Boolean = false,
     val nextEpisodeTitle: String? = null,
     val nextEpisodeArtwork: String? = null,
@@ -381,8 +383,14 @@ class PlaybackSessionController(
     }
 
     fun selectStream(source: StreamSource) {
-        if (state.streamPicker == null) return
-        state = state.copy(streamPicker = null)
+        val picker = state.streamPicker ?: return
+        if (source.stream.url == null) return
+        beginTransition(
+            title = picker.episode.displayTitle,
+            mediaName = state.request?.mediaName ?: picker.episode.displayTitle,
+            artwork = picker.episode.thumbnail ?: state.request?.artwork,
+            logo = state.request?.logo,
+        )
         callbacks?.selectStream?.invoke(source)
     }
 
@@ -436,7 +444,8 @@ private fun PlaybackRequest.isSameStream(other: PlaybackRequest): Boolean =
     identity == other.identity &&
         url == other.url &&
         requestHeaders == other.requestHeaders &&
-        subtitles == other.subtitles
+        subtitles == other.subtitles &&
+        reloadKey == other.reloadKey
 
 internal fun PlaybackRequest.streamKeyForPlayback(): String =
     buildString {
@@ -453,6 +462,8 @@ internal fun PlaybackRequest.streamKeyForPlayback(): String =
         append(requestHeaders)
         append('|')
         append(subtitles)
+        append('|')
+        append(reloadKey)
     }
 
 internal fun playbackRequestMatchesStream(

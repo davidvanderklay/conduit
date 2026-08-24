@@ -983,7 +983,7 @@ private fun BoxScope.FullscreenSubtitlePanel(
     onDismiss: () -> Unit,
 ) {
     var language by remember(selected?.languageKey) { mutableStateOf(selected?.languageKey ?: options.firstOrNull { it.supported }?.languageKey) }
-    var selectedTrackKey by remember { mutableStateOf(selected?.key) }
+    var selectedTrackKey by remember(selected?.key) { mutableStateOf(selected?.key) }
     LaunchedEffect(selected?.key) { selectedTrackKey = selected?.key }
     fun choose(option: PlayerTrackOption) { onBeforeSelection(); onSubtitleSelectionChanged(option.trackId, option.languageKey, true); language = option.languageKey; selectedTrackKey = option.key; player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false).clearOverridesOfType(C.TRACK_TYPE_TEXT).addOverride(TrackSelectionOverride(option.group.mediaTrackGroup, option.index)).build() }
     BoxWithConstraints(Modifier.fillMaxSize()) {

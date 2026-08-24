@@ -7,8 +7,12 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import media.conduit.mobile.account.StreamItem
+import media.conduit.mobile.account.StreamSource
 import media.conduit.mobile.account.VideoItem
 
 class PlaybackSessionTest {
@@ -554,6 +558,68 @@ class PlaybackSessionTest {
         assertEquals(PlaybackPresentation.FullScreen, controller.state.presentation)
         assertEquals(request.url, controller.state.request?.url)
         assertEquals(playback, controller.state.playback)
+    }
+
+    @Test
+    fun intentionalReloadOfTheSameSourceStartsFreshPlayback() {
+        val controller = PlaybackSessionController(TestScope())
+        val request = PlaybackRequest(
+            identity = PlaybackIdentity("profile", "movie", "media", "video"),
+            url = "https://example.test/video.m3u8",
+            title = "Movie",
+            mediaName = "Movie",
+        )
+        val callbacks = PlaybackSessionCallbacks(
+            persist = { _, _ -> },
+            playNext = {},
+            openEpisodes = {},
+            minimized = {},
+            closed = {},
+        )
+
+        controller.start(request, callbacks)
+        controller.updatePlayback(PlaybackState(playing = true, positionMs = 42_000, durationMs = 120_000))
+        val firstSessionId = controller.state.sessionId
+
+        controller.start(request.copy(reloadKey = 1L), callbacks)
+
+        assertNotEquals(firstSessionId, controller.state.sessionId)
+        assertEquals(PlaybackState(), controller.state.playback)
+    }
+
+    @Test
+    fun selectingAStreamImmediatelyShowsItsLoadingTransition() {
+        val controller = PlaybackSessionController(TestScope())
+        val request = PlaybackRequest(
+            identity = PlaybackIdentity("profile", "series", "show", "episode-1"),
+            url = "https://example.test/episode-1.m3u8",
+            title = "Episode 1",
+            mediaName = "Show",
+        )
+        val callbacks = PlaybackSessionCallbacks(
+            persist = { _, _ -> },
+            playNext = {},
+            openEpisodes = {},
+            minimized = {},
+            closed = {},
+        )
+        controller.start(request, callbacks)
+        controller.showStreamPicker(
+            PlaybackStreamPickerState(
+                episode = VideoItem("episode-2", title = "Episode 2"),
+                streams = listOf(
+                    StreamSource("addon", "Addon", StreamItem(url = "https://example.test/episode-2.m3u8")),
+                ),
+            ),
+        )
+
+        controller.selectStream(
+            StreamSource("addon", "Addon", StreamItem(url = "https://example.test/episode-2.m3u8")),
+        )
+
+        assertNull(controller.state.streamPicker)
+        assertEquals("Episode 2", controller.state.transition?.title)
+        assertEquals(PlaybackPresentation.FullScreen, controller.state.presentation)
     }
 
     @Test

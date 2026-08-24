@@ -258,6 +258,8 @@ actual fun NativePlayer(
 
     LaunchedEffect(bridge, trackPanel) {
         if (trackPanel == null) return@LaunchedEffect
+        audioTracks = bridge.readAudioTracks()
+        subtitleTracks = bridge.readSubtitleTracks()
         while (isActive) {
             audioTracks = bridge.readAudioTracks()
             subtitleTracks = bridge.readSubtitleTracks()
@@ -497,10 +499,14 @@ actual fun NativePlayer(
                             }
                         }
                         IosPlayerBottomAction(Icons.Rounded.Headphones, "Audio") {
+                            audioTracks = bridge.readAudioTracks()
+                            subtitleTracks = bridge.readSubtitleTracks()
                             trackPanel = 0
                             controlsVisible = true
                         }
                         IosPlayerBottomAction(Icons.Rounded.Subtitles, "Subtitles") {
+                            audioTracks = bridge.readAudioTracks()
+                            subtitleTracks = bridge.readSubtitleTracks()
                             trackPanel = 1
                             controlsVisible = true
                         }
@@ -520,7 +526,12 @@ actual fun NativePlayer(
                 IosSubtitlePanel(
                     tracks = subtitleTracks,
                     preferredLanguage = preferredSubtitleLanguage,
-                    onSelect = bridge::selectSubtitleTrack,
+                    onSelect = { trackId ->
+                        bridge.selectSubtitleTrack(trackId)
+                        subtitleTracks = subtitleTracks.map { track ->
+                            track.copy(selected = track.id == trackId)
+                        }
+                    },
                     onDismiss = { trackPanel = null },
                 )
             } else {
@@ -722,8 +733,8 @@ private fun BoxScope.IosSubtitlePanel(
             )
     }
     val reportedSelectedId = tracks.firstOrNull { it.selected }?.id
-    var selectedTrackId by remember { mutableStateOf(reportedSelectedId) }
-    var language by remember {
+    var selectedTrackId by remember(reportedSelectedId) { mutableStateOf(reportedSelectedId) }
+    var language by remember(reportedSelectedId, languageGroups) {
         mutableStateOf(
             tracks.firstOrNull { it.id == reportedSelectedId }?.languageKey
                 ?: languageGroups.firstOrNull()?.first,

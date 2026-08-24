@@ -1,8 +1,10 @@
 package media.conduit.mobile
 
-/** Receives a completed left-edge swipe from the native iOS host. */
+/** Receives an interactive left-edge swipe from the native iOS host. */
 interface IosBackGestureHandler {
     fun onBack()
+    fun onBackCancelled()
+    fun supportsInteractiveBack(): Boolean
 }
 
 /** Keeps the iOS gesture recognizer outside Compose's interop render layer. */

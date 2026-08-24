@@ -42,10 +42,16 @@ internal fun MobileCalendarScreen(
     api: ConduitApi,
     active: Boolean,
     onBack: () -> Unit,
+    onBackCancelled: (() -> Unit)? = null,
     onSelect: (CatalogItem, String?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    PlatformBackHandler(enabled = active, onBack = onBack)
+    PlatformBackHandler(
+        enabled = active,
+        onBack = onBack,
+        onBackCancelled = onBackCancelled,
+        interactiveBack = onBackCancelled != null,
+    )
     val today = remember {
         parseCalendarDate(Clock.System.now().toString().take(10)) ?: CalendarDate(2026, 1, 1)
     }
