@@ -77,7 +77,7 @@ jobs:
       - name: Verify installer
         shell: bash
         run: ls -lh apps/desktop/dist/*.exe
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: conduit-windows
           path: apps/desktop/dist/*.exe
@@ -123,7 +123,7 @@ jobs:
         run: |
           test -x apps/desktop/dist/linux-unpacked/resources/native/conduit-electron-native
           ls -lh apps/desktop/dist/*.AppImage
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: conduit-linux-appimage
           path: apps/desktop/dist/*.AppImage
@@ -282,7 +282,7 @@ jobs:
               -m "Publish Flatpak ${GITHUB_REF_NAME}"
           fi
           git -C flatpak-site push origin HEAD:flatpak-repo
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: conduit-linux-flatpak
           path: target/release/bundle/conduit.flatpak
@@ -357,7 +357,7 @@ jobs:
           hdiutil verify "$dmg"
           shasum -a 256 "$dmg" | awk '{print $1}' > "$dmg.sha256"
           cat "$dmg.sha256"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: conduit-macos-${{ matrix.arch }}
           path: |
@@ -404,7 +404,7 @@ jobs:
         run: |
           version="${CONDUIT_VERSION#v}"
           apps/mobile/scripts/package-ios-ipa.sh "$version" "$GITHUB_RUN_NUMBER"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: conduit-ios
           path: target/release/bundle/ios/*
@@ -473,7 +473,7 @@ jobs:
           cd ../../target/release/bundle/android
           sha256sum "conduit-${version}-android-universal.apk" \
             > "conduit-${version}-android-universal.apk.sha256"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: conduit-android
           path: target/release/bundle/android/*
