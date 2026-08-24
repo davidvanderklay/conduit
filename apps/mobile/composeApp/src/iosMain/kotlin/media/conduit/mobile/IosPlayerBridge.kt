@@ -18,6 +18,7 @@ interface IosPlayerBridge {
         headersJson: String?,
         subtitlesJson: String?,
     )
+    fun updateExternalSubtitles(subtitlesJson: String)
     fun play()
     fun pause()
     fun seekTo(positionMs: Long)

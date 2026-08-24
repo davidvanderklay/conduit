@@ -125,8 +125,8 @@ actual fun NativePlayer(
         val renderers = DefaultRenderersFactory(context).setEnableDecoderFallback(true)
         return ExoPlayer.Builder(context, renderers).setMediaSourceFactory(DefaultMediaSourceFactory(http)).build()
     }
-    var player by remember(url, requestHeaders, subtitles) { mutableStateOf(createMedia3Player()) }
-    var activeEngine by remember(url, requestHeaders, subtitles, androidPlaybackEngine) {
+    var player by remember(url, requestHeaders) { mutableStateOf(createMedia3Player()) }
+    var activeEngine by remember(url, requestHeaders, androidPlaybackEngine) {
         mutableStateOf(
             if (androidPlaybackEngine == AndroidPlaybackEngine.Libmpv) {
                 NativePlaybackEngine.Libmpv
@@ -135,14 +135,14 @@ actual fun NativePlayer(
             },
         )
     }
-    var fallbackAttempted by remember(url, requestHeaders, subtitles, androidPlaybackEngine) { mutableStateOf(false) }
-    var fallbackReason by remember(url, requestHeaders, subtitles, androidPlaybackEngine) { mutableStateOf<String?>(null) }
-    var fallbackStartPositionMs by remember(url, requestHeaders, subtitles, androidPlaybackEngine) { mutableLongStateOf(0L) }
-    var media3StartPositionMs by remember(url, requestHeaders, subtitles, androidPlaybackEngine) { mutableLongStateOf(startPositionMs) }
-    var fallbackPlaybackSpeed by remember(url, requestHeaders, subtitles, androidPlaybackEngine) { mutableFloatStateOf(1f) }
-    var fallbackPlayWhenReady by remember(url, requestHeaders, subtitles, androidPlaybackEngine) { mutableStateOf(true) }
-    var mpvView by remember(url, requestHeaders, subtitles, activeEngine) { mutableStateOf<ConduitMpvView?>(null) }
-    var mpvTrackRevision by remember(url, requestHeaders, subtitles, activeEngine) { mutableIntStateOf(0) }
+    var fallbackAttempted by remember(url, requestHeaders, androidPlaybackEngine) { mutableStateOf(false) }
+    var fallbackReason by remember(url, requestHeaders, androidPlaybackEngine) { mutableStateOf<String?>(null) }
+    var fallbackStartPositionMs by remember(url, requestHeaders, androidPlaybackEngine) { mutableLongStateOf(0L) }
+    var media3StartPositionMs by remember(url, requestHeaders, androidPlaybackEngine) { mutableLongStateOf(startPositionMs) }
+    var fallbackPlaybackSpeed by remember(url, requestHeaders, androidPlaybackEngine) { mutableFloatStateOf(1f) }
+    var fallbackPlayWhenReady by remember(url, requestHeaders, androidPlaybackEngine) { mutableStateOf(true) }
+    var mpvView by remember(url, requestHeaders, activeEngine) { mutableStateOf<ConduitMpvView?>(null) }
+    var mpvTrackRevision by remember(url, requestHeaders, activeEngine) { mutableIntStateOf(0) }
     var playbackError by remember(player) { mutableStateOf<String?>(null) }
     var controlsVisible by remember(player) { mutableStateOf(true) }
     var speedMenuOpen by remember(player) { mutableStateOf(false) }
@@ -160,10 +160,10 @@ actual fun NativePlayer(
     LaunchedEffect(trackPanel) { onOverlayVisibilityChanged(trackPanel != null) }
     var tracksRevision by remember { mutableIntStateOf(0) }
     var trackFallback by remember(player) { mutableStateOf<androidx.media3.common.TrackSelectionParameters?>(null) }
-    var selectedSubtitleId by remember(url, requestHeaders, subtitles) { mutableStateOf<String?>(null) }
-    var selectedSubtitleLanguage by remember(url, requestHeaders, subtitles) { mutableStateOf<String?>(null) }
-    var selectedSubtitleLabel by remember(url, requestHeaders, subtitles) { mutableStateOf<String?>(null) }
-    var subtitlesEnabled by remember(url, requestHeaders, subtitles) { mutableStateOf(true) }
+    var selectedSubtitleId by remember(url, requestHeaders) { mutableStateOf<String?>(null) }
+    var selectedSubtitleLanguage by remember(url, requestHeaders) { mutableStateOf<String?>(null) }
+    var selectedSubtitleLabel by remember(url, requestHeaders) { mutableStateOf<String?>(null) }
+    var subtitlesEnabled by remember(url, requestHeaders) { mutableStateOf(true) }
     var lastTrackChangeAt by remember(player) { mutableLongStateOf(0L) }
     var autoAudioSelection by remember(player) { mutableStateOf<String?>(null) }
     var resizeMode by remember(player) { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
@@ -395,7 +395,7 @@ actual fun NativePlayer(
         lifecycle.addObserver(observer)
         onDispose { lifecycle.removeObserver(observer) }
     }
-    LaunchedEffect(mpvView, url, requestHeaders, subtitles, activeEngine) {
+    LaunchedEffect(mpvView, url, requestHeaders, activeEngine) {
         val view = mpvView ?: return@LaunchedEffect
         if (activeEngine != NativePlaybackEngine.Libmpv || url.isNullOrBlank()) return@LaunchedEffect
         withContext(Dispatchers.IO) {
@@ -413,6 +413,11 @@ actual fun NativePlayer(
                 selectedSubtitleLabel = selectedSubtitleLabel,
                 subtitlesEnabled = subtitlesEnabled,
             )
+        }
+    }
+    LaunchedEffect(mpvView, subtitles, activeEngine) {
+        if (activeEngine == NativePlaybackEngine.Libmpv) {
+            mpvView?.updateExternalSubtitles(subtitles)
         }
     }
     LaunchedEffect(activeEngine, active, mpvView) {

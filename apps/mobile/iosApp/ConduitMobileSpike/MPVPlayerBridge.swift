@@ -32,6 +32,13 @@ fileprivate struct ConduitTrack {
     let selected: Bool
 }
 
+/// A visible surface is enough to begin loading. Orientation is managed by
+/// the host separately and must not turn a pending playback request into a
+/// load that only starts after a later touch-driven layout pass.
+func shouldStartPendingLoad(surfaceSize: CGSize) -> Bool {
+    surfaceSize.width > 1 && surfaceSize.height > 1
+}
+
 /// The Swift half of the Kotlin/iOS player boundary.
 ///
 /// This follows the same shape as Nuvio's iOS integration: Compose owns the
@@ -70,6 +77,9 @@ final class ConduitMPVPlayerBridge: NSObject, IosPlayerBridge {
             headers: parseHeaders(headersJson),
             subtitles: parseSubtitles(subtitlesJson)
         )
+    }
+    func updateExternalSubtitles(subtitlesJson: String) {
+        ensurePlayerViewController().updateExternalSubtitles(parseSubtitles(subtitlesJson))
     }
 
     func play() { playerViewController?.playPlayback() }
@@ -342,6 +352,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
     private var playbackError: String?
     private var waitingForInitialVideoFrame = false
     private var pendingExternalSubtitles: [ConduitSubtitle] = []
+    private var loadedExternalSubtitleURLs = Set<String>()
     private var subtitleLoadGeneration = 0
     private var loadStartedAtUptime: TimeInterval = 0
     private var destroyStarted = false
@@ -586,6 +597,16 @@ final class ConduitMPVPlayerViewController: UIViewController {
             prepareLoad()
         } else {
             DispatchQueue.main.async(execute: prepareLoad)
+        }
+    }
+
+    fileprivate func updateExternalSubtitles(_ subtitles: [ConduitSubtitle]) {
+        runOnMain { [weak self] in
+            guard let self, self.mpv != nil else { return }
+            self.pendingExternalSubtitles = subtitles
+            if self.hasLoadedFile && !self.waitingForInitialVideoFrame {
+                self.loadPendingExternalSubtitles()
+            }
         }
     }
 
@@ -1475,32 +1496,17 @@ final class ConduitMPVPlayerViewController: UIViewController {
 
     private func attemptStartPendingLoad() {
         guard let request = pendingLoad, mpv != nil else { return }
-        guard let window = viewIfLoaded?.window else {
+        guard viewIfLoaded?.window != nil else {
             schedulePendingRetry()
             return
         }
 
         let surfaceSize = externallyManagedViewSize ?? view.bounds.size
-        guard surfaceSize.width > 1, surfaceSize.height > 1 else {
+        guard shouldStartPendingLoad(surfaceSize: surfaceSize) else {
             schedulePendingRetry()
             return
         }
 
-        let windowArea = window.bounds.width * window.bounds.height
-        let screenBounds = window.screen.bounds
-        let screenArea = screenBounds.width * screenBounds.height
-        let isWindowedIpad = UIDevice.current.userInterfaceIdiom == .pad
-            && windowArea < screenArea * 0.98
-        let isSettledLandscape = surfaceSize.width > surfaceSize.height
-            && window.windowScene?.interfaceOrientation.isLandscape == true
-        guard isWindowedIpad || isSettledLandscape else {
-            schedulePendingRetry()
-            return
-        }
-
-        // Full-screen playback waits for landscape to settle before playback
-        // begins. iPad multitasking windows may legitimately remain taller
-        // than wide, so their surface is already the final one.
         layoutDisplayLayer()
         pendingLoad = nil
         pendingRetry?.cancel()
@@ -1524,6 +1530,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
         isPlayerLoading = true
         isPlayerEnded = false
         waitingForInitialVideoFrame = true
+        loadedExternalSubtitleURLs.removeAll(keepingCapacity: true)
         preferredSubtitleApplied = false
         pendingExternalSubtitles = request.subtitles
         invalidateExternalSubtitleLoads(clearPending: false)
@@ -1569,9 +1576,12 @@ final class ConduitMPVPlayerViewController: UIViewController {
     /// External subtitle URLs can take seconds each to open. Loading them only
     /// after video startup keeps them off the first-frame path and off the UI thread.
     private func loadPendingExternalSubtitles() {
-        let subtitles = pendingExternalSubtitles
+        let subtitles = pendingExternalSubtitles.filter {
+            !loadedExternalSubtitleURLs.contains($0.url)
+        }
         pendingExternalSubtitles.removeAll(keepingCapacity: true)
         guard !subtitles.isEmpty else { return }
+        loadedExternalSubtitleURLs.formUnion(subtitles.map(\.url))
 
         subtitleLock.lock()
         let generation = subtitleLoadGeneration

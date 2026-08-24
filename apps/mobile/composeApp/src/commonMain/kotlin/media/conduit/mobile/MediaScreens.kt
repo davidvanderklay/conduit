@@ -1317,17 +1317,14 @@ internal fun MediaDetailsScreen(
     val nextVideo = selectedVideo?.let { current ->
         playableVideos.firstOrNull { compareEpisodeCoordinates(it, current) > 0 }
     }
-    val playerContentTitle = if (selectedVideo != null) {
-        val episodeNumber = listOfNotNull(selectedVideo?.season, selectedVideo?.episode)
-            .takeIf { it.size == 2 }
-            ?.joinToString("x")
-        listOfNotNull(
-            selectedVideo?.displayTitle,
-            episodeNumber?.let { "($it)" },
-        ).joinToString(" - ")
-    } else {
-        meta?.name ?: item.name
-    }
+    val playerContentTitle = selectedVideo?.let { video ->
+        playbackTitle(
+            title = video.displayTitle,
+            fallback = meta?.name ?: item.name,
+            season = video.season,
+            episode = video.episode,
+        )
+    } ?: (meta?.name ?: item.name)
     val activeProfile = profile
     val selectedStream = playing
     val requestIdentity = activeProfile?.let {
@@ -1359,7 +1356,12 @@ internal fun MediaDetailsScreen(
                     if (preferences.autoSelectNextStreams) {
                         transitionDiagnostic("requested")
                         playbackSession.beginTransition(
-                            title = video.displayTitle,
+                            title = playbackTitle(
+                                title = video.displayTitle,
+                                fallback = meta?.name ?: item.name,
+                                season = video.season,
+                                episode = video.episode,
+                            ),
                             mediaName = meta?.name ?: item.name,
                             artwork = meta?.background ?: item.background ?: meta?.poster ?: item.poster,
                             logo = meta?.logo,
@@ -1507,14 +1509,11 @@ internal fun MediaDetailsScreen(
     LaunchedEffect(
         selectedStream?.url,
         requestIdentity,
-        externalSubtitlesLoaded,
-        externalSubtitles,
         playerContentTitle,
         nextVideo?.id,
         playbackReloadKey,
     ) {
         val streamUrl = selectedStream?.url ?: return@LaunchedEffect
-        if (!externalSubtitlesLoaded) return@LaunchedEffect
         val identity = requestIdentity ?: return@LaunchedEffect
         val callbacks = sessionCallbacks ?: return@LaunchedEffect
         val request = PlaybackRequest(
@@ -1555,6 +1554,10 @@ internal fun MediaDetailsScreen(
         }
         playbackSession.start(request, callbacks)
         openingPlayback = false
+    }
+    LaunchedEffect(requestIdentity, externalSubtitlesLoaded, externalSubtitles) {
+        if (!externalSubtitlesLoaded || externalSubtitles.isEmpty()) return@LaunchedEffect
+        requestIdentity?.let { playbackSession.updateSubtitles(it, externalSubtitles) }
     }
     SideEffect {
         if (requestIdentity != null && sessionCallbacks != null) playbackSession.attach(requestIdentity, sessionCallbacks)
@@ -1705,7 +1708,12 @@ internal fun MediaDetailsScreen(
                     }
                     if (playbackSession.state.request != null) {
                         playbackSession.beginTransition(
-                            title = selectedVideo?.displayTitle ?: meta?.name ?: item.name,
+                            title = playbackTitle(
+                                title = selectedVideo?.displayTitle,
+                                fallback = meta?.name ?: item.name,
+                                season = selectedVideo?.season,
+                                episode = selectedVideo?.episode,
+                            ),
                             mediaName = meta?.name ?: item.name,
                             artwork = selectedVideo?.thumbnail ?: meta?.background ?: item.background ?: item.poster,
                             logo = meta?.logo,

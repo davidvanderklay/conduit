@@ -168,7 +168,7 @@ actual fun NativePlayer(
         Json.encodeToString(subtitles)
     }
 
-    LaunchedEffect(bridge, url, encodedHeaders, encodedSubtitles, startPositionMs) {
+    LaunchedEffect(bridge, url, encodedHeaders, startPositionMs) {
         showRemainingTime = false
         resizeMode = 0
         playbackReady = false
@@ -185,6 +185,10 @@ actual fun NativePlayer(
             )
             if (active) bridge.play() else bridge.pause()
         }
+    }
+
+    LaunchedEffect(bridge, encodedSubtitles) {
+        if (encodedSubtitles != "[]") bridge.updateExternalSubtitles(encodedSubtitles)
     }
 
     LaunchedEffect(bridge, active) {

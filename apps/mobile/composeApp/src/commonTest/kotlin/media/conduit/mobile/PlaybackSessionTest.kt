@@ -56,6 +56,47 @@ class PlaybackSessionTest {
     }
 
     @Test
+    fun queuedNextBeginsTheSameInPlayerTransitionAsSeriesNext() = runTest {
+        val request = PlaybackRequest(
+            identity = PlaybackIdentity("profile", "series", "show", "s1e1"),
+            url = "https://example.test/current.mp4",
+            title = "Episode 1",
+            mediaName = "Show",
+        )
+        val queued = media.conduit.mobile.account.PlaybackQueueItem(
+            mediaType = "series",
+            mediaId = "other-show",
+            videoId = "s2e3",
+            name = "Other Show",
+            artwork = "https://example.test/other.jpg",
+            videoTitle = "The Return",
+            season = 2,
+            episode = 3,
+        )
+        var selected: media.conduit.mobile.account.PlaybackQueueItem? = null
+        val controller = PlaybackSessionController(this)
+        controller.start(
+            request,
+            PlaybackSessionCallbacks(
+                persist = { _, _ -> },
+                playNext = {},
+                openEpisodes = {},
+                playQueueItem = { selected = it },
+                minimized = {},
+                closed = {},
+            ),
+        )
+
+        controller.playQueueItem(queued)
+
+        assertEquals(queued, selected)
+        assertEquals("The Return - (2x3)", controller.state.transition?.title)
+        assertEquals("Other Show", controller.state.transition?.mediaName)
+        assertEquals("https://example.test/other.jpg", controller.state.transition?.artwork)
+        assertEquals(PlaybackPresentation.FullScreen, controller.state.presentation)
+    }
+
+    @Test
     fun upNextSeparatesEpisodeMetadataFromTheTitle() {
         val request = PlaybackRequest(
             identity = PlaybackIdentity("profile", "series", "show", "s1e2"),
@@ -172,6 +213,39 @@ class PlaybackSessionTest {
         controller.prefetchUpNext()
 
         assertEquals(1, prefetchRequests)
+    }
+
+    @Test
+    fun subtitlesCanArriveWithoutRestartingThePlaybackSession() = runTest {
+        val identity = PlaybackIdentity("profile", "series", "show", "s1e1")
+        val request = PlaybackRequest(
+            identity = identity,
+            url = "https://example.test/episode.mp4",
+            title = "Episode 1",
+            mediaName = "Show",
+        )
+        val controller = PlaybackSessionController(this)
+        controller.start(
+            request,
+            PlaybackSessionCallbacks(
+                persist = { _, _ -> },
+                playNext = {},
+                openEpisodes = {},
+                minimized = {},
+                closed = {},
+            ),
+        )
+        val sessionId = controller.state.sessionId
+        val subtitle = media.conduit.mobile.account.SubtitleItem(
+            id = "english",
+            url = "https://example.test/english.vtt",
+            lang = "en",
+        )
+
+        controller.updateSubtitles(identity, listOf(subtitle))
+
+        assertEquals(sessionId, controller.state.sessionId)
+        assertEquals(listOf(subtitle), controller.state.request?.subtitles)
     }
 
     @Test

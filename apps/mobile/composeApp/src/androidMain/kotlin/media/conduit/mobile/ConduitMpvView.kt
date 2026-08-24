@@ -85,6 +85,7 @@ internal class ConduitMpvView(
     @Volatile private var trackCacheRefreshRequested = true
     @Volatile private var initialVideoOutputReady = false
     @Volatile private var pendingExternalSubtitles: List<SubtitleItem> = emptyList()
+    @Volatile private var loadedExternalSubtitleKeys: Set<String> = emptySet()
     @Volatile private var externalSubtitleLoadQueued = false
     @Volatile private var loadGeneration = 0L
     @Volatile private var activeLoadGeneration = 0L
@@ -252,6 +253,7 @@ internal class ConduitMpvView(
         currentUrl = url
         currentHeaders = requestHeaders
         currentSubtitles = subtitles
+        loadedExternalSubtitleKeys = emptySet()
         currentPreferredAudio = preferredAudioLanguage
         currentPreferredSubtitle = preferredSubtitleLanguage
         currentPlaybackSpeed = playbackSpeed.coerceIn(0.25f, 4f)
@@ -322,6 +324,15 @@ internal class ConduitMpvView(
             )
         }
         enqueueNative { loadPendingSourceNative() }
+    }
+
+    fun updateExternalSubtitles(subtitles: List<SubtitleItem>) {
+        currentSubtitles = subtitles
+        pendingExternalSubtitles = subtitles.filter { subtitleSelectionKey(it) !in loadedExternalSubtitleKeys }
+        trackCacheRefreshRequested = true
+        if (initialVideoOutputReady) {
+            enqueueNative { queueExternalSubtitlesNative(activeLoadGeneration) }
+        }
     }
 
     fun retry(
@@ -697,10 +708,13 @@ internal class ConduitMpvView(
     }
 
     private fun queueExternalSubtitlesNative(generation: Long) {
-        val subtitles = pendingExternalSubtitles
+        val subtitles = pendingExternalSubtitles.filter {
+            subtitleSelectionKey(it) !in loadedExternalSubtitleKeys
+        }
         if (subtitles.isEmpty() || externalSubtitleLoadQueued) return
         externalSubtitleLoadQueued = true
         pendingExternalSubtitles = emptyList()
+        loadedExternalSubtitleKeys = loadedExternalSubtitleKeys + subtitles.map(::subtitleSelectionKey)
         val selectedIndex = preferredExternalSubtitleIndex()
         Log.d("ConduitMpv", "external subtitle load started count=${subtitles.size} selectedIndex=$selectedIndex")
         subtitleScope.launch {
@@ -724,6 +738,9 @@ internal class ConduitMpvView(
                     trackCacheRefreshRequested = true
                     externalSubtitleLoadQueued = false
                     Log.d("ConduitMpv", "external subtitle load finished count=${subtitles.size}")
+                    if (pendingExternalSubtitles.isNotEmpty()) {
+                        queueExternalSubtitlesNative(generation)
+                    }
                 }
             }
         }
