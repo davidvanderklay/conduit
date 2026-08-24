@@ -2,6 +2,8 @@ package media.conduit.mobile.foundation
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class DevicePreferencesTest {
     @Test
@@ -84,6 +86,18 @@ class DevicePreferencesTest {
         val preferences = DevicePreferences(navigationStyle = NavigationStyle.Compact)
 
         assertEquals(NavigationStyle.Adaptive, preferences.normalizedForPlatform("iOS").navigationStyle)
+    }
+
+    @Test
+    fun ipadOsIsRecognizedAsAnIosTablet() {
+        assertTrue("iPadOS".isIosPlatformName())
+        assertTrue(PlatformInfo("iPadOS", "26.0", "iPad", isTablet = true).isIpad())
+    }
+
+    @Test
+    fun androidTabletDetectionUsesTheSmallestWidthQualifier() {
+        assertFalse(isTabletSmallestWidth(599))
+        assertTrue(isTabletSmallestWidth(600))
     }
 
     @Test

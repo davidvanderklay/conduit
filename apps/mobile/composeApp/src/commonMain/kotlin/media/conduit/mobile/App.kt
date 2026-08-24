@@ -1146,7 +1146,8 @@ private fun AppShell(
                     .then(if (expanded) Modifier.padding(start = 80.dp) else Modifier),
             )
         }
-        val isIpad = platform.name.equals("iOS", ignoreCase = true) && platform.isTablet
+        val isIpad = platform.isIpad()
+        val isTablet = platform.isTablet
         val keyboardVisible = isIpad && PlatformKeyboard.visible
         val appBottomNavigationVisible = !expanded && bottomChromeVisible &&
             (!profileFlowActive || state.destination == AppDestination.Profile) &&
@@ -1187,6 +1188,7 @@ private fun AppShell(
             controller = playbackSession,
             preferences = preferences,
             expanded = expanded,
+            isTablet = isTablet,
             isIpad = isIpad,
             bottomNavigationVisible = appBottomNavigationVisible,
             snapshot = profileSync.snapshot,
@@ -1452,6 +1454,7 @@ private fun BoxScope.PlaybackSessionHost(
     controller: PlaybackSessionController,
     preferences: DevicePreferences,
     expanded: Boolean,
+    isTablet: Boolean,
     isIpad: Boolean,
     bottomNavigationVisible: Boolean,
     snapshot: ProfileSnapshot?,
@@ -1495,8 +1498,8 @@ private fun BoxScope.PlaybackSessionHost(
     var playerOverlayVisible by remember(request.identity, request.url) { mutableStateOf(false) }
     var temporarySpeedActive by remember(request.identity, request.url) { mutableStateOf(false) }
     var miniOffset by remember(request.identity, request.url) { mutableStateOf(IntOffset.Zero) }
-    var miniWidthDp by remember(request.identity, request.url, expanded, isIpad) {
-        mutableFloatStateOf(if (expanded || isIpad) 320f else 220f)
+    var miniWidthDp by remember(request.identity, request.url, expanded, isTablet) {
+        mutableFloatStateOf(if (expanded || isTablet) 320f else 220f)
     }
     var miniDockedLeft by remember(request.identity, request.url) { mutableStateOf(false) }
     var miniDockedTop by remember(request.identity, request.url) { mutableStateOf(false) }
@@ -2100,11 +2103,11 @@ private fun BoxScope.PlaybackSessionHost(
             val verticalLimit = (
                 containerSize.height - miniSize.height - bottomPaddingPx - topPaddingPx
             ).coerceAtLeast(0)
-            val minimumWidthDp = if (expanded || isIpad) 240f else 180f
+            val minimumWidthDp = if (expanded || isTablet) 240f else 180f
             val availableWidthDp = with(density) {
                 (containerSize.width - 24.dp.roundToPx()).coerceAtLeast(1).toDp().value
             }
-            val maximumWidthDp = (if (isIpad) {
+            val maximumWidthDp = (if (isTablet) {
                 (availableWidthDp * .60f).coerceAtMost(720f)
             } else if (expanded) {
                 480f

@@ -3175,7 +3175,7 @@ internal fun ProfileSettingsScreen(
     }
     LaunchedEffect(route) { onProfileFlowChanged(route != ProfileRoute.Settings) }
     DisposableEffect(Unit) { onDispose { onProfileFlowChanged(false) } }
-    val licenseNotices = if (platform.name.equals("iOS", ignoreCase = true)) {
+    val licenseNotices = if (platform.name.isIosPlatformName()) {
         listOf(
             "conduit Apple mobile application - GNU GPLv3",
             "MPVKit and bundled libmpv/FFmpeg libraries - see upstream notices",
@@ -3424,8 +3424,8 @@ private fun AccountSettingsScreen(state: AppState, account: AccountStatus.Signed
 private fun AppearanceSettingsScreen(platform: PlatformInfo, preferences: DevicePreferences, update: (DevicePreferences) -> Unit, onBack: () -> Unit, modifier: Modifier) {
     var showNavigation by remember { mutableStateOf(false) }
     var showPlacement by remember { mutableStateOf(false) }
-    val isIos = platform.name.equals("iOS", ignoreCase = true)
-    val isIpad = isIos && platform.isTablet
+    val isIos = platform.name.isIosPlatformName()
+    val isIpad = platform.isIpad()
     val navigationStyles = if (isIos) {
         listOf(NavigationStyle.Adaptive, NavigationStyle.Expanded, NavigationStyle.Classic)
     } else {
@@ -3484,7 +3484,7 @@ private fun PlaybackSettingsScreen(platform: PlatformInfo, preferences: DevicePr
     var enginePicker by remember { mutableStateOf(false) }
     var showSkipButtonPosition by remember { mutableStateOf(false) }
     val android = platform.name.equals("Android", ignoreCase = true)
-    val isIpad = platform.name.equals("iOS", ignoreCase = true) && platform.isTablet
+    val isIpad = platform.isIpad()
     SettingsPage("Playback", onBack, modifier) {
         SettingsGroup("PLAYER") {
             if (android) {

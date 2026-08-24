@@ -26,6 +26,14 @@ data class PlatformInfo(
     val isTablet: Boolean = false,
 )
 
+/** UIDevice reports "iPadOS" on iPads and "iOS" on iPhones. */
+fun String.isIosPlatformName(): Boolean =
+    equals("iOS", ignoreCase = true) || equals("iPadOS", ignoreCase = true)
+
+fun PlatformInfo.isIpad(): Boolean = name.isIosPlatformName() && isTablet
+
+fun isTabletSmallestWidth(smallestWidthDp: Int): Boolean = smallestWidthDp >= 600
+
 data class PlatformServices(
     val settings: SettingsStore,
     val secure: SecureStore,
