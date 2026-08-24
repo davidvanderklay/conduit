@@ -287,7 +287,7 @@ internal fun MobileContinueWatchingScreen(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp),
             ) {
-                items(items, key = { "${it.mediaType}:${it.mediaId}" }) { progress ->
+                items(items, key = ::progressTitleUiKey) { progress ->
                     val catalogItem = CatalogItem(
                         progress.mediaId,
                         progress.mediaType,
@@ -3459,7 +3459,7 @@ private fun WatchHistoryScreen(
     modifier: Modifier,
 ) {
     var actionTarget by remember { mutableStateOf<MediaActionTarget?>(null) }
-    val history = snapshot?.history.orEmpty()
+    val history = progressHistoryForDisplay(snapshot?.history.orEmpty())
     Column(modifier.fillMaxSize()) {
         ProfileHeader("Watch history", onBack)
         when {
@@ -3474,7 +3474,7 @@ private fun WatchHistoryScreen(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp),
             ) {
-                items(history, key = ProgressSummary::videoId) { progress ->
+                items(history, key = ::progressEpisodeUiKey) { progress ->
                     val item = CatalogItem(progress.mediaId, progress.mediaType, progress.name, poster = progress.poster)
                     RichProgressCard(
                         progress = progress,

@@ -73,7 +73,7 @@ internal fun HomeScreen(
             item { ShelfTitle("Continue Watching", onOpenContinueWatching) }
             item {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items(continueWatching, key = { it.videoId }) { item ->
+                    items(continueWatching, key = ::progressTitleUiKey) { item ->
                         val catalogItem = CatalogItem(item.mediaId, item.mediaType, item.name, poster = item.poster)
                         LaunchedEffect(catalogItem.type, catalogItem.id, sync.offline) {
                             metadataCache.load(catalogItem, includeMovies = true)
