@@ -361,7 +361,9 @@ final class ConduitBackGestureCoordinator: NSObject, IosBackGestureBridge, UIGes
             queue: .main
         ) { [weak self] _ in
             self?.installGestureIfNeeded()
-            self?.edgeGesture?.isEnabled = self?.handler != nil
+            if self?.interactiveSnapshot == nil {
+                self?.edgeGesture?.isEnabled = self?.handler != nil
+            }
         }
     }
 
@@ -376,7 +378,13 @@ final class ConduitBackGestureCoordinator: NSObject, IosBackGestureBridge, UIGes
             guard let self else { return }
             self.handler = handler
             self.installGestureIfNeeded()
-            self.edgeGesture?.isEnabled = handler != nil
+            // Starting an interactive back removes the current Compose
+            // handler. Do not disable the recognizer while that gesture is
+            // active, or UIKit cancels it and the rollback path restores the
+            // page we were trying to leave.
+            if self.interactiveSnapshot == nil {
+                self.edgeGesture?.isEnabled = handler != nil
+            }
         }
         if Thread.isMainThread { apply() } else { DispatchQueue.main.async(execute: apply) }
     }
@@ -497,6 +505,7 @@ final class ConduitBackGestureCoordinator: NSObject, IosBackGestureBridge, UIGes
         guard let snapshot = interactiveSnapshot else {
             interactiveHandler = nil
             interactiveBackCommitted = false
+            edgeGesture?.isEnabled = handler != nil
             return
         }
         guard let animator = interactiveAnimator else {
@@ -504,6 +513,7 @@ final class ConduitBackGestureCoordinator: NSObject, IosBackGestureBridge, UIGes
             interactiveSnapshot = nil
             interactiveHandler = nil
             interactiveBackCommitted = false
+            edgeGesture?.isEnabled = handler != nil
             return
         }
 
@@ -517,6 +527,7 @@ final class ConduitBackGestureCoordinator: NSObject, IosBackGestureBridge, UIGes
                 self?.interactiveAnimator = nil
                 self?.interactiveHandler = nil
                 self?.interactiveBackCommitted = false
+                self?.edgeGesture?.isEnabled = self?.handler != nil
             }
             animator.continueAnimation(withTimingParameters: nil, durationFactor: 0.8)
         }
