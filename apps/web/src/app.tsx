@@ -164,8 +164,8 @@ function AuthScreen() {
           newUserCallbackURL: callbackURL,
         })
       } else {
-        await authClient.signIn.oauth2({
-          providerId: "conduit-oidc",
+        await authClient.signIn.social({
+          provider: "conduit-oidc",
           callbackURL,
           errorCallbackURL: callbackURL,
           newUserCallbackURL: callbackURL,
