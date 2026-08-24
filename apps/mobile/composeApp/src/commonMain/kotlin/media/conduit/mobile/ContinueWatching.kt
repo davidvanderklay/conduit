@@ -7,6 +7,7 @@ import kotlin.time.Instant
 import media.conduit.mobile.account.ProgressSummary
 import media.conduit.mobile.account.VideoItem
 import media.conduit.mobile.account.latestProgressByTitle
+import media.conduit.mobile.account.progressByRecency
 
 internal enum class ContinueWatchingKind { InProgress, NewEpisode, NextUp, Scheduled, CaughtUp }
 
@@ -19,6 +20,22 @@ internal data class ContinueWatchingPresentation(
 internal fun groupContinueWatching(items: List<ProgressSummary>): List<ProgressSummary> {
     return latestProgressByTitle(items)
 }
+
+internal fun progressTitleUiKey(progress: ProgressSummary): String =
+    progress.canonicalTitleId ?: "${progress.mediaType}\u001f${progress.mediaId}"
+
+internal fun progressEpisodeUiKey(progress: ProgressSummary): String {
+    val episode = progress.canonicalEpisodeKey
+        ?: if (progress.season != null || progress.episode != null) {
+            "s${progress.season ?: 0}:e${progress.episode ?: 0}"
+        } else {
+            progress.videoId
+        }
+    return "${progressTitleUiKey(progress)}\u001f$episode"
+}
+
+internal fun progressHistoryForDisplay(items: List<ProgressSummary>): List<ProgressSummary> =
+    progressByRecency(items).distinctBy(::progressEpisodeUiKey)
 
 internal fun continueWatchingPresentation(
     progress: ProgressSummary,

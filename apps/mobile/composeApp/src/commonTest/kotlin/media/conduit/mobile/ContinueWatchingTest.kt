@@ -35,6 +35,44 @@ class ContinueWatchingTest {
     }
 
     @Test
+    fun episodeUiKeysRemainUniqueWhenAProviderReusesVideoIds() {
+        val first = progress(videoId = "episode", episode = 7).copy(
+            canonicalTitleId = "psych",
+            canonicalEpisodeKey = "s2:e7",
+        )
+        val next = first.copy(episode = 8, canonicalEpisodeKey = "s2:e8")
+
+        assertEquals(2, listOf(first, next).map(::progressEpisodeUiKey).distinct().size)
+    }
+
+    @Test
+    fun titleUiKeysRemainUniqueWhenProvidersReuseVideoIdsAcrossTitles() {
+        val first = progress(videoId = "episode", mediaId = "show-a").copy(canonicalTitleId = "title-a")
+        val second = progress(videoId = "episode", mediaId = "show-b").copy(canonicalTitleId = "title-b")
+
+        assertEquals(2, listOf(first, second).map(::progressTitleUiKey).distinct().size)
+    }
+
+    @Test
+    fun historyCollapsesAliasesForTheSameCanonicalEpisode() {
+        val older = progress(videoId = "kitsu:psych:8", episode = 8).copy(
+            mediaId = "kitsu:psych",
+            canonicalTitleId = "psych",
+            canonicalEpisodeKey = "s2:e8",
+        )
+        val newerAlias = older.copy(
+            videoId = "tt0491738:2:8",
+            mediaId = "tt0491738",
+            updatedAt = "2026-08-11T12:00:00Z",
+        )
+
+        assertEquals(
+            listOf("tt0491738:2:8"),
+            progressHistoryForDisplay(listOf(older, newerAlias)).map(ProgressSummary::videoId),
+        )
+    }
+
+    @Test
     fun progressTitleDoesNotReuseAnEpisodeName() {
         val progress = progress(videoId = "s2e8").copy(
             name = "Psych  ·  And Down the Stretch Comes Murder",
