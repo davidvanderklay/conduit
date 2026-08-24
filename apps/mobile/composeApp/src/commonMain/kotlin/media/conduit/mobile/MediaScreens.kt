@@ -3306,6 +3306,7 @@ private fun AppearanceSettingsScreen(platform: PlatformInfo, preferences: Device
     var showNavigation by remember { mutableStateOf(false) }
     var showPlacement by remember { mutableStateOf(false) }
     val isIos = platform.name.equals("iOS", ignoreCase = true)
+    val isIpad = isIos && platform.isTablet
     val navigationStyles = if (isIos) {
         listOf(NavigationStyle.Adaptive, NavigationStyle.Expanded, NavigationStyle.Classic)
     } else {
@@ -3314,6 +3315,11 @@ private fun AppearanceSettingsScreen(platform: PlatformInfo, preferences: Device
     val effectiveNavigationStyle = preferences.navigationStyle.takeUnless {
         isIos && it == NavigationStyle.Compact
     } ?: NavigationStyle.Adaptive
+    val displayedNavigationStyle = if (isIpad && effectiveNavigationStyle == NavigationStyle.Adaptive) {
+        NavigationStyle.Classic
+    } else {
+        effectiveNavigationStyle
+    }
     SettingsPage("Appearance & layout", onBack, modifier) {
         SettingsGroup("THEME") {
             ListItem(headlineContent = { Text("Theme") }, supportingContent = { Text("conduit dark") }, leadingContent = { Icon(Icons.Rounded.DarkMode, null) }, colors = ListItemDefaults.colors(containerColor = Color.Transparent))
@@ -3323,12 +3329,12 @@ private fun AppearanceSettingsScreen(platform: PlatformInfo, preferences: Device
         SettingsGroup("DISPLAY") {
             SettingsAction("App language", "System default") { }
             HorizontalDivider(color = Color.White.copy(.06f))
-            SettingsAction("Navigation style", effectiveNavigationStyle.description) { showNavigation = true }
+            SettingsAction("Navigation style", displayedNavigationStyle.description) { showNavigation = true }
             HorizontalDivider(color = Color.White.copy(.06f))
             SettingsAction("Navigation placement", if (preferences.railOnTablets) "Left rail" else "Bottom bar") { showPlacement = true }
         }
     }
-    if (showNavigation) AlertDialog(onDismissRequest = { showNavigation = false }, title = { Text("Navigation style") }, text = { Column { navigationStyles.forEach { style -> Row(Modifier.fillMaxWidth().clickable { update(preferences.copy(navigationStyle = style)); showNavigation = false }.padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) { RadioButton(style == effectiveNavigationStyle, null); Spacer(Modifier.width(8.dp)); Column { Text(style.label); Text(style.description, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) } } } } }, confirmButton = {})
+    if (showNavigation) AlertDialog(onDismissRequest = { showNavigation = false }, title = { Text("Navigation style") }, text = { Column { navigationStyles.forEach { style -> Row(Modifier.fillMaxWidth().clickable { update(preferences.copy(navigationStyle = style)); showNavigation = false }.padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) { RadioButton(style == displayedNavigationStyle, null); Spacer(Modifier.width(8.dp)); Column { Text(style.label); Text(style.description, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) } } } } }, confirmButton = {})
     if (showPlacement) AlertDialog(onDismissRequest = { showPlacement = false }, title = { Text("Navigation placement") }, text = {
         Column {
             listOf(
@@ -3357,7 +3363,9 @@ private fun PlaybackSettingsScreen(platform: PlatformInfo, preferences: DevicePr
     val languages = listOf("System default", "English", "Spanish", "French", "German", "Japanese", "Korean")
     var picker by remember { mutableStateOf<String?>(null) }
     var enginePicker by remember { mutableStateOf(false) }
+    var showSkipButtonPosition by remember { mutableStateOf(false) }
     val android = platform.name.equals("Android", ignoreCase = true)
+    val isIpad = platform.name.equals("iOS", ignoreCase = true) && platform.isTablet
     SettingsPage("Playback", onBack, modifier) {
         SettingsGroup("PLAYER") {
             if (android) {
@@ -3367,6 +3375,10 @@ private fun PlaybackSettingsScreen(platform: PlatformInfo, preferences: DevicePr
             SettingsToggle("Auto-select saved streams", "Reuse the last selected stream when it is available", preferences.autoSelectSavedStreams) { update(preferences.copy(autoSelectSavedStreams = it)) }
             SettingsToggle("Automatically select streams", "Choose sources for Next and queued playback", preferences.autoSelectNextStreams) { update(preferences.copy(autoSelectNextStreams = it)) }
             SettingsToggle("Skip intro and credits", "Show skip buttons for intros, recaps, and outros when timestamps are available", preferences.skipSegments) { update(preferences.copy(skipSegments = it)) }
+            if (isIpad) {
+                HorizontalDivider(color = Color.White.copy(.06f))
+                SettingsAction("Skip button position", preferences.skipButtonPosition.label) { showSkipButtonPosition = true }
+            }
             SettingsToggle("Miniplayer on back", "Minimize playback instead of closing it when you press Back", preferences.miniplayerOnBack) { update(preferences.copy(miniplayerOnBack = it)) }
             SettingsToggle("Touch gestures", "Double-tap seeking and player gestures", preferences.touchGestures) { update(preferences.copy(touchGestures = it)) }
             SettingsToggle("Hold to speed", "Hold the player to temporarily speed up", preferences.holdToSpeed) { update(preferences.copy(holdToSpeed = it)) }
@@ -3382,6 +3394,33 @@ private fun PlaybackSettingsScreen(platform: PlatformInfo, preferences: DevicePr
             if (!platform.p2pAvailable) Text("This distribution does not include a P2P engine. Builds that permit P2P can expose this switch without changing the rest of the playback settings.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(bottom = 12.dp))
         }
     }
+    if (showSkipButtonPosition) AlertDialog(
+        onDismissRequest = { showSkipButtonPosition = false },
+        title = { Text("Skip button position") },
+        text = {
+            Column {
+                SkipButtonPosition.entries.forEach { position ->
+                    Row(
+                        Modifier.fillMaxWidth()
+                            .clickable {
+                                update(preferences.copy(skipButtonPosition = position))
+                                showSkipButtonPosition = false
+                            }
+                            .padding(vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(position == preferences.skipButtonPosition, null)
+                        Spacer(Modifier.width(8.dp))
+                        Column {
+                            Text(position.label)
+                            Text(position.description, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+    )
     if (picker != null) AlertDialog(onDismissRequest = { picker = null }, title = { Text(if (picker == "audio") "Preferred audio language" else "Preferred subtitle language") }, text = { Column { languages.forEach { language -> Row(Modifier.fillMaxWidth().clickable { if (picker == "audio") update(preferences.copy(preferredAudioLanguage = language)) else update(preferences.copy(preferredSubtitleLanguage = language)); picker = null }.padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) { RadioButton((if (picker == "audio") preferences.preferredAudioLanguage else preferences.preferredSubtitleLanguage) == language, null); Spacer(Modifier.width(8.dp)); Text(language) } } } }, confirmButton = {})
     if (enginePicker) AlertDialog(
         onDismissRequest = { enginePicker = false },

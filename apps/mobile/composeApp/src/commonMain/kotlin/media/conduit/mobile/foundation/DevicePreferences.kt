@@ -9,6 +9,11 @@ enum class NavigationStyle(val label: String, val description: String) {
     Classic("Classic", "Use a conventional full-width bottom bar"),
 }
 
+enum class SkipButtonPosition(val label: String, val description: String) {
+    Left("Left", "Keep skip prompts on the left side of the player"),
+    Right("Right", "Place skip prompts on the right side of the player"),
+}
+
 data class DevicePreferences(
     val amoledBlack: Boolean = false,
     val navigationStyle: NavigationStyle = NavigationStyle.Adaptive,
@@ -27,6 +32,7 @@ data class DevicePreferences(
     val miniplayerOnBack: Boolean = true,
     val autoplayNextEpisode: Boolean = false,
     val skipSegments: Boolean = true,
+    val skipButtonPosition: SkipButtonPosition = SkipButtonPosition.Left,
     val p2pEnabled: Boolean = false,
     val androidPlaybackEngine: AndroidPlaybackEngine = AndroidPlaybackEngine.Automatic,
     val rememberLastProfile: Boolean = true,
@@ -61,6 +67,9 @@ class DevicePreferencesRepository(private val store: SettingsStore) {
         miniplayerOnBack = bool("miniplayer-on-back", true),
         autoplayNextEpisode = bool("autoplay-next", false),
         skipSegments = bool("skip-segments", true),
+        skipButtonPosition = store.get(prefix + "skip-button-position")
+            ?.let { runCatching { SkipButtonPosition.valueOf(it) }.getOrNull() }
+            ?: SkipButtonPosition.Left,
         p2pEnabled = bool("p2p", false),
         androidPlaybackEngine = store.get(prefix + "android-playback-engine")
             ?.let { runCatching { AndroidPlaybackEngine.valueOf(it) }.getOrNull() }
@@ -87,6 +96,7 @@ class DevicePreferencesRepository(private val store: SettingsStore) {
         store.put(prefix + "miniplayer-on-back", value.miniplayerOnBack.toString())
         store.put(prefix + "autoplay-next", value.autoplayNextEpisode.toString())
         store.put(prefix + "skip-segments", value.skipSegments.toString())
+        store.put(prefix + "skip-button-position", value.skipButtonPosition.name)
         store.put(prefix + "p2p", value.p2pEnabled.toString())
         store.put(prefix + "android-playback-engine", value.androidPlaybackEngine.name)
         store.put(prefix + "remember-profile", value.rememberLastProfile.toString())

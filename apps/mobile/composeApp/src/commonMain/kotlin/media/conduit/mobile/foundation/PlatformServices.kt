@@ -23,6 +23,7 @@ data class PlatformInfo(
     val version: String,
     val device: String,
     val p2pAvailable: Boolean = false,
+    val isTablet: Boolean = false,
 )
 
 data class PlatformServices(

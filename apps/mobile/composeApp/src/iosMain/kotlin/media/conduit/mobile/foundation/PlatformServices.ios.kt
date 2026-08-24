@@ -8,6 +8,7 @@ import platform.Foundation.NSUserDefaults
 import platform.Foundation.NSNotificationCenter
 import platform.UIKit.UIApplicationDidBecomeActiveNotification
 import platform.UIKit.UIDevice
+import platform.UIKit.UIUserInterfaceIdiomPad
 
 private class AppleSettingsStore(private val defaults: NSUserDefaults) : SettingsStore {
     override fun get(key: String): String? = defaults.stringForKey(key)
@@ -45,6 +46,7 @@ actual fun rememberPlatformServices(): PlatformServices = remember {
             name = device.systemName,
             version = device.systemVersion,
             device = device.model,
+            isTablet = device.userInterfaceIdiom == UIUserInterfaceIdiomPad,
         ),
     )
 }
