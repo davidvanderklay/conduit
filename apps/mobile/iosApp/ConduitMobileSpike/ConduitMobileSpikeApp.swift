@@ -347,6 +347,7 @@ final class ConduitBackGestureCoordinator: NSObject, IosBackGestureBridge, UIGes
     private weak var gestureView: UIView?
     private var edgeGesture: UIScreenEdgePanGestureRecognizer?
     private var activationObserver: NSObjectProtocol?
+    private weak var snapshotHostView: UIView?
     private var interactiveSnapshot: UIView?
     private var interactiveHandler: IosBackGestureHandler?
     private var interactiveBackCommitted = false
@@ -397,6 +398,7 @@ final class ConduitBackGestureCoordinator: NSObject, IosBackGestureBridge, UIGes
         gesture.delegate = self
         view.addGestureRecognizer(gesture)
         gestureView = view
+        snapshotHostView = view.superview ?? window
         edgeGesture = gesture
     }
 
@@ -413,15 +415,20 @@ final class ConduitBackGestureCoordinator: NSObject, IosBackGestureBridge, UIGes
         switch gesture.state {
         case .began:
             guard let handler,
+                  let hostView = view.superview ?? self.snapshotHostView,
                   let snapshot = view.snapshotView(afterScreenUpdates: false)
             else { return }
-            snapshot.frame = view.bounds
-            snapshot.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            self.snapshotHostView = hostView
+            snapshot.frame = hostView.convert(view.bounds, from: view)
+            snapshot.autoresizingMask = []
             snapshot.layer.shadowColor = UIColor.black.cgColor
             snapshot.layer.shadowOpacity = 0.3
             snapshot.layer.shadowRadius = 18
             snapshot.layer.shadowOffset = CGSize(width: -8, height: 0)
-            view.addSubview(snapshot)
+            // UIHostingController rejects its snapshot replicant as a child.
+            // Put the outgoing page above the hosting view in their common
+            // superview so the newly-rendered destination can appear below it.
+            hostView.addSubview(snapshot)
             interactiveSnapshot = snapshot
             interactiveHandler = handler
             interactiveBackCommitted = false
@@ -460,7 +467,7 @@ final class ConduitBackGestureCoordinator: NSObject, IosBackGestureBridge, UIGes
         }
         let targetX = committed ? view.bounds.width : 0
         let animate = { [weak self, weak snapshot] in
-            view.layoutIfNeeded()
+            self?.snapshotHostView?.layoutIfNeeded()
             UIView.animate(
                 withDuration: committed ? 0.2 : 0.16,
                 delay: 0,
