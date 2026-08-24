@@ -349,6 +349,7 @@ final class ConduitBackGestureCoordinator: NSObject, IosBackGestureBridge, UIGes
     private var activationObserver: NSObjectProtocol?
     private weak var snapshotHostView: UIView?
     private var interactiveSnapshot: UIView?
+    private var interactiveAnimator: UIViewPropertyAnimator?
     private var interactiveHandler: IosBackGestureHandler?
     private var interactiveBackCommitted = false
 
@@ -429,23 +430,52 @@ final class ConduitBackGestureCoordinator: NSObject, IosBackGestureBridge, UIGes
             // Put the outgoing page above the hosting view in their common
             // superview so the newly-rendered destination can appear below it.
             hostView.addSubview(snapshot)
+            let animator = UIViewPropertyAnimator(
+                duration: 0.35,
+                timingParameters: UISpringTimingParameters(dampingRatio: 1.0)
+            )
+            animator.scrubsLinearly = true
+            animator.addAnimations { [weak snapshot] in
+                snapshot?.transform = CGAffineTransform(
+                    translationX: view.bounds.width,
+                    y: 0
+                )
+            }
+            animator.startAnimation()
+            animator.pauseAnimation()
             interactiveSnapshot = snapshot
+            interactiveAnimator = animator
             interactiveHandler = handler
             interactiveBackCommitted = false
+            if handler.supportsInteractiveBack() {
+                // A native back transition exposes the destination under the
+                // outgoing snapshot from the first point of the gesture. The
+                // Compose handler provides a rollback action if the gesture
+                // is cancelled.
+                interactiveBackCommitted = true
+                handler.onBack()
+            }
         case .changed:
-            interactiveSnapshot?.transform = CGAffineTransform(
-                translationX: min(translation, view.bounds.width),
-                y: 0
-            )
+            let progress = min(translation / max(view.bounds.width, 1), 1)
+            if let interactiveAnimator {
+                interactiveAnimator.fractionComplete = progress
+            } else {
+                interactiveSnapshot?.transform = CGAffineTransform(
+                    translationX: min(translation, view.bounds.width),
+                    y: 0
+                )
+            }
             if !interactiveBackCommitted &&
+                interactiveHandler?.supportsInteractiveBack() != true &&
                 (translation >= threshold || gesture.velocity(in: view).x >= 500)
             {
                 interactiveBackCommitted = true
                 interactiveHandler?.onBack()
             }
         case .ended:
+            let interactive = interactiveHandler?.supportsInteractiveBack() == true
             let shouldCommit = interactiveBackCommitted ||
-                translation >= 80 ||
+                translation >= threshold ||
                 gesture.velocity(in: view).x >= 500
             if shouldCommit && !interactiveBackCommitted {
                 interactiveBackCommitted = true
@@ -453,7 +483,11 @@ final class ConduitBackGestureCoordinator: NSObject, IosBackGestureBridge, UIGes
             }
             finishInteractiveBack(on: view, committed: shouldCommit)
         case .cancelled, .failed:
-            finishInteractiveBack(on: view, committed: interactiveBackCommitted)
+            let interactive = interactiveHandler?.supportsInteractiveBack() == true
+            finishInteractiveBack(
+                on: view,
+                committed: interactive ? false : interactiveBackCommitted,
+            )
         default:
             break
         }
@@ -465,30 +499,43 @@ final class ConduitBackGestureCoordinator: NSObject, IosBackGestureBridge, UIGes
             interactiveBackCommitted = false
             return
         }
-        let targetX = committed ? view.bounds.width : 0
-        let animate = { [weak self, weak snapshot] in
-            self?.snapshotHostView?.layoutIfNeeded()
-            UIView.animate(
-                withDuration: committed ? 0.2 : 0.16,
-                delay: 0,
-                options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction],
-                animations: {
-                    snapshot?.transform = CGAffineTransform(translationX: targetX, y: 0)
-                },
-                completion: { _ in
-                    snapshot?.removeFromSuperview()
-                    self?.interactiveSnapshot = nil
-                    self?.interactiveHandler = nil
-                    self?.interactiveBackCommitted = false
-                }
-            )
+        guard let animator = interactiveAnimator else {
+            snapshot.removeFromSuperview()
+            interactiveSnapshot = nil
+            interactiveHandler = nil
+            interactiveBackCommitted = false
+            return
         }
-        if committed {
-            // Compose applies the back action on its next frame. Keep the
-            // outgoing snapshot still until that destination is underneath it.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.06, execute: animate)
+
+        let finish = { [weak self, weak snapshot, weak animator] in
+            guard let animator else { return }
+            self?.snapshotHostView?.layoutIfNeeded()
+            animator.isReversed = !committed
+            animator.addCompletion { [weak self, weak snapshot] _ in
+                snapshot?.removeFromSuperview()
+                self?.interactiveSnapshot = nil
+                self?.interactiveAnimator = nil
+                self?.interactiveHandler = nil
+                self?.interactiveBackCommitted = false
+            }
+            animator.continueAnimation(withTimingParameters: nil, durationFactor: 0.8)
+        }
+        let interactive = interactiveHandler?.supportsInteractiveBack() == true
+        if interactive && !committed {
+            // The destination was rendered at the beginning of the gesture.
+            // Restore the source route before reversing the snapshot so a
+            // cancelled swipe also has the correct page underneath it.
+            interactiveHandler?.onBackCancelled()
+        }
+        if interactive || committed {
+            // Compose needs a couple of render passes to put the destination
+            // underneath the outgoing snapshot. Keep the animator paused
+            // while that happens, then hand control to UIKit's spring.
+            DispatchQueue.main.async {
+                DispatchQueue.main.async(execute: finish)
+            }
         } else {
-            animate()
+            finish()
         }
     }
 }

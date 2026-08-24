@@ -783,6 +783,7 @@ private fun AppShell(
     var selectedMedia by remember { mutableStateOf<CatalogItem?>(null) }
     var selectedMediaReturnsToOrigin by remember { mutableStateOf(false) }
     var selectedMediaOpenMode by remember { mutableStateOf(MediaOpenMode.Details) }
+    var selectedMediaBackRestore by remember { mutableStateOf<(() -> Unit)?>(null) }
     var profileFlowActive by remember { mutableStateOf(false) }
     var selectedVideoId by remember { mutableStateOf<String?>(null) }
     val homeListState = rememberLazyListState()
@@ -797,6 +798,33 @@ private fun AppShell(
     var adaptiveScrolledDown by remember { mutableStateOf(false) }
     var profileLaunchRequest by remember { mutableStateOf<ProfileLaunchRequest?>(null) }
     var profileLaunchSequence by remember { mutableIntStateOf(0) }
+    val closeSelectedMedia: () -> Unit = {
+        selectedMedia = null
+        selectedMediaReturnsToOrigin = false
+        selectedMediaOpenMode = MediaOpenMode.Details
+        selectedMediaBackRestore = null
+    }
+    val closeSelectedMediaInteractively: () -> Unit = {
+        val previousMedia = selectedMedia
+        val previousVideoId = selectedVideoId
+        val previousReturnsToOrigin = selectedMediaReturnsToOrigin
+        val previousOpenMode = selectedMediaOpenMode
+        if (previousMedia != null) {
+            selectedMediaBackRestore = {
+                selectedMedia = previousMedia
+                selectedVideoId = previousVideoId
+                selectedMediaReturnsToOrigin = previousReturnsToOrigin
+                selectedMediaOpenMode = previousOpenMode
+            }
+        }
+        selectedMedia = null
+        selectedMediaReturnsToOrigin = false
+        selectedMediaOpenMode = MediaOpenMode.Details
+    }
+    val cancelSelectedMediaInteractiveClose: () -> Unit = {
+        selectedMediaBackRestore?.invoke()
+        selectedMediaBackRestore = null
+    }
     fun openProfile(target: ProfileLaunchTarget, returnToLibrary: Boolean = false) {
         profileLaunchSequence += 1
         profileLaunchRequest = ProfileLaunchRequest(target, profileLaunchSequence, returnToLibrary)
@@ -1042,7 +1070,7 @@ private fun AppShell(
                             state, platform, account, activeProfile, profileSync, api, selectedMedia,
                             selectedVideoId, selectedMediaReturnsToOrigin, selectedMediaOpenMode,
                             openMedia, openLibraryEntry, openContinueWatching, openContinueWatchingDetails, openQueuedItem,
-                            { selectedMedia = null; selectedMediaReturnsToOrigin = false; selectedMediaOpenMode = MediaOpenMode.Details }, dispatch, onSignOut, onProfilesChanged,
+                            closeSelectedMedia, closeSelectedMediaInteractively, cancelSelectedMediaInteractiveClose, dispatch, onSignOut, onProfilesChanged,
                             { profileFlowActive = it },
                             refreshProfileData,
                             progressOutbox,
@@ -1062,7 +1090,7 @@ private fun AppShell(
                     state, platform, account, activeProfile, profileSync, api, selectedMedia,
                     selectedVideoId, selectedMediaReturnsToOrigin, selectedMediaOpenMode,
                             openMedia, openLibraryEntry, openContinueWatching, openContinueWatchingDetails, openQueuedItem,
-                            { selectedMedia = null; selectedMediaReturnsToOrigin = false; selectedMediaOpenMode = MediaOpenMode.Details }, dispatch, onSignOut, onProfilesChanged,
+                            closeSelectedMedia, closeSelectedMediaInteractively, cancelSelectedMediaInteractiveClose, dispatch, onSignOut, onProfilesChanged,
                             { profileFlowActive = it },
                             refreshProfileData,
                             progressOutbox,
@@ -1300,6 +1328,8 @@ private fun DestinationContent(
     onSelectContinueWatchingDetails: (CatalogItem) -> Unit,
     onSelectQueuedItem: (PlaybackQueueItem) -> Unit,
     onCloseMedia: () -> Unit,
+    onInteractiveCloseMedia: () -> Unit,
+    onCancelInteractiveCloseMedia: () -> Unit,
     dispatch: (AppAction) -> Unit,
     onSignOut: () -> Unit,
     onProfilesChanged: (String?) -> Unit,
@@ -1364,6 +1394,7 @@ private fun DestinationContent(
                     api = api,
                     active = active,
                     onBack = { dispatch(AppAction.Navigate(AppDestination.Library)) },
+                    onBackCancelled = { dispatch(AppAction.Navigate(AppDestination.Calendar)) },
                     onSelect = onSelectMedia,
                     modifier = tabModifier,
                 )
@@ -1378,6 +1409,7 @@ private fun DestinationContent(
                     snapshot = profileSync.snapshot, api = api, onMutation = onProfileMutation,
                     active = active,
                     onBack = { dispatch(AppAction.Navigate(AppDestination.Home)) },
+                    onBackCancelled = { dispatch(AppAction.Navigate(AppDestination.ContinueWatching)) },
                     onSelect = onSelectContinueWatchingDetails, onSelectVideo = onSelectContinueWatching,
                     gridState = continueWatchingGridState, modifier = tabModifier,
                 )
@@ -1405,6 +1437,8 @@ private fun DestinationContent(
                     onBrowse = onBrowse,
                     onPlayQueueItem = onSelectQueuedItem,
                     onBack = onCloseMedia,
+                    onInteractiveBack = onInteractiveCloseMedia,
+                    onBackCancelled = onCancelInteractiveCloseMedia,
                     playbackSession = playbackSession,
                 )
             }
@@ -1593,13 +1627,35 @@ private fun BoxScope.PlaybackSessionHost(
         }
     }
 
+    var interactiveBackRestore by remember { mutableStateOf<(() -> Unit)?>(null) }
+    val interactiveBackAvailable = fullScreen &&
+        (session.episodePickerOpen || session.streamPicker != null || session.queueOpen)
+    fun performNativeBack() {
+        when {
+            session.queueOpen -> {
+                interactiveBackRestore = { controller.openQueue() }
+                controller.closeQueue()
+            }
+            session.streamPicker != null -> {
+                val picker = session.streamPicker
+                interactiveBackRestore = { controller.showStreamPicker(picker) }
+                controller.closeStreamPicker()
+            }
+            session.episodePickerOpen -> {
+                interactiveBackRestore = { controller.openEpisodes() }
+                controller.closeEpisodes()
+            }
+        }
+    }
+    fun cancelNativeBack() {
+        interactiveBackRestore?.invoke()
+        interactiveBackRestore = null
+    }
     PlatformBackHandler(
         enabled = fullScreen && (session.episodePickerOpen || session.streamPicker != null || session.queueOpen),
-        onBack = {
-            if (session.queueOpen) controller.closeQueue()
-            else if (session.streamPicker != null) controller.closeStreamPicker()
-            else controller.closeEpisodes()
-        },
+        onBack = ::performNativeBack,
+        onBackCancelled = ::cancelNativeBack,
+        interactiveBack = interactiveBackAvailable,
     )
     val initialPlaybackLoad = !playbackHasStarted &&
         (session.playback.loading || session.playback.buffering || !playbackSurfaceReady)

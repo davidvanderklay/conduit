@@ -214,6 +214,7 @@ internal fun MobileContinueWatchingScreen(
     onMutation: suspend (ProfileMutation) -> Result<Unit>,
     active: Boolean,
     onBack: () -> Unit,
+    onBackCancelled: (() -> Unit)? = null,
     onSelect: (CatalogItem) -> Unit,
     onSelectVideo: (CatalogItem, String?) -> Unit,
     gridState: androidx.compose.foundation.lazy.grid.LazyGridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState(),
@@ -246,7 +247,12 @@ internal fun MobileContinueWatchingScreen(
             }
         }
 
-    PlatformBackHandler(enabled = active, onBack = onBack)
+    PlatformBackHandler(
+        enabled = active,
+        onBack = onBack,
+        onBackCancelled = onBackCancelled,
+        interactiveBack = onBackCancelled != null,
+    )
     Column(modifier.fillMaxSize()) {
         ProfileHeader("Continue Watching", onBack)
         Column(Modifier.padding(horizontal = 10.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -665,6 +671,8 @@ internal fun MediaDetailsScreen(
     onBrowse: (MobileBrowseTarget) -> Unit,
     onPlayQueueItem: (PlaybackQueueItem) -> Unit,
     onBack: () -> Unit,
+    onInteractiveBack: (() -> Unit)? = null,
+    onBackCancelled: (() -> Unit)? = null,
     returnToHomeOnStreamBack: Boolean,
     openMode: MediaOpenMode,
     playbackSession: PlaybackSessionController,
@@ -705,6 +713,7 @@ internal fun MediaDetailsScreen(
     var manualSourceFallbacks by remember(item.id) { mutableStateOf<Map<String, StreamSource>>(emptyMap()) }
     var prefetchedStreams by remember(item.id) { mutableStateOf<Map<String, Result<List<StreamSource>>>>(emptyMap()) }
     var prefetchedStreamVideoIds by remember(item.id) { mutableStateOf<Set<String>>(emptySet()) }
+    var interactiveBackRestore by remember(item.id) { mutableStateOf<(() -> Unit)?>(null) }
     fun transitionDiagnostic(stage: String, detail: String = "") {
         if (!preferences.debugLogging) return
         val suffix = detail.takeIf(String::isNotBlank)?.let { " $it" }.orEmpty()
@@ -1566,6 +1575,58 @@ internal fun MediaDetailsScreen(
         onBack()
     }
     val ownsPlayback = requestIdentity != null && playbackSession.state.request?.identity == requestIdentity
+    val interactiveBackAvailable = !waitingForSavedPlayback &&
+        !openingPlayback &&
+        onInteractiveBack != null
+
+    fun performNativeBack() {
+        val session = playbackSession.state
+        when {
+            session.streamPicker != null -> {
+                val picker = session.streamPicker
+                interactiveBackRestore = { playbackSession.showStreamPicker(picker) }
+                playbackSession.closeStreamPicker()
+            }
+            session.episodePickerOpen -> {
+                interactiveBackRestore = { playbackSession.openEpisodes() }
+                playbackSession.closeEpisodes()
+            }
+            session.queueOpen -> {
+                interactiveBackRestore = { playbackSession.openQueue() }
+                playbackSession.closeQueue()
+            }
+            streamEpisodesOpen -> {
+                interactiveBackRestore = { streamEpisodesOpen = true }
+                streamEpisodesOpen = false
+            }
+            streamPageOpen -> {
+                val previousStreams = streams
+                val previousLoading = streamsLoading
+                val previousError = streamsError
+                val previousVideoId = streamVideoId
+                interactiveBackRestore = {
+                    streamPageOpen = true
+                    streams = previousStreams
+                    streamsLoading = previousLoading
+                    streamsError = previousError
+                    streamVideoId = previousVideoId
+                }
+                closeStreamSelection()
+            }
+            waitingForSavedPlayback -> cancelAutoResume()
+            ownsPlayback && playbackSession.state.presentation == PlaybackPresentation.FullScreen -> {
+                playbackSession.leaveFullScreen(preferences.miniplayerOnBack)
+            }
+            else -> {
+                interactiveBackRestore = onBackCancelled
+                if (interactiveBackAvailable) requireNotNull(onInteractiveBack).invoke() else onBack()
+            }
+        }
+    }
+    fun cancelNativeBack() {
+        interactiveBackRestore?.invoke()
+        interactiveBackRestore = null
+    }
     PlayerOrientationLock(
         active = waitingForSavedPlayback ||
             (playing != null && !ownsPlayback) ||
@@ -1581,20 +1642,10 @@ internal fun MediaDetailsScreen(
             streamPageOpen ||
             waitingForSavedPlayback ||
             (platformBackIncludesFullscreenPlayer && playbackSession.state.presentation == PlaybackPresentation.FullScreen),
-    ) {
-        when {
-            playbackSession.state.streamPicker != null -> playbackSession.closeStreamPicker()
-            playbackSession.state.episodePickerOpen -> playbackSession.closeEpisodes()
-            playbackSession.state.queueOpen -> playbackSession.closeQueue()
-            streamEpisodesOpen -> streamEpisodesOpen = false
-            streamPageOpen -> closeStreamSelection()
-            waitingForSavedPlayback -> cancelAutoResume()
-            ownsPlayback && playbackSession.state.presentation == PlaybackPresentation.FullScreen -> {
-                playbackSession.leaveFullScreen(preferences.miniplayerOnBack)
-            }
-            else -> onBack()
-        }
-    }
+        onBack = ::performNativeBack,
+        onBackCancelled = ::cancelNativeBack,
+        interactiveBack = interactiveBackAvailable,
+    )
     if (waitingForSavedPlayback || openingPlayback) {
         Box(Modifier.fillMaxSize()) {
             PlayerOpeningOverlay(
@@ -3100,6 +3151,9 @@ internal fun ProfileSettingsScreen(
     // True while watch history was opened from the library header, so Back
     // returns to Library instead of the settings root.
     var historyFromLibrary by remember { mutableStateOf(false) }
+    var interactiveBackRoute by remember { mutableStateOf<ProfileRoute?>(null) }
+    var interactiveBackHistoryFromLibrary by remember { mutableStateOf(false) }
+    var interactiveBackDestination by remember { mutableStateOf<AppDestination?>(null) }
     val closeHistory: () -> Unit = {
         val wasFromLibrary = historyFromLibrary
         historyFromLibrary = false
@@ -3141,7 +3195,10 @@ internal fun ProfileSettingsScreen(
             "https://github.com/davidvanderklay/conduit/blob/main/THIRD_PARTY_NOTICES.md",
         )
     }
-    PlatformBackHandler(enabled = active && route != ProfileRoute.Settings) {
+    fun navigateBack() {
+        interactiveBackRoute = route
+        interactiveBackHistoryFromLibrary = historyFromLibrary
+        interactiveBackDestination = state.destination
         when (route) {
             ProfileRoute.Settings -> Unit
             ProfileRoute.History -> closeHistory()
@@ -3162,6 +3219,21 @@ internal fun ProfileSettingsScreen(
             ProfileRoute.Licenses -> route = ProfileRoute.Settings
         }
     }
+    fun cancelInteractiveBack() {
+        interactiveBackDestination?.let { destination ->
+            if (state.destination != destination) dispatch(AppAction.Navigate(destination))
+        }
+        interactiveBackRoute?.let { route = it }
+        historyFromLibrary = interactiveBackHistoryFromLibrary
+        interactiveBackRoute = null
+        interactiveBackDestination = null
+    }
+    PlatformBackHandler(
+        enabled = active && route != ProfileRoute.Settings,
+        onBack = ::navigateBack,
+        onBackCancelled = ::cancelInteractiveBack,
+        interactiveBack = true,
+    )
     when (val current = route) {
         ProfileRoute.Overview -> return ProfileOverviewScreen(activeProfile, profileSync.snapshot, { route = ProfileRoute.Settings }, { route = ProfileRoute.Switcher }, { activeProfile?.let { route = ProfileRoute.Edit(it) } }, modifier)
         ProfileRoute.Switcher -> return ProfileSwitcherScreen(account.bootstrap.households.flatMap { it.profiles }, activeProfile, { route = ProfileRoute.Overview }, { route = ProfileRoute.Edit(it) }, { route = ProfileRoute.Create }, { dispatch(AppAction.SelectProfile(it.id)); route = ProfileRoute.Overview }, modifier)

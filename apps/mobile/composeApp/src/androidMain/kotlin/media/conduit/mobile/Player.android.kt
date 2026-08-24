@@ -369,14 +369,12 @@ actual fun NativePlayer(
             mainActivity?.attachConduitPipSession(
                 isPlaying = { player.isPlaying },
                 togglePlayback = { if (player.isPlaying) player.pause() else player.play() },
-                seekBy = { offset -> player.seekTo((player.currentPosition + offset).coerceAtLeast(0L)) },
                 onModeChanged = { latestPipCallback(it) },
             )
         } else if (mpvView != null) {
             mainActivity?.attachConduitPipSession(
                 isPlaying = { mpvView?.snapshot()?.playing == true },
                 togglePlayback = { mpvView?.let { view -> view.setPaused(view.snapshot().playing) } },
-                seekBy = { offset -> mpvView?.seekBy(offset) },
                 onModeChanged = { latestPipCallback(it) },
             )
         }
@@ -390,10 +388,7 @@ actual fun NativePlayer(
     }
     DisposableEffect(player, lifecycle, activeEngine, mpvView) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_STOP &&
-                activity?.isInPictureInPictureMode != true &&
-                (activity as? MainActivity)?.shouldKeepPlayingForPictureInPicture() != true
-            ) {
+            if (event == Lifecycle.Event.ON_STOP && activity?.isInPictureInPictureMode != true) {
                 if (activeEngine == NativePlaybackEngine.Media3) player.pause() else mpvView?.setPaused(true)
             }
         }
@@ -452,7 +447,7 @@ actual fun NativePlayer(
                         videoHeight = mpvSnapshot.videoHeight,
                         ended = mpvSnapshot.ended,
                         error = playbackError,
-                        pipReady =
+                        pipReady = landscape &&
                             !mpvSnapshot.loading &&
                             !mpvSnapshot.buffering &&
                             mpvSnapshot.firstFrameRendered &&
@@ -465,7 +460,7 @@ actual fun NativePlayer(
                     )
                 } else {
                     val isBuffering = initialLoadComplete && player.playbackState == Player.STATE_BUFFERING
-                    val playerPipReady =
+                    val playerPipReady = landscape &&
                         initialLoadComplete &&
                         firstFrameRendered &&
                         player.videoSize.width > 0 &&

@@ -7,8 +7,12 @@ import androidx.compose.runtime.remember
 
 private class ConduitBackGestureHandler(
     var action: () -> Unit,
+    var cancellationAction: (() -> Unit)?,
+    var interactive: Boolean,
 ) : IosBackGestureHandler {
     override fun onBack() = action()
+    override fun onBackCancelled() { cancellationAction?.invoke() }
+    override fun supportsInteractiveBack() = interactive && cancellationAction != null
 }
 
 private class BackHandlerRegistration(
@@ -27,14 +31,21 @@ private fun updateNativeBackHandler() {
 }
 
 @Composable
-actual fun PlatformBackHandler(enabled: Boolean, onBack: () -> Unit) {
+actual fun PlatformBackHandler(
+    enabled: Boolean,
+    onBack: () -> Unit,
+    onBackCancelled: (() -> Unit)?,
+    interactiveBack: Boolean,
+) {
     val registration = remember {
-        BackHandlerRegistration(ConduitBackGestureHandler(onBack)).also {
+        BackHandlerRegistration(ConduitBackGestureHandler(onBack, null, false)).also {
             registrations[++nextRegistrationId] = it
         }
     }
     SideEffect {
         registration.handler.action = onBack
+        registration.handler.cancellationAction = onBackCancelled
+        registration.handler.interactive = interactiveBack
         registration.enabled = enabled
         updateNativeBackHandler()
     }

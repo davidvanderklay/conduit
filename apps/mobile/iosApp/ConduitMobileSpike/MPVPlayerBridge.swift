@@ -1,6 +1,7 @@
 import AVFoundation
 import AVKit
 import ComposeApp
+import CoreText
 import Foundation
 import Libmpv
 import UIKit
@@ -308,6 +309,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
     fileprivate let displayLayer = AVSampleBufferDisplayLayer()
     private let pictureInPicturePlaceholderLayer = CALayer()
     private var pictureInPicture: ConduitPictureInPictureCoordinator?
+    private lazy var subtitleFontController = ConduitSubtitleFontController()
     private var mpv: OpaquePointer?
 
     // MARK: Software renderer state (guarded by renderStateLock unless noted)
@@ -1426,6 +1428,9 @@ final class ConduitMPVPlayerViewController: UIViewController {
         setOptionString(mpv, name: "keep-open", value: "yes")
         setOptionString(mpv, name: "subs-match-os-language", value: "yes")
         setOptionString(mpv, name: "subs-fallback", value: "yes")
+        subtitleFontController.applySetupOptions { [weak self] name, value in
+            self?.setOptionString(mpv, name: name, value: value)
+        }
 
         let initializeStatus = mpv_initialize(mpv)
         checkError(initializeStatus)
@@ -2067,10 +2072,9 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         let controller = AVPictureInPictureController(contentSource: source)
         controller.delegate = self
         controller.requiresLinearPlayback = false
-        // Let AVKit handle the system Home transition as well as the explicit
-        // gesture path. The native trigger is more reliable when the app is
-        // backgrounded before the custom recognizer receives its final event.
-        controller.canStartPictureInPictureAutomaticallyFromInline = true
+        // Automatic entry is managed by this coordinator: an explicit start
+        // during the Home gesture replaces AVKit's inline trigger.
+        controller.canStartPictureInPictureAutomaticallyFromInline = false
         self.controller = controller
     }
 
@@ -2719,6 +2723,52 @@ enum ConduitSurfaceTransitionPolicy {
         !interactiveResizeActive &&
             !surfaceTransitionActive &&
             !coordinatorSurfaceTransitionActive
+    }
+}
+
+/// Registers a known FreeType-readable CJK font before libmpv starts. iOS
+/// system fonts are available to CoreText but are not reliably discoverable by
+/// the FreeType/libass provider used by the bundled MPVKit build, which can
+/// turn Han glyphs into boxes and make fallback work happen repeatedly.
+final class ConduitSubtitleFontController {
+    private static let family = "Noto Sans CJK SC"
+    private var registered = false
+
+    func applySetupOptions(_ setOption: (String, String) -> Void) {
+        guard registerBundledFont() else { return }
+        setOption("sub-font", Self.family)
+    }
+
+    private func registerBundledFont() -> Bool {
+        if registered { return true }
+        guard let url = Bundle.main.url(
+            forResource: "NotoSansCJKsc-Regular",
+            withExtension: "otf",
+            subdirectory: "SubtitleFonts",
+        ) ?? Bundle.main.url(
+            forResource: "NotoSansCJKsc-Regular",
+            withExtension: "otf",
+        ) else {
+            print("[Conduit MPV] CJK subtitle font resource is missing")
+            return false
+        }
+
+        var error: Unmanaged<CFError>?
+        let didRegister = CTFontManagerRegisterFontsForURL(url as CFURL, .process, &error)
+        if !didRegister {
+            let message = error?.takeRetainedValue().localizedDescription ?? "unknown error"
+            // A second player can legitimately see the process-wide font as
+            // already registered. Verify the family before treating it as a
+            // failure so the player still uses the known-good font.
+            let font = CTFontCreateWithName(Self.family as CFString, 12, nil)
+            if (CTFontCopyFamilyName(font) as String) != Self.family {
+                print("[Conduit MPV] CJK subtitle font registration failed: \(message)")
+                return false
+            }
+        }
+
+        registered = true
+        return true
     }
 }
 

@@ -22,7 +22,6 @@ import java.lang.ref.WeakReference
 class MainActivity : ComponentActivity() {
     private var pipIsPlaying: (() -> Boolean)? = null
     private var pipTogglePlayback: (() -> Unit)? = null
-    private var pipSeekBy: ((Long) -> Unit)? = null
     private var pipSourceView = WeakReference<View>(null)
     private var pipActive = false
     private var pipVideoReady = false
@@ -48,16 +47,6 @@ class MainActivity : ComponentActivity() {
             updateConduitPictureInPictureParams()
             return
         }
-        if (intent.action == ACTION_SEEK_BACK) {
-            pipSeekBy?.invoke(-10_000L)
-            updateConduitPictureInPictureParams()
-            return
-        }
-        if (intent.action == ACTION_SEEK_FORWARD) {
-            pipSeekBy?.invoke(10_000L)
-            updateConduitPictureInPictureParams()
-            return
-        }
         MobileOAuthCallbacks.capture(intent)
     }
 
@@ -79,12 +68,10 @@ class MainActivity : ComponentActivity() {
     internal fun attachConduitPipSession(
         isPlaying: () -> Boolean,
         togglePlayback: () -> Unit,
-        seekBy: (Long) -> Unit,
         onModeChanged: (Boolean) -> Unit,
     ) {
         pipIsPlaying = isPlaying
         pipTogglePlayback = togglePlayback
-        pipSeekBy = seekBy
         onPipModeChanged = onModeChanged
         pipActive = true
         pipVideoReady = false
@@ -94,7 +81,6 @@ class MainActivity : ComponentActivity() {
     internal fun detachConduitPipSession() {
         pipIsPlaying = null
         pipTogglePlayback = null
-        pipSeekBy = null
         onPipModeChanged = null
         pipSourceView.clear()
         pipActive = false
@@ -125,18 +111,12 @@ class MainActivity : ComponentActivity() {
         updateConduitPictureInPictureParams()
     }
 
-    internal fun shouldKeepPlayingForPictureInPicture(): Boolean =
-        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
-            pipActive &&
-            pipVideoReady &&
-            pipIsPlaying?.invoke() == true
-
     internal fun updateConduitPictureInPictureParams() {
         if (!pipActive || Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val sourceRect = Rect().takeIf { pipSourceView.get()?.getGlobalVisibleRect(it) == true }
         val builder = PictureInPictureParams.Builder()
             .setAspectRatio(clampedPipAspectRatio(videoWidth, videoHeight))
-            .setActions(pipActions())
+            .setActions(listOf(playPauseAction()))
         sourceRect?.let(builder::setSourceRectHint)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             builder.setAutoEnterEnabled(pipVideoReady && pipIsPlaying?.invoke() == true)
@@ -150,7 +130,7 @@ class MainActivity : ComponentActivity() {
         val sourceRect = Rect().takeIf { pipSourceView.get()?.getGlobalVisibleRect(it) == true }
         val builder = PictureInPictureParams.Builder()
             .setAspectRatio(clampedPipAspectRatio(videoWidth, videoHeight))
-            .setActions(pipActions())
+            .setActions(listOf(playPauseAction()))
         sourceRect?.let(builder::setSourceRectHint)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) builder.setSeamlessResizeEnabled(true)
         enterPictureInPictureMode(builder.build())
@@ -181,37 +161,8 @@ class MainActivity : ComponentActivity() {
         )
     }
 
-    private fun pipActions(): List<RemoteAction> = listOf(
-        seekAction(ACTION_SEEK_BACK, android.R.drawable.ic_media_rew, "Back 10 seconds", 2),
-        playPauseAction(),
-        seekAction(ACTION_SEEK_FORWARD, android.R.drawable.ic_media_ff, "Forward 10 seconds", 3),
-    )
-
-    private fun seekAction(
-        action: String,
-        iconResource: Int,
-        label: String,
-        requestCode: Int,
-    ): RemoteAction {
-        val intent = Intent(this, MainActivity::class.java).apply { this.action = action }
-        val pendingIntent = PendingIntent.getActivity(
-            this,
-            requestCode,
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
-        return RemoteAction(
-            Icon.createWithResource(this, iconResource),
-            label,
-            label,
-            pendingIntent,
-        )
-    }
-
     companion object {
         private const val ACTION_TOGGLE_PLAYBACK = "media.conduit.mobile.action.TOGGLE_PLAYBACK"
-        private const val ACTION_SEEK_BACK = "media.conduit.mobile.action.SEEK_BACK"
-        private const val ACTION_SEEK_FORWARD = "media.conduit.mobile.action.SEEK_FORWARD"
     }
 }
 
