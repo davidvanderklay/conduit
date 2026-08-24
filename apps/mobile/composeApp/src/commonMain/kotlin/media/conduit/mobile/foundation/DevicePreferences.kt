@@ -40,7 +40,7 @@ data class DevicePreferences(
 )
 
 fun DevicePreferences.normalizedForPlatform(platformName: String): DevicePreferences =
-    if (platformName.equals("iOS", ignoreCase = true) && navigationStyle == NavigationStyle.Compact) {
+    if (platformName.isIosPlatformName() && navigationStyle == NavigationStyle.Compact) {
         copy(navigationStyle = NavigationStyle.Adaptive)
     } else {
         this

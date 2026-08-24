@@ -35,6 +35,7 @@ actual fun rememberPlatformServices(): PlatformServices {
                 name = "Android",
                 version = Build.VERSION.RELEASE,
                 device = "${Build.MANUFACTURER} ${Build.MODEL}".trim(),
+                isTablet = isTabletSmallestWidth(context.resources.configuration.smallestScreenWidthDp),
             ),
         )
     }
