@@ -39,6 +39,17 @@ class DevicePreferencesTest {
     }
 
     @Test
+    fun skipButtonPositionDefaultsLeftAndRoundTrips() {
+        val store = MemorySettingsStore()
+        val repository = DevicePreferencesRepository(store)
+
+        assertEquals(SkipButtonPosition.Left, repository.load().skipButtonPosition)
+        repository.save(repository.load().copy(skipButtonPosition = SkipButtonPosition.Right))
+
+        assertEquals(SkipButtonPosition.Right, repository.load().skipButtonPosition)
+    }
+
+    @Test
     fun miniplayerOnBackRoundTripsAsADevicePreference() {
         val store = MemorySettingsStore()
         val repository = DevicePreferencesRepository(store)

@@ -184,6 +184,7 @@ struct ConduitMobileSpikeApp: App {
     init() {
         ConduitPlayerRegistration.register()
         ConduitPlatformRegistration.register()
+        _ = ConduitKeyboardCoordinator.shared
         IosBottomNavigationBridgeFactory.shared.register(
             bridge: ConduitBottomNavigationCoordinator.shared
         )
@@ -210,15 +211,10 @@ private struct ConduitRootView: View {
 
     var body: some View {
         GeometryReader { geometry in
-            // Keep the floating bar close to the home-indicator edge. The
-            // native tab bar already owns its internal bottom spacing.
-            let floatingBottomInset = max(geometry.safeAreaInsets.bottom - 32, 0)
-            // iPadOS 26 reports zero safe-area insets to the embedded Compose
-            // view, which draws app chrome under the system status bar.
-            // Publish the real inset so Compose can compensate; idempotent.
-            // Discardable binding because ViewBuilder only takes views/lets.
-            let _ = PlatformSafeArea.shared.publish(topInsetPt: Float(geometry.safeAreaInsets.top))
             ZStack(alignment: .bottom) {
+                ConduitSafeAreaProbe()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .allowsHitTesting(false)
                 Color.black.ignoresSafeArea()
                 ComposeView().ignoresSafeArea()
 
@@ -230,7 +226,7 @@ private struct ConduitRootView: View {
                                 : min(geometry.size.width - 48, 480)
                         )
                         .frame(height: 88)
-                        .padding(.bottom, bottomNavigation.classic ? geometry.safeAreaInsets.bottom : floatingBottomInset)
+                        .padding(.bottom, bottomNavigation.classic ? geometry.safeAreaInsets.bottom : max(geometry.safeAreaInsets.bottom - 32, 0))
                         .offset(y: bottomNavigation.visible ? 0 : 120)
                         .opacity(bottomNavigation.visible ? 1 : 0)
                         .allowsHitTesting(bottomNavigation.visible)
@@ -241,6 +237,65 @@ private struct ConduitRootView: View {
         }
         .statusBarHidden(systemChrome.immersivePlayback)
         .modifier(ConduitPersistentSystemOverlaysModifier(hidden: systemChrome.immersivePlayback))
+    }
+}
+
+private struct ConduitSafeAreaProbe: UIViewRepresentable {
+    func makeUIView(context: Context) -> ConduitSafeAreaProbeView {
+        ConduitSafeAreaProbeView()
+    }
+
+    func updateUIView(_ view: ConduitSafeAreaProbeView, context: Context) {}
+}
+
+private final class ConduitSafeAreaProbeView: UIView {
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        publishSafeArea()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        publishSafeArea()
+    }
+
+    override func safeAreaInsetsDidChange() {
+        super.safeAreaInsetsDidChange()
+        publishSafeArea()
+    }
+
+    private func publishSafeArea() {
+        guard let window else { return }
+        PlatformSafeArea.shared.publish(topInsetPt: Float(window.safeAreaInsets.top))
+    }
+}
+
+private final class ConduitKeyboardCoordinator: NSObject {
+    static let shared = ConduitKeyboardCoordinator()
+
+    private var observers: [NSObjectProtocol] = []
+
+    private override init() {
+        super.init()
+        let center = NotificationCenter.default
+        observers.append(center.addObserver(
+            forName: UIResponder.keyboardWillChangeFrameNotification,
+            object: nil,
+            queue: .main,
+        ) { _ in
+            PlatformKeyboard.shared.publish(visible: true)
+        })
+        observers.append(center.addObserver(
+            forName: UIResponder.keyboardWillHideNotification,
+            object: nil,
+            queue: .main,
+        ) { _ in
+            PlatformKeyboard.shared.publish(visible: false)
+        })
+    }
+
+    deinit {
+        observers.forEach { NotificationCenter.default.removeObserver($0) }
     }
 }
 
@@ -369,10 +424,16 @@ private struct ConduitBottomTabBar: UIViewRepresentable {
         tabBar.delegate = context.coordinator
         tabBar.tintColor = UIColor(red: 0.98, green: 0.75, blue: 0.14, alpha: 1)
         tabBar.unselectedItemTintColor = UIColor.white.withAlphaComponent(0.55)
-        tabBar.backgroundColor = .clear
-        tabBar.isOpaque = false
+        let appearance = UITabBarAppearance()
+        appearance.configureWithOpaqueBackground()
+        appearance.backgroundColor = UIColor(white: 0.07, alpha: 1)
+        appearance.shadowColor = UIColor.white.withAlphaComponent(0.12)
+        tabBar.standardAppearance = appearance
+        if #available(iOS 15.0, *) {
+            tabBar.scrollEdgeAppearance = appearance
+        }
         tabBar.itemPositioning = .fill
-        tabBar.layoutMargins = UIEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
+        tabBar.layoutMargins = UIEdgeInsets(top: 5, left: 8, bottom: 5, right: 8)
         return ConduitTabBarContainer(tabBar: tabBar)
     }
 
@@ -380,9 +441,9 @@ private struct ConduitBottomTabBar: UIViewRepresentable {
         context.coordinator.owner = coordinator
         let tabBar = container.tabBar
         tabBar.layoutMargins = UIEdgeInsets(
-            top: 8,
+            top: 5,
             left: 8,
-            bottom: 8,
+            bottom: 5,
             right: 8
         )
         let symbolConfiguration = UIImage.SymbolConfiguration(

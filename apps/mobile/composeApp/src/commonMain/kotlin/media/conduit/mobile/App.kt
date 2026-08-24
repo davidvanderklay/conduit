@@ -111,10 +111,20 @@ fun App() {
         var state by remember { mutableStateOf(store.state) }
         val dispatch: (AppAction) -> Unit = { state = store.dispatch(it) }
 
-        if (state.endpoint == null) {
-            ServerSetup(state, dispatch)
-        } else {
-            AccountGate(state, services, preferences, updatePreferences, dispatch)
+        // iPadOS can report zero status-bar insets to the embedded Compose
+        // controller. Apply the host-published inset once at the app root so
+        // setup and authentication screens receive the same safe-area rule as
+        // the signed-in shell.
+        val density = LocalDensity.current
+        val bridgedTopPx = with(density) { PlatformSafeArea.topInset.toPx() }
+        val systemTopPx = WindowInsets.statusBars.getTop(density)
+        val missingTopInset = with(density) { (bridgedTopPx - systemTopPx).coerceAtLeast(0f).toDp() }
+        Box(Modifier.fillMaxSize().padding(top = missingTopInset)) {
+            if (state.endpoint == null) {
+                ServerSetup(state, dispatch)
+            } else {
+                AccountGate(state, services, preferences, updatePreferences, dispatch)
+            }
         }
     }
 }
@@ -475,7 +485,7 @@ private fun SignInScreen(
         onDismissServerNotice()
     }
     Box(Modifier.fillMaxSize().background(Brush.radialGradient(listOf(MaterialTheme.colorScheme.primary.copy(.09f), MaterialTheme.colorScheme.background), radius = 900f)), contentAlignment = Alignment.Center) {
-        Column(Modifier.safeContentPadding().verticalScroll(rememberScrollState()).widthIn(max = 460.dp).fillMaxWidth().padding(horizontal = 20.dp, vertical = 28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(Modifier.safeContentPadding().imePadding().verticalScroll(rememberScrollState()).widthIn(max = 460.dp).fillMaxWidth().padding(horizontal = 20.dp, vertical = 28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Row(Modifier.fillMaxWidth().padding(bottom = 18.dp), verticalAlignment = Alignment.CenterVertically) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) { ConduitMark(Modifier.size(40.dp)); Text("conduit", color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) }
                 Spacer(Modifier.weight(1f))
@@ -648,9 +658,9 @@ private fun ServerSetup(state: AppState, dispatch: (AppAction) -> Unit) {
             }
     }
     Surface(Modifier.fillMaxSize()) {
-        BoxWithConstraints(Modifier.fillMaxSize().safeContentPadding()) {
+        BoxWithConstraints(Modifier.fillMaxSize().safeContentPadding().imePadding()) {
             Column(
-                Modifier.widthIn(max = 560.dp).fillMaxWidth().padding(24.dp),
+                Modifier.widthIn(max = 560.dp).fillMaxWidth().verticalScroll(rememberScrollState()).padding(24.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 Text("conduit", style = MaterialTheme.typography.displaySmall)
@@ -848,14 +858,7 @@ private fun AppShell(
         selectedMediaReturnsToOrigin = false
         selectedMediaOpenMode = MediaOpenMode.Details
     }
-        // Some platforms (iPadOS 26) report zero status-bar insets to the
-        // embedded Compose view. The shell publishes the real value; pad by
-        // whatever Compose does not already know about.
-        val density = LocalDensity.current
-        val bridgedTopPx = with(density) { PlatformSafeArea.topInset.toPx() }
-        val systemTopPx = WindowInsets.statusBars.getTop(density)
-        val missingTopInset = with(density) { (bridgedTopPx - systemTopPx).coerceAtLeast(0f).toDp() }
-        BoxWithConstraints(Modifier.fillMaxSize().padding(top = missingTopInset)) {
+        BoxWithConstraints(Modifier.fillMaxSize()) {
         // A rotated phone can be wider than 720dp while still having very little
         // vertical room. Treat only genuinely large windows as the expanded
         // layout so rotation does not move the active screen to a new branch and
@@ -1115,10 +1118,19 @@ private fun AppShell(
                     .then(if (expanded) Modifier.padding(start = 80.dp) else Modifier),
             )
         }
-        if (!expanded && bottomChromeVisible && (!profileFlowActive || state.destination == AppDestination.Profile)) {
-            val classic = preferences.navigationStyle == NavigationStyle.Classic
-            val compact = preferences.navigationStyle == NavigationStyle.Compact ||
-                (preferences.navigationStyle == NavigationStyle.Adaptive && adaptiveScrolledDown)
+        val isIpad = platform.name.equals("iOS", ignoreCase = true) && platform.isTablet
+        val keyboardVisible = isIpad && PlatformKeyboard.visible
+        val appBottomNavigationVisible = !expanded && bottomChromeVisible &&
+            (!profileFlowActive || state.destination == AppDestination.Profile) &&
+            !keyboardVisible
+        if (appBottomNavigationVisible) {
+            // Adaptive remains the phone default. On iPad it resolves to the
+            // full-width native tab bar unless the user explicitly chooses the
+            // expanded floating treatment.
+            val ipadUsesClassicBar = isIpad && preferences.navigationStyle != NavigationStyle.Expanded
+            val classic = ipadUsesClassicBar || preferences.navigationStyle == NavigationStyle.Classic
+            val compact = !isIpad && (preferences.navigationStyle == NavigationStyle.Compact ||
+                (preferences.navigationStyle == NavigationStyle.Adaptive && adaptiveScrolledDown))
             val destinations = AppDestination.entries.filter(AppDestination::showInNavigation)
             // Keep the originating tab highlighted on contextual screens such as
             // watch history: Library when opened from the library header,
@@ -1137,8 +1149,8 @@ private fun AppShell(
                 },
                 compact = compact,
                 classic = classic,
-                adaptive = preferences.navigationStyle == NavigationStyle.Adaptive,
-                adaptiveHidden = preferences.navigationStyle == NavigationStyle.Adaptive && adaptiveScrolledDown,
+                adaptive = !isIpad && preferences.navigationStyle == NavigationStyle.Adaptive,
+                adaptiveHidden = !isIpad && preferences.navigationStyle == NavigationStyle.Adaptive && adaptiveScrolledDown,
                 onSelect = navigateMain,
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
@@ -1147,8 +1159,8 @@ private fun AppShell(
             controller = playbackSession,
             preferences = preferences,
             expanded = expanded,
-            bottomNavigationVisible = !expanded && bottomChromeVisible &&
-                (!profileFlowActive || state.destination == AppDestination.Profile),
+            isIpad = isIpad,
+            bottomNavigationVisible = appBottomNavigationVisible,
             snapshot = profileSync.snapshot,
             onMutation = ::mutateProfile,
             skipSegmentsRepository = remember { SkipSegmentsRepository() },
@@ -1406,6 +1418,7 @@ private fun BoxScope.PlaybackSessionHost(
     controller: PlaybackSessionController,
     preferences: DevicePreferences,
     expanded: Boolean,
+    isIpad: Boolean,
     bottomNavigationVisible: Boolean,
     snapshot: ProfileSnapshot?,
     onMutation: suspend (ProfileMutation) -> Result<Unit>,
@@ -1448,8 +1461,8 @@ private fun BoxScope.PlaybackSessionHost(
     var playerOverlayVisible by remember(request.identity, request.url) { mutableStateOf(false) }
     var temporarySpeedActive by remember(request.identity, request.url) { mutableStateOf(false) }
     var miniOffset by remember(request.identity, request.url) { mutableStateOf(IntOffset.Zero) }
-    var miniWidthDp by remember(request.identity, request.url, expanded) {
-        mutableFloatStateOf(if (expanded) 320f else 220f)
+    var miniWidthDp by remember(request.identity, request.url, expanded, isIpad) {
+        mutableFloatStateOf(if (expanded || isIpad) 320f else 220f)
     }
     var miniDockedLeft by remember(request.identity, request.url) { mutableStateOf(false) }
     var miniDockedTop by remember(request.identity, request.url) { mutableStateOf(false) }
@@ -1837,6 +1850,12 @@ private fun BoxScope.PlaybackSessionHost(
                 compactUpNext -> 132.dp
                 else -> 102.dp
             }
+            val skipOnRight = isIpad && preferences.skipButtonPosition == SkipButtonPosition.Right
+            val skipBottomPadding = overlayBottomPadding + if (skipOnRight && upNextVisible) {
+                if (compactUpNext) 84.dp else 96.dp
+            } else {
+                0.dp
+            }
             if (upNextVisible) {
                 Surface(
                     Modifier
@@ -1924,9 +1943,17 @@ private fun BoxScope.PlaybackSessionHost(
                 Surface(
                     onClick = { controller.send(PlaybackCommand.SeekTo(activeSkip.endMs)) },
                     modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Start))
-                        .padding(start = 18.dp, bottom = overlayBottomPadding),
+                        .align(if (skipOnRight) Alignment.BottomEnd else Alignment.BottomStart)
+                        .windowInsetsPadding(
+                            WindowInsets.safeDrawing.only(
+                                if (skipOnRight) WindowInsetsSides.End else WindowInsetsSides.Start,
+                            ),
+                        )
+                        .padding(
+                            start = if (skipOnRight) 0.dp else 18.dp,
+                            end = if (skipOnRight) 18.dp else 0.dp,
+                            bottom = skipBottomPadding,
+                        ),
                     color = Color(0xE619191B),
                     contentColor = Color.White,
                     shape = RoundedCornerShape(if (compactUpNext) 14.dp else 16.dp),
@@ -2017,12 +2044,17 @@ private fun BoxScope.PlaybackSessionHost(
             val verticalLimit = (
                 containerSize.height - miniSize.height - bottomPaddingPx - topPaddingPx
             ).coerceAtLeast(0)
-            val minimumWidthDp = if (expanded) 240f else 180f
+            val minimumWidthDp = if (expanded || isIpad) 240f else 180f
             val availableWidthDp = with(density) {
                 (containerSize.width - 24.dp.roundToPx()).coerceAtLeast(1).toDp().value
             }
-            val maximumWidthDp = (if (expanded) 480f else 340f).coerceAtMost(availableWidthDp)
-                .coerceAtLeast(minimumWidthDp)
+            val maximumWidthDp = (if (isIpad) {
+                (availableWidthDp * .60f).coerceAtMost(720f)
+            } else if (expanded) {
+                480f
+            } else {
+                340f
+            }).coerceAtMost(availableWidthDp).coerceAtLeast(minimumWidthDp)
             val currentHorizontalLimit by rememberUpdatedState(horizontalLimit)
             val currentVerticalLimit by rememberUpdatedState(verticalLimit)
             val currentMinimumWidthDp by rememberUpdatedState(minimumWidthDp)
