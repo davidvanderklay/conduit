@@ -1,5 +1,4 @@
 import { createAuthClient } from "better-auth/react"
-import { genericOAuthClient } from "better-auth/client/plugins"
 import { readServerUrl } from "./server"
 import { readDesktopSessionToken } from "./desktop-auth"
 
@@ -13,5 +12,4 @@ export const authClient = createAuthClient({
       ? { authorization: `Bearer ${DESKTOP_SESSION_TOKEN}` }
       : undefined,
   },
-  plugins: [genericOAuthClient()],
 })
