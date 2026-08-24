@@ -2,6 +2,15 @@ import XCTest
 @testable import conduit
 
 final class ConduitRenderSizePolicyTests: XCTestCase {
+    func testPendingLoadStartsWithAnyReadySurfaceWithoutWaitingForOrientation() {
+        XCTAssertTrue(
+            shouldStartPendingLoad(surfaceSize: CGSize(width: 1024, height: 768))
+        )
+        XCTAssertFalse(
+            shouldStartPendingLoad(surfaceSize: CGSize(width: 1, height: 768))
+        )
+    }
+
     func testFitModeRendersAtVideoAspect() {
         // 1080p video on a taller landscape surface: buffer follows the video,
         // so the PiP window inherits the video aspect with no baked bars.

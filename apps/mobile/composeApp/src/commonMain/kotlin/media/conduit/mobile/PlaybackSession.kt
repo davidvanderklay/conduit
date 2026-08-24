@@ -189,6 +189,12 @@ class PlaybackSessionController(
         }
     }
 
+    fun updateSubtitles(identity: PlaybackIdentity, subtitles: List<SubtitleItem>) {
+        val request = state.request ?: return
+        if (request.identity != identity || request.subtitles == subtitles) return
+        state = state.copy(request = request.copy(subtitles = subtitles))
+    }
+
     fun minimize(notifyOwner: Boolean = true) {
         if (state.request == null) return
         val hadStreamPicker = state.streamPicker != null
@@ -332,8 +338,13 @@ class PlaybackSessionController(
     }
 
     fun playQueueItem(item: PlaybackQueueItem) {
-        if (state.request == null) return
+        if (state.request == null || state.transition != null) return
         persist()
+        beginTransition(
+            title = queueItemPlaybackTitle(item),
+            mediaName = item.name,
+            artwork = item.artwork ?: item.poster,
+        )
         state = state.copy(queueOpen = false)
         callbacks?.playQueueItem?.invoke(item)
     }
@@ -444,7 +455,6 @@ private fun PlaybackRequest.isSameStream(other: PlaybackRequest): Boolean =
     identity == other.identity &&
         url == other.url &&
         requestHeaders == other.requestHeaders &&
-        subtitles == other.subtitles &&
         reloadKey == other.reloadKey
 
 internal fun PlaybackRequest.streamKeyForPlayback(): String =
@@ -460,8 +470,6 @@ internal fun PlaybackRequest.streamKeyForPlayback(): String =
         append(url)
         append('|')
         append(requestHeaders)
-        append('|')
-        append(subtitles)
         append('|')
         append(reloadKey)
     }

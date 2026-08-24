@@ -30,6 +30,30 @@ internal fun List<PlaybackQueueItem>.moveToQueueFront(item: PlaybackQueueItem): 
 internal fun List<PlaybackQueueItem>.removeFromQueue(key: String): List<PlaybackQueueItem> =
     filterNot { it.key == key }
 
+internal fun playbackTitle(
+    title: String?,
+    fallback: String,
+    season: Int?,
+    episode: Int?,
+): String {
+    val episodeLabel = if (season != null && episode != null) {
+        "(${season}x${episode})"
+    } else {
+        null
+    }
+    return listOfNotNull(
+        title?.takeIf(String::isNotBlank),
+        episodeLabel,
+    ).joinToString(" - ").ifBlank { fallback }
+}
+
+internal fun queueItemPlaybackTitle(item: PlaybackQueueItem): String = playbackTitle(
+    title = item.videoTitle,
+    fallback = item.name,
+    season = item.season,
+    episode = item.episode,
+)
+
 internal fun queueAfterPlaybackStarted(
     queue: List<PlaybackQueueItem>,
     mediaId: String,

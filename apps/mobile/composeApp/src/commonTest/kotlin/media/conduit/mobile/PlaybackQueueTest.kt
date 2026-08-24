@@ -56,6 +56,18 @@ class PlaybackQueueTest {
     }
 
     @Test
+    fun playbackTitleIncludesEpisodeCoordinatesBeforePlaybackStarts() {
+        assertEquals(
+            "The Return - (2x3)",
+            playbackTitle("The Return", "Other Show", season = 2, episode = 3),
+        )
+        assertEquals(
+            "Other Show",
+            playbackTitle(null, "Other Show", season = null, episode = null),
+        )
+    }
+
+    @Test
     fun successfulPlaybackConsumesMatchingItemEvenWhenOpenedNormally() {
         assertEquals(
             listOf(second),
