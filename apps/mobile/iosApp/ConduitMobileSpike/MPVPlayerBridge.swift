@@ -346,8 +346,6 @@ final class ConduitMPVPlayerViewController: UIViewController {
     private var audioSessionActivationRequested = false
     private var frameRateDisplayLink: CADisplayLink?
     fileprivate var resizeMode = 0
-    private var automaticPipHomeSwipeCandidate = false
-    private var automaticPipHomeSwipeEdge: AutomaticPipSwipeEdge?
     private var lastDebugPlaybackSnapshot: String?
     private var videoFrameRate = 30.0
 
@@ -371,7 +369,10 @@ final class ConduitMPVPlayerViewController: UIViewController {
 
     override var canBecomeFirstResponder: Bool { true }
     override var prefersHomeIndicatorAutoHidden: Bool { true }
-    override var preferredScreenEdgesDeferringSystemGestures: UIRectEdge { [.bottom, .left, .right] }
+    // AVKit needs to receive the system Home gesture for automatic inline PiP.
+    // Deferring the bottom edge here makes that handoff dependent on gesture
+    // timing, especially when the player is in landscape.
+    override var preferredScreenEdgesDeferringSystemGestures: UIRectEdge { [] }
     override var prefersStatusBarHidden: Bool { true }
     override var preferredStatusBarUpdateAnimation: UIStatusBarAnimation { .fade }
 
@@ -393,13 +394,6 @@ final class ConduitMPVPlayerViewController: UIViewController {
 
         setupMpv()
         configureAudioSession()
-        lifecycleObservers.append(NotificationCenter.default.addObserver(
-            forName: UIApplication.didBecomeActiveNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            self?.pictureInPicture?.cancelAutomaticEntryIfForegrounded()
-        })
         lifecycleObservers.append(NotificationCenter.default.addObserver(
             forName: UIApplication.didEnterBackgroundNotification,
             object: nil,
@@ -425,85 +419,6 @@ final class ConduitMPVPlayerViewController: UIViewController {
             self?.handleAudioRouteChange(notification)
         })
 
-        let homeSwipeRecognizer = UIPanGestureRecognizer(
-            target: self,
-            action: #selector(handleAutomaticPipHomeSwipe(_:))
-        )
-        homeSwipeRecognizer.delegate = self
-        homeSwipeRecognizer.cancelsTouchesInView = false
-        view.addGestureRecognizer(homeSwipeRecognizer)
-    }
-
-    /// Detects the Home-transition swipe: up from the bottom edge in
-    /// portrait, inward from the home-indicator side edge in landscape. The
-    /// system defers these edges to this view, so the first swipe lands here
-    /// and PiP can be started explicitly while the app is still active
-    /// instead of relying on AVKit's inline trigger.
-    @objc private func handleAutomaticPipHomeSwipe(_ recognizer: UIPanGestureRecognizer) {
-        guard UIApplication.shared.applicationState == .active else { return }
-
-        switch recognizer.state {
-        case .began:
-            automaticPipHomeSwipeEdge = homeIndicatorEdge(
-                at: recognizer.location(in: view)
-            )
-            automaticPipHomeSwipeCandidate = automaticPipHomeSwipeEdge != nil
-            debugLog("home swipe began edge=\(automaticPipHomeSwipeEdge.map(String.init(describing:)) ?? "none")")
-
-        case .changed:
-            guard automaticPipHomeSwipeCandidate,
-                  let edge = automaticPipHomeSwipeEdge else { return }
-            guard isInwardHomeSwipe(recognizer.translation(in: view), from: edge) else { return }
-            debugLog("home swipe inward confirmed edge=\(edge)")
-            automaticPipHomeSwipeCandidate = false
-            automaticPipHomeSwipeEdge = nil
-            pictureInPicture?.handleHomeSwipeDetected()
-
-        case .ended, .cancelled, .failed:
-            automaticPipHomeSwipeCandidate = false
-            automaticPipHomeSwipeEdge = nil
-            pictureInPicture?.scheduleAutomaticCancelIfAborted()
-
-        default:
-            break
-        }
-    }
-
-    private enum AutomaticPipSwipeEdge {
-        case bottom
-        case left
-        case right
-    }
-
-    /// The Home indicator sits on the bottom edge in portrait and on one
-    /// side edge in landscape (right for landscapeLeft, left for
-    /// landscapeRight).
-    private func homeIndicatorEdge(at location: CGPoint) -> AutomaticPipSwipeEdge? {
-        let activationDistance: CGFloat = 28.0
-        let bounds = view.bounds
-        switch view.window?.windowScene?.interfaceOrientation {
-        case .landscapeLeft:
-            return location.x >= bounds.maxX - activationDistance ? .right : nil
-        case .landscapeRight:
-            return location.x <= activationDistance ? .left : nil
-        default:
-            let activationHeight = max(activationDistance, view.safeAreaInsets.bottom + 10.0)
-            return location.y >= bounds.maxY - activationHeight ? .bottom : nil
-        }
-    }
-
-    private func isInwardHomeSwipe(
-        _ translation: CGPoint,
-        from edge: AutomaticPipSwipeEdge
-    ) -> Bool {
-        switch edge {
-        case .bottom:
-            return translation.y <= -18.0 && abs(translation.y) > abs(translation.x) * 1.15
-        case .left:
-            return translation.x >= 18.0 && abs(translation.x) > abs(translation.y) * 1.15
-        case .right:
-            return translation.x <= -18.0 && abs(translation.x) > abs(translation.y) * 1.15
-        }
     }
 
     override func viewDidLayoutSubviews() {
@@ -664,6 +579,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
     func setPreferredSubtitleLanguage(_ language: String) {
         runOnMain { [weak self] in
             guard let self else { return }
+            guard self.preferredSubtitleLanguage != language else { return }
             self.preferredSubtitleLanguage = language
             self.preferredSubtitleApplied = false
             self.applyPreferredSubtitleSelection()
@@ -720,6 +636,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
     func selectSubtitle(_ trackId: Int) {
         runOnMain { [weak self] in
             guard let self, self.mpv != nil else { return }
+            // Manual choices must win over the initial preferred-language pass.
             self.preferredSubtitleApplied = true
             if trackId < 0 {
                 self.setStringProperty("sid", "no")
@@ -727,6 +644,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
                 var id = Int64(trackId)
                 checkError(mpv_set_property(self.mpv, "sid", MPV_FORMAT_INT64, &id))
             }
+            self.refreshTracks()
         }
     }
 
@@ -1437,8 +1355,12 @@ final class ConduitMPVPlayerViewController: UIViewController {
             (4, "eof-reached"),
             (5, "seeking"),
             (6, "track-list/count"),
+            (7, "sid"),
         ] {
-            mpv_observe_property(mpv, UInt64(index), property, property == "track-list/count" ? MPV_FORMAT_INT64 : MPV_FORMAT_FLAG)
+            let format = property == "track-list/count" || property == "sid"
+                ? MPV_FORMAT_INT64
+                : MPV_FORMAT_FLAG
+            mpv_observe_property(mpv, UInt64(index), property, format)
         }
 
         mpv_set_wakeup_callback(
@@ -1622,7 +1544,8 @@ final class ConduitMPVPlayerViewController: UIViewController {
 
                 switch eventId {
                 case MPV_EVENT_PROPERTY_CHANGE:
-                    let tracksChanged = event.pointee.reply_userdata == 6
+                    let tracksChanged = event.pointee.reply_userdata == 6 ||
+                        event.pointee.reply_userdata == 7
                     DispatchQueue.main.async { [weak self] in
                         self?.refreshPlaybackState()
                         if tracksChanged { self?.refreshTracks() }
@@ -1688,6 +1611,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
         var audio: [ConduitTrack] = []
         var subtitles: [ConduitTrack] = []
         let count = getInt("track-list/count")
+        let selectedSubtitleId = getInt("sid")
         var audioIndex = 0
         var subtitleIndex = 0
 
@@ -1707,7 +1631,9 @@ final class ConduitMPVPlayerViewController: UIViewController {
                 sampleRate: getInt("track-list/\(index)/demux-samplerate"),
                 bitrate: Int64(getInt("track-list/\(index)/demux-bitrate")),
                 external: getFlag("track-list/\(index)/external"),
-                selected: getFlag("track-list/\(index)/selected")
+                selected: type == "sub"
+                    ? id == selectedSubtitleId
+                    : getFlag("track-list/\(index)/selected")
             )
             if type == "audio" {
                 audio.append(track)
@@ -2017,10 +1943,9 @@ extension ConduitMPVPlayerViewController: UIGestureRecognizerDelegate {
 ///
 /// Because the software renderer continuously feeds `displayLayer`, the
 /// layer always holds current frames - there is no capture priming, no
-/// burst refreshing, and no second pipeline. Every path still waits for
-/// AVKit to confirm the transition before flipping bookkeeping, and the
-/// automatic Home-swipe entry keeps its explicit-start approach, which is
-/// what avoids opening onto a black or frozen window.
+/// burst refreshing, and no second pipeline. Every path waits for AVKit to
+/// confirm the transition before flipping bookkeeping, including automatic
+/// inline entry from the system Home gesture.
 final class ConduitPictureInPictureCoordinator: NSObject,
     AVPictureInPictureControllerDelegate,
     AVPictureInPictureSampleBufferPlaybackDelegate {
@@ -2035,15 +1960,11 @@ final class ConduitPictureInPictureCoordinator: NSObject,
     private var ignorePauseUntil: CFTimeInterval = 0
     private var resumeAfterRestore = false
 
-    private var automaticArmed = false
     private var resumePlaybackAfterBackground = false
 
     private var startTimeoutWork: DispatchWorkItem?
-    private var automaticTimeoutWork: DispatchWorkItem?
     private var startRetryWork: DispatchWorkItem?
     private var restoreResumeWork: DispatchWorkItem?
-    private var abortCancelWork: DispatchWorkItem?
-    private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
 
     init(owner: ConduitMPVPlayerViewController) {
         self.owner = owner
@@ -2056,9 +1977,8 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         let controller = AVPictureInPictureController(contentSource: source)
         controller.delegate = self
         controller.requiresLinearPlayback = false
-        // Let AVKit handle the system Home transition as well as the explicit
-        // gesture path. The native trigger is more reliable when the app is
-        // backgrounded before the custom recognizer receives its final event.
+        // Let AVKit own the system Home transition. Mixing an explicit gesture
+        // start with this automatic path can race the same controller request.
         controller.canStartPictureInPictureAutomaticallyFromInline = true
         self.controller = controller
     }
@@ -2071,14 +1991,13 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         controller?.isPictureInPictureActive == true || controller?.isPictureInPictureSuspended == true
     }
 
-    var isStartingOrActive: Bool { starting || automaticArmed || isActive }
+    var isStartingOrActive: Bool { starting || isActive }
 
     // MARK: - Manual start (PiP button)
 
     func start() {
         guard isSupported, !isActive, !starting else { return }
         debugLog("manual start requested")
-        cancelAutomaticEntry()
         starting = true
         currentStartSource = "manual-button"
         preservePlaybackDuringStart = owner?.isPlayerPlaying == true
@@ -2090,11 +2009,9 @@ final class ConduitPictureInPictureCoordinator: NSObject,
     func stop() {
         debugLog("stop requested")
         cancelStartTimeout()
-        cancelAutomaticEntry()
         starting = false
         currentStartSource = nil
         clearPlaybackPreservation()
-        endBackgroundTask()
         controller?.stopPictureInPicture()
         if !isActive {
             owner?.setInlineVideoHiddenForPictureInPicture(false)
@@ -2103,11 +2020,9 @@ final class ConduitPictureInPictureCoordinator: NSObject,
 
     func stopForNewLoad(completion: @escaping () -> Void) {
         cancelStartTimeout()
-        cancelAutomaticEntry()
         starting = false
         currentStartSource = nil
         clearPlaybackPreservation()
-        endBackgroundTask()
         controller?.stopPictureInPicture()
         owner?.setInlineVideoHiddenForPictureInPicture(false)
         completion()
@@ -2121,73 +2036,15 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         controller?.invalidatePlaybackState()
     }
 
-    // MARK: - Automatic entry (Home swipe)
-
-    /// With the renderer continuously feeding the shared surface, arming the
-    /// Home-swipe path only needs bookkeeping; the layer is fresh by
-    /// construction whenever playback is running.
-    func handleHomeSwipeDetected() {
-        guard let owner, owner.hasLoadedFile, !isActive, !starting, !automaticArmed else { return }
-        guard owner.isPlayerPlaying, !owner.isPlayerEnded else { return }
-        guard let controller else { return }
-
-        debugLog("home swipe detected")
-        automaticArmed = true
-        starting = true
-        currentStartSource = "automatic-home"
-        preservePlaybackDuringStart = owner.isPlayerPlaying
-        ignorePauseUntil = 0
-        beginBackgroundTask()
-        scheduleAutomaticTimeout()
-        controller.invalidatePlaybackState()
-        requestControllerStart(source: "automatic-home", attempt: 0)
-    }
-
-    /// The swipe aborted before the app left the foreground; unwind the armed
-    /// transition and put the inline surface back.
-    func scheduleAutomaticCancelIfAborted() {
-        guard automaticArmed else { return }
-        abortCancelWork?.cancel()
-        let work = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            guard UIApplication.shared.applicationState == .active, self.automaticArmed else { return }
-            self.debugLog("cancelling automatic PiP because the Home gesture was aborted")
-            self.controller?.stopPictureInPicture()
-            let shouldResume = self.preservePlaybackDuringStart
-            self.cancelAutomaticEntry()
-            if shouldResume { self.owner?.playPlayback() }
-        }
-        abortCancelWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.75, execute: work)
-    }
-
-    /// The app became active again without entering the background, so the
-    /// system never accepted the automatic transition.
-    func cancelAutomaticEntryIfForegrounded() {
-        defer {
-            if !isActive, !starting {
-                clearPlaybackPreservation()
-            }
-        }
-        guard automaticArmed, !isActive else { return }
-
-        let shouldResume = preservePlaybackDuringStart
-        debugLog("automatic PiP cancelled because the app returned to the foreground")
-        controller?.stopPictureInPicture()
-        cancelAutomaticEntry()
-        owner?.restoreVideoTrackAfterBackgroundIfNeeded(reloadDecoder: false)
-        if shouldResume { owner?.playPlayback() }
-    }
-
     func handleEnterBackground() {
         // Any in-flight start signal keeps the pipeline alive. Lifecycle
         // delivery around a Home-swipe PiP transition is racy: the background
         // notification can land while AVKit is still working on a start whose
         // bookkeeping flags have partially unwound.
-        let startInFlight = transitionBegan || startRequested || starting || automaticArmed
+        let startInFlight = transitionBegan || startRequested || starting
         debugLog(
             "enterBackground active=\(isActive) transitionBegan=\(transitionBegan) " +
-                "startRequested=\(startRequested) starting=\(starting) automaticArmed=\(automaticArmed)"
+                "startRequested=\(startRequested) starting=\(starting)"
         )
         if isActive || startInFlight {
             debugLog("background with PiP pending/active; keeping primary pipeline alive")
@@ -2208,15 +2065,10 @@ final class ConduitPictureInPictureCoordinator: NSObject,
 
     func invalidate(completion: (() -> Void)? = nil) {
         cancelStartTimeout()
-        cancelAutomaticTimeout()
         startRetryWork?.cancel()
         startRetryWork = nil
         restoreResumeWork?.cancel()
         restoreResumeWork = nil
-        abortCancelWork?.cancel()
-        abortCancelWork = nil
-        endBackgroundTask()
-
         controller?.stopPictureInPicture()
         controller?.delegate = nil
         controller = nil
@@ -2255,7 +2107,7 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         }
         startRetryWork?.cancel()
         let work = DispatchWorkItem { [weak self] in
-            guard let self, self.starting || self.automaticArmed else { return }
+            guard let self, self.starting else { return }
             self.requestControllerStart(source: source, attempt: attempt + 1)
         }
         startRetryWork = work
@@ -2269,15 +2121,12 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         guard !transitionBegan else { return }
         let wasPreserved = preservePlaybackDuringStart
         cancelStartTimeout()
-        cancelAutomaticTimeout()
         startRetryWork?.cancel()
         startRetryWork = nil
         starting = false
-        automaticArmed = false
         currentStartSource = nil
         transitionBegan = false
         startRequested = false
-        endBackgroundTask()
         clearPlaybackPreservation()
 
         guard let owner else { return }
@@ -2306,64 +2155,6 @@ final class ConduitPictureInPictureCoordinator: NSObject,
     private func cancelStartTimeout() {
         startTimeoutWork?.cancel()
         startTimeoutWork = nil
-    }
-
-    private func scheduleAutomaticTimeout() {
-        automaticTimeoutWork?.cancel()
-        let work = DispatchWorkItem { [weak self] in
-            guard let self,
-                  self.automaticArmed || self.starting || self.startRequested else { return }
-            guard !self.isActive else {
-                self.cancelAutomaticEntry()
-                return
-            }
-            self.debugLog("automatic PiP did not activate before timeout")
-            self.controller?.stopPictureInPicture()
-            self.handleStartFailure(source: "automatic-start-timeout")
-        }
-        automaticTimeoutWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 4.0, execute: work)
-    }
-
-    private func cancelAutomaticTimeout() {
-        automaticTimeoutWork?.cancel()
-        automaticTimeoutWork = nil
-    }
-
-    private func cancelAutomaticEntry() {
-        automaticTimeoutWork?.cancel()
-        automaticTimeoutWork = nil
-        startRetryWork?.cancel()
-        startRetryWork = nil
-        automaticArmed = false
-        startRequested = false
-        endBackgroundTask()
-        if !isActive {
-            starting = false
-            clearPlaybackPreservation()
-        }
-    }
-
-    private func beginBackgroundTask() {
-        guard backgroundTask == .invalid else { return }
-        backgroundTask = UIApplication.shared.beginBackgroundTask(
-            withName: "ConduitAutomaticPictureInPicture"
-        ) { [weak self] in
-            DispatchQueue.main.async {
-                guard let self else { return }
-                if !self.isActive {
-                    self.controller?.stopPictureInPicture()
-                    self.handleStartFailure(source: "background-task-expired")
-                }
-                self.endBackgroundTask()
-            }
-        }
-    }
-
-    private func endBackgroundTask() {
-        guard backgroundTask != .invalid else { return }
-        UIApplication.shared.endBackgroundTask(backgroundTask)
-        backgroundTask = .invalid
     }
 
     private func preservePlaybackAfterDidStart() {
@@ -2395,11 +2186,8 @@ final class ConduitPictureInPictureCoordinator: NSObject,
     func pictureInPictureControllerDidStartPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
         debugLog("did start")
         cancelStartTimeout()
-        cancelAutomaticTimeout()
         startRetryWork?.cancel()
         startRetryWork = nil
-        automaticArmed = false
-        endBackgroundTask()
         starting = false
         currentStartSource = nil
         startRequested = false
@@ -2414,30 +2202,19 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         print("[Conduit PiP] Failed to start (\(currentStartSource ?? "unknown")): \(error)")
         debugLog("start failed")
 
-        // AVKit provisionally reports failure for starts issued during the
-        // Home gesture even when the transition then succeeds. The automatic
-        // timeout owns real failure cleanup for this path; tearing down here
-        // would pause MPV underneath a transition that is about to succeed.
-        if currentStartSource == "automatic-home" {
-            debugLog("ignoring provisional automatic start failure; timeout owns cleanup")
-            return
-        }
         handleStartFailure(source: currentStartSource ?? "unknown")
     }
 
     func pictureInPictureControllerDidStopPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
         debugLog("did stop")
         cancelStartTimeout()
-        cancelAutomaticTimeout()
         startRetryWork?.cancel()
         startRetryWork = nil
-        automaticArmed = false
         starting = false
         currentStartSource = nil
         transitionBegan = false
         startRequested = false
         clearPlaybackPreservation()
-        endBackgroundTask()
         owner?.setInlineVideoHiddenForPictureInPicture(false)
 
         if resumeAfterRestore {

@@ -459,20 +459,30 @@ final class ConduitBackGestureCoordinator: NSObject, IosBackGestureBridge, UIGes
             return
         }
         let targetX = committed ? view.bounds.width : 0
-        UIView.animate(
-            withDuration: committed ? 0.2 : 0.16,
-            delay: 0,
-            options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction],
-            animations: {
-                snapshot.transform = CGAffineTransform(translationX: targetX, y: 0)
-            },
-            completion: { [weak self, weak snapshot] _ in
-                snapshot?.removeFromSuperview()
-                self?.interactiveSnapshot = nil
-                self?.interactiveHandler = nil
-                self?.interactiveBackCommitted = false
-            }
-        )
+        let animate = { [weak self, weak snapshot] in
+            view.layoutIfNeeded()
+            UIView.animate(
+                withDuration: committed ? 0.2 : 0.16,
+                delay: 0,
+                options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction],
+                animations: {
+                    snapshot?.transform = CGAffineTransform(translationX: targetX, y: 0)
+                },
+                completion: { _ in
+                    snapshot?.removeFromSuperview()
+                    self?.interactiveSnapshot = nil
+                    self?.interactiveHandler = nil
+                    self?.interactiveBackCommitted = false
+                }
+            )
+        }
+        if committed {
+            // Compose applies the back action on its next frame. Keep the
+            // outgoing snapshot still until that destination is underneath it.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.06, execute: animate)
+        } else {
+            animate()
+        }
     }
 }
 
