@@ -347,6 +347,9 @@ final class ConduitBackGestureCoordinator: NSObject, IosBackGestureBridge, UIGes
     private weak var gestureView: UIView?
     private var edgeGesture: UIScreenEdgePanGestureRecognizer?
     private var activationObserver: NSObjectProtocol?
+    private var interactiveSnapshot: UIView?
+    private var interactiveHandler: IosBackGestureHandler?
+    private var interactiveBackCommitted = false
 
     private override init() {
         super.init()
@@ -403,12 +406,73 @@ final class ConduitBackGestureCoordinator: NSObject, IosBackGestureBridge, UIGes
     }
 
     @objc private func handleEdgePan(_ gesture: UIScreenEdgePanGestureRecognizer) {
-        guard gesture.state == .ended,
-              let view = gestureView,
-              let handler,
-              gesture.translation(in: view).x >= 80 || gesture.velocity(in: view).x >= 500
-        else { return }
-        handler.onBack()
+        guard let view = gestureView else { return }
+        let translation = max(0, gesture.translation(in: view).x)
+        let threshold = max(80, view.bounds.width * 0.32)
+
+        switch gesture.state {
+        case .began:
+            guard let handler,
+                  let snapshot = view.snapshotView(afterScreenUpdates: false)
+            else { return }
+            snapshot.frame = view.bounds
+            snapshot.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            snapshot.layer.shadowColor = UIColor.black.cgColor
+            snapshot.layer.shadowOpacity = 0.3
+            snapshot.layer.shadowRadius = 18
+            snapshot.layer.shadowOffset = CGSize(width: -8, height: 0)
+            view.addSubview(snapshot)
+            interactiveSnapshot = snapshot
+            interactiveHandler = handler
+            interactiveBackCommitted = false
+        case .changed:
+            interactiveSnapshot?.transform = CGAffineTransform(
+                translationX: min(translation, view.bounds.width),
+                y: 0
+            )
+            if !interactiveBackCommitted &&
+                (translation >= threshold || gesture.velocity(in: view).x >= 500)
+            {
+                interactiveBackCommitted = true
+                interactiveHandler?.onBack()
+            }
+        case .ended:
+            let shouldCommit = interactiveBackCommitted ||
+                translation >= 80 ||
+                gesture.velocity(in: view).x >= 500
+            if shouldCommit && !interactiveBackCommitted {
+                interactiveBackCommitted = true
+                interactiveHandler?.onBack()
+            }
+            finishInteractiveBack(on: view, committed: shouldCommit)
+        case .cancelled, .failed:
+            finishInteractiveBack(on: view, committed: interactiveBackCommitted)
+        default:
+            break
+        }
+    }
+
+    private func finishInteractiveBack(on view: UIView, committed: Bool) {
+        guard let snapshot = interactiveSnapshot else {
+            interactiveHandler = nil
+            interactiveBackCommitted = false
+            return
+        }
+        let targetX = committed ? view.bounds.width : 0
+        UIView.animate(
+            withDuration: committed ? 0.2 : 0.16,
+            delay: 0,
+            options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction],
+            animations: {
+                snapshot.transform = CGAffineTransform(translationX: targetX, y: 0)
+            },
+            completion: { [weak self, weak snapshot] _ in
+                snapshot?.removeFromSuperview()
+                self?.interactiveSnapshot = nil
+                self?.interactiveHandler = nil
+                self?.interactiveBackCommitted = false
+            }
+        )
     }
 }
 

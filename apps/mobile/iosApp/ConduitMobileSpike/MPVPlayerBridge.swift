@@ -2056,9 +2056,10 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         let controller = AVPictureInPictureController(contentSource: source)
         controller.delegate = self
         controller.requiresLinearPlayback = false
-        // Automatic entry is managed by this coordinator: an explicit start
-        // during the Home gesture replaces AVKit's inline trigger.
-        controller.canStartPictureInPictureAutomaticallyFromInline = false
+        // Let AVKit handle the system Home transition as well as the explicit
+        // gesture path. The native trigger is more reliable when the app is
+        // backgrounded before the custom recognizer receives its final event.
+        controller.canStartPictureInPictureAutomaticallyFromInline = true
         self.controller = controller
     }
 

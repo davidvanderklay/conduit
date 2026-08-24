@@ -77,7 +77,7 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 
-private val VideoItem.displayTitle: String
+internal val VideoItem.displayTitle: String
     get() = title?.takeIf(String::isNotBlank)
         ?: name?.takeIf(String::isNotBlank)
         ?: overview?.lineSequence()?.firstOrNull()?.take(80)?.takeIf(String::isNotBlank)
@@ -700,6 +700,7 @@ internal fun MediaDetailsScreen(
     var playerStreamPicker by remember(item.id) { mutableStateOf<PlaybackStreamPickerState?>(null) }
     var playerStreamRequestVersion by remember(item.id) { mutableIntStateOf(0) }
     var playerStreamRequestJob by remember(item.id) { mutableStateOf<Job?>(null) }
+    var playbackReloadKey by remember(item.id) { mutableLongStateOf(0L) }
     var manualSourceSwitchVideoIds by remember(item.id) { mutableStateOf<Set<String>>(emptySet()) }
     var manualSourceFallbacks by remember(item.id) { mutableStateOf<Map<String, StreamSource>>(emptyMap()) }
     var prefetchedStreams by remember(item.id) { mutableStateOf<Map<String, Result<List<StreamSource>>>>(emptyMap()) }
@@ -1162,7 +1163,7 @@ internal fun MediaDetailsScreen(
             }
         }
     }
-    LaunchedEffect(playingVideoId, addons) {
+    LaunchedEffect(playingVideoId, addons, playbackReloadKey) {
         val transitionLookup = playbackSession.state.transition != null
         val lookupStarted = kotlin.time.TimeSource.Monotonic.markNow()
         if (transitionLookup) transitionDiagnostic("subtitles.started")
@@ -1268,6 +1269,13 @@ internal fun MediaDetailsScreen(
         val picker = playerStreamPicker ?: return
         if (source.stream.url == null) return
         val switchingCurrentSource = picker.episode.id == playingVideoId
+        val previousResumePosition = resumePosition
+        val retainedPosition = if (switchingCurrentSource) {
+            playbackSession.state.playback.positionMs.takeIf { playbackSession.state.playback.durationMs > 0 }
+                ?: previousResumePosition
+        } else {
+            0L
+        }
         if (switchingCurrentSource && currentAddonId != null && currentAddonName != null && playing != null) {
             manualSourceSwitchVideoIds = manualSourceSwitchVideoIds + picker.episode.id
             manualSourceFallbacks = manualSourceFallbacks + (
@@ -1288,6 +1296,8 @@ internal fun MediaDetailsScreen(
         autoFallbackStreams = autoFallbackStreams - picker.episode.id
         autoResumeStage = AutoResumeStage.Inactive
         playing = source.stream
+        resumePosition = retainedPosition
+        playbackReloadKey += 1L
         openingPlayback = true
     }
 
@@ -1492,6 +1502,7 @@ internal fun MediaDetailsScreen(
         externalSubtitles,
         playerContentTitle,
         nextVideo?.id,
+        playbackReloadKey,
     ) {
         val streamUrl = selectedStream?.url ?: return@LaunchedEffect
         if (!externalSubtitlesLoaded) return@LaunchedEffect
@@ -1521,6 +1532,7 @@ internal fun MediaDetailsScreen(
             source = currentPlaybackSource(),
             autoRecoveryAttempt = playingVideoId in autoRecoveryVideoIds,
             manualSourceSwitch = playingVideoId in manualSourceSwitchVideoIds,
+            reloadKey = playbackReloadKey,
             hasNextEpisode = nextVideo != null,
             nextEpisodeTitle = nextVideo?.let { "S${it.season ?: 0}E${it.episode ?: 0} · ${it.displayTitle}" },
             nextEpisodeArtwork = nextVideo?.thumbnail ?: meta?.background,
@@ -1559,14 +1571,27 @@ internal fun MediaDetailsScreen(
             (playing != null && !ownsPlayback) ||
             (ownsPlayback && playbackSession.state.presentation == PlaybackPresentation.FullScreen),
     )
-    PlatformBackHandler {
+    PlatformBackHandler(
+        enabled = !ownsPlayback ||
+            playbackSession.state.presentation != PlaybackPresentation.FullScreen ||
+            playbackSession.state.streamPicker != null ||
+            playbackSession.state.episodePickerOpen ||
+            playbackSession.state.queueOpen ||
+            streamEpisodesOpen ||
+            streamPageOpen ||
+            waitingForSavedPlayback ||
+            (platformBackIncludesFullscreenPlayer && playbackSession.state.presentation == PlaybackPresentation.FullScreen),
+    ) {
         when {
-            ownsPlayback && playbackSession.state.presentation == PlaybackPresentation.FullScreen -> {
-                playbackSession.leaveFullScreen(preferences.miniplayerOnBack)
-            }
+            playbackSession.state.streamPicker != null -> playbackSession.closeStreamPicker()
+            playbackSession.state.episodePickerOpen -> playbackSession.closeEpisodes()
+            playbackSession.state.queueOpen -> playbackSession.closeQueue()
             streamEpisodesOpen -> streamEpisodesOpen = false
             streamPageOpen -> closeStreamSelection()
             waitingForSavedPlayback -> cancelAutoResume()
+            ownsPlayback && playbackSession.state.presentation == PlaybackPresentation.FullScreen -> {
+                playbackSession.leaveFullScreen(preferences.miniplayerOnBack)
+            }
             else -> onBack()
         }
     }
@@ -1618,10 +1643,26 @@ internal fun MediaDetailsScreen(
                 onRetry = { requestStreams(selectedVideo, addonId = selectedStreamAddonId) },
             ) { source ->
                 if (source.stream.url != null) {
+                    val videoId = selectedVideo?.id ?: streamVideoId ?: item.id
+                    val switchingCurrentSource = videoId == playingVideoId
+                    val previousResumePosition = resumePosition
+                    val retainedPosition = if (switchingCurrentSource) {
+                        playbackSession.state.playback.positionMs.takeIf { playbackSession.state.playback.durationMs > 0 }
+                            ?: previousResumePosition
+                    } else {
+                        0L
+                    }
+                    if (playbackSession.state.request != null) {
+                        playbackSession.beginTransition(
+                            title = selectedVideo?.displayTitle ?: meta?.name ?: item.name,
+                            mediaName = meta?.name ?: item.name,
+                            artwork = selectedVideo?.thumbnail ?: meta?.background ?: item.background ?: item.poster,
+                            logo = meta?.logo,
+                        )
+                    }
                     currentAddonId = source.addonId
                     currentAddonName = source.addonName
                     val selectedSource = playbackSourceForStream(source.addonId, source.stream)
-                    val videoId = selectedVideo?.id ?: streamVideoId ?: item.id
                     selectedPlaybackSources = selectedPlaybackSources + (videoId to selectedSource)
                     autoRecoveryVideoIds = autoRecoveryVideoIds - videoId
                     autoRecoverySavedSourceVideoIds = autoRecoverySavedSourceVideoIds - videoId
@@ -1631,6 +1672,8 @@ internal fun MediaDetailsScreen(
                     streamsError = null
                     openingPlayback = true
                     playing = source.stream
+                    resumePosition = retainedPosition
+                    playbackReloadKey += 1L
                 }
             }
             MobileBackButton(
@@ -2236,7 +2279,7 @@ internal fun PlayerEpisodeDrawer(
             Modifier
                 .align(Alignment.CenterEnd)
                 .fillMaxHeight()
-                .fillMaxWidth(.68f)
+                .fillMaxWidth(if (queueItems.isEmpty()) .68f else .84f)
                 .pointerInput(Unit) {
                     detectHorizontalDragGestures(
                         onDragEnd = { if (dragDistance > 100f) onDismiss(); dragDistance = 0f },
@@ -2254,7 +2297,11 @@ internal fun PlayerEpisodeDrawer(
             shadowElevation = if (fullscreen) 0.dp else 20.dp,
         ) {
             BoxWithConstraints(Modifier.fillMaxSize()) {
-            val queueWidth = if (fullscreen) 200.dp else (maxWidth * .34f).coerceIn(136.dp, 220.dp)
+            val queueWidth = when {
+                fullscreen -> 200.dp
+                queueItems.isNotEmpty() -> (maxWidth * .23f).coerceIn(112.dp, 180.dp)
+                else -> (maxWidth * .34f).coerceIn(136.dp, 220.dp)
+            }
             Column(
                 Modifier
                     .fillMaxSize()

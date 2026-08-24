@@ -369,12 +369,14 @@ actual fun NativePlayer(
             mainActivity?.attachConduitPipSession(
                 isPlaying = { player.isPlaying },
                 togglePlayback = { if (player.isPlaying) player.pause() else player.play() },
+                seekBy = { offset -> player.seekTo((player.currentPosition + offset).coerceAtLeast(0L)) },
                 onModeChanged = { latestPipCallback(it) },
             )
         } else if (mpvView != null) {
             mainActivity?.attachConduitPipSession(
                 isPlaying = { mpvView?.snapshot()?.playing == true },
                 togglePlayback = { mpvView?.let { view -> view.setPaused(view.snapshot().playing) } },
+                seekBy = { offset -> mpvView?.seekBy(offset) },
                 onModeChanged = { latestPipCallback(it) },
             )
         }
@@ -388,7 +390,10 @@ actual fun NativePlayer(
     }
     DisposableEffect(player, lifecycle, activeEngine, mpvView) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_STOP && activity?.isInPictureInPictureMode != true) {
+            if (event == Lifecycle.Event.ON_STOP &&
+                activity?.isInPictureInPictureMode != true &&
+                (activity as? MainActivity)?.shouldKeepPlayingForPictureInPicture() != true
+            ) {
                 if (activeEngine == NativePlaybackEngine.Media3) player.pause() else mpvView?.setPaused(true)
             }
         }
@@ -447,7 +452,7 @@ actual fun NativePlayer(
                         videoHeight = mpvSnapshot.videoHeight,
                         ended = mpvSnapshot.ended,
                         error = playbackError,
-                        pipReady = landscape &&
+                        pipReady =
                             !mpvSnapshot.loading &&
                             !mpvSnapshot.buffering &&
                             mpvSnapshot.firstFrameRendered &&
@@ -460,7 +465,7 @@ actual fun NativePlayer(
                     )
                 } else {
                     val isBuffering = initialLoadComplete && player.playbackState == Player.STATE_BUFFERING
-                    val playerPipReady = landscape &&
+                    val playerPipReady =
                         initialLoadComplete &&
                         firstFrameRendered &&
                         player.videoSize.width > 0 &&
@@ -983,7 +988,7 @@ private fun BoxScope.FullscreenSubtitlePanel(
     onDismiss: () -> Unit,
 ) {
     var language by remember(selected?.languageKey) { mutableStateOf(selected?.languageKey ?: options.firstOrNull { it.supported }?.languageKey) }
-    var selectedTrackKey by remember { mutableStateOf(selected?.key) }
+    var selectedTrackKey by remember(selected?.key) { mutableStateOf(selected?.key) }
     LaunchedEffect(selected?.key) { selectedTrackKey = selected?.key }
     fun choose(option: PlayerTrackOption) { onBeforeSelection(); onSubtitleSelectionChanged(option.trackId, option.languageKey, true); language = option.languageKey; selectedTrackKey = option.key; player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false).clearOverridesOfType(C.TRACK_TYPE_TEXT).addOverride(TrackSelectionOverride(option.group.mediaTrackGroup, option.index)).build() }
     BoxWithConstraints(Modifier.fillMaxSize()) {

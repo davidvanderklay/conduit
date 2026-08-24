@@ -45,3 +45,5 @@ actual fun PlatformBackHandler(enabled: Boolean, onBack: () -> Unit) {
         }
     }
 }
+
+actual val platformBackIncludesFullscreenPlayer: Boolean = false
