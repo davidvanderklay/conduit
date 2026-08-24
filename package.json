@@ -4,7 +4,8 @@
   "license": "MIT",
   "scripts": {
     "build": "vp run ci:build",
-    "check": "pnpm check:deps && vp run ci:check",
+    "check": "pnpm check:deps && pnpm check:flatpak && vp run ci:check",
+    "check:flatpak": "node scripts/check-flatpak-node-sources.mjs",
     "check:deps": "node scripts/check-package-manifests.mjs",
     "format": "vp fmt --write",
     "lint": "vp lint --deny-warnings",
