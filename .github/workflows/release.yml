@@ -168,7 +168,7 @@ jobs:
       - name: Import repository signing key
         if: github.ref_type == 'tag'
         id: gpg
-        uses: crazy-max/ghaction-import-gpg@e89d40939c28e39f97cf32126055eeae86ba74ec # v6
+        uses: crazy-max/ghaction-import-gpg@2dc316deee8e90f13e1a351ab510b4d5bc0c82cd # v7.0.0
         with:
           gpg_private_key: ${{ secrets.FLATPAK_GPG_PRIVATE_KEY }}
           passphrase: ${{ secrets.FLATPAK_GPG_PASSPHRASE }}
