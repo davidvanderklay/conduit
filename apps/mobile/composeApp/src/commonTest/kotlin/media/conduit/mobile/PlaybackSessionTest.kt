@@ -188,6 +188,43 @@ class PlaybackSessionTest {
     }
 
     @Test
+    fun transitionSourcePickerKeepsTheHorizontalPlayerVisible() = runTest {
+        val controller = PlaybackSessionController(this)
+        val request = PlaybackRequest(
+            identity = PlaybackIdentity("profile", "series", "show", "s1e1"),
+            url = "https://example.test/one.mp4",
+            title = "Episode 1",
+            mediaName = "Show",
+        )
+        val picker = PlaybackStreamPickerState(
+            episode = VideoItem(
+                id = "s1e2",
+                title = "Episode 2",
+                season = 1,
+                episode = 2,
+            ),
+            resumeFrom = "Start from beginning",
+        )
+
+        controller.start(
+            request,
+            PlaybackSessionCallbacks(
+                persist = { _, _ -> },
+                playNext = {},
+                openEpisodes = {},
+                minimized = {},
+                closed = {},
+            ),
+        )
+        controller.beginTransition("Episode 2", "Show", null)
+        controller.showStreamPicker(picker)
+
+        assertEquals(PlaybackPresentation.FullScreen, controller.state.presentation)
+        assertEquals(picker, controller.state.streamPicker)
+        assertEquals("Episode 2", controller.state.transition?.title)
+    }
+
+    @Test
     fun prefetchIsSuppressedWhileATransitionIsUnderway() = runTest {
         var prefetchRequests = 0
         val controller = PlaybackSessionController(this)

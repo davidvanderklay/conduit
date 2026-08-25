@@ -1606,8 +1606,8 @@ private fun BoxScope.PlaybackSessionHost(
                 upNext != null &&
                 session.playback.ended
         ) {
-            // Autoplay advances to the next episode's source chooser. A
-            // source must still be selected explicitly for the new episode.
+            // Autoplay uses the same bounded source-resolution path as an
+            // explicit Next action.
             controller.playNext()
         }
     }
@@ -1727,6 +1727,11 @@ private fun BoxScope.PlaybackSessionHost(
     val initialPlaybackLoad = !playbackHasStarted &&
         (session.playback.loading || session.playback.buffering || !playbackSurfaceReady)
     val playbackTransition = session.transition
+    val transitionStatus = when {
+        playbackTransition == null -> null
+        session.streamPicker != null && !session.streamPicker.loading -> "Choose a source"
+        else -> "Finding source…"
+    }
     val presentPlaybackError = shouldPresentPlaybackError(
         request,
         session.playback,
@@ -1849,7 +1854,8 @@ private fun BoxScope.PlaybackSessionHost(
                 PlayerOpeningOverlay(
                     artwork = playbackTransition?.artwork ?: request.artwork,
                     logo = playbackTransition?.logo ?: request.logo,
-                    title = playbackTransition?.mediaName ?: request.mediaName,
+                    title = playbackTransition?.title ?: request.mediaName,
+                    status = transitionStatus,
                     modifier = Modifier.matchParentSize(),
                 )
             }

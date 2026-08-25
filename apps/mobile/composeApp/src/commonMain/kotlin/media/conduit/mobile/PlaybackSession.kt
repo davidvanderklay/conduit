@@ -355,11 +355,12 @@ class PlaybackSessionController(
 
     fun showStreamPicker(picker: PlaybackStreamPickerState) {
         if (state.request == null) return
+        // A picker can be the recovery surface for a next transition. Keep the
+        // transition mounted so the old native player cannot reappear behind it.
         state = state.copy(
             episodePickerOpen = false,
             streamPicker = picker,
             queueOpen = false,
-            transition = null,
         )
     }
 
