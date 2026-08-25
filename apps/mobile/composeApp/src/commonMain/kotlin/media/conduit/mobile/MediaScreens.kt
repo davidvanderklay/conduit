@@ -2222,7 +2222,7 @@ internal fun PlayerOpeningOverlay(artwork: String?, logo: String?, title: String
 
 @Composable
 internal fun PlayerBufferingOverlay(modifier: Modifier = Modifier) {
-    Box(modifier.background(Color.Black.copy(alpha = .55f)), contentAlignment = Alignment.Center) {
+    Box(modifier, contentAlignment = Alignment.Center) {
         CircularProgressIndicator(
             modifier = Modifier.size(32.dp),
             color = Color.White,
