@@ -4,11 +4,22 @@ import XCTest
 final class ConduitRenderSizePolicyTests: XCTestCase {
     func testPendingLoadStartsWithAnyReadySurfaceWithoutWaitingForOrientation() {
         XCTAssertTrue(
-            shouldStartPendingLoad(surfaceSize: CGSize(width: 1024, height: 768))
+            shouldStartPendingLoad(surfaceSize: CGSize(width: 768, height: 1024))
         )
         XCTAssertFalse(
             shouldStartPendingLoad(surfaceSize: CGSize(width: 1, height: 768))
         )
+    }
+
+    func testBundledCJKFontKeepsPlainTextSubtitlesAtTheIntendedSize() {
+        var options: [String: String] = [:]
+
+        ConduitSubtitleFontController().applySetupOptions { name, value in
+            options[name] = value
+        }
+
+        XCTAssertEqual(options["sub-font"], "Noto Sans CJK SC")
+        XCTAssertEqual(options["sub-font-size"], "54")
     }
 
     func testFitModeRendersAtVideoAspect() {

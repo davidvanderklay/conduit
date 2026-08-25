@@ -2747,6 +2747,10 @@ final class ConduitSubtitleFontController {
     func applySetupOptions(_ setOption: (String, String) -> Void) {
         guard registerBundledFont() else { return }
         setOption("sub-font", Self.family)
+        // Noto keeps CJK lookup deterministic, but mpv's 38px plain-text
+        // default is noticeably smaller than the common embedded ASS styles.
+        // Match Nuvio's 18sp iOS baseline, which maps to 54 scaled pixels.
+        setOption("sub-font-size", "54")
     }
 
     private func registerBundledFont() -> Bool {
