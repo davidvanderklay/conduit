@@ -45,10 +45,7 @@ import androidx.compose.material.icons.rounded.FastForward
 import androidx.compose.runtime.*
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateIntOffsetAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.Alignment
@@ -90,10 +87,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlin.math.abs
-import kotlin.math.cos
-import kotlin.math.PI
 import kotlin.math.roundToInt
-import kotlin.math.sin
 import kotlin.math.sqrt
 import kotlin.time.Clock
 import coil3.compose.AsyncImage
@@ -478,29 +472,13 @@ private fun ConduitLoadingScreen(
 
 @Composable
 private fun ConduitLoadingIndicator(modifier: Modifier = Modifier) {
-    val transition = rememberInfiniteTransition(label = "conduit-loading")
-    val rotation by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(tween(durationMillis = 900, easing = LinearEasing)),
-        label = "conduit-loading-rotation",
+    CircularProgressIndicator(
+        modifier = modifier.size(29.dp),
+        color = Color(0xFFFBBF24),
+        trackColor = Color.White.copy(alpha = .12f),
+        strokeWidth = 3.dp,
+        strokeCap = StrokeCap.Round,
     )
-    Canvas(modifier.size(32.dp).graphicsLayer { rotationZ = rotation }) {
-        val center = Offset(size.width / 2f, size.height / 2f)
-        val radius = size.minDimension / 2f
-        repeat(12) { index ->
-            val angle = (index * 30f - 90f) * PI / 180f
-            val direction = Offset(cos(angle).toFloat(), sin(angle).toFloat())
-            val alpha = (0.56f - index * .034f).coerceAtLeast(.17f)
-            drawLine(
-                color = if (index < 3) Color(0xFFFBBF24) else Color.White.copy(alpha = alpha),
-                start = center + direction * (radius * .28f),
-                end = center + direction * (radius * .82f),
-                strokeWidth = radius * .15f,
-                cap = StrokeCap.Round,
-            )
-        }
-    }
 }
 
 @Composable
