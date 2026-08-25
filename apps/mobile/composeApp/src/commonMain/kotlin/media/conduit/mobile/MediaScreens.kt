@@ -61,6 +61,7 @@ import androidx.compose.ui.unit.Velocity
 import coil3.compose.AsyncImage
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -84,6 +85,7 @@ internal val VideoItem.displayTitle: String
         ?: "Episode ${episode ?: ""}".trim()
 
 private const val AUTO_RESUME_TIMEOUT_MS = 8_000L
+private const val TARGET_PROGRESS_TIMEOUT_MS = 3_000L
 private const val SUBTITLE_LOOKUP_TIMEOUT_MS = 8_000L
 private class AutoResumeTimeoutException : IllegalStateException("Saved source lookup timed out")
 
@@ -888,6 +890,16 @@ internal fun MediaDetailsScreen(
             .maxByOrNull(ProgressSummary::updatedAt)
     }
 
+    suspend fun loadPlaybackProgressFor(videoId: String): ProgressSummary? {
+        progressForVideoId(videoId)?.let { return it }
+        val activeProfile = profile ?: return null
+        return withTimeoutOrNull(TARGET_PROGRESS_TIMEOUT_MS) {
+            runCatching {
+                api.loadProgress(baseUrl, token, activeProfile.id, videoId)
+            }.getOrNull()?.takeIf { it.videoId == videoId }
+        }
+    }
+
     fun savedPlaybackSourceFor(videoId: String): PlaybackSource? {
         selectedPlaybackSources[videoId]?.let { return it }
         return savedPlaybackSourceForVideo(
@@ -968,15 +980,21 @@ internal fun MediaDetailsScreen(
         requestJob.start()
     }
 
-    fun openPlayerStreamPicker(video: VideoItem, movie: Boolean = false) {
+    fun openPlayerStreamPicker(
+        video: VideoItem,
+        movie: Boolean = false,
+        resumePositionMs: Long? = null,
+    ) {
         clearPlayerStreamPickerState()
         val addonChoices = streamAddonChoicesFor(video.id)
+        val targetResumePosition = resumePositionMs ?: playbackStartPosition(progressForVideoId(video.id))
         val picker = PlaybackStreamPickerState(
             episode = video,
             movie = movie,
             addonChoices = addonChoices,
             selectedAddonId = effectiveStreamAddonId(selectedStreamAddonId, addonChoices),
-            resumeFrom = resumePositionLabel(progressForVideoId(video.id)?.positionMs ?: 0L),
+            resumeFrom = resumePositionLabel(targetResumePosition),
+            resumePositionMs = targetResumePosition,
             loading = true,
         )
         playerStreamPicker = picker
@@ -1019,13 +1037,25 @@ internal fun MediaDetailsScreen(
             }
             val requestedAddons = effectiveAddonId?.let { selectedId -> compatibleAddons.filter { it.id == selectedId } }
                 ?: compatibleAddons
-            val result = loadStreamsForRequest(
-                videoId,
-                requestedAddons,
-                autoResume = autoPlaySavedSource,
-            )
+            val (result, targetProgress) = coroutineScope {
+                val progress = if (autoPlaySavedSource) {
+                    async { loadPlaybackProgressFor(videoId) }
+                } else {
+                    null
+                }
+                val streams = async {
+                    loadStreamsForRequest(
+                        videoId,
+                        requestedAddons,
+                        autoResume = autoPlaySavedSource,
+                    )
+                }
+                streams.await() to progress?.await()
+            }
             if (requestVersion != streamRequestVersion) return@launch
-            var closeFailedTransition = false
+            val pickerVideo = video
+                ?: meta?.videos?.firstOrNull { it.id == videoId }
+                ?: VideoItem(videoId, title = meta?.name ?: item.name)
             result
                 .onSuccess { choices ->
                     streams = choices
@@ -1067,6 +1097,7 @@ internal fun MediaDetailsScreen(
                                 ?.let { autoFallbackStreams + (videoId to it) }
                                 ?: (autoFallbackStreams - videoId)
                             if (autoPlaySavedSource) autoResumeAttemptedKey = autoResumeAttemptKey(selectedSource)
+                            resumePosition = playbackStartPosition(targetProgress)
                             autoResumeStage = AutoResumeStage.Starting
                             playing = choice.stream
                         } else {
@@ -1076,8 +1107,15 @@ internal fun MediaDetailsScreen(
                                 "Saved source unavailable. Choose another source below."
                             }
                             autoResumeStage = AutoResumeStage.Picker
-                            streamPageOpen = true
-                            closeFailedTransition = transitionRequest
+                            if (transitionRequest) {
+                                streamPageOpen = false
+                                openPlayerStreamPicker(
+                                    pickerVideo,
+                                    resumePositionMs = playbackStartPosition(targetProgress),
+                                )
+                            } else {
+                                streamPageOpen = true
+                            }
                         }
                     }
                 }
@@ -1094,16 +1132,22 @@ internal fun MediaDetailsScreen(
                     } else {
                         cause.message ?: "Unable to load streams"
                     }
-                    if (autoPlaySavedSource) streamPageOpen = true
-                    if (autoPlaySavedSource) autoResumeStage = AutoResumeStage.Picker
-                    closeFailedTransition = transitionRequest
+                    if (autoPlaySavedSource) {
+                        autoResumeStage = AutoResumeStage.Picker
+                        if (transitionRequest) {
+                            streamPageOpen = false
+                            openPlayerStreamPicker(
+                                pickerVideo,
+                                resumePositionMs = playbackStartPosition(targetProgress),
+                            )
+                        } else {
+                            streamPageOpen = true
+                        }
+                    }
                 }
             if (requestVersion == streamRequestVersion) {
                 streamsLoading = false
                 streamRequestJob = null
-                if (closeFailedTransition) {
-                    playbackSession.close(saveProgress = false)
-                }
             }
         }
         streamRequestJob = requestJob
@@ -1164,9 +1208,7 @@ internal fun MediaDetailsScreen(
         externalSubtitlesLoaded = true
     }
     LaunchedEffect(playingVideoId, profile?.id) {
-        resumePosition = progressForVideoId(playingVideoId)?.takeUnless { it.watched }?.positionMs
-            ?: profile?.let { runCatching { api.loadProgress(baseUrl, token, it.id, playingVideoId) }.getOrNull()?.takeUnless { progress -> progress.watched }?.positionMs }
-            ?: 0L
+        resumePosition = playbackStartPosition(loadPlaybackProgressFor(playingVideoId))
     }
     val savedPlaybackSource = (selectedVideo?.id ?: effectiveInitialVideoId)?.let(::autoResumeSourceFor)
     val currentAutoResumeAttemptKey = savedPlaybackSource?.let(::autoResumeAttemptKey)
@@ -1258,7 +1300,7 @@ internal fun MediaDetailsScreen(
             playbackSession.state.playback.positionMs.takeIf { playbackSession.state.playback.durationMs > 0 }
                 ?: previousResumePosition
         } else {
-            0L
+            picker.resumePositionMs
         }
         if (switchingCurrentSource && currentAddonId != null && currentAddonName != null && playing != null) {
             manualSourceSwitchVideoIds = manualSourceSwitchVideoIds + picker.episode.id
@@ -1309,7 +1351,11 @@ internal fun MediaDetailsScreen(
         PlaybackSessionCallbacks(
             persist = { _, _ -> },
             persistCheckpoint = { request, state, checkpointIdentity ->
-                val existing = snapshot?.progress?.firstOrNull { it.videoId == request.identity.videoId }
+                val existing = snapshot?.progress?.firstOrNull {
+                    it.mediaType == request.identity.mediaType &&
+                        it.mediaId == request.identity.mediaId &&
+                        it.videoId == request.identity.videoId
+                }
                 resolveProgressState(state, existing)?.let { resolved ->
                     progressOutbox.enqueue(
                         baseUrl = baseUrl,
@@ -1328,33 +1374,29 @@ internal fun MediaDetailsScreen(
             },
             playNext = {
                 nextVideo?.let { video ->
-                    if (preferences.autoSelectNextStreams) {
-                        playbackSession.beginTransition(
-                            title = playbackTitle(
-                                title = video.displayTitle,
-                                fallback = meta?.name ?: item.name,
-                                season = video.season,
-                                episode = video.episode,
-                            ),
-                            mediaName = meta?.name ?: item.name,
-                            artwork = meta?.background ?: item.background ?: meta?.poster ?: item.poster,
-                            logo = meta?.logo,
-                        )
-                        selectVideo(
-                            video = video,
-                            autoPlaySavedSource = true,
-                            rankAllAutomaticStreams = true,
-                            preferredSource = currentPlaybackSource(),
-                            closePlaybackWithoutSaving = true,
-                            keepPlayerVisible = true,
-                        )
-                    } else {
-                        openPlayerStreamPicker(video)
-                    }
+                    playbackSession.beginTransition(
+                        title = playbackTitle(
+                            title = video.displayTitle,
+                            fallback = meta?.name ?: item.name,
+                            season = video.season,
+                            episode = video.episode,
+                        ),
+                        mediaName = meta?.name ?: item.name,
+                        artwork = meta?.background ?: item.background ?: meta?.poster ?: item.poster,
+                        logo = meta?.logo,
+                    )
+                    selectVideo(
+                        video = video,
+                        autoPlaySavedSource = true,
+                        rankAllAutomaticStreams = true,
+                        preferredSource = currentPlaybackSource(),
+                        closePlaybackWithoutSaving = true,
+                        keepPlayerVisible = true,
+                    )
                 }
             },
             prefetchUpNext = {
-                if (preferences.autoSelectNextStreams) prefetchStreamsFor(nextVideo)
+                prefetchStreamsFor(nextVideo)
             },
             openEpisodes = {},
             openSources = {
@@ -1626,6 +1668,7 @@ internal fun MediaDetailsScreen(
                 artwork = meta?.background ?: item.background ?: meta?.poster ?: item.poster,
                 logo = meta?.logo,
                 title = meta?.name ?: item.name,
+                status = if (waitingForSavedPlayback) "Finding source…" else "Starting playback…",
                 modifier = Modifier.fillMaxSize(),
             )
             IconButton(
@@ -2161,7 +2204,13 @@ internal fun MediaDetailsScreen(
 }
 
 @Composable
-internal fun PlayerOpeningOverlay(artwork: String?, logo: String?, title: String, modifier: Modifier = Modifier) {
+internal fun PlayerOpeningOverlay(
+    artwork: String?,
+    logo: String?,
+    title: String,
+    status: String? = null,
+    modifier: Modifier = Modifier,
+) {
     val pulse = rememberInfiniteTransition(label = "player-opening")
     val indicatorScale by pulse.animateFloat(
         initialValue = .96f,
@@ -2215,6 +2264,17 @@ internal fun PlayerOpeningOverlay(artwork: String?, logo: String?, title: String
                         scaleY = indicatorScale
                         alpha = indicatorAlpha
                     },
+            )
+        }
+        status?.let {
+            Text(
+                it,
+                color = Color.White.copy(alpha = .78f),
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(bottom = 44.dp),
             )
         }
     }
