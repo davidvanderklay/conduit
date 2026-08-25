@@ -45,7 +45,10 @@ import androidx.compose.material.icons.rounded.FastForward
 import androidx.compose.runtime.*
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateIntOffsetAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.Alignment
@@ -87,7 +90,10 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlin.math.abs
+import kotlin.math.cos
+import kotlin.math.PI
 import kotlin.math.roundToInt
+import kotlin.math.sin
 import kotlin.math.sqrt
 import kotlin.time.Clock
 import coil3.compose.AsyncImage
@@ -221,7 +227,7 @@ private fun AccountGate(
     }
 
     when (val current = account) {
-        AccountStatus.Loading -> CenteredStatus("Connecting to ${endpoint.label}…")
+        AccountStatus.Loading -> ConduitLoadingScreen("CONNECTING TO SERVER")
         is AccountStatus.SignedOut -> SignInScreen(
             endpoint = endpoint,
             authentication = current.authentication,
@@ -427,15 +433,72 @@ private fun HouseholdSetup(onCreate: (String, String) -> Unit) {
 }
 
 @Composable
-private fun CenteredStatus(message: String) {
-    Box(Modifier.fillMaxSize().background(Brush.radialGradient(colors = listOf(Color(0xFF1B1608), Color(0xFF09090B), Color(0xFF050506)), radius = 720f)), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(22.dp), modifier = Modifier.padding(32.dp)) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                ConduitMark(Modifier.size(66.dp))
-                Text("conduit", color = Color.White, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+private fun ConduitLoadingScreen(
+    label: String,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier.fillMaxSize().background(
+            Brush.radialGradient(
+                colors = listOf(Color(0xFF1A1405), Color(0xFF080806), Color.Black),
+                radius = 720f,
+            ),
+        ),
+    ) {
+        Column(
+            modifier = Modifier.align(Alignment.Center).offset(y = (-48).dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(22.dp),
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                ConduitMark(Modifier.size(76.dp))
+                Text(
+                    "conduit",
+                    color = Color.White,
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Bold,
+                )
             }
-            CircularProgressIndicator(color = Color(0xFFFBBF24), trackColor = Color.White.copy(.14f), strokeWidth = 3.dp, modifier = Modifier.size(30.dp))
-            Text(message, color = Color(0xFFB8B8C2), style = MaterialTheme.typography.bodyMedium, maxLines = 1)
+            ConduitLoadingIndicator()
+        }
+        Text(
+            label,
+            color = Color(0xFF52525B),
+            style = MaterialTheme.typography.labelSmall,
+            letterSpacing = 1.2.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 36.dp),
+        )
+    }
+}
+
+@Composable
+private fun ConduitLoadingIndicator(modifier: Modifier = Modifier) {
+    val transition = rememberInfiniteTransition(label = "conduit-loading")
+    val rotation by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(tween(durationMillis = 900, easing = LinearEasing)),
+        label = "conduit-loading-rotation",
+    )
+    Canvas(modifier.size(32.dp).graphicsLayer { rotationZ = rotation }) {
+        val center = Offset(size.width / 2f, size.height / 2f)
+        val radius = size.minDimension / 2f
+        repeat(12) { index ->
+            val angle = (index * 30f - 90f) * PI / 180f
+            val direction = Offset(cos(angle).toFloat(), sin(angle).toFloat())
+            val alpha = (0.56f - index * .034f).coerceAtLeast(.17f)
+            drawLine(
+                color = if (index < 3) Color(0xFFFBBF24) else Color.White.copy(alpha = alpha),
+                start = center + direction * (radius * .28f),
+                end = center + direction * (radius * .82f),
+                strokeWidth = radius * .15f,
+                cap = StrokeCap.Round,
+            )
         }
     }
 }
@@ -734,7 +797,10 @@ private fun AppShell(
     }
     var profileSync by remember(activeProfile?.id, account.session.token) {
         mutableStateOf(
-            ProfileSyncState(snapshot = activeProfile?.let { syncRepository.cached(it.id) }),
+            ProfileSyncState(
+                snapshot = activeProfile?.let { syncRepository.cached(it.id) },
+                refreshing = activeProfile != null,
+            ),
         )
     }
     var queueManagerOpen by remember(activeProfile?.id) { mutableStateOf(false) }
@@ -792,6 +858,7 @@ private fun AppShell(
     val libraryGridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
     val continueWatchingGridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
     val settingsListState = rememberLazyListState()
+    val homeCache = remember(activeProfile?.id) { HomeScreenCache() }
     var browseQuery by remember(activeProfile?.id) { mutableStateOf("") }
     var focusSearchOnOpen by remember(activeProfile?.id) { mutableStateOf(false) }
     var discoverSelection by remember(activeProfile?.id) { mutableStateOf(DiscoverSelection()) }
@@ -1079,6 +1146,7 @@ private fun AppShell(
                             browseQuery, { browseQuery = it }, discoverSelection, { discoverSelection = it }, openBrowse,
                             { openProfile(ProfileLaunchTarget.History, returnToLibrary = true) },
                             preferences, onPreferencesChanged, homeListState, searchListState, discoverGridState, libraryGridState, continueWatchingGridState, settingsListState,
+                            homeCache,
                             profileLaunchRequest,
                             playbackSession,
                             Modifier.fillMaxSize(),
@@ -1099,22 +1167,30 @@ private fun AppShell(
                     browseQuery, { browseQuery = it }, discoverSelection, { discoverSelection = it }, openBrowse,
                     { openProfile(ProfileLaunchTarget.History, returnToLibrary = true) },
                     preferences, onPreferencesChanged, homeListState, searchListState, discoverGridState, libraryGridState, continueWatchingGridState, settingsListState,
+                    homeCache,
                     profileLaunchRequest,
                     playbackSession,
                     Modifier.padding(padding),
                 )
             }
         }
+        val initialLoading = activeProfile != null && selectedMedia == null &&
+            playbackSession.state.presentation == PlaybackPresentation.Closed &&
+            (if (profileSync.snapshot == null) {
+                profileSync.refreshing && profileSync.error == null
+            } else {
+                homeCache.result.value == null && homeCache.catalogError.value == null
+            })
         val playbackAllowsAppChrome = playbackSession.state.presentation in setOf(
             PlaybackPresentation.Closed,
             PlaybackPresentation.Mini,
         )
-        val topChromeVisible = playbackAllowsAppChrome && selectedMedia == null && state.destination in setOf(
+        val topChromeVisible = !initialLoading && playbackAllowsAppChrome && selectedMedia == null && state.destination in setOf(
             AppDestination.Home,
             AppDestination.Search,
             AppDestination.Library,
         )
-        val bottomChromeVisible = playbackAllowsAppChrome && selectedMedia == null && state.destination in setOf(
+        val bottomChromeVisible = !initialLoading && playbackAllowsAppChrome && selectedMedia == null && state.destination in setOf(
             AppDestination.Home,
             AppDestination.Search,
             AppDestination.Library,
@@ -1149,10 +1225,10 @@ private fun AppShell(
         val isIpad = platform.isIpad()
         val isTablet = platform.isTablet
         val keyboardVisible = isIpad && PlatformKeyboard.visible
-        val appBottomNavigationVisible = !expanded && bottomChromeVisible &&
+        val appBottomNavigationVisible = !initialLoading && !expanded && bottomChromeVisible &&
             (!profileFlowActive || state.destination == AppDestination.Profile) &&
             !keyboardVisible
-        if (appBottomNavigationVisible) {
+        if (!expanded) {
             // Adaptive remains the phone default. On iPad it resolves to the
             // full-width native tab bar unless the user explicitly chooses the
             // expanded floating treatment.
@@ -1180,6 +1256,7 @@ private fun AppShell(
                 classic = classic,
                 adaptive = !isIpad && preferences.navigationStyle == NavigationStyle.Adaptive,
                 adaptiveHidden = !isIpad && preferences.navigationStyle == NavigationStyle.Adaptive && adaptiveScrolledDown,
+                visible = appBottomNavigationVisible,
                 onSelect = navigateMain,
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
@@ -1202,6 +1279,15 @@ private fun AppShell(
                 onPlay = { item -> queueManagerOpen = false; openQueuedItem(item) },
                 onChange = { items -> mutateProfile(ProfileMutation.SetQueue(items)) },
             )
+        }
+        if (initialLoading) {
+            Surface(
+                onClick = {},
+                modifier = Modifier.fillMaxSize(),
+                color = Color.Transparent,
+            ) {
+                ConduitLoadingScreen("LOADING YOUR HOME")
+            }
         }
     }
 }
@@ -1354,11 +1440,11 @@ private fun DestinationContent(
     libraryGridState: androidx.compose.foundation.lazy.grid.LazyGridState,
     continueWatchingGridState: androidx.compose.foundation.lazy.grid.LazyGridState,
     settingsListState: androidx.compose.foundation.lazy.LazyListState,
+    homeCache: HomeScreenCache,
     profileLaunchRequest: ProfileLaunchRequest?,
     playbackSession: PlaybackSessionController,
     modifier: Modifier = Modifier,
 ) {
-    val homeCache = remember(activeProfile?.id) { HomeScreenCache() }
     LaunchedEffect(state.destination) {
         if (state.destination != AppDestination.Profile) onProfileFlowChanged(false)
         if (state.destination == AppDestination.Home || state.destination == AppDestination.ContinueWatching) {

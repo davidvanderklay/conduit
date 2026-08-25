@@ -24,6 +24,7 @@ internal actual fun PlatformBottomNavigation(
     classic: Boolean,
     adaptive: Boolean,
     adaptiveHidden: Boolean,
+    visible: Boolean,
     onSelect: (AppDestination) -> Unit,
     modifier: Modifier,
 ) {
@@ -33,7 +34,7 @@ internal actual fun PlatformBottomNavigation(
 
     SideEffect {
         IosBottomNavigationBridgeFactory.bridge()?.update(
-            visible = !(adaptive && adaptiveHidden),
+            visible = visible && !(adaptive && adaptiveHidden),
             selectedIndex = destinations.indexOf(selected),
             labels = destinations.map(AppDestination::label),
             classic = classic,

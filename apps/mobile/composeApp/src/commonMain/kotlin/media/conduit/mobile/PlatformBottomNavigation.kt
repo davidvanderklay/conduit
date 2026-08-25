@@ -13,6 +13,7 @@ internal expect fun PlatformBottomNavigation(
     classic: Boolean,
     adaptive: Boolean,
     adaptiveHidden: Boolean,
+    visible: Boolean,
     onSelect: (AppDestination) -> Unit,
     modifier: Modifier = Modifier,
 )
