@@ -2747,6 +2747,10 @@ final class ConduitSubtitleFontController {
     func applySetupOptions(_ setOption: (String, String) -> Void) {
         guard registerBundledFont() else { return }
         setOption("sub-font", Self.family)
+        // Noto keeps CJK lookup deterministic, but mpv's 38px plain-text
+        // default is noticeably smaller than the common embedded ASS styles.
+        // Two standard mpv size steps restore the previous visual baseline.
+        setOption("sub-font-size", "46")
     }
 
     private func registerBundledFont() -> Bool {
