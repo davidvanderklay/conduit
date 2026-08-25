@@ -19,9 +19,11 @@ internal actual fun PlatformBottomNavigation(
     classic: Boolean,
     adaptive: Boolean,
     adaptiveHidden: Boolean,
+    visible: Boolean,
     onSelect: (AppDestination) -> Unit,
     modifier: Modifier,
 ) {
+    if (!visible) return
     Surface(
         color = if (classic) MaterialTheme.colorScheme.surfaceContainer else Color(0xDD202023),
         shape = if (classic) RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp) else RoundedCornerShape(32.dp),
