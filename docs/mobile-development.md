@@ -51,22 +51,22 @@ The following are deliberately outside the current mobile release scope:
 
 ## Repository layout
 
-- `apps/mobile/composeApp`: shared Compose UI, account and profile flows,
+- `apps/client/composeApp`: shared Compose UI, account and profile flows,
   networking, state, preferences, and the expect/actual player boundary;
-- `apps/mobile/iosApp`: the small Swift/UIKit host and generated Xcode project;
+- `apps/client/iosApp`: the small Swift/UIKit host and generated Xcode project;
 - `packages/mobile-bridge`: the versioned Rust C ABI used by the retained local
   architecture fixture and native bridge tests;
 - `packages/core`: shared Rust add-on parsing and request logic; and
-- `apps/mobile/scripts`: native Rust library and iOS IPA packaging helpers.
+- `apps/client/scripts`: native Rust library and iOS IPA packaging helpers.
 
 The iOS host directory and target retain the historical `ConduitMobileSpike`
 name. The product bundle identifier on both platforms is
 `media.conduit.mobile`.
 
-The shared app uses Kotlin 2.3.0, Compose Multiplatform 1.10.0, Android Gradle
+The shared app uses Kotlin 2.3.21, Compose Multiplatform 1.10.0, Android Gradle
 Plugin 8.10.1, and Ktor 3.5.1. Android playback uses Media3 1.10.1 with an
 experimental libmpv fallback. iOS playback uses the pinned NuvioMedia MPVKit
-revision in `apps/mobile/iosApp/project.yml`.
+revision in `apps/client/iosApp/project.yml`.
 
 ## Platform-neutral checks
 
@@ -76,7 +76,7 @@ Run these from the repository root:
 cargo test -p conduit-core -p conduit-mobile
 cargo fmt --all -- --check
 cargo clippy -p conduit-mobile --all-targets -- -D warnings
-cd apps/mobile
+cd apps/client
 ./gradlew :composeApp:compileCommonMainKotlinMetadata
 ```
 
@@ -100,8 +100,8 @@ Install Android Studio, JDK 17, SDK Platform 36, Build Tools 36, NDK
 cargo install cargo-ndk --version 3.5.4 --locked
 rustup target add aarch64-linux-android x86_64-linux-android
 ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358" \
-  apps/mobile/scripts/build-rust-android.sh
-cd apps/mobile
+  apps/client/scripts/build-rust-android.sh
+cd apps/client
 ./gradlew :composeApp:installDebug
 adb shell am start -n media.conduit.mobile/.MainActivity
 ```
@@ -116,7 +116,7 @@ development addresses and requires HTTPS for non-local servers.
 The focused Android checks are:
 
 ```sh
-cd apps/mobile
+cd apps/client
 ./gradlew :composeApp:testDebugUnitTest :composeApp:assembleDebug
 ./gradlew :composeApp:connectedDebugAndroidTest
 ```
@@ -138,8 +138,8 @@ Install Xcode and its command-line tools, XcodeGen, JDK 17, and Rust through
 `rustup`:
 
 ```sh
-apps/mobile/scripts/build-rust-ios.sh
-cd apps/mobile
+apps/client/scripts/build-rust-ios.sh
+cd apps/client
 ./gradlew :composeApp:allTests
 cd iosApp
 xcodegen generate
@@ -161,7 +161,7 @@ Exercise the same account, profile, add-on, catalog, playback, progress,
 subtitle, audio, and OAuth cases as Android. Also test background/foreground,
 lock/unlock, rotation, interruptions, repeated player open/close cycles, PiP,
 and memory cleanup on a physical iPhone and iPad. The Apple mobile target is
-GPLv3; see [`apps/mobile/iosApp/LICENSE`](../apps/mobile/iosApp/LICENSE) and
+GPLv3; see [`apps/client/iosApp/LICENSE`](../apps/client/iosApp/LICENSE) and
 [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md) before distributing a
 release.
 

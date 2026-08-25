@@ -331,7 +331,7 @@ mod android {
     use jni::EnvUnowned;
 
     #[no_mangle]
-    pub extern "system" fn Java_media_conduit_mobile_RustBridge_create<'local>(
+    pub extern "system" fn Java_media_conduit_client_RustBridge_create<'local>(
         _env: EnvUnowned<'local>,
         _class: JClass<'local>,
     ) -> jlong {
@@ -339,7 +339,7 @@ mod android {
     }
 
     #[no_mangle]
-    pub extern "system" fn Java_media_conduit_mobile_RustBridge_dispatch<'local>(
+    pub extern "system" fn Java_media_conduit_client_RustBridge_dispatch<'local>(
         mut unowned_env: EnvUnowned<'local>,
         _class: JClass<'local>,
         handle: jlong,
@@ -368,7 +368,7 @@ mod android {
     }
 
     #[no_mangle]
-    pub extern "system" fn Java_media_conduit_mobile_RustBridge_destroy<'local>(
+    pub extern "system" fn Java_media_conduit_client_RustBridge_destroy<'local>(
         _env: EnvUnowned<'local>,
         _class: JClass<'local>,
         handle: jlong,

@@ -3,7 +3,7 @@ name: Android CI
 on:
   pull_request:
     paths:
-      - "apps/mobile/**"
+      - "apps/client/**"
       - "apps/desktop/icon.svg"
       - "packages/mobile-bridge/**"
       - "packages/core/**"
@@ -13,7 +13,7 @@ on:
   push:
     branches: [main]
     paths:
-      - "apps/mobile/**"
+      - "apps/client/**"
       - "apps/desktop/icon.svg"
       - "packages/mobile-bridge/**"
       - "packages/core/**"
@@ -39,7 +39,7 @@ jobs:
           distribution: temurin
           java-version: 17
           cache: gradle
-          cache-dependency-path: apps/mobile/**/*.gradle*
+          cache-dependency-path: apps/client/**/*.gradle*
       - uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
       - name: Install pinned Android SDK components
         run: >-
@@ -58,7 +58,7 @@ jobs:
         with:
           tool: cargo-ndk@3.5.4
       - name: Build Rust JNI libraries
-        run: ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358" apps/mobile/scripts/build-rust-android.sh
+        run: ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358" apps/client/scripts/build-rust-android.sh
       - name: Run unit tests and assemble debug APK
-        working-directory: apps/mobile
+        working-directory: apps/client
         run: ./gradlew --no-daemon :composeApp:testDebugUnitTest :composeApp:assembleDebug

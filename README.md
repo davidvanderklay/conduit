@@ -84,6 +84,7 @@ backups, bootstrap modes, and upgrades.
 - [Deployment and operations](docs/deployment.md)
 - [Desktop, Android, and iOS releases](docs/releases.md)
 - [Mobile development and release](docs/mobile-development.md)
+- [Shared desktop and web client development](docs/client-development.md)
 - [Media compatibility](docs/media-compatibility.md)
 - [Development guide](docs/development.md)
 - [Project roadmap](docs/roadmap.md)
@@ -149,8 +150,8 @@ under the MIT License. See [LICENSE](LICENSE).
 The Apple mobile application is distributed under the GNU General Public
 License version 3 because its iOS target links MPVKit and its bundled libmpv
 media runtime. The app-specific boundary and source-distribution notice are in
-[`apps/mobile/iosApp/LICENSE`](apps/mobile/iosApp/LICENSE), with the complete
-GPLv3 text in [`apps/mobile/iosApp/LICENSE-GPL-3.0.txt`](apps/mobile/iosApp/LICENSE-GPL-3.0.txt).
+[`apps/client/iosApp/LICENSE`](apps/client/iosApp/LICENSE), with the complete
+GPLv3 text in [`apps/client/iosApp/LICENSE-GPL-3.0.txt`](apps/client/iosApp/LICENSE-GPL-3.0.txt).
 See
 [third-party notices](THIRD_PARTY_NOTICES.md) for the linked media libraries
 and their upstream license files.

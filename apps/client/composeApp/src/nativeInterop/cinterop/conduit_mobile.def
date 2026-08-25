@@ -1,0 +1,2 @@
+headers = conduit_mobile.h
+package = media.conduit.client.ffi

@@ -1,0 +1,27 @@
+package media.conduit.client
+
+/** Receives tab selections from the native SwiftUI overlay. */
+interface IosBottomNavigationSelectionHandler {
+    fun select(index: Int)
+}
+
+/** Keeps the system-owned iOS tab bar outside Compose's interop render layer. */
+interface IosBottomNavigationBridge {
+    fun update(
+        visible: Boolean,
+        selectedIndex: Int,
+        labels: List<String>,
+        classic: Boolean,
+        selectionHandler: IosBottomNavigationSelectionHandler?,
+    )
+}
+
+object IosBottomNavigationBridgeFactory {
+    private var bridge: IosBottomNavigationBridge? = null
+
+    fun register(bridge: IosBottomNavigationBridge) {
+        this.bridge = bridge
+    }
+
+    fun bridge(): IosBottomNavigationBridge? = bridge
+}

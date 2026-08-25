@@ -1,0 +1,44 @@
+name: Client desktop and web
+
+on:
+  pull_request:
+    paths:
+      - "apps/client/**"
+      - ".github/workflows/client-desktop-web.yml"
+  push:
+    branches: [main]
+    paths:
+      - "apps/client/**"
+      - ".github/workflows/client-desktop-web.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: apps/client
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install native and web build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++ libmpv-dev pkg-config
+          npm install --global yarn@1.22.22
+      - name: Build and test desktop and web clients
+        run: |
+          ./gradlew --no-daemon \
+            :composeApp:desktopTest \
+            :composeApp:buildLinuxPlayerBridge \
+            :composeApp:desktopJar \
+            :composeApp:wasmJsBrowserDevelopmentExecutableDistribution

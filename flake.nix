@@ -15,6 +15,7 @@
           packages = (with pkgs; [
             nodejs_22
             pnpm
+            yarn
             jdk17
             rustc
             cargo

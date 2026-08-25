@@ -28,7 +28,7 @@ The bundle identifier is `media.conduit.mobile`, and the app requires iOS 15 or
 newer. The Apple mobile
 application is GPLv3, so every distributed IPA must be accompanied by the
 corresponding source and build instructions described in
-[`apps/mobile/iosApp/LICENSE`](../apps/mobile/iosApp/LICENSE) and
+[`apps/client/iosApp/LICENSE`](../apps/client/iosApp/LICENSE) and
 [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md).
 
 To exercise the same packaging path without creating a release, run the
@@ -37,8 +37,8 @@ run's `conduit-ios` artifact. On a Mac with the prerequisites from
 `mobile-development.md`, reproduce the package locally with:
 
 ```sh
-apps/mobile/scripts/build-rust-ios.sh
-apps/mobile/scripts/package-ios-ipa.sh 0.2.0 1
+apps/client/scripts/build-rust-ios.sh
+apps/client/scripts/package-ios-ipa.sh 0.2.0 1
 ```
 
 Verify a downloaded package before importing it:

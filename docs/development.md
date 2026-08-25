@@ -5,7 +5,7 @@
 - `apps/web`: React web interface shared with desktop
 - `apps/server`: Fastify API, Better Auth, Drizzle, and PostgreSQL
 - `apps/desktop`: Electron shell and native libmpv playback
-- `apps/mobile`: shared Compose Multiplatform Android/iOS client and native
+- `apps/client`: shared Compose Multiplatform Android/iOS client and native
   playback hosts
 - `packages/core`: Rust client engine compiled to WebAssembly
 - `packages/mobile-bridge`: Rust C ABI used by the mobile architecture fixture

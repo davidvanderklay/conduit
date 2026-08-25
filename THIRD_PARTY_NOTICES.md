@@ -39,9 +39,9 @@ binaries:
 
 libmpv and the bundled FFmpeg are GPL-licensed. Review each upstream binary's
 license and bundled-library notices before shipping an iOS distribution. The
-app-specific GPLv3 boundary is documented in [`apps/mobile/iosApp/LICENSE`](apps/mobile/iosApp/LICENSE),
+app-specific GPLv3 boundary is documented in [`apps/client/iosApp/LICENSE`](apps/client/iosApp/LICENSE),
 with the complete terms in
-[`apps/mobile/iosApp/LICENSE-GPL-3.0.txt`](apps/mobile/iosApp/LICENSE-GPL-3.0.txt).
+[`apps/client/iosApp/LICENSE-GPL-3.0.txt`](apps/client/iosApp/LICENSE-GPL-3.0.txt).
 
 The Apple mobile application must be distributed with the corresponding
 source and build instructions, including the pinned Swift package revisions.

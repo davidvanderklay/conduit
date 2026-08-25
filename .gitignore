@@ -11,19 +11,19 @@ coverage/
 
 target/
 packages/core/pkg/
-apps/mobile/.gradle/
-apps/mobile/.idea/
-apps/mobile/.kotlin/
-apps/mobile/build/
-apps/mobile/composeApp/build/
-apps/mobile/composeApp/src/androidMain/jniLibs/
-apps/mobile/local.properties
-apps/mobile/iosApp/Pods/
-apps/mobile/iosApp/build/
-apps/mobile/iosApp/*.xcodeproj/xcuserdata/
+apps/client/.gradle/
+apps/client/.idea/
+apps/client/.kotlin/
+apps/client/build/
+apps/client/composeApp/build/
+apps/client/composeApp/src/androidMain/jniLibs/
+apps/client/local.properties
+apps/client/iosApp/Pods/
+apps/client/iosApp/build/
+apps/client/iosApp/*.xcodeproj/xcuserdata/
 **/xcuserdata/
 *.xcuserstate
-apps/mobile/native/
+apps/client/native/
 
 apps/server/.local/
 apps/desktop/electron/dist/
