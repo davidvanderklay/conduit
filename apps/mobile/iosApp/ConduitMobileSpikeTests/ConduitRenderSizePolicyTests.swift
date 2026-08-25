@@ -19,7 +19,7 @@ final class ConduitRenderSizePolicyTests: XCTestCase {
         }
 
         XCTAssertEqual(options["sub-font"], "Noto Sans CJK SC")
-        XCTAssertEqual(options["sub-font-size"], "46")
+        XCTAssertEqual(options["sub-font-size"], "54")
     }
 
     func testFitModeRendersAtVideoAspect() {
