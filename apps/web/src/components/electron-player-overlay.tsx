@@ -32,6 +32,7 @@ import type { Video } from "../lib/core"
 import {
   nativePlayerCommand,
   nativePlayerSnapshot,
+  setNativePlayerPlaying,
   toggleNativeFullscreen,
   type PlayerOverlayMedia,
   type NativePlayerSnapshot,
@@ -202,6 +203,13 @@ export function ElectronPlayerOverlay({ initialMedia }: { initialMedia: PlayerOv
     setControlsVisible(true)
   }, [showControls, snapshot?.firstFrameReady])
 
+  useEffect(() => {
+    const playing = Boolean(
+      snapshot?.running && snapshot.firstFrameReady && !snapshot.paused && !snapshot.ended,
+    )
+    void setNativePlayerPlaying(playing).catch(() => undefined)
+  }, [snapshot?.ended, snapshot?.firstFrameReady, snapshot?.paused, snapshot?.running])
+
   const command = useCallback((next: unknown[]) => {
     void nativePlayerCommand(next).catch(() => undefined)
   }, [])
@@ -350,6 +358,11 @@ export function ElectronPlayerOverlay({ initialMedia }: { initialMedia: PlayerOv
   const rootClassName =
     "native-player electron-native-player electron-player-overlay fixed inset-0 z-50 select-none " +
     (chromeVisible ? "cursor-default" : "cursor-none")
+
+  useEffect(() => {
+    document.documentElement.classList.toggle("player-cursor-hidden", !chromeVisible)
+    return () => document.documentElement.classList.remove("player-cursor-hidden")
+  }, [chromeVisible])
 
   // Close track menus on any background click or Escape, matching Tauri behavior
   useEffect(() => {

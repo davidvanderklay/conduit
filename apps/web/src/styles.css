@@ -158,6 +158,11 @@ body {
   -webkit-user-select: none;
 }
 
+.player-cursor-hidden,
+.player-cursor-hidden * {
+  cursor: none !important;
+}
+
 @keyframes desktop-player-opening-indicator {
   from {
     opacity: 0.72;

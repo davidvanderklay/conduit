@@ -23,6 +23,7 @@ const desktop = vi.hoisted(() => ({
     playbackPath: "directPlay" as const,
     tracks: [],
   })),
+  setNativePlayerPlaying: vi.fn(async () => undefined),
   toggleNativeFullscreen: vi.fn(async () => false),
 }))
 

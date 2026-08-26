@@ -28,6 +28,7 @@ import {
   redrawNativeSurface,
   refreshNativeSurface,
   resetNativeOverlaySurface,
+  setNativePlayerPlaying,
   stopNativePlayer,
   toggleNativeFullscreen,
   type NativePlayerSnapshot,
@@ -582,6 +583,13 @@ export function DesktopPlayer({
     }
   }, [activeMenu, error, showControls, snapshot?.firstFrameReady, snapshot?.paused])
 
+  useEffect(() => {
+    const playing = Boolean(
+      snapshot?.running && snapshot.firstFrameReady && !snapshot.paused && !snapshot.ended && !error,
+    )
+    void setNativePlayerPlaying(playing).catch(() => undefined)
+  }, [error, snapshot?.ended, snapshot?.firstFrameReady, snapshot?.paused, snapshot?.running])
+
   const close = () => {
     if (closing.current) return
     closing.current = true
@@ -762,6 +770,11 @@ export function DesktopPlayer({
   const expandedControls = fullscreen || spaciousViewport
   const loadingOverlayVisible = isDesktopInitialLoading(snapshot, error)
   const bufferingOverlayVisible = isDesktopBuffering(snapshot, error)
+
+  useEffect(() => {
+    document.documentElement.classList.toggle("player-cursor-hidden", !chromeVisible)
+    return () => document.documentElement.classList.remove("player-cursor-hidden")
+  }, [chromeVisible])
 
   useLayoutEffect(() => {
     const overlayHidden = previousLoadingOverlayVisible.current && !loadingOverlayVisible
