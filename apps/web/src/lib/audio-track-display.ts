@@ -1,4 +1,5 @@
 import type { NativeTrack } from "./desktop"
+import { trackDisplayName, trackLanguageName } from "./track-display"
 
 export interface AudioTrackDisplay {
   primary: string
@@ -6,9 +7,9 @@ export interface AudioTrackDisplay {
 }
 
 export function audioTrackDisplay(track: NativeTrack, fallback: string): AudioTrackDisplay {
-  const language = languageName(track.lang) ?? track.lang ?? "Unknown language"
+  const language = trackLanguageName(track.lang) ?? track.lang ?? "Unknown language"
   const codec = audioCodecName(track.codec)
-  const base = track.title?.trim() || fallback
+  const base = trackDisplayName(track, fallback)
   const channelSummary = audioChannelSummary(track.channelCount, track.audioChannels)
   const sampleRate =
     track.sampleRate && track.sampleRate > 0 ? formatSampleRate(track.sampleRate) : undefined
@@ -17,8 +18,10 @@ export function audioTrackDisplay(track: NativeTrack, fallback: string): AudioTr
       ? `${Math.round(track.bitrate / 1_000).toLocaleString()} kbps`
       : undefined
   const detailedChannels = track.audioChannels?.trim()
+  const channels =
+    detailedChannels && !/^\d+$/.test(detailedChannels) ? detailedChannels : channelSummary
   const technical = [
-    detailedChannels || channelSummary,
+    channels,
     sampleRate,
     bitrate,
     codec && !includesText(base, codec) ? codec : undefined,
@@ -30,16 +33,6 @@ export function audioTrackDisplay(track: NativeTrack, fallback: string): AudioTr
   return {
     primary: base + (technical ? ` (${technical})` : ""),
     secondary: language,
-  }
-}
-
-function languageName(code?: string): string | undefined {
-  if (!code) return undefined
-  try {
-    const locale = typeof navigator === "undefined" ? "en" : navigator.language
-    return new Intl.DisplayNames([locale], { type: "language" }).of(code.replace("_", "-"))
-  } catch {
-    return code
   }
 }
 

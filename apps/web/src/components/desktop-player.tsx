@@ -46,6 +46,7 @@ import { Card } from "./ui/card"
 import { NextEpisodePrompt, PlayerEpisodeDrawer, type PlayerSeriesContext } from "./player-series"
 import { VideoScaleControl } from "./video-scale-control"
 import { SubtitlePicker } from "./subtitle-picker"
+import { trackDisplayName } from "../lib/track-display"
 import {
   DesktopPlayerBufferingOverlay,
   DesktopPlayerOpeningOverlay,
@@ -1418,7 +1419,7 @@ export function dedupeAddonSubtitles<TSubtitle extends { display: string }>(
 }
 
 function trackName(track: NativeTrack, fallback: string): string {
-  return track.title || languageName(track.lang) || `${fallback} ${track.id}`
+  return trackDisplayName(track, `${fallback} ${track.id}`)
 }
 
 interface ResolvedAddonSubtitle {

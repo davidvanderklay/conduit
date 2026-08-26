@@ -49,10 +49,10 @@ import {
 import {
   groupSubtitles,
   normalizeSubtitleLanguage,
-  subtitleLanguageName,
   type SubtitleLanguageGroup,
 } from "../lib/subtitle-groups"
 import { readPreferences, writePreferences } from "../lib/preferences"
+import { subtitleVariantName } from "../lib/track-display"
 import {
   DesktopPlayerBufferingOverlay,
   DesktopPlayerOpeningOverlay,
@@ -969,6 +969,7 @@ function TrackMenuRow({
   onClick: () => void
 }) {
   const display = audio ? audioTrackDisplay(track, `${fallback} ${track.id}`) : undefined
+  const subtitleName = audio ? undefined : subtitleVariantName(track)
   return (
     <button
       className={`pointer-events-auto mb-1 block w-full rounded-lg px-3 py-2 text-left ${
@@ -978,8 +979,8 @@ function TrackMenuRow({
       onClick={onClick}
       aria-pressed={track.selected}
     >
-      <span className="block truncate text-sm font-medium" title={display?.primary}>
-        {display?.primary ?? trackName(track, fallback)}
+      <span className="block truncate text-sm font-medium" title={display?.primary ?? subtitleName}>
+        {display?.primary ?? subtitleName}
       </span>
       <span className={`block text-xs ${track.selected ? "text-zinc-800" : "text-zinc-500"}`}>
         {display?.secondary ?? trackDetails(track)}
@@ -1005,14 +1006,6 @@ function selectSubtitleTrack(
           ),
         }
       : current,
-  )
-}
-
-function trackName(track: NativeTrack, fallback: string): string {
-  return (
-    track.title ||
-    (track.lang ? subtitleLanguageName(track.lang) : undefined) ||
-    `${fallback} ${track.id}`
   )
 }
 
