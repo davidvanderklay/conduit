@@ -1,6 +1,7 @@
 package media.conduit.mobile
 
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -23,5 +24,25 @@ class PlayerStateTest {
         assertFalse(shouldShowCenterPlaybackControl(controlsVisible = true, seeking = false, buffering = true))
         assertFalse(shouldShowCenterPlaybackControl(controlsVisible = true, seeking = false, buffering = false, systemPip = true))
         assertFalse(shouldShowCenterPlaybackControl(controlsVisible = false, seeking = false, buffering = false))
+    }
+
+    @Test
+    fun playerActionOverlaysStayAboveControlsWhenControlsChange() {
+        assertEquals(
+            COMPACT_PLAYER_ACTION_BOTTOM_PADDING_DP,
+            playerActionBottomPaddingDp(controlsVisible = true, compactUpNext = true),
+        )
+        assertEquals(
+            COMPACT_PLAYER_ACTION_BOTTOM_PADDING_DP,
+            playerActionBottomPaddingDp(controlsVisible = false, compactUpNext = true),
+        )
+        assertEquals(
+            PLAYER_ACTION_BOTTOM_PADDING_DP,
+            playerActionBottomPaddingDp(controlsVisible = true, compactUpNext = false),
+        )
+        assertEquals(
+            PLAYER_ACTION_BOTTOM_PADDING_DP,
+            playerActionBottomPaddingDp(controlsVisible = false, compactUpNext = false),
+        )
     }
 }
