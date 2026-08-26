@@ -6,6 +6,7 @@ import {
   Menu,
   net,
   protocol,
+  powerSaveBlocker,
   screen,
   shell,
   session,
@@ -16,6 +17,7 @@ import { promises as fs } from "node:fs"
 import path from "node:path"
 import { createRequire } from "node:module"
 import { pathToFileURL } from "node:url"
+import { createPlaybackInhibitor } from "./playback-inhibition"
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -223,6 +225,7 @@ let playerOverlayLastPointer: { x: number; y: number } | undefined
 let playerOverlaySequence = 0
 let mainWindowFullscreen = false
 const approvedSavePaths = new Set<string>()
+const playbackInhibitor = createPlaybackInhibitor(powerSaveBlocker)
 const playerOverlayFocusSettleMs = 10
 const singleInstanceLock = app.requestSingleInstanceLock()
 
@@ -716,6 +719,11 @@ async function createMainWindow(): Promise<BrowserWindow> {
   Menu.setApplicationMenu(null)
   window.setMenuBarVisibility(false)
   installWindowGuards(window)
+  window.webContents.on("before-input-event", (event, input) => {
+    if (input.type !== "keyDown" || input.key !== "Escape" || !mainWindowFullscreen) return
+    event.preventDefault()
+    window.setFullScreen(false)
+  })
 
   if (process.platform === "linux" && electronOzonePlatform() === "x11" &&
     process.env.CONDUIT_ELECTRON_LOG_WINDOW === "1") {
@@ -860,8 +868,17 @@ async function invoke(command: string, args: Record<string, unknown> = {}): Prom
     return mainWindowFullscreen
   }
   if (command === "player_is_fullscreen") return mainWindowFullscreen
+  if (command === "player_set_playing") {
+    playbackInhibitor.setPlaying(args.playing === true && nativePlayer !== undefined)
+    return null
+  }
+  if (command === "player_set_cursor_hidden") {
+    if (process.platform !== "linux" || !nativePlayer) return null
+    return nativePlayer.request(command, { hidden: args.hidden === true })
+  }
   if (command === "player_stop") {
     const client = nativePlayer
+    playbackInhibitor.setPlaying(false)
     if (!client) return null
     // Detach first so snapshot polls racing with teardown cannot enqueue behind
     // player_stop and then observe the helper's expected stopped state.
@@ -877,6 +894,7 @@ async function invoke(command: string, args: Record<string, unknown> = {}): Prom
 
   if (command === "player_open") {
     if (!mainWindow) throw new Error("Main window is unavailable.")
+    playbackInhibitor.setPlaying(false)
     nativePlayer?.close()
     const client = createNativePlayerClient(nativeWindowId(mainWindow))
     nativePlayer = client
@@ -902,6 +920,7 @@ async function invoke(command: string, args: Record<string, unknown> = {}): Prom
       }
       return result
     } catch (error) {
+      playbackInhibitor.setPlaying(false)
       if (nativePlayer === client) nativePlayer = undefined
       client.close()
       closePlayerOverlay()
@@ -980,6 +999,7 @@ async function closeResources() {
   closePlayerOverlay()
   nativePlayer?.close()
   nativePlayer = undefined
+  playbackInhibitor.setPlaying(false)
   devWebServer?.kill()
   devWebServer = undefined
 }

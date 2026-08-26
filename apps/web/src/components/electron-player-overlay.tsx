@@ -32,6 +32,8 @@ import type { Video } from "../lib/core"
 import {
   nativePlayerCommand,
   nativePlayerSnapshot,
+  setNativePlayerCursorHidden,
+  setNativePlayerPlaying,
   toggleNativeFullscreen,
   type PlayerOverlayMedia,
   type NativePlayerSnapshot,
@@ -47,10 +49,10 @@ import {
 import {
   groupSubtitles,
   normalizeSubtitleLanguage,
-  subtitleLanguageName,
   type SubtitleLanguageGroup,
 } from "../lib/subtitle-groups"
 import { readPreferences, writePreferences } from "../lib/preferences"
+import { subtitleVariantName } from "../lib/track-display"
 import {
   DesktopPlayerBufferingOverlay,
   DesktopPlayerOpeningOverlay,
@@ -202,6 +204,13 @@ export function ElectronPlayerOverlay({ initialMedia }: { initialMedia: PlayerOv
     setControlsVisible(true)
   }, [showControls, snapshot?.firstFrameReady])
 
+  useEffect(() => {
+    const playing = Boolean(
+      snapshot?.running && snapshot.firstFrameReady && !snapshot.paused && !snapshot.ended,
+    )
+    void setNativePlayerPlaying(playing).catch(() => undefined)
+  }, [snapshot?.ended, snapshot?.firstFrameReady, snapshot?.paused, snapshot?.running])
+
   const command = useCallback((next: unknown[]) => {
     void nativePlayerCommand(next).catch(() => undefined)
   }, [])
@@ -350,6 +359,12 @@ export function ElectronPlayerOverlay({ initialMedia }: { initialMedia: PlayerOv
   const rootClassName =
     "native-player electron-native-player electron-player-overlay fixed inset-0 z-50 select-none " +
     (chromeVisible ? "cursor-default" : "cursor-none")
+
+  useEffect(() => {
+    document.documentElement.classList.toggle("player-cursor-hidden", !chromeVisible)
+    void setNativePlayerCursorHidden(!chromeVisible).catch(() => undefined)
+    return () => document.documentElement.classList.remove("player-cursor-hidden")
+  }, [chromeVisible])
 
   // Close track menus on any background click or Escape, matching Tauri behavior
   useEffect(() => {
@@ -954,6 +969,7 @@ function TrackMenuRow({
   onClick: () => void
 }) {
   const display = audio ? audioTrackDisplay(track, `${fallback} ${track.id}`) : undefined
+  const subtitleName = audio ? undefined : subtitleVariantName(track)
   return (
     <button
       className={`pointer-events-auto mb-1 block w-full rounded-lg px-3 py-2 text-left ${
@@ -963,8 +979,8 @@ function TrackMenuRow({
       onClick={onClick}
       aria-pressed={track.selected}
     >
-      <span className="block truncate text-sm font-medium" title={display?.primary}>
-        {display?.primary ?? trackName(track, fallback)}
+      <span className="block truncate text-sm font-medium" title={display?.primary ?? subtitleName}>
+        {display?.primary ?? subtitleName}
       </span>
       <span className={`block text-xs ${track.selected ? "text-zinc-800" : "text-zinc-500"}`}>
         {display?.secondary ?? trackDetails(track)}
@@ -990,14 +1006,6 @@ function selectSubtitleTrack(
           ),
         }
       : current,
-  )
-}
-
-function trackName(track: NativeTrack, fallback: string): string {
-  return (
-    track.title ||
-    (track.lang ? subtitleLanguageName(track.lang) : undefined) ||
-    `${fallback} ${track.id}`
   )
 }
 

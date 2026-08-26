@@ -46,4 +46,24 @@ describe("audio track display", () => {
       secondary: "English",
     })
   })
+
+  it("uses the language when a source publishes its URL as the title", () => {
+    expect(
+      audioTrackDisplay(
+        {
+          id: 3,
+          type: "audio",
+          title: "https://example.com/audio",
+          lang: "en",
+          channelCount: 2,
+          selected: false,
+          external: false,
+        },
+        "Audio 3",
+      ),
+    ).toEqual({
+      primary: "English (Stereo)",
+      secondary: "English",
+    })
+  })
 })

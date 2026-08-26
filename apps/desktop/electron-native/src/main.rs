@@ -126,6 +126,9 @@ struct VideoHost {
     display: *mut x11::xlib::Display,
     window: u64,
     container: u64,
+    cursor: x11::xlib::Cursor,
+    overlay_window: Option<x11::xlib::Window>,
+    cursor_hidden: bool,
 }
 
 // The addon is invoked only from Electron's browser-thread event loop. This
@@ -148,6 +151,9 @@ impl Drop for VideoHost {
         unsafe {
             if self.display.is_null() {
                 return;
+            }
+            if self.cursor != 0 {
+                x11::xlib::XFreeCursor(self.display, self.cursor);
             }
             x11::xlib::XDestroyWindow(self.display, self.window as x11::xlib::Window);
             x11::xlib::XFlush(self.display);
@@ -313,9 +319,30 @@ impl Player {
     }
 
     #[cfg(target_os = "linux")]
-    fn set_overlay_window(&self, overlay_window: u64) -> Result<(), NativeError> {
+    fn set_overlay_window(&mut self, overlay_window: u64) -> Result<(), NativeError> {
         let parent_window = self.parent_window.ok_or(NativeError::NotRunning)?;
-        attach_overlay_window(parent_window, overlay_window)
+        attach_overlay_window(parent_window, overlay_window)?;
+        let host_window = self.host_window.as_mut().ok_or(NativeError::NotRunning)?;
+        host_window.overlay_window = Some(overlay_window as x11::xlib::Window);
+        if host_window.cursor_hidden {
+            define_hidden_cursor(host_window);
+        }
+        Ok(())
+    }
+
+    #[cfg(target_os = "linux")]
+    fn set_cursor_hidden(&mut self, hidden: bool) -> Result<(), NativeError> {
+        let host_window = self.host_window.as_mut().ok_or(NativeError::NotRunning)?;
+        if host_window.cursor_hidden == hidden {
+            return Ok(());
+        }
+        host_window.cursor_hidden = hidden;
+        if hidden {
+            define_hidden_cursor(host_window);
+        } else {
+            define_inherited_cursor(host_window);
+        }
+        Ok(())
     }
 
     fn command(&self, command: Vec<Value>) -> Result<Value, NativeError> {
@@ -413,6 +440,15 @@ fn handle_request(player: &mut Player, request: Request) -> Result<Value, Native
                 .parse::<u64>()
                 .map_err(|error| NativeError::InvalidWindowId(error.to_string()))?;
             player.set_overlay_window(window_id).map(|()| Value::Null)
+        }
+        #[cfg(target_os = "linux")]
+        "player_set_cursor_hidden" => {
+            let hidden = request
+                .params
+                .get("hidden")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            player.set_cursor_hidden(hidden).map(|()| Value::Null)
         }
         _ => Err(NativeError::Command(format!(
             "unknown method {}",
@@ -624,7 +660,7 @@ fn create_video_host_window(parent: u64) -> Result<VideoHost, NativeError> {
     use std::ptr;
     use x11::xlib::{
         CWOverrideRedirect, Window, XChangeWindowAttributes, XCloseDisplay, XCreateSimpleWindow,
-        XFlush, XGetGeometry, XMapWindow, XOpenDisplay, XSetWindowAttributes,
+        XDestroyWindow, XFlush, XGetGeometry, XMapWindow, XOpenDisplay, XSetWindowAttributes,
     };
 
     unsafe {
@@ -680,6 +716,15 @@ fn create_video_host_window(parent: u64) -> Result<VideoHost, NativeError> {
             ));
         }
 
+        let cursor = match create_invisible_cursor(display, host) {
+            Ok(cursor) => cursor,
+            Err(error) => {
+                XDestroyWindow(display, host);
+                XCloseDisplay(display);
+                return Err(error);
+            }
+        };
+
         let mut attributes: XSetWindowAttributes = std::mem::zeroed();
         attributes.override_redirect = 1;
         XChangeWindowAttributes(display, host, CWOverrideRedirect, &mut attributes);
@@ -693,7 +738,80 @@ fn create_video_host_window(parent: u64) -> Result<VideoHost, NativeError> {
             display,
             window: host as u64,
             container: container as u64,
+            cursor,
+            overlay_window: None,
+            cursor_hidden: false,
         })
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn create_invisible_cursor(
+    display: *mut x11::xlib::Display,
+    window: x11::xlib::Window,
+) -> Result<x11::xlib::Cursor, NativeError> {
+    use std::os::raw::c_char;
+    use x11::xlib::{XColor, XCreateBitmapFromData, XCreatePixmapCursor, XFreePixmap};
+
+    unsafe {
+        let bitmap_data = [0 as c_char];
+        let source = XCreateBitmapFromData(display, window, bitmap_data.as_ptr(), 1, 1);
+        let mask = XCreateBitmapFromData(display, window, bitmap_data.as_ptr(), 1, 1);
+        if source == 0 || mask == 0 {
+            if source != 0 {
+                XFreePixmap(display, source);
+            }
+            if mask != 0 {
+                XFreePixmap(display, mask);
+            }
+            return Err(NativeError::Initialization(
+                "could not create the hidden X11 cursor".into(),
+            ));
+        }
+
+        let mut color = XColor {
+            pixel: 0,
+            red: 0,
+            green: 0,
+            blue: 0,
+            flags: 0,
+            pad: 0,
+        };
+        let cursor = XCreatePixmapCursor(display, source, mask, &mut color, &mut color, 0, 0);
+        XFreePixmap(display, source);
+        XFreePixmap(display, mask);
+        if cursor == 0 {
+            return Err(NativeError::Initialization(
+                "could not create the hidden X11 cursor".into(),
+            ));
+        }
+        Ok(cursor)
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn define_hidden_cursor(host: &VideoHost) {
+    use x11::xlib::{XDefineCursor, XFlush};
+
+    unsafe {
+        XDefineCursor(host.display, host.window as x11::xlib::Window, host.cursor);
+        if let Some(overlay_window) = host.overlay_window {
+            XDefineCursor(host.display, overlay_window, host.cursor);
+        }
+        XFlush(host.display);
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn define_inherited_cursor(host: &VideoHost) {
+    use x11::xlib::{XFlush, XUndefineCursor};
+
+    unsafe {
+        XUndefineCursor(host.display, host.window as x11::xlib::Window);
+        if let Some(overlay_window) = host.overlay_window {
+            XUndefineCursor(host.display, overlay_window);
+        }
+        XFlush(host.display);
     }
 }
 

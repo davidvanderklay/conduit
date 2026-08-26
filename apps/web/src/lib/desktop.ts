@@ -118,6 +118,14 @@ export function stopNativePlayer(): Promise<void> {
   return invoke("player_stop")
 }
 
+export function setNativePlayerPlaying(playing: boolean): Promise<void> {
+  return invoke("player_set_playing", { playing })
+}
+
+export function setNativePlayerCursorHidden(hidden: boolean): Promise<void> {
+  return invoke("player_set_cursor_hidden", { hidden })
+}
+
 export function refreshNativeSurface(): Promise<void> {
   return invoke("player_refresh_surface")
 }

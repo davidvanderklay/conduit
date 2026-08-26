@@ -64,6 +64,7 @@ const desktop = vi.hoisted(() => ({
   redrawNativeSurface: vi.fn(async () => undefined),
   refreshNativeSurface: vi.fn(async () => undefined),
   resetNativeOverlaySurface: vi.fn(async () => undefined),
+  setNativePlayerPlaying: vi.fn(async () => undefined),
   stopNativePlayer: vi.fn(async () => undefined),
   toggleNativeFullscreen: vi.fn(async () => false),
 }))
@@ -369,6 +370,7 @@ describe("DesktopPlayer track menus", () => {
     act(() => vi.advanceTimersByTime(1))
 
     expect(player?.className).toContain("cursor-none")
+    expect(document.documentElement.classList.contains("player-cursor-hidden")).toBe(true)
     for (const region of chrome) expect(region.classList.contains("invisible")).toBe(true)
     expect(desktop.resetNativeOverlaySurface).toHaveBeenCalledOnce()
 
@@ -377,6 +379,7 @@ describe("DesktopPlayer track menus", () => {
     })
 
     expect(player?.className).toContain("cursor-default")
+    expect(document.documentElement.classList.contains("player-cursor-hidden")).toBe(false)
     for (const region of chrome) expect(region.classList.contains("visible")).toBe(true)
   })
 
