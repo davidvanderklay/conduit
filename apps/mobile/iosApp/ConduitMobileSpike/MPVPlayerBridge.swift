@@ -39,6 +39,41 @@ func shouldStartPendingLoad(surfaceSize: CGSize) -> Bool {
     surfaceSize.width > 1 && surfaceSize.height > 1
 }
 
+/// Applies the color metadata appropriate for libmpv's packed RGB software
+/// output before it is handed to AVSampleBufferDisplayLayer.
+enum ConduitSoftwarePixelBufferColorMetadata {
+    static func apply(to pixelBuffer: CVPixelBuffer) {
+        // The render API writes packed RGB. A YCbCr matrix describes a
+        // YCbCr-to-RGB conversion and can make AVSampleBufferDisplayLayer
+        // reinterpret high-contrast subtitle edges as colored fringes.
+        CVBufferSetAttachment(
+            pixelBuffer,
+            kCVImageBufferColorPrimariesKey,
+            kCVImageBufferColorPrimaries_ITU_R_709_2,
+            .shouldPropagate
+        )
+        CVBufferSetAttachment(
+            pixelBuffer,
+            kCVImageBufferTransferFunctionKey,
+            kCVImageBufferTransferFunction_ITU_R_709_2,
+            .shouldPropagate
+        )
+        CVBufferSetAttachment(
+            pixelBuffer,
+            kCVImageBufferAlphaChannelIsOpaque,
+            kCFBooleanTrue,
+            .shouldPropagate
+        )
+    }
+}
+
+/// The packed format requested from libmpv must match the Core Video buffer
+/// format allocated for the sample buffer.
+enum ConduitSoftwarePixelBufferFormat {
+    static let mpv = "bgra"
+    static let coreVideo = kCVPixelFormatType_32BGRA
+}
+
 /// The Swift half of the Kotlin/iOS player boundary.
 ///
 /// This follows the same shape as Nuvio's iOS integration: Compose owns the
@@ -1200,7 +1235,9 @@ final class ConduitMPVPlayerViewController: UIViewController {
         var size = [Int32(width), Int32(height)]
         var stride = CVPixelBufferGetBytesPerRow(pixelBuffer)
         var blockForTargetTime: CInt = 0
-        var format = UnsafeMutableRawPointer(mutating: ("bgr0" as NSString).utf8String)
+        var format = UnsafeMutableRawPointer(
+            mutating: (ConduitSoftwarePixelBufferFormat.mpv as NSString).utf8String
+        )
         size.withUnsafeMutableBufferPointer { sizePtr in
             withUnsafeMutablePointer(to: &stride) { stridePtr in
                 withUnsafeMutablePointer(to: &blockForTargetTime) { blockPtr in
@@ -1234,7 +1271,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
         poolHeight = height
         formatDescription = nil
         let attributes: [CFString: Any] = [
-            kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_32BGRA,
+            kCVPixelBufferPixelFormatTypeKey: ConduitSoftwarePixelBufferFormat.coreVideo,
             kCVPixelBufferWidthKey: width,
             kCVPixelBufferHeightKey: height,
             kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary,
@@ -1370,24 +1407,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
     /// SDR color tags for the software-rendered buffers. The SW path outputs
     /// standard dynamic range only.
     private func attachColorAttributes(to pixelBuffer: CVPixelBuffer) {
-        CVBufferSetAttachment(
-            pixelBuffer,
-            kCVImageBufferColorPrimariesKey,
-            kCVImageBufferColorPrimaries_ITU_R_709_2,
-            .shouldPropagate
-        )
-        CVBufferSetAttachment(
-            pixelBuffer,
-            kCVImageBufferTransferFunctionKey,
-            kCVImageBufferTransferFunction_ITU_R_709_2,
-            .shouldPropagate
-        )
-        CVBufferSetAttachment(
-            pixelBuffer,
-            kCVImageBufferYCbCrMatrixKey,
-            kCVImageBufferYCbCrMatrix_ITU_R_709_2,
-            .shouldPropagate
-        )
+        ConduitSoftwarePixelBufferColorMetadata.apply(to: pixelBuffer)
     }
 
     /// Covers the video surface while PiP owns the picture. The layer itself

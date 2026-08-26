@@ -1,3 +1,4 @@
+import AVFoundation
 import XCTest
 @testable import conduit
 
@@ -20,6 +21,41 @@ final class ConduitRenderSizePolicyTests: XCTestCase {
 
         XCTAssertEqual(options["sub-font"], "Noto Sans CJK SC")
         XCTAssertEqual(options["sub-font-size"], "54")
+    }
+
+    func testPackedRgbFramesDoNotDeclareYcbcrMetadata() {
+        var pixelBuffer: CVPixelBuffer?
+        XCTAssertEqual(
+            CVPixelBufferCreate(
+                kCFAllocatorDefault,
+                16,
+                16,
+                kCVPixelFormatType_32BGRA,
+                nil,
+                &pixelBuffer
+            ),
+            kCVReturnSuccess
+        )
+        guard let pixelBuffer else {
+            return
+        }
+
+        ConduitSoftwarePixelBufferColorMetadata.apply(to: pixelBuffer)
+
+        XCTAssertNil(
+            CVBufferGetAttachment(pixelBuffer, kCVImageBufferYCbCrMatrixKey, nil)
+        )
+        XCTAssertNotNil(
+            CVBufferGetAttachment(pixelBuffer, kCVImageBufferAlphaChannelIsOpaque, nil)
+        )
+    }
+
+    func testPackedRgbRenderFormatMatchesThePixelBuffer() {
+        XCTAssertEqual(ConduitSoftwarePixelBufferFormat.mpv, "bgra")
+        XCTAssertEqual(
+            ConduitSoftwarePixelBufferFormat.coreVideo,
+            kCVPixelFormatType_32BGRA
+        )
     }
 
     func testFitModeRendersAtVideoAspect() {
