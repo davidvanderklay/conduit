@@ -65,10 +65,19 @@ internal const val ANDROID_RESIZE_MODE_ZOOM = -1
 @Composable
 actual fun PlayerOrientationLock(active: Boolean) {
     val activity = androidx.compose.ui.platform.LocalContext.current as? Activity
+    val restoresPortrait = activity?.resources?.configuration?.smallestScreenWidthDp
+        ?.let(::shouldRestorePortraitAfterPlayback)
+        ?: true
     DisposableEffect(activity, active) {
         if (active) activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
         onDispose {
-            if (active) activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+            if (active) {
+                activity?.requestedOrientation = if (restoresPortrait) {
+                    ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+                } else {
+                    ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                }
+            }
         }
     }
 }
@@ -108,6 +117,14 @@ actual fun NativePlayer(
     val context = androidx.compose.ui.platform.LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val activity = context as? Activity
+    LaunchedEffect(activity, presentation) {
+        (activity as? MainActivity)?.setConduitImmersivePlayback(
+            presentation == PlaybackPresentation.FullScreen,
+        )
+    }
+    DisposableEffect(activity) {
+        onDispose { (activity as? MainActivity)?.setConduitImmersivePlayback(false) }
+    }
     val landscape = context.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     val windowSize = LocalWindowInfo.current.containerSize
     val isTablet = with(LocalDensity.current) {
@@ -199,7 +216,6 @@ actual fun NativePlayer(
         fallbackStartPositionMs = fallbackPositionMs(player.currentPosition, media3StartPositionMs)
         media3StartPositionMs = fallbackStartPositionMs
         fallbackPlaybackSpeed = player.playbackParameters.speed
-        fallbackPlayWhenReady = player.playWhenReady
         (activity as? MainActivity)?.exitConduitPictureInPicture()
         releaseMedia3Player()
         playbackError = null
@@ -221,7 +237,11 @@ actual fun NativePlayer(
                     playbackError = null
                     player.prepare()
                     player.seekTo(restorePosition)
-                    player.play()
+                    if (canStartNativePlayback(active, fallbackPlayWhenReady, firstFrameRendered)) {
+                        player.play()
+                    } else {
+                        player.pause()
+                    }
                     Toast.makeText(context, "That track is not supported on this device. Restored the previous audio selection.", Toast.LENGTH_LONG).show()
                     return
                 }
@@ -320,6 +340,9 @@ actual fun NativePlayer(
             }
             override fun onRenderedFirstFrame() {
                 firstFrameRendered = true
+                if (canStartNativePlayback(active, fallbackPlayWhenReady, firstFrameRendered)) {
+                    player.play()
+                }
             }
         }
         player.addListener(listener)
@@ -347,7 +370,7 @@ actual fun NativePlayer(
             preferredAudioCode?.let { code -> player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().setPreferredAudioLanguages(code).build() }
             player.setPlaybackSpeed(fallbackPlaybackSpeed)
             player.prepare()
-            player.playWhenReady = active && fallbackPlayWhenReady
+            player.playWhenReady = false
         }
         onDispose {
             player.removeListener(listener)
@@ -420,9 +443,13 @@ actual fun NativePlayer(
             mpvView?.updateExternalSubtitles(subtitles)
         }
     }
-    LaunchedEffect(activeEngine, active, mpvView) {
+    LaunchedEffect(activeEngine, active, mpvView, firstFrameRendered) {
         if (activeEngine == NativePlaybackEngine.Media3) {
-            if (active && fallbackPlayWhenReady) player.play() else player.pause()
+            if (canStartNativePlayback(active, fallbackPlayWhenReady, firstFrameRendered)) {
+                player.play()
+            } else {
+                player.pause()
+            }
         } else {
             mpvView?.setPaused(!(active && (fallbackReason == null || fallbackPlayWhenReady)))
         }
@@ -523,8 +550,18 @@ actual fun NativePlayer(
 
     LaunchedEffect(command?.sequence) {
         when (val next = command?.command) {
-            PlaybackCommand.Play -> if (activeEngine == NativePlaybackEngine.Media3) player.play() else mpvView?.setPaused(false)
-            PlaybackCommand.Pause -> if (activeEngine == NativePlaybackEngine.Media3) player.pause() else mpvView?.setPaused(true)
+            PlaybackCommand.Play -> {
+                fallbackPlayWhenReady = true
+                if (activeEngine == NativePlaybackEngine.Media3) {
+                    if (canStartNativePlayback(active, fallbackPlayWhenReady, firstFrameRendered)) player.play() else player.pause()
+                } else {
+                    mpvView?.setPaused(false)
+                }
+            }
+            PlaybackCommand.Pause -> {
+                fallbackPlayWhenReady = false
+                if (activeEngine == NativePlaybackEngine.Media3) player.pause() else mpvView?.setPaused(true)
+            }
             is PlaybackCommand.SeekTo -> if (activeEngine == NativePlaybackEngine.Media3) player.seekTo(next.positionMs.coerceAtLeast(0)) else mpvView?.seekTo(next.positionMs.coerceAtLeast(0))
             PlaybackCommand.EnterSystemPip -> (activity as? MainActivity)?.enterConduitPictureInPicture()
             PlaybackCommand.RetryVideoOutput -> {
@@ -590,7 +627,8 @@ actual fun NativePlayer(
     val seekFeedback = remember(player) { DoubleTapSeekFeedback() }
     val togglePlayback: () -> Unit = {
         if (activeEngine == NativePlaybackEngine.Media3) {
-            if (playing) player.pause() else player.play()
+            fallbackPlayWhenReady = !playing
+            if (canStartNativePlayback(active, fallbackPlayWhenReady, firstFrameRendered)) player.play() else player.pause()
         } else {
             val nextPlaying = !playing
             mpvView?.setPaused(!nextPlaying)

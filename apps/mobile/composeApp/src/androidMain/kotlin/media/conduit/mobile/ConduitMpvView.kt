@@ -64,6 +64,10 @@ internal class ConduitMpvView(
     context: Context,
     attrs: AttributeSet? = null,
 ) : BaseMPVView(context, attrs) {
+    init {
+        keepScreenOn = true
+    }
+
     @Volatile private var loaded = false
     @Volatile private var fileLoadStarted = false
     @Volatile private var ended = false

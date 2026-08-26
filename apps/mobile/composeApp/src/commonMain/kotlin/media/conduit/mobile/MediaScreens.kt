@@ -134,6 +134,10 @@ internal fun MobileLibraryScreen(
     val items = orderLibraryItems(filteredItems, snapshot?.progress.orEmpty(), sort) { item ->
         completionEpisodeIds(metadataCache.videosFor(item.asCatalogItem()))
     }
+    val windowWidthDp = with(LocalDensity.current) {
+        LocalWindowInfo.current.containerSize.width.toDp().value.roundToInt()
+    }
+    val gridColumns = mediaGridColumns(windowWidthDp)
 
     Column(modifier.statusBarsPadding()) {
         Spacer(Modifier.height(68.dp))
@@ -175,7 +179,7 @@ internal fun MobileLibraryScreen(
         } else {
             LazyVerticalGrid(
                 state = gridState,
-                columns = GridCells.Fixed(3),
+                columns = gridColumns,
                 contentPadding = PaddingValues(start = 10.dp, end = 10.dp, bottom = 112.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp),
@@ -248,6 +252,10 @@ internal fun MobileContinueWatchingScreen(
                 -> entries
             }
         }
+    val windowWidthDp = with(LocalDensity.current) {
+        LocalWindowInfo.current.containerSize.width.toDp().value.roundToInt()
+    }
+    val gridColumns = mediaGridColumns(windowWidthDp)
 
     PlatformBackHandler(
         enabled = active,
@@ -290,7 +298,7 @@ internal fun MobileContinueWatchingScreen(
         } else {
             LazyVerticalGrid(
                 state = gridState,
-                columns = GridCells.Fixed(3),
+                columns = gridColumns,
                 contentPadding = PaddingValues(start = 10.dp, end = 10.dp, bottom = 112.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp),

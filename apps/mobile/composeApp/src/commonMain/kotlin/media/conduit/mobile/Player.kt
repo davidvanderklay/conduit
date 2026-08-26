@@ -27,6 +27,22 @@ fun shouldShowCenterPlaybackControl(
     systemPip: Boolean = false,
 ): Boolean = controlsVisible && !seeking && !buffering && !systemPip
 
+/** Media3 should not start audio until the first video frame can be displayed. */
+internal fun canStartNativePlayback(
+    active: Boolean,
+    playWhenReady: Boolean,
+    firstFrameRendered: Boolean,
+): Boolean = active && playWhenReady && firstFrameRendered
+
+/** Android PiP captures the activity, while iOS keeps its native player visible. */
+internal fun shouldHideInlinePlaybackForPip(
+    systemPip: Boolean,
+    systemPipKeepsAppVisible: Boolean,
+): Boolean = systemPip && systemPipKeepsAppVisible
+
+internal fun shouldRestorePortraitAfterPlayback(smallestWidthDp: Int): Boolean =
+    smallestWidthDp < TABLET_LAYOUT_MIN_WIDTH_DP
+
 /**
  * Keeps the temporary 2x speed hold alive through pointer movement while retaining
  * single-tap and double-tap behavior. Gestures are abandoned when a child
