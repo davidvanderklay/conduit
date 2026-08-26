@@ -719,6 +719,11 @@ async function createMainWindow(): Promise<BrowserWindow> {
   Menu.setApplicationMenu(null)
   window.setMenuBarVisibility(false)
   installWindowGuards(window)
+  window.webContents.on("before-input-event", (event, input) => {
+    if (input.type !== "keyDown" || input.key !== "Escape" || !mainWindowFullscreen) return
+    event.preventDefault()
+    window.setFullScreen(false)
+  })
 
   if (process.platform === "linux" && electronOzonePlatform() === "x11" &&
     process.env.CONDUIT_ELECTRON_LOG_WINDOW === "1") {
