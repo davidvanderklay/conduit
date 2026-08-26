@@ -35,13 +35,17 @@ private class AppleKeychainStore(private val bridge: IosSecureStoreBridge) : Sec
 @Composable
 actual fun rememberPlatformServices(): PlatformServices = remember {
     val device = UIDevice.currentDevice
+    val secure = AppleKeychainStore(
+        checkNotNull(IosPlatformBridgeFactory.secureStore()) {
+            "The iOS Keychain bridge was not registered by the application host"
+        },
+    )
     PlatformServices(
         settings = AppleSettingsStore(NSUserDefaults.standardUserDefaults),
-        secure = AppleKeychainStore(
-            checkNotNull(IosPlatformBridgeFactory.secureStore()) {
-                "The iOS Keychain bridge was not registered by the application host"
-            },
-        ),
+        secure = secure,
+        // Keep the pre-migration Keychain-backed outbox readable through the
+        // non-secret progress-store contract.
+        progress = SecureStoreSettings(secure),
         info = PlatformInfo(
             name = device.systemName,
             version = device.systemVersion,

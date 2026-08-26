@@ -522,6 +522,60 @@ class ConduitApiTest {
     }
 
     @Test
+    fun desktopOAuthUsesLoopbackStartAndExchangeEndpoints() = runTest {
+        val requestedPaths = mutableListOf<String>()
+        val engine = MockEngine { request ->
+            requestedPaths += request.url.encodedPath
+            when (request.url.encodedPath) {
+                "/v1/auth/desktop/start" -> respond(
+                    """{"requestId":"desktop-request-12345678901234567890123456789012","expiresAt":"2099-07-31T01:00:00Z"}""",
+                    HttpStatusCode.OK,
+                    headersOf(HttpHeaders.ContentType, "application/json"),
+                )
+                "/v1/auth/desktop/exchange" -> respond(
+                    """{"token":"desktop-session","expiresAt":"2099-08-07T00:00:00Z"}""",
+                    HttpStatusCode.OK,
+                    headersOf(HttpHeaders.ContentType, "application/json"),
+                )
+                "/v1/bootstrap" -> respond(
+                    """{"households":[]}""",
+                    HttpStatusCode.OK,
+                    headersOf(HttpHeaders.ContentType, "application/json"),
+                )
+                else -> error("Unexpected path ${request.url.encodedPath}")
+            }
+        }
+        val api = ConduitApi(HttpClient(engine) { install(ContentNegotiation) { json() } })
+        val vault = SessionVault(MemorySecureStore())
+        val repository = AccountRepository(api, vault)
+        val endpoint = ServerEndpoint("https://conduit.example", "conduit.example")
+        val pending = repository.startOAuth(
+            endpoint,
+            PkcePair("v".repeat(43), "c".repeat(43)),
+            "http://127.0.0.1:49152/oauth/callback",
+            OAuthFlow.Desktop,
+        )
+
+        assertEquals(
+            "https://conduit.example/v1/auth/desktop/authorize?request=${pending.requestId}",
+            pending.authorizationUrl,
+        )
+        assertEquals(OAuthFlow.Desktop, pending.flow)
+        val result = repository.completeOAuth(
+            endpoint,
+            "http://127.0.0.1:49152/oauth/callback?request=${pending.requestId}&code=${"x".repeat(43)}",
+            OAuthFlow.Desktop,
+        )
+
+        assertIs<AccountStatus.SignedIn>(result)
+        assertEquals("desktop-session", vault.loadFor(endpoint.baseUrl)?.token)
+        assertEquals(
+            listOf("/v1/auth/desktop/start", "/v1/auth/desktop/exchange", "/v1/bootstrap"),
+            requestedPaths,
+        )
+    }
+
+    @Test
     fun transientOAuthExchangeFailureKeepsPendingRequestForRetry() = runTest {
         var exchangeAttempts = 0
         val engine = MockEngine { request ->

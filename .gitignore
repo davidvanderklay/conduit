@@ -11,6 +11,15 @@ coverage/
 
 target/
 packages/core/pkg/
+
+# Local build state and crash diagnostics from Gradle/Kotlin projects.
+**/.gradle/
+**/.idea/
+**/build/
+**/local.properties
+**/hs_err_pid*.log
+**/replay_pid*.log
+
 apps/client/.gradle/
 apps/client/.idea/
 apps/client/.kotlin/

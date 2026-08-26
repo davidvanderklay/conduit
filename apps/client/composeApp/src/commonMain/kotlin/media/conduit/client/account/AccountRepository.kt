@@ -21,6 +21,12 @@ sealed interface AccountStatus {
     data class Error(val message: String) : AccountStatus
 }
 
+private data class OAuthStart(
+    val requestId: String,
+    val expiresAt: String,
+    val authorizationUrl: String,
+)
+
 class AccountRepository(
     private val api: ConduitApi,
     private val vault: SessionVault,
@@ -32,10 +38,32 @@ class AccountRepository(
             api.validate(endpoint.baseUrl).authentication
         }
 
-    suspend fun startOAuth(endpoint: ServerEndpoint, pkce: PkcePair): PendingOAuth {
+    suspend fun startOAuth(
+        endpoint: ServerEndpoint,
+        pkce: PkcePair,
+        redirectUri: String = "conduit://oauth/callback",
+        flow: OAuthFlow = OAuthFlow.Mobile,
+    ): PendingOAuth {
         LifecycleDiagnostics.event("oauth.start")
         val started = LifecycleDiagnostics.timed("oauth.start.request") {
-            api.startMobileAuth(endpoint.baseUrl, pkce.challenge)
+            when (flow) {
+                OAuthFlow.Desktop -> {
+                    val response = api.startDesktopAuth(endpoint.baseUrl, pkce.challenge, redirectUri)
+                    OAuthStart(
+                        requestId = response.requestId,
+                        expiresAt = response.expiresAt,
+                        authorizationUrl = "${endpoint.baseUrl.trimEnd('/')}/v1/auth/desktop/authorize?request=${response.requestId}",
+                    )
+                }
+                OAuthFlow.Mobile -> {
+                    val response = api.startMobileAuth(endpoint.baseUrl, pkce.challenge, redirectUri)
+                    OAuthStart(
+                        requestId = response.requestId,
+                        expiresAt = response.expiresAt,
+                        authorizationUrl = response.authorizationUrl,
+                    )
+                }
+            }
         }
         return PendingOAuth(
             serverBaseUrl = endpoint.baseUrl,
@@ -43,6 +71,7 @@ class AccountRepository(
             verifier = pkce.verifier,
             authorizationUrl = started.authorizationUrl,
             expiresAt = started.expiresAt,
+            flow = flow,
         ).also {
             vault.savePendingOAuth(it)
             LifecycleDiagnostics.event("oauth.pending.saved")
@@ -53,10 +82,20 @@ class AccountRepository(
 
     fun pendingOAuth(serverBaseUrl: String): PendingOAuth? = vault.pendingOAuth(serverBaseUrl)
 
-    suspend fun completeOAuth(endpoint: ServerEndpoint, callbackUrl: String): AccountStatus {
+    fun clearPendingOAuth() = vault.clearPendingOAuth()
+
+    suspend fun completeOAuth(
+        endpoint: ServerEndpoint,
+        callbackUrl: String,
+        flow: OAuthFlow = OAuthFlow.Mobile,
+    ): AccountStatus {
         LifecycleDiagnostics.event("oauth.callback.received")
         val pending = vault.pendingOAuth(endpoint.baseUrl)
             ?: return AccountStatus.Error("This OAuth callback has no matching sign-in request")
+        if (pending.flow != flow) {
+            vault.clearPendingOAuth()
+            return AccountStatus.Error("This OAuth callback belongs to a different client")
+        }
         val callback = runCatching { Url(callbackUrl) }.getOrElse {
             vault.clearPendingOAuth()
             return AccountStatus.Error("The OAuth callback was malformed")
@@ -76,12 +115,20 @@ class AccountRepository(
         }
         return try {
             val exchanged = LifecycleDiagnostics.timed("oauth.exchange") {
-                api.exchangeMobileAuth(
-                    endpoint.baseUrl,
-                    pending.requestId,
-                    code,
-                    pending.verifier,
-                )
+                when (flow) {
+                    OAuthFlow.Desktop -> api.exchangeDesktopAuth(
+                        endpoint.baseUrl,
+                        pending.requestId,
+                        code,
+                        pending.verifier,
+                    )
+                    OAuthFlow.Mobile -> api.exchangeMobileAuth(
+                        endpoint.baseUrl,
+                        pending.requestId,
+                        code,
+                        pending.verifier,
+                    )
+                }
             }
             val session = StoredSession(endpoint.baseUrl, exchanged.token, exchanged.expiresAt)
             vault.save(session)

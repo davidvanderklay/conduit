@@ -24,26 +24,43 @@ export function validateLoopbackCallback(value: string): string {
   return url.toString()
 }
 
-export function validateMobileCallback(value: string): string {
+export function validateMobileCallback(value: string, browserOrigin?: string): string {
   let url: URL
   try {
     url = new URL(value)
   } catch {
     throw new Error("Mobile callback must be a valid URL")
   }
-  if (
-    url.protocol !== "conduit:" ||
-    url.hostname !== "oauth" ||
-    url.pathname !== "/callback" ||
-    url.port ||
-    url.username ||
-    url.password ||
-    url.search ||
-    url.hash
-  ) {
-    throw new Error("Mobile callback must be conduit://oauth/callback")
+  const isMobileCallback =
+    url.protocol === "conduit:" &&
+    url.hostname === "oauth" &&
+    url.pathname === "/callback" &&
+    !url.port &&
+    !url.username &&
+    !url.password &&
+    !url.search &&
+    !url.hash
+  if (isMobileCallback) return url.toString()
+
+  if (browserOrigin) {
+    let allowed: URL
+    try {
+      allowed = new URL(browserOrigin)
+    } catch {
+      throw new Error("Browser callback origin is not configured correctly")
+    }
+    const isBrowserCallback =
+      (url.protocol === "http:" || url.protocol === "https:") &&
+      url.origin === allowed.origin &&
+      url.pathname === "/oauth/callback" &&
+      !url.username &&
+      !url.password &&
+      !url.search &&
+      !url.hash
+    if (isBrowserCallback) return url.toString()
   }
-  return url.toString()
+
+  throw new Error("Mobile callback must be conduit://oauth/callback or the configured web callback")
 }
 
 export function pkceChallenge(verifier: string): string {

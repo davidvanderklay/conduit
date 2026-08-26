@@ -678,6 +678,12 @@ data class MobileAuthStart(
 )
 
 @Serializable
+data class DesktopAuthStart(
+    val requestId: String,
+    val expiresAt: String,
+)
+
+@Serializable
 data class MobileAuthExchange(val token: String, val expiresAt: String)
 
 data class ValidatedServer(
@@ -1391,12 +1397,36 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
         return response.body<PasswordModeResponse>().passwordEnabled
     }
 
-    suspend fun startMobileAuth(baseUrl: String, challenge: String): MobileAuthStart {
+    suspend fun startMobileAuth(
+        baseUrl: String,
+        challenge: String,
+        callbackUrl: String = "conduit://oauth/callback",
+    ): MobileAuthStart {
         val response = client.post("$baseUrl/v1/auth/mobile/start") {
             contentType(ContentType.Application.Json)
             setBody(
                 buildJsonObject {
-                    put("callbackUrl", "conduit://oauth/callback")
+                    put("callbackUrl", callbackUrl)
+                    put("codeChallenge", challenge)
+                },
+            )
+        }
+        if (!response.status.isSuccess()) {
+            throw ServerRequestException("OAuth start returned HTTP ${response.status.value}")
+        }
+        return response.body()
+    }
+
+    suspend fun startDesktopAuth(
+        baseUrl: String,
+        challenge: String,
+        callbackUrl: String,
+    ): DesktopAuthStart {
+        val response = client.post("$baseUrl/v1/auth/desktop/start") {
+            contentType(ContentType.Application.Json)
+            setBody(
+                buildJsonObject {
+                    put("callbackUrl", callbackUrl)
                     put("codeChallenge", challenge)
                 },
             )
@@ -1425,6 +1455,28 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
         }
         if (!response.status.isSuccess()) {
             throw ServerRequestException("OAuth exchange was rejected", response.status.value)
+        }
+        return response.body()
+    }
+
+    suspend fun exchangeDesktopAuth(
+        baseUrl: String,
+        requestId: String,
+        code: String,
+        verifier: String,
+    ): MobileAuthExchange {
+        val response = client.post("$baseUrl/v1/auth/desktop/exchange") {
+            contentType(ContentType.Application.Json)
+            setBody(
+                buildJsonObject {
+                    put("requestId", requestId)
+                    put("code", code)
+                    put("verifier", verifier)
+                },
+            )
+        }
+        if (!response.status.isSuccess()) {
+            throw ServerRequestException("OAuth exchange returned HTTP ${response.status.value}")
         }
         return response.body()
     }

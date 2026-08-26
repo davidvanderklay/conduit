@@ -43,4 +43,14 @@ describe("mobile authentication handoff", () => {
     expect(() => validateMobileCallback("conduit://oauth/callback?token=bad")).toThrow()
     expect(() => validateMobileCallback("https://example.com/oauth/callback")).toThrow()
   })
+
+  it("accepts the configured browser callback without widening the redirect", () => {
+    const origin = "https://preview.example.com"
+    expect(validateMobileCallback("https://preview.example.com/oauth/callback", origin)).toBe(
+      "https://preview.example.com/oauth/callback",
+    )
+    expect(() => validateMobileCallback("https://attacker.example/oauth/callback", origin)).toThrow()
+    expect(() => validateMobileCallback("https://preview.example.com/other", origin)).toThrow()
+    expect(() => validateMobileCallback("https://preview.example.com/oauth/callback?request=bad", origin)).toThrow()
+  })
 })

@@ -22,6 +22,7 @@ data class PendingOAuth(
     val verifier: String,
     val authorizationUrl: String,
     val expiresAt: String,
+    val flow: OAuthFlow = OAuthFlow.Mobile,
 )
 
 class SessionVault(private val secureStore: SecureStore) {

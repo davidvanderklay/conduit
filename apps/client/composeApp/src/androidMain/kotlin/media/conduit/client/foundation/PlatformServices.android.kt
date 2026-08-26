@@ -24,13 +24,17 @@ private class AndroidSettingsStore(private val preferences: SharedPreferences) :
 actual fun rememberPlatformServices(): PlatformServices {
     val context = LocalContext.current.applicationContext
     return remember(context) {
+        val secure = AndroidSecureStore(
+            context.getSharedPreferences("conduit_secure_values", 0),
+        )
         PlatformServices(
             settings = AndroidSettingsStore(
                 context.getSharedPreferences("conduit_device", 0),
             ),
-            secure = AndroidSecureStore(
-                context.getSharedPreferences("conduit_secure_values", 0),
-            ),
+            secure = secure,
+            // Keep the pre-migration encrypted outbox readable while exposing
+            // it through the non-secret progress-store contract.
+            progress = SecureStoreSettings(secure),
             info = PlatformInfo(
                 name = "Android",
                 version = Build.VERSION.RELEASE,

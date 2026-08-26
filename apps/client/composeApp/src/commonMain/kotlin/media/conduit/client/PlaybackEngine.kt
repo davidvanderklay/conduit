@@ -15,6 +15,7 @@ enum class NativePlaybackEngine {
     Media3,
     Libmpv,
     MPVKit,
+    Browser,
 }
 
 internal data class PlaybackEngineSession(

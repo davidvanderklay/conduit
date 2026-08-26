@@ -13,7 +13,7 @@ import media.conduit.client.account.ProgressSummary
 import media.conduit.client.account.IncrementalProgressRepository
 import media.conduit.client.account.ProgressIdentity
 import media.conduit.client.account.ProgressOperation
-import media.conduit.client.foundation.SecureStore
+import media.conduit.client.foundation.SettingsStore
 
 private const val ProgressOutboxKeyPrefix = "playback.progress.outbox.v1"
 private const val ProgressStoreThresholdPositionMs = 1_000L
@@ -55,7 +55,7 @@ private data class PersistedProgressCheckpoint(
  */
 internal class PlaybackProgressOutbox(
     private val api: ConduitApi,
-    private val secureStore: SecureStore,
+    private val progressStore: SettingsStore,
     private val incremental: IncrementalProgressRepository? = null,
 ) {
     private val json = Json {
@@ -303,10 +303,10 @@ internal class PlaybackProgressOutbox(
         if (!legacyKeyCleared) {
             // The pre-scoped queue could belong to another account. Never
             // replay it after upgrading into the scoped storage format.
-            secureStore.remove(ProgressOutboxKeyPrefix)
+            progressStore.remove(ProgressOutboxKeyPrefix)
             legacyKeyCleared = true
         }
-        val restored = secureStore.get(storageKey)
+        val restored = progressStore.get(storageKey)
             ?.let { runCatching { json.decodeFromString<List<PersistedProgressCheckpoint>>(it) }.getOrNull() }
             .orEmpty()
         restored.forEach { pending[it.key()] = it }
@@ -314,9 +314,9 @@ internal class PlaybackProgressOutbox(
 
     private fun persistLocked(storageKey: String) {
         if (pending.isEmpty()) {
-            secureStore.remove(storageKey)
+            progressStore.remove(storageKey)
         } else {
-            secureStore.put(storageKey, json.encodeToString(pending.values.toList()))
+            progressStore.put(storageKey, json.encodeToString(pending.values.toList()))
         }
     }
 

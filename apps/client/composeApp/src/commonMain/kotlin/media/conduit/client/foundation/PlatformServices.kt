@@ -18,6 +18,13 @@ interface SecureStore {
     fun remove(key: String)
 }
 
+/** Adapts the legacy encrypted progress queue to the non-secret store API. */
+class SecureStoreSettings(private val secure: SecureStore) : SettingsStore {
+    override fun get(key: String): String? = secure.get(key)
+    override fun put(key: String, value: String) = secure.put(key, value)
+    override fun remove(key: String) = secure.remove(key)
+}
+
 data class PlatformInfo(
     val name: String,
     val version: String,
@@ -41,6 +48,8 @@ data class PlatformServices(
     val settings: SettingsStore,
     val secure: SecureStore,
     val info: PlatformInfo,
+    /** Non-secret durable app data such as the browser playback outbox. */
+    val progress: SettingsStore = settings,
 )
 
 @Composable
@@ -79,7 +88,7 @@ class MemorySettingsStore : SettingsStore {
     override fun remove(key: String) { values.remove(key) }
 }
 
-class MemorySecureStore : SecureStore {
+class MemorySecureStore : SecureStore, SettingsStore {
     private val values = mutableMapOf<String, String>()
 
     override fun get(key: String): String? = values[key]

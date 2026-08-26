@@ -16,8 +16,9 @@ object IosOAuthCallbacks {
 
 private class IosMobileOAuthPlatform(private val bridge: IosOAuthBridge) : MobileOAuthPlatform {
     override val callbackUrl: String? get() = IosOAuthCallbacks.url.value
+    override val redirectUri: String = "conduit://oauth/callback"
 
-    override fun createPkce(): PkcePair {
+    override suspend fun createPkce(): PkcePair {
         val verifier = bridge.generateVerifier()
         return PkcePair(verifier, bridge.challenge(verifier))
     }

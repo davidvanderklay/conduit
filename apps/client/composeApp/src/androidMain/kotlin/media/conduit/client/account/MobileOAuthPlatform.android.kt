@@ -23,8 +23,9 @@ internal object MobileOAuthCallbacks {
 
 private class AndroidMobileOAuthPlatform(private val context: Context) : MobileOAuthPlatform {
     override val callbackUrl: String? get() = MobileOAuthCallbacks.url.value
+    override val redirectUri: String = "conduit://oauth/callback"
 
-    override fun createPkce(): PkcePair {
+    override suspend fun createPkce(): PkcePair {
         val verifier = base64(ByteArray(32).also(SecureRandom()::nextBytes))
         val challenge = base64(MessageDigest.getInstance("SHA-256").digest(verifier.encodeToByteArray()))
         return PkcePair(verifier, challenge)

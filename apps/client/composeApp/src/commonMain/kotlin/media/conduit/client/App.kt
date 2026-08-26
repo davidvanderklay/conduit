@@ -82,6 +82,7 @@ import media.conduit.client.account.SessionVault
 import media.conduit.client.account.*
 import media.conduit.client.progressdb.ProgressDatabase
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Mutex
@@ -194,29 +195,31 @@ private fun AccountGate(
             oauthPending = repository.hasPendingOAuth(endpoint.baseUrl)
         }
     }
-    LaunchedEffect(oauthPlatform.callbackUrl) {
-        val callback = oauthPlatform.callbackUrl ?: return@LaunchedEffect
-        if (callback == handledCallback) {
-            oauthPlatform.consumeCallback()
-            return@LaunchedEffect
-        }
-        lifecycleMutex.withLock {
+    LaunchedEffect(oauthPlatform, repository) {
+        while (isActive) {
+            val callback = oauthPlatform.awaitCallback() ?: continue
             if (callback == handledCallback) {
                 oauthPlatform.consumeCallback()
-                return@withLock
+                continue
             }
-            if (!repository.hasPendingOAuth(endpoint.baseUrl)) {
+            lifecycleMutex.withLock {
+                if (callback == handledCallback) {
+                    oauthPlatform.consumeCallback()
+                    return@withLock
+                }
+                if (!repository.hasPendingOAuth(endpoint.baseUrl)) {
+                    handledCallback = callback
+                    oauthPlatform.consumeCallback()
+                    LifecycleDiagnostics.event("oauth.callback.ignored", "reason=no-pending-request")
+                    return@withLock
+                }
+                oauthLaunching = false
+                account = AccountStatus.Loading
+                account = repository.completeOAuth(endpoint, callback, oauthPlatform.flow)
                 handledCallback = callback
+                oauthPending = repository.hasPendingOAuth(endpoint.baseUrl)
                 oauthPlatform.consumeCallback()
-                LifecycleDiagnostics.event("oauth.callback.ignored", "reason=no-pending-request")
-                return@withLock
             }
-            oauthLaunching = false
-            account = AccountStatus.Loading
-            account = repository.completeOAuth(endpoint, callback)
-            handledCallback = callback
-            oauthPending = repository.hasPendingOAuth(endpoint.baseUrl)
-            oauthPlatform.consumeCallback()
         }
     }
 
@@ -273,8 +276,20 @@ private fun AccountGate(
                     accountScope.launch {
                         lifecycleMutex.withLock {
                             runCatching {
-                                repository.pendingOAuth(endpoint.baseUrl)
-                                    ?: repository.startOAuth(endpoint, oauthPlatform.createPkce())
+                                oauthPlatform.prepareCallback()
+                                val existing = repository.pendingOAuth(endpoint.baseUrl)
+                                val saved = existing?.takeIf { it.flow == oauthPlatform.flow }
+                                if (saved == null) {
+                                    if (existing != null) repository.clearPendingOAuth()
+                                    repository.startOAuth(
+                                        endpoint,
+                                        oauthPlatform.createPkce(),
+                                        oauthPlatform.redirectUri,
+                                        oauthPlatform.flow,
+                                    )
+                                } else {
+                                    saved
+                                }
                             }.onSuccess { pending ->
                                 oauthPlatform.openSystemBrowser(pending.authorizationUrl)
                             }.onFailure { cause ->
@@ -320,6 +335,7 @@ private fun AccountGate(
                     account = current,
                     api = api,
                     secureStore = services.secure,
+                    progressStore = services.progress,
                     progressDatabase = progressDatabase,
                     preferences = preferences,
                     onPreferencesChanged = onPreferencesChanged,
@@ -750,6 +766,7 @@ private fun AppShell(
     account: AccountStatus.SignedIn,
     api: ConduitApi,
     secureStore: SecureStore,
+    progressStore: SettingsStore,
     progressDatabase: ProgressDatabase?,
     preferences: DevicePreferences,
     onPreferencesChanged: (DevicePreferences) -> Unit,
@@ -766,7 +783,7 @@ private fun AppShell(
     val incrementalProgress = remember(api, progressDatabase) {
         progressDatabase?.let { IncrementalProgressRepository(api, it) }
     }
-    val progressOutbox = remember(api, secureStore, incrementalProgress) { PlaybackProgressOutbox(api, secureStore, incrementalProgress) }
+    val progressOutbox = remember(api, progressStore, incrementalProgress) { PlaybackProgressOutbox(api, progressStore, incrementalProgress) }
     val mutationMutex = remember { Mutex() }
     val profileSyncMutex = remember { Mutex() }
     val appScope = rememberCoroutineScope()

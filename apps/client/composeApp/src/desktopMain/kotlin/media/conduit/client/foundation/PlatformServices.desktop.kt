@@ -3,7 +3,10 @@ package media.conduit.client.foundation
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import java.io.OutputStreamWriter
+import java.nio.charset.StandardCharsets
 import java.util.prefs.Preferences
+import java.util.concurrent.TimeUnit
 
 private class PreferencesSettingsStore(private val preferences: Preferences) : SettingsStore {
     override fun get(key: String): String? = preferences.get(key, null)
@@ -11,13 +14,85 @@ private class PreferencesSettingsStore(private val preferences: Preferences) : S
     override fun remove(key: String) = preferences.remove(key)
 }
 
+/**
+ * Uses the desktop OS credential service when it is available. Linux uses the
+ * Secret Service command-line client supplied by libsecret. A process-local
+ * fallback keeps alpha builds usable without a running user session, but it
+ * must not be treated as durable storage.
+ */
+private class DesktopSecureStore : SecureStore {
+    private val fallback = MemorySecureStore()
+    private val backend: SecretToolStore? = when {
+        System.getProperty("os.name", "").contains("linux", ignoreCase = true) ->
+            SecretToolStore().takeIf { it.available }
+        else -> null
+    }
+
+    override fun get(key: String): String? = backend?.get(key) ?: fallback.get(key)
+
+    override fun put(key: String, value: String) {
+        if (backend?.putIfAvailable(key, value) != true) fallback.put(key, value)
+    }
+
+    override fun remove(key: String) {
+        backend?.removeIfAvailable(key)
+        fallback.remove(key)
+    }
+}
+
+private class SecretToolStore {
+    private val service = "media.conduit.client"
+    private val command = "secret-tool"
+
+    val available: Boolean = runCommand(
+        listOf(command, "lookup", "service", service, "key", "__conduit_probe__"),
+    ).exitCode != -1
+
+    fun get(key: String): String? {
+        val result = runCommand(listOf(command, "lookup", "service", service, "key", key))
+        return result.output.takeIf { result.exitCode == 0 && it.isNotBlank() }?.trimEnd('\n', '\r')
+    }
+
+    fun putIfAvailable(key: String, value: String): Boolean =
+        runCommand(
+            listOf(command, "store", "--label=Conduit", "service", service, "key", key),
+            value,
+        ).exitCode == 0
+
+    fun removeIfAvailable(key: String): Boolean =
+        runCommand(listOf(command, "clear", "service", service, "key", key)).exitCode == 0
+
+    private fun runCommand(commandLine: List<String>, input: String? = null): CommandResult {
+        val process = runCatching {
+            ProcessBuilder(commandLine)
+                .redirectErrorStream(true)
+                .start()
+        }.getOrNull() ?: return CommandResult(-1, "")
+        if (input != null) {
+            OutputStreamWriter(process.outputStream, StandardCharsets.UTF_8).use { writer ->
+                writer.write(input)
+                writer.write('\n'.code)
+            }
+        } else {
+            process.outputStream.close()
+        }
+        val output = process.inputStream.bufferedReader(StandardCharsets.UTF_8).use { it.readText() }
+        if (!process.waitFor(5, TimeUnit.SECONDS)) {
+            process.destroyForcibly()
+            return CommandResult(-1, "")
+        }
+        return CommandResult(process.exitValue(), output)
+    }
+
+    private data class CommandResult(val exitCode: Int, val output: String)
+}
+
 @Composable
 actual fun rememberPlatformServices(): PlatformServices = remember {
     val osName = System.getProperty("os.name", "Desktop")
     PlatformServices(
         settings = PreferencesSettingsStore(Preferences.userRoot().node("media/conduit/client")),
-        // Do not persist tokens until each desktop OS has a credential-store adapter.
-        secure = MemorySecureStore(),
+        secure = DesktopSecureStore(),
         info = PlatformInfo(
             name = osName,
             version = System.getProperty("os.version", ""),

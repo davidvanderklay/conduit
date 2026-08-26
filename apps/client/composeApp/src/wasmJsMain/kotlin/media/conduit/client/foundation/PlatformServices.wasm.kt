@@ -21,6 +21,7 @@ actual fun rememberPlatformServices(): PlatformServices = remember {
         settings = BrowserStore(window.localStorage, "conduit.client.settings."),
         // Session storage keeps browser bearer tokens out of persistent local storage.
         secure = BrowserStore(window.sessionStorage, "conduit.client.session."),
+        progress = BrowserStore(window.localStorage, "conduit.client.progress."),
         info = PlatformInfo(
             name = "Web",
             version = "Wasm",

@@ -104,7 +104,7 @@ export function registerAuthRoutes(app: FastifyInstance, context: RouteContext) 
     {
       schema: {
         body: Type.Object({
-          callbackUrl: Type.String({ maxLength: 100 }),
+          callbackUrl: Type.String({ maxLength: 300 }),
           codeChallenge: Type.String({ minLength: 43, maxLength: 128 }),
         }),
       },
@@ -116,7 +116,7 @@ export function registerAuthRoutes(app: FastifyInstance, context: RouteContext) 
       const body = request.body as { callbackUrl: string; codeChallenge: string }
       let callbackUrl: string
       try {
-        callbackUrl = validateMobileCallback(body.callbackUrl)
+        callbackUrl = validateMobileCallback(body.callbackUrl, config.webOrigin)
       } catch (cause) {
         return reply.badRequest(cause instanceof Error ? cause.message : "Invalid callback")
       }
@@ -234,7 +234,7 @@ export function registerAuthRoutes(app: FastifyInstance, context: RouteContext) 
       .limit(1)
     if (!handoff) return reply.unauthorized("This mobile sign-in request is invalid or expired")
     try {
-      validateMobileCallback(handoff.callbackUrl)
+      validateMobileCallback(handoff.callbackUrl, config.webOrigin)
     } catch {
       return reply.unauthorized("This authentication request is not for mobile")
     }
@@ -321,7 +321,7 @@ export function registerAuthRoutes(app: FastifyInstance, context: RouteContext) 
       .limit(1)
     try {
       if (!candidate) throw new Error("missing")
-      validateMobileCallback(candidate.callbackUrl)
+      validateMobileCallback(candidate.callbackUrl, config.webOrigin)
     } catch {
       return reply.unauthorized("This authentication request is not for mobile")
     }
@@ -340,7 +340,7 @@ export function registerAuthRoutes(app: FastifyInstance, context: RouteContext) 
       .returning({ callbackUrl: desktopAuthRequests.callbackUrl })
     if (!handoff) return reply.unauthorized("This mobile sign-in request is invalid or expired")
     try {
-      validateMobileCallback(handoff.callbackUrl)
+      validateMobileCallback(handoff.callbackUrl, config.webOrigin)
     } catch {
       return reply.unauthorized("This authentication request is not for mobile")
     }
@@ -392,7 +392,7 @@ export function registerAuthRoutes(app: FastifyInstance, context: RouteContext) 
       .limit(1)
     if (!handoff) return reply.unauthorized("This mobile sign-in request is invalid or expired")
     try {
-      validateMobileCallback(handoff.callbackUrl)
+      validateMobileCallback(handoff.callbackUrl, config.webOrigin)
     } catch {
       return reply.unauthorized("This authentication request is not for mobile")
     }
@@ -512,7 +512,7 @@ export function registerAuthRoutes(app: FastifyInstance, context: RouteContext) 
           .for("update")
           .limit(1)
         try {
-          if (handoff) validateMobileCallback(handoff.callbackUrl)
+          if (handoff) validateMobileCallback(handoff.callbackUrl, config.webOrigin)
         } catch {
           return false
         }

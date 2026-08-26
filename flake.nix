@@ -10,6 +10,26 @@
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = import nixpkgs { inherit system; };
+        linuxDesktopLibraries = with pkgs; [
+          libglvnd
+          libx11
+          libxext
+          libxi
+          libxrender
+          libxtst
+          libxcb
+          libxcomposite
+          libxdamage
+          libxfixes
+          libxrandr
+          libxkbcommon
+          fontconfig
+          freetype
+          stdenv.cc.cc.lib
+          gtk3
+          webkitgtk_4_1
+          libsecret
+        ];
       in {
         devShells.default = pkgs.mkShell {
           packages = (with pkgs; [
@@ -35,11 +55,17 @@
             glib
             libglvnd
             libx11
+            gtk3
+            webkitgtk_4_1
+            libsecret
           ]);
 
           shellHook = ''
             export RUST_BACKTRACE=1
             export CONDUIT_ELECTRON_BIN="$(command -v electron)"
+            ${pkgs.lib.optionalString pkgs.stdenv.isLinux ''
+              export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath linuxDesktopLibraries}''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+            ''}
           '';
         };
       });
