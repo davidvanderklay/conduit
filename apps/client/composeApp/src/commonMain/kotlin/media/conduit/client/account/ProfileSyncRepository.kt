@@ -3,6 +3,7 @@ package media.conduit.client.account
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import media.conduit.client.foundation.SecureStore
+import media.conduit.client.foundation.SettingsStore
 
 data class ProfileSyncState(
     val snapshot: ProfileSnapshot? = null,
@@ -46,10 +47,11 @@ class ProfileSyncRepository(
     private val api: ConduitApi,
     private val secureStore: SecureStore,
     private val scope: String = "legacy",
+    private val profileCache: SettingsStore? = null,
 ) {
     private val json = Json { ignoreUnknownKeys = true }
 
-    fun cached(profileId: String): ProfileSnapshot? = secureStore.get(cacheKey(profileId))
+    fun cached(profileId: String): ProfileSnapshot? = readCache(cacheKey(profileId))
         ?.let { runCatching { json.decodeFromString<ProfileSnapshot>(it) }.getOrNull() }
         ?.let { snapshot ->
             // Snapshots written before history had its own field stored history rows in progress.
@@ -71,7 +73,7 @@ class ProfileSyncRepository(
             }
             val snapshot = api.synchronizeProfile(baseUrl, token, profileId, progressOverride)
                 .withProgressUpdates(preservedProgress)
-            secureStore.put(cacheKey(profileId), json.encodeToString(snapshot))
+            writeCache(cacheKey(profileId), json.encodeToString(snapshot))
             ProfileSyncState(snapshot = snapshot)
         } catch (cause: Exception) {
             val offlineSnapshot = cached?.let { snapshot ->
@@ -84,17 +86,28 @@ class ProfileSyncRepository(
                         ),
                     )
                 } ?: snapshot.withProgressUpdates(preservedProgress)
+            } ?: preservedProgress.takeIf { it.isNotEmpty() }?.let { progress ->
+                ProfileSnapshot(
+                    profileId = profileId,
+                    addons = emptyList(),
+                    library = emptyList(),
+                    progress = progress.toList(),
+                    history = progress.toList(),
+                    continueWatching = latestProgressByTitle(
+                        progress.filter { it.continueWatching && !it.dismissed },
+                    ),
+                )
             }
             ProfileSyncState(
                 snapshot = offlineSnapshot,
-                offline = cached != null,
+                offline = cached != null || offlineSnapshot != null,
                 error = cause.message ?: "Unable to synchronize this profile",
             )
         }
     }
 
     fun save(snapshot: ProfileSnapshot) {
-        secureStore.put(cacheKey(snapshot.profileId), json.encodeToString(snapshot))
+        writeCache(cacheKey(snapshot.profileId), json.encodeToString(snapshot))
     }
 
     fun savePendingQueue(profileId: String, items: List<PlaybackQueueItem>) {
@@ -106,8 +119,19 @@ class ProfileSyncRepository(
 
     fun clearPendingQueue(profileId: String) = secureStore.remove(pendingQueueKey(profileId))
 
-    fun clear(profileId: String) = secureStore.remove(cacheKey(profileId))
+    fun clear(profileId: String) = removeCache(cacheKey(profileId))
 
     private fun cacheKey(profileId: String) = "profile.snapshot.v2.${scope.length}:$scope.$profileId"
     private fun pendingQueueKey(profileId: String) = "profile.queue.pending.v2.${scope.length}:$scope.$profileId"
+
+    private fun readCache(key: String): String? = profileCache?.get(key) ?: secureStore.get(key)
+
+    private fun writeCache(key: String, value: String) {
+        if (profileCache != null) profileCache.put(key, value) else secureStore.put(key, value)
+    }
+
+    private fun removeCache(key: String) {
+        profileCache?.remove(key)
+        secureStore.remove(key)
+    }
 }

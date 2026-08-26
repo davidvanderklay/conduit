@@ -69,11 +69,14 @@ void configure(
     option(mpv, "force-seekable", "yes");
     option(mpv, "keep-open", "yes");
     option(mpv, "idle", "yes");
-    option(mpv, "osc", "no");
-    option(mpv, "osd-level", "0");
-    option(mpv, "input-default-bindings", "no");
-    option(mpv, "input-vo-keyboard", "no");
-    option(mpv, "input-cursor", "no");
+    // Keep a native transport fallback visible while the Linux video surface
+    // is hosted by AWT. Compose controls cannot be painted above that
+    // heavyweight X11 child until the GTK/WebKit overlay is in place.
+    option(mpv, "osc", "yes");
+    option(mpv, "osd-level", "1");
+    option(mpv, "input-default-bindings", "yes");
+    option(mpv, "input-vo-keyboard", "yes");
+    option(mpv, "input-cursor", "yes");
     option(mpv, "audio-channels", "auto");
     option(mpv, "target-colorspace-hint", "yes");
     if (!headers.empty()) option(mpv, "http-header-fields", headers);

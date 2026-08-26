@@ -7,6 +7,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculatePan
@@ -42,6 +43,9 @@ import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.FastForward
+import androidx.compose.material.icons.rounded.Forward10
+import androidx.compose.material.icons.rounded.Replay10
+import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.runtime.*
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
@@ -336,6 +340,7 @@ private fun AccountGate(
                     api = api,
                     secureStore = services.secure,
                     progressStore = services.progress,
+                    profileCache = services.profileCache,
                     progressDatabase = progressDatabase,
                     preferences = preferences,
                     onPreferencesChanged = onPreferencesChanged,
@@ -767,6 +772,7 @@ private fun AppShell(
     api: ConduitApi,
     secureStore: SecureStore,
     progressStore: SettingsStore,
+    profileCache: SettingsStore,
     progressDatabase: ProgressDatabase?,
     preferences: DevicePreferences,
     onPreferencesChanged: (DevicePreferences) -> Unit,
@@ -779,7 +785,9 @@ private fun AppShell(
     val endpoint = checkNotNull(state.endpoint)
     val accountId = account.bootstrap.user?.email ?: account.session.token
     val profileCacheScope = "${endpoint.baseUrl.length}:${endpoint.baseUrl}${accountId.length}:$accountId"
-    val syncRepository = remember(api, secureStore, profileCacheScope) { ProfileSyncRepository(api, secureStore, profileCacheScope) }
+    val syncRepository = remember(api, secureStore, profileCache, profileCacheScope) {
+        ProfileSyncRepository(api, secureStore, profileCacheScope, profileCache)
+    }
     val incrementalProgress = remember(api, progressDatabase) {
         progressDatabase?.let { IncrementalProgressRepository(api, it) }
     }
@@ -814,7 +822,12 @@ private fun AppShell(
             endpoint.baseUrl,
             account.session.token,
             profileId,
-            progressOverride = progress,
+            preservedProgress = progress.orEmpty(),
+            // The incremental projection is the canonical progress view for
+            // this client. A full rebuild repairs its cursor before the
+            // profile snapshot is assembled, so do not replace it with the
+            // legacy bounded progress endpoints on first load.
+            progressOverride = progress?.takeUnless { fullResync && it.isEmpty() },
         )
         return result
     }
@@ -835,9 +848,27 @@ private fun AppShell(
     }
     LaunchedEffect(activeProfile?.id, account.session.token) {
         val profile = activeProfile ?: return@LaunchedEffect
+        // Prefer the durable incremental projection on desktop. A full
+        // snapshot is only needed on platforms without that database; doing it
+        // on every desktop launch can block the profile while the server pages
+        // a large history.
+        val fullResync = profileSync.snapshot == null && incrementalProgress == null
         profileSync = profileSync.copy(refreshing = true)
         profileSyncMutex.withLock {
-            profileSync = synchronizeProfileDataSafely(profile.id)
+            // Rebuild the local progress projection the first time a profile
+            // is opened in this session. A partially initialized cursor can
+            // otherwise make an existing profile look empty until the user
+            // switches away and back.
+            LifecycleDiagnostics.event(
+                "profile.sync.start",
+                "profile=${profile.id} fullResync=$fullResync",
+            )
+            val synchronized = synchronizeProfileDataSafely(profile.id, fullResync = fullResync)
+            LifecycleDiagnostics.event(
+                "profile.sync.completed",
+                "profile=${profile.id} addons=${synchronized.snapshot?.addons?.size ?: 0} progress=${synchronized.snapshot?.progress?.size ?: 0} offline=${synchronized.offline} error=${synchronized.error ?: "none"}",
+            )
+            profileSync = synchronized
         }
     }
     LaunchedEffect(activeProfile?.id, state.activeProfileId) {
@@ -1250,6 +1281,7 @@ private fun AppShell(
         PlaybackSessionHost(
             controller = playbackSession,
             preferences = preferences,
+            sharedPlayerControls = platform.usesDesktopWindowLayout(),
             expanded = expanded,
             isTablet = isTablet,
             isIpad = isIpad,
@@ -1525,6 +1557,7 @@ private fun DestinationContent(
 private fun BoxScope.PlaybackSessionHost(
     controller: PlaybackSessionController,
     preferences: DevicePreferences,
+    sharedPlayerControls: Boolean,
     expanded: Boolean,
     isTablet: Boolean,
     isIpad: Boolean,
@@ -1555,6 +1588,8 @@ private fun BoxScope.PlaybackSessionHost(
     val pipHandoffVisible = systemPip && systemPipKeepsAppVisible
     val pipActionReady = isSystemPipActionReady(session.systemPipAvailable, session.playback)
     var controlsVisible by remember(request.identity, request.url) { mutableStateOf(true) }
+    var scrubPositionMs by remember(request.identity, request.url) { mutableLongStateOf(0L) }
+    var scrubActive by remember(request.identity, request.url) { mutableStateOf(false) }
     var upNextDismissed by remember(request.identity.mediaId, request.identity.videoId) {
         mutableStateOf(false)
     }
@@ -1596,6 +1631,17 @@ private fun BoxScope.PlaybackSessionHost(
         while (true) {
             kotlinx.coroutines.delay(15_000)
             controller.persist()
+        }
+    }
+    LaunchedEffect(session.playback.positionMs, session.playback.durationMs, scrubActive) {
+        if (!scrubActive) {
+            scrubPositionMs = session.playback.positionMs.coerceAtLeast(0L)
+        }
+    }
+    LaunchedEffect(controlsVisible, fullScreen, session.playback.playing, session.playback.buffering) {
+        if (controlsVisible && fullScreen && session.playback.playing && !session.playback.buffering) {
+            kotlinx.coroutines.delay(4_000)
+            controlsVisible = false
         }
     }
     LaunchedEffect(session.playback.ended) {
@@ -1851,6 +1897,18 @@ private fun BoxScope.PlaybackSessionHost(
             )
         }
 
+        // Tapping the video toggles the shared chrome. The native Linux
+        // fallback has its own OSC because its X11 child is heavyweight.
+        if (fullScreen && !systemPip && sharedPlayerControls) {
+            Box(
+                Modifier
+                    .matchParentSize()
+                    .pointerInput(request.identity, controlsVisible) {
+                        detectTapGestures(onTap = { controlsVisible = !controlsVisible })
+                    },
+            )
+        }
+
         if (systemPip) {
             // The native player must keep decoding for PiP, but its inline
             // surface should not remain visible underneath the PiP window.
@@ -1931,6 +1989,52 @@ private fun BoxScope.PlaybackSessionHost(
                     modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 12.dp)
                         .background(Color.Black.copy(.72f), RoundedCornerShape(12.dp))
                         .padding(horizontal = 14.dp, vertical = 8.dp),
+                )
+            }
+            if (
+                fullScreen &&
+                    sharedPlayerControls &&
+                    controlsVisible &&
+                    !playerOverlayVisible &&
+                    playbackSurfaceReady &&
+                    playbackTransition == null &&
+                    !presentPlaybackError
+            ) {
+                PlaybackControlsOverlay(
+                    playback = session.playback,
+                    scrubPositionMs = scrubPositionMs,
+                    hasNextEpisode = upNext != null,
+                    hasEpisodes = request.hasEpisodes,
+                    onTogglePlayback = {
+                        controlsVisible = true
+                        controller.send(if (session.playback.playing) PlaybackCommand.Pause else PlaybackCommand.Play)
+                    },
+                    onSeek = { deltaMs ->
+                        controlsVisible = true
+                        controller.send(
+                            PlaybackCommand.SeekTo(
+                                (session.playback.positionMs + deltaMs).coerceIn(
+                                    0L,
+                                    session.playback.durationMs.coerceAtLeast(0L),
+                                ),
+                            ),
+                        )
+                    },
+                    onScrubChange = {
+                        controlsVisible = true
+                        scrubActive = true
+                        scrubPositionMs = it
+                    },
+                    onScrubFinished = {
+                        controlsVisible = true
+                        scrubActive = false
+                        scrubPositionMs = it
+                        controller.send(PlaybackCommand.SeekTo(it))
+                    },
+                    onNextEpisode = controller::playNext,
+                    onEpisodes = controller::openEpisodes,
+                    onSources = controller::openSources,
+                    modifier = Modifier.matchParentSize(),
                 )
             }
             session.notice?.let { notice ->
@@ -2432,6 +2536,153 @@ private fun PlayerBackButton(onClick: () -> Unit) {
         Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = Color.White)
     }
 }
+
+@Composable
+private fun PlaybackControlsOverlay(
+    playback: PlaybackState,
+    scrubPositionMs: Long,
+    hasNextEpisode: Boolean,
+    hasEpisodes: Boolean,
+    onTogglePlayback: () -> Unit,
+    onSeek: (Long) -> Unit,
+    onScrubChange: (Long) -> Unit,
+    onScrubFinished: (Long) -> Unit,
+    onNextEpisode: () -> Unit,
+    onEpisodes: () -> Unit,
+    onSources: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val durationMs = playback.durationMs.coerceAtLeast(1L)
+    val positionMs = scrubPositionMs.coerceIn(0L, durationMs)
+    Box(modifier) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(240.dp)
+                .align(Alignment.BottomCenter)
+                .background(
+                    Brush.verticalGradient(
+                        listOf(Color.Transparent, Color.Black.copy(alpha = .82f)),
+                    ),
+                ),
+        )
+        Row(
+            Modifier
+                .align(Alignment.Center)
+                .padding(bottom = 48.dp),
+            horizontalArrangement = Arrangement.spacedBy(18.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            PlayerTransportIcon(
+                icon = Icons.Rounded.Replay10,
+                description = "Seek back 10 seconds",
+                onClick = { onSeek(-10_000L) },
+            )
+            IconButton(
+                onClick = onTogglePlayback,
+                modifier = Modifier
+                    .size(68.dp)
+                    .background(Color.White.copy(alpha = .16f), CircleShape),
+            ) {
+                Icon(
+                    if (playback.playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                    if (playback.playing) "Pause" else "Play",
+                    tint = Color.White,
+                    modifier = Modifier.size(34.dp),
+                )
+            }
+            PlayerTransportIcon(
+                icon = Icons.Rounded.Forward10,
+                description = "Seek forward 10 seconds",
+                onClick = { onSeek(10_000L) },
+            )
+        }
+        Column(
+            Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Slider(
+                value = positionMs.toFloat(),
+                onValueChange = { onScrubChange(it.toLong()) },
+                onValueChangeFinished = { onScrubFinished(positionMs) },
+                valueRange = 0f..durationMs.toFloat(),
+                modifier = Modifier.fillMaxWidth(),
+                colors = SliderDefaults.colors(
+                    thumbColor = Color.White,
+                    activeTrackColor = Color.White,
+                    inactiveTrackColor = Color.White.copy(alpha = .3f),
+                ),
+            )
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(formatPlayerTime(positionMs), color = Color.White, style = MaterialTheme.typography.labelMedium)
+                Text(formatPlayerTime(playback.durationMs), color = Color.White, style = MaterialTheme.typography.labelMedium)
+            }
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (hasNextEpisode) {
+                    TextButton(onClick = onNextEpisode) {
+                        Icon(Icons.Rounded.SkipNext, null, tint = Color.White)
+                        Spacer(Modifier.width(4.dp))
+                        Text("Next", color = Color.White)
+                    }
+                }
+                Spacer(Modifier.weight(1f))
+                TextButton(onClick = onSources) {
+                    Icon(Icons.Rounded.Explore, null, tint = Color.White)
+                    Spacer(Modifier.width(4.dp))
+                    Text("Sources", color = Color.White)
+                }
+                if (hasEpisodes) {
+                    TextButton(onClick = onEpisodes) {
+                        Icon(Icons.Rounded.VideoLibrary, null, tint = Color.White)
+                        Spacer(Modifier.width(4.dp))
+                        Text("Episodes", color = Color.White)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlayerTransportIcon(
+    icon: ImageVector,
+    description: String,
+    onClick: () -> Unit,
+) {
+    IconButton(
+        onClick = onClick,
+        modifier = Modifier
+            .size(52.dp)
+            .background(Color.Black.copy(alpha = .42f), CircleShape),
+    ) {
+        Icon(icon, description, tint = Color.White, modifier = Modifier.size(28.dp))
+    }
+}
+
+private fun formatPlayerTime(milliseconds: Long): String {
+    if (milliseconds < 0L) return "--:--"
+    val totalSeconds = milliseconds / 1_000L
+    val seconds = totalSeconds % 60L
+    val minutes = (totalSeconds / 60L) % 60L
+    val hours = totalSeconds / 3_600L
+    return if (hours > 0L) {
+        "${hours}:${secondsPadded(minutes)}:${secondsPadded(seconds)}"
+    } else {
+        "${secondsPadded(minutes)}:${secondsPadded(seconds)}"
+    }
+}
+
+private fun secondsPadded(value: Long): String = value.toString().padStart(2, '0')
 
 @Composable
 private fun PipHandoffIndicator(modifier: Modifier = Modifier) {

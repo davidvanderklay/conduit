@@ -50,6 +50,8 @@ data class PlatformServices(
     val info: PlatformInfo,
     /** Non-secret durable app data such as the browser playback outbox. */
     val progress: SettingsStore = settings,
+    /** Durable storage for profile snapshots, which can exceed preference limits. */
+    val profileCache: SettingsStore = settings,
 )
 
 @Composable

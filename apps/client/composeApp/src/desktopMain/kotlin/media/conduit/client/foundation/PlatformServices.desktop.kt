@@ -3,6 +3,10 @@ package media.conduit.client.foundation
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import java.nio.file.Files
+import java.nio.file.Path
+import java.nio.file.StandardCopyOption
+import java.security.MessageDigest
 import java.io.OutputStreamWriter
 import java.nio.charset.StandardCharsets
 import java.util.prefs.Preferences
@@ -12,6 +16,45 @@ private class PreferencesSettingsStore(private val preferences: Preferences) : S
     override fun get(key: String): String? = preferences.get(key, null)
     override fun put(key: String, value: String) = preferences.put(key, value)
     override fun remove(key: String) = preferences.remove(key)
+}
+
+/** Stores large non-secret snapshots without the 8 KiB preference limit. */
+private class FileSettingsStore(private val root: Path) : SettingsStore {
+    init {
+        runCatching { Files.createDirectories(root) }
+    }
+
+    override fun get(key: String): String? = runCatching {
+        Files.readString(fileFor(key))
+    }.getOrNull()
+
+    override fun put(key: String, value: String) {
+        runCatching {
+            Files.createDirectories(root)
+            val temporary = Files.createTempFile(root, ".profile-", ".tmp")
+            try {
+                Files.writeString(temporary, value)
+                Files.move(
+                    temporary,
+                    fileFor(key),
+                    StandardCopyOption.ATOMIC_MOVE,
+                    StandardCopyOption.REPLACE_EXISTING,
+                )
+            } finally {
+                Files.deleteIfExists(temporary)
+            }
+        }
+    }
+
+    override fun remove(key: String) {
+        runCatching { Files.deleteIfExists(fileFor(key)) }
+    }
+
+    private fun fileFor(key: String): Path {
+        val digest = MessageDigest.getInstance("SHA-256").digest(key.toByteArray(StandardCharsets.UTF_8))
+        val name = digest.joinToString("") { byte -> "%02x".format(byte) }
+        return root.resolve("$name.json")
+    }
 }
 
 /**
@@ -93,6 +136,9 @@ actual fun rememberPlatformServices(): PlatformServices = remember {
     PlatformServices(
         settings = PreferencesSettingsStore(Preferences.userRoot().node("media/conduit/client")),
         secure = DesktopSecureStore(),
+        profileCache = FileSettingsStore(
+            Path.of(System.getProperty("user.home"), ".local", "share", "conduit", "profile-cache"),
+        ),
         info = PlatformInfo(
             name = osName,
             version = System.getProperty("os.version", ""),

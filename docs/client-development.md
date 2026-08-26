@@ -38,12 +38,19 @@ Desktop OAuth opens the system browser, listens on a random loopback port, and
 uses the `/v1/auth/desktop/*` endpoints. The browser returns to the local
 listener, not to the mobile `conduit://` deep link.
 
-This is an alpha path. The heavyweight video surface is in place, but the
-GTK/WebKitGTK/XComposite controls overlay used by the reference Linux
-architecture is not implemented yet. Compose controls can therefore be hidden
-behind video on Linux. Linux desktop tokens use Secret Service through
-`secret-tool` when a user keyring is available. Minimal or headless sessions
-fall back to memory and must not be treated as durable authentication.
+Large desktop profile snapshots are stored under
+`~/.local/share/conduit/profile-cache` so they are not truncated by the
+credential service's value limit. Bearer tokens remain in Secret Service when
+available.
+
+This is an alpha path. The heavyweight video surface is in place, and mpv's
+native OSC transport is enabled as a Linux fallback so play, pause, and seek
+remain available while the GTK/WebKitGTK/XComposite controls overlay used by
+the reference Linux architecture is completed. The richer shared Compose
+chrome can therefore still be hidden behind video on Linux. Linux desktop
+tokens use Secret Service through `secret-tool` when a user keyring is
+available. Minimal or headless sessions fall back to memory and must not be
+treated as durable authentication.
 
 ## Web
 
