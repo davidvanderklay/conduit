@@ -56,6 +56,8 @@ void configure(
     const std::string &headers,
     jlong startPositionMs,
     jboolean paused,
+    const std::string &preferredAudioLanguage,
+    const std::string &preferredSubtitleLanguage,
     const char *gpuContext,
     const char *hardwareDecoder
 ) {
@@ -69,16 +71,17 @@ void configure(
     option(mpv, "force-seekable", "yes");
     option(mpv, "keep-open", "yes");
     option(mpv, "idle", "yes");
-    // Keep a native transport fallback visible while the Linux video surface
-    // is hosted by AWT. Compose controls cannot be painted above that
-    // heavyweight X11 child until the GTK/WebKit overlay is in place.
-    option(mpv, "osc", "yes");
-    option(mpv, "osd-level", "1");
+    // The desktop HUD is rendered by Conduit above the heavyweight X11 video
+    // child. mpv's OSC would otherwise paint a second, unrelated control bar.
+    option(mpv, "osc", "no");
+    option(mpv, "osd-level", "0");
     option(mpv, "input-default-bindings", "yes");
     option(mpv, "input-vo-keyboard", "yes");
-    option(mpv, "input-cursor", "yes");
+    option(mpv, "input-cursor", "no");
     option(mpv, "audio-channels", "auto");
     option(mpv, "target-colorspace-hint", "yes");
+    if (!preferredAudioLanguage.empty()) option(mpv, "alang", preferredAudioLanguage);
+    if (!preferredSubtitleLanguage.empty()) option(mpv, "slang", preferredSubtitleLanguage);
     if (!headers.empty()) option(mpv, "http-header-fields", headers);
     if (startPositionMs > 0) {
         option(mpv, "start", std::to_string(static_cast<double>(startPositionMs) / 1000.0));
@@ -90,7 +93,9 @@ mpv_handle *initializeMpv(
     jlong windowId,
     const std::string &headers,
     jlong startPositionMs,
-    jboolean paused
+    jboolean paused,
+    const std::string &preferredAudioLanguage,
+    const std::string &preferredSubtitleLanguage
 ) {
     const char *pinnedContext = std::getenv("CONDUIT_MPV_GPU_CONTEXT");
     const char *pinnedDecoder = std::getenv("CONDUIT_MPV_HWDEC");
@@ -118,6 +123,8 @@ mpv_handle *initializeMpv(
             headers,
             startPositionMs,
             paused,
+            preferredAudioLanguage,
+            preferredSubtitleLanguage,
             attempts[index].context,
             attempts[index].decoder
         );
@@ -165,15 +172,21 @@ JNIEXPORT jlong JNICALL BRIDGE(create)(
     jstring sourceUrl,
     jobjectArray headers,
     jlong startPositionMs,
-    jboolean paused
+    jboolean paused,
+    jstring preferredAudioLanguage,
+    jstring preferredSubtitleLanguage
 ) {
     if (windowId == 0 || sourceUrl == nullptr) return 0;
     std::setlocale(LC_NUMERIC, "C");
+    const auto preferredAudio = utf8(env, preferredAudioLanguage);
+    const auto preferredSubtitle = utf8(env, preferredSubtitleLanguage);
     mpv_handle *mpv = initializeMpv(
         windowId,
         headerFields(env, headers),
         startPositionMs,
-        paused
+        paused,
+        preferredAudio,
+        preferredSubtitle
     );
     if (mpv == nullptr) return 0;
 
@@ -219,6 +232,61 @@ JNIEXPORT void JNICALL BRIDGE(seekTo)(JNIEnv *, jobject, jlong handle, jlong pos
         const char *command[] = {"seek", seconds.c_str(), "absolute+exact", nullptr};
         mpv_command(mpv, command);
         return 0;
+    });
+}
+
+JNIEXPORT void JNICALL BRIDGE(cycleAudio)(JNIEnv *, jobject, jlong handle) {
+    withPlayer<int>(handle, 0, [](mpv_handle *mpv) {
+        const char *command[] = {"cycle", "audio", nullptr};
+        mpv_command(mpv, command);
+        return 0;
+    });
+}
+
+JNIEXPORT void JNICALL BRIDGE(cycleSubtitle)(JNIEnv *, jobject, jlong handle) {
+    withPlayer<int>(handle, 0, [](mpv_handle *mpv) {
+        const char *command[] = {"cycle", "sub", nullptr};
+        mpv_command(mpv, command);
+        return 0;
+    });
+}
+
+JNIEXPORT void JNICALL BRIDGE(addSubtitle)(JNIEnv *env, jobject, jlong handle, jstring sourceUrl, jboolean select) {
+    const auto url = utf8(env, sourceUrl);
+    if (url.empty()) return;
+    withPlayer<int>(handle, 0, [&url, select](mpv_handle *mpv) {
+        const char *flags = select == JNI_TRUE ? "select" : "auto";
+        const char *command[] = {"sub-add", url.c_str(), flags, nullptr};
+        mpv_command(mpv, command);
+        return 0;
+    });
+}
+
+JNIEXPORT void JNICALL BRIDGE(setVolume)(JNIEnv *, jobject, jlong handle, jfloat volume) {
+    withPlayer<int>(handle, 0, [volume](mpv_handle *mpv) {
+        double value = std::clamp(static_cast<double>(volume), 0.0, 100.0);
+        mpv_set_property(mpv, "volume", MPV_FORMAT_DOUBLE, &value);
+        return 0;
+    });
+}
+
+JNIEXPORT jfloat JNICALL BRIDGE(volume)(JNIEnv *, jobject, jlong handle) {
+    return withPlayer<jfloat>(handle, 100.0f, [](mpv_handle *mpv) {
+        return static_cast<jfloat>(std::clamp(numberProperty(mpv, "volume"), 0.0, 100.0));
+    });
+}
+
+JNIEXPORT void JNICALL BRIDGE(setMuted)(JNIEnv *, jobject, jlong handle, jboolean muted) {
+    withPlayer<int>(handle, 0, [muted](mpv_handle *mpv) {
+        int value = muted == JNI_TRUE ? 1 : 0;
+        mpv_set_property(mpv, "mute", MPV_FORMAT_FLAG, &value);
+        return 0;
+    });
+}
+
+JNIEXPORT jboolean JNICALL BRIDGE(isMuted)(JNIEnv *, jobject, jlong handle) {
+    return withPlayer<jboolean>(handle, JNI_FALSE, [](mpv_handle *mpv) {
+        return flagProperty(mpv, "mute") ? JNI_TRUE : JNI_FALSE;
     });
 }
 

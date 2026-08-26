@@ -1282,6 +1282,7 @@ private fun AppShell(
             controller = playbackSession,
             preferences = preferences,
             sharedPlayerControls = platform.usesDesktopWindowLayout(),
+            desktopPlayer = platform.usesDesktopWindowLayout(),
             expanded = expanded,
             isTablet = isTablet,
             isIpad = isIpad,
@@ -1545,6 +1546,7 @@ private fun DestinationContent(
                     onBack = onCloseMedia,
                     onInteractiveBack = onInteractiveCloseMedia,
                     onBackCancelled = onCancelInteractiveCloseMedia,
+                    desktopPlayer = platform.usesDesktopWindowLayout(),
                     playbackSession = playbackSession,
                 )
             }
@@ -1558,6 +1560,7 @@ private fun BoxScope.PlaybackSessionHost(
     controller: PlaybackSessionController,
     preferences: DevicePreferences,
     sharedPlayerControls: Boolean,
+    desktopPlayer: Boolean,
     expanded: Boolean,
     isTablet: Boolean,
     isIpad: Boolean,
@@ -1880,6 +1883,11 @@ private fun BoxScope.PlaybackSessionHost(
                 preferredAudioLanguage = preferences.preferredAudioLanguage,
                 preferredSubtitleLanguage = preferences.preferredSubtitleLanguage,
                 androidPlaybackEngine = preferences.androidPlaybackEngine,
+                controlsVisible = controlsVisible,
+                onBack = {
+                    if (desktopPlayer) controller.close()
+                    else controller.leaveFullScreen(preferences.miniplayerOnBack)
+                },
                 onControlsVisibilityChanged = { controlsVisible = it },
                 onOverlayVisibilityChanged = { playerOverlayVisible = it },
                 onTemporarySpeedChanged = { temporarySpeedActive = it },
@@ -1897,8 +1905,8 @@ private fun BoxScope.PlaybackSessionHost(
             )
         }
 
-        // Tapping the video toggles the shared chrome. The native Linux
-        // fallback has its own OSC because its X11 child is heavyweight.
+        // Tapping the video toggles the shared chrome. Linux uses an owned
+        // transparent AWT HUD because its mpv X11 child is heavyweight.
         if (fullScreen && !systemPip && sharedPlayerControls) {
             Box(
                 Modifier
@@ -1946,6 +1954,7 @@ private fun BoxScope.PlaybackSessionHost(
                     } else {
                         PlayerBackButton {
                             if (playbackTransition != null) controller.close()
+                            else if (desktopPlayer) controller.close()
                             else controller.leaveFullScreen(preferences.miniplayerOnBack)
                         }
                     }

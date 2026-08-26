@@ -105,6 +105,11 @@ kotlin {
                 implementation("io.ktor:ktor-client-cio:3.5.1")
             }
         }
+        val desktopTest by getting {
+            dependencies {
+                implementation(kotlin("test"))
+            }
+        }
         val wasmJsMain by getting {
             dependencies {
                 implementation("io.ktor:ktor-client-js:3.5.1")

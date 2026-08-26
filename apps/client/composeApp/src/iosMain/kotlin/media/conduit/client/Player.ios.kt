@@ -101,6 +101,8 @@ actual fun NativePlayer(
     androidPlaybackEngine: AndroidPlaybackEngine,
     onEpisodes: () -> Unit,
     onSources: () -> Unit,
+    controlsVisible: Boolean,
+    onBack: () -> Unit,
     onControlsVisibilityChanged: (Boolean) -> Unit,
     onOverlayVisibilityChanged: (Boolean) -> Unit,
     onTemporarySpeedChanged: (Boolean) -> Unit,

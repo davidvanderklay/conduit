@@ -145,6 +145,8 @@ expect fun NativePlayer(
     androidPlaybackEngine: AndroidPlaybackEngine = AndroidPlaybackEngine.Automatic,
     onEpisodes: () -> Unit = {},
     onSources: () -> Unit = {},
+    controlsVisible: Boolean = true,
+    onBack: () -> Unit = {},
     onControlsVisibilityChanged: (Boolean) -> Unit = {},
     onOverlayVisibilityChanged: (Boolean) -> Unit = {},
     onTemporarySpeedChanged: (Boolean) -> Unit = {},

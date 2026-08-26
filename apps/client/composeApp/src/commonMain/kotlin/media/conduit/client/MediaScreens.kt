@@ -675,6 +675,7 @@ internal fun MediaDetailsScreen(
     onBack: () -> Unit,
     onInteractiveBack: (() -> Unit)? = null,
     onBackCancelled: (() -> Unit)? = null,
+    desktopPlayer: Boolean = false,
     returnToHomeOnStreamBack: Boolean,
     openMode: MediaOpenMode,
     playbackSession: PlaybackSessionController,
@@ -1631,7 +1632,8 @@ internal fun MediaDetailsScreen(
             }
             waitingForSavedPlayback -> cancelAutoResume()
             ownsPlayback && playbackSession.state.presentation == PlaybackPresentation.FullScreen -> {
-                playbackSession.leaveFullScreen(preferences.miniplayerOnBack)
+                if (desktopPlayer) playbackSession.close()
+                else playbackSession.leaveFullScreen(preferences.miniplayerOnBack)
             }
             else -> {
                 interactiveBackRestore = onBackCancelled

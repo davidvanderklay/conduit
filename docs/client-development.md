@@ -43,14 +43,13 @@ Large desktop profile snapshots are stored under
 credential service's value limit. Bearer tokens remain in Secret Service when
 available.
 
-This is an alpha path. The heavyweight video surface is in place, and mpv's
-native OSC transport is enabled as a Linux fallback so play, pause, and seek
-remain available while the GTK/WebKitGTK/XComposite controls overlay used by
-the reference Linux architecture is completed. The richer shared Compose
-chrome can therefore still be hidden behind video on Linux. Linux desktop
-tokens use Secret Service through `secret-tool` when a user keyring is
-available. Minimal or headless sessions fall back to memory and must not be
-treated as durable authentication.
+This is an alpha path. The heavyweight video surface is paired with a
+transparent owned AWT HUD on Linux, so Conduit controls stay above the mpv X11
+child instead of exposing mpv's default OSC. The HUD provides play/pause, seek,
+volume, audio and subtitle cycling, episode/source actions, and the fullscreen
+back action. Linux desktop tokens use Secret Service through `secret-tool` when
+a user keyring is available. Minimal or headless sessions fall back to memory
+and must not be treated as durable authentication.
 
 ## Web
 

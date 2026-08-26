@@ -46,6 +46,8 @@ actual fun NativePlayer(
     androidPlaybackEngine: AndroidPlaybackEngine,
     onEpisodes: () -> Unit,
     onSources: () -> Unit,
+    controlsVisible: Boolean,
+    onBack: () -> Unit,
     onControlsVisibilityChanged: (Boolean) -> Unit,
     onOverlayVisibilityChanged: (Boolean) -> Unit,
     onTemporarySpeedChanged: (Boolean) -> Unit,
@@ -56,16 +58,71 @@ actual fun NativePlayer(
     onState: (PlaybackState) -> Unit,
 ) {
     val host = remember { DesktopPlayerHost() }
+    val overlay = remember { DesktopPlayerOverlay() }
     val handle = remember { AtomicLong(0) }
     val attachment = remember { AtomicLong(0) }
     val latestState = rememberUpdatedState(onState)
     var attachError by remember(url) { mutableStateOf<String?>(null) }
     var retryGeneration by remember(url) { mutableIntStateOf(0) }
+    val loadedSubtitleKeys = remember(url, retryGeneration) { mutableSetOf<String>() }
 
     LaunchedEffect(Unit) {
         onSystemPipAvailabilityChanged(false)
         onSystemPipChanged(false)
+        onControlsVisibilityChanged(true)
+        onOverlayVisibilityChanged(false)
     }
+
+    LaunchedEffect(active, url, presentation, controlsVisible) {
+        overlay.setActive(active && url != null && presentation == PlaybackPresentation.FullScreen)
+        overlay.setControlsVisible(controlsVisible)
+    }
+
+    overlay.updateContent(
+        title = contentTitle,
+        metadata = "Direct Play · Linux libmpv",
+        hasNextEpisode = hasNextEpisode,
+        hasEpisodes = hasEpisodes,
+        hasSources = hasSources,
+    )
+    overlay.updateActions(
+        DesktopPlayerOverlayActions(
+            onTogglePlayback = {
+                val player = handle.get()
+                if (player != 0L) {
+                    DesktopNativePlayerBridge.setPaused(player, !DesktopNativePlayerBridge.isPaused(player))
+                }
+            },
+            onSeekTo = { positionMs ->
+                val player = handle.get()
+                if (player != 0L) DesktopNativePlayerBridge.seekTo(player, positionMs)
+            },
+            onNextEpisode = onNextEpisode,
+            onEpisodes = onEpisodes,
+            onSources = onSources,
+            onCycleSubtitle = {
+                val player = handle.get()
+                if (player != 0L) DesktopNativePlayerBridge.cycleSubtitle(player)
+            },
+            onCycleAudio = {
+                val player = handle.get()
+                if (player != 0L) DesktopNativePlayerBridge.cycleAudio(player)
+            },
+            onSetVolume = { volume ->
+                val player = handle.get()
+                if (player != 0L) DesktopNativePlayerBridge.setVolume(player, volume)
+            },
+            onToggleMute = {
+                val player = handle.get()
+                if (player != 0L) DesktopNativePlayerBridge.setMuted(
+                    player,
+                    !DesktopNativePlayerBridge.isMuted(player),
+                )
+            },
+            onBack = onBack,
+            onControlsVisibilityChanged = onControlsVisibilityChanged,
+        ),
+    )
 
     LaunchedEffect(command?.sequence) {
         val player = handle.get()
@@ -102,6 +159,8 @@ actual fun NativePlayer(
                         headers = headers,
                         startPositionMs = startPositionMs,
                         paused = false,
+                        preferredAudioLanguage = desktopMpvLanguageCode(preferredAudioLanguage),
+                        preferredSubtitleLanguage = desktopMpvLanguageCode(preferredSubtitleLanguage),
                     )
                 }.getOrElse { cause ->
                     SwingUtilities.invokeLater {
@@ -129,12 +188,21 @@ actual fun NativePlayer(
             }
         }
 
-        host.onPeerReady = ::attach
-        if (host.isDisplayable) SwingUtilities.invokeLater(::attach)
+        host.onPeerReady = {
+            overlay.attach(host)
+            attach()
+        }
+        if (host.isDisplayable) {
+            SwingUtilities.invokeLater {
+                overlay.attach(host)
+                attach()
+            }
+        }
 
         onDispose {
             attachment.incrementAndGet()
             host.onPeerReady = null
+            overlay.dispose()
             val previous = handle.getAndSet(0)
             if (previous != 0L) {
                 Thread({ DesktopNativePlayerBridge.dispose(previous) }, "conduit-mpv-dispose").apply {
@@ -145,7 +213,7 @@ actual fun NativePlayer(
         }
     }
 
-    LaunchedEffect(active, url, retryGeneration) {
+    LaunchedEffect(active, url, retryGeneration, subtitles, preferredSubtitleLanguage) {
         while (active && url != null) {
             val player = handle.get()
             val state = if (player == 0L) {
@@ -176,6 +244,40 @@ actual fun NativePlayer(
                 }
             }
             latestState.value(state)
+            if (player != 0L && subtitles.isNotEmpty()) {
+                val preferred = desktopMpvLanguageCode(preferredSubtitleLanguage)
+                val selectedIndex = subtitles.indexOfFirst { subtitle ->
+                    val language = subtitle.lang
+                        ?.replace('_', '-')
+                        ?.substringBefore('-')
+                        ?.lowercase()
+                    preferred != null && language == preferred
+                }.takeIf { it >= 0 } ?: 0
+                subtitles.forEachIndexed { index, subtitle ->
+                    val key = subtitle.id ?: subtitle.url
+                    if (loadedSubtitleKeys.add(key)) {
+                        runCatching {
+                            DesktopNativePlayerBridge.addSubtitle(
+                                player,
+                                subtitle.url,
+                                select = index == selectedIndex,
+                            )
+                        }
+                    }
+                }
+            }
+            if (host.isDisplayable) overlay.attach(host)
+            overlay.updateState(
+                DesktopPlayerOverlayState(
+                    playing = state.playing,
+                    buffering = state.buffering,
+                    positionMs = state.positionMs,
+                    durationMs = state.durationMs,
+                    volume = if (player == 0L) 100f else DesktopNativePlayerBridge.volume(player),
+                    muted = player != 0L && DesktopNativePlayerBridge.isMuted(player),
+                ),
+            )
+            overlay.syncBounds()
             delay(250)
         }
     }
@@ -192,4 +294,19 @@ actual fun NativePlayer(
             Text(message, color = MaterialTheme.colorScheme.error)
         }
     }
+}
+
+private fun desktopMpvLanguageCode(preference: String): String? = when (preference) {
+    "System default" -> java.util.Locale.getDefault().language.takeIf(String::isNotBlank)
+    "English" -> "en"
+    "Spanish" -> "es"
+    "French" -> "fr"
+    "German" -> "de"
+    "Japanese" -> "ja"
+    "Korean" -> "ko"
+    else -> preference
+        .takeIf(String::isNotBlank)
+        ?.replace('_', '-')
+        ?.substringBefore('-')
+        ?.lowercase()
 }

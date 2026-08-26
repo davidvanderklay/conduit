@@ -55,11 +55,20 @@ internal object DesktopNativePlayerBridge {
         headers: Array<String>,
         startPositionMs: Long,
         paused: Boolean,
+        preferredAudioLanguage: String?,
+        preferredSubtitleLanguage: String?,
     ): Long
 
     external fun dispose(handle: Long)
     external fun setPaused(handle: Long, paused: Boolean)
     external fun seekTo(handle: Long, positionMs: Long)
+    external fun cycleAudio(handle: Long)
+    external fun cycleSubtitle(handle: Long)
+    external fun addSubtitle(handle: Long, url: String, select: Boolean)
+    external fun setVolume(handle: Long, volume: Float)
+    external fun volume(handle: Long): Float
+    external fun setMuted(handle: Long, muted: Boolean)
+    external fun isMuted(handle: Long): Boolean
     external fun positionMs(handle: Long): Long
     external fun durationMs(handle: Long): Long
     external fun videoWidth(handle: Long): Int
