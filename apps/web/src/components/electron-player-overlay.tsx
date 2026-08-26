@@ -32,6 +32,7 @@ import type { Video } from "../lib/core"
 import {
   nativePlayerCommand,
   nativePlayerSnapshot,
+  setNativePlayerCursorHidden,
   setNativePlayerPlaying,
   toggleNativeFullscreen,
   type PlayerOverlayMedia,
@@ -361,6 +362,7 @@ export function ElectronPlayerOverlay({ initialMedia }: { initialMedia: PlayerOv
 
   useEffect(() => {
     document.documentElement.classList.toggle("player-cursor-hidden", !chromeVisible)
+    void setNativePlayerCursorHidden(!chromeVisible).catch(() => undefined)
     return () => document.documentElement.classList.remove("player-cursor-hidden")
   }, [chromeVisible])
 

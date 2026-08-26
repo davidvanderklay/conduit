@@ -867,6 +867,10 @@ async function invoke(command: string, args: Record<string, unknown> = {}): Prom
     playbackInhibitor.setPlaying(args.playing === true && nativePlayer !== undefined)
     return null
   }
+  if (command === "player_set_cursor_hidden") {
+    if (process.platform !== "linux" || !nativePlayer) return null
+    return nativePlayer.request(command, { hidden: args.hidden === true })
+  }
   if (command === "player_stop") {
     const client = nativePlayer
     playbackInhibitor.setPlaying(false)

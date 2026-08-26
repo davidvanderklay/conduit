@@ -23,6 +23,7 @@ const desktop = vi.hoisted(() => ({
     playbackPath: "directPlay" as const,
     tracks: [],
   })),
+  setNativePlayerCursorHidden: vi.fn(async () => undefined),
   setNativePlayerPlaying: vi.fn(async () => undefined),
   toggleNativeFullscreen: vi.fn(async () => false),
 }))
@@ -103,6 +104,7 @@ describe("Electron episode drawer", () => {
     act(() => root.unmount())
     host.remove()
     delete window.__CONDUIT_ELECTRON__
+    vi.useRealTimers()
     vi.clearAllMocks()
   })
 
@@ -154,5 +156,35 @@ describe("Electron episode drawer", () => {
       videoIds: ["s1e2"],
       watched: true,
     })
+  })
+
+  it("hides the native cursor when the controls time out", async () => {
+    vi.useFakeTimers()
+    desktop.nativePlayerSnapshot.mockResolvedValue({
+      running: true,
+      ended: false,
+      paused: false,
+      loading: false,
+      firstFrameReady: true,
+      position: 10,
+      duration: 100,
+      bufferedDuration: 30,
+      volume: 80,
+      playbackPath: "directPlay",
+      tracks: [],
+    })
+
+    await act(async () => {
+      root.render(
+        createElement(ElectronPlayerOverlay, {
+          initialMedia: { title: "Example" },
+        }),
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    act(() => vi.advanceTimersByTime(2801))
+
+    expect(desktop.setNativePlayerCursorHidden).toHaveBeenLastCalledWith(true)
   })
 })
