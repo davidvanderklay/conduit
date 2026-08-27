@@ -82,6 +82,17 @@ actual fun PlayerOrientationLock(active: Boolean) {
     }
 }
 
+@Composable
+private fun AndroidPlayerSystemChrome(presentation: PlaybackPresentation) {
+    val activity = androidx.compose.ui.platform.LocalContext.current as? MainActivity
+    LaunchedEffect(activity, presentation) {
+        activity?.setConduitImmersivePlayback(presentation == PlaybackPresentation.FullScreen)
+    }
+    DisposableEffect(activity) {
+        onDispose { activity?.setConduitImmersivePlayback(false) }
+    }
+}
+
 @OptIn(UnstableApi::class)
 @Composable
 actual fun NativePlayer(
@@ -117,14 +128,7 @@ actual fun NativePlayer(
     val context = androidx.compose.ui.platform.LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val activity = context as? Activity
-    LaunchedEffect(activity, presentation) {
-        (activity as? MainActivity)?.setConduitImmersivePlayback(
-            presentation == PlaybackPresentation.FullScreen,
-        )
-    }
-    DisposableEffect(activity) {
-        onDispose { (activity as? MainActivity)?.setConduitImmersivePlayback(false) }
-    }
+    AndroidPlayerSystemChrome(presentation)
     val landscape = context.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     val windowSize = LocalWindowInfo.current.containerSize
     val isTablet = with(LocalDensity.current) {
