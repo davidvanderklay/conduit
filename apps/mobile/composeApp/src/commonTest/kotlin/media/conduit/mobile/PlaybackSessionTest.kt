@@ -303,11 +303,23 @@ class PlaybackSessionTest {
                 PlaybackState(positionMs = 30_001, playing = false, videoWidth = 0, videoHeight = 0),
             ),
         )
+        assertTrue(
+            savedStreamStartupStalled(
+                request,
+                PlaybackState(
+                    loading = true,
+                    positionMs = 30_001,
+                    playing = false,
+                    videoWidth = 1920,
+                    videoHeight = 1080,
+                ),
+            ),
+        )
         assertFalse(savedStreamStartupStalled(request, PlaybackState(positionMs = 30_001, playing = true)))
         assertFalse(
             savedStreamStartupStalled(
                 request,
-                PlaybackState(positionMs = 30_000, videoWidth = 1920, videoHeight = 1080),
+                PlaybackState(loading = false, positionMs = 30_000, videoWidth = 1920, videoHeight = 1080),
             ),
         )
         assertFalse(savedStreamStartupStalled(request.copy(autoRecoveryAttempt = false), PlaybackState()))

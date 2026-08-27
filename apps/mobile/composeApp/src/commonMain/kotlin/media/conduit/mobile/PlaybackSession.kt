@@ -506,12 +506,16 @@ internal fun manualSourceSwitchStartupStalled(
 ): Boolean = request.manualSourceSwitch &&
     playbackStartupStalled(playback)
 
-// MPV can advance its demux timestamp before it presents a frame. Only
-// playback or video output proves that startup escaped the loading state.
+// MPV can publish a demux timestamp and metadata dimensions before it presents
+// a frame. Its loading flag remains authoritative until that first frame exists.
 private fun playbackStartupStalled(playback: PlaybackState): Boolean =
     !playback.playing &&
     !playback.ended &&
-    (playback.videoWidth <= 0 || playback.videoHeight <= 0)
+    (
+        playback.loading ||
+            playback.videoWidth <= 0 ||
+            playback.videoHeight <= 0
+    )
 
 private fun PlaybackRequest.persistenceKey(): String =
     "${identity.profileId}\u0000${identity.videoId}"
