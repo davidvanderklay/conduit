@@ -13,10 +13,19 @@ BOOL ConduitAddMetalDrawablePresentedHandler(
     typedef void (*ConduitAddPresentedHandler)(id, SEL, id);
     ConduitAddPresentedHandler addPresentedHandler =
         (ConduitAddPresentedHandler)objc_msgSend;
-    ConduitMetalDrawablePresentedHandler presentedHandler =
+    typedef void (^ConduitPresentedHandler)(id<MTLDrawable> drawable);
+    ConduitPresentedHandler presentedHandler =
         ^(id<MTLDrawable> presentedDrawable) {
-            id<CAMetalDrawable> metalDrawable = (id<CAMetalDrawable>)presentedDrawable;
-            handler(metalDrawable.texture);
+            SEL textureSelector = NSSelectorFromString(@"texture");
+            if (![presentedDrawable respondsToSelector:textureSelector]) {
+                return;
+            }
+            typedef id<MTLTexture> (*ConduitGetTexture)(id, SEL);
+            ConduitGetTexture getTexture = (ConduitGetTexture)objc_msgSend;
+            id<MTLTexture> texture = getTexture(presentedDrawable, textureSelector);
+            if (texture != nil) {
+                handler(texture);
+            }
         };
     addPresentedHandler(drawable, selector, presentedHandler);
     return YES;
