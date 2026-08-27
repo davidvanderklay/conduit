@@ -394,7 +394,11 @@ final class ConduitMPVPlayerViewController: UIViewController {
 
         metalLayer.contentsGravity = .resize
         metalLayer.contentsScale = UIScreen.main.nativeScale
-        metalLayer.pixelFormat = .rgba16Float
+        // Keep the inline surface at the same 32-bit format used by Enhanced
+        // Nuvio. PiP blits this surface while the app remains foregrounded;
+        // forcing RGBA16F doubles the surface bandwidth and makes active PiP
+        // compete with inline presentation for GPU time.
+        metalLayer.pixelFormat = .bgra8Unorm
         metalLayer.framebufferOnly = false
         metalLayer.backgroundColor = UIColor.black.cgColor
         metalLayer.anchorPoint = CGPoint(x: 0, y: 0)
