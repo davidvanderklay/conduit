@@ -286,7 +286,7 @@ class PlaybackSessionTest {
     }
 
     @Test
-    fun savedStreamStartupAcceptsPlaybackOrFirstFrame() {
+    fun savedStreamStartupNeedsPlaybackOrFirstFrame() {
         val request = PlaybackRequest(
             identity = PlaybackIdentity("profile", "series", "show", "s1e1"),
             url = "https://example.com/episode.mp4",
@@ -297,7 +297,13 @@ class PlaybackSessionTest {
         )
 
         assertTrue(savedStreamStartupStalled(request, PlaybackState(positionMs = 30_000)))
-        assertFalse(savedStreamStartupStalled(request, PlaybackState(positionMs = 30_001)))
+        assertTrue(
+            savedStreamStartupStalled(
+                request,
+                PlaybackState(positionMs = 30_001, playing = false, videoWidth = 0, videoHeight = 0),
+            ),
+        )
+        assertFalse(savedStreamStartupStalled(request, PlaybackState(positionMs = 30_001, playing = true)))
         assertFalse(
             savedStreamStartupStalled(
                 request,
@@ -389,7 +395,7 @@ class PlaybackSessionTest {
             mediaName = "Movie",
             manualSourceSwitch = true,
         )
-        val playback = PlaybackState(error = "Source failed")
+        val playback = PlaybackState(positionMs = 1, error = "Source failed")
 
         assertTrue(manualSourceSwitchStartupStalled(request, playback))
         assertFalse(shouldPresentPlaybackError(request, playback))

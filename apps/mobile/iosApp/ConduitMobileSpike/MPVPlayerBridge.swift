@@ -47,7 +47,6 @@ func shouldStartPendingLoad(surfaceSize: CGSize) -> Bool {
 /// `start=0` prevents libmpv from retaining the previous episode's position.
 func playbackFileOptions(initialPositionMs: Int64) -> [String] {
     [
-        "pause=yes",
         String(format: "start=%.3f", Double(max(0, initialPositionMs)) / 1000.0),
     ]
 }
@@ -667,11 +666,9 @@ final class ConduitMPVPlayerViewController: UIViewController {
             self.debugLog("playback command=play source=app-or-pip")
             self.shouldPlay = true
             guard self.mpv != nil else { return }
-            // Claim the session before the first-frame gate: activation is
-            // idempotent, and waiting would leave mpv's AudioUnit init as the
-            // de facto owner of the shared session.
+            // Claim the session before unpausing so mpv's AudioUnit init does
+            // not become the de facto owner of the shared session.
             self.activateAudioSession()
-            guard !self.waitingForInitialVideoFrame else { return }
             if self.videoOutputRecoveryState.failed {
                 self.retryVideoOutputOnMain()
                 return
@@ -1598,8 +1595,10 @@ final class ConduitMPVPlayerViewController: UIViewController {
         print("[Conduit MPV][startup] opening stream")
 #endif
 
-        // Start paused at the resume timestamp. MPV can decode and present the
-        // first video frame before audio begins, avoiding a visible late seek.
+        // loadFile() can be deferred while PiP capture drains. Reapply the
+        // latest intent here so an earlier play() is not overwritten when the
+        // replacement stream finally starts.
+        setFlag("pause", !shouldPlay)
         command(
             "loadfile",
             args: [

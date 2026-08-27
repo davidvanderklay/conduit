@@ -26,14 +26,14 @@ final class ConduitPlaybackStartupTests: XCTestCase {
     func testReplacementLoadExplicitlyStartsAtBeginning() {
         XCTAssertEqual(
             playbackFileOptions(initialPositionMs: 0),
-            ["pause=yes", "start=0.000"]
+            ["start=0.000"]
         )
     }
 
     func testReplacementLoadUsesOnlyTheRequestedResumePosition() {
         XCTAssertEqual(
             playbackFileOptions(initialPositionMs: 42_000),
-            ["pause=yes", "start=42.000"]
+            ["start=42.000"]
         )
     }
 }

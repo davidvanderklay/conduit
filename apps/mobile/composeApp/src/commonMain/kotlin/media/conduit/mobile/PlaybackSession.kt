@@ -490,10 +490,7 @@ internal fun savedStreamStartupStalled(
     request: PlaybackRequest,
     playback: PlaybackState,
 ): Boolean = request.autoRecoveryAttempt &&
-    playback.positionMs <= request.startPositionMs &&
-    !playback.playing &&
-    !playback.ended &&
-    (playback.videoWidth <= 0 || playback.videoHeight <= 0)
+    playbackStartupStalled(playback)
 
 internal fun shouldPresentPlaybackError(
     request: PlaybackRequest,
@@ -507,7 +504,11 @@ internal fun manualSourceSwitchStartupStalled(
     request: PlaybackRequest,
     playback: PlaybackState,
 ): Boolean = request.manualSourceSwitch &&
-    playback.positionMs <= request.startPositionMs &&
+    playbackStartupStalled(playback)
+
+// MPV can advance its demux timestamp before it presents a frame. Only
+// playback or video output proves that startup escaped the loading state.
+private fun playbackStartupStalled(playback: PlaybackState): Boolean =
     !playback.playing &&
     !playback.ended &&
     (playback.videoWidth <= 0 || playback.videoHeight <= 0)
