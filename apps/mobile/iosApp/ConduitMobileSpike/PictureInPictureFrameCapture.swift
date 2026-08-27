@@ -32,14 +32,6 @@ final class ConduitPictureInPictureFrameCapture {
     private let commandQueue: MTLCommandQueue
     private var textureCache: CVMetalTextureCache?
 
-    /// Serializes sample preparation before it is handed to the main queue.
-    /// Metal completion handlers may run concurrently, while the display
-    /// layer still receives samples in the order its enqueues are scheduled.
-    private let completionQueue = DispatchQueue(
-        label: "media.conduit.pip-frame-capture",
-        qos: .userInitiated
-    )
-
     private let stateLock = NSLock()
     private var pixelBufferPool: CVPixelBufferPool?
     private var poolWidth = 0
@@ -55,9 +47,9 @@ final class ConduitPictureInPictureFrameCapture {
     private var lastCaptureTime: CFTimeInterval = 0
     private var enqueuedFrameCount: UInt64 = 0
     private var inFlightCaptures = 0
+    private var lastSubmittedPresentationID: UInt64 = 0
+    private var lastDeliveredPresentationID: UInt64 = 0
     private var loggedUnsupportedFormat = false
-    private var smoothedPtsSeconds: Double = 0
-    private var smoothedPtsUptime: TimeInterval = 0
 
 #if DEBUG
     private var lastDeliveredPtsSeconds: Double = 0
@@ -123,7 +115,6 @@ final class ConduitPictureInPictureFrameCapture {
     }
 
     func markActive(_ active: Bool) {
-        if active { resyncPresentationClock() }
         stateLock.lock()
         isActive = active
         if active {
@@ -140,7 +131,6 @@ final class ConduitPictureInPictureFrameCapture {
     }
 
     func didSeek() {
-        resyncPresentationClock()
         requestRenderBurst(count: 3)
     }
 
@@ -203,20 +193,17 @@ final class ConduitPictureInPictureFrameCapture {
     /// Submits a retained pre-presented texture. Priming can begin between
     /// two MPV presents (for example while paused), and waiting for a render
     /// that will not come would stall the PiP start. Routed through the
-    /// completion queue so retained frames follow any already submitted
-    /// capture work.
+    /// last-presented texture so the start does not wait for a render that
+    /// will not come.
     func submitRetainedTexture(_ texture: MTLTexture, presentationID: UInt64) {
-        completionQueue.async { [self] in
-            handlePresentedTexture(texture, presentationID: presentationID, sourceLifetime: nil)
-        }
+        handlePresentedTexture(texture, presentationID: presentationID)
     }
 
     // MARK: - Capture
 
     func handlePresentedTexture(
         _ sourceTexture: MTLTexture,
-        presentationID: UInt64,
-        sourceLifetime: AnyObject?
+        presentationID: UInt64
     ) {
         guard !metalLayer.isSuspended else { return }
 
@@ -230,6 +217,11 @@ final class ConduitPictureInPictureFrameCapture {
             stateLock.unlock()
             return
         }
+        guard presentationID > lastSubmittedPresentationID else {
+            stateLock.unlock()
+            return
+        }
+        lastSubmittedPresentationID = presentationID
         let now = CACurrentMediaTime()
         let clock = clockProvider()
         let frameRate = max(12.0, clock.videoFrameRate)
@@ -245,40 +237,13 @@ final class ConduitPictureInPictureFrameCapture {
         #endif
         if burstFramesRemaining > 0 { burstFramesRemaining -= 1 }
         inFlightCaptures += 1
-        let ptsSeconds = nextPresentationSeconds(for: clock, at: ProcessInfo.processInfo.systemUptime)
         stateLock.unlock()
 
         enqueue(
             texture: sourceTexture,
-            sourceLifetime: sourceLifetime,
-            clock: clock,
-            ptsSeconds: ptsSeconds
+            presentationID: presentationID
         )
         updateArmedState()
-    }
-
-    /// Integrates wall-clock playback time between captures instead of
-    /// re-reading MPV's quantized position per frame, so consecutive sample
-    /// timestamps advance smoothly with the real capture cadence.
-    private func nextPresentationSeconds(
-        for clock: ConduitPipPlaybackClockSnapshot,
-        at uptime: TimeInterval
-    ) -> Double {
-        let rate = clock.isPlaying ? min(max(clock.playbackRate, 0.25), 4.0) : 0
-        if smoothedPtsUptime == 0 {
-            smoothedPtsSeconds = clock.interpolatedPositionSeconds(at: uptime)
-        } else {
-            smoothedPtsSeconds += max(0, uptime - smoothedPtsUptime) * rate
-        }
-        smoothedPtsUptime = uptime
-        return max(smoothedPtsSeconds, 0)
-    }
-
-    /// Re-anchors the integrated timestamp after a timeline jump.
-    private func resyncPresentationClock() {
-        stateLock.lock()
-        smoothedPtsUptime = 0
-        stateLock.unlock()
     }
 
     /// Releases a capture on paths where no completion handler will ever fire.
@@ -290,9 +255,7 @@ final class ConduitPictureInPictureFrameCapture {
 
     private func enqueue(
         texture source: MTLTexture,
-        sourceLifetime: AnyObject?,
-        clock: ConduitPipPlaybackClockSnapshot,
-        ptsSeconds: Double
+        presentationID: UInt64
     ) {
         guard let pixelFormat = Self.pixelBufferFormat(for: source.pixelFormat) else {
             stateLock.lock()
@@ -336,22 +299,16 @@ final class ConduitPictureInPictureFrameCapture {
             destinationOrigin: MTLOrigin(x: 0, y: 0, z: 0)
         )
         blit.endEncoding()
-        commandBuffer.addCompletedHandler { [weak self, sourceLifetime] _ in
+        commandBuffer.addCompletedHandler { [weak self] _ in
             guard let self else { return }
             #if DEBUG
             let completedAt = ProcessInfo.processInfo.systemUptime
             #endif
-            self.completionQueue.async {
-                #if DEBUG
-                self.lastCompletionUptime = completedAt
-                #endif
-                self.enqueueSampleBuffer(
-                    for: pixelBuffer,
-                    clock: clock,
-                    ptsSeconds: ptsSeconds
-                )
-                self.completeCapture()
-            }
+            #if DEBUG
+            self.lastCompletionUptime = completedAt
+            #endif
+            self.enqueueSampleBuffer(for: pixelBuffer, presentationID: presentationID)
+            self.completeCapture()
         }
         commandBuffer.commit()
     }
@@ -391,8 +348,7 @@ final class ConduitPictureInPictureFrameCapture {
 
     private func enqueueSampleBuffer(
         for pixelBuffer: CVPixelBuffer,
-        clock: ConduitPipPlaybackClockSnapshot,
-        ptsSeconds: Double
+        presentationID: UInt64
     ) {
         attachColorAttributes(to: pixelBuffer)
 
@@ -413,7 +369,14 @@ final class ConduitPictureInPictureFrameCapture {
 
         guard let description else { return }
 
-        let presentationTime = CMTime(seconds: ptsSeconds, preferredTimescale: 90_000)
+        let clock = clockProvider()
+        let position = clock.interpolatedPositionSeconds(
+            at: ProcessInfo.processInfo.systemUptime
+        )
+        let presentationTime = CMTime(
+            seconds: max(position.isFinite ? position : 0, 0),
+            preferredTimescale: 90_000
+        )
 
         var timing = CMSampleTimingInfo(
             duration: CMTime(
@@ -450,17 +413,25 @@ final class ConduitPictureInPictureFrameCapture {
         // Match the AVFoundation/CA handoff used by Enhanced Nuvio. The
         // sample-buffer display layer is scheduled on main, while the Metal
         // copy and sample construction stay off the UI thread.
-        deliverSample(sampleBuffer)
+        deliverSample(sampleBuffer, presentationID: presentationID)
     }
 
-    private func deliverSample(_ sampleBuffer: CMSampleBuffer) {
+    private func deliverSample(_ sampleBuffer: CMSampleBuffer, presentationID: UInt64) {
         DispatchQueue.main.async { [weak self] in
-            self?.deliverSampleOnMain(sampleBuffer)
+            self?.deliverSampleOnMain(sampleBuffer, presentationID: presentationID)
         }
     }
 
-    private func deliverSampleOnMain(_ sampleBuffer: CMSampleBuffer) {
+    private func deliverSampleOnMain(_ sampleBuffer: CMSampleBuffer, presentationID: UInt64) {
         let deliveredAt = ProcessInfo.processInfo.systemUptime
+
+        stateLock.lock()
+        let isLate = presentationID <= lastDeliveredPresentationID
+        stateLock.unlock()
+        guard !isLate else {
+            recordPacing(sampleBuffer, deliveredAt: deliveredAt, dropped: true)
+            return
+        }
 
         if displayLayer.status == .failed {
             logCapture("display layer failed; flushing before retry")
@@ -483,6 +454,7 @@ final class ConduitPictureInPictureFrameCapture {
         }
 
         stateLock.lock()
+        lastDeliveredPresentationID = presentationID
         enqueuedFrameCount &+= 1
         let handler = firstFrameHandler
         let shouldStop = stopPrimingAfterFirstFrame

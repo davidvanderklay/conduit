@@ -37,7 +37,7 @@ final class ConduitMetalLayer: CAMetalLayer {
     private var consecutiveAcquisitionFailures = 0
     private var lastSuspendedProbeTime: CFTimeInterval = 0
 
-    var onDrawablePresented: ((MTLTexture, UInt64, AnyObject?) -> Void)? {
+    var onDrawablePresented: ((MTLTexture, UInt64) -> Void)? {
         get {
             captureLock.lock()
             defer { captureLock.unlock() }
@@ -52,7 +52,7 @@ final class ConduitMetalLayer: CAMetalLayer {
 
     var onRenderingSuspensionChanged: ((Bool) -> Void)?
 
-    private var drawablePresentationHandler: ((MTLTexture, UInt64, AnyObject?) -> Void)?
+    private var drawablePresentationHandler: ((MTLTexture, UInt64) -> Void)?
 
     @objc dynamic var isDrawableCaptureArmed: Bool {
         get {
@@ -187,6 +187,7 @@ final class ConduitMetalLayer: CAMetalLayer {
         } else {
             consecutiveAcquisitionFailures += 1
             if !renderingSuspended,
+               captureWithoutPresentation && !drawableCaptureArmed,
                consecutiveAcquisitionFailures >= Self.failureThresholdBeforeSuspension {
                 renderingSuspended = true
                 lastSuspendedProbeTime = CACurrentMediaTime()
@@ -217,7 +218,7 @@ final class ConduitMetalLayer: CAMetalLayer {
             // previously acquired drawable to capture right away instead of
             // registering a presented handler that would never fire.
             if let previous {
-                handler(previous.drawable.texture, previous.presentationID, previous.drawable)
+                handler(previous.drawable.texture, previous.presentationID)
             }
             return drawable
         }
@@ -228,13 +229,13 @@ final class ConduitMetalLayer: CAMetalLayer {
         // invalid and produces a Metal warning on the first PiP transition.
         let sourceTexture = drawable.texture
         let registered = ConduitAddMetalDrawablePresentedHandler(drawable) { _ in
-            handler(sourceTexture, currentPresentationID, drawable)
+            handler(sourceTexture, currentPresentationID)
         }
         if !registered {
             // The iOS simulator SDK currently omits the presentation
             // handler requirement even though device Metal supports it.
             // Keep simulator playback usable with a bounded fallback.
-            handler(sourceTexture, currentPresentationID, drawable)
+            handler(sourceTexture, currentPresentationID)
         }
         return drawable
     }

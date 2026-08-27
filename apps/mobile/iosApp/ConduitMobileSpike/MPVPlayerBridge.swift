@@ -2210,11 +2210,10 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         if frameCapture == nil {
             debugLog("frame capture unavailable; PiP disabled")
         }
-        metalLayer.onDrawablePresented = { [weak self] texture, presentationID, lifetime in
+        metalLayer.onDrawablePresented = { [weak self] texture, presentationID in
             self?.frameCapture?.handlePresentedTexture(
                 texture,
-                presentationID: presentationID,
-                sourceLifetime: lifetime
+                presentationID: presentationID
             )
         }
         metalLayer.onRenderingSuspensionChanged = { [weak self] suspended in
