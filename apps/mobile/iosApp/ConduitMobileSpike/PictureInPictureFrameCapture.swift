@@ -32,10 +32,10 @@ final class ConduitPictureInPictureFrameCapture {
     private let commandQueue: MTLCommandQueue
     private var textureCache: CVMetalTextureCache?
 
-    /// Serializes sample delivery. GPU completion handlers may run
-    /// concurrently, so this queue is what guarantees frames reach the
-    /// display layer in presentation order.
-    private let captureQueue = DispatchQueue(
+    /// Serializes sample preparation before it is handed to the main queue.
+    /// Metal completion handlers may run concurrently, while the display
+    /// layer still receives samples in the order its enqueues are scheduled.
+    private let completionQueue = DispatchQueue(
         label: "media.conduit.pip-frame-capture",
         qos: .userInitiated
     )
@@ -55,7 +55,6 @@ final class ConduitPictureInPictureFrameCapture {
     private var lastCaptureTime: CFTimeInterval = 0
     private var enqueuedFrameCount: UInt64 = 0
     private var inFlightCaptures = 0
-    private var hasBlitInFlight = false
     private var loggedUnsupportedFormat = false
     private var smoothedPtsSeconds: Double = 0
     private var smoothedPtsUptime: TimeInterval = 0
@@ -204,10 +203,10 @@ final class ConduitPictureInPictureFrameCapture {
     /// Submits a retained pre-presented texture. Priming can begin between
     /// two MPV presents (for example while paused), and waiting for a render
     /// that will not come would stall the PiP start. Routed through the
-    /// capture queue so it lands after any in-flight delivery released the
-    /// blit gate.
+    /// completion queue so retained frames follow any already submitted
+    /// capture work.
     func submitRetainedTexture(_ texture: MTLTexture, presentationID: UInt64) {
-        captureQueue.async { [self] in
+        completionQueue.async { [self] in
             handlePresentedTexture(texture, presentationID: presentationID, sourceLifetime: nil)
         }
     }
@@ -231,15 +230,6 @@ final class ConduitPictureInPictureFrameCapture {
             stateLock.unlock()
             return
         }
-        // One blit in flight at a time: the previous sample is delivered
-        // before the next capture starts, which makes presentation order and
-        // enqueue order identical by construction. A blit takes well under a
-        // present interval, so skipping while one is in flight costs nothing.
-        guard !hasBlitInFlight else {
-            stateLock.unlock()
-            return
-        }
-
         let now = CACurrentMediaTime()
         let clock = clockProvider()
         let frameRate = max(12.0, clock.videoFrameRate)
@@ -254,7 +244,6 @@ final class ConduitPictureInPictureFrameCapture {
         previousCaptureTime = now
         #endif
         if burstFramesRemaining > 0 { burstFramesRemaining -= 1 }
-        hasBlitInFlight = true
         inFlightCaptures += 1
         let ptsSeconds = nextPresentationSeconds(for: clock, at: ProcessInfo.processInfo.systemUptime)
         stateLock.unlock()
@@ -292,12 +281,10 @@ final class ConduitPictureInPictureFrameCapture {
         stateLock.unlock()
     }
 
-    /// Releases the single-blit gate on paths where no completion handler
-    /// will ever fire.
-    private func abandonBlit() {
+    /// Releases a capture on paths where no completion handler will ever fire.
+    private func completeCapture() {
         stateLock.lock()
-        hasBlitInFlight = false
-        inFlightCaptures -= 1
+        inFlightCaptures = max(0, inFlightCaptures - 1)
         stateLock.unlock()
     }
 
@@ -318,7 +305,7 @@ final class ConduitPictureInPictureFrameCapture {
                         "\(source.pixelFormat.rawValue) for capture"
                 )
             }
-            abandonBlit()
+            completeCapture()
             return
         }
 
@@ -333,7 +320,7 @@ final class ConduitPictureInPictureFrameCapture {
             let commandBuffer = commandQueue.makeCommandBuffer(),
             let blit = commandBuffer.makeBlitCommandEncoder()
         else {
-            abandonBlit()
+            completeCapture()
             return
         }
 
@@ -350,14 +337,11 @@ final class ConduitPictureInPictureFrameCapture {
         )
         blit.endEncoding()
         commandBuffer.addCompletedHandler { [weak self, sourceLifetime] _ in
-            // The blit gate stays held until delivery finishes on the serial
-            // capture queue, so the next captured frame can never overtake
-            // this one and appear in the PiP window before it.
             guard let self else { return }
             #if DEBUG
             let completedAt = ProcessInfo.processInfo.systemUptime
             #endif
-            self.captureQueue.async {
+            self.completionQueue.async {
                 #if DEBUG
                 self.lastCompletionUptime = completedAt
                 #endif
@@ -366,7 +350,7 @@ final class ConduitPictureInPictureFrameCapture {
                     clock: clock,
                     ptsSeconds: ptsSeconds
                 )
-                self.abandonBlit()
+                self.completeCapture()
             }
         }
         commandBuffer.commit()
@@ -463,15 +447,19 @@ final class ConduitPictureInPictureFrameCapture {
             )
         }
 
-        // Deliver from the capture queue, not the main thread. Main-thread
-        // congestion (Compose UI, CA transactions) arrives as irregular
-        // enqueue spacing that DisplayImmediately shows literally, which is
-        // visible as PiP-only frame-pacing jitter. The sample-buffer layer's
-        // enqueue paths are thread-safe.
+        // Match the AVFoundation/CA handoff used by Enhanced Nuvio. The
+        // sample-buffer display layer is scheduled on main, while the Metal
+        // copy and sample construction stay off the UI thread.
         deliverSample(sampleBuffer)
     }
 
     private func deliverSample(_ sampleBuffer: CMSampleBuffer) {
+        DispatchQueue.main.async { [weak self] in
+            self?.deliverSampleOnMain(sampleBuffer)
+        }
+    }
+
+    private func deliverSampleOnMain(_ sampleBuffer: CMSampleBuffer) {
         let deliveredAt = ProcessInfo.processInfo.systemUptime
 
         if displayLayer.status == .failed {
