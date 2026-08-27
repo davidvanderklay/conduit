@@ -16,6 +16,9 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.SystemBarStyle
 import android.graphics.Color
 import androidx.activity.compose.setContent
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import media.conduit.mobile.account.MobileOAuthCallbacks
 import java.lang.ref.WeakReference
 
@@ -28,6 +31,7 @@ class MainActivity : ComponentActivity() {
     private var videoWidth = 16
     private var videoHeight = 9
     private var onPipModeChanged: ((Boolean) -> Unit)? = null
+    private var conduitImmersivePlayback = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -37,6 +41,26 @@ class MainActivity : ComponentActivity() {
         )
         MobileOAuthCallbacks.capture(intent)
         setContent { App() }
+    }
+
+    internal fun setConduitImmersivePlayback(enabled: Boolean) {
+        conduitImmersivePlayback = enabled
+        applyConduitSystemBars()
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) applyConduitSystemBars()
+    }
+
+    private fun applyConduitSystemBars() {
+        val controller = WindowCompat.getInsetsController(window, window.decorView)
+        if (conduitImmersivePlayback) {
+            controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller.hide(WindowInsetsCompat.Type.systemBars())
+        } else {
+            controller.show(WindowInsetsCompat.Type.systemBars())
+        }
     }
 
     override fun onNewIntent(intent: Intent) {

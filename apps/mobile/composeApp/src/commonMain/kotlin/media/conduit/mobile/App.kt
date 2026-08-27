@@ -1843,7 +1843,7 @@ private fun BoxScope.PlaybackSessionHost(
             )
         }
 
-        if (systemPip) {
+        if (shouldHideInlinePlaybackForPip(systemPip, systemPipKeepsAppVisible)) {
             // The native player must keep decoding for PiP, but its inline
             // surface should not remain visible underneath the PiP window.
             Box(Modifier.matchParentSize().background(Color.Black))

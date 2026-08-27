@@ -53,4 +53,31 @@ class PlayerStateTest {
             ),
         )
     }
+
+    @Test
+    fun nativePlaybackWaitsForFirstVideoFrame() {
+        assertFalse(canStartNativePlayback(active = true, playWhenReady = true, firstFrameRendered = false))
+        assertTrue(canStartNativePlayback(active = true, playWhenReady = true, firstFrameRendered = true))
+        assertFalse(canStartNativePlayback(active = false, playWhenReady = true, firstFrameRendered = true))
+        assertFalse(canStartNativePlayback(active = true, playWhenReady = false, firstFrameRendered = true))
+    }
+
+    @Test
+    fun inlinePlaybackIsHiddenOnlyForPlatformsThatKeepTheActivityVisibleInPip() {
+        assertFalse(shouldHideInlinePlaybackForPip(systemPip = false, systemPipKeepsAppVisible = false))
+        assertFalse(shouldHideInlinePlaybackForPip(systemPip = true, systemPipKeepsAppVisible = false))
+        assertTrue(shouldHideInlinePlaybackForPip(systemPip = true, systemPipKeepsAppVisible = true))
+    }
+
+    @Test
+    fun tabletPlaybackExitDoesNotRestorePortraitLock() {
+        assertTrue(shouldRestorePortraitAfterPlayback(smallestWidthDp = 599))
+        assertFalse(shouldRestorePortraitAfterPlayback(smallestWidthDp = 600))
+    }
+
+    @Test
+    fun tabletMediaGridBecomesAdaptiveAtTabletWidth() {
+        assertFalse(usesAdaptiveMediaGrid(windowWidthDp = 599))
+        assertTrue(usesAdaptiveMediaGrid(windowWidthDp = 600))
+    }
 }
