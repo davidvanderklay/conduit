@@ -48,10 +48,24 @@ final class ConduitRenderSizePolicyTests: XCTestCase {
         XCTAssertNotNil(
             CVBufferGetAttachment(pixelBuffer, kCVImageBufferAlphaChannelIsOpaque, nil)
         )
+
+        CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly) }
+        guard let baseAddress = CVPixelBufferGetBaseAddress(pixelBuffer) else {
+            return XCTFail("Expected a packed pixel buffer base address")
+        }
+
+        let bytes = baseAddress.assumingMemoryBound(to: UInt8.self)
+        let bytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer)
+        for row in 0..<CVPixelBufferGetHeight(pixelBuffer) {
+            for column in 0..<CVPixelBufferGetWidth(pixelBuffer) {
+                XCTAssertEqual(bytes[row * bytesPerRow + column * 4 + 3], 0xff)
+            }
+        }
     }
 
     func testPackedRgbRenderFormatMatchesThePixelBuffer() {
-        XCTAssertEqual(ConduitSoftwarePixelBufferFormat.mpv, "bgra")
+        XCTAssertEqual(ConduitSoftwarePixelBufferFormat.mpv, "bgr0")
         XCTAssertEqual(
             ConduitSoftwarePixelBufferFormat.coreVideo,
             kCVPixelFormatType_32BGRA

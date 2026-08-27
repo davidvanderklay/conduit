@@ -43,6 +43,8 @@ func shouldStartPendingLoad(surfaceSize: CGSize) -> Bool {
 /// output before it is handed to AVSampleBufferDisplayLayer.
 enum ConduitSoftwarePixelBufferColorMetadata {
     static func apply(to pixelBuffer: CVPixelBuffer) {
+        makeAlphaOpaque(in: pixelBuffer)
+
         // The render API writes packed RGB. A YCbCr matrix describes a
         // YCbCr-to-RGB conversion and can make AVSampleBufferDisplayLayer
         // reinterpret high-contrast subtitle edges as colored fringes.
@@ -65,12 +67,32 @@ enum ConduitSoftwarePixelBufferColorMetadata {
             .shouldPropagate
         )
     }
+
+    /// `bgr0` leaves its padding byte undefined. Core Video exposes that byte
+    /// as alpha for a 32BGRA buffer, so initialize it before AVFoundation reads
+    /// the frame.
+    private static func makeAlphaOpaque(in pixelBuffer: CVPixelBuffer) {
+        CVPixelBufferLockBaseAddress(pixelBuffer, [])
+        defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, []) }
+        guard let baseAddress = CVPixelBufferGetBaseAddress(pixelBuffer) else { return }
+
+        let bytes = baseAddress.assumingMemoryBound(to: UInt8.self)
+        let bytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer)
+        let width = CVPixelBufferGetWidth(pixelBuffer)
+        let height = CVPixelBufferGetHeight(pixelBuffer)
+        for row in 0..<height {
+            let rowOffset = row * bytesPerRow
+            for column in 0..<width {
+                bytes[rowOffset + column * 4 + 3] = 0xff
+            }
+        }
+    }
 }
 
-/// The packed format requested from libmpv must match the Core Video buffer
-/// format allocated for the sample buffer.
+/// The software render API supports BGRX, not BGRA. Its padding byte is made
+/// opaque before the 32BGRA Core Video buffer reaches AVSampleBufferDisplayLayer.
 enum ConduitSoftwarePixelBufferFormat {
-    static let mpv = "bgra"
+    static let mpv = "bgr0"
     static let coreVideo = kCVPixelFormatType_32BGRA
 }
 
@@ -1235,6 +1257,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
         var size = [Int32(width), Int32(height)]
         var stride = CVPixelBufferGetBytesPerRow(pixelBuffer)
         var blockForTargetTime: CInt = 0
+        var renderStatus: Int32 = 0
         var format = UnsafeMutableRawPointer(
             mutating: (ConduitSoftwarePixelBufferFormat.mpv as NSString).utf8String
         )
@@ -1249,9 +1272,17 @@ final class ConduitMPVPlayerViewController: UIViewController {
                         mpv_render_param(type: MPV_RENDER_PARAM_BLOCK_FOR_TARGET_TIME, data: blockPtr),
                         mpv_render_param()
                     ]
-                    _ = mpv_render_context_render(context, &params)
+                    renderStatus = mpv_render_context_render(context, &params)
                 }
             }
+        }
+
+        guard renderStatus >= 0 else {
+            debugLog(
+                "software render failed status=\(renderStatus) " +
+                "error=\(String(cString: mpv_error_string(renderStatus)))"
+            )
+            return
         }
 
         enqueueFrame(pixelBuffer)
