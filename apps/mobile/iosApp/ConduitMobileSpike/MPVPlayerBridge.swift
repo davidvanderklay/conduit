@@ -32,11 +32,24 @@ fileprivate struct ConduitTrack {
     let selected: Bool
 }
 
-/// A visible surface is enough to begin loading. Orientation is managed by
-/// the host separately and must not turn a pending playback request into a
-/// load that only starts after a later touch-driven layout pass.
+/// Compose can measure the replacement player before UIKit attaches its view
+/// to a window. That measured surface is enough to start the load.
+func playbackSurfaceSize(viewSize: CGSize, measuredSize: CGSize?) -> CGSize {
+    if viewSize.width > 1, viewSize.height > 1 { return viewSize }
+    return measuredSize ?? .zero
+}
+
 func shouldStartPendingLoad(surfaceSize: CGSize) -> Bool {
     surfaceSize.width > 1 && surfaceSize.height > 1
+}
+
+/// Every replacement load gets an explicit timestamp. In particular,
+/// `start=0` prevents libmpv from retaining the previous episode's position.
+func playbackFileOptions(initialPositionMs: Int64) -> [String] {
+    [
+        "pause=yes",
+        String(format: "start=%.3f", Double(max(0, initialPositionMs)) / 1000.0),
+    ]
 }
 
 /// The Swift half of the Kotlin/iOS player boundary.
@@ -1543,12 +1556,10 @@ final class ConduitMPVPlayerViewController: UIViewController {
 
     private func attemptStartPendingLoad() {
         guard let request = pendingLoad, mpv != nil else { return }
-        guard viewIfLoaded?.window != nil else {
-            schedulePendingRetry()
-            return
-        }
-
-        let surfaceSize = externallyManagedViewSize ?? view.bounds.size
+        let surfaceSize = playbackSurfaceSize(
+            viewSize: view.bounds.size,
+            measuredSize: externallyManagedViewSize
+        )
         guard shouldStartPendingLoad(surfaceSize: surfaceSize) else {
             schedulePendingRetry()
             return
@@ -1589,15 +1600,14 @@ final class ConduitMPVPlayerViewController: UIViewController {
 
         // Start paused at the resume timestamp. MPV can decode and present the
         // first video frame before audio begins, avoiding a visible late seek.
-        var fileOptions = ["pause=yes"]
-        if request.initialPositionMs > 0 {
-            fileOptions.append(
-                String(format: "start=%.3f", Double(request.initialPositionMs) / 1000.0)
-            )
-        }
         command(
             "loadfile",
-            args: [request.url, "replace", "-1", fileOptions.joined(separator: ",")]
+            args: [
+                request.url,
+                "replace",
+                "-1",
+                playbackFileOptions(initialPositionMs: request.initialPositionMs).joined(separator: ","),
+            ]
         )
 
     }
@@ -1656,12 +1666,14 @@ final class ConduitMPVPlayerViewController: UIViewController {
     private func layoutMetalLayer() {
         guard !destroyStarted else { return }
 
-        // The Compose size callback is expressed through Compose density, which
-        // can differ slightly from UIKit's native pixel scale. Using it for the
-        // Metal drawable can therefore make MPV's render target a few pixels
-        // larger than the CAMetalDrawable attachment during interactive resize.
-        // UIKit's bounds are the authoritative dimensions of the embedded view.
-        let bounds = CGRect(origin: .zero, size: view.bounds.size)
+        // Prefer UIKit's bounds once they exist because Compose density can
+        // differ slightly from UIKit's native scale. During replacement startup,
+        // the Compose measurement keeps the Metal surface from waiting on touch.
+        let surfaceSize = playbackSurfaceSize(
+            viewSize: view.bounds.size,
+            measuredSize: externallyManagedViewSize
+        )
+        let bounds = CGRect(origin: .zero, size: surfaceSize)
         guard bounds.width > 1, bounds.height > 1 else { return }
         if videoSurfaceSize != bounds.size {
             videoSurfaceSize = bounds.size

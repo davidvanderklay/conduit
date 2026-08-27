@@ -44,6 +44,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.cinterop.ExperimentalForeignApi
+import kotlinx.cinterop.useContents
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.serialization.encodeToString
@@ -166,6 +167,15 @@ actual fun NativePlayer(
     }
     val encodedSubtitles = remember(subtitles) {
         Json.encodeToString(subtitles)
+    }
+
+    LaunchedEffect(bridge, windowSize) {
+        if (windowSize.width > 1 && windowSize.height > 1) {
+            bridge.syncVideoSurfaceLayout(
+                width = with(density) { windowSize.width.toDp().value.toDouble() },
+                height = with(density) { windowSize.height.toDp().value.toDouble() },
+            )
+        }
     }
 
     LaunchedEffect(bridge, url, encodedHeaders, startPositionMs) {
@@ -347,6 +357,17 @@ actual fun NativePlayer(
                         )
                     }
                 },
+            onResize = { viewController, rect ->
+                viewController.view.setFrame(rect)
+                rect.useContents {
+                    if (size.width > 1 && size.height > 1) {
+                        bridge.syncVideoSurfaceLayout(
+                            width = size.width,
+                            height = size.height,
+                        )
+                    }
+                }
+            },
             interactive = false,
         )
 
