@@ -1666,12 +1666,6 @@ final class ConduitMPVPlayerViewController: UIViewController {
         scheduleVideoOutputWatchdog()
     }
 
-    private func syncVideoSurfaceLayout() {
-        runOnMain { [weak self] in
-            self?.syncVideoSurfaceLayoutNow(scheduleDeferredPasses: true)
-        }
-    }
-
     private func syncVideoSurfaceLayoutNow(
         size: CGSize? = nil,
         scheduleDeferredPasses: Bool
@@ -2024,6 +2018,11 @@ final class ConduitMPVPlayerViewController: UIViewController {
 #else
         _ = message
 #endif
+    }
+
+    private var recoveryElapsedDescription: String {
+        guard let started = videoOutputRecoveryState.startedAt else { return "none" }
+        return String(format: "%.2f", ProcessInfo.processInfo.systemUptime - started)
     }
 
     private func applyPreferredRefreshRate() {
