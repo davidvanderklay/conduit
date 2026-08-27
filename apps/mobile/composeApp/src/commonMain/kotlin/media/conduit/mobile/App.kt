@@ -1977,6 +1977,7 @@ private fun BoxScope.PlaybackSessionHost(
             val overlayBottomPadding = playerActionBottomPaddingDp(
                 controlsVisible = controlsVisible,
                 compactUpNext = compactUpNext,
+                isTablet = isTablet,
             ).dp
             val skipOnRight = isIpad && preferences.skipButtonPosition == SkipButtonPosition.Right
             val skipBottomPadding = overlayBottomPadding + if (skipOnRight && upNextVisible) {
