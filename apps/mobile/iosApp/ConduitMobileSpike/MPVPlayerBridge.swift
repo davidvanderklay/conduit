@@ -307,6 +307,8 @@ final class ConduitMPVPlayerViewController: UIViewController {
     private static let audioSessionQueue = DispatchQueue(label: "media.conduit.audio-session", qos: .userInitiated)
 
     private let eventQueue = DispatchQueue(label: "media.conduit.mpv-events", qos: .userInitiated)
+    private let playbackStateQueue = DispatchQueue(label: "media.conduit.mpv-state", qos: .userInitiated)
+    private let playbackStateRefreshLock = NSLock()
     private let subtitleQueue = DispatchQueue(label: "media.conduit.mpv-subtitles", qos: .utility)
     private let subtitleLock = NSLock()
     private let errorLock = NSLock()
@@ -346,6 +348,8 @@ final class ConduitMPVPlayerViewController: UIViewController {
     private var lastWatchedMediaPositionMs: Int64?
     private var lastMediaClockProgressUptime: TimeInterval = 0
     private var hasVideoStream = false
+    private var isPlaybackStateRefreshInFlight = false
+    private var playbackStateGeneration: UInt64 = 0
     private var lifecycleObservers: [NSObjectProtocol] = []
     private var recentErrors: [String] = []
     private var playbackError: String?
@@ -667,6 +671,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
             }
             self.setFlag("pause", false)
             self.isPlayerPlaying = true
+            self.bumpPlaybackStateGeneration()
             self.refreshPlaybackState()
             if scheduleWatchdog {
                 self.scheduleVideoOutputWatchdog()
@@ -686,6 +691,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
             guard self.mpv != nil else { return }
             self.setFlag("pause", true)
             self.isPlayerPlaying = false
+            self.bumpPlaybackStateGeneration()
             self.refreshPlaybackState()
             self.pictureInPicture?.playbackStateChanged()
         }
@@ -694,6 +700,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
     func seekToMs(_ milliseconds: Int64) {
         runOnMain { [weak self] in
             guard let self, self.mpv != nil else { return }
+            self.bumpPlaybackStateGeneration()
             self.pictureInPictureClock.reset(positionMs: milliseconds)
             self.pictureInPicture?.timelineDidSeek()
             self.command("seek", args: [String(format: "%.3f", Double(milliseconds) / 1000.0), "absolute"])
@@ -704,6 +711,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
     func seekByMs(_ milliseconds: Int64) {
         runOnMain { [weak self] in
             guard let self, self.mpv != nil else { return }
+            self.bumpPlaybackStateGeneration()
             self.pictureInPictureClock.reset(positionMs: self.positionMs + milliseconds)
             self.pictureInPicture?.timelineDidSeek()
             self.command("seek", args: [String(format: "%.3f", Double(milliseconds) / 1000.0), "relative"])
@@ -814,20 +822,70 @@ final class ConduitMPVPlayerViewController: UIViewController {
         }
     }
 
+    private struct PlaybackStateSnapshot {
+        let hasInitialVideoOutput: Bool
+        let duration: Double
+        let position: Double
+        let speed: Double
+        let paused: Bool
+        let eofReached: Bool
+        let idle: Bool
+        let seeking: Bool
+        let buffering: Bool
+        let videoCodec: String
+        let activeFrameRate: Double
+        let containerFrameRate: Double
+        let estimatedVideoFrameRate: Double
+        let displayWidth: Int
+        let displayHeight: Int
+        let displayFps: Double
+        let vsyncJitter: Double
+        let vsyncRatio: Double
+    }
+
+    private func bumpPlaybackStateGeneration() {
+        playbackStateRefreshLock.lock()
+        playbackStateGeneration &+= 1
+        playbackStateRefreshLock.unlock()
+    }
+
     func refreshPlaybackState() {
-        guard let mpv else { return }
+        guard mpv != nil else { return }
+
+        playbackStateRefreshLock.lock()
+        guard !isPlaybackStateRefreshInFlight else {
+            playbackStateRefreshLock.unlock()
+            return
+        }
+        isPlaybackStateRefreshInFlight = true
+        let generation = playbackStateGeneration
+        playbackStateRefreshLock.unlock()
+
+        playbackStateQueue.async { [weak self] in
+            guard let self else { return }
+            let snapshot = self.readPlaybackStateSnapshot()
+
+            self.playbackStateRefreshLock.lock()
+            self.isPlaybackStateRefreshInFlight = false
+            self.playbackStateRefreshLock.unlock()
+
+            guard let snapshot else { return }
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.playbackStateRefreshLock.lock()
+                let isCurrentGeneration = generation == self.playbackStateGeneration
+                self.playbackStateRefreshLock.unlock()
+                guard isCurrentGeneration, !self.destroyStarted else { return }
+                self.applyPlaybackStateSnapshot(snapshot)
+            }
+        }
+    }
+
+    private func readPlaybackStateSnapshot() -> PlaybackStateSnapshot? {
+        guard mpv != nil else { return nil }
+
         let hasInitialVideoOutput = getString("video-frame-info/picture-type") != nil
             || getString("video-out-params/pixelformat") != nil
-        if waitingForInitialVideoFrame, hasLoadedFile, hasInitialVideoOutput {
-            waitingForInitialVideoFrame = false
-#if DEBUG
-            let elapsed = ProcessInfo.processInfo.systemUptime - loadStartedAtUptime
-            print(String(format: "[Conduit MPV][startup] first video frame in %.2fs", elapsed))
-#endif
-            loadPendingExternalSubtitles()
-            if shouldPlay { setFlag("pause", false) }
-            scheduleVideoOutputWatchdog()
-        }
         let duration = getDouble("duration")
         let position = getDouble("time-pos")
         let speed = getDouble("speed")
@@ -839,6 +897,8 @@ final class ConduitMPVPlayerViewController: UIViewController {
         let videoCodec = getString("video-codec")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let activeFrameRate = getDouble("video-params/fps")
         let containerFrameRate = getDouble("container-fps")
+        let estimatedVideoFrameRate = getDouble("estimated-vf-fps")
+
         // Display dimensions account for sample aspect ratio and rotation, so
         // PiP cropping and subtitle positioning see the picture viewers see
         // rather than the storage grid.
@@ -852,20 +912,52 @@ final class ConduitMPVPlayerViewController: UIViewController {
             displayWidth = getInt("video-params/w")
             displayHeight = getInt("video-params/h")
         }
-        let decodedWidth = displayWidth
-        let decodedHeight = displayHeight
-        let nextVideoWidth = max(decodedWidth, 0)
-        let nextVideoHeight = max(decodedHeight, 0)
-        let videoSizeChanged = videoWidth != nextVideoWidth || videoHeight != nextVideoHeight
-        if !videoCodec.isEmpty { hasVideoStream = true }
 
-        _ = mpv
-        let mediaBuffering = buffering || seeking
+        return PlaybackStateSnapshot(
+            hasInitialVideoOutput: hasInitialVideoOutput,
+            duration: duration,
+            position: position,
+            speed: speed,
+            paused: paused,
+            eofReached: eofReached,
+            idle: idle,
+            seeking: seeking,
+            buffering: buffering,
+            videoCodec: videoCodec,
+            activeFrameRate: activeFrameRate,
+            containerFrameRate: containerFrameRate,
+            estimatedVideoFrameRate: estimatedVideoFrameRate,
+            displayWidth: displayWidth,
+            displayHeight: displayHeight,
+            displayFps: getDouble("estimated-display-fps"),
+            vsyncJitter: getDouble("estimated-vsync-jitter"),
+            vsyncRatio: getDouble("vsync-ratio")
+        )
+    }
+
+    private func applyPlaybackStateSnapshot(_ snapshot: PlaybackStateSnapshot) {
+        if waitingForInitialVideoFrame, hasLoadedFile, snapshot.hasInitialVideoOutput {
+            waitingForInitialVideoFrame = false
+#if DEBUG
+            let elapsed = ProcessInfo.processInfo.systemUptime - loadStartedAtUptime
+            print(String(format: "[Conduit MPV][startup] first video frame in %.2fs", elapsed))
+#endif
+            loadPendingExternalSubtitles()
+            if shouldPlay { setFlag("pause", false) }
+            scheduleVideoOutputWatchdog()
+        }
+
+        let nextVideoWidth = max(snapshot.displayWidth, 0)
+        let nextVideoHeight = max(snapshot.displayHeight, 0)
+        let videoSizeChanged = videoWidth != nextVideoWidth || videoHeight != nextVideoHeight
+        if !snapshot.videoCodec.isEmpty { hasVideoStream = true }
+
+        let mediaBuffering = snapshot.buffering || snapshot.seeking
         isPlayerBuffering = hasLoadedFile
             && !waitingForInitialVideoFrame
             && shouldPlay
-            && !paused
-            && !eofReached
+            && !snapshot.paused
+            && !snapshot.eofReached
             && !isSurfaceTransitionInProgress
             && mediaBuffering
         isPlayerLoading = waitingForInitialVideoFrame || !hasLoadedFile
@@ -878,16 +970,18 @@ final class ConduitMPVPlayerViewController: UIViewController {
         isPlayerPlaying = hasLoadedFile
             && !waitingForInitialVideoFrame
             && shouldPlay
-            && !paused
-            && !eofReached
-        isPlayerEnded = eofReached
-        durationMs = Int64(max(duration, 0) * 1000)
-        positionMs = Int64(max(position, 0) * 1000)
+            && !snapshot.paused
+            && !snapshot.eofReached
+        isPlayerEnded = snapshot.eofReached
+        positionMs = Int64(max(snapshot.position, 0) * 1000)
+        durationMs = Int64(max(snapshot.duration, 0) * 1000)
         videoWidth = nextVideoWidth
         videoHeight = nextVideoHeight
-        currentSpeed = Float(speed > 0 ? speed : 1.0)
-        videoFrameRate = activeFrameRate > 0 ? activeFrameRate : (
-            containerFrameRate > 0 ? containerFrameRate : 30
+        currentSpeed = Float(snapshot.speed > 0 ? snapshot.speed : 1.0)
+        videoFrameRate = Self.preferredFrameRate(
+            active: snapshot.activeFrameRate,
+            container: snapshot.containerFrameRate,
+            estimated: snapshot.estimatedVideoFrameRate
         )
         pictureInPictureClock.update(
             positionMs: positionMs,
@@ -902,14 +996,27 @@ final class ConduitMPVPlayerViewController: UIViewController {
         // playback from paying for a second frame copy every refresh.
 #if DEBUG
         debugPlaybackState(
-            position: position,
-            paused: paused,
-            cachePaused: buffering,
-            coreIdle: idle,
-            seeking: seeking,
+            position: snapshot.position,
+            paused: snapshot.paused,
+            cachePaused: snapshot.buffering,
+            coreIdle: snapshot.idle,
+            seeking: snapshot.seeking,
+            displayFps: snapshot.displayFps,
+            vsyncJitter: snapshot.vsyncJitter,
+            vsyncRatio: snapshot.vsyncRatio,
             drawable: metalLayer.drawableHeartbeatSnapshot()
         )
 #endif
+    }
+
+    private static func preferredFrameRate(
+        active: Double,
+        container: Double,
+        estimated: Double
+    ) -> Double {
+        if container.isFinite, container >= 12 { return container }
+        if estimated.isFinite, estimated >= 12 { return estimated }
+        return active > 0 ? active : 30
     }
 
     fileprivate var videoContentSize: CGSize {
@@ -976,6 +1083,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
             pictureInPicture = nil
             return
         }
+        bumpPlaybackStateGeneration()
         mpv = nil
         invalidateExternalSubtitleLoads()
 
@@ -987,6 +1095,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
             DispatchQueue.global(qos: .userInitiated).async { [self] in
                 subtitleQueue.sync {}
                 eventQueue.sync {}
+                playbackStateQueue.sync {}
                 mpv_terminate_destroy(context)
             }
         }
@@ -1205,14 +1314,11 @@ final class ConduitMPVPlayerViewController: UIViewController {
         refreshPlaybackState()
         guard shouldWatchVideoOutput else { return }
 
-        // A genuine cache wait or seek is owned by MPV. Rebinding the video
-        // output while the demuxer is waiting would only add more churn.
-        guard !getFlag("paused-for-cache"),
-              !getFlag("core-idle"),
-              !getFlag("seeking"),
-              !getFlag("pause"),
-              !getFlag("eof-reached")
-        else {
+        // A genuine cache wait, seek, pause, or end-of-file state is owned by
+        // MPV. The state refresh above samples those flags on the MPV queue;
+        // using the published values here keeps the watchdog from blocking
+        // the main thread with five synchronous property reads.
+        guard isPlayerPlaying, !isPlayerBuffering, !isPlayerEnded else {
             scheduleVideoOutputWatchdog()
             return
         }
@@ -1472,6 +1578,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
 
     private func startLoad(_ request: ConduitPendingLoad) {
         guard mpv != nil else { return }
+        bumpPlaybackStateGeneration()
         debugLog(
             "start load id=\(ObjectIdentifier(self)) " +
             "externalSubtitles=\(request.subtitles.count)"
@@ -1989,6 +2096,9 @@ final class ConduitMPVPlayerViewController: UIViewController {
         cachePaused: Bool,
         coreIdle: Bool,
         seeking: Bool,
+        displayFps: Double,
+        vsyncJitter: Double,
+        vsyncRatio: Double,
         drawable: (count: UInt64, uptime: TimeInterval)
     ) {
         let snapshot = [
@@ -2007,9 +2117,9 @@ final class ConduitMPVPlayerViewController: UIViewController {
             "rebind=\(videoOutputRecoveryState.result.rawValue)",
             "recoveryAttempts=\(videoOutputRecoveryState.attempts)",
             "recoveryElapsed=\(recoveryElapsedDescription)",
-            String(format: "displayFps=%.2f", getDouble("estimated-display-fps")),
-            String(format: "vsyncJitter=%.4f", getDouble("estimated-vsync-jitter")),
-            String(format: "vsyncRatio=%.3f", getDouble("vsync-ratio")),
+            String(format: "displayFps=%.2f", displayFps),
+            String(format: "vsyncJitter=%.4f", vsyncJitter),
+            String(format: "vsyncRatio=%.3f", vsyncRatio),
         ].joined(separator: " ")
         guard snapshot != lastDebugPlaybackSnapshot else { return }
         lastDebugPlaybackSnapshot = snapshot
