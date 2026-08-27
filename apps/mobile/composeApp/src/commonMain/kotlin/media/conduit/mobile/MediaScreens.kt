@@ -826,22 +826,12 @@ internal fun MediaDetailsScreen(
         requestedAddons: List<InstalledAddonSummary>,
         autoResume: Boolean,
     ): Result<List<StreamSource>> {
-        suspend fun loadWithRetry(): Result<List<StreamSource>> {
-            var result = Result.failure<List<StreamSource>>(IllegalStateException("Unable to load streams"))
-            repeat(3) { attempt ->
-                result = runCatching {
-                    api.loadStreams(
-                        requestedAddons,
-                        item.type,
-                        videoId,
-                        debugLogging = preferences.debugLogging,
-                    )
-                }
-                if (result.isSuccess && result.getOrThrow().isNotEmpty()) return result
-                if (attempt < 2) delay(400L * (attempt + 1))
-            }
-            return result
-        }
+        suspend fun load(): List<StreamSource> = api.loadStreams(
+            requestedAddons,
+            item.type,
+            videoId,
+            debugLogging = preferences.debugLogging,
+        )
 
         return if (autoResume) {
             // The up-next banner prefetches with the same all-addons request the
@@ -851,10 +841,13 @@ internal fun MediaDetailsScreen(
                 prefetchedStreams = prefetchedStreams - videoId
                 return prefetched
             }
-            withTimeoutOrNull(AUTO_RESUME_TIMEOUT_MS) { loadWithRetry() }
-                ?: Result.failure(AutoResumeTimeoutException())
+            loadStreamsWithRetry(
+                load = ::load,
+                timeoutMillis = AUTO_RESUME_TIMEOUT_MS,
+                timeoutFailure = ::AutoResumeTimeoutException,
+            )
         } else {
-            loadWithRetry()
+            loadStreamsWithRetry(::load)
         }
     }
 
@@ -2915,7 +2908,7 @@ internal fun PlayerStreamDrawer(
                         Spacer(Modifier.width(6.dp))
                         Text("Back")
                     }
-                    FilledTonalIconButton(onClick = onRetry, enabled = !loading) {
+                    FilledTonalIconButton(onClick = onRetry) {
                         Icon(Icons.Rounded.Refresh, "Reload streams")
                     }
                     Text(
@@ -3108,7 +3101,7 @@ private fun StreamSelectionScreen(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 item {
-                    FilledTonalIconButton(onClick = onRetry, enabled = !loading) {
+                    FilledTonalIconButton(onClick = onRetry) {
                         Icon(Icons.Rounded.Refresh, "Refresh sources")
                     }
                 }
