@@ -44,5 +44,13 @@ class PlayerStateTest {
             PLAYER_ACTION_BOTTOM_PADDING_DP,
             playerActionBottomPaddingDp(controlsVisible = false, compactUpNext = false),
         )
+        assertEquals(
+            TABLET_PLAYER_ACTION_BOTTOM_PADDING_DP,
+            playerActionBottomPaddingDp(
+                controlsVisible = true,
+                compactUpNext = false,
+                isTablet = true,
+            ),
+        )
     }
 }
