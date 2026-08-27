@@ -490,10 +490,7 @@ internal fun savedStreamStartupStalled(
     request: PlaybackRequest,
     playback: PlaybackState,
 ): Boolean = request.autoRecoveryAttempt &&
-    playback.positionMs <= request.startPositionMs &&
-    !playback.playing &&
-    !playback.ended &&
-    (playback.videoWidth <= 0 || playback.videoHeight <= 0)
+    playbackStartupStalled(playback)
 
 internal fun shouldPresentPlaybackError(
     request: PlaybackRequest,
@@ -507,10 +504,18 @@ internal fun manualSourceSwitchStartupStalled(
     request: PlaybackRequest,
     playback: PlaybackState,
 ): Boolean = request.manualSourceSwitch &&
-    playback.positionMs <= request.startPositionMs &&
+    playbackStartupStalled(playback)
+
+// MPV can publish a demux timestamp and metadata dimensions before it presents
+// a frame. Its loading flag remains authoritative until that first frame exists.
+private fun playbackStartupStalled(playback: PlaybackState): Boolean =
     !playback.playing &&
     !playback.ended &&
-    (playback.videoWidth <= 0 || playback.videoHeight <= 0)
+    (
+        playback.loading ||
+            playback.videoWidth <= 0 ||
+            playback.videoHeight <= 0
+    )
 
 private fun PlaybackRequest.persistenceKey(): String =
     "${identity.profileId}\u0000${identity.videoId}"
