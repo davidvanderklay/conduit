@@ -81,6 +81,11 @@ final class ConduitPictureInPictureFrameCapture {
         self.commandQueue = queue
 
         CVMetalTextureCacheCreate(kCFAllocatorDefault, nil, device, nil, &textureCache)
+
+        // MPV initializes the layer with framebufferOnly enabled. Capture
+        // makes it blit-readable only after the render surface is configured,
+        // matching Enhanced Nuvio's lifecycle.
+        metalLayer.framebufferOnly = false
     }
 
     var enqueuedFrames: UInt64 {

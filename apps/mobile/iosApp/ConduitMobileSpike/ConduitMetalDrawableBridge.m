@@ -13,6 +13,11 @@ BOOL ConduitAddMetalDrawablePresentedHandler(
     typedef void (*ConduitAddPresentedHandler)(id, SEL, id);
     ConduitAddPresentedHandler addPresentedHandler =
         (ConduitAddPresentedHandler)objc_msgSend;
-    addPresentedHandler(drawable, selector, handler);
+    ConduitMetalDrawablePresentedHandler presentedHandler =
+        ^(id<MTLDrawable> presentedDrawable) {
+            id<CAMetalDrawable> metalDrawable = (id<CAMetalDrawable>)presentedDrawable;
+            handler(metalDrawable.texture);
+        };
+    addPresentedHandler(drawable, selector, presentedHandler);
     return YES;
 }

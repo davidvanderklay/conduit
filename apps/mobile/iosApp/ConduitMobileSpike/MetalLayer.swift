@@ -113,14 +113,6 @@ final class ConduitMetalLayer: CAMetalLayer {
         }
     }
 
-    /// PiP reads the final drawable as a blit source. MPVKit's MoltenVK setup
-    /// enables framebufferOnly for normal presentation, which would make that
-    /// texture unavailable to the capture path. Keep it shader/blit-readable.
-    override var framebufferOnly: Bool {
-        get { super.framebufferOnly }
-        set { super.framebufferOnly = false }
-    }
-
     /// Stops handing drawables to MoltenVK's swapchain loop when acquisition
     /// keeps failing (for example while backgrounded without PiP). While
     /// suspended, nextDrawable sleeps briefly and returns nil, probing the
@@ -223,19 +215,16 @@ final class ConduitMetalLayer: CAMetalLayer {
             return drawable
         }
 
-        // MTLDrawable's presented handler runs after MPV's command buffer has
-        // presented the texture. Read its texture before registering the
-        // callback; asking a presented CAMetalDrawable for its texture is
-        // invalid and produces a Metal warning on the first PiP transition.
-        let sourceTexture = drawable.texture
-        let registered = ConduitAddMetalDrawablePresentedHandler(drawable) { _ in
-            handler(sourceTexture, currentPresentationID)
+        // Read the texture from the drawable inside the presented callback,
+        // matching Enhanced Nuvio's lifetime and synchronization behavior.
+        let registered = ConduitAddMetalDrawablePresentedHandler(drawable) { texture in
+            handler(texture, currentPresentationID)
         }
         if !registered {
             // The iOS simulator SDK currently omits the presentation
             // handler requirement even though device Metal supports it.
             // Keep simulator playback usable with a bounded fallback.
-            handler(sourceTexture, currentPresentationID)
+            handler(drawable.texture, currentPresentationID)
         }
         return drawable
     }

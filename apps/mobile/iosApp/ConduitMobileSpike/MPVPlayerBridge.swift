@@ -314,7 +314,6 @@ final class ConduitMPVPlayerViewController: UIViewController {
     private let errorLock = NSLock()
     fileprivate let pictureInPictureClock = ConduitPipPlaybackClock()
     private var metalLayer = ConduitMetalLayer()
-    private let pictureInPicturePlaceholderLayer = CALayer()
     private var pictureInPicture: ConduitPictureInPictureCoordinator?
     private lazy var subtitleFontController = ConduitSubtitleFontController()
     private var mpv: OpaquePointer?
@@ -360,7 +359,6 @@ final class ConduitMPVPlayerViewController: UIViewController {
     private var loadStartedAtUptime: TimeInterval = 0
     private var destroyStarted = false
     private var audioSessionActivationRequested = false
-    private var frameRateDisplayLink: CADisplayLink?
     private var resizeMode = 0
     private var automaticPipHomeSwipeCandidate = false
     private var automaticPipHomeSwipeEdge: AutomaticPipSwipeEdge?
@@ -403,17 +401,14 @@ final class ConduitMPVPlayerViewController: UIViewController {
         // forcing RGBA16F doubles the surface bandwidth and makes active PiP
         // compete with inline presentation for GPU time.
         metalLayer.pixelFormat = .bgra8Unorm
-        metalLayer.framebufferOnly = false
+        metalLayer.framebufferOnly = true
         metalLayer.backgroundColor = UIColor.black.cgColor
         metalLayer.anchorPoint = CGPoint(x: 0, y: 0)
         metalLayer.position = .zero
         view.layer.addSublayer(metalLayer)
-        pictureInPicture = ConduitPictureInPictureCoordinator(owner: self, metalLayer: metalLayer)
-        pictureInPicturePlaceholderLayer.backgroundColor = UIColor.black.cgColor
-        pictureInPicturePlaceholderLayer.opacity = 0
-        view.layer.addSublayer(pictureInPicturePlaceholderLayer)
 
         setupMpv()
+        pictureInPicture = ConduitPictureInPictureCoordinator(owner: self, metalLayer: metalLayer)
         configureAudioSession()
         lifecycleObservers.append(NotificationCenter.default.addObserver(
             forName: UIApplication.willResignActiveNotification,
@@ -539,7 +534,6 @@ final class ConduitMPVPlayerViewController: UIViewController {
         super.viewDidLayoutSubviews()
         layoutMetalLayer()
         pictureInPicture?.layout(in: view.bounds)
-        pictureInPicturePlaceholderLayer.frame = view.bounds
         attemptStartPendingLoad()
     }
 
@@ -1067,8 +1061,6 @@ final class ConduitMPVPlayerViewController: UIViewController {
 
         lifecycleObservers.forEach(NotificationCenter.default.removeObserver)
         lifecycleObservers.removeAll()
-        frameRateDisplayLink?.invalidate()
-        frameRateDisplayLink = nil
         pendingRetry?.cancel()
         pendingRetry = nil
         pendingSurfaceLayoutWorkItems.forEach { $0.cancel() }
@@ -1456,13 +1448,6 @@ final class ConduitMPVPlayerViewController: UIViewController {
         }
     }
 
-    fileprivate func setInlineVideoHiddenForPictureInPicture(_ hidden: Bool) {
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        pictureInPicturePlaceholderLayer.opacity = hidden ? 1 : 0
-        CATransaction.commit()
-    }
-
     private func setupMpv() {
         mpv = mpv_create()
         guard let mpv else {
@@ -1687,12 +1672,6 @@ final class ConduitMPVPlayerViewController: UIViewController {
             width: (bounds.width * scale).rounded(),
             height: (bounds.height * scale).rounded()
         )
-        // ProMotion devices default scenes to 60Hz, which forces 24fps video
-        // into uneven 2:3 pulldown (33/50ms frame gaps). A display link whose
-        // preferred range requests the panel's native rate keeps the whole
-        // scene at high refresh while playback runs, letting 24fps map to
-        // uniform intervals.
-        applyPreferredRefreshRate()
         if lastDrawableSize != .zero && size != lastDrawableSize {
             noteSurfaceGeometryChange()
         }
@@ -2139,24 +2118,6 @@ final class ConduitMPVPlayerViewController: UIViewController {
         return String(format: "%.2f", ProcessInfo.processInfo.systemUptime - started)
     }
 
-    private func applyPreferredRefreshRate() {
-        guard frameRateDisplayLink == nil, view.window != nil else { return }
-        let maxFps = Float(view.window?.screen.maximumFramesPerSecond ?? 60)
-        let link = CADisplayLink(target: self, selector: #selector(frameRatePump(_:)))
-        if #available(iOS 15.0, *) {
-            link.preferredFrameRateRange = CAFrameRateRange(
-                minimum: 24,
-                maximum: maxFps,
-                preferred: maxFps
-            )
-        }
-        link.add(to: .main, forMode: .common)
-        frameRateDisplayLink = link
-        debugLog("refresh rate request applied max=\(Int(maxFps))")
-    }
-
-    @objc private func frameRatePump(_ link: CADisplayLink) {}
-
     private func runOnMain(_ action: @escaping () -> Void) {
         if Thread.isMainThread { action() } else { DispatchQueue.main.async(execute: action) }
     }
@@ -2258,6 +2219,29 @@ extension ConduitMPVPlayerViewController: UIGestureRecognizerDelegate {
     }
 }
 
+private final class ConduitSampleBufferDisplayView: UIView {
+    override class var layerClass: AnyClass { AVSampleBufferDisplayLayer.self }
+
+    var displayLayer: AVSampleBufferDisplayLayer {
+        layer as! AVSampleBufferDisplayLayer
+    }
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .black
+        isUserInteractionEnabled = false
+        displayLayer.videoGravity = .resizeAspect
+        displayLayer.backgroundColor = UIColor.black.cgColor
+        if #available(iOS 17.0, *) {
+            displayLayer.wantsExtendedDynamicRangeContent = false
+        }
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+    }
+}
+
 /// Mirrors MPV's final Metal drawable into AVKit without creating a second
 /// decoder. Frame copying lives in ConduitPictureInPictureFrameCapture; this
 /// coordinator owns the AVKit session and the start/stop state machine.
@@ -2273,7 +2257,7 @@ final class ConduitPictureInPictureCoordinator: NSObject,
     AVPictureInPictureSampleBufferPlaybackDelegate {
     private weak var owner: ConduitMPVPlayerViewController?
     private let metalLayer: ConduitMetalLayer
-    private let displayLayer = AVSampleBufferDisplayLayer()
+    private let displayView: ConduitSampleBufferDisplayView
     private var frameCapture: ConduitPictureInPictureFrameCapture?
     private var controller: AVPictureInPictureController?
 
@@ -2299,17 +2283,19 @@ final class ConduitPictureInPictureCoordinator: NSObject,
     private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
     private var lastLayoutSize: CGSize = .zero
 
+    private var displayLayer: AVSampleBufferDisplayLayer { displayView.displayLayer }
+
     init(owner: ConduitMPVPlayerViewController, metalLayer: ConduitMetalLayer) {
         self.owner = owner
         self.metalLayer = metalLayer
+        self.displayView = ConduitSampleBufferDisplayView(frame: .zero)
         super.init()
 
-        displayLayer.videoGravity = .resizeAspect
-        displayLayer.backgroundColor = UIColor.black.cgColor
-        if #available(iOS 17.0, *) {
-            displayLayer.wantsExtendedDynamicRangeContent = false
-        }
-        owner.view.layer.insertSublayer(displayLayer, at: 0)
+        // Keep the AVKit source live in the hierarchy without covering the
+        // inline Metal surface. Enhanced Nuvio uses the same view-backed
+        // surface and starts it nearly transparent.
+        displayView.alpha = 0.01
+        owner.view.insertSubview(displayView, at: 0)
 
         frameCapture = ConduitPictureInPictureFrameCapture(
             displayLayer: displayLayer,
@@ -2366,7 +2352,7 @@ final class ConduitPictureInPictureCoordinator: NSObject,
     func layout(in bounds: CGRect) {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        displayLayer.frame = bounds
+        displayView.frame = bounds
         CATransaction.commit()
         if lastLayoutSize != bounds.size {
             lastLayoutSize = bounds.size
@@ -2414,7 +2400,6 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         flushDisplayLayer(removeImage: true)
         controller?.stopPictureInPicture()
         if !isActive {
-            owner?.setInlineVideoHiddenForPictureInPicture(false)
             owner?.resumeVideoOutputWatchdogAfterPictureInPicture()
         }
     }
@@ -2433,7 +2418,6 @@ final class ConduitPictureInPictureCoordinator: NSObject,
                     return
                 }
                 self.flushDisplayLayer(removeImage: true)
-                self.owner?.setInlineVideoHiddenForPictureInPicture(false)
                 self.owner?.resumeVideoOutputWatchdogAfterPictureInPicture()
                 completion()
             }
@@ -2605,15 +2589,16 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         abortCancelWork = nil
         endBackgroundTask()
 
-        let displayLayer = self.displayLayer
+        let displayView = self.displayView
         frameCapture?.stopRendering(removeDisplayedImage: true) {
             let cleanup = {
+                let displayLayer = displayView.displayLayer
                 if #available(iOS 18.0, *) {
                     displayLayer.sampleBufferRenderer.flush(removingDisplayedImage: true, completionHandler: nil)
                 } else {
                     displayLayer.flushAndRemoveImage()
                 }
-                displayLayer.removeFromSuperlayer()
+                displayView.removeFromSuperview()
                 completion?()
             }
             if Thread.isMainThread {
@@ -2710,7 +2695,6 @@ final class ConduitPictureInPictureCoordinator: NSObject,
             owner.suspendVideoTrackForBackground(reason: "pip-start-failed")
             return
         }
-        owner.setInlineVideoHiddenForPictureInPicture(false)
         if wasPreserved {
             ignorePauseUntil = CACurrentMediaTime() + 1.0
             owner.playPlayback()
@@ -2842,7 +2826,6 @@ final class ConduitPictureInPictureCoordinator: NSObject,
     func pictureInPictureControllerWillStartPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
         debugLog("will start")
         transitionBegan = true
-        owner?.setInlineVideoHiddenForPictureInPicture(true)
     }
 
     func pictureInPictureControllerDidStartPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
@@ -2900,7 +2883,6 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         frameCapture?.markActive(false)
         frameCapture?.stopRendering(removeDisplayedImage: true)
         flushDisplayLayer(removeImage: true)
-        owner?.setInlineVideoHiddenForPictureInPicture(false)
         // Dismissing PiP from the home screen keeps MPV running as audio
         // only; the video-output watchdog must stay suspended there or it
         // would flag the absent swapchain as a failure.

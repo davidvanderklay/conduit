@@ -3,7 +3,7 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-typedef void (^ConduitMetalDrawablePresentedHandler)(id<MTLDrawable> drawable);
+typedef void (^ConduitMetalDrawablePresentedHandler)(id<MTLTexture> texture);
 
 FOUNDATION_EXPORT BOOL ConduitAddMetalDrawablePresentedHandler(
     id<MTLDrawable> drawable,
