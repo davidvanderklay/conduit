@@ -30,3 +30,14 @@ internal fun shouldOpenStreamSelectionImmediately(
     autoSelectSavedStreams,
     savedSource,
 )
+
+/**
+ * Initial automatic stream resolution must not compete with an explicit
+ * playback transition such as Next. The transition already owns stream
+ * selection and will handle fallback through its own request.
+ */
+internal fun shouldRunAutomaticStreamResolution(
+    openMode: MediaOpenMode,
+    addonsAvailable: Boolean,
+    transitionActive: Boolean,
+): Boolean = openMode != MediaOpenMode.Details && addonsAvailable && !transitionActive

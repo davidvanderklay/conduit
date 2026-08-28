@@ -1230,7 +1230,13 @@ internal fun MediaDetailsScreen(
     val savedPlaybackSource = (selectedVideo?.id ?: effectiveInitialVideoId)?.let(::autoResumeSourceFor)
     val currentAutoResumeAttemptKey = savedPlaybackSource?.let(::autoResumeAttemptKey)
     LaunchedEffect(meta?.id, selectedVideo?.id, effectiveInitialVideoId, savedPlaybackSource, addonSignature, preferences.autoSelectSavedStreams, autoResumeRequested) {
-        if (!autoResumeRequested || addons.isEmpty()) return@LaunchedEffect
+        if (
+            !shouldRunAutomaticStreamResolution(
+                openMode = openMode,
+                addonsAvailable = addons.isNotEmpty(),
+                transitionActive = playbackSession.state.transition != null,
+            )
+        ) return@LaunchedEffect
         if (item.type == "series" && effectiveInitialVideoId == null && selectedVideo == null) return@LaunchedEffect
         val targetVideoId = selectedVideo?.id ?: effectiveInitialVideoId ?: item.id
         val ownsTargetPlayback = playbackSession.state.request?.identity?.let { identity ->
