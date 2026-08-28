@@ -12,15 +12,27 @@ interface IosOAuthBridge {
     fun openSystemBrowser(url: String)
 }
 
+/** Presents the native share sheet from the iOS application host. */
+interface IosShareBridge {
+    fun shareText(text: String)
+}
+
 object IosPlatformBridgeFactory {
     private var secureStore: IosSecureStoreBridge? = null
     private var oauthBridge: IosOAuthBridge? = null
+    private var shareBridge: IosShareBridge? = null
 
-    fun register(secureStore: IosSecureStoreBridge, oauthBridge: IosOAuthBridge) {
+    fun register(
+        secureStore: IosSecureStoreBridge,
+        oauthBridge: IosOAuthBridge,
+        shareBridge: IosShareBridge,
+    ) {
         this.secureStore = secureStore
         this.oauthBridge = oauthBridge
+        this.shareBridge = shareBridge
     }
 
     fun secureStore(): IosSecureStoreBridge? = secureStore
     fun oauthBridge(): IosOAuthBridge? = oauthBridge
+    fun shareBridge(): IosShareBridge? = shareBridge
 }

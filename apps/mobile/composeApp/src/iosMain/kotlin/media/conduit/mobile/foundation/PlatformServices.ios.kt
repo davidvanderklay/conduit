@@ -48,6 +48,7 @@ actual fun rememberPlatformServices(): PlatformServices = remember {
             device = device.model,
             isTablet = device.userInterfaceIdiom == UIUserInterfaceIdiomPad,
         ),
+        shareText = { text -> IosPlatformBridgeFactory.shareBridge()?.shareText(text) },
     )
 }
 

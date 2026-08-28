@@ -104,6 +104,7 @@ fun App() {
     }
     var preferences by remember { mutableStateOf(initialPreferences) }
     val updatePreferences: (DevicePreferences) -> Unit = { preferences = preferencesRepository.save(it) }
+    SideEffect { DiagnosticLogStore.setDebugLoggingEnabled(preferences.debugLogging) }
     ConduitTheme(amoledBlack = preferences.amoledBlack) {
         val store = remember(services.settings, services.secure) {
             AppStore(services.settings, SessionVault(services.secure))
@@ -323,6 +324,7 @@ private fun AccountGate(
                     progressDatabase = progressDatabase,
                     preferences = preferences,
                     onPreferencesChanged = onPreferencesChanged,
+                    shareText = services.shareText,
                     dispatch = dispatch,
                     onSignOut = {
                         accountScope.launch {
@@ -753,6 +755,7 @@ private fun AppShell(
     progressDatabase: ProgressDatabase,
     preferences: DevicePreferences,
     onPreferencesChanged: (DevicePreferences) -> Unit,
+    shareText: (String) -> Unit,
     dispatch: (AppAction) -> Unit,
     onSignOut: () -> Unit,
     onProfilesChanged: (String?) -> Unit,
@@ -1123,7 +1126,7 @@ private fun AppShell(
                             ::mutateProfile,
                             browseQuery, { browseQuery = it }, discoverSelection, { discoverSelection = it }, openBrowse,
                             { openProfile(ProfileLaunchTarget.History, returnToLibrary = true) },
-                            preferences, onPreferencesChanged, homeListState, searchListState, discoverGridState, libraryGridState, continueWatchingGridState, settingsListState,
+                            preferences, onPreferencesChanged, shareText, homeListState, searchListState, discoverGridState, libraryGridState, continueWatchingGridState, settingsListState,
                             homeCache,
                             profileLaunchRequest,
                             playbackSession,
@@ -1144,7 +1147,7 @@ private fun AppShell(
                     ::mutateProfile,
                     browseQuery, { browseQuery = it }, discoverSelection, { discoverSelection = it }, openBrowse,
                     { openProfile(ProfileLaunchTarget.History, returnToLibrary = true) },
-                    preferences, onPreferencesChanged, homeListState, searchListState, discoverGridState, libraryGridState, continueWatchingGridState, settingsListState,
+                    preferences, onPreferencesChanged, shareText, homeListState, searchListState, discoverGridState, libraryGridState, continueWatchingGridState, settingsListState,
                     homeCache,
                     profileLaunchRequest,
                     playbackSession,
@@ -1412,6 +1415,7 @@ private fun DestinationContent(
     onOpenHistoryFromLibrary: () -> Unit,
     preferences: DevicePreferences,
     onPreferencesChanged: (DevicePreferences) -> Unit,
+    shareText: (String) -> Unit,
     homeListState: androidx.compose.foundation.lazy.LazyListState,
     searchListState: androidx.compose.foundation.lazy.LazyListState,
     discoverGridState: androidx.compose.foundation.lazy.grid.LazyGridState,
@@ -1468,7 +1472,8 @@ private fun DestinationContent(
                     state, platform, account, activeProfile, profileSync, api, active, dispatch, onSignOut,
                     onProfilesChanged, { if (active) onProfileFlowChanged(it) }, onProfileDataChanged,
                     onProfileMutation, onSelectMedia,
-                    preferences, onPreferencesChanged, settingsListState = settingsListState,
+                    preferences, onPreferencesChanged, shareText = shareText,
+                    settingsListState = settingsListState,
                     launchRequest = profileLaunchRequest, modifier = tabModifier,
                 )
                 AppDestination.ContinueWatching -> MobileContinueWatchingScreen(
@@ -1802,46 +1807,46 @@ private fun BoxScope.PlaybackSessionHost(
         } else {
             miniLayout.clip(RoundedCornerShape(10.dp))
         }
-        // Dispose the old native player before resolving the next episode. On iOS,
-        // this prevents slow external-subtitle commands from blocking the new load.
-        if (playbackTransition == null) {
-            NativePlayer(
-                url = request.url,
-                active = true,
-                presentation = session.presentation,
-                command = session.command,
-                startPositionMs = request.startPositionMs,
-                requestHeaders = request.requestHeaders,
-                subtitles = request.subtitles,
-                contentLogo = request.logo,
-                contentTitle = request.title,
-                hasNextEpisode = upNext != null,
-                onNextEpisode = controller::playNext,
-                hasEpisodes = request.hasEpisodes,
-                onEpisodes = controller::openEpisodes,
-                hasSources = true,
-                onSources = controller::openSources,
-                touchGestures = preferences.touchGestures,
-                holdToSpeed = preferences.holdToSpeed,
-                preferredAudioLanguage = preferences.preferredAudioLanguage,
-                preferredSubtitleLanguage = preferences.preferredSubtitleLanguage,
-                androidPlaybackEngine = preferences.androidPlaybackEngine,
-                onControlsVisibilityChanged = { controlsVisible = it },
-                onOverlayVisibilityChanged = { playerOverlayVisible = it },
-                onTemporarySpeedChanged = { temporarySpeedActive = it },
-                onSystemPipChanged = controller::systemPipChanged,
-                onSystemPipAvailabilityChanged = controller::systemPipAvailabilityChanged,
-                interactiveResize = miniGestureActive,
-                modifier = playerModifier,
-                onState = { playback ->
-                    controller.updatePlayback(
-                        session.sessionId,
-                        request.streamKeyForPlayback(),
-                        playback,
-                    )
-                },
-            )
-        }
+        // Keep one native player mounted while a replacement stream resolves.
+        // Nuvio follows this lifecycle: the existing surface stays attached and
+        // the bridge receives a new URL, avoiding a second UIKit/Metal startup
+        // race on the Next path.
+        NativePlayer(
+            url = request.url,
+            active = true,
+            presentation = session.presentation,
+            command = session.command,
+            startPositionMs = request.startPositionMs,
+            requestHeaders = request.requestHeaders,
+            subtitles = request.subtitles,
+            contentLogo = request.logo,
+            contentTitle = request.title,
+            hasNextEpisode = upNext != null,
+            onNextEpisode = controller::playNext,
+            hasEpisodes = request.hasEpisodes,
+            onEpisodes = controller::openEpisodes,
+            hasSources = true,
+            onSources = controller::openSources,
+            touchGestures = preferences.touchGestures,
+            holdToSpeed = preferences.holdToSpeed,
+            preferredAudioLanguage = preferences.preferredAudioLanguage,
+            preferredSubtitleLanguage = preferences.preferredSubtitleLanguage,
+            androidPlaybackEngine = preferences.androidPlaybackEngine,
+            onControlsVisibilityChanged = { controlsVisible = it },
+            onOverlayVisibilityChanged = { playerOverlayVisible = it },
+            onTemporarySpeedChanged = { temporarySpeedActive = it },
+            onSystemPipChanged = controller::systemPipChanged,
+            onSystemPipAvailabilityChanged = controller::systemPipAvailabilityChanged,
+            interactiveResize = miniGestureActive,
+            modifier = playerModifier,
+            onState = { playback ->
+                controller.updatePlayback(
+                    session.sessionId,
+                    request.streamKeyForPlayback(),
+                    playback,
+                )
+            },
+        )
 
         if (shouldHideInlinePlaybackForPip(systemPip, systemPipKeepsAppVisible)) {
             // The native player must keep decoding for PiP, but its inline

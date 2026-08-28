@@ -49,6 +49,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import media.conduit.mobile.account.DiagnosticLogStore
 import media.conduit.mobile.account.SubtitleItem
 
 private data class IosTrack(
@@ -161,6 +162,7 @@ actual fun NativePlayer(
     var playbackReady by remember(bridge) { mutableStateOf(false) }
     var audioTracks by remember(bridge) { mutableStateOf<List<IosTrack>>(emptyList()) }
     var subtitleTracks by remember(bridge) { mutableStateOf<List<IosTrack>>(emptyList()) }
+    var lastDiagnosticPlaybackState by remember(bridge) { mutableStateOf<String?>(null) }
 
     val encodedHeaders = remember(requestHeaders) {
         Json.encodeToString<Map<String, String>>(requestHeaders)
@@ -252,6 +254,13 @@ actual fun NativePlayer(
                     bridge.getErrorMessage().isBlank(),
             )
             currentCallback(next)
+            val diagnosticState = "loading=${next.loading} buffering=${next.buffering} playing=${next.playing} " +
+                "positionMs=${next.positionMs} durationMs=${next.durationMs} video=${next.videoWidth}x${next.videoHeight} " +
+                "ended=${next.ended} error=${next.error != null}"
+            if (diagnosticState != lastDiagnosticPlaybackState) {
+                lastDiagnosticPlaybackState = diagnosticState
+                DiagnosticLogStore.debug("playback/state", diagnosticState)
+            }
             if (!dragging) positionMs = next.positionMs
             durationMs = next.durationMs
             playbackReady = playbackReady || (
@@ -267,6 +276,15 @@ actual fun NativePlayer(
             latestPipAvailabilityCallback(bridge.isPictureInPictureSupported())
             latestPipCallback(bridge.isPictureInPictureActive())
             delay(500)
+        }
+    }
+
+    LaunchedEffect(bridge) {
+        while (isActive) {
+            bridge.drainDiagnosticEvents()
+                .takeIf(String::isNotBlank)
+                ?.let(DiagnosticLogStore::recordNativeEvent)
+            delay(250)
         }
     }
 
@@ -336,7 +354,10 @@ actual fun NativePlayer(
                     currentSpeed = bridge::getPlaybackSpeed,
                     setSpeed = bridge::setPlaybackSpeed,
                     onTemporarySpeedChanged = latestTemporarySpeedCallback,
-                    onTap = { controlsVisible = !controlsVisible },
+                    onTap = {
+                        DiagnosticLogStore.debug("playback/touch", "player surface tap controlsVisible=$controlsVisible")
+                        controlsVisible = !controlsVisible
+                    },
                     onDoubleTap = { offset ->
                         val forwardTap = offset.x >= size.width / 2f
                         seekFeedback.record(forwardTap)

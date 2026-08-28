@@ -6,6 +6,7 @@ import kotlin.time.TimeSource
 internal object LifecycleDiagnostics {
     fun event(name: String, detail: String? = null) {
         val suffix = detail?.takeIf(String::isNotBlank)?.let { " $it" }.orEmpty()
+        DiagnosticLogStore.info(name.replace('.', '/'), suffix.removePrefix(" "))
         println("[conduit.lifecycle] $name$suffix")
     }
 

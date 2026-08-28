@@ -232,6 +232,9 @@ final class ConduitMPVPlayerBridge: NSObject, IosPlayerBridge {
     func getVideoHeight() -> Int32 { Int32(playerViewController?.videoHeight ?? 0) }
     func getPlaybackSpeed() -> Float { playerViewController?.currentSpeed ?? 1.0 }
     func getErrorMessage() -> String { playerViewController?.currentErrorMessage ?? "" }
+    func drainDiagnosticEvents() -> String {
+        playerViewController?.drainDiagnosticEvents() ?? ""
+    }
 
     func destroy() {
         let controller = playerViewController
@@ -324,6 +327,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
     private let subtitleQueue = DispatchQueue(label: "media.conduit.mpv-subtitles", qos: .utility)
     private let subtitleLock = NSLock()
     private let errorLock = NSLock()
+    private let diagnosticLock = NSLock()
     fileprivate let pictureInPictureClock = ConduitPipPlaybackClock()
     private var metalLayer = ConduitMetalLayer()
     private var pictureInPicture: ConduitPictureInPictureCoordinator?
@@ -375,6 +379,9 @@ final class ConduitMPVPlayerViewController: UIViewController {
     private var automaticPipHomeSwipeCandidate = false
     private var automaticPipHomeSwipeEdge: AutomaticPipSwipeEdge?
     private var lastDebugPlaybackSnapshot: String?
+    private var pendingDiagnosticEvents: [String] = []
+    private var lastSurfaceDiagnostic: String?
+    private var lastPendingLoadDiagnostic: String?
     private var videoFrameRate = 30.0
 
     fileprivate var audioTracks: [ConduitTrack] = []
@@ -403,6 +410,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        emitDiagnostic(level: "info", category: "ios/player", message: "native player view loaded")
         view.backgroundColor = .black
         view.layer.masksToBounds = true
 
@@ -468,6 +476,17 @@ final class ConduitMPVPlayerViewController: UIViewController {
         homeSwipeRecognizer.delegate = self
         homeSwipeRecognizer.cancelsTouchesInView = false
         view.addGestureRecognizer(homeSwipeRecognizer)
+        syncVideoSurfaceLayoutNow(size: externallyManagedViewSize, scheduleDeferredPasses: false)
+        attemptStartPendingLoad()
+    }
+
+    fileprivate func drainDiagnosticEvents() -> String {
+        diagnosticLock.lock()
+        defer { diagnosticLock.unlock() }
+        guard !pendingDiagnosticEvents.isEmpty else { return "" }
+        let events = pendingDiagnosticEvents.joined(separator: "\n")
+        pendingDiagnosticEvents.removeAll(keepingCapacity: true)
+        return events
     }
 
     /// Detects the Home-transition swipe: up from the bottom edge in
@@ -620,6 +639,11 @@ final class ConduitMPVPlayerViewController: UIViewController {
         headers: [String: String],
         subtitles: [ConduitSubtitle]
     ) {
+        emitDiagnostic(
+            level: "info",
+            category: "ios/load",
+            message: "load requested startMs=\(max(0, initialPositionMs)) headers=\(headers.count) subtitles=\(subtitles.count)",
+        )
         let request = ConduitPendingLoad(
             url: url,
             initialPositionMs: max(0, initialPositionMs),
@@ -942,8 +966,9 @@ final class ConduitMPVPlayerViewController: UIViewController {
     private func applyPlaybackStateSnapshot(_ snapshot: PlaybackStateSnapshot) {
         if waitingForInitialVideoFrame, hasLoadedFile, snapshot.hasInitialVideoOutput {
             waitingForInitialVideoFrame = false
-#if DEBUG
             let elapsed = ProcessInfo.processInfo.systemUptime - loadStartedAtUptime
+            emitDiagnostic(level: "info", category: "ios/startup", message: String(format: "first video output elapsed=%.2fs", elapsed))
+#if DEBUG
             print(String(format: "[Conduit MPV][startup] first video frame in %.2fs", elapsed))
 #endif
             loadPendingExternalSubtitles()
@@ -1558,10 +1583,22 @@ final class ConduitMPVPlayerViewController: UIViewController {
             measuredSize: externallyManagedViewSize
         )
         guard shouldStartPendingLoad(surfaceSize: surfaceSize) else {
+            let measured = externallyManagedViewSize.map {
+                "\(Int($0.width))x\(Int($0.height))"
+            } ?? "none"
+            let diagnostic = "pending load waiting for surface view=\(Int(view.bounds.width))x\(Int(view.bounds.height)) measured=\(measured)"
+            if lastPendingLoadDiagnostic != diagnostic {
+                lastPendingLoadDiagnostic = diagnostic
+                emitDiagnostic(level: "warn", category: "ios/surface", message: diagnostic)
+                debugLog(diagnostic)
+            }
             schedulePendingRetry()
             return
         }
 
+        lastPendingLoadDiagnostic = nil
+        emitDiagnostic(level: "info", category: "ios/surface", message: "pending load surface ready size=\(Int(surfaceSize.width))x\(Int(surfaceSize.height))")
+        debugLog("pending load surface ready size=\(Int(surfaceSize.width))x\(Int(surfaceSize.height))")
         layoutMetalLayer()
         pendingLoad = nil
         pendingRetry?.cancel()
@@ -1574,8 +1611,10 @@ final class ConduitMPVPlayerViewController: UIViewController {
         bumpPlaybackStateGeneration()
         debugLog(
             "start load id=\(ObjectIdentifier(self)) " +
+            "startMs=\(request.initialPositionMs) " +
             "externalSubtitles=\(request.subtitles.count)"
         )
+        emitDiagnostic(level: "info", category: "ios/load", message: "starting load startMs=\(request.initialPositionMs) subtitles=\(request.subtitles.count)")
         layoutMetalLayer()
         pictureInPictureClock.reset(positionMs: request.initialPositionMs)
         clearError()
@@ -1771,12 +1810,28 @@ final class ConduitMPVPlayerViewController: UIViewController {
         size: CGSize? = nil,
         scheduleDeferredPasses: Bool
     ) {
-        guard isViewLoaded, !destroyStarted else { return }
         if let size, size.width > 1, size.height > 1 {
             externallyManagedViewSize = size
             videoSurfaceSize = size
-        } else if view.bounds.width > 1, view.bounds.height > 1 {
+        } else if isViewLoaded, view.bounds.width > 1, view.bounds.height > 1 {
             videoSurfaceSize = view.bounds.size
+        }
+        guard isViewLoaded, !destroyStarted else {
+            if size?.width ?? 0 > 1, size?.height ?? 0 > 1 {
+                let cachedSize = size ?? .zero
+                emitDiagnostic(level: "info", category: "ios/surface", message: "surface measurement cached before view load size=\(Int(cachedSize.width))x\(Int(cachedSize.height))")
+                debugLog("surface measurement cached before view load size=\(Int(cachedSize.width))x\(Int(cachedSize.height))")
+            }
+            return
+        }
+        let measured = externallyManagedViewSize.map {
+            "\(Int($0.width))x\(Int($0.height))"
+        } ?? "none"
+        let surfaceDiagnostic = "surface sync viewLoaded=true bounds=\(Int(view.bounds.width))x\(Int(view.bounds.height)) measured=\(measured)"
+        if lastSurfaceDiagnostic != surfaceDiagnostic {
+            lastSurfaceDiagnostic = surfaceDiagnostic
+            emitDiagnostic(level: "info", category: "ios/surface", message: surfaceDiagnostic)
+            debugLog(surfaceDiagnostic)
         }
         updateSubtitlePosition()
         // Compose owns the embedded controller's view geometry. Forcing its
@@ -1784,6 +1839,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
         // Compose's hidden input view while the app is entering the foreground.
         view.setNeedsLayout()
         layoutMetalLayer()
+        attemptStartPendingLoad()
 
         guard scheduleDeferredPasses else { return }
         pendingSurfaceLayoutWorkItems.forEach { $0.cancel() }
@@ -1852,8 +1908,9 @@ final class ConduitMPVPlayerViewController: UIViewController {
                         guard let self else { return }
                         self.hasLoadedFile = true
                         self.clearError()
-#if DEBUG
                         let elapsed = ProcessInfo.processInfo.systemUptime - self.loadStartedAtUptime
+                        self.emitDiagnostic(level: "info", category: "ios/startup", message: String(format: "file loaded elapsed=%.2fs", elapsed))
+#if DEBUG
                         print(String(format: "[Conduit MPV][startup] file loaded in %.2fs", elapsed))
 #endif
                         self.refreshPlaybackState()
@@ -1886,6 +1943,14 @@ final class ConduitMPVPlayerViewController: UIViewController {
                     else { continue }
                     let text = String(cString: message).trimmingCharacters(in: .whitespacesAndNewlines)
                     let levelString = String(cString: level)
+                    let nativeLevel: String
+                    switch levelString {
+                    case "error", "fatal": nativeLevel = "error"
+                    case "warn", "warning": nativeLevel = "warn"
+                    case "info": nativeLevel = "info"
+                    default: nativeLevel = "debug"
+                    }
+                    self.emitDiagnostic(level: nativeLevel, category: "ios/mpv", message: text)
 #if DEBUG
                     let rawLog = UnsafeMutablePointer<mpv_event_log_message>(OpaquePointer(data)).pointee
                     let prefix = rawLog.prefix.map(String.init(cString:)) ?? "mpv"
@@ -2117,11 +2182,24 @@ final class ConduitMPVPlayerViewController: UIViewController {
     }
 
     private func debugLog(_ message: String) {
+        emitDiagnostic(level: "debug", category: "ios/mpv", message: message)
 #if DEBUG
         print("[Conduit MPV][diagnostic] \(message)")
-#else
-        _ = message
 #endif
+    }
+
+    private func emitDiagnostic(level: String, category: String, message: String) {
+        let sanitized = message
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\t", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !sanitized.isEmpty else { return }
+        diagnosticLock.lock()
+        pendingDiagnosticEvents.append("\(level)\t\(category)\t\(sanitized)")
+        if pendingDiagnosticEvents.count > 512 {
+            pendingDiagnosticEvents.removeFirst(pendingDiagnosticEvents.count - 512)
+        }
+        diagnosticLock.unlock()
     }
 
     private var recoveryElapsedDescription: String {
@@ -2202,6 +2280,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
     private func recordError(_ message: String) {
         let text = message.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
+        emitDiagnostic(level: "error", category: "ios/mpv", message: text)
         errorLock.lock()
         recentErrors.append(text)
         if recentErrors.count > 3 { recentErrors.removeFirst(recentErrors.count - 3) }
@@ -2214,6 +2293,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
     private func recordDiagnostic(_ message: String) {
         let text = message.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
+        emitDiagnostic(level: "warn", category: "ios/mpv", message: text)
         errorLock.lock()
         recentErrors.append(text)
         if recentErrors.count > 3 { recentErrors.removeFirst(recentErrors.count - 3) }

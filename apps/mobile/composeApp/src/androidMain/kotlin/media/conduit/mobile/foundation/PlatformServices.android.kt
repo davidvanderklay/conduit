@@ -5,6 +5,7 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
 import android.os.Build
+import android.content.Intent
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
@@ -37,6 +38,16 @@ actual fun rememberPlatformServices(): PlatformServices {
                 device = "${Build.MANUFACTURER} ${Build.MODEL}".trim(),
                 isTablet = isTabletSmallestWidth(context.resources.configuration.smallestScreenWidthDp),
             ),
+            shareText = { text ->
+                val intent = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_TEXT, text)
+                }
+                context.startActivity(
+                    Intent.createChooser(intent, "Share conduit debug logs")
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
+            },
         )
     }
 }

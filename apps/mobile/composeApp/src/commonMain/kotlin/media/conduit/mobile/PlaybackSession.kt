@@ -8,6 +8,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import media.conduit.mobile.account.CatalogItem
+import media.conduit.mobile.account.DiagnosticLogStore
 import media.conduit.mobile.account.PlaybackSource
 import media.conduit.mobile.account.PlaybackQueueItem
 import media.conduit.mobile.account.SubtitleItem
@@ -149,6 +150,10 @@ class PlaybackSessionController(
     fun start(request: PlaybackRequest, callbacks: PlaybackSessionCallbacks) {
         val current = state.request
         val sameStream = current?.isSameStream(request) == true
+        DiagnosticLogStore.info(
+            "playback/session",
+            "start session=${if (sameStream) state.sessionId else "new"} video=${request.identity.videoId} startMs=${request.startPositionMs} reload=${request.reloadKey} sameStream=$sameStream",
+        )
         if (current != null && !sameStream) persist()
         if (!sameStream) queuedNext = null
         this.callbacks = callbacks
@@ -281,6 +286,10 @@ class PlaybackSessionController(
 
     fun playNext() {
         if (state.request == null || state.transition != null) return
+        DiagnosticLogStore.info(
+            "playback/next",
+            "requested from video=${state.request?.identity?.videoId} positionMs=${state.playback.positionMs}",
+        )
         queuedNext?.let {
             playQueueItem(it)
             return
@@ -301,6 +310,10 @@ class PlaybackSessionController(
 
     fun beginTransition(title: String, mediaName: String, artwork: String?, logo: String? = null) {
         if (state.request == null) return
+        DiagnosticLogStore.info(
+            "playback/transition",
+            "begin currentVideo=${state.request?.identity?.videoId} title=$title",
+        )
         send(PlaybackCommand.Pause)
         state = state.copy(
             presentation = PlaybackPresentation.FullScreen,
@@ -397,6 +410,10 @@ class PlaybackSessionController(
     fun selectStream(source: StreamSource) {
         val picker = state.streamPicker ?: return
         if (source.stream.url == null) return
+        DiagnosticLogStore.info(
+            "playback/source",
+            "manual source selected video=${picker.episode.id} addon=${source.addonId}",
+        )
         beginTransition(
             title = picker.episode.displayTitle,
             mediaName = state.request?.mediaName ?: picker.episode.displayTitle,

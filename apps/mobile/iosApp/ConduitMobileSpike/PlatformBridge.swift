@@ -137,11 +137,38 @@ final class ConduitOAuthBridge: NSObject, IosOAuthBridge, ASWebAuthenticationPre
     }
 }
 
+final class ConduitShareBridge: NSObject, IosShareBridge {
+    func shareText(text: String) {
+        let present = {
+            guard let presenter = UIApplication.shared.connectedScenes
+                .compactMap({ $0 as? UIWindowScene })
+                .first(where: { $0.activationState == .foregroundActive })?
+                .windows
+                .first(where: \.isKeyWindow)?
+                .rootViewController
+            else { return }
+
+            let share = UIActivityViewController(
+                activityItems: [text],
+                applicationActivities: nil
+            )
+            if let popover = share.popoverPresentationController {
+                popover.sourceView = presenter.view
+                popover.sourceRect = presenter.view.bounds
+                popover.permittedArrowDirections = []
+            }
+            presenter.present(share, animated: true)
+        }
+        if Thread.isMainThread { present() } else { DispatchQueue.main.async(execute: present) }
+    }
+}
+
 enum ConduitPlatformRegistration {
     static func register() {
         IosPlatformBridgeFactory.shared.register(
             secureStore: ConduitKeychainStore(),
-            oauthBridge: ConduitOAuthBridge()
+            oauthBridge: ConduitOAuthBridge(),
+            shareBridge: ConduitShareBridge()
         )
     }
 }
