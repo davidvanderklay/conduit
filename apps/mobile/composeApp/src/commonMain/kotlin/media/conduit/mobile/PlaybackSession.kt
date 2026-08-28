@@ -8,6 +8,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import media.conduit.mobile.account.CatalogItem
+import media.conduit.mobile.account.DiagnosticLogStore
 import media.conduit.mobile.account.PlaybackSource
 import media.conduit.mobile.account.PlaybackQueueItem
 import media.conduit.mobile.account.SubtitleItem
