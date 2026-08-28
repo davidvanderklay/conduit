@@ -1012,6 +1012,10 @@ internal fun MediaDetailsScreen(
         streamBackToHome: Boolean? = null,
         videoIdOverride: String? = null,
     ) {
+        DiagnosticLogStore.info(
+            "streams/request",
+            "video=${video?.id ?: videoIdOverride ?: item.id} autoPlay=$autoPlaySavedSource transition=${playbackSession.state.transition != null}",
+        )
         cancelStreamRequest()
         if (!autoPlaySavedSource) {
             streamPageOpen = true
@@ -1059,6 +1063,10 @@ internal fun MediaDetailsScreen(
                 ?: VideoItem(videoId, title = meta?.name ?: item.name)
             result
                 .onSuccess { choices ->
+                    DiagnosticLogStore.info(
+                        "streams/result",
+                        "video=$videoId count=${choices.size} autoPlay=$autoPlaySavedSource",
+                    )
                     streams = choices
                     if (!autoPlaySavedSource) streamsError = null
                     if (autoPlaySavedSource) {
@@ -1121,6 +1129,10 @@ internal fun MediaDetailsScreen(
                     }
                 }
                 .onFailure { cause ->
+                    DiagnosticLogStore.warn(
+                        "streams/result",
+                        "video=$videoId outcome=failure type=${cause::class.simpleName}",
+                    )
                     streamsError = if (autoPlaySavedSource) {
                         when (cause) {
                             is AutoResumeTimeoutException ->
@@ -1165,6 +1177,10 @@ internal fun MediaDetailsScreen(
         keepPlayerVisible: Boolean = false,
     ) {
         val shouldAutoPlay = autoPlaySavedSource ?: (preferredSource != null && preferences.autoSelectSavedStreams)
+        DiagnosticLogStore.info(
+            "playback/video",
+            "select video=${video?.id ?: item.id} autoPlay=$shouldAutoPlay keepPlayer=$keepPlayerVisible",
+        )
         if (streamBackToHome != null) streamSelectionReturnsHome = streamBackToHome
         if (selectedVideo?.id != video?.id) {
             resetPlaybackForVideoChange(
@@ -1295,6 +1311,10 @@ internal fun MediaDetailsScreen(
     fun selectPlayerStream(source: StreamSource) {
         val picker = playerStreamPicker ?: return
         if (source.stream.url == null) return
+        DiagnosticLogStore.info(
+            "playback/source",
+            "drawer source selected video=${picker.episode.id} addon=${source.addonId}",
+        )
         val switchingCurrentSource = picker.episode.id == playingVideoId
         val previousResumePosition = resumePosition
         val retainedPosition = if (switchingCurrentSource) {
@@ -1565,6 +1585,10 @@ internal fun MediaDetailsScreen(
             hasEpisodes = orderedVideos.isNotEmpty(),
             mediaItem = item,
             episodes = orderedVideos,
+        )
+        DiagnosticLogStore.info(
+            "playback/request",
+            "video=${identity.videoId} startMs=${request.startPositionMs} reload=${request.reloadKey} source=${request.source?.addonId ?: "none"}",
         )
         playbackSession.start(request, callbacks)
         openingPlayback = false
@@ -3183,6 +3207,7 @@ internal fun ProfileSettingsScreen(
     onSelectMedia: (CatalogItem, String?) -> Unit,
     preferences: DevicePreferences,
     onPreferencesChanged: (DevicePreferences) -> Unit,
+    shareText: (String) -> Unit = {},
     settingsListState: androidx.compose.foundation.lazy.LazyListState = rememberLazyListState(),
     launchRequest: ProfileLaunchRequest? = null,
     modifier: Modifier = Modifier,
@@ -3290,7 +3315,16 @@ internal fun ProfileSettingsScreen(
         ProfileRoute.Supporters -> return InformationalSettingsScreen("Supporters & contributors", "conduit is open source", listOf("Contributors are acknowledged through the project repository.", "https://github.com/davidvanderklay/conduit", "A server-funding goal will appear here once a verified funding source is configured."), { route = ProfileRoute.Settings }, modifier)
         ProfileRoute.Privacy -> return InformationalSettingsScreen("Privacy policy", "Your server, your data", listOf("conduit stores account, profile, library, and viewing data on the server you choose.", "https://github.com/davidvanderklay/conduit#data-and-privacy-model"), { route = ProfileRoute.Settings }, modifier)
         ProfileRoute.Licenses -> return InformationalSettingsScreen("Licenses & attribution", "Open-source software", licenseNotices, { route = ProfileRoute.Settings }, modifier)
-        ProfileRoute.Diagnostics -> return InformationalSettingsScreen("Debug information", "${platform.name} ${platform.version}", listOf("Device: ${platform.device}", "Server: ${state.endpoint?.baseUrl}", "Profile: ${activeProfile?.name ?: "None"}", "Add-ons: ${profileSync.snapshot?.addons?.size ?: 0}", "Debug logging: ${if (preferences.debugLogging) "enabled" else "disabled"}"), { route = ProfileRoute.Advanced }, modifier)
+        ProfileRoute.Diagnostics -> return DebugLogsScreen(
+            platform = platform,
+            server = state.endpoint?.baseUrl,
+            profile = activeProfile?.name,
+            addonCount = profileSync.snapshot?.addons?.size ?: 0,
+            debugLogging = preferences.debugLogging,
+            shareText = shareText,
+            onBack = { route = ProfileRoute.Advanced },
+            modifier = modifier,
+        )
         ProfileRoute.Settings -> Unit
     }
     val sections = remember {
@@ -3612,7 +3646,151 @@ private fun PlaybackSettingsScreen(platform: PlatformInfo, preferences: DevicePr
 private fun AdvancedSettingsScreen(preferences: DevicePreferences, update: (DevicePreferences) -> Unit, onBack: () -> Unit, onDiagnostics: () -> Unit, modifier: Modifier) = SettingsPage("Advanced settings", onBack, modifier) {
     SettingsGroup("STARTUP") { SettingsToggle("Remember last profile", "Return to the profile used on this device", preferences.rememberLastProfile) { update(preferences.copy(rememberLastProfile = it)) } }
     SettingsGroup("CACHE") { ListItem(headlineContent = { Text("Continue Watching cache") }, supportingContent = { Text("Viewing progress currently comes directly from your server; there is no separate local cache to clear") }, colors = ListItemDefaults.colors(containerColor = Color.Transparent)) }
-    SettingsGroup("DIAGNOSTICS") { SettingsToggle("Debug logging", "Collect additional local diagnostic information", preferences.debugLogging) { update(preferences.copy(debugLogging = it)) }; SettingsAction("View debug information", "Device, server, and build details", onClick = onDiagnostics) }
+    SettingsGroup("DIAGNOSTICS") { SettingsToggle("Debug logging", "Collect additional local diagnostic information", preferences.debugLogging) { update(preferences.copy(debugLogging = it)) }; SettingsAction("View debug logs", "Playback, stream, and app diagnostics", onClick = onDiagnostics) }
+}
+
+@Composable
+private fun DebugLogsScreen(
+    platform: PlatformInfo,
+    server: String?,
+    profile: String?,
+    addonCount: Int,
+    debugLogging: Boolean,
+    shareText: (String) -> Unit,
+    onBack: () -> Unit,
+    modifier: Modifier,
+) = SettingsPage("Debug Logs", onBack, modifier) {
+    val clipboard = LocalClipboardManager.current
+    val entries by DiagnosticLogStore.entries.collectAsState()
+    var categoryFilter by remember { mutableStateOf("All") }
+    var levelFilter by remember { mutableStateOf<DiagnosticLevel?>(null) }
+    val categories = remember(entries) {
+        listOf("All") + entries.asSequence().map(DiagnosticLogEntry::categoryGroup).distinct().sorted()
+    }
+    val filtered = remember(entries, categoryFilter, levelFilter) {
+        entries.filter { entry ->
+            (categoryFilter == "All" || entry.categoryGroup == categoryFilter) &&
+                (levelFilter == null || entry.level == levelFilter)
+        }
+    }
+    val visibleEntries = remember(filtered) { filtered.takeLast(80) }
+    val reproductionText = remember(filtered, platform, debugLogging, categoryFilter, levelFilter) {
+        buildString {
+            appendLine("Conduit mobile diagnostic export")
+            appendLine("Platform: ${platform.name} ${platform.version} (${platform.device})")
+            appendLine("Debug logging: ${if (debugLogging) "enabled" else "disabled"}")
+            appendLine("Filters: category=$categoryFilter level=${levelFilter?.label ?: "All"}")
+            appendLine()
+            append(DiagnosticLogStore.copyText(filtered))
+        }
+    }
+
+    SettingsGroup("CATEGORY") {
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 6.dp)) {
+            items(categories) { category ->
+                FilterChip(
+                    selected = categoryFilter == category,
+                    onClick = { categoryFilter = category },
+                    label = { Text(category) },
+                )
+            }
+        }
+        HorizontalDivider(color = Color.White.copy(.06f))
+        Text("LEVEL", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 10.dp))
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 6.dp)) {
+            item {
+                FilterChip(
+                    selected = levelFilter == null,
+                    onClick = { levelFilter = null },
+                    label = { Text("All") },
+                )
+            }
+            items(DiagnosticLevel.entries) { level ->
+                FilterChip(
+                    selected = levelFilter == level,
+                    onClick = { levelFilter = level },
+                    label = { Text(level.label) },
+                )
+            }
+        }
+    }
+
+    SettingsGroup("LOGS") {
+        SettingsAction(
+            title = "Copy Logs to Clipboard",
+            description = "Copy ${filtered.size} in-app log lines",
+            onClick = { clipboard.setText(AnnotatedString(DiagnosticLogStore.copyText(filtered))) },
+        )
+        HorizontalDivider(color = Color.White.copy(.06f))
+        SettingsAction(
+            title = "Share Logs",
+            description = "Send ${filtered.size} in-app log lines",
+            onClick = { shareText(DiagnosticLogStore.copyText(filtered)) },
+        )
+        HorizontalDivider(color = Color.White.copy(.06f))
+        SettingsAction(
+            title = "Copy Reproduction",
+            description = "Copy device context and the filtered logs",
+            onClick = { clipboard.setText(AnnotatedString(reproductionText)) },
+        )
+        HorizontalDivider(color = Color.White.copy(.06f))
+        SettingsAction(
+            title = "Clear Logs",
+            description = "Clear the in-memory debug log buffer",
+            destructive = true,
+            onClick = { DiagnosticLogStore.clear() },
+        )
+        if (visibleEntries.isNotEmpty()) {
+            HorizontalDivider(color = Color.White.copy(.06f))
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 520.dp)
+                    .verticalScroll(androidx.compose.foundation.rememberScrollState())
+                    .padding(vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                visibleEntries.forEach { entry ->
+                    Text(
+                        entry.formatted,
+                        color = when (entry.level) {
+                            DiagnosticLevel.Error -> MaterialTheme.colorScheme.error
+                            DiagnosticLevel.Warn -> Color(0xFFFFC857)
+                            else -> MaterialTheme.colorScheme.onSurface,
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                    )
+                }
+            }
+        }
+        Text(
+            "Showing latest ${visibleEntries.size} of ${filtered.size} filtered logs · ${entries.size}/${DiagnosticLogStore.maxEntries} retained",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Text(
+            "Timestamps use UTC and logs are kept in memory only. Debug logging is ${if (debugLogging) "enabled" else "disabled"}.",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodySmall,
+        )
+    }
+
+    SettingsGroup("APP CONTEXT") {
+        listOf(
+            "Device" to "${platform.name} ${platform.version} · ${platform.device}",
+            "Server" to (server ?: "Not connected"),
+            "Profile" to (profile ?: "None"),
+            "Add-ons" to addonCount.toString(),
+        ).forEachIndexed { index, (label, value) ->
+            if (index > 0) HorizontalDivider(color = Color.White.copy(.06f))
+            ListItem(
+                headlineContent = { Text(label) },
+                supportingContent = { Text(value, maxLines = 2, overflow = TextOverflow.Ellipsis) },
+                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+            )
+        }
+    }
 }
 
 @Composable

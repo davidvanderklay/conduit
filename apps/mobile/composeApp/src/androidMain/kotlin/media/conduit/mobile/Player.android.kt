@@ -57,6 +57,7 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import media.conduit.mobile.account.DiagnosticLogStore
 import media.conduit.mobile.account.SubtitleItem
 import android.net.Uri
 
@@ -191,6 +192,7 @@ actual fun NativePlayer(
     var showRemainingTime by remember(player) { mutableStateOf(false) }
     val preferredAudioCode = remember(preferredAudioLanguage) { audioLanguageCode(preferredAudioLanguage) }
     var playerReleased by remember(player) { mutableStateOf(false) }
+    var lastDiagnosticPlaybackState by remember(player, activeEngine) { mutableStateOf<String?>(null) }
 
     DisposableEffect(player) {
         onDispose {
@@ -519,6 +521,13 @@ actual fun NativePlayer(
                     )
                 }
                 currentCallback(next)
+                val diagnosticState = "engine=${next.engine} loading=${next.loading} buffering=${next.buffering} " +
+                    "playing=${next.playing} positionMs=${next.positionMs} durationMs=${next.durationMs} " +
+                    "video=${next.videoWidth}x${next.videoHeight} ended=${next.ended} error=${next.error != null}"
+                if (diagnosticState != lastDiagnosticPlaybackState) {
+                    lastDiagnosticPlaybackState = diagnosticState
+                    DiagnosticLogStore.debug("playback/state", diagnosticState)
+                }
                 if (!dragging) positionMs = next.positionMs
                 durationMs = next.durationMs
                 playing = next.playing

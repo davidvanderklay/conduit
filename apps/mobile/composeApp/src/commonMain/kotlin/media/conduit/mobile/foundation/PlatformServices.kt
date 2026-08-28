@@ -38,6 +38,7 @@ data class PlatformServices(
     val settings: SettingsStore,
     val secure: SecureStore,
     val info: PlatformInfo,
+    val shareText: (String) -> Unit = {},
 )
 
 @Composable

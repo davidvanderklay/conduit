@@ -4,11 +4,17 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import kotlinx.cinterop.ExperimentalForeignApi
 import platform.Foundation.NSUserDefaults
 import platform.Foundation.NSNotificationCenter
 import platform.UIKit.UIApplicationDidBecomeActiveNotification
+import platform.UIKit.UIActivityViewController
+import platform.UIKit.UIApplication
 import platform.UIKit.UIDevice
 import platform.UIKit.UIUserInterfaceIdiomPad
+import platform.UIKit.UISceneActivationState
+import platform.UIKit.UIWindow
+import platform.UIKit.UIWindowScene
 
 private class AppleSettingsStore(private val defaults: NSUserDefaults) : SettingsStore {
     override fun get(key: String): String? = defaults.stringForKey(key)
@@ -48,7 +54,28 @@ actual fun rememberPlatformServices(): PlatformServices = remember {
             device = device.model,
             isTablet = device.userInterfaceIdiom == UIUserInterfaceIdiomPad,
         ),
+        shareText = ::shareText,
     )
+}
+
+@OptIn(ExperimentalForeignApi::class)
+private fun shareText(text: String) {
+    var window: UIWindow? = null
+    for (rawScene in UIApplication.sharedApplication.connectedScenes) {
+        val scene = rawScene as? UIWindowScene ?: continue
+        if (scene.activationState == UISceneActivationState.ForegroundActive) {
+            window = scene.keyWindow
+            if (window != null) break
+        }
+    }
+    val presenter = window?.rootViewController ?: return
+    val share = UIActivityViewController(
+        activityItems = listOf(text),
+        applicationActivities = null,
+    )
+    share.popoverPresentationController?.sourceView = presenter.view
+    share.popoverPresentationController?.sourceRect = presenter.view.bounds
+    presenter.presentViewController(share, animated = true, completion = null)
 }
 
 @Composable
