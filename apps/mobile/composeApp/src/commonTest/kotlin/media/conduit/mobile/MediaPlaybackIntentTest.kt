@@ -29,6 +29,31 @@ class MediaPlaybackIntentTest {
     }
 
     @Test
+    fun explicitPlaybackTransitionOwnsAutomaticStreamResolution() {
+        assertFalse(
+            shouldRunAutomaticStreamResolution(
+                openMode = MediaOpenMode.AutoResume,
+                addonsAvailable = true,
+                transitionActive = true,
+            ),
+        )
+        assertTrue(
+            shouldRunAutomaticStreamResolution(
+                openMode = MediaOpenMode.AutoResume,
+                addonsAvailable = true,
+                transitionActive = false,
+            ),
+        )
+        assertFalse(
+            shouldRunAutomaticStreamResolution(
+                openMode = MediaOpenMode.Details,
+                addonsAvailable = true,
+                transitionActive = false,
+            ),
+        )
+    }
+
+    @Test
     fun queuedEpisodesFromTheSameShowGetDifferentDetailsInstances() {
         assertNotEquals(
             MediaDetailsInstanceKey("series", "show", "s1e1", MediaOpenMode.Queue),
