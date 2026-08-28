@@ -3753,10 +3753,12 @@ private fun DebugLogsScreen(
                 visibleEntries.forEach { entry ->
                     Text(
                         entry.formatted,
-                        color = when (entry.level) {
-                            DiagnosticLevel.Error -> MaterialTheme.colorScheme.error
-                            DiagnosticLevel.Warn -> Color(0xFFFFC857)
-                            else -> MaterialTheme.colorScheme.onSurface,
+                        color = if (entry.level == DiagnosticLevel.Error) {
+                            MaterialTheme.colorScheme.error
+                        } else if (entry.level == DiagnosticLevel.Warn) {
+                            Color(0xFFFFC857)
+                        } else {
+                            MaterialTheme.colorScheme.onSurface
                         },
                         style = MaterialTheme.typography.bodySmall,
                         fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
