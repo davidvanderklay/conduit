@@ -633,6 +633,7 @@ export function registerAuthRoutes(app: FastifyInstance, context: RouteContext) 
           await tx.insert(accounts).values({
             id: randomBytes(24).toString("base64url"),
             accountId: user.id,
+            issuer: "local:credential",
             providerId: "credential",
             userId: user.id,
             password,
@@ -714,6 +715,7 @@ export function registerAuthRoutes(app: FastifyInstance, context: RouteContext) 
           await tx.insert(accounts).values({
             id: randomBytes(24).toString("base64url"),
             accountId: recovery.userId,
+            issuer: "local:credential",
             providerId: "credential",
             userId: recovery.userId,
             password: passwordHash,
