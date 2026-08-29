@@ -54,9 +54,10 @@ The following are deliberately outside the current mobile release scope:
 - `apps/mobile/composeApp`: shared Compose UI, account and profile flows,
   networking, state, preferences, and the expect/actual player boundary;
 - `apps/mobile/iosApp`: the small Swift/UIKit host and generated Xcode project;
-- `packages/mobile-bridge`: the versioned Rust C ABI used by the retained local
-  architecture fixture and native bridge tests;
-- `packages/core`: shared Rust add-on parsing and request logic; and
+- `packages/mobile-bridge`: the Rust C ABI used by live domain calls, the
+  retained local architecture fixture, and native bridge tests;
+- `packages/core`: shared Rust add-on, stream selection, progress, episode,
+  library, calendar, and track policy; and
 - `apps/mobile/scripts`: native Rust library and iOS IPA packaging helpers.
 
 The iOS host directory and target retain the historical `ConduitMobileSpike`

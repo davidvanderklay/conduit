@@ -5,6 +5,16 @@ import kotlinx.cinterop.toKString
 import media.conduit.mobile.ffi.*
 
 @OptIn(ExperimentalForeignApi::class)
+internal actual fun evaluateCore(action: String): String {
+    val response = conduit_core_evaluate(action)
+    try {
+        return checkNotNull(response).toKString()
+    } finally {
+        conduit_string_free(response)
+    }
+}
+
+@OptIn(ExperimentalForeignApi::class)
 actual class RustEngine actual constructor() {
     private var handle = conduit_engine_new()
 

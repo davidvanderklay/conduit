@@ -1,0 +1,44 @@
+[
+  {
+    "name": "resource capability honors type and prefix",
+    "action": {
+      "type": "supportsResource",
+      "manifest": {
+        "resources": [{ "name": "stream", "types": ["movie"], "idPrefixes": ["tt"] }]
+      },
+      "resource": "stream",
+      "mediaType": "movie",
+      "id": "tt123"
+    },
+    "expected": true
+  },
+  {
+    "name": "resource URL encodes extras",
+    "action": {
+      "type": "buildResourceUrl",
+      "manifestUrl": "https://example.com/manifest.json",
+      "resource": "catalog",
+      "mediaType": "movie",
+      "id": "popular",
+      "extras": [{ "name": "search", "value": "The Matrix" }]
+    },
+    "expected": "https://example.com/catalog/movie/popular/search=The%20Matrix.json"
+  },
+  {
+    "name": "long playback completes in the final two minutes",
+    "action": {
+      "type": "isPlaybackComplete",
+      "positionMs": 500000,
+      "durationMs": 600000
+    },
+    "expected": true
+  },
+  {
+    "name": "invalid leap day is rejected",
+    "action": {
+      "type": "releaseDateKey",
+      "value": "2023-02-29"
+    },
+    "expected": null
+  }
+]

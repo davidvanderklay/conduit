@@ -1,6 +1,12 @@
 package media.conduit.mobile
 
 import kotlin.time.Clock
+import kotlin.time.Instant
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.encodeToJsonElement
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import media.conduit.mobile.account.CatalogItem
 import media.conduit.mobile.account.PlaybackSource
 import media.conduit.mobile.account.ProgressSummary
@@ -11,15 +17,22 @@ internal enum class EpisodeWatchState { NotStarted, InProgress, Watched }
 
 private const val LegacyCompletionMarkerPrefix = "conduit:completion:"
 
-internal fun episodeWatchState(progress: ProgressSummary?): EpisodeWatchState = when {
-    progress?.watched == true -> EpisodeWatchState.Watched
-    (progress?.positionMs ?: 0L) > 0L -> EpisodeWatchState.InProgress
+internal fun episodeWatchState(progress: ProgressSummary?): EpisodeWatchState = when (
+    coreValue(buildJsonObject {
+        put("type", "episodeWatchState")
+        put("progress", ProtocolJson.encodeToJsonElement(progress))
+    }).jsonPrimitive.content
+) {
+    "watched" -> EpisodeWatchState.Watched
+    "in-progress" -> EpisodeWatchState.InProgress
     else -> EpisodeWatchState.NotStarted
 }
 
 internal fun episodeProgressFraction(progress: ProgressSummary?): Float =
-    if (progress == null || progress.watched || progress.durationMs <= 0L) 0f
-    else (progress.positionMs.toFloat() / progress.durationMs).coerceIn(0f, 1f)
+    coreValue(buildJsonObject {
+        put("type", "episodeProgress")
+        put("progress", ProtocolJson.encodeToJsonElement(progress))
+    }).jsonPrimitive.content.toFloat()
 
 internal fun resumePositionLabel(positionMs: Long): String? {
     if (positionMs <= 0L) return null
@@ -39,24 +52,16 @@ internal fun posterWatchState(
     item: CatalogItem,
     episodeIds: List<String> = emptyList(),
 ): PosterWatchState {
-    val mediaProgress = progress.filter {
-        it.mediaType == item.type && it.mediaId == item.id &&
-            !it.videoId.startsWith(LegacyCompletionMarkerPrefix)
-    }
-    if (item.type == "movie") {
-        return if (mediaProgress.any { it.videoId == item.id && it.watched }) {
-            PosterWatchState.Complete
-        } else {
-            PosterWatchState.Unwatched
-        }
-    }
-
-    val watchedIds = mediaProgress.filter(ProgressSummary::watched).mapTo(mutableSetOf(), ProgressSummary::videoId)
-    if (episodeIds.isNotEmpty() && episodeIds.all(watchedIds::contains)) return PosterWatchState.Complete
-    return if (mediaProgress.any { it.watched || it.positionMs > 0 }) {
-        PosterWatchState.Partial
-    } else {
-        PosterWatchState.Unwatched
+    return when (coreValue(buildJsonObject {
+        put("type", "posterWatchState")
+        put("progress", ProtocolJson.encodeToJsonElement(progress))
+        put("mediaType", item.type)
+        put("mediaId", item.id)
+        put("episodeIds", ProtocolJson.encodeToJsonElement(episodeIds))
+    }).jsonPrimitive.content) {
+        "complete" -> PosterWatchState.Complete
+        "partial" -> PosterWatchState.Partial
+        else -> PosterWatchState.Unwatched
     }
 }
 
@@ -69,9 +74,7 @@ internal fun seasonWatchVideos(
     videos: List<VideoItem>,
     season: Int,
     today: String = Clock.System.now().toString().take(10),
-): List<VideoItem> = videos
-    .filter { it.season == season && it.isReleasedOrAvailable(today) }
-    .sortedWith(compareBy<VideoItem> { it.episode ?: 0 }.thenBy(VideoItem::id))
+): List<VideoItem> = eligibleVideoIndices(videos, season, today).map(videos::get)
 
 internal fun progressForVideo(
     progress: List<ProgressSummary>,
@@ -117,19 +120,24 @@ internal fun seriesWatchVideos(
     videos: List<VideoItem>,
     today: String = Clock.System.now().toString().take(10),
 ): List<VideoItem> {
-    val eligible = videos.filter { it.isReleasedOrAvailable(today) }
+    val eligible = eligibleVideoIndices(videos, null, today).map(videos::get)
     val regular = eligible.filter { it.season != 0 }
-    return (regular.ifEmpty { eligible }).sortedWith(
-        compareBy<VideoItem> { it.season ?: 0 }
-            .thenBy { it.episode ?: 0 },
-    )
+    return regular.ifEmpty { eligible }
 }
 
 internal fun VideoItem.isReleasedOrAvailable(today: String): Boolean {
-    if (available == false) return false
-    if (released == null) return true
-    val releaseDate = released.take(10)
-    return releaseDate.length != 10 || releaseDate <= today
+    return eligibleVideoIndices(listOf(this), null, today).isNotEmpty()
+}
+
+private fun eligibleVideoIndices(videos: List<VideoItem>, season: Int?, today: String): List<Int> {
+    val endOfDay = runCatching { Instant.parse("${today}T23:59:59.999Z").toEpochMilliseconds() }
+        .getOrElse { Clock.System.now().toEpochMilliseconds() }
+    return coreValue(buildJsonObject {
+        put("type", "eligibleWatchVideos")
+        put("videos", ProtocolJson.encodeToJsonElement(videos))
+        put("season", ProtocolJson.encodeToJsonElement(season))
+        put("nowMs", endOfDay)
+    }).jsonArray.map { it.jsonPrimitive.content.toInt() }
 }
 
 internal fun latestProgress(snapshot: media.conduit.mobile.account.ProfileSnapshot?, item: CatalogItem): ProgressSummary? =

@@ -16,6 +16,8 @@ uint32_t conduit_mobile_abi_version(void);
 ConduitEngine *conduit_engine_new(void);
 /* The returned UTF-8 JSON string must be released with conduit_string_free. */
 char *conduit_engine_dispatch(ConduitEngine *engine, const char *action_json);
+/* Runs a stateless conduit-core domain action. The caller owns the returned string. */
+char *conduit_core_evaluate(const char *action_json);
 void conduit_string_free(char *value);
 /* All dispatch calls must finish before the handle is freed. */
 void conduit_engine_free(ConduitEngine *engine);

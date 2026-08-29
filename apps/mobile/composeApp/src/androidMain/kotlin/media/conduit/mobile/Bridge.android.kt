@@ -7,8 +7,11 @@ internal object RustBridge {
 
     external fun create(): Long
     external fun dispatch(handle: Long, action: String): String
+    external fun evaluate(action: String): String
     external fun destroy(handle: Long)
 }
+
+internal actual fun evaluateCore(action: String): String = RustBridge.evaluate(action)
 
 actual class RustEngine actual constructor() {
     private var handle = RustBridge.create()

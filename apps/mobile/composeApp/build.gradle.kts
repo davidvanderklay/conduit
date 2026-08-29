@@ -1,5 +1,7 @@
 import org.jetbrains.kotlin.gradle.ExperimentalKotlinGradlePluginApi
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.gradle.api.tasks.Exec
+import org.gradle.api.tasks.testing.Test
 
 val androidReleaseKeystore = providers.environmentVariable("ANDROID_KEYSTORE_FILE").orNull
 val androidReleaseStorePassword = providers.environmentVariable("ANDROID_KEYSTORE_PASSWORD").orNull
@@ -130,4 +132,14 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     packaging.resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
+}
+
+val buildHostRustBridge by tasks.registering(Exec::class) {
+    workingDir(rootProject.projectDir.resolve("../.."))
+    commandLine("cargo", "build", "-p", "conduit-mobile", "--features", "host-jni")
+}
+
+tasks.withType<Test>().configureEach {
+    dependsOn(buildHostRustBridge)
+    jvmArgs("-Djava.library.path=${rootProject.projectDir.resolve("../../target/debug").absolutePath}")
 }

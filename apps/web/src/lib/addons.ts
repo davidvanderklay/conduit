@@ -1,4 +1,5 @@
 import type { AddonManifest, InstalledAddon } from "./api"
+import { coreValue } from "./core"
 
 export function supportsResource(
   manifest: AddonManifest,
@@ -6,17 +7,12 @@ export function supportsResource(
   type: string,
   id: string,
 ): boolean {
-  return manifest.resources.some((candidate) => {
-    if (typeof candidate === "string") return candidate === resource
-    if (candidate.name !== resource) return false
-    if (candidate.types?.length && !candidate.types.includes(type)) return false
-    if (
-      candidate.idPrefixes?.length &&
-      !candidate.idPrefixes.some((prefix) => id.startsWith(prefix))
-    ) {
-      return false
-    }
-    return true
+  return coreValue<boolean>({
+    type: "supportsResource",
+    manifest,
+    resource,
+    mediaType: type,
+    id,
   })
 }
 

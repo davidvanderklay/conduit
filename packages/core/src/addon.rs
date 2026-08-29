@@ -4,8 +4,11 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct AddonManifest {
+    #[serde(default)]
     pub id: String,
+    #[serde(default)]
     pub version: String,
+    #[serde(default)]
     pub name: String,
     #[serde(default)]
     pub description: Option<String>,

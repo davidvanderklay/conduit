@@ -12,4 +12,7 @@ export default defineConfig({
       allow: [path.resolve(__dirname, "../..")],
     },
   },
+  test: {
+    setupFiles: ["./test-setup.mjs"],
+  },
 })

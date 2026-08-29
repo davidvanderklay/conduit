@@ -1,5 +1,10 @@
 package media.conduit.mobile
 
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
+
 data class AudioTrackDisplayInfo(
     val title: String,
     val languageCode: String? = null,
@@ -17,65 +22,21 @@ data class AudioTrackDisplay(
 )
 
 fun audioTrackDisplay(info: AudioTrackDisplayInfo, fallback: String): AudioTrackDisplay {
-    val codec = audioCodecName(info.codec)
-    val base = info.title.trim().takeUnless(::isSourceLabel)
-        ?.takeIf(String::isNotBlank)
-        ?: info.languageName.trim().takeIf(String::isNotBlank)
-        ?: fallback
-    val channelSummary = audioChannelSummary(info.channelCount, info.channels)
-    val channels = info.channels?.trim()
-        ?.takeIf(String::isNotBlank)
-        ?.takeUnless { it.all(Char::isDigit) }
-        ?: channelSummary
-    val sampleRate = info.sampleRate?.takeIf { it > 0 }?.let(::formatSampleRate)
-    val bitrate = info.bitrate?.takeIf { it > 0 }?.let { "${it / 1_000} kbps" }
-    val technical = listOfNotNull(
-        channels,
-        sampleRate,
-        bitrate,
-        codec?.takeIf { !base.contains(it, ignoreCase = true) },
-    ).joinToString(", ").takeIf(String::isNotBlank)?.let { "($it)" }
-
+    val value = coreValue(buildJsonObject {
+        put("type", "audioTrackDisplay")
+        put("info", buildJsonObject {
+            put("title", info.title)
+            put("languageName", info.languageName)
+            put("codec", info.codec)
+            put("channels", info.channels)
+            put("channelCount", info.channelCount)
+            put("sampleRate", info.sampleRate)
+            put("bitrate", info.bitrate)
+        })
+        put("fallback", fallback)
+    }).jsonObject
     return AudioTrackDisplay(
-        primary = base + technical?.let { " $it" }.orEmpty(),
-        secondary = info.languageName.ifBlank { "Unknown language" },
+        primary = value.getValue("primary").jsonPrimitive.content,
+        secondary = value.getValue("secondary").jsonPrimitive.content,
     )
-}
-
-private fun isSourceLabel(value: String): Boolean {
-    val normalized = value.trim().lowercase()
-    return normalized.startsWith("http://") ||
-        normalized.startsWith("https://") ||
-        normalized.startsWith("www.")
-}
-
-private fun audioChannelSummary(channelCount: Int?, channels: String?): String? = when (channelCount) {
-    1 -> "Mono"
-    2 -> "Stereo"
-    6 -> "5.1"
-    8 -> "7.1"
-    null, 0 -> channels?.substringBefore('(')?.trim()?.takeIf(String::isNotBlank)
-    else -> "$channelCount channels"
-}
-
-private fun formatSampleRate(sampleRate: Int): String = if (sampleRate % 1_000 == 0) {
-    "${sampleRate / 1_000} kHz"
-} else {
-    "${sampleRate / 1_000.0} kHz"
-}
-
-private fun audioCodecName(codec: String?): String? = when (
-    val normalized = codec?.substringAfterLast('/')?.lowercase()?.replace("_", "-")
-) {
-    null, "" -> null
-    "ac3", "ac-3" -> "AC-3"
-    "eac3", "e-ac-3", "ec-3" -> "E-AC-3"
-    "truehd", "mlp-fba" -> "TrueHD"
-    "dts-hd", "dts-hd-ma" -> "DTS-HD"
-    "dts" -> "DTS"
-    "aac", "mp4a-latm" -> "AAC"
-    "opus" -> "Opus"
-    "vorbis" -> "Vorbis"
-    "flac" -> "FLAC"
-    else -> normalized.uppercase()
 }

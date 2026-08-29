@@ -5,6 +5,10 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import kotlinx.serialization.json.Json
 import kotlin.time.Clock
 import media.conduit.mobile.account.ConduitApi
@@ -332,8 +336,11 @@ private fun PersistedProgressCheckpoint.identity(): PlaybackCheckpointIdentity =
     PlaybackCheckpointIdentity(sessionId, sequence)
 
 private fun isPlaybackComplete(positionMs: Long, durationMs: Long): Boolean {
-    if (positionMs < 0 || durationMs <= 0) return false
-    return positionMs.toDouble() / durationMs >= 0.9
+    return coreValue(buildJsonObject {
+        put("type", "isPlaybackComplete")
+        put("positionMs", positionMs)
+        put("durationMs", durationMs)
+    }).jsonPrimitive.boolean
 }
 
 internal fun preserveNewerLocalProgress(

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { API_URL } from "./auth"
 import { api, type PlaybackSource, type ProgressMetadata, type WatchProgress } from "./api"
+import { coreValue } from "./core"
 
 const SAVE_INTERVAL_MS = 15_000
 const CONTINUE_WATCHING_POSITION_MS = 30_000
@@ -375,15 +376,6 @@ function withPendingProgress(
 }
 
 function isPlaybackComplete(positionMs: number, durationMs: number) {
-  if (
-    !Number.isFinite(positionMs) ||
-    !Number.isFinite(durationMs) ||
-    positionMs < 0 ||
-    durationMs <= 0
-  ) {
-    return false
-  }
-  return (
-    positionMs / durationMs >= 0.9 || (durationMs >= 600_000 && durationMs - positionMs <= 120_000)
-  )
+  if (!Number.isSafeInteger(positionMs) || !Number.isSafeInteger(durationMs)) return false
+  return coreValue<boolean>({ type: "isPlaybackComplete", positionMs, durationMs })
 }
