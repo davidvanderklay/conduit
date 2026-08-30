@@ -320,6 +320,7 @@ describe("Electron episode drawer", () => {
       'button[aria-label="End time. Click to show time remaining."]',
     )
     expect(duration?.hasAttribute("data-overlay-interactive")).toBe(true)
+    expect(duration?.className).toContain("pointer-events-auto")
     act(() => duration?.click())
     expect(
       host.querySelector('button[aria-label="Time remaining. Click to show end time."]'),
