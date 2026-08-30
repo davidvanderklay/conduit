@@ -384,6 +384,7 @@ export function DesktopPlayer({
           const previous = lastNativeSnapshot.current
           const resolved = nativePlaybackEnded(previous, next) ? { ...next, ended: true } : next
           lastNativeSnapshot.current = resolved
+          if (resolved.firstFrameReady) setPlaybackStarted(true)
           setSnapshot(
             seekActive.current && seekDraft.current !== undefined
               ? { ...resolved, position: seekDraft.current }

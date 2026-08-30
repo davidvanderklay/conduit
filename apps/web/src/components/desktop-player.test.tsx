@@ -70,6 +70,11 @@ const desktop = vi.hoisted(() => ({
   toggleNativeFullscreen: vi.fn(async () => false),
 }))
 
+const progress = vi.hoisted(() => ({
+  save: vi.fn(async () => undefined),
+  sources: [] as unknown[],
+}))
+
 describe("native playback status", () => {
   it("reports codecs and the active hardware decoder", () => {
     expect(nativePlaybackDescription(snapshot)).toBe(
@@ -90,10 +95,18 @@ describe("native playback status", () => {
 
 vi.mock("../lib/desktop", () => desktop)
 vi.mock("../lib/progress", () => ({
-  usePlaybackProgress: () => ({
-    progress: { data: null },
-    save: vi.fn(async () => undefined),
-  }),
+  usePlaybackProgress: (
+    _profileId: string,
+    _videoId: string,
+    _metadata: unknown,
+    playbackSource?: unknown,
+  ) => {
+    progress.sources.push(playbackSource)
+    return {
+      progress: { data: null },
+      save: progress.save,
+    }
+  },
 }))
 
 describe("DesktopPlayer track menus", () => {
@@ -127,6 +140,7 @@ describe("DesktopPlayer track menus", () => {
     })
     act(() => vi.advanceTimersByTime(1))
     startupOverlayResets = desktop.resetNativeOverlaySurface.mock.calls.length
+    progress.sources.length = 0
     vi.clearAllMocks()
   })
 
@@ -182,6 +196,43 @@ describe("DesktopPlayer track menus", () => {
 
     expect(document.querySelector('[aria-label="Video loading"]')).toBeNull()
     expect(desktop.resetNativeOverlaySurface).toHaveBeenCalledOnce()
+  })
+
+  it("binds the playback source once a delayed first frame is ready", async () => {
+    const playbackSource = { addonId: "addon", sourceKey: "source", kind: "url" as const }
+    desktop.openNativePlayer.mockResolvedValueOnce({
+      ...snapshot,
+      duration: 100,
+      firstFrameReady: false,
+    })
+    desktop.nativePlayerSnapshot.mockResolvedValueOnce({ ...snapshot, firstFrameReady: true })
+
+    await act(async () => {
+      root.render(
+        <DesktopPlayer
+          url="https://example.com/delayed-first-frame.mp4"
+          type="movie"
+          videoId="tt-delayed-first-frame"
+          profileId="00000000-0000-4000-8000-000000000001"
+          playbackSource={playbackSource}
+          progressMetadata={{
+            mediaType: "movie",
+            mediaId: "tt-delayed-first-frame",
+            name: "Delayed first frame",
+          }}
+          addons={[]}
+          onClose={() => undefined}
+        />,
+      )
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      vi.advanceTimersByTime(250)
+      await Promise.resolve()
+    })
+
+    expect(progress.sources).toContain(playbackSource)
   })
 
   it("does not mount the center loading overlay for cache pauses", async () => {

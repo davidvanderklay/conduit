@@ -726,6 +726,17 @@ async function createMainWindow(): Promise<BrowserWindow> {
   window.setMenuBarVisibility(false)
   installWindowGuards(window)
   window.webContents.on("before-input-event", (event, input) => {
+    const key = input.key.toLowerCase()
+    if (
+      rendererIsDevelopment() &&
+      input.type === "keyDown" &&
+      (input.key === "F12" || (input.control && input.shift && key === "i"))
+    ) {
+      event.preventDefault()
+      if (window.webContents.isDevToolsOpened()) window.webContents.closeDevTools()
+      else window.webContents.openDevTools({ mode: "detach" })
+      return
+    }
     if (input.type !== "keyDown" || input.key !== "Escape" || !mainWindowFullscreen) return
     event.preventDefault()
     window.setFullScreen(false)
