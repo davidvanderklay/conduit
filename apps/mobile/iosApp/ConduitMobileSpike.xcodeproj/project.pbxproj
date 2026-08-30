@@ -12,7 +12,9 @@
 		2D109AD7F6B1B2D6B94D1846 /* ConduitPipPlaybackClock.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFED6A56BB8C29CF926FE18E /* ConduitPipPlaybackClock.swift */; };
 		40AF8847BF8611896E76C9E7 /* MetalLayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99D2F22946D55A7EF71C2DD5 /* MetalLayer.swift */; };
 		60ED807587A3AF66B13B02AD /* ConduitPictureInPictureCapturePolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6B8D7EBE9A9B8716440E54F /* ConduitPictureInPictureCapturePolicyTests.swift */; };
+		64BE97A132FC4D19B2458C71 /* ConduitBackgroundAudioPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8C52F309D7443A1A6178E95 /* ConduitBackgroundAudioPolicyTests.swift */; };
 		7A51A1EF48814922E2C08A23 /* MPVPlayerBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1696757C18566865DC5CE890 /* MPVPlayerBridge.swift */; };
+		8F3C7B6D5A4E291807162534 /* NowPlayingController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A4D8C7B6E5F302918273645 /* NowPlayingController.swift */; };
 		7CDCF257DBFF434F69BC4080 /* PlatformBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F8980C2E64758A37052A0ED /* PlatformBridge.swift */; };
 		A41956040010BB411FC5B410 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = ABFC1C5FF4A79A0A52335D32 /* Assets.xcassets */; };
 		A6F4A9C7D12B4E8F9012D6F4 /* NotoSansCJKsc-Regular.otf in Resources */ = {isa = PBXBuildFile; fileRef = D3B9E8A1F04C4B2EA6E7C901 /* NotoSansCJKsc-Regular.otf */; };
@@ -40,7 +42,9 @@
 		5C94D70C7CBB7C5389C64358 /* ConduitPipPlaybackClockTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConduitPipPlaybackClockTests.swift; sourceTree = "<group>"; };
 		8C36451C3657ACC0B4612422 /* ConduitMobileSpike.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = ConduitMobileSpike.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		8C4D3715EC258774BDAE0C6F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		9A4D8C7B6E5F302918273645 /* NowPlayingController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingController.swift; sourceTree = "<group>"; };
 		A6B8D7EBE9A9B8716440E54F /* ConduitPictureInPictureCapturePolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConduitPictureInPictureCapturePolicyTests.swift; sourceTree = "<group>"; };
+		B8C52F309D7443A1A6178E95 /* ConduitBackgroundAudioPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConduitBackgroundAudioPolicyTests.swift; sourceTree = "<group>"; };
 		ABFC1C5FF4A79A0A52335D32 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		78797B88432B747E72D3926B /* ConduitMetalDrawableBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ConduitMetalDrawableBridge.h; sourceTree = "<group>"; };
 		99D2F22946D55A7EF71C2DD5 /* MetalLayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetalLayer.swift; sourceTree = "<group>"; };
@@ -88,6 +92,7 @@
 				5C94D70C7CBB7C5389C64358 /* ConduitPipPlaybackClockTests.swift */,
 				D48A75E2CD1F48BC91343D06 /* ConduitPlaybackStartupTests.swift */,
 				A6B8D7EBE9A9B8716440E54F /* ConduitPictureInPictureCapturePolicyTests.swift */,
+				B8C52F309D7443A1A6178E95 /* ConduitBackgroundAudioPolicyTests.swift */,
 			);
 			path = ConduitMobileSpikeTests;
 			sourceTree = "<group>";
@@ -105,6 +110,7 @@
 				8C4D3715EC258774BDAE0C6F /* Info.plist */,
 				99D2F22946D55A7EF71C2DD5 /* MetalLayer.swift */,
 				1696757C18566865DC5CE890 /* MPVPlayerBridge.swift */,
+				9A4D8C7B6E5F302918273645 /* NowPlayingController.swift */,
 				E0DE393F8E1A041E919FC937 /* PictureInPictureFrameCapture.swift */,
 				1F8980C2E64758A37052A0ED /* PlatformBridge.swift */,
 			);
@@ -242,6 +248,7 @@
 				2D109AD7F6B1B2D6B94D1846 /* ConduitPipPlaybackClock.swift in Sources */,
 				40AF8847BF8611896E76C9E7 /* MetalLayer.swift in Sources */,
 				7A51A1EF48814922E2C08A23 /* MPVPlayerBridge.swift in Sources */,
+				8F3C7B6D5A4E291807162534 /* NowPlayingController.swift in Sources */,
 				996DEB6CFE12E76925C33AD9 /* PictureInPictureFrameCapture.swift in Sources */,
 				7CDCF257DBFF434F69BC4080 /* PlatformBridge.swift in Sources */,
 			);
@@ -253,6 +260,7 @@
 			files = (
 				1E68B0A249B3C8A49025497E /* ConduitPipPlaybackClockTests.swift in Sources */,
 				26028123A0B8422D9F57E3B1 /* ConduitPlaybackStartupTests.swift in Sources */,
+				64BE97A132FC4D19B2458C71 /* ConduitBackgroundAudioPolicyTests.swift in Sources */,
 				60ED807587A3AF66B13B02AD /* ConduitPictureInPictureCapturePolicyTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
