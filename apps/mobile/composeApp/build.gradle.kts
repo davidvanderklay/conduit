@@ -23,17 +23,23 @@ kotlin {
         compilerOptions.jvmTarget.set(JvmTarget.JVM_17)
     }
     listOf(iosArm64(), iosSimulatorArm64(), iosX64()).forEach { target ->
+        val mobileBridge = rootProject.projectDir.resolve(
+            "native/ios/${target.name}/libconduit_mobile.a",
+        )
         target.binaries.framework {
             baseName = "ComposeApp"
             isStatic = true
-            val mobileBridge = rootProject.projectDir.resolve(
-                "native/ios/${target.name}/libconduit_mobile.a",
-            )
             linkerOpts(
                 "-lsqlite3",
                 "-Wl,-force_load,${mobileBridge.absolutePath}",
             )
         }
+        // The Kotlin/Native test executable is linked separately from the app
+        // framework, so it needs the bridge symbols explicitly as well.
+        target.binaries.getTest("DEBUG").linkerOpts(
+            "-lsqlite3",
+            "-Wl,-force_load,${mobileBridge.absolutePath}",
+        )
         target.compilations.getByName("main").cinterops.create("conduitMobile") {
             definitionFile.set(project.file("src/nativeInterop/cinterop/conduit_mobile.def"))
             includeDirs(rootProject.file("../../packages/mobile-bridge/include"))
