@@ -360,18 +360,11 @@ export function DesktopPlayer({
         await nativePlayerCommand(["set", "sub-border-size", preferences.subtitleOutline ? 3 : 0])
         const resolved = await resolveAddonSubtitles(addons, type, videoId)
         if (!cancelled) {
-          await Promise.allSettled(
-            resolved.map((subtitle) =>
-              nativePlayerCommand([
-                "sub-add",
-                subtitle.url,
-                "auto",
-                subtitle.display,
-                subtitle.language,
-              ]),
-            ),
-          )
-          if (cancelled) return
+          // Keep the add-on catalog available immediately. `sub-add` is a
+          // synchronous mpv command in the Linux helper, so bulk-loading every
+          // subtitle here can block seeks and play/pause while remote files
+          // download. The preference effect below loads only the selected
+          // language, and manual selection loads one track at a time.
           setAddonSubtitles(resolved)
           setAddonSubtitlesResolved(true)
         }

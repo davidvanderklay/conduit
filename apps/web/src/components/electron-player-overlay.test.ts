@@ -212,6 +212,56 @@ describe("Electron episode drawer", () => {
     expect(desktop.invoke).toHaveBeenCalledWith("player_overlay_next")
   })
 
+  it("shows a skip intro action when IntroDB returns an active segment", async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(JSON.stringify({ intro: { start_sec: 30, end_sec: 60 } }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      ),
+    )
+    desktop.nativePlayerSnapshot.mockResolvedValue({
+      running: true,
+      ended: false,
+      paused: false,
+      loading: false,
+      firstFrameReady: true,
+      position: 40,
+      duration: 100,
+      bufferedDuration: 20,
+      volume: 80,
+      playbackPath: "directPlay",
+      tracks: [],
+    })
+
+    await act(async () => {
+      root.render(
+        createElement(ElectronPlayerOverlay, {
+          initialMedia: {
+            title: "Example · S1 E1",
+            series: {
+              name: "Example",
+              mediaId: "tt1234567",
+              videos: [
+                { id: "s1e1", season: 1, episode: 1, title: "One" },
+                { id: "s1e2", season: 1, episode: 2, title: "Two" },
+              ],
+              progress: [],
+              currentVideoId: "s1e1",
+            },
+          },
+        }),
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(host.querySelector('button[data-native-overlay]')?.textContent).toContain("Skip intro")
+  })
+
   it("hides the native cursor when the controls time out", async () => {
     vi.useFakeTimers()
     desktop.nativePlayerSnapshot.mockResolvedValue({

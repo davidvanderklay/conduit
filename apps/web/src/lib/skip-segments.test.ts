@@ -1,5 +1,10 @@
-import { describe, expect, it } from "vitest"
-import { activeSkipSegment, parseIntroDbSegments, shouldShowUpNext } from "./skip-segments"
+import { describe, expect, it, vi } from "vitest"
+import {
+  activeSkipSegment,
+  loadSkipSegments,
+  parseIntroDbSegments,
+  shouldShowUpNext,
+} from "./skip-segments"
 
 describe("player skip segments", () => {
   const segments = parseIntroDbSegments({
@@ -27,5 +32,22 @@ describe("player skip segments", () => {
   it("falls back to the final thirty seconds when an outro ends early", () => {
     expect(shouldShowUpNext(2400, 3000, segments)).toBe(false)
     expect(shouldShowUpNext(2980, 3000, segments)).toBe(true)
+  })
+
+  it("loads segment data through the Conduit server proxy", async () => {
+    const fetcher = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ intro: { start_sec: 12, end_sec: 82 } }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    )
+
+    await expect(loadSkipSegments("tt1234567:series", 1, 2)).resolves.toEqual([
+      { start: 12, end: 82, type: "intro" },
+    ])
+    expect(String(fetcher.mock.calls[0]?.[0])).toContain(
+      "/v1/playback/skip-segments?imdbId=tt1234567&season=1&episode=2",
+    )
+    vi.restoreAllMocks()
   })
 })

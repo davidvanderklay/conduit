@@ -1,3 +1,5 @@
+import { readServerUrl } from "./server"
+
 export type SkipSegmentType = "intro" | "outro" | "recap"
 
 export interface SkipSegment {
@@ -20,8 +22,6 @@ interface IntroDbResponse {
 }
 
 const UP_NEXT_WINDOW_SECONDS = 30
-const INTRODB_BASE_URL = "https://api.introdb.app"
-
 export function activeSkipSegment(
   position: number,
   segments: SkipSegment[],
@@ -70,9 +70,15 @@ export async function loadSkipSegments(
   const imdbId = mediaId.split(":", 1)[0]
   if (!imdbId.startsWith("tt") || !season || !episode || season < 1 || episode < 1) return []
   try {
-    const response = await fetch(
-      `${INTRODB_BASE_URL}/segments?imdb_id=${encodeURIComponent(imdbId)}&season=${season}&episode=${episode}`,
-    )
+    const params = new URLSearchParams({
+      imdbId,
+      season: String(season),
+      episode: String(episode),
+    })
+    const response = await fetch(`${readServerUrl()}/v1/playback/skip-segments?${params}`, {
+      headers: { accept: "application/json" },
+      signal: AbortSignal.timeout(5_000),
+    })
     if (!response.ok) return []
     return parseIntroDbSegments(await response.json())
   } catch {
