@@ -34,6 +34,11 @@ describe("add-on metadata normalization", () => {
       positionMs: 60_000,
       durationMs: 1_200_000,
       watched: false,
+      playbackSource: {
+        addonId: "addon-1",
+        sourceKey: "url:https://video.example/episode.mkv",
+        kind: "url" as const,
+      },
       updatedAt: "2026-08-29T20:00:00.000Z",
     }
 
