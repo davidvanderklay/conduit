@@ -92,6 +92,8 @@ actual fun NativePlayer(
     subtitles: List<SubtitleItem>,
     contentLogo: String?,
     contentTitle: String?,
+    contentSubtitle: String?,
+    contentArtwork: String?,
     hasNextEpisode: Boolean,
     onNextEpisode: () -> Unit,
     hasEpisodes: Boolean,
@@ -205,6 +207,15 @@ actual fun NativePlayer(
 
     LaunchedEffect(bridge, active) {
         if (active) bridge.play() else bridge.pause()
+    }
+
+    LaunchedEffect(bridge, contentTitle, contentSubtitle, contentArtwork) {
+        val title = contentTitle?.trim().orEmpty()
+        if (title.isEmpty()) {
+            bridge.clearNowPlayingMetadata()
+        } else {
+            bridge.updateNowPlayingMetadata(title, contentSubtitle, contentArtwork)
+        }
     }
 
     LaunchedEffect(bridge, command?.sequence) {

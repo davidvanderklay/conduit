@@ -26,7 +26,8 @@ The mobile client currently supports:
   selection, and add-on subtitle discovery;
 - native playback with resume position, progress synchronization, seeking,
   playback speed, audio and subtitle selection, subtitle presentation options,
-  touch gestures, episode navigation, and lifecycle-safe pause/resume;
+  touch gestures, episode navigation, background audio, and lock-screen media
+  controls;
 - add-on installation, enable/disable, reorder, refresh, and removal;
 - device preferences for appearance, navigation, playback, subtitles, and
   diagnostics; and
@@ -124,7 +125,7 @@ cd apps/mobile
 Exercise server validation, local sign-in and registration, recovery codes,
 household creation, profile switching, add-on installation, catalog search,
 stream selection, playback, watch progress, subtitle and audio selection,
-background/foreground transitions, rotation, and the OAuth deep link. Verify
+background audio and notification controls, rotation, and the OAuth deep link. Verify
 that the cached library and history remain visible after stopping the server,
 and that signing out removes access to the cached session.
 
@@ -159,8 +160,8 @@ No signing identity is committed to the repository.
 
 Exercise the same account, profile, add-on, catalog, playback, progress,
 subtitle, audio, and OAuth cases as Android. Also test background/foreground,
-lock/unlock, rotation, interruptions, repeated player open/close cycles, PiP,
-and memory cleanup on a physical iPhone and iPad. The Apple mobile target is
+lock-screen and Control Center commands, rotation, interruptions, repeated
+player open/close cycles, PiP, and memory cleanup on a physical iPhone and iPad. The Apple mobile target is
 GPLv3; see [`apps/mobile/iosApp/LICENSE`](../apps/mobile/iosApp/LICENSE) and
 [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md) before distributing a
 release.
