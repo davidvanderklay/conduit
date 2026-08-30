@@ -35,6 +35,7 @@ import {
   displayDate,
   episodeLabel,
   normalizeMetaItem,
+  playbackSourceForMediaVideo,
   progressForMediaVideo,
   safeExternalUrl,
   selectSeriesVideo,
@@ -157,7 +158,15 @@ export function MediaDetails({
   const savedProgress = activeVideoId
     ? progressForMediaVideo(mediaProgress, item.type, item.id, activeVideoId, selectedVideo)
     : undefined
-  const savedPlaybackSource = savedProgress?.playbackSource
+  const savedPlaybackSource = activeVideoId
+    ? playbackSourceForMediaVideo(
+        mediaProgress,
+        item.type,
+        item.id,
+        activeVideoId,
+        selectedVideo,
+      )
+    : undefined
   const autoResumeEligible =
     autoResumeOnOpen &&
     autoSelectSavedStreams &&
@@ -521,13 +530,13 @@ export function MediaDetails({
         staleTime: 5 * 60 * 1000,
       })
       if (transition !== episodeTransition.current) return
-      const savedSource = progressForMediaVideo(
-        progress.data ?? [],
+      const savedSource = playbackSourceForMediaVideo(
+        mediaProgress,
         item.type,
         item.id,
         video.id,
         video,
-      )?.playbackSource
+      )
       const candidate = rankAutomaticStreams(
         resolved,
         playing ? playbackSourceForStream(playing) : undefined,

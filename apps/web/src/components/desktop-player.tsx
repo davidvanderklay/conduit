@@ -970,7 +970,7 @@ export function DesktopPlayer({
               }}
             />
           )}
-          <div className="pointer-events-none absolute bottom-24 right-4 z-20 flex flex-col items-end gap-3 sm:right-6">
+          <div className="pointer-events-none absolute bottom-36 right-4 z-20 flex flex-col items-end gap-3 sm:right-6">
             {preferences.skipButtonPlacement === "right" && activeSkip && (
               <SkipSegmentButton
                 segment={activeSkip}

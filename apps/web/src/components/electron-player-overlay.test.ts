@@ -204,7 +204,7 @@ describe("Electron episode drawer", () => {
     })
 
     const prompt = host.querySelector<HTMLElement>('[aria-label="Next on Example"]')
-    expect(prompt?.parentElement?.className).toContain("bottom-24")
+    expect(prompt?.parentElement?.className).toContain("bottom-36")
     const playNow = [...(prompt?.querySelectorAll<HTMLButtonElement>("button") ?? [])].find(
       (button) => button.textContent?.includes("Watch now"),
     )
@@ -259,7 +259,9 @@ describe("Electron episode drawer", () => {
       await Promise.resolve()
     })
 
-    expect(host.querySelector('button[data-native-overlay]')?.textContent).toContain("Skip intro")
+    const skipIntro = host.querySelector<HTMLButtonElement>('button[data-native-overlay]')
+    expect(skipIntro?.textContent).toContain("Skip intro")
+    expect(skipIntro?.className).toContain("bottom-36")
   })
 
   it("hides the native cursor when the controls time out", async () => {

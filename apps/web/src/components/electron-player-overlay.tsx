@@ -488,7 +488,7 @@ export function ElectronPlayerOverlay({ initialMedia }: { initialMedia: PlayerOv
               }}
             />
           )}
-          <div className="pointer-events-none absolute bottom-24 right-6 z-20 flex flex-col items-end gap-3">
+          <div className="pointer-events-none absolute bottom-36 right-6 z-20 flex flex-col items-end gap-3">
             {preferences.skipButtonPlacement === "right" && activeSkip && (
               <SkipSegmentButton
                 segment={activeSkip}

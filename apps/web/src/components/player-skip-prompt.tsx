@@ -28,7 +28,7 @@ export function SkipSegmentButton({
   return (
     <button
       type="button"
-      className={`${contained ? "relative" : `absolute bottom-24 ${placement === "left" ? "left-4 sm:left-6" : "right-4 sm:right-6"}`} pointer-events-auto z-20 h-11 border border-white/25 bg-black/90 px-5 text-sm font-semibold text-white shadow-xl shadow-black/60 hover:bg-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400`}
+      className={`${contained ? "relative" : `absolute bottom-36 ${placement === "left" ? "left-4 sm:left-6" : "right-4 sm:right-6"}`} pointer-events-auto z-20 h-11 border border-white/25 bg-black/90 px-5 text-sm font-semibold text-white shadow-xl shadow-black/60 hover:bg-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400`}
       data-native-overlay
       data-overlay-interactive
       onClick={onSkip}

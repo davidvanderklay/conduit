@@ -7,8 +7,9 @@ import {
 import {
   displayDate,
   episodeLabel,
-  progressForMediaVideo,
   normalizeMetaItem,
+  playbackSourceForMediaVideo,
+  progressForMediaVideo,
   safeExternalUrl,
   seasonLabel,
   sortSeasons,
@@ -56,6 +57,37 @@ describe("add-on metadata normalization", () => {
         },
       ),
     ).toBe(progress)
+  })
+
+  it("carries a saved source forward to a next-up episode", () => {
+    const source = {
+      addonId: "addon-1",
+      sourceKey: "url:https://video.example/show.m3u8",
+      kind: "url" as const,
+    }
+    const progress = [
+      {
+        videoId: "s1e1",
+        mediaType: "series",
+        mediaId: "show",
+        name: "Example",
+        season: 1,
+        episode: 1,
+        positionMs: 1_000,
+        durationMs: 1_200_000,
+        watched: true,
+        playbackSource: source,
+        updatedAt: "2026-08-29T20:00:00.000Z",
+      },
+    ]
+
+    expect(
+      playbackSourceForMediaVideo(progress, "series", "show", "provider-s1e2", {
+        id: "provider-s1e2",
+        season: 1,
+        episode: 2,
+      }),
+    ).toBe(source)
   })
 
   it("preserves full movie, series, and episode metadata", () => {
