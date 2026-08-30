@@ -35,6 +35,7 @@ import {
   displayDate,
   episodeLabel,
   normalizeMetaItem,
+  progressForMediaVideo,
   safeExternalUrl,
   selectSeriesVideo,
   sortSeasons,
@@ -143,10 +144,18 @@ export function MediaDetails({
         `/v1/profiles/${profileId}/progress?view=status&limit=1000`,
       ).then((result) => result.items),
   })
+  const mediaProgress = [
+    ...(initialProgress &&
+    initialProgress.mediaType === item.type &&
+    initialProgress.mediaId === item.id
+      ? [initialProgress]
+      : []),
+    ...(progress.data ?? []).filter(
+      (entry) => entry.mediaType === item.type && entry.mediaId === item.id,
+    ),
+  ]
   const savedProgress = activeVideoId
-    ? initialProgress?.videoId === activeVideoId
-      ? initialProgress
-      : progress.data?.find((entry) => entry.videoId === activeVideoId)
+    ? progressForMediaVideo(mediaProgress, item.type, item.id, activeVideoId, selectedVideo)
     : undefined
   const savedPlaybackSource = savedProgress?.playbackSource
   const autoResumeEligible =
@@ -177,14 +186,7 @@ export function MediaDetails({
     autoResumeStage === "resolving" || autoResumeStage === "starting"
   const seriesProgressReady = progress.isSuccess || progress.isError
   const seriesProgress = [
-    ...(initialProgress &&
-    initialProgress.mediaType === item.type &&
-    initialProgress.mediaId === item.id
-      ? [initialProgress]
-      : []),
-    ...(progress.data ?? []).filter(
-      (entry) => entry.mediaType === item.type && entry.mediaId === item.id,
-    ),
+    ...mediaProgress,
   ]
   const seriesSelectorTarget = useMemo(() => {
     if (item.type !== "series" || selectedVideoId || !videos.length || !seriesProgressReady)
@@ -254,11 +256,19 @@ export function MediaDetails({
       return
     }
     if (autoResumeAttemptedKey.current === autoResumeAttemptKey) return
-    if (item.type === "series" && (metadata.isError || progress.isError)) {
+    if (item.type === "series" && metadata.isError) {
       finishWithoutAutoResume()
       return
     }
-    if (item.type === "series" && (!metadata.isSuccess || !progress.isSuccess)) return
+    if (item.type === "series" && progress.isError && !initialProgress) {
+      finishWithoutAutoResume()
+      return
+    }
+    if (
+      item.type === "series" &&
+      (!metadata.isSuccess || (!progress.isSuccess && !initialProgress))
+    )
+      return
     if (item.type === "series" && !activeVideoId) {
       if (initialSeriesVideoResolved.current) finishWithoutAutoResume()
       return
@@ -511,7 +521,13 @@ export function MediaDetails({
         staleTime: 5 * 60 * 1000,
       })
       if (transition !== episodeTransition.current) return
-      const savedSource = progress.data?.find((entry) => entry.videoId === video.id)?.playbackSource
+      const savedSource = progressForMediaVideo(
+        progress.data ?? [],
+        item.type,
+        item.id,
+        video.id,
+        video,
+      )?.playbackSource
       const candidate = rankAutomaticStreams(
         resolved,
         playing ? playbackSourceForStream(playing) : undefined,

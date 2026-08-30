@@ -197,6 +197,23 @@ export function progressForVideo(
     .sort((a, b) => timestamp(b.updatedAt) - timestamp(a.updatedAt))[0]
 }
 
+/** Finds the progress row for a media item, including episode-coordinate aliases. */
+export function progressForMediaVideo(
+  progress: WatchProgress[],
+  mediaType: string,
+  mediaId: string,
+  videoId: string,
+  video?: Video,
+): WatchProgress | undefined {
+  const entries = progress.filter(
+    (entry) => entry.mediaType === mediaType && entry.mediaId === mediaId,
+  )
+  if (mediaType === "series" && video) return progressForVideo(entries, video, mediaId)
+  return entries
+    .filter((entry) => entry.videoId === videoId)
+    .sort((a, b) => timestamp(b.updatedAt) - timestamp(a.updatedAt))[0]
+}
+
 function timestamp(value: string): number {
   const parsed = Date.parse(value)
   return Number.isNaN(parsed) ? 0 : parsed
