@@ -14,6 +14,8 @@ expect class RustEngine() {
     fun close()
 }
 
+internal expect fun evaluateCore(action: String): String
+
 class EngineClient(private val engine: RustEngine = RustEngine()) {
     fun dispatch(action: EngineAction): EngineState =
         ProtocolJson.decodeFromString(engine.dispatch(ProtocolJson.encodeToString(action)))

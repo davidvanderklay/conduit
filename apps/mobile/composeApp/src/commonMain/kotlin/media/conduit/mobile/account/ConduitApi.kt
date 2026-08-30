@@ -28,9 +28,12 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.encodeToJsonElement
+import kotlinx.serialization.json.int
+import kotlinx.serialization.json.intOrNull
 import io.ktor.http.encodeURLPathPart
 import kotlinx.coroutines.async
 import kotlinx.coroutines.CancellationException
@@ -39,6 +42,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.channels.Channel
 import kotlin.time.TimeSource
+import media.conduit.mobile.coreValue
 
 @Serializable
 data class ServerHealth(val status: String)
@@ -368,146 +372,45 @@ data class StreamItem(
     val behaviorHints: StreamBehaviorHints? = null,
 )
 
+@Serializable
 data class StreamSource(val addonId: String, val addonName: String, val stream: StreamItem)
 
-fun playbackSourceForStream(addonId: String, stream: StreamItem): PlaybackSource = PlaybackSource(
-    addonId = addonId,
-    sourceKey = streamSourceKey(stream),
-    kind = when {
-        stream.infoHash != null -> "torrent"
-        stream.url != null -> "url"
-        else -> "other"
-    },
-    infoHash = stream.infoHash,
-    fileIdx = stream.fileIdx?.toString()?.trim('"'),
-    name = stream.name,
-    title = stream.title,
-    filename = stream.behaviorHints?.filename,
-    bingeGroup = stream.behaviorHints?.bingeGroup,
-)
+fun playbackSourceForStream(addonId: String, stream: StreamItem): PlaybackSource =
+    addonJson.decodeFromJsonElement(coreValue(buildJsonObject {
+        put("type", "playbackSource")
+        put("addonId", addonId)
+        put("stream", addonJson.encodeToJsonElement(stream))
+    }))
 
 fun selectSavedStream(
     streams: List<StreamSource>,
     source: PlaybackSource?,
-): StreamSource? {
-    val saved = source ?: return null
-    val candidates = streams.filter(::isAutoSelectableStream)
-    val exactMatches = candidates.filter { candidate -> streamSourceKey(candidate.stream) == saved.sourceKey }
-    val sameAddonExactMatches = exactMatches.filter { it.addonId == saved.addonId }
-    if (sameAddonExactMatches.size == 1) return sameAddonExactMatches.first()
-    if (sameAddonExactMatches.size > 1) return null
-    if (exactMatches.size == 1) return exactMatches.first()
-    val bingeGroup = saved.bingeGroup?.takeIf(String::isNotBlank) ?: return null
-    val groupMatches = candidates.filter { candidate ->
-        candidate.stream.behaviorHints?.bingeGroup == bingeGroup
-    }
-    val sameAddonGroupMatches = groupMatches.filter { it.addonId == saved.addonId }
-    if (sameAddonGroupMatches.size == 1) return sameAddonGroupMatches.first()
-    if (sameAddonGroupMatches.size > 1) return null
-    return groupMatches.singleOrNull()
-}
+): StreamSource? = coreValue(buildJsonObject {
+    put("type", "selectSavedStream")
+    put("streams", addonJson.encodeToJsonElement(streams))
+    put("source", addonJson.encodeToJsonElement(source))
+}).let { value -> if (value is JsonNull) null else streams.getOrNull(value.jsonPrimitive.int) }
 
 fun selectSingleAutoStream(
     streams: List<StreamSource>,
     excludedStream: StreamSource? = null,
-): StreamSource? {
-    val excludedSourceKey = excludedStream?.stream?.let(::streamSourceKey)
-    return streams
-        .filter(::isAutoSelectableStream)
-        .filter { excludedSourceKey == null || streamSourceKey(it.stream) != excludedSourceKey }
-        .singleOrNull()
-}
+): StreamSource? = coreValue(buildJsonObject {
+    put("type", "selectSingleStream")
+    put("streams", addonJson.encodeToJsonElement(streams))
+    put("excluded", addonJson.encodeToJsonElement(excludedStream?.stream))
+}).let { value -> if (value is JsonNull) null else streams.getOrNull(value.jsonPrimitive.int) }
 
 /** Ranks direct streams for an automatic transition without changing provider order on ties. */
 fun rankAutomaticStreams(
     streams: List<StreamSource>,
     previousSource: PlaybackSource? = null,
     savedSource: PlaybackSource? = null,
-): List<StreamSource> {
-    val targetResolution = streamResolution(previousSource)
-    val indexed = streams
-        .filter(::isAutoSelectableStream)
-        .mapIndexed { index, source -> IndexedValue(index, source) }
-
-    return indexed.sortedWith(
-        compareBy<IndexedValue<StreamSource>>(
-            { candidate -> if (savedSource != null && streamSourceKey(candidate.value.stream) == savedSource.sourceKey) 0 else 1 },
-            { candidate ->
-                val bingeGroup = previousSource?.bingeGroup?.takeIf(String::isNotBlank)
-                if (bingeGroup != null && candidate.value.stream.behaviorHints?.bingeGroup == bingeGroup) 0 else 1
-            },
-            { candidate -> if (previousSource != null && candidate.value.addonId == previousSource.addonId) 0 else 1 },
-            { candidate -> resolutionRank(streamResolution(candidate.value.stream), targetResolution).first },
-            { candidate -> resolutionRank(streamResolution(candidate.value.stream), targetResolution).second },
-            IndexedValue<StreamSource>::index,
-        ),
-    ).map(IndexedValue<StreamSource>::value)
-        .distinctBy { streamSourceKey(it.stream) }
-}
-
-private fun resolutionRank(candidate: Int?, target: Int?): Pair<Int, Int> = when {
-    target == null -> 0 to 0
-    candidate == null -> 3 to Int.MAX_VALUE
-    candidate == target -> 0 to 0
-    candidate < target -> 1 to target - candidate
-    else -> 2 to candidate - target
-}
-
-private fun streamResolution(source: PlaybackSource?): Int? = source?.let {
-    parseStreamResolution(listOf(it.name, it.title, it.filename, it.bingeGroup))
-}
-
-private fun streamResolution(stream: StreamItem): Int? = parseStreamResolution(
-    listOf(
-        stream.name,
-        stream.title,
-        stream.description,
-        stream.behaviorHints?.filename,
-        stream.behaviorHints?.bingeGroup,
-    ),
-)
-
-private fun parseStreamResolution(values: List<String?>): Int? {
-    val value = values.filterNotNull().joinToString(" ")
-    if (Regex("(?i)(?:^|[^a-z0-9])(?:4k|uhd)(?:$|[^a-z0-9])").containsMatchIn(value)) return 2160
-    return Regex("(?i)(?:^|[^0-9])(2160|1440|1080|720|576|480|360)p?(?:$|[^0-9])")
-        .find(value)
-        ?.groupValues
-        ?.getOrNull(1)
-        ?.toIntOrNull()
-}
-
-private fun isAutoSelectableStream(candidate: StreamSource): Boolean =
-    isPlayableStreamUrl(candidate.stream.url)
-
-private fun isPlayableStreamUrl(value: String?): Boolean {
-    val protocol = value?.substringBefore(':')?.lowercase()
-    return protocol == "http" || protocol == "https"
-}
-
-internal fun streamSourceKey(stream: StreamItem): String = when {
-    stream.infoHash != null -> "torrent:${stream.infoHash.lowercase()}:${stream.fileIdx?.toString()?.trim('"').orEmpty()}"
-    stream.url != null -> "url:${normalizeStreamUrl(stream.url)}"
-    else -> "other:${normalizeSourceText(listOf(stream.name, stream.title, stream.behaviorHints?.filename))}"
-}
-
-private fun normalizeStreamUrl(value: String): String {
-    val withoutFragment = value.substringBefore('#')
-    val base = withoutFragment.substringBefore('?').trimEnd('/')
-    val query = withoutFragment.substringAfter('?', "")
-        .split('&')
-        .mapNotNull { part ->
-            val key = part.substringBefore('=', part).trim()
-            if (key.isBlank() || Regex("token|sig|signature|expires|expiry|auth|key", RegexOption.IGNORE_CASE).containsMatchIn(key)) null
-            else part
-        }
-        .sorted()
-        .joinToString("&")
-    return if (query.isBlank()) base else "$base?$query"
-}
-
-private fun normalizeSourceText(values: List<String?>): String =
-    values.filterNotNull().joinToString("|").trim().lowercase().replace(Regex("\\s+"), " ")
+): List<StreamSource> = coreValue(buildJsonObject {
+    put("type", "rankStreams")
+    put("streams", addonJson.encodeToJsonElement(streams))
+    put("previous", addonJson.encodeToJsonElement(previousSource))
+    put("saved", addonJson.encodeToJsonElement(savedSource))
+}).jsonArray.mapNotNull { index -> streams.getOrNull(index.jsonPrimitive.intOrNull ?: return@mapNotNull null) }
 
 @Serializable
 data class SubtitleItem(val id: String? = null, val url: String, val lang: String? = null, val addonName: String? = null)
@@ -655,16 +558,13 @@ fun discoverCatalogs(addons: List<InstalledAddonSummary>): List<DiscoverCatalog>
 private data class SearchCatalogRequest(val addon: InstalledAddonSummary, val type: String, val id: String, val name: String)
 
 internal fun InstalledAddonSummary.supportsResource(resource: String, type: String, id: String): Boolean {
-    val resources = manifest["resources"]?.jsonArray ?: return false
-    return resources.any { entry ->
-        val primitiveName = runCatching { entry.jsonPrimitive.contentOrNull }.getOrNull()
-        if (primitiveName != null) return@any primitiveName == resource
-        val definition = runCatching { entry.jsonObject }.getOrNull() ?: return@any false
-        if (definition["name"]?.jsonPrimitive?.contentOrNull != resource) return@any false
-        val types = definition["types"]?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull }.orEmpty()
-        val prefixes = definition["idPrefixes"]?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull }.orEmpty()
-        (types.isEmpty() || type in types) && (prefixes.isEmpty() || prefixes.any(id::startsWith))
-    }
+    return coreValue(buildJsonObject {
+        put("type", "supportsResource")
+        put("manifest", manifest)
+        put("resource", resource)
+        put("mediaType", type)
+        put("id", id)
+    }).jsonPrimitive.boolean
 }
 
 @Serializable
@@ -1334,14 +1234,13 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
         id: String,
         extraName: String? = null,
         extraValue: String? = null,
-    ): String {
-        val cleanManifest = manifestUrl.substringBefore('?').substringBefore('#')
-        val base = cleanManifest.substringBeforeLast('/', cleanManifest).trimEnd('/')
-        val path = "$base/${resource.encodeURLPathPart()}/${type.encodeURLPathPart()}/${id.encodeURLPathPart()}"
-        return if (extraName != null && extraValue != null) {
-            "$path/${extraName.encodeURLPathPart()}=${extraValue.encodeURLPathPart()}.json"
-        } else "$path.json"
-    }
+    ): String = resourceUrl(
+        manifestUrl,
+        resource,
+        type,
+        id,
+        if (extraName != null && extraValue != null) listOf(extraName to extraValue) else emptyList(),
+    )
 
     private fun resourceUrl(
         manifestUrl: String,
@@ -1349,16 +1248,16 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
         type: String,
         id: String,
         extras: List<Pair<String, String>>,
-    ): String {
-        if (extras.isEmpty()) return resourceUrl(manifestUrl, resource, type, id)
-        val cleanManifest = manifestUrl.substringBefore('?').substringBefore('#')
-        val base = cleanManifest.substringBeforeLast('/', cleanManifest).trimEnd('/')
-        val path = "$base/${resource.encodeURLPathPart()}/${type.encodeURLPathPart()}/${id.encodeURLPathPart()}"
-        val encodedExtras = extras.joinToString("&") { (name, value) ->
-            "${name.encodeURLPathPart()}=${value.encodeURLPathPart()}"
-        }
-        return "$path/$encodedExtras.json"
-    }
+    ): String = coreValue(buildJsonObject {
+        put("type", "buildResourceUrl")
+        put("manifestUrl", manifestUrl)
+        put("resource", resource)
+        put("mediaType", type)
+        put("id", id)
+        put("extras", JsonArray(extras.map { (name, value) ->
+            buildJsonObject { put("name", name); put("value", value) }
+        }))
+    }).jsonPrimitive.content
 
     suspend fun generateRecoveryCodes(baseUrl: String, token: String): List<String> {
         val response = client.post("$baseUrl/v1/auth/recovery-codes") { bearerAuth(token) }

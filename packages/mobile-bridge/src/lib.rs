@@ -1,4 +1,4 @@
-use conduit_core::{parse_manifest_json, ResourceRequest, StreamsResponse};
+use conduit_core::{evaluate_json, parse_manifest_json, ResourceRequest, StreamsResponse};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::ffi::{c_char, CStr, CString};
@@ -283,6 +283,35 @@ fn response(engine: *mut ConduitEngineHandle, action: *const c_char) -> *mut c_c
         .into_raw()
 }
 
+fn domain_response(action: *const c_char) -> *mut c_char {
+    let json = catch_unwind(AssertUnwindSafe(|| {
+        if action.is_null() {
+            return r#"{"ok":false,"error":{"code":"invalid_pointer","message":"action must be non-null"}}"#.into();
+        }
+        let action = unsafe { CStr::from_ptr(action) };
+        let action = match action.to_str() {
+            Ok(value) => value,
+            Err(error) => {
+                return serde_json::json!({
+                    "ok": false,
+                    "error": { "code": "invalid_utf8", "message": error.to_string() }
+                })
+                .to_string();
+            }
+        };
+        if action.len() > MAX_MESSAGE_BYTES {
+            return r#"{"ok":false,"error":{"code":"message_too_large","message":"action exceeds the 1 MiB limit"}}"#.into();
+        }
+        evaluate_json(action)
+    }))
+    .unwrap_or_else(|_| {
+        r#"{"ok":false,"error":{"code":"panic","message":"Rust core panicked"}}"#.into()
+    });
+    CString::new(json)
+        .expect("JSON cannot contain NUL")
+        .into_raw()
+}
+
 #[no_mangle]
 pub extern "C" fn conduit_mobile_abi_version() -> u32 {
     PROTOCOL_VERSION
@@ -301,6 +330,11 @@ pub extern "C" fn conduit_engine_dispatch(
     action_json: *const c_char,
 ) -> *mut c_char {
     response(engine, action_json)
+}
+
+#[no_mangle]
+pub extern "C" fn conduit_core_evaluate(action_json: *const c_char) -> *mut c_char {
+    domain_response(action_json)
 }
 
 /// # Safety
@@ -323,7 +357,7 @@ pub unsafe extern "C" fn conduit_engine_free(engine: *mut ConduitEngineHandle) {
     }
 }
 
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", feature = "host-jni"))]
 mod android {
     use super::*;
     use jni::objects::{JClass, JString};
@@ -347,8 +381,8 @@ mod android {
     ) -> jstring {
         unowned_env
             .with_env(|env| -> jni::errors::Result<jstring> {
-                let action: String = match env.get_string(&action) {
-                    Ok(value) => value.into(),
+                let action: String = match action.try_to_string(env) {
+                    Ok(value) => value,
                     Err(value) => {
                         let value =
                             serde_json::to_string(&error(None, "invalid_utf8", value, true))
@@ -358,6 +392,26 @@ mod android {
                 };
                 let action = CString::new(action).expect("Java string cannot contain NUL");
                 let raw = response(handle as *mut ConduitEngineHandle, action.as_ptr());
+                let value = unsafe { CStr::from_ptr(raw) }
+                    .to_string_lossy()
+                    .into_owned();
+                unsafe { conduit_string_free(raw) };
+                Ok(env.new_string(value)?.into_raw())
+            })
+            .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
+    }
+
+    #[no_mangle]
+    pub extern "system" fn Java_media_conduit_mobile_RustBridge_evaluate<'local>(
+        mut unowned_env: EnvUnowned<'local>,
+        _class: JClass<'local>,
+        action: JString<'local>,
+    ) -> jstring {
+        unowned_env
+            .with_env(|env| -> jni::errors::Result<jstring> {
+                let action = action.try_to_string(env)?;
+                let action = CString::new(action).expect("Java string cannot contain NUL");
+                let raw = domain_response(action.as_ptr());
                 let value = unsafe { CStr::from_ptr(raw) }
                     .to_string_lossy()
                     .into_owned();
@@ -438,6 +492,41 @@ mod tests {
         unsafe {
             conduit_string_free(response);
             conduit_engine_free(engine);
+        }
+    }
+
+    #[test]
+    fn stateless_domain_calls_use_the_shared_core() {
+        let action = CString::new(
+            r#"{
+                "type":"supportsResource",
+                "manifest":{
+                    "id":"org.example","version":"1","name":"Example",
+                    "resources":["catalog"],"types":[],"catalogs":[]
+                },
+                "resource":"catalog","mediaType":"series","id":"anything"
+            }"#,
+        )
+        .unwrap();
+        let response = conduit_core_evaluate(action.as_ptr());
+        let value: serde_json::Value =
+            serde_json::from_str(unsafe { CStr::from_ptr(response) }.to_str().unwrap()).unwrap();
+        assert_eq!(value["value"], true);
+        unsafe { conduit_string_free(response) };
+    }
+
+    #[test]
+    fn c_abi_matches_shared_domain_fixtures() {
+        let fixtures: serde_json::Value =
+            serde_json::from_str(include_str!("../../core/tests/fixtures/domain.json")).unwrap();
+        for fixture in fixtures.as_array().unwrap() {
+            let action = CString::new(fixture["action"].to_string()).unwrap();
+            let response = conduit_core_evaluate(action.as_ptr());
+            let value: serde_json::Value =
+                serde_json::from_str(unsafe { CStr::from_ptr(response) }.to_str().unwrap())
+                    .unwrap();
+            assert_eq!(value["value"], fixture["expected"], "{}", fixture["name"]);
+            unsafe { conduit_string_free(response) };
         }
     }
 

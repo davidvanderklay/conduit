@@ -17,28 +17,7 @@ export function monthKey(value: CalendarMonth): string {
 }
 
 export function releaseDateKey(value?: string): string | undefined {
-  if (!value) return undefined
-  const calendarDate = /^(\d{4})-(\d{2})-(\d{2})(?:T|$)/.exec(value)
-  if (calendarDate) {
-    const [, year, month, day] = calendarDate
-    const parsed = new Date(Number(year), Number(month) - 1, Number(day))
-    if (
-      parsed.getFullYear() === Number(year) &&
-      parsed.getMonth() === Number(month) - 1 &&
-      parsed.getDate() === Number(day)
-    ) {
-      return `${year}-${month}-${day}`
-    }
-    return undefined
-  }
-
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) return undefined
-  return [
-    parsed.getFullYear(),
-    String(parsed.getMonth() + 1).padStart(2, "0"),
-    String(parsed.getDate()).padStart(2, "0"),
-  ].join("-")
+  return coreValue<string | null>({ type: "releaseDateKey", value: value ?? null }) ?? undefined
 }
 
 export function daysInMonth(value: CalendarMonth): number {
@@ -52,4 +31,5 @@ export function mondayOffset(value: CalendarMonth): number {
 export function dateKey(value: CalendarMonth, day: number): string {
   return `${monthKey(value)}-${String(day).padStart(2, "0")}`
 }
+import { coreValue } from "./core"
 

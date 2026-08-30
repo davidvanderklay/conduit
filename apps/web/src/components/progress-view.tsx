@@ -137,7 +137,12 @@ function ContinueWatchingCard({
       : state.kind === "new-episode" || state.kind === "next-up"
         ? state.video.id
         : undefined
-  const selectedProgress = state.kind === "in-progress" ? item : undefined
+  // Next-up entries do not have a row for the target episode yet. Keep the
+  // completed anchor row so playback can carry its saved source forward.
+  const selectedProgress =
+    state.kind === "in-progress" || state.kind === "new-episode" || state.kind === "next-up"
+      ? item
+      : undefined
   const catalogItem: CatalogItem = {
     id: item.mediaId,
     type: item.mediaType,

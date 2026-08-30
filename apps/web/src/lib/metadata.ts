@@ -197,6 +197,61 @@ export function progressForVideo(
     .sort((a, b) => timestamp(b.updatedAt) - timestamp(a.updatedAt))[0]
 }
 
+/** Finds the progress row for a media item, including episode-coordinate aliases. */
+export function progressForMediaVideo(
+  progress: WatchProgress[],
+  mediaType: string,
+  mediaId: string,
+  videoId: string,
+  video?: Video,
+): WatchProgress | undefined {
+  const entries = progress.filter(
+    (entry) => entry.mediaType === mediaType && entry.mediaId === mediaId,
+  )
+  if (mediaType === "series" && video) return progressForVideo(entries, video, mediaId)
+  return entries
+    .filter((entry) => entry.videoId === videoId)
+    .sort((a, b) => timestamp(b.updatedAt) - timestamp(a.updatedAt))[0]
+}
+
+/**
+ * Returns the source for an episode, carrying it forward from the nearest
+ * earlier episode when Continue Watching opens a next-up episode without its
+ * own progress row.
+ */
+export function playbackSourceForMediaVideo(
+  progress: WatchProgress[],
+  mediaType: string,
+  mediaId: string,
+  videoId: string,
+  video?: Video,
+): WatchProgress["playbackSource"] {
+  const entries = progress.filter(
+    (entry) => entry.mediaType === mediaType && entry.mediaId === mediaId,
+  )
+  const exact = progressForMediaVideo(entries, mediaType, mediaId, videoId, video)
+  if (exact?.playbackSource) return exact.playbackSource
+  if (mediaType !== "series" || video?.season == null || video.episode == null) return undefined
+  const targetSeason = video.season
+  const targetEpisode = video.episode
+
+  return entries
+    .filter(
+      (entry) =>
+        entry.playbackSource != null &&
+        entry.season != null &&
+        entry.episode != null &&
+        (entry.season < targetSeason ||
+          (entry.season === targetSeason && entry.episode < targetEpisode)),
+    )
+    .sort(
+      (a, b) =>
+        (b.season! - a.season!) ||
+        (b.episode! - a.episode!) ||
+        (timestamp(b.updatedAt) - timestamp(a.updatedAt)),
+    )[0]?.playbackSource
+}
+
 function timestamp(value: string): number {
   const parsed = Date.parse(value)
   return Number.isNaN(parsed) ? 0 : parsed

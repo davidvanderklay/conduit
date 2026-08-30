@@ -4,9 +4,14 @@ import kotlin.math.ceil
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.days
 import kotlin.time.Instant
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.encodeToJsonElement
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import media.conduit.mobile.account.ProgressSummary
 import media.conduit.mobile.account.VideoItem
-import media.conduit.mobile.account.latestProgressByTitle
 import media.conduit.mobile.account.progressByRecency
 
 internal enum class ContinueWatchingKind { InProgress, NewEpisode, NextUp, Scheduled, CaughtUp }
@@ -18,7 +23,10 @@ internal data class ContinueWatchingPresentation(
 )
 
 internal fun groupContinueWatching(items: List<ProgressSummary>): List<ProgressSummary> {
-    return latestProgressByTitle(items)
+    return coreValue(buildJsonObject {
+        put("type", "groupContinueWatching")
+        put("progress", ProtocolJson.encodeToJsonElement(items))
+    }).jsonArray.mapNotNull { index -> items.getOrNull(index.jsonPrimitive.content.toInt()) }
 }
 
 internal fun progressTitleUiKey(progress: ProgressSummary): String =
@@ -44,29 +52,26 @@ internal fun continueWatchingPresentation(
     now: Instant = Clock.System.now(),
     watchedVideoIds: Set<String> = emptySet(),
 ): ContinueWatchingPresentation {
-    val regular = orderedContinueWatchingEpisodes(videos, today, now)
-    val anchor = regular.firstOrNull { it.id == progress.videoId }
-        ?: regular.firstOrNull { it.season == progress.season && it.episode == progress.episode }
-
-    if (progress.mediaType != "series" || !progress.watched) {
-        return ContinueWatchingPresentation(ContinueWatchingKind.InProgress, anchor)
+    val result = coreValue(buildJsonObject {
+        put("type", "continueWatching")
+        put("progress", ProtocolJson.encodeToJsonElement(progress))
+        put("videos", ProtocolJson.encodeToJsonElement(videos))
+        put("today", today)
+        put("nowMs", now.toEpochMilliseconds())
+        put("watchedVideoIds", ProtocolJson.encodeToJsonElement(watchedVideoIds))
+    }).jsonObject
+    val video = result["videoIndex"]?.jsonPrimitive?.content?.toIntOrNull()?.let(videos::getOrNull)
+    return when (result.getValue("kind").jsonPrimitive.content) {
+        "in-progress" -> ContinueWatchingPresentation(ContinueWatchingKind.InProgress, video)
+        "new-episode" -> ContinueWatchingPresentation(ContinueWatchingKind.NewEpisode, video)
+        "next-up" -> ContinueWatchingPresentation(ContinueWatchingKind.NextUp, video)
+        "scheduled" -> ContinueWatchingPresentation(
+            ContinueWatchingKind.Scheduled,
+            video,
+            video?.released?.let { releaseDateLabel(it, today) },
+        )
+        else -> ContinueWatchingPresentation(ContinueWatchingKind.CaughtUp, video)
     }
-    if (anchor == null) return ContinueWatchingPresentation(ContinueWatchingKind.CaughtUp)
-
-    val later = regular.filter {
-        compareEpisodeCoordinates(it, anchor) > 0 && it.id !in watchedVideoIds
-    }
-    later.firstOrNull()?.let { next ->
-        when {
-            next.hasAired(today, now) && next.isReleaseAlert(progress, now) ->
-                return ContinueWatchingPresentation(ContinueWatchingKind.NewEpisode, next)
-            next.hasAired(today, now) ->
-                return ContinueWatchingPresentation(ContinueWatchingKind.NextUp, next)
-            releaseDay(next.released) != null ->
-                return ContinueWatchingPresentation(ContinueWatchingKind.Scheduled, next, releaseDateLabel(next.released!!, today))
-        }
-    }
-    return ContinueWatchingPresentation(ContinueWatchingKind.CaughtUp, anchor)
 }
 
 internal fun continueWatchingBadgeLabel(

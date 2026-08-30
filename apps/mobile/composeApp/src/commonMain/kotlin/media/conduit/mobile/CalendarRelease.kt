@@ -3,6 +3,10 @@ package media.conduit.mobile
 import media.conduit.mobile.account.CatalogItem
 import media.conduit.mobile.account.LibraryItemSummary
 import media.conduit.mobile.account.MetaItem
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 
 internal data class CalendarMonth(val year: Int, val month: Int)
 
@@ -75,13 +79,10 @@ internal fun parseCalendarDate(value: String): CalendarDate? {
 }
 
 internal fun releaseDateKey(value: String?): String? {
-    if (value == null) return null
-    val match = Regex("^(\\d{4})-(\\d{2})-(\\d{2})(?:T|$)").find(value) ?: return null
-    val year = match.groupValues[1].toInt()
-    val month = match.groupValues[2].toInt()
-    val day = match.groupValues[3].toInt()
-    if (year < 1 || month !in 1..12 || day !in 1..daysInCalendarMonth(CalendarMonth(year, month))) return null
-    return "${year.toString().padStart(4, '0')}-${month.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}"
+    return coreValue(buildJsonObject {
+        put("type", "releaseDateKey")
+        put("value", value)
+    }).let { result -> if (result === JsonNull) null else result.jsonPrimitive.content }
 }
 
 internal fun shiftCalendarMonth(value: CalendarMonth, amount: Int): CalendarMonth {

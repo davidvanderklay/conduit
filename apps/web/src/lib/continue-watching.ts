@@ -1,5 +1,6 @@
 import type { WatchProgress } from "./api"
 import type { Video } from "./core"
+import { coreValue } from "./core"
 
 export type ContinueWatchingState =
   | { kind: "in-progress"; video?: Video }
@@ -9,18 +10,8 @@ export type ContinueWatchingState =
   | { kind: "caught-up"; video?: Video }
 
 export function groupContinueWatching(items: WatchProgress[]): WatchProgress[] {
-  const grouped = new Map<string, WatchProgress>()
-  for (const item of items) {
-    const key =
-      item.mediaType === "series"
-        ? `${item.mediaType}:${item.mediaId}`
-        : `${item.mediaType}:${item.mediaId}:${item.videoId}`
-    const current = grouped.get(key)
-    if (!current || Date.parse(item.updatedAt) > Date.parse(current.updatedAt)) {
-      grouped.set(key, item)
-    }
-  }
-  return [...grouped.values()]
+  return coreValue<number[]>({ type: "groupContinueWatching", progress: items })
+    .map((index) => items[index]!)
 }
 
 export function continueWatchingState(
@@ -29,43 +20,25 @@ export function continueWatchingState(
   now = new Date(),
   watchedVideoIds: ReadonlySet<string> = new Set(),
 ): ContinueWatchingState {
-  const regular = videos
-    .filter(
-      (video) =>
-        video.season != null &&
-        video.season > 0 &&
-        video.episode != null &&
-        (video.available !== false || isUpcomingRelease(video, now)),
-    )
-    .sort(compareEpisodes)
-  const anchor =
-    regular.find((video) => video.id === progress.videoId) ??
-    regular.find((video) => video.season === progress.season && video.episode === progress.episode)
-
-  if (progress.mediaType !== "series" || !progress.watched) {
-    return { kind: "in-progress", video: anchor }
+  const decision = coreValue<{
+    kind: "in-progress" | "new-episode" | "next-up" | "scheduled" | "caught-up"
+    videoIndex?: number
+  }>({
+    type: "continueWatching",
+    progress,
+    videos,
+    today: localDay(now),
+    nowMs: now.getTime(),
+    watchedVideoIds: [...watchedVideoIds],
+  })
+  const video = decision.videoIndex == null ? undefined : videos[decision.videoIndex]
+  if (decision.kind === "scheduled" && video?.released) {
+    return { kind: "scheduled", video, label: releaseDateLabel(video.released, now) }
   }
-
-  if (!anchor) return { kind: "caught-up" }
-  const next = regular.find(
-    (video) =>
-      compareEpisodeCoordinates(video, anchor) > 0 &&
-      !watchedVideoIds.has(video.id),
-  )
-  if (next) {
-    if (episodeHasReleased(next, now) && isReleaseAlert(progress, next, now)) {
-      return { kind: "new-episode", video: next }
-    }
-    if (episodeHasReleased(next, now)) return { kind: "next-up", video: next }
-    if (isUpcomingRelease(next, now)) {
-      return {
-        kind: "scheduled",
-        video: next,
-        label: releaseDateLabel(next.released!, now),
-      }
-    }
-  }
-  return { kind: "caught-up", video: anchor }
+  if (decision.kind === "new-episode" && video) return { kind: "new-episode", video }
+  if (decision.kind === "next-up" && video) return { kind: "next-up", video }
+  if (decision.kind === "in-progress") return { kind: "in-progress", video }
+  return { kind: "caught-up", video }
 }
 
 export function continueWatchingBadge(
@@ -106,46 +79,6 @@ export function releaseDateLabel(released: string, now = new Date()): string {
   return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(
     new Date(year!, month! - 1, day!),
   )
-}
-
-function compareEpisodes(a: Video, b: Video): number {
-  return compareEpisodeCoordinates(a, b) || a.id.localeCompare(b.id)
-}
-
-function compareEpisodeCoordinates(a: Video, b: Video): number {
-  return a.season! - b.season! || a.episode! - b.episode!
-}
-
-function episodeHasReleased(video: Video, now: Date): boolean {
-  if (video.available === false) return false
-  const instant = parseReleaseInstant(video.released)
-  if (instant != null) return instant <= now.getTime()
-  return true
-}
-
-function isUpcomingRelease(video: Video, now: Date): boolean {
-  const day = calendarDay(video.released)
-  if (!day) return false
-  if (!video.released?.includes("T")) {
-    const today = localDay(now)
-    return day > today || (video.available === false && day === today)
-  }
-  const instant = parseReleaseInstant(video.released)
-  return instant != null && instant > now.getTime()
-}
-
-function isReleaseAlert(progress: WatchProgress, video: Video, now: Date): boolean {
-  const releaseTimestamp = parseReleaseInstant(video.released)
-  const watchedTimestamp = Date.parse(progress.updatedAt)
-  if (releaseTimestamp == null || Number.isNaN(watchedTimestamp)) return false
-  return releaseTimestamp > watchedTimestamp &&
-    now.getTime() - releaseTimestamp < 60 * 24 * 60 * 60 * 1000
-}
-
-function parseReleaseInstant(value: string | undefined): number | undefined {
-  if (!value) return undefined
-  const timestamp = Date.parse(value)
-  return Number.isNaN(timestamp) ? undefined : timestamp
 }
 
 function calendarDay(value: string | undefined): string | undefined {

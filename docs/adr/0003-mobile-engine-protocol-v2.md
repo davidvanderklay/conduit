@@ -5,9 +5,10 @@
 - Scope: issue #42 and issue #38
 
 This ADR records the shared native-boundary decision made during Android-first
-development. The current product client keeps this ABI for the retained
-architecture fixture and contract tests; its live add-on networking and
-stream selection are implemented in the shared Kotlin client.
+development. The current product client keeps this stateful ABI for the
+retained architecture fixture and contract tests. Live add-on networking stays
+in Kotlin, while add-on request planning, stream selection, and other portable
+domain rules now use the stateless Rust call recorded in ADR 0005.
 
 ## Context
 

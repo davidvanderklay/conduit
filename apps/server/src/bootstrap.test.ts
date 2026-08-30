@@ -52,6 +52,7 @@ describe("first-owner bootstrap", () => {
     expect(owner.email).toBe("owner@example.com")
     expect(rows.find((row) => row.table === users)?.value.role).toBe("owner")
     expect(rows.find((row) => row.table === accounts)?.value.providerId).toBe("credential")
+    expect(rows.find((row) => row.table === accounts)?.value.issuer).toBe("local:credential")
     await expect(createOwnerAccount(database, "second@example.com", "another password")).rejects.toThrow(
       "owner already exists",
     )

@@ -1,5 +1,7 @@
 import org.jetbrains.kotlin.gradle.ExperimentalKotlinGradlePluginApi
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.gradle.api.tasks.Exec
+import org.gradle.api.tasks.testing.Test
 
 val androidReleaseKeystore = providers.environmentVariable("ANDROID_KEYSTORE_FILE").orNull
 val androidReleaseStorePassword = providers.environmentVariable("ANDROID_KEYSTORE_PASSWORD").orNull
@@ -21,17 +23,23 @@ kotlin {
         compilerOptions.jvmTarget.set(JvmTarget.JVM_17)
     }
     listOf(iosArm64(), iosSimulatorArm64(), iosX64()).forEach { target ->
+        val mobileBridge = rootProject.projectDir.resolve(
+            "native/ios/${target.name}/libconduit_mobile.a",
+        )
         target.binaries.framework {
             baseName = "ComposeApp"
             isStatic = true
-            val mobileBridge = rootProject.projectDir.resolve(
-                "native/ios/${target.name}/libconduit_mobile.a",
-            )
             linkerOpts(
                 "-lsqlite3",
                 "-Wl,-force_load,${mobileBridge.absolutePath}",
             )
         }
+        // The Kotlin/Native test executable is linked separately from the app
+        // framework, so it needs the bridge symbols explicitly as well.
+        target.binaries.getTest("DEBUG").linkerOpts(
+            "-lsqlite3",
+            "-Wl,-force_load,${mobileBridge.absolutePath}",
+        )
         target.compilations.getByName("main").cinterops.create("conduitMobile") {
             definitionFile.set(project.file("src/nativeInterop/cinterop/conduit_mobile.def"))
             includeDirs(rootProject.file("../../packages/mobile-bridge/include"))
@@ -130,4 +138,14 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     packaging.resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
+}
+
+val buildHostRustBridge by tasks.registering(Exec::class) {
+    workingDir(rootProject.projectDir.resolve("../.."))
+    commandLine("cargo", "build", "-p", "conduit-mobile", "--features", "host-jni")
+}
+
+tasks.withType<Test>().configureEach {
+    dependsOn(buildHostRustBridge)
+    jvmArgs("-Djava.library.path=${rootProject.projectDir.resolve("../../target/debug").absolutePath}")
 }

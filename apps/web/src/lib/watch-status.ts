@@ -1,20 +1,17 @@
 import type { WatchProgress } from "./api"
 import type { CatalogItem, Video } from "./core"
+import { coreValue } from "./core"
 
 export type PosterWatchState = "unwatched" | "partial" | "complete"
 export type EpisodeWatchState = "not-started" | "in-progress" | "watched"
 
-const LEGACY_COMPLETION_MARKER_PREFIX = "conduit:completion:"
-
 export function episodeWatchState(progress?: WatchProgress): EpisodeWatchState {
-  if (progress?.watched) return "watched"
-  if (progress && progress.positionMs > 0) return "in-progress"
-  return "not-started"
+  return coreValue<EpisodeWatchState>({ type: "episodeWatchState", progress: progress ?? null })
 }
 
 export function episodeProgressPercent(progress?: WatchProgress): number {
-  if (!progress || progress.watched || progress.durationMs <= 0) return 0
-  return Math.min(100, Math.max(0, Math.round((progress.positionMs / progress.durationMs) * 100)))
+  const fraction = coreValue<number>({ type: "episodeProgress", progress: progress ?? null })
+  return Math.round(fraction * 100)
 }
 
 export function resumePositionLabel(
@@ -31,10 +28,12 @@ export function resumePositionLabel(
 }
 
 export function isReleasedEpisode(video: Video, now = Date.now()): boolean {
-  if (video.available === false) return false
-  if (!video.released) return true
-  const releasedAt = Date.parse(video.released)
-  return Number.isNaN(releasedAt) || releasedAt <= now
+  return coreValue<number[]>({
+    type: "eligibleWatchVideos",
+    videos: [video],
+    season: null,
+    nowMs: now,
+  }).length === 1
 }
 
 export function eligibleWatchVideos(
@@ -42,14 +41,12 @@ export function eligibleWatchVideos(
   season?: number,
   now = Date.now(),
 ): Video[] {
-  return videos
-    .filter((video) => season == null || (video.season ?? 1) === season)
-    .filter((video) => isReleasedEpisode(video, now))
-    .sort((a, b) =>
-      ((a.season ?? 1) - (b.season ?? 1)) ||
-      ((a.episode ?? 0) - (b.episode ?? 0)) ||
-      a.id.localeCompare(b.id),
-    )
+  return coreValue<number[]>({
+    type: "eligibleWatchVideos",
+    videos,
+    season: season ?? null,
+    nowMs: now,
+  }).map((index) => videos[index]!)
 }
 
 export function seasonWatchVideos(videos: Video[], season: number, now = Date.now()): Video[] {
@@ -67,29 +64,13 @@ export function posterWatchState(
   item: Pick<CatalogItem, "type" | "id">,
   episodeIds: string[] = [],
 ): PosterWatchState {
-  const mediaProgress = progress.filter(
-    (entry) =>
-      entry.mediaType === item.type &&
-      entry.mediaId === item.id &&
-      !entry.videoId.startsWith(LEGACY_COMPLETION_MARKER_PREFIX),
-  )
-  if (item.type === "movie") {
-    return mediaProgress.find((entry) => entry.videoId === item.id)?.watched
-      ? "complete"
-      : "unwatched"
-  }
-
-  const watchedIds = new Set(
-    mediaProgress.filter((entry) => entry.watched).map((entry) => entry.videoId),
-  )
-  if (episodeIds.length > 0 && episodeIds.every((id) => watchedIds.has(id))) {
-    return "complete"
-  }
-  return mediaProgress.some(
-    (entry) => entry.watched || entry.positionMs > 0,
-  )
-    ? "partial"
-    : "unwatched"
+  return coreValue<PosterWatchState>({
+    type: "posterWatchState",
+    progress,
+    mediaType: item.type,
+    mediaId: item.id,
+    episodeIds,
+  })
 }
 
 export function completionEpisodeIds(videos: Video[], now = Date.now()): string[] {

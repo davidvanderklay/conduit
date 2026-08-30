@@ -1,11 +1,37 @@
-import init, { fetchManifest, fetchResource } from "../../../../packages/core/pkg/conduit_core.js"
+import init, {
+  evaluateCore,
+  fetchManifest,
+  fetchResource,
+  type InitInput,
+} from "../../../../packages/core/pkg/conduit_core.js"
 import type { AddonManifest } from "./api"
 
 let initialization: Promise<unknown> | undefined
+let initialized = false
+
+export function initializeCore(input?: InitInput) {
+  initialization ??= init(input).then((value) => {
+    initialized = true
+    return value
+  })
+  return initialization
+}
 
 function ready() {
-  initialization ??= init()
-  return initialization
+  return initializeCore()
+}
+
+export function coreValue<T>(action: object): T {
+  if (!initialized) throw new Error("conduit-core must be initialized before use")
+  const response = JSON.parse(evaluateCore(JSON.stringify(action))) as {
+    ok: boolean
+    value?: T
+    error?: { code: string; message: string }
+  }
+  if (!response.ok) {
+    throw new Error(`${response.error?.code ?? "core_error"}: ${response.error?.message ?? "Rust core operation failed"}`)
+  }
+  return response.value as T
 }
 
 export async function loadManifest(url: string): Promise<AddonManifest> {

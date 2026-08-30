@@ -7,8 +7,10 @@
 - `apps/desktop`: Electron shell and native libmpv playback
 - `apps/mobile`: shared Compose Multiplatform Android/iOS client and native
   playback hosts
-- `packages/core`: Rust client engine compiled to WebAssembly
-- `packages/mobile-bridge`: Rust C ABI used by the mobile architecture fixture
+- `packages/core`: shared Rust client policy compiled to WebAssembly and native
+  mobile libraries
+- `packages/mobile-bridge`: Rust C ABI for stateless domain calls and the
+  retained mobile architecture fixture
 - `docs`: user, operator, format, and roadmap documentation
 
 ## Prerequisites

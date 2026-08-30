@@ -1,11 +1,16 @@
 mod addon;
+mod domain;
 mod error;
+pub mod media;
+pub mod playback;
 mod resource;
 
 pub use addon::{
     AddonDescriptor, AddonManifest, AddonResource, CatalogDescriptor, ManifestResource,
 };
+pub use domain::evaluate_json;
 pub use error::CoreError;
+pub use playback::{PlaybackSource, Stream, StreamBehaviorHints, StreamCandidate};
 pub use resource::{ExtraArg, ResourceRequest};
 
 use serde::{Deserialize, Serialize};
@@ -99,6 +104,11 @@ mod wasm {
     pub fn parse_manifest(value: &str) -> Result<JsValue, JsValue> {
         let manifest = parse_manifest_json(value).map_err(js_error)?;
         to_js_value(&manifest)
+    }
+
+    #[wasm_bindgen(js_name = evaluateCore)]
+    pub fn evaluate_core(action: &str) -> String {
+        evaluate_json(action)
     }
 
     #[wasm_bindgen(js_name = buildResourceUrl)]

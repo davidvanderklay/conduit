@@ -3,6 +3,7 @@
 import { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import * as core from "../lib/core"
 import {
   DesktopPlayer,
   dedupeAddonSubtitles,
@@ -57,7 +58,7 @@ const snapshot = {
 }
 
 const desktop = vi.hoisted(() => ({
-  nativePlayerCommand: vi.fn(async () => undefined),
+  nativePlayerCommand: vi.fn(async (_command: unknown[]) => undefined),
   nativeFullscreen: vi.fn(async () => false),
   nativePlayerSnapshot: vi.fn(async () => snapshot),
   openNativePlayer: vi.fn(async () => snapshot),
@@ -67,6 +68,11 @@ const desktop = vi.hoisted(() => ({
   setNativePlayerPlaying: vi.fn(async () => undefined),
   stopNativePlayer: vi.fn(async () => undefined),
   toggleNativeFullscreen: vi.fn(async () => false),
+}))
+
+const progress = vi.hoisted(() => ({
+  save: vi.fn(async () => undefined),
+  sources: [] as unknown[],
 }))
 
 describe("native playback status", () => {
@@ -89,10 +95,18 @@ describe("native playback status", () => {
 
 vi.mock("../lib/desktop", () => desktop)
 vi.mock("../lib/progress", () => ({
-  usePlaybackProgress: () => ({
-    progress: { data: null },
-    save: vi.fn(async () => undefined),
-  }),
+  usePlaybackProgress: (
+    _profileId: string,
+    _videoId: string,
+    _metadata: unknown,
+    playbackSource?: unknown,
+  ) => {
+    progress.sources.push(playbackSource)
+    return {
+      progress: { data: null },
+      save: progress.save,
+    }
+  },
 }))
 
 describe("DesktopPlayer track menus", () => {
@@ -126,6 +140,7 @@ describe("DesktopPlayer track menus", () => {
     })
     act(() => vi.advanceTimersByTime(1))
     startupOverlayResets = desktop.resetNativeOverlaySurface.mock.calls.length
+    progress.sources.length = 0
     vi.clearAllMocks()
   })
 
@@ -181,6 +196,43 @@ describe("DesktopPlayer track menus", () => {
 
     expect(document.querySelector('[aria-label="Video loading"]')).toBeNull()
     expect(desktop.resetNativeOverlaySurface).toHaveBeenCalledOnce()
+  })
+
+  it("binds the playback source once a delayed first frame is ready", async () => {
+    const playbackSource = { addonId: "addon", sourceKey: "source", kind: "url" as const }
+    desktop.openNativePlayer.mockResolvedValueOnce({
+      ...snapshot,
+      duration: 100,
+      firstFrameReady: false,
+    })
+    desktop.nativePlayerSnapshot.mockResolvedValueOnce({ ...snapshot, firstFrameReady: true })
+
+    await act(async () => {
+      root.render(
+        <DesktopPlayer
+          url="https://example.com/delayed-first-frame.mp4"
+          type="movie"
+          videoId="tt-delayed-first-frame"
+          profileId="00000000-0000-4000-8000-000000000001"
+          playbackSource={playbackSource}
+          progressMetadata={{
+            mediaType: "movie",
+            mediaId: "tt-delayed-first-frame",
+            name: "Delayed first frame",
+          }}
+          addons={[]}
+          onClose={() => undefined}
+        />,
+      )
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      vi.advanceTimersByTime(250)
+      await Promise.resolve()
+    })
+
+    expect(progress.sources).toContain(playbackSource)
   })
 
   it("does not mount the center loading overlay for cache pauses", async () => {
@@ -428,9 +480,7 @@ describe("DesktopPlayer track menus", () => {
     click(endTime!)
 
     expect(endTime?.textContent).toBe("-1:30")
-    expect(endTime?.getAttribute("aria-label")).toBe(
-      "Time remaining. Click to show end time.",
-    )
+    expect(endTime?.getAttribute("aria-label")).toBe("Time remaining. Click to show end time.")
 
     click(endTime!)
     expect(endTime?.textContent).toBe("1:40")
@@ -547,6 +597,102 @@ describe("DesktopPlayer track menus", () => {
     ]
 
     expect(filterAddedAddonSubtitles(subtitles, tracks)).toEqual([subtitles[1]])
+  })
+
+  it("loads add-on subtitles into mpv for the Electron overlay", async () => {
+    vi.spyOn(core, "loadSubtitles").mockResolvedValue([
+      { id: "english", url: "https://subs.example/english.vtt", lang: "en" },
+    ])
+
+    await act(async () => {
+      root.render(
+        <DesktopPlayer
+          url="https://example.com/subtitled-video.mp4"
+          type="movie"
+          videoId="tt-subtitles"
+          profileId="00000000-0000-4000-8000-000000000001"
+          progressMetadata={{ mediaType: "movie", mediaId: "tt-subtitles", name: "Subtitles" }}
+          addons={[
+            {
+              id: "addon",
+              manifestId: "subtitles",
+              manifestUrl: "https://addon.example/manifest.json",
+              manifest: {
+                id: "subtitles",
+                version: "1.0.0",
+                name: "Subtitle add-on",
+                resources: ["subtitles"],
+                types: ["movie"],
+                catalogs: [],
+              },
+              position: 0,
+              enabled: true,
+            },
+          ]}
+          onClose={() => undefined}
+        />,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(desktop.nativePlayerCommand).toHaveBeenCalledWith([
+      "sub-add",
+      "https://subs.example/english.vtt",
+      "select",
+      "English · Subtitle add-on",
+      "en",
+    ])
+  })
+
+  it("does not block the player controls on a slow subtitle download", async () => {
+    vi.spyOn(core, "loadSubtitles").mockResolvedValue([
+      { id: "english", url: "https://subs.example/english.vtt", lang: "en" },
+    ])
+    desktop.nativePlayerCommand.mockImplementation((command: unknown[]) =>
+      command[0] === "sub-add"
+        ? new Promise<undefined>(() => undefined)
+        : Promise.resolve(undefined),
+    )
+
+    await act(async () => {
+      root.render(
+        <DesktopPlayer
+          url="https://example.com/slow-subtitle-video.mp4"
+          type="movie"
+          videoId="tt-slow-subtitles"
+          profileId="00000000-0000-4000-8000-000000000001"
+          progressMetadata={{
+            mediaType: "movie",
+            mediaId: "tt-slow-subtitles",
+            name: "Slow subtitles",
+          }}
+          addons={[
+            {
+              id: "addon",
+              manifestId: "subtitles",
+              manifestUrl: "https://addon.example/manifest.json",
+              manifest: {
+                id: "subtitles",
+                version: "1.0.0",
+                name: "Subtitle add-on",
+                resources: ["subtitles"],
+                types: ["movie"],
+                catalogs: [],
+              },
+              position: 0,
+              enabled: true,
+            },
+          ]}
+          onClose={() => undefined}
+        />,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    click(button("Subtitles: Off"))
+    expect(document.querySelector('[role="menu"]')?.textContent).toContain("English")
   })
 
   it("removes duplicate add-on subtitle labels before the menu is shown", () => {

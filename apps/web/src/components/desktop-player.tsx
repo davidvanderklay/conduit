@@ -7,16 +7,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react"
 import { createPortal } from "react-dom"
-import {
-  Captions,
-  Languages,
-  Pause,
-  Play,
-  SkipForward,
-  Volume2,
-  VolumeX,
-  X,
-} from "lucide-react"
+import { Captions, Languages, Pause, Play, SkipForward, Volume2, VolumeX, X } from "lucide-react"
 import type { InstalledAddon, PlaybackSource, PlayerArtwork, ProgressMetadata } from "../lib/api"
 import { addonsForResource } from "../lib/addons"
 import { audioTrackDisplay } from "../lib/audio-track-display"
@@ -38,12 +29,19 @@ import { isDesktopBuffering, isDesktopInitialLoading } from "../lib/desktop-play
 import { loadSubtitles, type Video } from "../lib/core"
 import { nativeMediaTitle, playerHeading, type PlayerHeading } from "../lib/player-title"
 import { readPreferences, writePreferences } from "../lib/preferences"
+import {
+  activeSkipSegment,
+  loadSkipSegments,
+  shouldShowUpNext,
+  type SkipSegment,
+} from "../lib/skip-segments"
 import { configuredTrackLanguage, matchesTrackLanguage } from "../lib/track-preference"
 import { mpvVideoScaleCommands, type VideoScale } from "../lib/video-scale"
 import { usePlaybackProgress } from "../lib/progress"
 import { AUTO_SELECTION_STARTUP_TIMEOUT_MS } from "../lib/stream-selection"
 import { Card } from "./ui/card"
 import { NextEpisodePrompt, PlayerEpisodeDrawer, type PlayerSeriesContext } from "./player-series"
+import { SkipSegmentButton } from "./player-skip-prompt"
 import { VideoScaleControl } from "./video-scale-control"
 import { SubtitlePicker } from "./subtitle-picker"
 import { trackDisplayName } from "../lib/track-display"
@@ -156,12 +154,15 @@ export function DesktopPlayer({
   const [selectedAddonSubtitle, setSelectedAddonSubtitle] = useState<string>()
   const [subtitlePosition, setSubtitlePosition] = useState(preferences.subtitlePosition)
   const [episodeDrawerOpen, setEpisodeDrawerOpen] = useState(false)
+  const [skipSegments, setSkipSegments] = useState<SkipSegment[]>([])
   const [holdSpeedActive, setHoldSpeedActive] = useState(false)
   const hideTimer = useRef<number | undefined>(undefined)
   const holdSpeedTimer = useRef<number | undefined>(undefined)
   const holdSpeedActiveRef = useRef(false)
   const holdSpeedTriggered = useRef(false)
   const closing = useRef(false)
+  const currentUrl = useRef(url)
+  currentUrl.current = url
   const audioButton = useRef<HTMLDivElement>(null)
   const subtitleButton = useRef<HTMLDivElement>(null)
   const previousMenu = useRef<TrackMenuName | undefined>(undefined)
@@ -218,6 +219,30 @@ export function DesktopPlayer({
     autoRecoveryStarted.current = true
     onAutoRecoveryStartedRef.current?.()
   }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    if (!preferences.skipSegments || type !== "series") {
+      setSkipSegments([])
+      return
+    }
+    void loadSkipSegments(
+      progressMetadata.mediaId,
+      progressMetadata.season,
+      progressMetadata.episode,
+    ).then((segments) => {
+      if (!cancelled) setSkipSegments(segments)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [
+    preferences.skipSegments,
+    progressMetadata.episode,
+    progressMetadata.mediaId,
+    progressMetadata.season,
+    type,
+  ])
 
   useEffect(() => {
     autoRecoveryStarted.current = false
@@ -317,6 +342,7 @@ export function DesktopPlayer({
         series: seriesContext
           ? {
               name: seriesContext.name,
+              mediaId: seriesContext.media?.id,
               show: seriesContext.show,
               videos: seriesContext.videos,
               progress: seriesContext.progress,
@@ -334,6 +360,11 @@ export function DesktopPlayer({
         await nativePlayerCommand(["set", "sub-border-size", preferences.subtitleOutline ? 3 : 0])
         const resolved = await resolveAddonSubtitles(addons, type, videoId)
         if (!cancelled) {
+          // Keep the add-on catalog available immediately. `sub-add` is a
+          // synchronous mpv command in the Linux helper, so bulk-loading every
+          // subtitle here can block seeks and play/pause while remote files
+          // download. The preference effect below loads only the selected
+          // language, and manual selection loads one track at a time.
           setAddonSubtitles(resolved)
           setAddonSubtitlesResolved(true)
         }
@@ -353,6 +384,7 @@ export function DesktopPlayer({
           const previous = lastNativeSnapshot.current
           const resolved = nativePlaybackEnded(previous, next) ? { ...next, ended: true } : next
           lastNativeSnapshot.current = resolved
+          if (resolved.firstFrameReady) setPlaybackStarted(true)
           setSnapshot(
             seekActive.current && seekDraft.current !== undefined
               ? { ...resolved, position: seekDraft.current }
@@ -369,7 +401,7 @@ export function DesktopPlayer({
       window.clearTimeout(hideTimer.current)
       window.clearTimeout(seekCommitTimer.current)
       document.documentElement.classList.remove("native-playback")
-      if (!closing.current) void stopNativePlayer()
+      if (!closing.current && currentUrl.current === url) void stopNativePlayer()
     }
   }, [
     addons,
@@ -401,31 +433,47 @@ export function DesktopPlayer({
     if (!electron) return
     const unsubscribeClose = electron.onPlayerOverlayClose(onClose)
     const unsubscribeNext = electron.onPlayerOverlayNext(() => {
-      if (onNextEpisode) void onNextEpisode()
-    })
-    const unsubscribeEpisode = electron.onPlayerOverlayEpisode?.((selectedVideoId) => {
-      const selectedVideo = seriesContext?.videos.find((video) => video.id === selectedVideoId)
-      if (!selectedVideo || !onSelectEpisode || nextTransitionRequested.current) return
+      if (!onNextEpisode || nextTransitionRequested.current) return
       nextTransitionRequested.current = true
-      resetOverlay()
-      void Promise.resolve(onSelectEpisode(selectedVideo)).catch((cause: unknown) => {
+      const { duration } = lastPlayback.current
+      void saveProgress(duration, duration, true)
+      void Promise.resolve(onNextEpisode()).catch((cause: unknown) => {
         setError(cause instanceof Error ? cause.message : String(cause))
       })
-    }) ?? (() => undefined)
-    const unsubscribeWatchAction = electron.onPlayerOverlayWatchAction?.(({ videoIds, watched }) => {
-      const targets = seriesContext?.videos.filter((video) => videoIds.includes(video.id)) ?? []
-      if (!targets.length || !seriesContext?.onWatchAction) return
-      void seriesContext.onWatchAction(targets, watched).catch((cause: unknown) => {
-        setError(cause instanceof Error ? cause.message : String(cause))
-      })
-    }) ?? (() => undefined)
+    })
+    const unsubscribeEpisode =
+      electron.onPlayerOverlayEpisode?.((selectedVideoId) => {
+        const selectedVideo = seriesContext?.videos.find((video) => video.id === selectedVideoId)
+        if (!selectedVideo || !onSelectEpisode || nextTransitionRequested.current) return
+        nextTransitionRequested.current = true
+        resetOverlay()
+        void Promise.resolve(onSelectEpisode(selectedVideo)).catch((cause: unknown) => {
+          setError(cause instanceof Error ? cause.message : String(cause))
+        })
+      }) ?? (() => undefined)
+    const unsubscribeWatchAction =
+      electron.onPlayerOverlayWatchAction?.(({ videoIds, watched }) => {
+        const targets = seriesContext?.videos.filter((video) => videoIds.includes(video.id)) ?? []
+        if (!targets.length || !seriesContext?.onWatchAction) return
+        void seriesContext.onWatchAction(targets, watched).catch((cause: unknown) => {
+          setError(cause instanceof Error ? cause.message : String(cause))
+        })
+      }) ?? (() => undefined)
     return () => {
       unsubscribeClose()
       unsubscribeNext()
       unsubscribeEpisode()
       unsubscribeWatchAction()
     }
-  }, [onClose, onNextEpisode, onSelectEpisode, resetOverlay, seriesContext?.onWatchAction, seriesContext?.videos])
+  }, [
+    onClose,
+    onNextEpisode,
+    onSelectEpisode,
+    resetOverlay,
+    saveProgress,
+    seriesContext?.onWatchAction,
+    seriesContext?.videos,
+  ])
 
   useEffect(() => {
     if (preferredAudioApplied.current || !preferredAudioLanguage || !snapshot) {
@@ -501,6 +549,14 @@ export function DesktopPlayer({
       matchesTrackLanguage(preferredSubtitleLanguage, subtitle.language, subtitle.display),
     )
     if (!addonMatch) return
+    const loadedAddonMatch = subtitleTracks.find(
+      (track) => track.external && track.title === addonMatch.display,
+    )
+    if (loadedAddonMatch) {
+      setSelectedAddonSubtitle(addonMatch.key)
+      if (!loadedAddonMatch.selected) void nativePlayerCommand(["set", "sid", loadedAddonMatch.id])
+      return
+    }
     pendingAddonSubtitle.current.add(addonMatch.key)
     void nativePlayerCommand([
       "sub-add",
@@ -586,7 +642,11 @@ export function DesktopPlayer({
 
   useEffect(() => {
     const playing = Boolean(
-      snapshot?.running && snapshot.firstFrameReady && !snapshot.paused && !snapshot.ended && !error,
+      snapshot?.running &&
+      snapshot.firstFrameReady &&
+      !snapshot.paused &&
+      !snapshot.ended &&
+      !error,
     )
     void setNativePlayerPlaying(playing).catch(() => undefined)
   }, [error, snapshot?.ended, snapshot?.firstFrameReady, snapshot?.paused, snapshot?.running])
@@ -771,6 +831,13 @@ export function DesktopPlayer({
   const expandedControls = fullscreen || spaciousViewport
   const loadingOverlayVisible = isDesktopInitialLoading(snapshot, error)
   const bufferingOverlayVisible = isDesktopBuffering(snapshot, error)
+  const activeSkip =
+    snapshot && preferences.skipSegments
+      ? activeSkipSegment(snapshot.position, skipSegments)
+      : undefined
+  const upNextVisible = Boolean(
+    snapshot && nextEpisode && shouldShowUpNext(snapshot.position, snapshot.duration, skipSegments),
+  )
 
   useEffect(() => {
     document.documentElement.classList.toggle("player-cursor-hidden", !chromeVisible)
@@ -860,9 +927,7 @@ export function DesktopPlayer({
         description={
           snapshot ? (
             <p
-              className={`mt-1 truncate text-zinc-400 ${
-                expandedControls ? "text-sm" : "text-xs"
-              }`}
+              className={`mt-1 truncate text-zinc-400 ${expandedControls ? "text-sm" : "text-xs"}`}
               title={nativePlaybackDescription(snapshot)}
             >
               {nativePlaybackDescription(snapshot)}
@@ -891,31 +956,66 @@ export function DesktopPlayer({
       ) : null}
 
       {snapshot && !error && !episodeDrawerOpen && (
-        <NextEpisodePrompt
-          seriesName={seriesContext?.name ?? progressMetadata.name}
-          episode={nextEpisode}
-          position={snapshot.position}
-          duration={snapshot.duration || lastPlayback.current.duration}
-          paused={snapshot.paused}
-          autoplay={preferences.autoplay}
-          onDismiss={() => {
-            nextTransitionSuppressed.current = true
-            resetOverlay()
-          }}
-          onVisibilityChange={(visible) => {
-            if (!visible) resetOverlay()
-          }}
-          onWatchNow={() => {
-            if (nextTransitionRequested.current) return
-            nextTransitionRequested.current = true
-            resetOverlay()
-            const duration = snapshot.duration || lastPlayback.current.duration
-            void saveProgress(duration, duration, true)
-            void Promise.resolve(onNextEpisode?.()).catch((cause: unknown) => {
-              setError(cause instanceof Error ? cause.message : String(cause))
-            })
-          }}
-        />
+        <>
+          {preferences.skipButtonPlacement === "left" && activeSkip && (
+            <SkipSegmentButton
+              segment={activeSkip}
+              placement="left"
+              revealKey={chromeVisible}
+              onSkip={() => {
+                void nativePlayerCommand(["seek", activeSkip.end, "absolute", "exact"])
+                setSnapshot((current) =>
+                  current ? { ...current, position: activeSkip.end } : current,
+                )
+                resetOverlay()
+              }}
+            />
+          )}
+          <div className="pointer-events-none absolute bottom-36 right-4 z-20 flex flex-col items-end gap-3 sm:right-6">
+            {preferences.skipButtonPlacement === "right" && activeSkip && (
+              <SkipSegmentButton
+                segment={activeSkip}
+                placement="right"
+                contained
+                revealKey={chromeVisible}
+                onSkip={() => {
+                  void nativePlayerCommand(["seek", activeSkip.end, "absolute", "exact"])
+                  setSnapshot((current) =>
+                    current ? { ...current, position: activeSkip.end } : current,
+                  )
+                  resetOverlay()
+                }}
+              />
+            )}
+            <NextEpisodePrompt
+              seriesName={seriesContext?.name ?? progressMetadata.name}
+              episode={nextEpisode}
+              position={snapshot.position}
+              duration={snapshot.duration || lastPlayback.current.duration}
+              paused={snapshot.paused}
+              autoplay={preferences.autoplay}
+              visible={upNextVisible}
+              contained
+              onDismiss={() => {
+                nextTransitionSuppressed.current = true
+                resetOverlay()
+              }}
+              onVisibilityChange={(visible) => {
+                if (!visible) resetOverlay()
+              }}
+              onWatchNow={() => {
+                if (nextTransitionRequested.current) return
+                nextTransitionRequested.current = true
+                resetOverlay()
+                const duration = snapshot.duration || lastPlayback.current.duration
+                void saveProgress(duration, duration, true)
+                void Promise.resolve(onNextEpisode?.()).catch((cause: unknown) => {
+                  setError(cause instanceof Error ? cause.message : String(cause))
+                })
+              }}
+            />
+          </div>
+        </>
       )}
       <PlayerEpisodeDrawer
         open={episodeDrawerOpen}
@@ -934,262 +1034,258 @@ export function DesktopPlayer({
 
       {snapshot && !error && (
         <DesktopPlayerChromeBottom expandedControls={expandedControls} visible={chromeVisible}>
-            {activeMenu === "audio" && (
-              <TrackMenu
-                title="Audio"
-                anchor={audioButton}
-                tracks={audioTracks}
-                empty="No selectable audio tracks."
-                onSelect={(track) => void selectTrack("aid", track)}
-                onClose={closeTrackMenu}
-              />
-            )}
-            {activeMenu === "subtitles" && (
-              <TrackMenu
-                title="Subtitles"
-                anchor={subtitleButton}
-                tracks={subtitleTracks}
-                empty="No embedded or add-on subtitles."
-                addonSubtitles={addonSubtitles}
-                selectedAddonSubtitle={selectedAddonSubtitle}
-                preferredLanguage={preferences.subtitleLanguage}
-                subtitlePosition={subtitlePosition}
-                onSubtitlePosition={(value) => {
-                  setSubtitlePosition(value)
-                  writePreferences({ ...readPreferences(), subtitlePosition: value })
-                  void nativePlayerCommand(["set", "sub-pos", value]).catch((cause: unknown) => {
-                    setError(cause instanceof Error ? cause.message : String(cause))
-                  })
-                }}
-                allowOff
-                onSelect={(track) => void selectTrack("sid", track)}
-                onSelectAddon={async (subtitle) => {
-                  if (pendingAddonSubtitle.current.has(subtitle.key)) return
-                  pendingAddonSubtitle.current.add(subtitle.key)
-                  try {
-                    const existing = subtitleTracks.find(
-                      (track) => track.external && track.title === subtitle.display,
-                    )
-                    if (existing) {
-                      await nativePlayerCommand(["set", "sid", existing.id])
-                    } else {
-                      await nativePlayerCommand([
-                        "sub-add",
-                        subtitle.url,
-                        "select",
-                        subtitle.display,
-                        subtitle.language,
-                      ])
-                    }
-                    setSelectedAddonSubtitle(subtitle.key)
-                    setSnapshot((current) =>
-                      current
-                        ? {
-                            ...current,
-                            tracks: current.tracks.map((track) =>
-                              track.type === "sub" ? { ...track, selected: false } : track,
-                            ),
-                          }
-                        : current,
-                    )
-                    redrawControls()
-                  } catch (cause: unknown) {
-                    setError(cause instanceof Error ? cause.message : String(cause))
-                  } finally {
-                    pendingAddonSubtitle.current.delete(subtitle.key)
+          {activeMenu === "audio" && (
+            <TrackMenu
+              title="Audio"
+              anchor={audioButton}
+              tracks={audioTracks}
+              empty="No selectable audio tracks."
+              onSelect={(track) => void selectTrack("aid", track)}
+              onClose={closeTrackMenu}
+            />
+          )}
+          {activeMenu === "subtitles" && (
+            <TrackMenu
+              title="Subtitles"
+              anchor={subtitleButton}
+              tracks={subtitleTracks}
+              empty="No embedded or add-on subtitles."
+              addonSubtitles={addonSubtitles}
+              selectedAddonSubtitle={selectedAddonSubtitle}
+              preferredLanguage={preferences.subtitleLanguage}
+              subtitlePosition={subtitlePosition}
+              onSubtitlePosition={(value) => {
+                setSubtitlePosition(value)
+                writePreferences({ ...readPreferences(), subtitlePosition: value })
+                void nativePlayerCommand(["set", "sub-pos", value]).catch((cause: unknown) => {
+                  setError(cause instanceof Error ? cause.message : String(cause))
+                })
+              }}
+              allowOff
+              onSelect={(track) => void selectTrack("sid", track)}
+              onSelectAddon={async (subtitle) => {
+                if (pendingAddonSubtitle.current.has(subtitle.key)) return
+                pendingAddonSubtitle.current.add(subtitle.key)
+                try {
+                  const existing = subtitleTracks.find(
+                    (track) => track.external && track.title === subtitle.display,
+                  )
+                  if (existing) {
+                    await nativePlayerCommand(["set", "sid", existing.id])
+                  } else {
+                    await nativePlayerCommand([
+                      "sub-add",
+                      subtitle.url,
+                      "select",
+                      subtitle.display,
+                      subtitle.language,
+                    ])
                   }
-                }}
-                onOff={async () => {
-                  try {
-                    await nativePlayerCommand(["set", "sid", "no"])
-                    setSelectedAddonSubtitle(undefined)
-                    setSnapshot((current) =>
-                      current
-                        ? {
-                            ...current,
-                            tracks: current.tracks.map((track) =>
-                              track.type === "sub" ? { ...track, selected: false } : track,
-                            ),
-                          }
-                        : current,
-                    )
-                    redrawControls()
-                  } catch (cause: unknown) {
-                    setError(cause instanceof Error ? cause.message : String(cause))
-                  }
-                }}
-                onClose={closeTrackMenu}
-              />
-            )}
+                  setSelectedAddonSubtitle(subtitle.key)
+                  setSnapshot((current) =>
+                    current
+                      ? {
+                          ...current,
+                          tracks: current.tracks.map((track) =>
+                            track.type === "sub" ? { ...track, selected: false } : track,
+                          ),
+                        }
+                      : current,
+                  )
+                  redrawControls()
+                } catch (cause: unknown) {
+                  setError(cause instanceof Error ? cause.message : String(cause))
+                } finally {
+                  pendingAddonSubtitle.current.delete(subtitle.key)
+                }
+              }}
+              onOff={async () => {
+                try {
+                  await nativePlayerCommand(["set", "sid", "no"])
+                  setSelectedAddonSubtitle(undefined)
+                  setSnapshot((current) =>
+                    current
+                      ? {
+                          ...current,
+                          tracks: current.tracks.map((track) =>
+                            track.type === "sub" ? { ...track, selected: false } : track,
+                          ),
+                        }
+                      : current,
+                  )
+                  redrawControls()
+                } catch (cause: unknown) {
+                  setError(cause instanceof Error ? cause.message : String(cause))
+                }
+              }}
+              onClose={closeTrackMenu}
+            />
+          )}
 
-            <div className="flex items-center gap-3" data-native-overlay>
-              <span
-                className={`player-time player-time-elapsed tabular-nums text-zinc-300 ${
-                  expandedControls ? "text-base" : "text-sm"
-                }`}
-                aria-label="Elapsed time"
-              >
-                {snapshot.duration > 0 ? formatTime(snapshot.position) : "--:--:--"}
-              </span>
-              <input
-                className={`player-seek block min-w-0 flex-1 cursor-pointer ${
-                  expandedControls ? "h-2" : "h-1.5"
-                }`}
-                style={
-                  {
-                    "--player-progress": `${
-                      snapshot.duration > 0
-                        ? Math.min(100, (snapshot.position / snapshot.duration) * 100)
-                        : 0
-                    }%`,
-                    "--player-buffered": `${
-                      snapshot.duration > 0
-                        ? Math.min(
-                            100,
-                            ((snapshot.position + snapshot.bufferedDuration) / snapshot.duration) *
-                              100,
-                          )
-                        : 0
-                    }%`,
-                  } as React.CSSProperties
-                }
-                type="range"
-                min={0}
-                max={snapshot.duration || 0}
-                step={0.1}
-                value={Math.min(snapshot.position, snapshot.duration || 0)}
-                aria-label="Seek"
-                onChange={(event) => {
-                  const position = Number(event.target.value)
-                  previewSeek(position)
-                }}
-                onPointerUp={commitSeek}
-                onPointerCancel={commitSeek}
-                onKeyUp={commitSeek}
-                onBlur={commitSeek}
-              />
-              <button
-                className={`player-time player-time-duration cursor-pointer border-0 p-0 tabular-nums text-zinc-300 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 ${
-                  expandedControls ? "text-base" : "text-sm"
-                }`}
-                type="button"
-                aria-label={
-                  showRemainingTime
-                    ? "Time remaining. Click to show end time."
-                    : "End time. Click to show time remaining."
-                }
-                title={
-                  showRemainingTime
-                    ? "Click to show end time"
-                    : "Click to show time remaining"
-                }
-                onClick={() => {
-                  setShowRemainingTime((current) => !current)
-                  showControls()
-                }}
-              >
-                {snapshot.duration > 0
-                  ? showRemainingTime
-                    ? `-${formatTime(Math.max(0, snapshot.duration - snapshot.position))}`
-                    : formatTime(snapshot.duration)
-                  : "--:--:--"}
-              </button>
-            </div>
-
-            <div
-              className={`flex items-center ${
-                expandedControls ? "mt-5 gap-3" : "mt-3 gap-1 sm:gap-2"
+          <div className="flex items-center gap-3" data-native-overlay>
+            <span
+              className={`player-time player-time-elapsed tabular-nums text-zinc-300 ${
+                expandedControls ? "text-base" : "text-sm"
               }`}
-              data-native-overlay
+              aria-label="Elapsed time"
             >
+              {snapshot.duration > 0 ? formatTime(snapshot.position) : "--:--:--"}
+            </span>
+            <input
+              className={`player-seek block min-w-0 flex-1 cursor-pointer ${
+                expandedControls ? "h-2" : "h-1.5"
+              }`}
+              style={
+                {
+                  "--player-progress": `${
+                    snapshot.duration > 0
+                      ? Math.min(100, (snapshot.position / snapshot.duration) * 100)
+                      : 0
+                  }%`,
+                  "--player-buffered": `${
+                    snapshot.duration > 0
+                      ? Math.min(
+                          100,
+                          ((snapshot.position + snapshot.bufferedDuration) / snapshot.duration) *
+                            100,
+                        )
+                      : 0
+                  }%`,
+                } as React.CSSProperties
+              }
+              type="range"
+              min={0}
+              max={snapshot.duration || 0}
+              step={0.1}
+              value={Math.min(snapshot.position, snapshot.duration || 0)}
+              aria-label="Seek"
+              onChange={(event) => {
+                const position = Number(event.target.value)
+                previewSeek(position)
+              }}
+              onPointerUp={commitSeek}
+              onPointerCancel={commitSeek}
+              onKeyUp={commitSeek}
+              onBlur={commitSeek}
+            />
+            <button
+              className={`player-time player-time-duration cursor-pointer border-0 p-0 tabular-nums text-zinc-300 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 ${
+                expandedControls ? "text-base" : "text-sm"
+              }`}
+              type="button"
+              aria-label={
+                showRemainingTime
+                  ? "Time remaining. Click to show end time."
+                  : "End time. Click to show time remaining."
+              }
+              title={showRemainingTime ? "Click to show end time" : "Click to show time remaining"}
+              onClick={() => {
+                setShowRemainingTime((current) => !current)
+                showControls()
+              }}
+            >
+              {snapshot.duration > 0
+                ? showRemainingTime
+                  ? `-${formatTime(Math.max(0, snapshot.duration - snapshot.position))}`
+                  : formatTime(snapshot.duration)
+                : "--:--:--"}
+            </button>
+          </div>
+
+          <div
+            className={`flex items-center ${
+              expandedControls ? "mt-5 gap-3" : "mt-3 gap-1 sm:gap-2"
+            }`}
+            data-native-overlay
+          >
+            <PlayerIcon
+              label={snapshot.paused ? "Play" : "Pause"}
+              expanded={expandedControls}
+              onClick={togglePlayback}
+            >
+              {snapshot.paused ? <Play size={22} /> : <Pause size={22} />}
+            </PlayerIcon>
+            {onNextEpisode && (
               <PlayerIcon
-                label={snapshot.paused ? "Play" : "Pause"}
-                expanded={expandedControls}
-                onClick={togglePlayback}
-              >
-                {snapshot.paused ? <Play size={22} /> : <Pause size={22} />}
-              </PlayerIcon>
-              {onNextEpisode && (
-                <PlayerIcon
-                  label={`Next episode${nextEpisodeLabel ? `: ${nextEpisodeLabel}` : ""}`}
-                  expanded={expandedControls}
-                  onClick={() => {
-                    if (nextTransitionRequested.current) return
-                    nextTransitionRequested.current = true
-                    resetOverlay()
-                    void onNextEpisode()
-                  }}
-                >
-                  <SkipForward size={21} />
-                </PlayerIcon>
-              )}
-              <PlayerIcon
-                label={snapshot.volume === 0 ? "Unmute" : "Mute"}
+                label={`Next episode${nextEpisodeLabel ? `: ${nextEpisodeLabel}` : ""}`}
                 expanded={expandedControls}
                 onClick={() => {
-                  const volume = snapshot.volume === 0 ? 100 : 0
-                  void nativePlayerCommand(["set", "volume", volume])
-                  setSnapshot((current) => (current ? { ...current, volume } : current))
+                  if (nextTransitionRequested.current) return
+                  nextTransitionRequested.current = true
+                  resetOverlay()
+                  void onNextEpisode()
                 }}
               >
-                {snapshot.volume === 0 ? <VolumeX size={21} /> : <Volume2 size={21} />}
+                <SkipForward size={21} />
               </PlayerIcon>
-              <input
-                className={`player-volume hidden sm:block ${expandedControls ? "w-32" : "w-20"}`}
-                style={
-                  {
-                    "--player-volume": `${Math.max(0, Math.min(100, snapshot.volume))}%`,
-                  } as React.CSSProperties
-                }
-                type="range"
-                min={0}
-                max={100}
-                value={snapshot.volume}
-                aria-label="Volume"
-                onChange={(event) => {
-                  const volume = Number(event.target.value)
-                  void nativePlayerCommand(["set", "volume", volume])
-                  setSnapshot((current) => (current ? { ...current, volume } : current))
-                }}
-              />
-              <div className="flex-1" />
+            )}
+            <PlayerIcon
+              label={snapshot.volume === 0 ? "Unmute" : "Mute"}
+              expanded={expandedControls}
+              onClick={() => {
+                const volume = snapshot.volume === 0 ? 100 : 0
+                void nativePlayerCommand(["set", "volume", volume])
+                setSnapshot((current) => (current ? { ...current, volume } : current))
+              }}
+            >
+              {snapshot.volume === 0 ? <VolumeX size={21} /> : <Volume2 size={21} />}
+            </PlayerIcon>
+            <input
+              className={`player-volume hidden sm:block ${expandedControls ? "w-32" : "w-20"}`}
+              style={
+                {
+                  "--player-volume": `${Math.max(0, Math.min(100, snapshot.volume))}%`,
+                } as React.CSSProperties
+              }
+              type="range"
+              min={0}
+              max={100}
+              value={snapshot.volume}
+              aria-label="Volume"
+              onChange={(event) => {
+                const volume = Number(event.target.value)
+                void nativePlayerCommand(["set", "volume", volume])
+                setSnapshot((current) => (current ? { ...current, volume } : current))
+              }}
+            />
+            <div className="flex-1" />
 
-              <div ref={audioButton} data-track-menu-trigger>
-                <PlayerIcon
-                  label={`Audio${selectedAudio ? `: ${trackName(selectedAudio, "Audio")}` : ""}`}
-                  active={activeMenu === "audio"}
-                  expanded={expandedControls}
-                  onClick={() => toggleTrackMenu("audio")}
-                >
-                  <Languages size={21} />
-                </PlayerIcon>
-              </div>
-              <div ref={subtitleButton} data-track-menu-trigger>
-                <PlayerIcon
-                  label={`Subtitles${
-                    selectedSubtitle ? `: ${trackName(selectedSubtitle, "Subtitles")}` : ": Off"
-                  }`}
-                  active={activeMenu === "subtitles"}
-                  expanded={expandedControls}
-                  onClick={() => toggleTrackMenu("subtitles")}
-                >
-                  <Captions size={22} />
-                </PlayerIcon>
-              </div>
-              <VideoScaleControl
-                value={videoScale}
+            <div ref={audioButton} data-track-menu-trigger>
+              <PlayerIcon
+                label={`Audio${selectedAudio ? `: ${trackName(selectedAudio, "Audio")}` : ""}`}
+                active={activeMenu === "audio"}
                 expanded={expandedControls}
-                indicatorPlacement="above"
-                onIndicatorHidden={resetOverlay}
-                onChange={(scale) => {
-                  resetOverlay()
-                  setVideoScale(scale)
-                  void applyNativeVideoScale(scale).catch((cause: unknown) => {
-                    setError(cause instanceof Error ? cause.message : String(cause))
-                  })
-                }}
-              />
+                onClick={() => toggleTrackMenu("audio")}
+              >
+                <Languages size={21} />
+              </PlayerIcon>
             </div>
+            <div ref={subtitleButton} data-track-menu-trigger>
+              <PlayerIcon
+                label={`Subtitles${
+                  selectedSubtitle ? `: ${trackName(selectedSubtitle, "Subtitles")}` : ": Off"
+                }`}
+                active={activeMenu === "subtitles"}
+                expanded={expandedControls}
+                onClick={() => toggleTrackMenu("subtitles")}
+              >
+                <Captions size={22} />
+              </PlayerIcon>
+            </div>
+            <VideoScaleControl
+              value={videoScale}
+              expanded={expandedControls}
+              indicatorPlacement="above"
+              onIndicatorHidden={resetOverlay}
+              onChange={(scale) => {
+                resetOverlay()
+                setVideoScale(scale)
+                void applyNativeVideoScale(scale).catch((cause: unknown) => {
+                  setError(cause instanceof Error ? cause.message : String(cause))
+                })
+              }}
+            />
+          </div>
         </DesktopPlayerChromeBottom>
       )}
     </div>,

@@ -50,25 +50,27 @@ contextBridge.exposeInMainWorld("__CONDUIT_ELECTRON__", {
     ipcRenderer.on("conduit:player-overlay-watch-action", handler)
     return () => ipcRenderer.removeListener("conduit:player-overlay-watch-action", handler)
   },
-  onPlayerOverlayMedia(listener: (media: {
-    title: string
-    background?: string
-    logo?: string
-    poster?: string
-    series?: {
-      name: string
-      show?: {
+  onPlayerOverlayMedia(
+    listener: (media: {
+      title: string
+      background?: string
+      logo?: string
+      poster?: string
+      series?: {
         name: string
-        logo?: string
-        poster?: string
-        description?: string
-        releaseInfo?: string
+        show?: {
+          name: string
+          logo?: string
+          poster?: string
+          description?: string
+          releaseInfo?: string
+        }
+        videos: unknown[]
+        progress: unknown[]
+        currentVideoId: string
       }
-      videos: unknown[]
-      progress: unknown[]
-      currentVideoId: string
-    }
-  }) => void) {
+    }) => void,
+  ) {
     const handler = (
       _event: Electron.IpcRendererEvent,
       media: {
@@ -78,6 +80,7 @@ contextBridge.exposeInMainWorld("__CONDUIT_ELECTRON__", {
         poster?: string
         series?: {
           name: string
+          mediaId?: string
           show?: {
             name: string
             logo?: string
