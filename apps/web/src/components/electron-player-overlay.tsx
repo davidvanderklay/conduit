@@ -52,12 +52,20 @@ import {
   type SubtitleLanguageGroup,
 } from "../lib/subtitle-groups"
 import { readPreferences, writePreferences } from "../lib/preferences"
+import { adjacentSeriesVideo } from "../lib/metadata"
+import {
+  activeSkipSegment,
+  loadSkipSegments,
+  shouldShowUpNext,
+  type SkipSegment,
+} from "../lib/skip-segments"
 import { subtitleVariantName } from "../lib/track-display"
 import {
   DesktopPlayerBufferingOverlay,
   DesktopPlayerOpeningOverlay,
 } from "./desktop-player-overlays"
-import { PlayerEpisodeDrawer } from "./player-series"
+import { NextEpisodePrompt, PlayerEpisodeDrawer } from "./player-series"
+import { SkipSegmentButton } from "./player-skip-prompt"
 
 type TrackMenuName = "audio" | "subtitles"
 
@@ -73,6 +81,7 @@ export function ElectronPlayerOverlay({ initialMedia }: { initialMedia: PlayerOv
   const [holdSpeedActive, setHoldSpeedActive] = useState(false)
   const [activeTrackMenu, setActiveTrackMenu] = useState<TrackMenuName>()
   const [episodeDrawerOpen, setEpisodeDrawerOpen] = useState(false)
+  const [skipSegments, setSkipSegments] = useState<SkipSegment[]>([])
   const [selectedSubtitleCode, setSelectedSubtitleCode] = useState<string>()
   const [subtitlePosition, setSubtitlePosition] = useState(() => readPreferences().subtitlePosition)
   const hideTimer = useRef<number | undefined>(undefined)
@@ -153,7 +162,13 @@ export function ElectronPlayerOverlay({ initialMedia }: { initialMedia: PlayerOv
       mutationObserver?.disconnect()
       window.removeEventListener("resize", schedule)
     }
-  }, [activeTrackMenu, controlsVisible, episodeDrawerOpen, selectedSubtitleCode, updateInteractiveRegions])
+  }, [
+    activeTrackMenu,
+    controlsVisible,
+    episodeDrawerOpen,
+    selectedSubtitleCode,
+    updateInteractiveRegions,
+  ])
 
   useEffect(() => {
     const electron = window.__CONDUIT_ELECTRON__
@@ -177,6 +192,28 @@ export function ElectronPlayerOverlay({ initialMedia }: { initialMedia: PlayerOv
       unsubscribeWake?.()
     }
   }, [showControls])
+
+  const currentVideo = series?.videos.find((video) => video.id === series.currentVideoId)
+  const nextVideo = series
+    ? adjacentSeriesVideo(series.videos, series.currentVideoId, 1)
+    : undefined
+
+  useEffect(() => {
+    let cancelled = false
+    const preferences = readPreferences()
+    if (!preferences.skipSegments || !series?.mediaId || !currentVideo) {
+      setSkipSegments([])
+      return
+    }
+    void loadSkipSegments(series.mediaId, currentVideo.season, currentVideo.episode).then(
+      (segments) => {
+        if (!cancelled) setSkipSegments(segments)
+      },
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [currentVideo, series?.mediaId])
 
   useEffect(() => {
     let cancelled = false
@@ -351,11 +388,16 @@ export function ElectronPlayerOverlay({ initialMedia }: { initialMedia: PlayerOv
   const selectedScale = VIDEO_SCALE_OPTIONS.find((option) => option.value === scale)?.label ?? scale
   const loadingOverlayVisible = isDesktopInitialLoading(snapshot)
   const bufferingOverlayVisible = isDesktopBuffering(snapshot)
+  const preferences = readPreferences()
+  const activeSkip =
+    snapshot && preferences.skipSegments
+      ? activeSkipSegment(snapshot.position, skipSegments)
+      : undefined
+  const upNextVisible = Boolean(
+    snapshot && nextVideo && shouldShowUpNext(snapshot.position, snapshot.duration, skipSegments),
+  )
   const chromeVisible =
-    controlsVisible ||
-    episodeDrawerOpen ||
-    Boolean(snapshot?.paused) ||
-    !snapshot
+    controlsVisible || episodeDrawerOpen || Boolean(snapshot?.paused) || !snapshot
   const rootClassName =
     "native-player electron-native-player electron-player-overlay fixed inset-0 z-50 select-none " +
     (chromeVisible ? "cursor-default" : "cursor-none")
@@ -430,6 +472,53 @@ export function ElectronPlayerOverlay({ initialMedia }: { initialMedia: PlayerOv
           » 2×
         </div>
       )}
+      {snapshot && !episodeDrawerOpen && (
+        <>
+          {preferences.skipButtonPlacement === "left" && activeSkip && (
+            <SkipSegmentButton
+              segment={activeSkip}
+              placement="left"
+              revealKey={chromeVisible}
+              onSkip={() => {
+                command(["seek", activeSkip.end, "absolute", "exact"])
+                setSnapshot((current) =>
+                  current ? { ...current, position: activeSkip.end } : current,
+                )
+                showControls()
+              }}
+            />
+          )}
+          <div className="pointer-events-none absolute bottom-24 right-6 z-20 flex flex-col items-end gap-3">
+            {preferences.skipButtonPlacement === "right" && activeSkip && (
+              <SkipSegmentButton
+                segment={activeSkip}
+                placement="right"
+                contained
+                revealKey={chromeVisible}
+                onSkip={() => {
+                  command(["seek", activeSkip.end, "absolute", "exact"])
+                  setSnapshot((current) =>
+                    current ? { ...current, position: activeSkip.end } : current,
+                  )
+                  showControls()
+                }}
+              />
+            )}
+            <NextEpisodePrompt
+              seriesName={series?.name ?? title}
+              episode={nextVideo}
+              position={snapshot.position}
+              duration={snapshot.duration}
+              paused={snapshot.paused}
+              autoplay={preferences.autoplay}
+              visible={upNextVisible}
+              contained
+              onDismiss={showControls}
+              onWatchNow={nextEpisode}
+            />
+          </div>
+        </>
+      )}
       <div
         className={`pointer-events-none absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-black via-black/70 to-transparent transition-opacity duration-300 ${chromeVisible ? "opacity-100" : "opacity-0"}`}
         aria-hidden="true"
@@ -467,14 +556,18 @@ export function ElectronPlayerOverlay({ initialMedia }: { initialMedia: PlayerOv
       <PlayerEpisodeDrawer
         open={episodeDrawerOpen}
         handleVisible={chromeVisible}
-        context={series ? {
-          name: series.name,
-          show: series.show,
-          onWatchAction: episodeWatchAction,
-          videos: series.videos,
-          progress: series.progress,
-          currentVideoId: series.currentVideoId,
-        } : undefined}
+        context={
+          series
+            ? {
+                name: series.name,
+                show: series.show,
+                onWatchAction: episodeWatchAction,
+                videos: series.videos,
+                progress: series.progress,
+                currentVideoId: series.currentVideoId,
+              }
+            : undefined
+        }
         onOpenChange={setEpisodeDrawerOpen}
         onSelect={selectEpisode}
       />
@@ -508,15 +601,14 @@ export function ElectronPlayerOverlay({ initialMedia }: { initialMedia: PlayerOv
             />
             <button
               className="min-w-16 cursor-pointer border-0 bg-transparent p-0 text-left text-lg text-zinc-200 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300"
+              data-overlay-interactive
               type="button"
               aria-label={
                 showRemainingTime
                   ? "Time remaining. Click to show end time."
                   : "End time. Click to show time remaining."
               }
-              title={
-                showRemainingTime ? "Click to show end time" : "Click to show time remaining"
-              }
+              title={showRemainingTime ? "Click to show end time" : "Click to show time remaining"}
               onClick={() => {
                 setShowRemainingTime((current) => !current)
                 showControls()
@@ -592,11 +684,7 @@ export function ElectronPlayerOverlay({ initialMedia }: { initialMedia: PlayerOv
                 }}
               />
             </div>
-            <OverlayButton
-              large
-              label={"Video scale: " + selectedScale}
-              onClick={changeScale}
-            >
+            <OverlayButton large label={"Video scale: " + selectedScale} onClick={changeScale}>
               <Scaling size={27} />
             </OverlayButton>
           </div>

@@ -254,6 +254,7 @@ type PlayerOverlayMedia = {
   poster?: string
   series?: {
     name: string
+    mediaId?: string
     show?: {
       name: string
       logo?: string
@@ -277,9 +278,10 @@ function positionPlayerOverlay() {
   // Transparent Chromium windows can leave the final device-pixel row and
   // column unpainted on Linux fullscreen surfaces. Extend the overlay by one
   // DIP so the player chrome reaches the physical right and bottom edges.
-  const overlayBounds = process.platform === "linux" && mainWindow.isFullScreen()
-    ? { ...bounds, width: bounds.width + 1, height: bounds.height + 1 }
-    : bounds
+  const overlayBounds =
+    process.platform === "linux" && mainWindow.isFullScreen()
+      ? { ...bounds, width: bounds.width + 1, height: bounds.height + 1 }
+      : bounds
   try {
     playerOverlayWindow.setBounds(overlayBounds)
   } catch {}
@@ -293,7 +295,11 @@ function setPlayerOverlayMouseEvents(ignore: boolean) {
 }
 
 function updatePlayerOverlayMouseEvents() {
-  if (!playerOverlayWindow || playerOverlayWindow.isDestroyed() || !playerOverlayWindow.isVisible()) {
+  if (
+    !playerOverlayWindow ||
+    playerOverlayWindow.isDestroyed() ||
+    !playerOverlayWindow.isVisible()
+  ) {
     return
   }
   const bounds = playerOverlayWindow.getContentBounds()
@@ -302,8 +308,8 @@ function updatePlayerOverlayMouseEvents() {
   const pointer = screen.getCursorScreenPoint()
   const x = (pointer.x - bounds.x) / bounds.width
   const y = (pointer.y - bounds.y) / bounds.height
-  const overControl = playerOverlayInteractiveRegions.some((region) =>
-    x >= region.left && x <= region.right && y >= region.top && y <= region.bottom,
+  const overControl = playerOverlayInteractiveRegions.some(
+    (region) => x >= region.left && x <= region.right && y >= region.top && y <= region.bottom,
   )
   const insideWindow = x >= 0 && x <= 1 && y >= 0 && y <= 1
   // Keep the entire overlay interactive while the cursor is inside the
@@ -548,9 +554,7 @@ function nativeWindowId(window: BrowserWindow): string {
   }
   if (process.platform === "win32") {
     if (handle.length < 4) throw new Error("Electron did not provide a Windows HWND.")
-    const pointer = handle.length >= 8
-      ? handle.readBigUInt64LE(0)
-      : BigInt(handle.readUInt32LE(0))
+    const pointer = handle.length >= 8 ? handle.readBigUInt64LE(0) : BigInt(handle.readUInt32LE(0))
     if (pointer === 0n) throw new Error("Electron returned an empty Windows HWND.")
     return pointer.toString()
   }
@@ -657,7 +661,8 @@ async function registerApplicationProtocol() {
     const requestedPath = decodeURIComponent(requestUrl.pathname).replace(/^\/+/, "")
     const candidate = path.resolve(webRoot, requestedPath || "index.html")
     const insideWebRoot = candidate === webRoot || candidate.startsWith(`${webRoot}${path.sep}`)
-    const filePath = insideWebRoot && (await isFile(candidate)) ? candidate : path.join(webRoot, "index.html")
+    const filePath =
+      insideWebRoot && (await isFile(candidate)) ? candidate : path.join(webRoot, "index.html")
     return net.fetch(pathToFileURL(filePath).toString())
   })
 }
@@ -674,11 +679,12 @@ async function createMainWindow(): Promise<BrowserWindow> {
   if (process.platform === "linux") {
     const ozonePlatform = electronOzonePlatform()
     if (ozonePlatform === "x11") {
-      const gpuMode = process.env.CONDUIT_ELECTRON_IN_PROCESS_GPU === "1"
-        ? " with in-process GPU"
-        : process.env.CONDUIT_ELECTRON_DISABLE_GPU === "1"
-          ? " with Chromium GPU disabled"
-          : ""
+      const gpuMode =
+        process.env.CONDUIT_ELECTRON_IN_PROCESS_GPU === "1"
+          ? " with in-process GPU"
+          : process.env.CONDUIT_ELECTRON_DISABLE_GPU === "1"
+            ? " with Chromium GPU disabled"
+            : ""
       console.log(`Conduit Electron: using X11/Ozone for native libmpv embedding${gpuMode}`)
     } else {
       console.log(
@@ -697,14 +703,14 @@ async function createMainWindow(): Promise<BrowserWindow> {
     // below Chromium. Both need transparent player pixels in this window.
     // Linux uses an opaque main window plus a separate X11 controls overlay.
     transparent: process.platform === "darwin" || process.platform === "win32",
-    backgroundColor: process.platform === "darwin" || process.platform === "win32"
-      ? "#00000000"
-      : "#000000",
-    titleBarStyle: process.platform === "darwin"
-      ? "hiddenInset"
-      : process.platform === "win32"
-        ? "hidden"
-        : "default",
+    backgroundColor:
+      process.platform === "darwin" || process.platform === "win32" ? "#00000000" : "#000000",
+    titleBarStyle:
+      process.platform === "darwin"
+        ? "hiddenInset"
+        : process.platform === "win32"
+          ? "hidden"
+          : "default",
     trafficLightPosition: process.platform === "darwin" ? { x: 16, y: 20 } : undefined,
     autoHideMenuBar: true,
     webPreferences: {
@@ -725,8 +731,11 @@ async function createMainWindow(): Promise<BrowserWindow> {
     window.setFullScreen(false)
   })
 
-  if (process.platform === "linux" && electronOzonePlatform() === "x11" &&
-    process.env.CONDUIT_ELECTRON_LOG_WINDOW === "1") {
+  if (
+    process.platform === "linux" &&
+    electronOzonePlatform() === "x11" &&
+    process.env.CONDUIT_ELECTRON_LOG_WINDOW === "1"
+  ) {
     const handle = window.getNativeWindowHandle()
     console.log(
       `Conduit Electron: window handle ${handle.toString("hex")}, media source ${window.getMediaSourceId()}`,
@@ -907,9 +916,10 @@ async function invoke(command: string, args: Record<string, unknown> = {}): Prom
       // macOS and Windows keep their native video below the main Chromium
       // surface, so the existing player portal is the controls layer.
       if (process.platform === "linux") {
-        const artwork = args.artwork && typeof args.artwork === "object"
-          ? args.artwork as Record<string, unknown>
-          : {}
+        const artwork =
+          args.artwork && typeof args.artwork === "object"
+            ? (args.artwork as Record<string, unknown>)
+            : {}
         await ensurePlayerOverlay({
           title: typeof args.title === "string" ? args.title : "",
           background: typeof artwork.background === "string" ? artwork.background : undefined,
@@ -937,7 +947,10 @@ async function invoke(command: string, args: Record<string, unknown> = {}): Prom
 function registerIpcHandlers() {
   ipcMain.on("conduit:player-overlay-ready", (event) => {
     if (!playerOverlayWindow || playerOverlayWindow.isDestroyed()) return
-    if (!isTrustedIpcSender(event, true) || event.sender.id !== playerOverlayWindow.webContents.id) {
+    if (
+      !isTrustedIpcSender(event, true) ||
+      event.sender.id !== playerOverlayWindow.webContents.id
+    ) {
       return
     }
     if (playerOverlayMedia) {
@@ -946,7 +959,8 @@ function registerIpcHandlers() {
   })
   ipcMain.on("conduit:player-overlay-interactive-regions", (event, regions: unknown) => {
     if (!playerOverlayWindow || playerOverlayWindow.isDestroyed()) return
-    if (!isTrustedIpcSender(event, true) || event.sender.id !== playerOverlayWindow.webContents.id) return
+    if (!isTrustedIpcSender(event, true) || event.sender.id !== playerOverlayWindow.webContents.id)
+      return
     if (!Array.isArray(regions)) return
     playerOverlayInteractiveRegions = regions.flatMap((region) => {
       if (!region || typeof region !== "object") return []
@@ -1004,53 +1018,60 @@ async function closeResources() {
   devWebServer = undefined
 }
 
-void app.whenReady().then(async () => {
-  session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
-    callback(false)
-  })
-  session.defaultSession.setPermissionCheckHandler(() => false)
-  await startDevelopmentWebServer()
-  await registerApplicationProtocol()
-  registerIpcHandlers()
-  mainWindow = await createMainWindow()
-  const smokeVideo = process.env.CONDUIT_ELECTRON_SMOKE_VIDEO
-  if (smokeVideo) {
-    const smokeUrl = smokeVideo.includes(":") ? smokeVideo : pathToFileURL(smokeVideo).toString()
-    const result = await invoke("player_open", {
-      url: smokeUrl,
-      title: "Electron native player smoke test",
-      readAheadSeconds: 10,
-      hardwareAcceleration: true,
+void app
+  .whenReady()
+  .then(async () => {
+    session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
+      callback(false)
     })
-    console.log("Conduit Electron: native player smoke test opened", result)
-    setTimeout(() => {
-      void invoke("player_snapshot")
-        .then((snapshot) => console.log("Conduit Electron: native player smoke snapshot", snapshot))
-        .catch((error) => console.error("Conduit Electron: native player smoke snapshot failed", error))
-    }, 1500)
-  }
-  mainWindow.on("move", () => {
-    refreshNativeSurface()
-    positionPlayerOverlay()
+    session.defaultSession.setPermissionCheckHandler(() => false)
+    await startDevelopmentWebServer()
+    await registerApplicationProtocol()
+    registerIpcHandlers()
+    mainWindow = await createMainWindow()
+    const smokeVideo = process.env.CONDUIT_ELECTRON_SMOKE_VIDEO
+    if (smokeVideo) {
+      const smokeUrl = smokeVideo.includes(":") ? smokeVideo : pathToFileURL(smokeVideo).toString()
+      const result = await invoke("player_open", {
+        url: smokeUrl,
+        title: "Electron native player smoke test",
+        readAheadSeconds: 10,
+        hardwareAcceleration: true,
+      })
+      console.log("Conduit Electron: native player smoke test opened", result)
+      setTimeout(() => {
+        void invoke("player_snapshot")
+          .then((snapshot) =>
+            console.log("Conduit Electron: native player smoke snapshot", snapshot),
+          )
+          .catch((error) =>
+            console.error("Conduit Electron: native player smoke snapshot failed", error),
+          )
+      }, 1500)
+    }
+    mainWindow.on("move", () => {
+      refreshNativeSurface()
+      positionPlayerOverlay()
+    })
+    mainWindow.on("resize", () => {
+      refreshNativeSurface()
+      positionPlayerOverlay()
+    })
+    mainWindow.on("focus", showPlayerOverlay)
+    mainWindow.on("blur", syncPlayerOverlayVisibility)
+    mainWindow.on("show", syncPlayerOverlayVisibility)
+    mainWindow.on("hide", hidePlayerOverlay)
+    mainWindow.on("minimize", hidePlayerOverlay)
+    mainWindow.on("restore", syncPlayerOverlayVisibility)
+    mainWindow.on("closed", () => {
+      closePlayerOverlay()
+      mainWindow = undefined
+    })
   })
-  mainWindow.on("resize", () => {
-    refreshNativeSurface()
-    positionPlayerOverlay()
+  .catch((error: unknown) => {
+    console.error("Conduit Electron failed to start:", error)
+    app.exit(1)
   })
-  mainWindow.on("focus", showPlayerOverlay)
-  mainWindow.on("blur", syncPlayerOverlayVisibility)
-  mainWindow.on("show", syncPlayerOverlayVisibility)
-  mainWindow.on("hide", hidePlayerOverlay)
-  mainWindow.on("minimize", hidePlayerOverlay)
-  mainWindow.on("restore", syncPlayerOverlayVisibility)
-  mainWindow.on("closed", () => {
-    closePlayerOverlay()
-    mainWindow = undefined
-  })
-}).catch((error: unknown) => {
-  console.error("Conduit Electron failed to start:", error)
-  app.exit(1)
-})
 
 app.on("before-quit", () => void closeResources())
 app.on("window-all-closed", () => {

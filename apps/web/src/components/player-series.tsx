@@ -24,11 +24,13 @@ export function shouldShowNextEpisodePrompt(
   duration: number,
   hasNextEpisode: boolean,
 ): boolean {
-  return hasNextEpisode &&
+  return (
+    hasNextEpisode &&
     duration > 0 &&
     position >= 0 &&
     duration - position > 0 &&
     duration - position <= NEXT_EPISODE_PROMPT_WINDOW
+  )
 }
 
 export function PlayerEpisodeDrawer({
@@ -144,6 +146,8 @@ export function NextEpisodePrompt({
   onDismiss,
   onVisibilityChange,
   onWatchNow,
+  visible: visibleOverride,
+  contained = false,
 }: {
   seriesName: string
   episode?: Video
@@ -154,6 +158,8 @@ export function NextEpisodePrompt({
   onDismiss: () => void
   onVisibilityChange?: (visible: boolean) => void
   onWatchNow: () => void
+  visible?: boolean
+  contained?: boolean
 }) {
   const [dismissed, setDismissed] = useState(false)
   const [countdown, setCountdown] = useState(NEXT_EPISODE_COUNTDOWN)
@@ -161,8 +167,15 @@ export function NextEpisodePrompt({
   const previousVisible = useRef(false)
   const watchNow = useRef(onWatchNow)
   watchNow.current = onWatchNow
-  const visible = !dismissed &&
-    shouldShowNextEpisodePrompt(position, duration, Boolean(episode))
+  const visible =
+    !dismissed &&
+    (visibleOverride ?? shouldShowNextEpisodePrompt(position, duration, Boolean(episode)))
+
+  useEffect(() => {
+    setDismissed(false)
+    setCountdown(NEXT_EPISODE_COUNTDOWN)
+    transitioned.current = false
+  }, [episode?.id])
 
   useEffect(() => {
     if (previousVisible.current === visible) return
@@ -189,7 +202,8 @@ export function NextEpisodePrompt({
   return (
     <section
       data-native-overlay
-      className="absolute bottom-24 right-4 z-20 w-[min(calc(100%_-_2rem),380px)] overflow-hidden rounded-2xl border border-white/12 bg-zinc-950/95 shadow-2xl shadow-black/70 backdrop-blur-xl sm:right-6"
+      data-overlay-interactive
+      className={`${contained ? "relative" : "absolute bottom-24 right-4 sm:right-6"} pointer-events-auto z-20 w-[min(calc(100%_-_2rem),380px)] overflow-hidden rounded-2xl border border-white/12 bg-zinc-950/95 shadow-2xl shadow-black/70 backdrop-blur-xl`}
       aria-label={`Next on ${seriesName}`}
       aria-live="polite"
     >

@@ -3,6 +3,7 @@
 import { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import * as core from "../lib/core"
 import {
   DesktopPlayer,
   dedupeAddonSubtitles,
@@ -428,9 +429,7 @@ describe("DesktopPlayer track menus", () => {
     click(endTime!)
 
     expect(endTime?.textContent).toBe("-1:30")
-    expect(endTime?.getAttribute("aria-label")).toBe(
-      "Time remaining. Click to show end time.",
-    )
+    expect(endTime?.getAttribute("aria-label")).toBe("Time remaining. Click to show end time.")
 
     click(endTime!)
     expect(endTime?.textContent).toBe("1:40")
@@ -547,6 +546,52 @@ describe("DesktopPlayer track menus", () => {
     ]
 
     expect(filterAddedAddonSubtitles(subtitles, tracks)).toEqual([subtitles[1]])
+  })
+
+  it("loads add-on subtitles into mpv for the Electron overlay", async () => {
+    vi.spyOn(core, "loadSubtitles").mockResolvedValue([
+      { id: "english", url: "https://subs.example/english.vtt", lang: "en" },
+    ])
+
+    await act(async () => {
+      root.render(
+        <DesktopPlayer
+          url="https://example.com/subtitled-video.mp4"
+          type="movie"
+          videoId="tt-subtitles"
+          profileId="00000000-0000-4000-8000-000000000001"
+          progressMetadata={{ mediaType: "movie", mediaId: "tt-subtitles", name: "Subtitles" }}
+          addons={[
+            {
+              id: "addon",
+              manifestId: "subtitles",
+              manifestUrl: "https://addon.example/manifest.json",
+              manifest: {
+                id: "subtitles",
+                version: "1.0.0",
+                name: "Subtitle add-on",
+                resources: ["subtitles"],
+                types: ["movie"],
+                catalogs: [],
+              },
+              position: 0,
+              enabled: true,
+            },
+          ]}
+          onClose={() => undefined}
+        />,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(desktop.nativePlayerCommand).toHaveBeenCalledWith([
+      "sub-add",
+      "https://subs.example/english.vtt",
+      "auto",
+      "English · Subtitle add-on",
+      "en",
+    ])
   })
 
   it("removes duplicate add-on subtitle labels before the menu is shown", () => {

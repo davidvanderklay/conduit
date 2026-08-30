@@ -1,5 +1,6 @@
 export type ThemePreference = "dark" | "system"
 export type ResumeBehavior = "ask" | "always" | "restart"
+export type SkipButtonPlacement = "left" | "right"
 
 export interface DevicePreferences {
   audioLanguage: string
@@ -8,6 +9,8 @@ export interface DevicePreferences {
   subtitlePosition: number
   readAheadSeconds: number
   autoSelectSavedStreams: boolean
+  skipSegments: boolean
+  skipButtonPlacement: SkipButtonPlacement
   lastStreamAddonId?: string
   autoplay: boolean
   volume: number
@@ -30,6 +33,8 @@ export const defaultPreferences: DevicePreferences = {
   subtitlePosition: 90,
   readAheadSeconds: 30,
   autoSelectSavedStreams: false,
+  skipSegments: true,
+  skipButtonPlacement: "left",
   autoplay: true,
   volume: 100,
   hardwareAcceleration: true,

@@ -45,6 +45,7 @@ import { applyProgressOperation, progressIdentity } from "../lib/progress"
 import {
   AUTO_SELECTION_STARTUP_TIMEOUT_MS,
   playbackSourceForStream,
+  rankAutomaticStreams,
   selectSavedStream,
   selectSingleAutoStream,
 } from "../lib/stream-selection"
@@ -134,12 +135,25 @@ export function MediaDetails({
   const streamAddons = activeVideoId
     ? addonsForResource(addons, "stream", item.type, activeVideoId)
     : []
-  const savedPlaybackSource = initialProgress?.playbackSource
+  const progress = useQuery({
+    queryKey: ["series-progress", profileId, item.type, item.id],
+    refetchOnMount: "always",
+    queryFn: () =>
+      api<{ items: WatchProgress[] }>(
+        `/v1/profiles/${profileId}/progress?view=status&limit=1000`,
+      ).then((result) => result.items),
+  })
+  const savedProgress = activeVideoId
+    ? initialProgress?.videoId === activeVideoId
+      ? initialProgress
+      : progress.data?.find((entry) => entry.videoId === activeVideoId)
+    : undefined
+  const savedPlaybackSource = savedProgress?.playbackSource
   const autoResumeEligible =
     autoResumeOnOpen &&
     autoSelectSavedStreams &&
     Boolean(savedPlaybackSource) &&
-    (item.type !== "series" || Boolean(initialVideoId))
+    Boolean(activeVideoId)
   const effectiveStreamAddonId =
     streamAddonId &&
     streamAddons.length > 1 &&
@@ -161,14 +175,6 @@ export function MediaDetails({
   )
   const shouldWaitForSavedPlayback =
     autoResumeStage === "resolving" || autoResumeStage === "starting"
-  const progress = useQuery({
-    queryKey: ["series-progress", profileId, item.type, item.id],
-    refetchOnMount: "always",
-    queryFn: () =>
-      api<{ items: WatchProgress[] }>(
-        `/v1/profiles/${profileId}/progress?view=status&limit=1000`,
-      ).then((result) => result.items),
-  })
   const seriesProgressReady = progress.isSuccess || progress.isError
   const seriesProgress = [
     ...(initialProgress &&
@@ -185,11 +191,7 @@ export function MediaDetails({
       return undefined
     return selectSeriesVideo(videos, seriesProgress, undefined, undefined, meta.defaultVideoId)
   }, [item.type, meta.defaultVideoId, selectedVideoId, seriesProgress, seriesProgressReady, videos])
-  const activeProgress = activeVideoId
-    ? initialProgress?.videoId === activeVideoId
-      ? initialProgress
-      : progress.data?.find((entry) => entry.videoId === activeVideoId)
-    : undefined
+  const activeProgress = savedProgress
   const resumeFrom = resumePositionLabel(activeProgress)
   const streams = useQuery({
     queryKey: ["streams", item.type, activeVideoId, addonIds, effectiveStreamAddonId ?? "all"],
@@ -198,7 +200,7 @@ export function MediaDetails({
     staleTime: 5 * 60 * 1000,
   })
   useQuery({
-    queryKey: ["streams", item.type, nextEpisode?.id, addonIds],
+    queryKey: ["streams", item.type, nextEpisode?.id, addonIds, "automatic"],
     enabled: Boolean(playing && nextEpisode),
     queryFn: () => resolveStreams(addons, item.type, nextEpisode!.id),
     staleTime: 5 * 60 * 1000,
@@ -262,10 +264,6 @@ export function MediaDetails({
       return
     }
     if (!activeVideoId) return
-    if (item.type === "series" && activeVideoId !== initialProgress?.videoId) {
-      finishWithoutAutoResume()
-      return
-    }
     if (!savedPlaybackSource) {
       finishWithoutAutoResume()
       return
@@ -418,7 +416,7 @@ export function MediaDetails({
       setPlaying(undefined)
       return
     }
-    openEpisodeSources(nextEpisode)
+    void playNextEpisode(nextEpisode)
   }
 
   const cancelPendingAutoResume = useCallback(() => {
@@ -500,6 +498,39 @@ export function MediaDetails({
     setSelectedVideoId(video.id)
     setSelectedSeason(video.season ?? 1)
     seriesReturnVideoId.current = video.id
+  }
+
+  const playNextEpisode = async (video: Video) => {
+    const transition = ++episodeTransition.current
+    cancelPendingAutoResume()
+    setStreamResolutionError(undefined)
+    try {
+      const resolved = await queryClient.fetchQuery({
+        queryKey: ["streams", item.type, video.id, addonIds, "automatic"],
+        queryFn: () => resolveStreams(addons, item.type, video.id),
+        staleTime: 5 * 60 * 1000,
+      })
+      if (transition !== episodeTransition.current) return
+      const savedSource = progress.data?.find((entry) => entry.videoId === video.id)?.playbackSource
+      const candidate = rankAutomaticStreams(
+        resolved,
+        playing ? playbackSourceForStream(playing) : undefined,
+        savedSource,
+      )[0]
+      if (!candidate) {
+        openEpisodeSources(video)
+        setStreamResolutionError("No automatic source was available. Choose a source below.")
+        return
+      }
+      setSelectedVideoId(video.id)
+      setSelectedSeason(video.season ?? 1)
+      seriesReturnVideoId.current = video.id
+      setPlaying(candidate)
+    } catch {
+      if (transition !== episodeTransition.current) return
+      openEpisodeSources(video)
+      setStreamResolutionError("The next source could not be resolved. Choose a source below.")
+    }
   }
 
   return (
@@ -717,7 +748,7 @@ export function MediaDetails({
           nextEpisode={nextEpisode}
           nextEpisodeLabel={nextEpisode ? episodeLabel(nextEpisode) : undefined}
           onSelectEpisode={openEpisodeSources}
-          onNextEpisode={nextEpisode ? () => openEpisodeSources(nextEpisode) : undefined}
+          onNextEpisode={nextEpisode ? () => playNextEpisode(nextEpisode) : undefined}
           onEnded={autoplayNextEpisode}
           autoRecoveryAttempt={autoResumeStage === "starting"}
           onAutoRecoveryStarted={handleAutoRecoveryStarted}

@@ -62,6 +62,7 @@ export type PlayerOverlayMedia = PlayerArtwork & {
 
 export interface PlayerOverlaySeries {
   name: string
+  mediaId?: string
   show?: {
     name: string
     logo?: string

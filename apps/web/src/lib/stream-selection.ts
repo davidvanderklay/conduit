@@ -63,7 +63,23 @@ export function selectSingleAutoStream<T extends AutoSelectableStream>(
   return index == null ? undefined : streams[index]
 }
 
-export function isAutoSelectableStream(stream: AutoSelectableStream): stream is AutoSelectableStream & {
+export function rankAutomaticStreams<T extends AutoSelectableStream>(
+  streams: T[],
+  previousSource?: PlaybackSource,
+  savedSource?: PlaybackSource,
+): T[] {
+  const indexes = coreValue<number[]>({
+    type: "rankStreams",
+    streams: streams.map(coreCandidate),
+    previous: previousSource ?? null,
+    saved: savedSource ?? null,
+  })
+  return indexes.flatMap((index) => (streams[index] ? [streams[index]] : []))
+}
+
+export function isAutoSelectableStream(
+  stream: AutoSelectableStream,
+): stream is AutoSelectableStream & {
   url: string
 } {
   return isPlayableStreamUrl(stream.url)
