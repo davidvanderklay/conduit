@@ -600,7 +600,7 @@ export function ElectronPlayerOverlay({ initialMedia }: { initialMedia: PlayerOv
               onBlur={commitSeek}
             />
             <button
-              className="min-w-16 cursor-pointer border-0 bg-transparent p-0 text-left text-lg text-zinc-200 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300"
+              className="pointer-events-auto min-w-16 cursor-pointer border-0 bg-transparent p-0 text-left text-lg text-zinc-200 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300"
               data-overlay-interactive
               type="button"
               aria-label={
