@@ -54,7 +54,7 @@ jobs:
         with:
           workspaces: .
       - name: Install pinned Rust Android packager
-        uses: taiki-e/install-action@7f4eb899022d8fe70b20c4f3de697aa85c309026 # v2
+        uses: taiki-e/install-action@37f7c5781271959fb65b6b35224e28652ff2b63d # v2
         with:
           tool: cargo-ndk@3.5.4
       - name: Build Rust JNI libraries
