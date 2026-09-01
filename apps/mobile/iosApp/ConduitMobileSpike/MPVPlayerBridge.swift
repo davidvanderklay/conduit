@@ -133,6 +133,16 @@ final class ConduitMPVPlayerBridge: NSObject, IosPlayerBridge {
     func setInteractiveResize(active: Bool) {
         ensurePlayerViewController().setInteractiveResize(active)
     }
+    func updateNowPlayingMetadata(title: String, subtitle: String?, artworkUrl: String?) {
+        ensurePlayerViewController().updateNowPlayingMetadata(
+            title: title,
+            subtitle: subtitle,
+            artworkURL: artworkUrl
+        )
+    }
+    func clearNowPlayingMetadata() {
+        playerViewController?.clearNowPlayingMetadata()
+    }
 
     func getAudioTrackCount() -> Int32 {
         Int32(playerViewController?.audioTracks.count ?? 0)
@@ -383,6 +393,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
     private var lastSurfaceDiagnostic: String?
     private var lastPendingLoadDiagnostic: String?
     private var videoFrameRate = 30.0
+    private lazy var nowPlayingController = ConduitNowPlayingController(owner: self)
 
     fileprivate var audioTracks: [ConduitTrack] = []
     fileprivate var subtitleTracks: [ConduitTrack] = []
@@ -722,7 +733,23 @@ final class ConduitMPVPlayerViewController: UIViewController {
             self.bumpPlaybackStateGeneration()
             self.refreshPlaybackState()
             self.pictureInPicture?.playbackStateChanged()
+            if UIApplication.shared.applicationState == .background,
+               self.pictureInPicture?.isActive != true {
+                self.deactivateAudioSession()
+            }
         }
+    }
+
+    func updateNowPlayingMetadata(title: String, subtitle: String?, artworkURL: String?) {
+        nowPlayingController.updateMetadata(
+            title: title,
+            subtitle: subtitle,
+            artworkURL: artworkURL
+        )
+    }
+
+    func clearNowPlayingMetadata() {
+        nowPlayingController.clear()
     }
 
     func seekToMs(_ milliseconds: Int64) {
@@ -1007,6 +1034,12 @@ final class ConduitMPVPlayerViewController: UIViewController {
         videoWidth = nextVideoWidth
         videoHeight = nextVideoHeight
         currentSpeed = Float(snapshot.speed > 0 ? snapshot.speed : 1.0)
+        nowPlayingController.syncPlayback(
+            positionMs: positionMs,
+            durationMs: durationMs,
+            playing: isPlayerPlaying,
+            playbackSpeed: currentSpeed
+        )
         videoFrameRate = Self.preferredFrameRate(
             active: snapshot.activeFrameRate,
             container: snapshot.containerFrameRate,
@@ -1102,6 +1135,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
         pendingSurfaceLayoutWorkItems.removeAll()
         pendingLoad = nil
         shouldPlay = false
+        nowPlayingController.invalidate()
         let pictureInPictureCoordinator = pictureInPicture
         deactivateAudioSession()
 
@@ -1161,15 +1195,23 @@ final class ConduitMPVPlayerViewController: UIViewController {
             debugLog("ignoring video-track suspension while not background reason=\(reason)")
             return
         }
-        pausePlayback()
-        // Release the audio session alongside the video track. Holding an
-        // active .playback claim across suspension is what wedges other
-        // apps' audio on iPadOS until a reboot; playPlayback re-activates.
-        deactivateAudioSession()
+        let keepAudioPlaying = shouldKeepConduitBackgroundAudio(
+            hasNowPlayingItem: nowPlayingController.isActive,
+            shouldPlay: shouldPlay,
+            isPlaying: isPlayerPlaying
+        )
+        if keepAudioPlaying {
+            cancelVideoOutputWatchdog()
+            cancelVideoOutputRecovery(resetAttempts: true)
+        } else {
+            // A paused background player must release its claim so another
+            // app can take the audio route without waiting for Conduit.
+            pausePlayback()
+        }
         guard !videoTrackSuspendedForBackground else { return }
         setStringProperty("vid", "no")
         videoTrackSuspendedForBackground = true
-        debugLog("video track suspended for background reason=\(reason)")
+        debugLog("video track suspended for background reason=\(reason) keepAudio=\(keepAudioPlaying)")
     }
 
     fileprivate func restoreVideoTrackAfterBackgroundIfNeeded(reloadDecoder: Bool = true) {
@@ -1211,10 +1253,14 @@ final class ConduitMPVPlayerViewController: UIViewController {
 
     private func handleAudioRouteChange(_ notification: Notification) {
         let rawReason = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt ?? 0
-        let reason = AVAudioSession.RouteChangeReason(rawValue: rawReason)?.rawValue ?? rawReason
+        let routeReason = AVAudioSession.RouteChangeReason(rawValue: rawReason)
+        let reason = routeReason?.rawValue ?? rawReason
         debugLog(
             "audio route changed reason=\(reason) \(Self.audioSessionDescription(AVAudioSession.sharedInstance()))"
         )
+        if routeReason == .oldDeviceUnavailable, shouldPlay || isPlayerPlaying {
+            pausePlayback()
+        }
     }
 
     // MARK: - Display surface and Metal renderer
@@ -2663,7 +2709,7 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         owner?.resumeVideoOutputWatchdogAfterPictureInPicture()
         if resumePlaybackAfterBackground {
             resumePlaybackAfterBackground = false
-            owner?.playPlayback()
+            if owner?.isPlayerPlaying != true { owner?.playPlayback() }
         }
     }
 
