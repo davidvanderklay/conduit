@@ -40,11 +40,11 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.lifecycle.repeatOnLifecycle
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.Player
-import androidx.media3.common.C
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
@@ -106,6 +106,8 @@ actual fun NativePlayer(
     subtitles: List<SubtitleItem>,
     contentLogo: String?,
     contentTitle: String?,
+    contentSubtitle: String?,
+    contentArtwork: String?,
     hasNextEpisode: Boolean,
     onNextEpisode: () -> Unit,
     hasEpisodes: Boolean,
@@ -145,7 +147,10 @@ actual fun NativePlayer(
             .setUserAgent("conduit Mobile")
             .setDefaultRequestProperties(requestHeaders)
         val renderers = DefaultRenderersFactory(context).setEnableDecoderFallback(true)
-        return ExoPlayer.Builder(context, renderers).setMediaSourceFactory(DefaultMediaSourceFactory(http)).build()
+        return ExoPlayer.Builder(context, renderers)
+            .setMediaSourceFactory(DefaultMediaSourceFactory(http))
+            .build()
+            .apply { setAudioAttributes(AudioAttributes.DEFAULT, true) }
     }
     var player by remember(url, requestHeaders) { mutableStateOf(createMedia3Player()) }
     var activeEngine by remember(url, requestHeaders, androidPlaybackEngine) {
@@ -193,6 +198,43 @@ actual fun NativePlayer(
     val preferredAudioCode = remember(preferredAudioLanguage) { audioLanguageCode(preferredAudioLanguage) }
     var playerReleased by remember(player) { mutableStateOf(false) }
     var lastDiagnosticPlaybackState by remember(player, activeEngine) { mutableStateOf<String?>(null) }
+    val nowPlayingController = remember(context) {
+        AndroidPlayerNowPlayingController(
+            context,
+            AndroidPlayerNowPlayingController.Controls(
+                play = {
+                    fallbackPlayWhenReady = true
+                    if (activeEngine == NativePlaybackEngine.Media3) {
+                        if (canStartNativePlayback(active, true, firstFrameRendered)) player.play()
+                    } else {
+                        mpvView?.setPaused(false)
+                    }
+                },
+                pause = {
+                    fallbackPlayWhenReady = false
+                    if (activeEngine == NativePlaybackEngine.Media3) player.pause() else mpvView?.setPaused(true)
+                },
+                seekTo = { position ->
+                    if (activeEngine == NativePlaybackEngine.Media3) player.seekTo(position) else mpvView?.seekTo(position)
+                },
+                seekBy = { offset ->
+                    if (activeEngine == NativePlaybackEngine.Media3) {
+                        player.seekTo((player.currentPosition + offset).coerceAtLeast(0))
+                    } else {
+                        mpvView?.seekBy(offset)
+                    }
+                },
+            ),
+        )
+    }
+
+    LaunchedEffect(nowPlayingController, contentTitle, contentSubtitle, contentArtwork) {
+        nowPlayingController.updateMetadata(contentTitle, contentSubtitle, contentArtwork)
+    }
+
+    DisposableEffect(nowPlayingController) {
+        onDispose { nowPlayingController.release() }
+    }
 
     DisposableEffect(player) {
         onDispose {
@@ -415,9 +457,14 @@ actual fun NativePlayer(
                 context.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_PICTURE_IN_PICTURE),
         )
     }
-    DisposableEffect(player, lifecycle, activeEngine, mpvView) {
+    DisposableEffect(player, lifecycle, activeEngine, mpvView, nowPlayingController) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_STOP && activity?.isInPictureInPictureMode != true) {
+            if (event == Lifecycle.Event.ON_STOP && shouldPauseAndroidPlaybackOnStop(
+                    isInPictureInPicture = activity?.isInPictureInPictureMode == true,
+                    activityIsFinishing = activity?.isFinishing == true,
+                    hasActiveNowPlayingSession = nowPlayingController.isActive,
+                )
+            ) {
                 if (activeEngine == NativePlaybackEngine.Media3) player.pause() else mpvView?.setPaused(true)
             }
         }
@@ -460,84 +507,92 @@ actual fun NativePlayer(
             mpvView?.setPaused(!(active && (fallbackReason == null || fallbackPlayWhenReady)))
         }
     }
-    LaunchedEffect(player, mpvView, lifecycle, landscape, activeEngine) {
-        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
-            while (true) {
-                val mpvSnapshot = if (activeEngine == NativePlaybackEngine.Libmpv) {
-                    mpvView?.let { view -> withContext(Dispatchers.IO) { view.refreshSnapshot() } }
-                } else {
-                    null
-                }
-                val next = if (mpvSnapshot != null) {
-                    mpvTrackRevision = mpvSnapshot.trackRevision
-                    firstFrameRendered = mpvSnapshot.firstFrameRendered
-                    initialLoadComplete = !mpvSnapshot.loading
-                    playbackError = mpvSnapshot.error?.let { error ->
-                        combinedPlaybackError(fallbackReason, error)
-                    }
-                    PlaybackState(
-                        loading = mpvSnapshot.loading,
-                        buffering = mpvSnapshot.buffering,
-                        playing = mpvSnapshot.playing,
-                        positionMs = mpvSnapshot.positionMs,
-                        durationMs = mpvSnapshot.durationMs,
-                        videoWidth = mpvSnapshot.videoWidth,
-                        videoHeight = mpvSnapshot.videoHeight,
-                        ended = mpvSnapshot.ended,
-                        error = playbackError,
-                        pipReady = landscape &&
-                            !mpvSnapshot.loading &&
-                            !mpvSnapshot.buffering &&
-                            mpvSnapshot.firstFrameRendered &&
-                            mpvSnapshot.videoWidth > 0 &&
-                            mpvSnapshot.videoHeight > 0 &&
-                            mpvSnapshot.durationMs > 0 &&
-                            mpvSnapshot.error == null,
-                        engine = NativePlaybackEngine.Libmpv,
-                        fallbackReason = fallbackReason,
-                    )
-                } else {
-                    val isBuffering = initialLoadComplete && player.playbackState == Player.STATE_BUFFERING
-                    val playerPipReady = landscape &&
-                        initialLoadComplete &&
-                        firstFrameRendered &&
-                        player.videoSize.width > 0 &&
-                        player.videoSize.height > 0 &&
-                        player.duration > 0 &&
-                        playbackError == null
-                    PlaybackState(
-                        loading = !initialLoadComplete,
-                        buffering = isBuffering,
-                        playing = player.isPlaying,
-                        positionMs = player.currentPosition.coerceAtLeast(0),
-                        durationMs = player.duration.coerceAtLeast(0),
-                        videoWidth = player.videoSize.width,
-                        videoHeight = player.videoSize.height,
-                        ended = player.playbackState == Player.STATE_ENDED,
-                        error = playbackError,
-                        pipReady = playerPipReady,
-                        engine = NativePlaybackEngine.Media3,
-                        fallbackReason = fallbackReason,
-                    )
-                }
-                currentCallback(next)
-                val diagnosticState = "engine=${next.engine} loading=${next.loading} buffering=${next.buffering} " +
-                    "playing=${next.playing} positionMs=${next.positionMs} durationMs=${next.durationMs} " +
-                    "video=${next.videoWidth}x${next.videoHeight} ended=${next.ended} error=${next.error != null}"
-                if (diagnosticState != lastDiagnosticPlaybackState) {
-                    lastDiagnosticPlaybackState = diagnosticState
-                    DiagnosticLogStore.debug("playback/state", diagnosticState)
-                }
-                if (!dragging) positionMs = next.positionMs
-                durationMs = next.durationMs
-                playing = next.playing
-                buffering = next.buffering
-                playbackSpeed = mpvSnapshot?.playbackSpeed ?: player.playbackParameters.speed
-                (activity as? MainActivity)?.updateConduitPipVideoSize(next.videoWidth, next.videoHeight)
-                (activity as? MainActivity)?.updateConduitPipReadiness(next.pipReady)
-                (activity as? MainActivity)?.updateConduitPictureInPictureParams()
-                delay(500)
+    LaunchedEffect(player, mpvView, landscape, activeEngine, nowPlayingController) {
+        while (true) {
+            val mpvSnapshot = if (activeEngine == NativePlaybackEngine.Libmpv) {
+                mpvView?.let { view -> withContext(Dispatchers.IO) { view.refreshSnapshot() } }
+            } else {
+                null
             }
+            val next = if (mpvSnapshot != null) {
+                mpvTrackRevision = mpvSnapshot.trackRevision
+                firstFrameRendered = mpvSnapshot.firstFrameRendered
+                initialLoadComplete = !mpvSnapshot.loading
+                playbackError = mpvSnapshot.error?.let { error ->
+                    combinedPlaybackError(fallbackReason, error)
+                }
+                PlaybackState(
+                    loading = mpvSnapshot.loading,
+                    buffering = mpvSnapshot.buffering,
+                    playing = mpvSnapshot.playing,
+                    positionMs = mpvSnapshot.positionMs,
+                    durationMs = mpvSnapshot.durationMs,
+                    videoWidth = mpvSnapshot.videoWidth,
+                    videoHeight = mpvSnapshot.videoHeight,
+                    ended = mpvSnapshot.ended,
+                    error = playbackError,
+                    pipReady = landscape &&
+                        !mpvSnapshot.loading &&
+                        !mpvSnapshot.buffering &&
+                        mpvSnapshot.firstFrameRendered &&
+                        mpvSnapshot.videoWidth > 0 &&
+                        mpvSnapshot.videoHeight > 0 &&
+                        mpvSnapshot.durationMs > 0 &&
+                        mpvSnapshot.error == null,
+                    engine = NativePlaybackEngine.Libmpv,
+                    fallbackReason = fallbackReason,
+                )
+            } else {
+                val isBuffering = initialLoadComplete && player.playbackState == Player.STATE_BUFFERING
+                val playerPipReady = landscape &&
+                    initialLoadComplete &&
+                    firstFrameRendered &&
+                    player.videoSize.width > 0 &&
+                    player.videoSize.height > 0 &&
+                    player.duration > 0 &&
+                    playbackError == null
+                PlaybackState(
+                    loading = !initialLoadComplete,
+                    buffering = isBuffering,
+                    playing = player.isPlaying,
+                    positionMs = player.currentPosition.coerceAtLeast(0),
+                    durationMs = player.duration.coerceAtLeast(0),
+                    videoWidth = player.videoSize.width,
+                    videoHeight = player.videoSize.height,
+                    ended = player.playbackState == Player.STATE_ENDED,
+                    error = playbackError,
+                    pipReady = playerPipReady,
+                    engine = NativePlaybackEngine.Media3,
+                    fallbackReason = fallbackReason,
+                )
+            }
+            currentCallback(next)
+            nowPlayingController.syncPlayback(
+                AndroidNowPlayingSnapshot(
+                    loading = next.loading || next.buffering,
+                    playing = next.playing,
+                    ended = next.ended,
+                    positionMs = next.positionMs,
+                    durationMs = next.durationMs,
+                    playbackSpeed = mpvSnapshot?.playbackSpeed ?: player.playbackParameters.speed,
+                ),
+            )
+            val diagnosticState = "engine=${next.engine} loading=${next.loading} buffering=${next.buffering} " +
+                "playing=${next.playing} positionMs=${next.positionMs} durationMs=${next.durationMs} " +
+                "video=${next.videoWidth}x${next.videoHeight} ended=${next.ended} error=${next.error != null}"
+            if (diagnosticState != lastDiagnosticPlaybackState) {
+                lastDiagnosticPlaybackState = diagnosticState
+                DiagnosticLogStore.debug("playback/state", diagnosticState)
+            }
+            if (!dragging) positionMs = next.positionMs
+            durationMs = next.durationMs
+            playing = next.playing
+            buffering = next.buffering
+            playbackSpeed = mpvSnapshot?.playbackSpeed ?: player.playbackParameters.speed
+            (activity as? MainActivity)?.updateConduitPipVideoSize(next.videoWidth, next.videoHeight)
+            (activity as? MainActivity)?.updateConduitPipReadiness(next.pipReady)
+            (activity as? MainActivity)?.updateConduitPictureInPictureParams()
+            delay(500)
         }
     }
 

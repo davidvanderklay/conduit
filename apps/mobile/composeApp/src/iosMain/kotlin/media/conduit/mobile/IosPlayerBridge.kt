@@ -32,6 +32,8 @@ interface IosPlayerBridge {
     fun syncVideoSurfaceLayout(width: Double, height: Double)
     fun setInteractiveResize(active: Boolean)
     fun setImmersivePlayback(enabled: Boolean)
+    fun updateNowPlayingMetadata(title: String, subtitle: String?, artworkUrl: String?)
+    fun clearNowPlayingMetadata()
     fun isPictureInPictureSupported(): Boolean
     fun isPictureInPictureActive(): Boolean
     fun startPictureInPicture()

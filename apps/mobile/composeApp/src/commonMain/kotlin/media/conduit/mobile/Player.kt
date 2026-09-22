@@ -150,6 +150,8 @@ expect fun NativePlayer(
     subtitles: List<SubtitleItem> = emptyList(),
     contentLogo: String? = null,
     contentTitle: String? = null,
+    contentSubtitle: String? = null,
+    contentArtwork: String? = null,
     hasNextEpisode: Boolean = false,
     onNextEpisode: () -> Unit = {},
     hasEpisodes: Boolean = false,

@@ -1821,6 +1821,8 @@ private fun BoxScope.PlaybackSessionHost(
             subtitles = request.subtitles,
             contentLogo = request.logo,
             contentTitle = request.title,
+            contentSubtitle = request.mediaName.takeUnless { it == request.title },
+            contentArtwork = request.poster ?: request.artwork,
             hasNextEpisode = upNext != null,
             onNextEpisode = controller::playNext,
             hasEpisodes = request.hasEpisodes,

@@ -2,6 +2,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <application
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
@@ -30,5 +33,13 @@
                     android:path="/callback" />
             </intent-filter>
         </activity>
+        <service
+            android:name=".PlayerNowPlayingService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback"
+            android:stopWithTask="false" />
+        <receiver
+            android:name=".PlayerNowPlayingActionReceiver"
+            android:exported="false" />
     </application>
 </manifest>
