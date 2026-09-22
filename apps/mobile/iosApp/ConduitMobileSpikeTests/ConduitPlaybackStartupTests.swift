@@ -36,4 +36,58 @@ final class ConduitPlaybackStartupTests: XCTestCase {
             ["start=42.000"]
         )
     }
+
+    func testRendererPresentationUpdatesDoNotBlockOnMain() {
+        let applied = expectation(description: "Presentation updates applied on main")
+        DispatchQueue.main.async {
+            let layer = ConduitMetalLayer()
+            layer.isOpaque = true
+            layer.contentsGravity = .resize
+            layer.minificationFilter = .linear
+            layer.magnificationFilter = .linear
+            let submitted = DispatchSemaphore(value: 0)
+            DispatchQueue.global(qos: .userInitiated).async {
+                layer.isOpaque = false
+                layer.contentsGravity = .resizeAspect
+                layer.minificationFilter = .nearest
+                layer.magnificationFilter = .nearest
+                submitted.signal()
+            }
+            XCTAssertEqual(submitted.wait(timeout: .now() + 2), .success)
+            XCTAssertTrue(layer.isOpaque)
+            XCTAssertEqual(layer.contentsGravity, .resize)
+            XCTAssertEqual(layer.minificationFilter, .linear)
+            XCTAssertEqual(layer.magnificationFilter, .linear)
+            DispatchQueue.main.async {
+                XCTAssertFalse(layer.isOpaque)
+                XCTAssertEqual(layer.contentsGravity, .resizeAspect)
+                XCTAssertEqual(layer.minificationFilter, .nearest)
+                XCTAssertEqual(layer.magnificationFilter, .nearest)
+                applied.fulfill()
+            }
+        }
+        wait(for: [applied], timeout: 5)
+    }
+
+    func testRendererColorspaceReadbackAndNewerMainUpdate() {
+        let applied = expectation(description: "Newer colorspace preserved")
+        DispatchQueue.main.async {
+            let layer = ConduitMetalLayer()
+            let submitted = DispatchSemaphore(value: 0)
+            DispatchQueue.global(qos: .userInitiated).async {
+                layer.colorspace = CGColorSpace(name: CGColorSpace.displayP3)
+                XCTAssertEqual(layer.colorspace?.name, CGColorSpace.displayP3)
+                layer.colorspace = nil
+                XCTAssertNil(layer.colorspace)
+                submitted.signal()
+            }
+            XCTAssertEqual(submitted.wait(timeout: .now() + 2), .success)
+            layer.colorspace = CGColorSpace(name: CGColorSpace.sRGB)
+            DispatchQueue.main.async {
+                XCTAssertEqual(layer.colorspace?.name, CGColorSpace.sRGB)
+                applied.fulfill()
+            }
+        }
+        wait(for: [applied], timeout: 5)
+    }
 }
