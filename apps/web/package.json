@@ -31,6 +31,6 @@
     "tailwindcss": "4.3.3",
     "typescript": "7.0.2",
     "vite": "npm:@voidzero-dev/vite-plus-core@0.2.8",
-    "vitest": "4.1.11"
+    "vitest": "5.0.0"
   }
 }
