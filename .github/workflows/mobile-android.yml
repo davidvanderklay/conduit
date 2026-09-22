@@ -41,6 +41,8 @@ jobs:
           cache: gradle
           cache-dependency-path: apps/mobile/**/*.gradle*
       - uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
+        with:
+          packages: platform-tools
       - name: Install pinned Android SDK components
         run: >-
           sdkmanager
@@ -54,7 +56,7 @@ jobs:
         with:
           workspaces: .
       - name: Install pinned Rust Android packager
-        uses: taiki-e/install-action@7f4eb899022d8fe70b20c4f3de697aa85c309026 # v2
+        uses: taiki-e/install-action@5bf6ce016fd2e72eefc647cbca1e4213f65955b8 # v2
         with:
           tool: cargo-ndk@3.5.4
       - name: Build Rust JNI libraries

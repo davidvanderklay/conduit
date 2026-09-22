@@ -527,7 +527,7 @@ class ConduitApiTest {
         val engine = MockEngine { request ->
             when (request.url.encodedPath) {
                 "/v1/auth/mobile/start" -> respond(
-                    """{"requestId":"request-transient","expiresAt":"2026-08-31T01:00:00Z","authorizationUrl":"https://conduit.example/auth"}""",
+                    """{"requestId":"request-transient","expiresAt":"2099-08-31T01:00:00Z","authorizationUrl":"https://conduit.example/auth"}""",
                     HttpStatusCode.OK,
                     headersOf(HttpHeaders.ContentType, "application/json"),
                 )
