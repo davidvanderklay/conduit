@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   isPlayableStreamUrl,
   playbackSourceForStream,
+  rankAutomaticStreams,
   selectSavedStream,
   selectSingleAutoStream,
   type AutoSelectableStream,
@@ -19,6 +20,25 @@ const stream = (
 })
 
 describe("stream selection", () => {
+  it.each([
+    [
+      "https://video.example/play?file=My%20Movie.mkv",
+      "url:https://video.example/play?file=My Movie.mkv",
+    ],
+    [
+      "https://video.example/play?file=My%20Movie.mkv",
+      "url:https://video.example/play?file=My%20Movie.mkv",
+    ],
+    ["https://video.example/?token=fresh", "url:https://video.example"],
+  ])("resumes a persisted legacy source for %s through WASM", (url, sourceKey) => {
+    const candidate = stream("saved", "Provider", { addonId: "addon-1", url })
+    const saved = { addonId: "addon-1", sourceKey, kind: "url" as const }
+    expect(selectSavedStream([candidate], saved)).toBe(candidate)
+    expect(rankAutomaticStreams([stream("other", "Other"), candidate], undefined, saved)[0]).toBe(
+      candidate,
+    )
+  })
+
   it("rejects unsafe and malformed playback URLs", () => {
     expect(isPlayableStreamUrl("javascript:alert(1)")).toBe(false)
     expect(isPlayableStreamUrl("file:///tmp/video.mp4")).toBe(false)

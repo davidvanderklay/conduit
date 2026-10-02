@@ -114,6 +114,18 @@ Keep `CONDUIT_VERSION` pinned and use a known-good previous tag for an
 application rollback. Do not roll binaries back across an irreversible database
 migration without restoring a matching database backup.
 
+The shared Rust core ships with the web and packaged apps; users do not need
+to install Rust or reset their profiles or saved playback sources. Update the
+API and web images first, then install the matching desktop or mobile release.
+Legacy saved-source keys remain supported when they identify a unique stream.
+
+Migration 0020 restores the provider/account identity format used by Better
+Auth 1.7.6, including on databases that already applied migration 0019. Account
+records and passwords are preserved. Migration 0019 no longer infers historical
+OIDC identities from the current provider settings. If restoring the unique
+provider/account index finds duplicate identities, resolve their ownership
+before retrying; the migration does not delete or merge accounts.
+
 ## Source build for contributors
 
 The root `compose.yaml` is intentionally image-based. Contributors retain the
