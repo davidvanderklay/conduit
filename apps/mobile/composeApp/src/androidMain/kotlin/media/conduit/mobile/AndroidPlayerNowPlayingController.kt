@@ -51,7 +51,7 @@ internal data class AndroidNowPlayingSnapshot(
 
 internal class AndroidPlayerNowPlayingController(
     context: Context,
-    private val controls: Controls,
+    private val controls: () -> Controls,
 ) {
     internal data class Controls(
         val play: () -> Unit,
@@ -69,12 +69,12 @@ internal class AndroidPlayerNowPlayingController(
     private val mediaSession = MediaSession(appContext, "ConduitNowPlaying").apply {
         setCallback(
             object : MediaSession.Callback() {
-                override fun onPlay() = controls.play()
-                override fun onPause() = controls.pause()
-                override fun onStop() = controls.pause()
-                override fun onSeekTo(pos: Long) = controls.seekTo(pos.coerceAtLeast(0))
-                override fun onFastForward() = controls.seekBy(SEEK_INTERVAL_MS)
-                override fun onRewind() = controls.seekBy(-SEEK_INTERVAL_MS)
+                override fun onPlay() = controls().play()
+                override fun onPause() = controls().pause()
+                override fun onStop() = controls().pause()
+                override fun onSeekTo(pos: Long) = controls().seekTo(pos.coerceAtLeast(0))
+                override fun onFastForward() = controls().seekBy(SEEK_INTERVAL_MS)
+                override fun onRewind() = controls().seekBy(-SEEK_INTERVAL_MS)
             },
             mainHandler,
         )
@@ -82,7 +82,7 @@ internal class AndroidPlayerNowPlayingController(
     }
     private val noisyReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            if (intent?.action == android.media.AudioManager.ACTION_AUDIO_BECOMING_NOISY) controls.pause()
+            if (intent?.action == android.media.AudioManager.ACTION_AUDIO_BECOMING_NOISY) controls().pause()
         }
     }
 
@@ -160,10 +160,10 @@ internal class AndroidPlayerNowPlayingController(
 
     internal fun handleAction(action: String?) {
         when (action) {
-            ACTION_PLAY -> controls.play()
-            ACTION_PAUSE -> controls.pause()
-            ACTION_REWIND -> controls.seekBy(-SEEK_INTERVAL_MS)
-            ACTION_FAST_FORWARD -> controls.seekBy(SEEK_INTERVAL_MS)
+            ACTION_PLAY -> controls().play()
+            ACTION_PAUSE -> controls().pause()
+            ACTION_REWIND -> controls().seekBy(-SEEK_INTERVAL_MS)
+            ACTION_FAST_FORWARD -> controls().seekBy(SEEK_INTERVAL_MS)
         }
     }
 

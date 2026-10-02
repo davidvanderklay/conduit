@@ -198,34 +198,34 @@ actual fun NativePlayer(
     val preferredAudioCode = remember(preferredAudioLanguage) { audioLanguageCode(preferredAudioLanguage) }
     var playerReleased by remember(player) { mutableStateOf(false) }
     var lastDiagnosticPlaybackState by remember(player, activeEngine) { mutableStateOf<String?>(null) }
+    val currentNowPlayingControls by rememberUpdatedState(
+        AndroidPlayerNowPlayingController.Controls(
+            play = {
+                fallbackPlayWhenReady = true
+                if (activeEngine == NativePlaybackEngine.Media3) {
+                    if (canStartNativePlayback(active, true, firstFrameRendered)) player.play()
+                } else {
+                    mpvView?.setPaused(false)
+                }
+            },
+            pause = {
+                fallbackPlayWhenReady = false
+                if (activeEngine == NativePlaybackEngine.Media3) player.pause() else mpvView?.setPaused(true)
+            },
+            seekTo = { position ->
+                if (activeEngine == NativePlaybackEngine.Media3) player.seekTo(position) else mpvView?.seekTo(position)
+            },
+            seekBy = { offset ->
+                if (activeEngine == NativePlaybackEngine.Media3) {
+                    player.seekTo((player.currentPosition + offset).coerceAtLeast(0))
+                } else {
+                    mpvView?.seekBy(offset)
+                }
+            },
+        ),
+    )
     val nowPlayingController = remember(context) {
-        AndroidPlayerNowPlayingController(
-            context,
-            AndroidPlayerNowPlayingController.Controls(
-                play = {
-                    fallbackPlayWhenReady = true
-                    if (activeEngine == NativePlaybackEngine.Media3) {
-                        if (canStartNativePlayback(active, true, firstFrameRendered)) player.play()
-                    } else {
-                        mpvView?.setPaused(false)
-                    }
-                },
-                pause = {
-                    fallbackPlayWhenReady = false
-                    if (activeEngine == NativePlaybackEngine.Media3) player.pause() else mpvView?.setPaused(true)
-                },
-                seekTo = { position ->
-                    if (activeEngine == NativePlaybackEngine.Media3) player.seekTo(position) else mpvView?.seekTo(position)
-                },
-                seekBy = { offset ->
-                    if (activeEngine == NativePlaybackEngine.Media3) {
-                        player.seekTo((player.currentPosition + offset).coerceAtLeast(0))
-                    } else {
-                        mpvView?.seekBy(offset)
-                    }
-                },
-            ),
-        )
+        AndroidPlayerNowPlayingController(context, controls = { currentNowPlayingControls })
     }
 
     LaunchedEffect(nowPlayingController, contentTitle, contentSubtitle, contentArtwork) {

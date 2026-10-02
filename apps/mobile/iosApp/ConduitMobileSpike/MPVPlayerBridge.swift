@@ -723,6 +723,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
         runOnMain { [weak self] in
             guard let self else { return }
             self.debugLog("playback command=pause source=app-or-pip")
+            self.pictureInPicture?.cancelResumeAfterBackground()
             self.shouldPlay = false
             self.resetMediaClockObservation()
             self.cancelVideoOutputWatchdog()
@@ -1369,7 +1370,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
     }
 
     private var shouldWatchVideoOutput: Bool {
-        ConduitVideoOutputWatchdogPolicy.shouldWatch(
+        !videoTrackSuspendedForBackground && ConduitVideoOutputWatchdogPolicy.shouldWatch(
             hasLoadedFile: hasLoadedFile,
             hasVideoStream: hasVideoStream,
             shouldPlay: shouldPlay,
@@ -2696,8 +2697,13 @@ final class ConduitPictureInPictureCoordinator: NSObject,
             debugLog("background with PiP pending/active; keeping primary pipeline alive")
             return
         }
-        resumePlaybackAfterBackground = owner?.isPlayerPlaying == true
+        let wasPlaying = owner?.isPlayerPlaying == true
         owner?.suspendVideoTrackForBackground(reason: "background-without-pip")
+        resumePlaybackAfterBackground = wasPlaying && owner?.isPlayerPlaying != true
+    }
+
+    func cancelResumeAfterBackground() {
+        resumePlaybackAfterBackground = false
     }
 
     func handleEnterForeground() {
