@@ -2,4 +2,7 @@ package media.conduit.mobile
 
 import androidx.compose.ui.window.ComposeUIViewController
 
-fun MainViewController() = ComposeUIViewController { App() }
+fun MainViewController(): platform.UIKit.UIViewController {
+    startIosDiagnosticLogging()
+    return ComposeUIViewController { App() }
+}

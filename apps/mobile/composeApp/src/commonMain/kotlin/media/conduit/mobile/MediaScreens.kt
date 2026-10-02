@@ -3680,7 +3680,7 @@ private fun DebugLogsScreen(
         }
     }
     val visibleEntries = remember(filtered) { filtered.takeLast(80) }
-    val reproductionText = remember(filtered, platform, debugLogging, categoryFilter, levelFilter) {
+    val reproductionText = {
         buildString {
             appendLine("Conduit mobile diagnostic export")
             appendLine("Platform: ${platform.name} ${platform.version} (${platform.device})")
@@ -3724,25 +3724,25 @@ private fun DebugLogsScreen(
     SettingsGroup("LOGS") {
         SettingsAction(
             title = "Copy Logs to Clipboard",
-            description = "Copy ${filtered.size} in-app log lines",
+            description = "Copy filtered current logs and previous sessions",
             onClick = { clipboard.setText(AnnotatedString(DiagnosticLogStore.copyText(filtered))) },
         )
         HorizontalDivider(color = Color.White.copy(.06f))
         SettingsAction(
             title = "Share Logs",
-            description = "Send ${filtered.size} in-app log lines",
+            description = "Send filtered current logs and previous sessions",
             onClick = { shareText(DiagnosticLogStore.copyText(filtered)) },
         )
         HorizontalDivider(color = Color.White.copy(.06f))
         SettingsAction(
             title = "Copy Reproduction",
             description = "Copy device context and the filtered logs",
-            onClick = { clipboard.setText(AnnotatedString(reproductionText)) },
+            onClick = { clipboard.setText(AnnotatedString(reproductionText())) },
         )
         HorizontalDivider(color = Color.White.copy(.06f))
         SettingsAction(
             title = "Clear Logs",
-            description = "Clear the in-memory debug log buffer",
+            description = "Clear current and previous session logs",
             destructive = true,
             onClick = { DiagnosticLogStore.clear() },
         )
@@ -3778,7 +3778,7 @@ private fun DebugLogsScreen(
             style = MaterialTheme.typography.bodySmall,
         )
         Text(
-            "Timestamps use UTC and logs are kept in memory only. Debug logging is ${if (debugLogging) "enabled" else "disabled"}.",
+            "UTC timestamps. Current and two previous sessions are stored locally. Debug logging is ${if (debugLogging) "enabled" else "disabled"}.",
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.bodySmall,
         )

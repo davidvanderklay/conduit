@@ -242,9 +242,6 @@ final class ConduitMPVPlayerBridge: NSObject, IosPlayerBridge {
     func getVideoHeight() -> Int32 { Int32(playerViewController?.videoHeight ?? 0) }
     func getPlaybackSpeed() -> Float { playerViewController?.currentSpeed ?? 1.0 }
     func getErrorMessage() -> String { playerViewController?.currentErrorMessage ?? "" }
-    func drainDiagnosticEvents() -> String {
-        playerViewController?.drainDiagnosticEvents() ?? ""
-    }
 
     func destroy() {
         let controller = playerViewController
@@ -337,7 +334,6 @@ final class ConduitMPVPlayerViewController: UIViewController {
     private let subtitleQueue = DispatchQueue(label: "media.conduit.mpv-subtitles", qos: .utility)
     private let subtitleLock = NSLock()
     private let errorLock = NSLock()
-    private let diagnosticLock = NSLock()
     fileprivate let pictureInPictureClock = ConduitPipPlaybackClock()
     private var metalLayer = ConduitMetalLayer()
     private var pictureInPicture: ConduitPictureInPictureCoordinator?
@@ -389,7 +385,6 @@ final class ConduitMPVPlayerViewController: UIViewController {
     private var automaticPipHomeSwipeCandidate = false
     private var automaticPipHomeSwipeEdge: AutomaticPipSwipeEdge?
     private var lastDebugPlaybackSnapshot: String?
-    private var pendingDiagnosticEvents: [String] = []
     private var lastSurfaceDiagnostic: String?
     private var lastPendingLoadDiagnostic: String?
     private var videoFrameRate = 30.0
@@ -438,6 +433,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
         metalLayer.position = .zero
         view.layer.addSublayer(metalLayer)
 
+        emitDiagnostic(level: "info", category: "ios/player", message: "create")
         setupMpv()
         pictureInPicture = ConduitPictureInPictureCoordinator(owner: self, metalLayer: metalLayer)
         configureAudioSession()
@@ -489,15 +485,6 @@ final class ConduitMPVPlayerViewController: UIViewController {
         view.addGestureRecognizer(homeSwipeRecognizer)
         syncVideoSurfaceLayoutNow(size: externallyManagedViewSize, scheduleDeferredPasses: false)
         attemptStartPendingLoad()
-    }
-
-    fileprivate func drainDiagnosticEvents() -> String {
-        diagnosticLock.lock()
-        defer { diagnosticLock.unlock() }
-        guard !pendingDiagnosticEvents.isEmpty else { return "" }
-        let events = pendingDiagnosticEvents.joined(separator: "\n")
-        pendingDiagnosticEvents.removeAll(keepingCapacity: true)
-        return events
     }
 
     /// Detects the Home-transition swipe: up from the bottom edge in
@@ -1123,6 +1110,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
 
         guard !destroyStarted else { return }
         destroyStarted = true
+        emitDiagnostic(level: "info", category: "ios/player", message: "destroy")
         debugLog(
             "destroy player id=\(ObjectIdentifier(self)) subtitleGeneration=\(subtitleLoadGeneration) " +
             "pendingSubtitles=\(pendingExternalSubtitles.count)"
@@ -2241,12 +2229,9 @@ final class ConduitMPVPlayerViewController: UIViewController {
             .replacingOccurrences(of: "\t", with: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !sanitized.isEmpty else { return }
-        diagnosticLock.lock()
-        pendingDiagnosticEvents.append("\(level)\t\(category)\t\(sanitized)")
-        if pendingDiagnosticEvents.count > 512 {
-            pendingDiagnosticEvents.removeFirst(pendingDiagnosticEvents.count - 512)
-        }
-        diagnosticLock.unlock()
+        IosDiagnosticLogKt.recordIosDiagnosticEvent(
+            encoded: "\(level)\t\(category)\tplayer=\(ObjectIdentifier(self)) main=\(Thread.isMainThread) \(sanitized)"
+        )
     }
 
     private var recoveryElapsedDescription: String {
