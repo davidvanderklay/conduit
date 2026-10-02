@@ -78,6 +78,8 @@ kotlin {
             implementation("io.ktor:ktor-client-okhttp:3.5.1")
         }
         androidInstrumentedTest.dependencies {
+            implementation("androidx.compose.ui:ui-test-junit4:1.10.0")
+            implementation("androidx.test.espresso:espresso-core:3.7.0")
             implementation("androidx.test:core:1.6.1")
             implementation("androidx.test.ext:junit:1.2.1")
             implementation("androidx.test:runner:1.6.2")
@@ -90,6 +92,10 @@ kotlin {
             implementation("io.ktor:ktor-client-darwin:3.5.1")
         }
     }
+}
+
+dependencies {
+    debugImplementation("androidx.compose.ui:ui-test-manifest:1.10.0")
 }
 
 sqldelight {

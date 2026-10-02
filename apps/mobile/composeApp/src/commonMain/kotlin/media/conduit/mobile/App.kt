@@ -43,11 +43,8 @@ import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.FastForward
 import androidx.compose.runtime.*
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateIntOffsetAsState
 import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
@@ -1555,15 +1552,6 @@ private fun BoxScope.PlaybackSessionHost(
     var upNextDismissed by remember(request.identity.mediaId, request.identity.videoId) {
         mutableStateOf(false)
     }
-    var skipPromptReveal by remember(request.identity.mediaId, request.identity.videoId) {
-        mutableIntStateOf(0)
-    }
-    var skipPromptVisible by remember(request.identity.mediaId, request.identity.videoId) {
-        mutableStateOf(false)
-    }
-    val skipPromptProgress = remember(request.identity.mediaId, request.identity.videoId) {
-        Animatable(1f)
-    }
     var playerOverlayVisible by remember(request.identity, request.url) { mutableStateOf(false) }
     var temporarySpeedActive by remember(request.identity, request.url) { mutableStateOf(false) }
     var miniOffset by remember(request.identity, request.url) { mutableStateOf(IntOffset.Zero) }
@@ -1763,29 +1751,20 @@ private fun BoxScope.PlaybackSessionHost(
         // next (or autoplay at the end) swaps streams without waiting.
         if (upNextAvailable) controller.prefetchUpNext()
     }
-    val activeSkip = if (fullScreen && playbackTransition == null && preferences.skipSegments) {
+    val activeSkip = if (preferences.skipSegments) {
         activeSkipSegment(session.playback.positionMs, skipSegments)
     } else null
-    LaunchedEffect(activeSkip) {
-        if (activeSkip == null) {
-            skipPromptVisible = false
-        } else {
-            skipPromptReveal += 1
-        }
-    }
-    LaunchedEffect(controlsVisible) {
-        if (controlsVisible && activeSkip != null) skipPromptReveal += 1
-    }
-    LaunchedEffect(skipPromptReveal) {
-        if (skipPromptReveal == 0) return@LaunchedEffect
-        skipPromptVisible = true
-        skipPromptProgress.snapTo(1f)
-        skipPromptProgress.animateTo(
-            targetValue = 0f,
-            animationSpec = tween(SKIP_PROMPT_VISIBLE_MS.toInt(), easing = LinearEasing),
-        )
-        skipPromptVisible = false
-    }
+    val skipPromptEligible = fullScreen && playbackTransition == null &&
+        !initialPlaybackLoad && !presentPlaybackError &&
+        !playerOverlayVisible && !session.episodePickerOpen && session.streamPicker == null && !session.queueOpen
+    val skipPrompt = rememberSkipPromptState(
+        mediaId = request.identity.mediaId,
+        videoId = request.identity.videoId,
+        segment = activeSkip,
+        controlsVisible = controlsVisible,
+        eligible = skipPromptEligible,
+    )
+    val skipPromptVisible = skipPrompt.isVisible(controlsVisible, skipPromptEligible)
 
     Box(Modifier.fillMaxSize().onSizeChanged { containerSize = it }) {
         // Adaptive iOS hides the native bar, but the mini-player keeps its
@@ -2096,14 +2075,16 @@ private fun BoxScope.PlaybackSessionHost(
                     border = BorderStroke(1.dp, Color.White.copy(.16f)),
                 ) {
                     Box {
-                        Canvas(Modifier.matchParentSize()) {
-                            drawRect(
-                                color = Color.White.copy(.12f),
-                                size = Size(
-                                    this.size.width * skipPromptProgress.value,
-                                    this.size.height,
-                                ),
-                            )
+                        if (!controlsVisible) {
+                            Canvas(Modifier.matchParentSize()) {
+                                drawRect(
+                                    color = Color.White.copy(.12f),
+                                    size = Size(
+                                        this.size.width * skipPrompt.progress.value,
+                                        this.size.height,
+                                    ),
+                                )
+                            }
                         }
                         Row(
                             Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
