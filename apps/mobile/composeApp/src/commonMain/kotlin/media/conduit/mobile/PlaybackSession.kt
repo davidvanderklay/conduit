@@ -96,6 +96,10 @@ data class PlaybackTransition(
     val mediaName: String,
     val artwork: String?,
     val logo: String? = null,
+    val attemptId: Long = 0,
+    val identity: PlaybackIdentity? = null,
+    val loadingSessionId: String? = null,
+    val resolutionStarted: Boolean = false,
 )
 
 class PlaybackSessionCallbacks(
@@ -144,10 +148,17 @@ class PlaybackSessionController(
     private var commandSequence = 0L
     private var sessionSequence = 0L
     private var checkpointSequence = 0L
+    private var attemptSequence = 0L
+    private var activeAttemptId: Long? = null
     private val pendingPersistence = linkedMapOf<String, PendingPersistence>()
     private var persistenceJob: Job? = null
 
-    fun start(request: PlaybackRequest, callbacks: PlaybackSessionCallbacks) {
+    val currentAttemptId: Long? get() = activeAttemptId
+
+    fun start(request: PlaybackRequest, callbacks: PlaybackSessionCallbacks, attemptId: Long? = activeAttemptId) {
+        if (!isCurrentAttempt(attemptId)) return
+        val transition = state.transition
+        if (transition?.identity != null && transition.identity != request.identity) return
         val current = state.request
         val sameStream = current?.isSameStream(request) == true
         DiagnosticLogStore.info(
@@ -164,16 +175,17 @@ class PlaybackSessionController(
             state.copy(
                 request = request,
                 presentation = PlaybackPresentation.FullScreen,
-                transition = null,
+                transition = transition?.takeIf { it.loadingSessionId == state.sessionId },
             )
         } else {
-            // A new stream gets a clean playback state and immediately replaces
-            // the old miniplayer.
+            // Keep the cover until this native load reports its first frame.
+            // The bridge and its old drawable survive this state replacement.
             PlaybackSessionState(
                 request = request,
                 sessionId = "playback-${++sessionSequence}",
                 presentation = PlaybackPresentation.FullScreen,
                 notice = state.notice,
+                transition = transition?.copy(loadingSessionId = "playback-$sessionSequence"),
             )
         }
         if (!sameStream) checkpointSequence = 0L
@@ -184,13 +196,17 @@ class PlaybackSessionController(
     }
 
     fun updatePlayback(playback: PlaybackState) {
-        if (state.request != null) state = state.copy(playback = playback)
+        if (state.request == null) return
+        val ready = !playback.loading && !playback.buffering && playback.error == null &&
+            playback.videoWidth > 0 && playback.videoHeight > 0
+        val completed = state.transition?.loadingSessionId == state.sessionId && ready
+        state = state.copy(playback = playback, transition = if (completed) null else state.transition)
     }
 
     fun updatePlayback(sessionId: String, streamKey: String, playback: PlaybackState) {
         val request = state.request ?: return
         if (state.sessionId == sessionId && request.streamKeyForPlayback() == streamKey) {
-            state = state.copy(playback = playback)
+            updatePlayback(playback)
         }
     }
 
@@ -224,7 +240,7 @@ class PlaybackSessionController(
     }
 
     fun systemPipChanged(active: Boolean) {
-        if (state.request == null) return
+        if (state.request == null || state.transition != null) return
         val wasInPip = state.presentation == PlaybackPresentation.SystemPip
         when {
             active && !wasInPip -> {
@@ -250,6 +266,7 @@ class PlaybackSessionController(
         val closed = callbacks?.closed
         state = PlaybackSessionState()
         callbacks = null
+        activeAttemptId = null
         queuedNext = null
         closed?.invoke()
     }
@@ -308,20 +325,55 @@ class PlaybackSessionController(
         callbacks?.prefetchUpNext?.invoke()
     }
 
-    fun beginTransition(title: String, mediaName: String, artwork: String?, logo: String? = null) {
-        if (state.request == null) return
+    /** Starts replacement before source resolution, while retaining the native surface. */
+    fun beginTransition(
+        title: String,
+        mediaName: String,
+        artwork: String?,
+        logo: String? = null,
+        identity: PlaybackIdentity? = null,
+    ): Long? {
+        if (state.request == null) return null
+        if (identity != null && state.transition?.identity == identity && state.transition?.loadingSessionId == null) {
+            state = state.copy(transition = state.transition?.copy(title = title, mediaName = mediaName, artwork = artwork, logo = logo))
+            return state.transition?.attemptId
+        }
+        persist()
+        activeAttemptId = ++attemptSequence
         DiagnosticLogStore.info(
             "playback/transition",
-            "begin currentVideo=${state.request?.identity?.videoId} title=$title",
+            "begin attempt=$attemptSequence currentVideo=${state.request?.identity?.videoId} targetVideo=${identity?.videoId} title=$title",
         )
         send(PlaybackCommand.Pause)
         state = state.copy(
             presentation = PlaybackPresentation.FullScreen,
-            transition = PlaybackTransition(title, mediaName, artwork, logo),
+            transition = PlaybackTransition(title, mediaName, artwork, logo, attemptSequence, identity),
             episodePickerOpen = false,
             streamPicker = null,
             queueOpen = false,
         )
+        return activeAttemptId
+    }
+
+    /** Opening an already-playing title restores it without resolving or reloading. */
+    fun beginPlaybackIntent(identity: PlaybackIdentity, title: String, artwork: String?): Long? {
+        if (state.request?.identity == identity && state.transition == null) {
+            restore()
+            return null
+        }
+        return beginTransition(title, title, artwork, identity = identity)
+    }
+
+    fun isCurrentAttempt(attemptId: Long?): Boolean = activeAttemptId == attemptId
+
+    fun resolving(attemptId: Long?) {
+        if (isCurrentAttempt(attemptId)) {
+            state = state.copy(transition = state.transition?.copy(resolutionStarted = true))
+        }
+    }
+
+    fun attachTransition(identity: PlaybackIdentity, callbacks: PlaybackSessionCallbacks) {
+        if (state.transition?.identity == identity) this.callbacks = callbacks
     }
 
     fun cancelTransition() {
@@ -416,9 +468,10 @@ class PlaybackSessionController(
         )
         beginTransition(
             title = picker.episode.displayTitle,
-            mediaName = state.request?.mediaName ?: picker.episode.displayTitle,
-            artwork = picker.episode.thumbnail ?: state.request?.artwork,
-            logo = state.request?.logo,
+            mediaName = state.transition?.mediaName ?: state.request?.mediaName ?: picker.episode.displayTitle,
+            artwork = picker.episode.thumbnail ?: state.transition?.artwork ?: state.request?.artwork,
+            logo = state.transition?.logo ?: state.request?.logo,
+            identity = state.transition?.identity ?: state.request?.identity?.copy(videoId = picker.episode.id),
         )
         callbacks?.selectStream?.invoke(source)
     }
@@ -458,7 +511,14 @@ class PlaybackSessionController(
     fun selectEpisode(videoId: String) {
         if (state.request == null) return
         closeEpisodes()
-        persist()
+        val request = state.request ?: return
+        val episode = request.episodes.firstOrNull { it.id == videoId }
+        beginTransition(
+            title = episode?.displayTitle ?: request.title,
+            mediaName = request.mediaName,
+            artwork = episode?.thumbnail ?: request.artwork,
+            identity = request.identity.copy(videoId = videoId),
+        )
         callbacks?.selectEpisode?.invoke(videoId)
     }
 
@@ -502,6 +562,17 @@ internal fun playbackRequestMatchesStream(
         it.identity.videoId == videoId &&
         it.url == url
 } == true
+
+/** A replacement title uses its own resume point; a source switch retains live progress. */
+internal fun sourceSwitchStartPosition(
+    session: PlaybackSessionState,
+    target: PlaybackIdentity?,
+    savedPositionMs: Long,
+): Long = if (target != null && session.request?.identity == target && session.playback.durationMs > 0) {
+    session.playback.positionMs
+} else {
+    savedPositionMs
+}
 
 internal fun savedStreamStartupStalled(
     request: PlaybackRequest,

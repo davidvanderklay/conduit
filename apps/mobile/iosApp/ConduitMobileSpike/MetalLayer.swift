@@ -33,6 +33,7 @@ final class ConduitMetalLayer: CAMetalLayer {
     private var drawableCaptureArmed = false
     private var captureWithoutPresentation = false
     private var presentationID: UInt64 = 0
+    private var presentedDrawableID: UInt64 = 0
     private var latestDrawableTexture: (texture: MTLTexture, presentationID: UInt64)?
     private var pendingDrawable: (drawable: CAMetalDrawable, presentationID: UInt64)?
 
@@ -205,29 +206,31 @@ final class ConduitMetalLayer: CAMetalLayer {
 
         if didSuspend { onRenderingSuspensionChanged?(true) }
 
-        guard !suspendedNow else { return drawable }
-        guard armed, let drawable, let handler else { return drawable }
-
-        if deferred {
-            // Backgrounded: Core Animation will never present, so hand the
-            // previously acquired drawable to capture right away instead of
-            // registering a presented handler that would never fire.
-            if let previous {
-                handler(previous.drawable.texture, previous.presentationID)
-            }
-            return drawable
+        guard !suspendedNow, let drawable else { return drawable }
+        // Playback readiness observes presentation independently of PiP capture.
+        // Snapshot the acquisition ID so an old in-flight drawable cannot count
+        // as the first frame of a later file.
+        let markPresented = { [weak self] in
+            guard let self else { return }
+            self.captureLock.lock()
+            self.presentedDrawableID = max(self.presentedDrawableID, currentPresentationID)
+            self.captureLock.unlock()
         }
-
-        // Read the texture from the drawable inside the presented callback,
-        // matching Enhanced Nuvio's lifetime and synchronization behavior.
+        let capture = armed ? handler : nil
         let registered = ConduitAddMetalDrawablePresentedHandler(drawable) { texture in
-            handler(texture, currentPresentationID)
+            markPresented()
+            if !deferred { capture?(texture, currentPresentationID) }
         }
         if !registered {
-            // The iOS simulator SDK currently omits the presentation
-            // handler requirement even though device Metal supports it.
-            // Keep simulator playback usable with a bounded fallback.
-            handler(drawable.texture, currentPresentationID)
+            // The simulator SDK omits presented handlers. Match the existing
+            // capture fallback there; device Metal observes actual presentation.
+            markPresented()
+            if !deferred { capture?(drawable.texture, currentPresentationID) }
+        }
+        if deferred, let previous {
+            // Background capture consumes the previous drawable at acquire
+            // time because Core Animation no longer fires presented handlers.
+            capture?(previous.drawable.texture, previous.presentationID)
         }
         return drawable
     }
@@ -241,6 +244,18 @@ final class ConduitMetalLayer: CAMetalLayer {
         captureLock.lock()
         defer { captureLock.unlock() }
         return latestDrawableTexture
+    }
+
+    func currentDrawableID() -> UInt64 {
+        captureLock.lock()
+        defer { captureLock.unlock() }
+        return presentationID
+    }
+
+    func hasPresentedDrawable(after baseline: UInt64) -> Bool {
+        captureLock.lock()
+        defer { captureLock.unlock() }
+        return presentedDrawableID > baseline
     }
 
     /// Returns the last successful drawable acquisition without exposing the

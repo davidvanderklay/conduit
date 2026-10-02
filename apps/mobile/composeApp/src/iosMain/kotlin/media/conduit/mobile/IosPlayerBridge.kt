@@ -14,6 +14,7 @@ interface IosPlayerBridge {
     fun createPlayerViewController(): UIViewController
     fun loadFile(
         url: String,
+        loadId: String,
         initialPositionMs: Long,
         headersJson: String?,
         subtitlesJson: String?,
@@ -60,6 +61,8 @@ interface IosPlayerBridge {
     fun selectAudioTrack(trackId: Int)
     fun selectSubtitleTrack(trackId: Int)
 
+    /** Identifies the accepted load, including deferred native startup. */
+    fun getLoadId(): String
     fun getIsLoading(): Boolean
     fun getIsBuffering(): Boolean
     fun getIsPlaying(): Boolean

@@ -33,11 +33,13 @@ internal fun shouldOpenStreamSelectionImmediately(
 
 /**
  * Initial automatic stream resolution must not compete with an explicit
- * playback transition such as Next. The transition already owns stream
- * selection and will handle fallback through its own request.
+ * playback transition such as Next. A pending intent created by the owning
+ * screen may resolve once; transitions owned elsewhere must not compete.
  */
 internal fun shouldRunAutomaticStreamResolution(
     openMode: MediaOpenMode,
     addonsAvailable: Boolean,
     transitionActive: Boolean,
-): Boolean = openMode != MediaOpenMode.Details && addonsAvailable && !transitionActive
+    transitionOwnedByTarget: Boolean = false,
+): Boolean = openMode != MediaOpenMode.Details && addonsAvailable &&
+    (!transitionActive || transitionOwnedByTarget)
