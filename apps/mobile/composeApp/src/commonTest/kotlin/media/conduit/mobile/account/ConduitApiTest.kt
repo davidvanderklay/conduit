@@ -120,7 +120,7 @@ class ConduitApiTest {
         }
         val snapshot = ConduitApi(HttpClient(engine) { install(ContentNegotiation) { json() } })
             .synchronizeProfile("https://conduit.example", "token", "p1")
-        assertEquals(listOf("0", "1"), offsets)
+        assertEquals(listOf<String?>("0", "1"), offsets.toList())
         assertEquals(setOf("completed", "older-unfinished"), snapshot.continueWatching.map { it.videoId }.toSet())
     }
 
