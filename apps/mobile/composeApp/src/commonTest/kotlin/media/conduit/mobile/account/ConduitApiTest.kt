@@ -100,6 +100,50 @@ class ConduitApiTest {
     }
 
     @Test
+    fun profileSyncPagesContinueWatchingCandidates() = runTest {
+        val offsets = mutableListOf<String?>()
+        val engine = MockEngine { request ->
+            val body = when {
+                request.url.encodedPath.endsWith("/addons") -> """{"addons":[]}"""
+                request.url.encodedPath.endsWith("/library") -> """{"items":[]}"""
+                request.url.encodedPath.endsWith("/queue") -> """{"items":[]}"""
+                request.url.parameters["view"] == "continue" -> {
+                    val offset = request.url.parameters["offset"]
+                    offsets.add(offset)
+                    val id = if (offset == "0") "completed" else "older-unfinished"
+                    val next = if (offset == "0") "1" else "null"
+                    """{"items":[{"videoId":"$id","mediaType":"movie","mediaId":"$id","name":"$id","positionMs":10000,"durationMs":60000,"watched":false,"continueWatching":true,"updatedAt":"2026-10-02T12:00:00Z"}],"nextOffset":$next}"""
+                }
+                else -> """{"items":[]}"""
+            }
+            respond(body, HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "application/json"))
+        }
+        val snapshot = ConduitApi(HttpClient(engine) { install(ContentNegotiation) { json() } })
+            .synchronizeProfile("https://conduit.example", "token", "p1")
+        assertEquals(listOf("0", "1"), offsets)
+        assertEquals(setOf("completed", "older-unfinished"), snapshot.continueWatching.map { it.videoId }.toSet())
+    }
+
+    @Test
+    fun metadataRefreshDiscoversNewEpisodesInsteadOfReturningTheCachedFinale() = runTest {
+        var requests = 0
+        val api = ConduitApi(mockClient { _, _ ->
+            requests++
+            val next = if (requests > 1) """,{"id":"next","season":2,"episode":1}""" else ""
+            """{"meta":{"id":"show","type":"series","name":"Show","videos":[{"id":"finale","season":1,"episode":2}$next]}}"""
+        })
+        val addons = listOf(InstalledAddonSummary(
+            id = "addon", manifestId = "addon", manifestUrl = "https://addon.example/manifest.json",
+            manifest = Json.parseToJsonElement("""{"id":"addon","types":["series"],"resources":["meta"]}""").jsonObject,
+            position = 0, enabled = true,
+        ))
+        assertEquals(1, api.loadMeta(addons, "series", "show").videos.size)
+        assertEquals(1, api.loadMeta(addons, "series", "show").videos.size)
+        assertEquals(2, api.loadMeta(addons, "series", "show", refresh = true).videos.size)
+        assertEquals(2, requests)
+    }
+
+    @Test
     fun validatesHealthAndAuthenticationConfiguration() = runTest {
         val client = mockClient { path, _ ->
             when (path) {

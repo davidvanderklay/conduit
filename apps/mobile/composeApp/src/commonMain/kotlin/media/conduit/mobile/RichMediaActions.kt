@@ -30,6 +30,9 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.CancellationException
+import media.conduit.mobile.foundation.rememberAppLifecycleEvents
 import kotlin.time.Clock
 import media.conduit.mobile.account.*
 
@@ -72,16 +75,24 @@ internal class WatchMetadataCache(
     private val requests = Semaphore(4)
     private val loading = mutableSetOf<String>()
     private val metadata = mutableStateMapOf<String, MetaItem>()
+    private val loadedAt = mutableMapOf<String, Long>()
 
     suspend fun load(item: CatalogItem, includeMovies: Boolean = false) {
         val key = "${item.type}:${item.id}"
-        if ((item.type != "series" && !includeMovies) || metadata.containsKey(key) || !loading.add(key)) return
+        val fresh = Clock.System.now().toEpochMilliseconds() - (loadedAt[key] ?: 0L) < 300_000L
+        if ((item.type != "series" && !includeMovies) || fresh || !loading.add(key)) return
         try {
             requests.withPermit {
                 repeat(3) { attempt ->
-                    val loaded = runCatching { api.loadMeta(addons, item.type, item.id) }.getOrNull()
+                    val loaded = try {
+                        api.loadMeta(addons, item.type, item.id, refresh = true)
+                    } catch (error: Exception) {
+                        if (error is CancellationException) throw error
+                        null
+                    }
                     if (loaded != null) {
                         metadata[key] = loaded
+                        loadedAt[key] = Clock.System.now().toEpochMilliseconds()
                         return@withPermit
                     }
                     if (attempt < 2) delay(400L * (attempt + 1))
@@ -95,6 +106,50 @@ internal class WatchMetadataCache(
     fun metadataFor(item: CatalogItem): MetaItem? = metadata["${item.type}:${item.id}"]
 
     fun videosFor(item: CatalogItem): List<VideoItem> = metadataFor(item)?.videos.orEmpty()
+}
+
+// Keep metadata work outside visible cards so hidden series can return.
+@Composable
+internal fun rememberVisibleContinueWatching(
+    snapshot: ProfileSnapshot?,
+    metadataCache: WatchMetadataCache,
+    active: Boolean,
+    offline: Boolean = false,
+): List<ProgressSummary> {
+    val candidates = remember(snapshot?.continueWatching) {
+        groupContinueWatching(snapshot?.continueWatching.orEmpty())
+    }
+    val watchedIdsByTitle = remember(snapshot?.progress) {
+        snapshot?.progress.orEmpty().filter { it.watched }
+            .groupBy { "${it.mediaType}:${it.mediaId}" }
+            .mapValues { (_, entries) -> entries.mapTo(mutableSetOf(), ProgressSummary::videoId) }
+    }
+    var now by remember { mutableStateOf(Clock.System.now()) }
+    var recovery by remember { mutableIntStateOf(0) }
+    rememberAppLifecycleEvents(
+        onForeground = { recovery++ },
+        onConnectivityRecovered = { recovery++ },
+    )
+    LaunchedEffect(candidates, metadataCache, active, offline, recovery) {
+        if (!active) return@LaunchedEffect
+        while (true) {
+            now = Clock.System.now()
+            if (!offline) coroutineScope {
+                candidates.filter { it.mediaType == "series" }.forEach { progress ->
+                    launch { metadataCache.load(CatalogItem(progress.mediaId, progress.mediaType, progress.name)) }
+                }
+            }
+            delay(60_000L)
+        }
+    }
+    return candidates.filter { progress ->
+        val item = CatalogItem(progress.mediaId, progress.mediaType, progress.name)
+        val watchedIds = watchedIdsByTitle["${progress.mediaType}:${progress.mediaId}"].orEmpty()
+        continueWatchingPresentation(
+            progress, metadataCache.videosFor(item), now = now,
+            today = now.toString().take(10), watchedVideoIds = watchedIds,
+        ).kind != ContinueWatchingKind.Completed
+    }
 }
 
 internal fun progressDisplayTitle(progress: ProgressSummary, metadataName: String? = null): String =
@@ -155,6 +210,7 @@ internal fun ContinueWatchingCard(
                     ContinueWatchingKind.NextUp -> "Play the next episode of $displayTitle"
                     ContinueWatchingKind.Scheduled -> "View $displayTitle, next episode ${presentation.label}"
                     ContinueWatchingKind.CaughtUp -> "View $displayTitle, caught up"
+                    ContinueWatchingKind.Completed -> "View $displayTitle, watched"
                 },
                 onLongClickLabel = "More actions for $displayTitle",
                 onClick = onClick,

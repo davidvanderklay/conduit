@@ -38,6 +38,7 @@ internal fun HomeScreen(
     listState: LazyListState = rememberLazyListState(),
     cache: HomeScreenCache = remember { HomeScreenCache() },
     modifier: Modifier = Modifier,
+    active: Boolean = true,
 ) {
     val scope = rememberCoroutineScope()
     var result by cache.result
@@ -59,7 +60,7 @@ internal fun HomeScreen(
     }
     LaunchedEffect(sync.snapshot?.profileId, sync.snapshot?.addons) { load() }
 
-    val continueWatching = groupContinueWatching(sync.snapshot?.continueWatching.orEmpty())
+    val continueWatching = rememberVisibleContinueWatching(sync.snapshot, metadataCache, active, sync.offline)
     LazyColumn(
         state = listState,
         modifier = modifier.fillMaxSize().statusBarsPadding(),
@@ -95,7 +96,7 @@ internal fun HomeScreen(
                         val targetVideoId = when (presentation.kind) {
                             ContinueWatchingKind.InProgress -> item.videoId
                             ContinueWatchingKind.NewEpisode, ContinueWatchingKind.NextUp -> presentation.video?.id
-                            ContinueWatchingKind.Scheduled, ContinueWatchingKind.CaughtUp -> null
+                            ContinueWatchingKind.Scheduled, ContinueWatchingKind.CaughtUp, ContinueWatchingKind.Completed -> null
                         }
                         ContinueWatchingCard(
                             progress = item,

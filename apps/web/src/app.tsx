@@ -1027,6 +1027,7 @@ function ProfileApp({
       {!searchInput && section === "continue" && (
         <ContinueWatchingView
           profileId={profile.id}
+          addons={addons.data?.addons ?? []}
           onSelect={(item, videoId, progress, mode) => {
             setSelectedItem(item)
             setSelectedVideoId(videoId)

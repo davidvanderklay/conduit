@@ -230,7 +230,7 @@ internal fun MobileContinueWatchingScreen(
     var sort by remember { mutableStateOf(LibrarySort.LastWatched) }
     var actionTarget by remember { mutableStateOf<MediaActionTarget?>(null) }
     val metadataCache = rememberWatchMetadataCache(api, snapshot?.addons.orEmpty())
-    val items = groupContinueWatching(snapshot?.continueWatching.orEmpty())
+    val items = rememberVisibleContinueWatching(snapshot, metadataCache, active)
         .filter { filter == "all" || it.mediaType == filter }
         .let { entries ->
             when (sort) {
@@ -314,19 +314,29 @@ internal fun MobileContinueWatchingScreen(
                         metadataCache.load(catalogItem)
                     }
                     val metadata = metadataCache.metadataFor(catalogItem)
-                    val video = metadata?.videos?.firstOrNull { progressMatchesVideo(progress, it) }
+                    val watchedIds = snapshot.progress
+                        .filter { it.mediaType == progress.mediaType && it.mediaId == progress.mediaId && it.watched }
+                        .mapTo(mutableSetOf(), ProgressSummary::videoId)
+                    val presentation = continueWatchingPresentation(progress, metadata?.videos.orEmpty(), watchedVideoIds = watchedIds)
+                    val video = presentation.video
+                    val targetVideoId = when (presentation.kind) {
+                        ContinueWatchingKind.InProgress -> progress.videoId
+                        ContinueWatchingKind.NewEpisode, ContinueWatchingKind.NextUp -> video?.id
+                        else -> null
+                    }
                     RichPosterCard(
                         item = catalogItem,
-                        caption = progress.videoTitle ?: progress.mediaType,
+                        caption = continueWatchingBadgeLabel(progress, presentation, metadata != null),
                         snapshot = snapshot,
                         metadataCache = metadataCache,
-                        onClick = { onSelectVideo(catalogItem, progress.videoId) },
+                        onClick = { onSelectVideo(catalogItem, targetVideoId) },
                         onActions = {
                             actionTarget = MediaActionTarget(
                                 catalogItem,
                                 MediaActionContext.Continue,
                                 progress,
                                 video,
+                                canPlay = targetVideoId != null,
                                 videos = metadata?.videos.orEmpty(),
                             )
                         },

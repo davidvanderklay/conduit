@@ -119,7 +119,7 @@ class ContinueWatchingTest {
     }
 
     @Test
-    fun knownFutureEpisodeUsesRelativeDateThenCaughtUpFallback() {
+    fun knownFutureEpisodeUsesRelativeDateThenCompletion() {
         assertEquals(
             ContinueWatchingPresentation(ContinueWatchingKind.Scheduled, videos[3], "Tomorrow"),
             continueWatchingPresentation(
@@ -130,7 +130,7 @@ class ContinueWatchingTest {
             ),
         )
         assertEquals(
-            ContinueWatchingPresentation(ContinueWatchingKind.CaughtUp, videos[3]),
+            ContinueWatchingPresentation(ContinueWatchingKind.Completed, videos[3]),
             continueWatchingPresentation(progress(videoId = "s1e4", episode = 4), videos, "2026-08-12"),
         )
     }
@@ -167,7 +167,7 @@ class ContinueWatchingTest {
     fun duplicateMetadataForTheCurrentEpisodeDoesNotBecomeNextUp() {
         val duplicate = videos[1].copy(id = "duplicate-s1e2")
         assertEquals(
-            ContinueWatchingPresentation(ContinueWatchingKind.CaughtUp, videos[1]),
+            ContinueWatchingPresentation(ContinueWatchingKind.Completed, videos[1]),
             continueWatchingPresentation(
                 progress(),
                 listOf(videos[1], duplicate),
@@ -244,6 +244,14 @@ class ContinueWatchingTest {
                 now = Instant.parse("2026-10-20T12:00:00Z"),
             ).kind,
         )
+    }
+
+    @Test
+    fun missingMetadataDoesNotCompleteSeriesButWatchedMoviesComplete() {
+        assertEquals(ContinueWatchingKind.CaughtUp, continueWatchingPresentation(progress(), emptyList()).kind)
+        assertEquals(ContinueWatchingKind.Completed, continueWatchingPresentation(progress().copy(mediaType = "movie"), emptyList()).kind)
+        val unknown = VideoItem(id = "s2e1", season = 2, episode = 1, available = false)
+        assertEquals(ContinueWatchingKind.CaughtUp, continueWatchingPresentation(progress(), listOf(videos[1], unknown)).kind)
     }
 
     @Test

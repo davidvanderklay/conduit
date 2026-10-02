@@ -1442,7 +1442,7 @@ private fun DestinationContent(
                     profileSync, api, onSelectMedia, onSelectContinueWatching, onSelectContinueWatchingDetails, onProfileMutation,
                     onOpenContinueWatching = { dispatch(AppAction.Navigate(AppDestination.ContinueWatching)) },
                     onOpenDiscover = { onBrowse(MobileBrowseTarget.Discover(it)) },
-                    listState = homeListState, cache = homeCache, modifier = tabModifier,
+                    listState = homeListState, cache = homeCache, modifier = tabModifier, active = active,
                 )
                 AppDestination.Search -> SearchDiscoverScreen(
                     addons = profileSync.snapshot?.addons.orEmpty(), api = api,

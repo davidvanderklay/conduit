@@ -4,8 +4,9 @@ import { migrate } from "drizzle-orm/node-postgres/migrator"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import type { Auth } from "./auth.js"
 import { createDatabase } from "./db/index.js"
-import { households, profiles } from "./db/schema.js"
+import { households, profiles, watchProgress } from "./db/schema.js"
 import type { RouteContext } from "./route-modules/context.js"
+import { registerProgressRoutes } from "./route-modules/progress-routes.js"
 import { registerProgressSyncRoutes } from "./route-modules/progress-sync-routes.js"
 
 vi.mock("./route-modules/helpers.js", () => ({
@@ -46,6 +47,7 @@ describe("incremental progress protocol", () => {
     await database.db.insert(profiles).values({ id: profileId, householdId, name: "Test" })
     app = Fastify()
     registerProgressSyncRoutes(app, { auth: {} as Auth, db: database.db } as RouteContext)
+    registerProgressRoutes(app, { auth: {} as Auth, db: database.db } as RouteContext)
   }, 120_000)
 
   afterAll(async () => {
@@ -144,6 +146,55 @@ describe("incremental progress protocol", () => {
       .json()
       .items.find((item: { mediaId: string }) => item.mediaId === "tt7654321")
     expect(movie.positionMs).toBe(lastEvent.payload.item.positionMs)
+  })
+
+  it("pages retained completion candidates without losing older unfinished titles", async () => {
+    const pagingProfileId = "00000000-0000-4000-8000-000000000003"
+    await database.db.insert(profiles).values({ id: pagingProfileId, householdId, name: "Paging" })
+    const completed = Array.from({ length: 51 }, (_, index) => ({
+      profileId: pagingProfileId,
+      videoId: `movie-${index}`,
+      mediaType: "movie",
+      mediaId: `movie-${index}`,
+      name: "Completed movie",
+      positionMs: 60_000,
+      durationMs: 60_000,
+      watched: true,
+      continueWatching: true,
+      updatedAt: new Date("2026-10-02T12:00:00Z"),
+    }))
+    await database.db.insert(watchProgress).values([
+      ...completed,
+      {
+        ...completed[0]!,
+        videoId: "old-resume",
+        mediaId: "old-resume",
+        watched: false,
+        updatedAt: new Date("2020-01-01"),
+      },
+      { ...completed[0]!, videoId: "dismissed", mediaId: "dismissed", dismissed: true },
+    ])
+    const videoIds: string[] = []
+    let offset: number | null = 0
+    do {
+      const response = await app.inject({
+        method: "GET",
+        url: `/v1/profiles/${pagingProfileId}/progress?view=continue&limit=10&offset=${offset}`,
+      })
+      expect(response.statusCode, response.body).toBe(200)
+      const page: { items: Array<{ videoId: string }>; nextOffset: number | null } = response.json()
+      videoIds.push(...page.items.map((item) => item.videoId))
+      offset = page.nextOffset
+    } while (offset !== null)
+    expect(new Set(videoIds).size).toBe(52)
+    expect(videoIds).toHaveLength(52)
+    expect(videoIds.at(-1)).toBe("old-resume")
+    expect(videoIds).not.toContain("dismissed")
+    const invalid = await app.inject({
+      method: "GET",
+      url: `/v1/profiles/${pagingProfileId}/progress?view=continue&offset=-1`,
+    })
+    expect(invalid.statusCode).toBe(400)
   })
 
   async function operation(operationId: string, operation: Record<string, unknown>) {

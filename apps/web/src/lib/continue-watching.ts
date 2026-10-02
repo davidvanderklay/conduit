@@ -8,10 +8,12 @@ export type ContinueWatchingState =
   | { kind: "next-up"; video: Video }
   | { kind: "scheduled"; video: Video; label: string }
   | { kind: "caught-up"; video?: Video }
+  | { kind: "completed"; video?: Video }
 
 export function groupContinueWatching(items: WatchProgress[]): WatchProgress[] {
-  return coreValue<number[]>({ type: "groupContinueWatching", progress: items })
-    .map((index) => items[index]!)
+  return coreValue<number[]>({ type: "groupContinueWatching", progress: items }).map(
+    (index) => items[index]!,
+  )
 }
 
 export function continueWatchingState(
@@ -21,7 +23,7 @@ export function continueWatchingState(
   watchedVideoIds: ReadonlySet<string> = new Set(),
 ): ContinueWatchingState {
   const decision = coreValue<{
-    kind: "in-progress" | "new-episode" | "next-up" | "scheduled" | "caught-up"
+    kind: "in-progress" | "new-episode" | "next-up" | "scheduled" | "caught-up" | "completed"
     videoIndex?: number
   }>({
     type: "continueWatching",
@@ -37,6 +39,7 @@ export function continueWatchingState(
   }
   if (decision.kind === "new-episode" && video) return { kind: "new-episode", video }
   if (decision.kind === "next-up" && video) return { kind: "next-up", video }
+  if (decision.kind === "completed") return { kind: "completed", video }
   if (decision.kind === "in-progress") return { kind: "in-progress", video }
   return { kind: "caught-up", video }
 }
@@ -51,8 +54,12 @@ export function continueWatchingBadge(
   if (state.kind === "next-up") return "Next Up"
   if (state.kind === "scheduled") return state.label
   if (state.kind === "caught-up") return "Caught up"
-  return remainingTimeLabel(item) ?? progressPercentLabel(item) ??
+  if (state.kind === "completed") return "Watched"
+  return (
+    remainingTimeLabel(item) ??
+    progressPercentLabel(item) ??
     (item.mediaType === "series" ? "Next Up" : item.watched ? "Watched" : "Resume")
+  )
 }
 
 export function remainingTimeLabel(
@@ -100,6 +107,9 @@ function progressPercentLabel(
   progress: Pick<WatchProgress, "positionMs" | "durationMs" | "watched">,
 ): string | undefined {
   if (progress.watched || progress.positionMs <= 0 || progress.durationMs <= 0) return undefined
-  const percent = Math.min(99, Math.max(1, Math.floor((progress.positionMs / progress.durationMs) * 100)))
+  const percent = Math.min(
+    99,
+    Math.max(1, Math.floor((progress.positionMs / progress.durationMs) * 100)),
+  )
   return `${percent}% watched`
 }
