@@ -99,7 +99,7 @@ pub fn select_saved_stream(
     let exact = candidates
         .iter()
         .copied()
-        .filter(|&index| stream_source_key(&streams[index].stream) == saved.source_key)
+        .filter(|&index| matches_saved_source(&streams[index].stream, &saved.source_key))
         .collect::<Vec<_>>();
     let same_addon = exact
         .iter()
@@ -181,10 +181,10 @@ pub fn rank_streams(
     candidates.sort_by(|&left, &right| {
         let left_stream = &streams[left];
         let right_stream = &streams[right];
-        let left_key = stream_source_key(&left_stream.stream);
-        let right_key = stream_source_key(&right_stream.stream);
         let left_rank = (
-            saved.is_none_or(|source| source.source_key != left_key),
+            saved.is_none_or(|source| {
+                !matches_saved_source(&left_stream.stream, &source.source_key)
+            }),
             previous_group
                 .is_none_or(|group| stream_binge_group(&left_stream.stream) != Some(group)),
             previous.is_none_or(|source| source.addon_id != left_stream.addon_id),
@@ -192,7 +192,9 @@ pub fn rank_streams(
             left,
         );
         let right_rank = (
-            saved.is_none_or(|source| source.source_key != right_key),
+            saved.is_none_or(|source| {
+                !matches_saved_source(&right_stream.stream, &source.source_key)
+            }),
             previous_group
                 .is_none_or(|group| stream_binge_group(&right_stream.stream) != Some(group)),
             previous.is_none_or(|source| source.addon_id != right_stream.addon_id),
@@ -287,6 +289,70 @@ fn normalize_stream_url(value: &str) -> String {
         url.set_path(&trimmed);
     }
     url.to_string()
+}
+
+// Compare the old host-generated keys too, without rewriting persisted sources.
+// Re-encoding a saved key would confuse literal '+' with a query-space encoding.
+fn matches_saved_source(stream: &Stream, saved_key: &str) -> bool {
+    if stream_source_key(stream) == saved_key {
+        return true;
+    }
+    if stream.info_hash.is_some() {
+        return false;
+    }
+    let Some(value) = stream.url.as_deref() else {
+        return false;
+    };
+    let without_fragment = value.split('#').next().unwrap_or(value);
+    let (base, query) = without_fragment
+        .split_once('?')
+        .unwrap_or((without_fragment, ""));
+    let mut query = query
+        .split('&')
+        .filter(|part| {
+            let key = part.split('=').next().unwrap_or_default().trim();
+            !key.is_empty() && !is_sensitive_query_key(key)
+        })
+        .collect::<Vec<_>>();
+    query.sort();
+    let mobile_key = format!(
+        "url:{}{}",
+        base.trim_end_matches('/'),
+        if query.is_empty() {
+            String::new()
+        } else {
+            format!("?{}", query.join("&"))
+        }
+    );
+    if mobile_key == saved_key {
+        return true;
+    }
+    let Ok(url) = Url::parse(value) else {
+        return false;
+    };
+    let mut query = url
+        .query_pairs()
+        .filter(|(key, _)| !is_sensitive_query_key(key))
+        .collect::<Vec<_>>();
+    query.sort_by(|(left, _), (right, _)| left.cmp(right));
+    let query = query
+        .into_iter()
+        .map(|(key, value)| format!("{key}={value}"))
+        .collect::<Vec<_>>()
+        .join("&");
+    let path = url.path().trim_end_matches('/');
+    let web_key = format!(
+        "url:{}://{}{}{}",
+        url.scheme(),
+        &url[url::Position::BeforeHost..url::Position::AfterPort],
+        if path.is_empty() { "/" } else { path },
+        if query.is_empty() {
+            String::new()
+        } else {
+            format!("?{query}")
+        }
+    );
+    web_key == saved_key
 }
 
 fn is_sensitive_query_key(value: &str) -> bool {
@@ -433,6 +499,63 @@ mod tests {
             "https://video.example/movie.m3u8?token=fresh",
         )];
         assert_eq!(select_saved_stream(&streams, Some(&source)), Some(0));
+    }
+
+    #[test]
+    fn preserves_saved_sources_from_web_and_mobile_before_the_rust_move() {
+        for (url, legacy_key) in [
+            (
+                "https://video.example/play?file=My%20Movie.mkv&token=fresh",
+                "url:https://video.example/play?file=My Movie.mkv",
+            ),
+            (
+                "https://video.example/play?file=My%20Movie.mkv&token=fresh",
+                "url:https://video.example/play?file=My%20Movie.mkv",
+            ),
+            (
+                "https://video.example/?token=fresh",
+                "url:https://video.example",
+            ),
+            (
+                "https://video.example/play?file=A%2BB.mkv&token=fresh",
+                "url:https://video.example/play?file=A+B.mkv",
+            ),
+        ] {
+            let streams = vec![
+                candidate("other", "https://video.example/other"),
+                candidate("one", url),
+            ];
+            let mut source = playback_source("one".into(), &streams[1].stream);
+            source.source_key = legacy_key.into();
+            assert_eq!(
+                select_saved_stream(&streams, Some(&source)),
+                Some(1),
+                "{legacy_key}"
+            );
+            assert_eq!(
+                rank_streams(&streams, None, Some(&source)),
+                vec![1, 0],
+                "{legacy_key}"
+            );
+        }
+    }
+
+    #[test]
+    fn legacy_source_matching_keeps_distinct_and_ambiguous_streams_separate() {
+        let streams = vec![
+            candidate("one", "https://video.example/play?file=A%2BB.mkv"),
+            candidate("one", "https://video.example/play?file=A%20B.mkv"),
+        ];
+        let mut source = playback_source("one".into(), &streams[0].stream);
+        source.source_key = "url:https://video.example/play?file=A+B.mkv".into();
+        // This old web key is indistinguishable from a new key for the space
+        // variant. Leave an ambiguous selection to the user.
+        assert_eq!(select_saved_stream(&streams, Some(&source)), None);
+        assert_eq!(select_saved_stream(&streams[..1], Some(&source)), Some(0));
+        assert_eq!(
+            select_saved_stream(&[streams[0].clone(), streams[0].clone()], Some(&source)),
+            None
+        );
     }
 
     #[test]

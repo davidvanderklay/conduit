@@ -41,7 +41,6 @@ export async function createOwnerAccount(
     await tx.insert(accounts).values({
       id: randomBytes(24).toString("base64url"),
       accountId: userId,
-      issuer: "local:credential",
       providerId: "credential",
       userId,
       password: passwordHash,
