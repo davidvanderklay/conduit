@@ -290,14 +290,6 @@ actual fun NativePlayer(
         }
     }
 
-    LaunchedEffect(bridge) {
-        while (isActive) {
-            bridge.drainDiagnosticEvents()
-                .takeIf(String::isNotBlank)
-                ?.let(DiagnosticLogStore::recordNativeEvent)
-            delay(250)
-        }
-    }
 
     LaunchedEffect(bridge, trackPanel) {
         if (trackPanel == null) return@LaunchedEffect

@@ -215,3 +215,25 @@ store-ready submission.
 To build the mobile release targets without publishing a tag, run the release
 workflow manually and choose `android` or `ios`. For local IPA packaging, use
 the commands in [Releases](releases.md#ios).
+
+### Previous-session diagnostics
+
+Mobile diagnostics retain the current process session and two previous sessions,
+up to 128 KiB each. Copy Logs, Share Logs, and Copy Reproduction include previous
+sessions without applying the current screen's filters. Clear Logs clears the
+current buffer and both retained sessions. Android stores these files outside
+app backups; iOS stores them in Application Support. Logs are local and redacted
+before persistence.
+
+The serial writer publishes an atomic snapshot at most every 250 ms during
+continuous logging. A crash may lose the most recent pending events, but cannot
+partially overwrite the last completed snapshot. Previous sessions have an
+unknown termination cause: force-stop, OS eviction, and a crash are not
+distinguished. Verbose events still require Debug logging. Native iOS events
+include player identity and whether they originated on the main thread.
+
+To verify on a device, generate logs, force-stop and reopen the app, then export
+logs from Settings. Repeat through four launches to check that only two previous
+sessions remain. Clear Logs, wait for the writer, and reopen to confirm old
+events are gone. Check playback replacement with Debug logging enabled; the
+export should contain native player create/load/destroy markers.

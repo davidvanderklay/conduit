@@ -71,7 +71,6 @@ interface IosPlayerBridge {
     fun getPlaybackSpeed(): Float
     fun getErrorMessage(): String
     /** Returns and clears native events encoded as level<TAB>category<TAB>message lines. */
-    fun drainDiagnosticEvents(): String
     fun destroy()
 }
 
