@@ -123,6 +123,7 @@ pub enum ContinueWatchingKind {
     NextUp,
     Scheduled,
     CaughtUp,
+    Completed,
 }
 
 pub fn episode_watch_state(progress: Option<&Progress>) -> EpisodeWatchState {
@@ -273,11 +274,7 @@ pub fn continue_watching(
     let mut regular = videos
         .iter()
         .enumerate()
-        .filter(|(_, video)| {
-            video.season.unwrap_or(0) > 0
-                && video.episode.is_some()
-                && (video.available != Some(false) || is_upcoming(video, today, now_ms))
-        })
+        .filter(|(_, video)| video.season.unwrap_or(0) > 0 && video.episode.is_some())
         .collect::<Vec<_>>();
     regular.sort_by(|(_, left), (_, right)| compare_episodes(left, right));
     let anchor = regular
@@ -292,7 +289,11 @@ pub fn continue_watching(
 
     if progress.media_type != "series" || !progress.watched {
         return ContinueWatchingDecision {
-            kind: ContinueWatchingKind::InProgress,
+            kind: if progress.media_type == "movie" && progress.watched {
+                ContinueWatchingKind::Completed
+            } else {
+                ContinueWatchingKind::InProgress
+            },
             video_index: anchor.map(|(index, _)| index),
         };
     }
@@ -302,9 +303,16 @@ pub fn continue_watching(
             video_index: None,
         };
     };
+    // Availability determines playback, not whether the series has more episodes.
+    // Match watched coordinates too, since add-ons can duplicate an episode's ID.
+    let watched_coordinates = regular
+        .iter()
+        .filter(|(_, video)| watched_video_ids.contains(&video.id))
+        .map(|(_, video)| (video.season, video.episode))
+        .collect::<HashSet<_>>();
     let next = regular.into_iter().find(|(_, video)| {
         compare_episode_coordinates(video, anchor_video) == Ordering::Greater
-            && !watched_video_ids.contains(&video.id)
+            && !watched_coordinates.contains(&(video.season, video.episode))
     });
     if let Some((index, video)) = next {
         let kind = if has_aired(video, today, now_ms) {
@@ -324,7 +332,7 @@ pub fn continue_watching(
         };
     }
     ContinueWatchingDecision {
-        kind: ContinueWatchingKind::CaughtUp,
+        kind: ContinueWatchingKind::Completed,
         video_index: Some(anchor_index),
     }
 }
@@ -431,17 +439,6 @@ fn has_aired(video: &Video, today: &str, now_ms: i64) -> bool {
         }
     }
     true
-}
-
-fn is_upcoming(video: &Video, today: &str, now_ms: i64) -> bool {
-    let Some(released) = video.released.as_deref() else {
-        return false;
-    };
-    if released.contains('T') {
-        return parse_instant(released).is_some_and(|released| released > now_ms);
-    }
-    release_date_key(Some(released))
-        .is_some_and(|day| day.as_str() > today || (video.available == Some(false) && day == today))
 }
 
 fn is_release_alert(progress: &Progress, video: &Video, now_ms: i64) -> bool {

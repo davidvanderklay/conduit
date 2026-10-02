@@ -40,5 +40,355 @@
       "value": "2023-02-29"
     },
     "expected": null
+  },
+  {
+    "name": "watched final episode with no upcoming episode is completed",
+    "action": {
+      "type": "continueWatching",
+      "progress": {
+        "videoId": "finale",
+        "mediaType": "series",
+        "mediaId": "finished-show",
+        "season": 1,
+        "episode": 2,
+        "positionMs": 100000,
+        "durationMs": 100000,
+        "watched": true
+      },
+      "videos": [
+        {
+          "id": "first",
+          "season": 1,
+          "episode": 1
+        },
+        {
+          "id": "finale",
+          "season": 1,
+          "episode": 2
+        }
+      ],
+      "today": "2026-10-02",
+      "nowMs": 1790942400000
+    },
+    "expected": {
+      "kind": "completed",
+      "videoIndex": 1
+    }
+  },
+  {
+    "name": "completed movie is hidden without metadata",
+    "action": {
+      "type": "continueWatching",
+      "progress": {
+        "videoId": "finale",
+        "mediaType": "movie",
+        "mediaId": "finished-show",
+        "season": 1,
+        "episode": 2,
+        "positionMs": 100000,
+        "durationMs": 100000,
+        "watched": true
+      },
+      "videos": [],
+      "today": "2026-10-02",
+      "nowMs": 1790942400000
+    },
+    "expected": {
+      "kind": "completed"
+    }
+  },
+  {
+    "name": "series without metadata is unresolved",
+    "action": {
+      "type": "continueWatching",
+      "progress": {
+        "videoId": "finale",
+        "mediaType": "series",
+        "mediaId": "finished-show",
+        "season": 1,
+        "episode": 2,
+        "positionMs": 100000,
+        "durationMs": 100000,
+        "watched": true
+      },
+      "videos": [],
+      "today": "2026-10-02",
+      "nowMs": 1790942400000
+    },
+    "expected": {
+      "kind": "caught-up"
+    }
+  },
+  {
+    "name": "series with missing anchor is unresolved",
+    "action": {
+      "type": "continueWatching",
+      "progress": {
+        "videoId": "missing",
+        "mediaType": "series",
+        "mediaId": "finished-show",
+        "season": 9,
+        "episode": 9,
+        "positionMs": 100000,
+        "durationMs": 100000,
+        "watched": true
+      },
+      "videos": [
+        {
+          "id": "first",
+          "season": 1,
+          "episode": 1
+        },
+        {
+          "id": "finale",
+          "season": 1,
+          "episode": 2
+        }
+      ],
+      "today": "2026-10-02",
+      "nowMs": 1790942400000
+    },
+    "expected": {
+      "kind": "caught-up"
+    }
+  },
+  {
+    "name": "unavailable undated later episode prevents completion",
+    "action": {
+      "type": "continueWatching",
+      "progress": {
+        "videoId": "finale",
+        "mediaType": "series",
+        "mediaId": "finished-show",
+        "season": 1,
+        "episode": 2,
+        "positionMs": 100000,
+        "durationMs": 100000,
+        "watched": true
+      },
+      "videos": [
+        {
+          "id": "first",
+          "season": 1,
+          "episode": 1
+        },
+        {
+          "id": "finale",
+          "season": 1,
+          "episode": 2
+        },
+        {
+          "id": "future",
+          "season": 2,
+          "episode": 1,
+          "available": false
+        }
+      ],
+      "today": "2026-10-02",
+      "nowMs": 1790942400000
+    },
+    "expected": {
+      "kind": "caught-up",
+      "videoIndex": 2
+    }
+  },
+  {
+    "name": "distant future season prevents completion",
+    "action": {
+      "type": "continueWatching",
+      "progress": {
+        "videoId": "finale",
+        "mediaType": "series",
+        "mediaId": "finished-show",
+        "season": 1,
+        "episode": 2,
+        "positionMs": 100000,
+        "durationMs": 100000,
+        "watched": true
+      },
+      "videos": [
+        {
+          "id": "first",
+          "season": 1,
+          "episode": 1
+        },
+        {
+          "id": "finale",
+          "season": 1,
+          "episode": 2
+        },
+        {
+          "id": "future",
+          "season": 2,
+          "episode": 1,
+          "released": "2027-10-02",
+          "available": false
+        }
+      ],
+      "today": "2026-10-02",
+      "nowMs": 1790942400000
+    },
+    "expected": {
+      "kind": "scheduled",
+      "videoIndex": 2
+    }
+  },
+  {
+    "name": "new episode returns a completed series to next up",
+    "action": {
+      "type": "continueWatching",
+      "progress": {
+        "videoId": "finale",
+        "mediaType": "series",
+        "mediaId": "finished-show",
+        "season": 1,
+        "episode": 2,
+        "positionMs": 100000,
+        "durationMs": 100000,
+        "watched": true
+      },
+      "videos": [
+        {
+          "id": "first",
+          "season": 1,
+          "episode": 1
+        },
+        {
+          "id": "finale",
+          "season": 1,
+          "episode": 2
+        },
+        {
+          "id": "next",
+          "season": 1,
+          "episode": 3
+        }
+      ],
+      "today": "2026-10-02",
+      "nowMs": 1790942400000
+    },
+    "expected": {
+      "kind": "next-up",
+      "videoIndex": 2
+    }
+  },
+  {
+    "name": "rewatching a completed series resumes",
+    "action": {
+      "type": "continueWatching",
+      "progress": {
+        "videoId": "finale",
+        "mediaType": "series",
+        "mediaId": "finished-show",
+        "season": 1,
+        "episode": 2,
+        "positionMs": 5000,
+        "durationMs": 100000,
+        "watched": false
+      },
+      "videos": [
+        {
+          "id": "first",
+          "season": 1,
+          "episode": 1
+        },
+        {
+          "id": "finale",
+          "season": 1,
+          "episode": 2
+        }
+      ],
+      "today": "2026-10-02",
+      "nowMs": 1790942400000
+    },
+    "expected": {
+      "kind": "in-progress",
+      "videoIndex": 1
+    }
+  },
+  {
+    "name": "watched later episodes and duplicate IDs do not become next up",
+    "action": {
+      "type": "continueWatching",
+      "progress": {
+        "videoId": "finale",
+        "mediaType": "series",
+        "mediaId": "finished-show",
+        "season": 1,
+        "episode": 2,
+        "positionMs": 100000,
+        "durationMs": 100000,
+        "watched": true
+      },
+      "videos": [
+        {
+          "id": "first",
+          "season": 1,
+          "episode": 1
+        },
+        {
+          "id": "finale",
+          "season": 1,
+          "episode": 2
+        },
+        {
+          "id": "next",
+          "season": 1,
+          "episode": 3
+        },
+        {
+          "id": "duplicate",
+          "season": 1,
+          "episode": 3
+        }
+      ],
+      "today": "2026-10-02",
+      "nowMs": 1790942400000,
+      "watchedVideoIds": ["next"]
+    },
+    "expected": {
+      "kind": "completed",
+      "videoIndex": 1
+    }
+  },
+  {
+    "name": "specials do not keep a regular series unfinished",
+    "action": {
+      "type": "continueWatching",
+      "progress": {
+        "videoId": "finale",
+        "mediaType": "series",
+        "mediaId": "finished-show",
+        "season": 1,
+        "episode": 2,
+        "positionMs": 100000,
+        "durationMs": 100000,
+        "watched": true
+      },
+      "videos": [
+        {
+          "id": "first",
+          "season": 1,
+          "episode": 1
+        },
+        {
+          "id": "finale",
+          "season": 1,
+          "episode": 2
+        },
+        {
+          "id": "special",
+          "season": 0,
+          "episode": 3,
+          "released": "2027-01-01"
+        }
+      ],
+      "today": "2026-10-02",
+      "nowMs": 1790942400000
+    },
+    "expected": {
+      "kind": "completed",
+      "videoIndex": 1
+    }
   }
 ]

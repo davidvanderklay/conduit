@@ -14,7 +14,7 @@ import media.conduit.mobile.account.ProgressSummary
 import media.conduit.mobile.account.VideoItem
 import media.conduit.mobile.account.progressByRecency
 
-internal enum class ContinueWatchingKind { InProgress, NewEpisode, NextUp, Scheduled, CaughtUp }
+internal enum class ContinueWatchingKind { InProgress, NewEpisode, NextUp, Scheduled, CaughtUp, Completed }
 
 internal data class ContinueWatchingPresentation(
     val kind: ContinueWatchingKind,
@@ -62,6 +62,7 @@ internal fun continueWatchingPresentation(
     }).jsonObject
     val video = result["videoIndex"]?.jsonPrimitive?.content?.toIntOrNull()?.let(videos::getOrNull)
     return when (result.getValue("kind").jsonPrimitive.content) {
+        "completed" -> ContinueWatchingPresentation(ContinueWatchingKind.Completed, video)
         "in-progress" -> ContinueWatchingPresentation(ContinueWatchingKind.InProgress, video)
         "new-episode" -> ContinueWatchingPresentation(ContinueWatchingKind.NewEpisode, video)
         "next-up" -> ContinueWatchingPresentation(ContinueWatchingKind.NextUp, video)
@@ -89,6 +90,7 @@ internal fun continueWatchingBadgeLabel(
         ContinueWatchingKind.NextUp -> "Next Up"
         ContinueWatchingKind.Scheduled -> presentation.label ?: "Upcoming"
         ContinueWatchingKind.CaughtUp -> "Caught up"
+        ContinueWatchingKind.Completed -> "Watched"
     }
 }
 

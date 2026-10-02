@@ -167,7 +167,7 @@ internal fun latestProgressByTitle(items: Iterable<ProgressSummary>): List<Progr
     .let(::progressByRecency)
 
 @Serializable
-data class ProgressResponse(val items: List<ProgressSummary>)
+data class ProgressResponse(val items: List<ProgressSummary>, val nextOffset: Int? = null)
 @Serializable private data class ProgressItemResponse(val item: ProgressSummary? = null)
 
 @Serializable
@@ -853,13 +853,26 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
                 null
             }
             val continueWatching = if (progressOverride == null) {
-                async { get("/v1/profiles/$profileId/progress?view=continue&limit=50") }
+                async {
+                    val items = mutableListOf<ProgressSummary>()
+                    var offset = 0
+                    do {
+                        val response = get("/v1/profiles/$profileId/progress?view=continue&limit=1000&offset=$offset")
+                        if (!response.status.isSuccess()) {
+                            throw ServerRequestException("Profile synchronization returned HTTP ${response.status.value}", response.status.value)
+                        }
+                        val page = response.body<ProgressResponse>()
+                        items.addAll(page.items)
+                        offset = page.nextOffset ?: break
+                    } while (true)
+                    items.toList()
+                }
             } else {
                 null
             }
             val queue = async { get("/v1/profiles/$profileId/queue") }
             val queueResponse = queue.await()
-            val progressResponses = listOfNotNull(progress?.await(), history?.await(), continueWatching?.await())
+            val progressResponses = listOfNotNull(progress?.await(), history?.await())
             val responses = listOf(addons.await(), library.await()) + progressResponses
             responses.firstOrNull { !it.status.isSuccess() }?.let { response ->
                 throw ServerRequestException(
@@ -875,7 +888,7 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
                 progress = progressOverride ?: responses[2].body<ProgressResponse>().items,
                 history = progressOverride ?: responses[3].body<ProgressResponse>().items,
                 continueWatching = latestProgressByTitle(
-                    (progressOverride ?: responses[4].body<ProgressResponse>().items)
+                    (progressOverride ?: continueWatching?.await().orEmpty())
                         .filter { it.continueWatching && !it.dismissed },
                 ),
                 queue = if (queueResponse.status.value == 404) emptyList() else {
@@ -1093,9 +1106,14 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
         )
     }
 
-    suspend fun loadMeta(addons: List<InstalledAddonSummary>, type: String, id: String): MetaItem {
+    suspend fun loadMeta(
+        addons: List<InstalledAddonSummary>,
+        type: String,
+        id: String,
+        refresh: Boolean = false,
+    ): MetaItem {
         val key = "$type:$id"
-        metadataCache[key]?.let { return it }
+        if (!refresh) metadataCache[key]?.let { return it }
         val candidates = addons.filter { it.enabled && it.supportsResource("meta", type, id) }
         if (candidates.isEmpty()) throw ServerRequestException("No installed add-on provides metadata for this title")
         return supervisorScope {

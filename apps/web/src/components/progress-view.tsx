@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Check, ChevronDown, EyeOff, Film, History, Info, Play, Trash2 } from "lucide-react"
 import { api, type InstalledAddon, type WatchProgress } from "../lib/api"
 import { addonsForResource } from "../lib/addons"
@@ -24,6 +24,7 @@ type Filter = "all" | "movie" | "series"
 type Sort = "recent" | "title-asc" | "title-desc"
 const PAGE_SIZE = 48
 type ContinueWatchingOpenMode = "resume" | "details"
+type ProgressListPage = { items: WatchProgress[]; nextOffset?: number | null }
 
 export function useProgressList(
   profileId: string,
@@ -32,10 +33,19 @@ export function useProgressList(
 ) {
   return useQuery({
     queryKey: ["progress", profileId, view],
-    queryFn: () =>
-      api<{ items: WatchProgress[] }>(
-        `/v1/profiles/${profileId}/progress?view=${view}&limit=${limit}`,
-      ).then((result) => result.items),
+    queryFn: async () => {
+      const items: WatchProgress[] = []
+      const pageSize = view === "continue" ? 1000 : limit
+      let offset: number | null = 0
+      do {
+        const result: ProgressListPage = await api<ProgressListPage>(
+          `/v1/profiles/${profileId}/progress?view=${view}&limit=${pageSize}&offset=${offset}`,
+        )
+        items.push(...result.items)
+        offset = view === "continue" ? (result.nextOffset ?? null) : null
+      } while (offset !== null)
+      return items
+    },
   })
 }
 
@@ -59,23 +69,13 @@ export function ContinueWatching({
   ) => void
   onSeeMore: () => void
 }) {
-  const grouped = useMemo(() => groupContinueWatching(items), [items])
-  const watchedIdsByMedia = useMemo(() => {
-    const result = new Map<string, Set<string>>()
-    for (const progress of watchedProgress) {
-      if (!progress.watched) continue
-      const key = `${progress.mediaType}:${progress.mediaId}`
-      const ids = result.get(key) ?? new Set<string>()
-      ids.add(progress.videoId)
-      result.set(key, ids)
-    }
-    return result
-  }, [watchedProgress])
+  const entries = useContinueWatchingEntries(items, addons, watchedProgress)
+  if (entries.length === 0) return null
   return (
     <section>
       <div className="mb-4 flex items-center justify-between gap-4">
         <h2 className="font-display text-xl font-semibold">Continue Watching</h2>
-        {grouped.length > 0 && (
+        {entries.length > 0 && (
           <button
             className="text-xs font-semibold text-zinc-500 transition hover:text-amber-300"
             onClick={onSeeMore}
@@ -85,14 +85,12 @@ export function ContinueWatching({
         )}
       </div>
       <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        {grouped.map((item) => (
+        {entries.map((entry) => (
           <ContinueWatchingCard
-            item={item}
-            addons={addons}
+            entry={entry}
             profileId={profileId}
-            watchedVideoIds={watchedIdsByMedia.get(`${item.mediaType}:${item.mediaId}`)}
             onSelect={onSelect}
-            key={item.mediaType === "series" ? `${item.mediaType}:${item.mediaId}` : item.videoId}
+            key={`${entry.item.mediaType}:${entry.item.mediaId}`}
           />
         ))}
       </div>
@@ -100,17 +98,52 @@ export function ContinueWatching({
   )
 }
 
+// Resolve every candidate here, including hidden titles, so a metadata refresh
+// can bring a newly announced episode back into the list.
+export function useContinueWatchingEntries(
+  items: WatchProgress[],
+  addons: InstalledAddon[],
+  watchedProgress: WatchProgress[],
+) {
+  const grouped = useMemo(() => groupContinueWatching(items), [items])
+  const metadata = useQueries({
+    queries: grouped.map((item) => ({
+      queryKey: ["meta", item.mediaType, item.mediaId, addons.map((addon) => addon.id)],
+      queryFn: () => resolveContinueMetadata(addons, toCatalogItem(item)),
+      enabled: !(item.mediaType === "movie" && item.watched),
+      staleTime: 5 * 60 * 1000,
+      refetchInterval: 5 * 60 * 1000,
+    })),
+  })
+  const watchedIdsByMedia = new Map<string, Set<string>>()
+  for (const progress of watchedProgress) {
+    if (!progress.watched) continue
+    const key = `${progress.mediaType}:${progress.mediaId}`
+    const ids = watchedIdsByMedia.get(key) ?? new Set<string>()
+    ids.add(progress.videoId)
+    watchedIdsByMedia.set(key, ids)
+  }
+  return grouped.flatMap((item, index) => {
+    const meta = metadata[index]?.data
+    const state = continueWatchingState(
+      item,
+      meta?.videos ?? [],
+      new Date(),
+      watchedIdsByMedia.get(`${item.mediaType}:${item.mediaId}`),
+    )
+    return state.kind === "completed" ? [] : [{ item, meta, state }]
+  })
+}
+
+type ContinueWatchingEntry = ReturnType<typeof useContinueWatchingEntries>[number]
+
 function ContinueWatchingCard({
-  item,
-  addons,
+  entry: { item, meta: metadata, state },
   profileId,
-  watchedVideoIds,
   onSelect,
 }: {
-  item: WatchProgress
-  addons: InstalledAddon[]
+  entry: ContinueWatchingEntry
   profileId: string
-  watchedVideoIds?: ReadonlySet<string>
   onSelect: (
     item: CatalogItem,
     videoId?: string,
@@ -118,19 +151,7 @@ function ContinueWatchingCard({
     mode?: ContinueWatchingOpenMode,
   ) => void
 }) {
-  const fallback = toCatalogItem(item)
-  const metadata = useQuery({
-    queryKey: ["meta", item.mediaType, item.mediaId, addons.map((addon) => addon.id)],
-    queryFn: () => resolveContinueMetadata(addons, fallback),
-    staleTime: 5 * 60 * 1000,
-  })
-  const meta = metadata.data ?? fallback
-  const state = continueWatchingState(
-    item,
-    metadata.data?.videos ?? [],
-    new Date(),
-    watchedVideoIds,
-  )
+  const meta = metadata ?? toCatalogItem(item)
   const targetVideoId =
     state.kind === "in-progress"
       ? item.videoId
@@ -152,7 +173,7 @@ function ContinueWatchingCard({
   }
   const open = (mode: ContinueWatchingOpenMode = "resume") =>
     onSelect(catalogItem, targetVideoId, selectedProgress, mode)
-  const badge = continueWatchingBadge(item, state, metadata.isSuccess)
+  const badge = continueWatchingBadge(item, state, !!metadata)
   const season = state.video?.season ?? item.season
   const episode = state.video?.episode ?? item.episode
   const episodeTitle =
@@ -230,31 +251,40 @@ function ContinueWatchingCard({
 
 export function ContinueWatchingView({
   profileId,
+  addons,
   onSelect,
 }: {
   profileId: string
+  addons: InstalledAddon[]
   onSelect: (
     item: CatalogItem,
-    videoId: string,
-    progress: WatchProgress,
+    videoId?: string,
+    progress?: WatchProgress,
     mode?: ContinueWatchingOpenMode,
   ) => void
 }) {
   const progress = useProgressList(profileId, "continue", 50)
+  const watchedProgress = useProgressList(profileId, "status", 1000)
+  const entries = useContinueWatchingEntries(
+    progress.data ?? [],
+    addons,
+    watchedProgress.data ?? [],
+  )
   const [filter, setFilter] = useState<Filter>("all")
   const [sort, setSort] = useState<Sort>("recent")
   const [page, setPage] = useState(0)
   const grouped = useMemo(() => {
-    return groupContinueWatching(progress.data ?? [])
-      .filter((item) => filter === "all" || item.mediaType === filter)
-      .sort((a, b) => {
+    return entries
+      .filter(({ item }) => filter === "all" || item.mediaType === filter)
+      .sort(({ item: a }, { item: b }) => {
         if (sort === "title-asc") return a.name.localeCompare(b.name)
         if (sort === "title-desc") return b.name.localeCompare(a.name)
         const delta = Date.parse(b.updatedAt) - Date.parse(a.updatedAt)
         return delta
       })
-  }, [filter, progress.data, sort])
-  const pageItems = grouped.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
+  }, [filter, entries, sort])
+  const visiblePage = Math.min(page, Math.max(0, Math.ceil(grouped.length / PAGE_SIZE) - 1))
+  const pageItems = grouped.slice(visiblePage * PAGE_SIZE, (visiblePage + 1) * PAGE_SIZE)
   useEffect(() => setPage(0), [filter, sort])
 
   return (
@@ -290,9 +320,29 @@ export function ContinueWatchingView({
         <div className="mt-9">
           <VirtualPosterGrid
             items={pageItems}
-            itemKey={(item) => `${item.mediaType}:${item.mediaId}`}
-            renderItem={(item) => (
-              <ProgressCard item={item} profileId={profileId} onSelect={onSelect} />
+            itemKey={({ item }) => `${item.mediaType}:${item.mediaId}`}
+            renderItem={({ item, meta, state }) => (
+              <ProgressCard
+                item={item}
+                state={state}
+                profileId={profileId}
+                onSelect={(_item, _videoId, _progress, mode) =>
+                  onSelect(
+                    meta ?? toCatalogItem(item),
+                    state.kind === "in-progress"
+                      ? item.videoId
+                      : state.kind === "next-up" || state.kind === "new-episode"
+                        ? state.video.id
+                        : undefined,
+                    state.kind === "in-progress" ||
+                      state.kind === "next-up" ||
+                      state.kind === "new-episode"
+                      ? item
+                      : undefined,
+                    mode,
+                  )
+                }
+              />
             )}
           />
         </div>
@@ -307,7 +357,7 @@ export function ContinueWatchingView({
         </Card>
       )}
       <PaginationControls
-        page={page}
+        page={visiblePage}
         pageSize={PAGE_SIZE}
         total={grouped.length}
         onChange={setPage}
@@ -321,6 +371,7 @@ function ProgressCard({
   profileId,
   onSelect,
   history = false,
+  state,
 }: {
   item: WatchProgress
   profileId: string
@@ -331,9 +382,18 @@ function ProgressCard({
     mode?: ContinueWatchingOpenMode,
   ) => void
   history?: boolean
+  state?: ContinueWatchingState
 }) {
   const catalogItem = toCatalogItem(item)
-  const percent = item.durationMs ? Math.min(100, (item.positionMs / item.durationMs) * 100) : 0
+  const playable =
+    !state ||
+    state.kind === "in-progress" ||
+    state.kind === "next-up" ||
+    state.kind === "new-episode"
+  const percent =
+    (!state || state.kind === "in-progress") && item.durationMs
+      ? Math.min(100, (item.positionMs / item.durationMs) * 100)
+      : 0
   const open = (mode: ContinueWatchingOpenMode = "resume") =>
     onSelect(catalogItem, item.videoId, item, mode)
   return (
@@ -342,7 +402,7 @@ function ProgressCard({
         <button
           className="absolute inset-0 w-full text-left"
           aria-label={`View ${item.name}`}
-          onClick={() => open("resume")}
+          onClick={() => open(playable ? "resume" : "details")}
         >
           {item.poster ? (
             <img className="h-full w-full object-cover" src={item.poster} alt="" loading="lazy" />
@@ -360,9 +420,14 @@ function ProgressCard({
         <PosterResumeButton title={item.name} progress={item} onResume={() => open("resume")} />
       </div>
       <div className="mt-2 flex items-start gap-1">
-        <button className="min-w-0 flex-1 text-left" onClick={() => open("resume")}>
+        <button
+          className="min-w-0 flex-1 text-left"
+          onClick={() => open(playable ? "resume" : "details")}
+        >
           <p className={posterTitleSlotClass}>{item.name}</p>
-          <p className="line-clamp-1 text-xs text-zinc-500">{episodeLabel(item)}</p>
+          <p className="line-clamp-1 text-xs text-zinc-500">
+            {state ? continueWatchingBadge(item, state) : episodeLabel(item)}
+          </p>
         </button>
         <ProgressMenu
           item={item}
@@ -370,6 +435,8 @@ function ProgressCard({
           onOpen={() => open("resume")}
           onDetails={() => open("details")}
           history={history}
+          playable={playable}
+          showWatchAction={!state || state.kind === "in-progress" || state.kind === "caught-up"}
         />
       </div>
     </div>
@@ -581,18 +648,34 @@ function PreviewImage({
   )
 }
 
+const metadataWaiters: Array<() => void> = []
+let activeMetadataRequests = 0
+
 async function resolveContinueMetadata(
   addons: InstalledAddon[],
   item: CatalogItem,
 ): Promise<MetaItem> {
-  const candidates = addonsForResource(addons, "meta", item.type, item.id)
-  const results = await Promise.allSettled(
-    candidates.map((addon) => loadMeta(addon.manifestUrl, item.type, item.id)),
-  )
-  const match = results.find(
-    (result): result is PromiseFulfilledResult<MetaItem> => result.status === "fulfilled",
-  )
-  return normalizeMetaItem(match?.value, item)
+  if (activeMetadataRequests >= 4) {
+    await new Promise<void>((resolve) => metadataWaiters.push(resolve))
+  } else {
+    activeMetadataRequests++
+  }
+  try {
+    const candidates = addonsForResource(addons, "meta", item.type, item.id)
+    const results = await Promise.allSettled(
+      candidates.map((addon) => loadMeta(addon.manifestUrl, item.type, item.id)),
+    )
+    const matches = results.flatMap((result) =>
+      result.status === "fulfilled" ? [result.value] : [],
+    )
+    const match = matches.find((meta) => meta.videos?.length) ?? matches[0]
+    if (!match) throw new Error("Continue Watching metadata is unavailable")
+    return normalizeMetaItem(match, item)
+  } finally {
+    const next = metadataWaiters.shift()
+    if (next) next()
+    else activeMetadataRequests--
+  }
 }
 
 function episodeLabel(item: WatchProgress) {

@@ -19,6 +19,7 @@ export function registerProgressRoutes(app: FastifyInstance, context: RouteConte
             Type.Union([Type.Literal("continue"), Type.Literal("history"), Type.Literal("status")]),
           ),
           limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 1000 })),
+          offset: Type.Optional(Type.Integer({ minimum: 0 })),
         }),
       },
     },
@@ -26,9 +27,14 @@ export function registerProgressRoutes(app: FastifyInstance, context: RouteConte
       const user = await requireUser(request, reply, auth)
       if (!user) return
       const { profileId } = request.params as { profileId: string }
-      const { view = "history", limit = 50 } = request.query as {
+      const {
+        view = "history",
+        limit = 50,
+        offset = 0,
+      } = request.query as {
         view?: "continue" | "history" | "status"
         limit?: number
+        offset?: number
       }
       if (!(await canAccessProfile(db, user.id, profileId))) return reply.forbidden()
 
@@ -49,6 +55,7 @@ export function registerProgressRoutes(app: FastifyInstance, context: RouteConte
                 asc(watchProgress.mediaType),
                 asc(watchProgress.mediaId),
                 desc(watchProgress.updatedAt),
+                desc(watchProgress.videoId),
               )
           : view === "status"
             ? await db
@@ -68,8 +75,14 @@ export function registerProgressRoutes(app: FastifyInstance, context: RouteConte
                 )
                 .orderBy(desc(watchProgress.updatedAt))
                 .limit(limit)
-      const visibleRows = view === "continue" ? filterContinueWatching(rows, limit) : rows
-      return { items: visibleRows.map(toProgressItem) }
+      // Keep completed series as candidates. Clients need their history to
+      // discover upcoming episodes, and apply visible limits after metadata.
+      if (view === "continue") {
+        const candidates = filterContinueWatching(rows, rows.length)
+        const items = candidates.slice(offset, offset + limit).map(toProgressItem)
+        return { items, nextOffset: offset + limit < candidates.length ? offset + limit : null }
+      }
+      return { items: rows.map(toProgressItem) }
     },
   )
 
