@@ -22,6 +22,9 @@ final class ConduitMetalLayer: CAMetalLayer {
     private let captureLock = NSLock()
     private let heartbeatLock = NSLock()
     private let resizeLock = NSLock()
+    private let colorspaceLock = NSLock()
+    private var pendingColorspace: (generation: UInt64, value: CGColorSpace?)?
+    private var colorspaceGeneration: UInt64 = 0
 
     private var drawableHeartbeat: UInt64 = 0
     private var lastDrawableUptime: TimeInterval = 0
@@ -248,17 +251,73 @@ final class ConduitMetalLayer: CAMetalLayer {
         return (drawableHeartbeat, lastDrawableUptime)
     }
 
+    override var colorspace: CGColorSpace? {
+        get {
+            colorspaceLock.lock()
+            defer { colorspaceLock.unlock() }
+            if let pendingColorspace { return pendingColorspace.value }
+            return super.colorspace
+        }
+        set {
+            colorspaceLock.lock()
+            colorspaceGeneration &+= 1
+            let generation = colorspaceGeneration
+            pendingColorspace = (generation, newValue)
+            colorspaceLock.unlock()
+            updatePresentation {
+                self.colorspaceLock.lock()
+                let isCurrent = self.pendingColorspace?.generation == generation
+                self.colorspaceLock.unlock()
+                guard isCurrent else { return }
+                super.colorspace = newValue
+                self.colorspaceLock.lock()
+                if self.pendingColorspace?.generation == generation {
+                    self.pendingColorspace = nil
+                }
+                self.colorspaceLock.unlock()
+            }
+        }
+    }
+
+    override var isOpaque: Bool {
+        get { super.isOpaque }
+        set { updatePresentation { super.isOpaque = newValue } }
+    }
+
+    override var contentsGravity: CALayerContentsGravity {
+        get { super.contentsGravity }
+        set { updatePresentation { super.contentsGravity = newValue } }
+    }
+
+    override var minificationFilter: CALayerContentsFilter {
+        get { super.minificationFilter }
+        set { updatePresentation { super.minificationFilter = newValue } }
+    }
+
+    override var magnificationFilter: CALayerContentsFilter {
+        get { super.magnificationFilter }
+        set { updatePresentation { super.magnificationFilter = newValue } }
+    }
+
+    override func setNeedsDisplay() {
+        updatePresentation { super.setNeedsDisplay() }
+    }
+
+    override func setNeedsDisplay(_ rect: CGRect) {
+        updatePresentation { super.setNeedsDisplay(rect) }
+    }
+
     @available(iOS 16.0, *)
     override var wantsExtendedDynamicRangeContent: Bool {
         get { super.wantsExtendedDynamicRangeContent }
-        set {
-            if Thread.isMainThread {
-                super.wantsExtendedDynamicRangeContent = newValue
-            } else {
-                DispatchQueue.main.async { [weak self] in
-                    self?.wantsExtendedDynamicRangeContent = newValue
-                }
-            }
+        set { updatePresentation { super.wantsExtendedDynamicRangeContent = newValue } }
+    }
+
+    private func updatePresentation(_ update: @escaping () -> Void) {
+        if Thread.isMainThread {
+            update()
+        } else {
+            DispatchQueue.main.async(execute: update)
         }
     }
 }
