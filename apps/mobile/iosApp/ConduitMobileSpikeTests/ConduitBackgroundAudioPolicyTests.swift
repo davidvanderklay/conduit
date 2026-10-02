@@ -1,5 +1,5 @@
 import XCTest
-@testable import ConduitMobileSpike
+@testable import conduit
 
 final class ConduitBackgroundAudioPolicyTests: XCTestCase {
     func testPlayingNowPlayingItemKeepsAudioAlive() {
