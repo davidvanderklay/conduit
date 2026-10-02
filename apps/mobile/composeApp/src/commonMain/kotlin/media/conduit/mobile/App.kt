@@ -1015,9 +1015,25 @@ private fun AppShell(
                 appScope.launch { snackbarHostState.showSnackbar("Touch and hold a title for more options") }
             }
         }
+        fun beginPlaybackIntent(item: CatalogItem, videoId: String?): String? {
+            val profileId = activeProfile?.id ?: return videoId
+            val current = playbackSession.state.request?.identity?.takeIf {
+                it.profileId == profileId && it.mediaType == item.type && it.mediaId == item.id
+            }
+            val targetVideoId = videoId ?: current?.videoId
+                ?: effectiveResumeVideoId(null, profileSync.snapshot?.progress.orEmpty(), item)
+                ?: item.id.takeIf { item.type != "series" }
+                ?: return null
+            playbackSession.beginPlaybackIntent(
+                identity = PlaybackIdentity(profileId, item.type, item.id, targetVideoId),
+                title = item.name,
+                artwork = item.background ?: item.poster,
+            )
+            return targetVideoId
+        }
         val openContinueWatching: (CatalogItem, String?) -> Unit = { item, videoId ->
+            selectedVideoId = beginPlaybackIntent(item, videoId)
             selectedMedia = item
-            selectedVideoId = videoId
             selectedMediaReturnsToOrigin = true
             selectedMediaOpenMode = MediaOpenMode.AutoResume
             if (!state.richActionsHintShown) {
@@ -1026,8 +1042,8 @@ private fun AppShell(
             }
         }
         val openLibraryEntry: (CatalogItem, String?) -> Unit = { item, videoId ->
+            selectedVideoId = beginPlaybackIntent(item, videoId)
             selectedMedia = item
-            selectedVideoId = videoId
             selectedMediaReturnsToOrigin = true
             selectedMediaOpenMode = MediaOpenMode.AutoResume
         }
@@ -1038,13 +1054,15 @@ private fun AppShell(
             selectedMediaOpenMode = MediaOpenMode.Details
         }
         val openQueuedItem: (PlaybackQueueItem) -> Unit = { queued ->
-            selectedMedia = CatalogItem(
+            val queuedMedia = CatalogItem(
                 id = queued.mediaId,
                 type = queued.mediaType,
                 name = queued.name,
                 poster = queued.poster,
                 background = queued.artwork,
             )
+            beginPlaybackIntent(queuedMedia, queued.videoId)
+            selectedMedia = queuedMedia
             selectedVideoId = queued.videoId
             selectedMediaReturnsToOrigin = false
             selectedMediaOpenMode = MediaOpenMode.Queue
@@ -1723,9 +1741,10 @@ private fun BoxScope.PlaybackSessionHost(
     val transitionStatus = when {
         playbackTransition == null -> null
         session.streamPicker != null && !session.streamPicker.loading -> "Choose a source"
-        else -> "Finding source…"
+        playbackTransition.loadingSessionId != null -> "Opening video..."
+        else -> "Finding source..."
     }
-    val presentPlaybackError = shouldPresentPlaybackError(
+    val presentPlaybackError = (playbackTransition == null || playbackTransition.loadingSessionId == session.sessionId) && shouldPresentPlaybackError(
         request,
         session.playback,
         session.autoRecoveryExhausted,
@@ -1792,7 +1811,9 @@ private fun BoxScope.PlaybackSessionHost(
         // race on the Next path.
         NativePlayer(
             url = request.url,
-            active = true,
+            loadId = session.sessionId,
+            controlsEnabled = playbackTransition == null,
+            active = playbackTransition == null || playbackTransition.loadingSessionId == session.sessionId,
             presentation = session.presentation,
             command = session.command,
             startPositionMs = request.startPositionMs,
@@ -1808,8 +1829,8 @@ private fun BoxScope.PlaybackSessionHost(
             onEpisodes = controller::openEpisodes,
             hasSources = true,
             onSources = controller::openSources,
-            touchGestures = preferences.touchGestures,
-            holdToSpeed = preferences.holdToSpeed,
+            touchGestures = preferences.touchGestures && playbackTransition == null,
+            holdToSpeed = preferences.holdToSpeed && playbackTransition == null,
             preferredAudioLanguage = preferences.preferredAudioLanguage,
             preferredSubtitleLanguage = preferences.preferredSubtitleLanguage,
             androidPlaybackEngine = preferences.androidPlaybackEngine,
@@ -1836,19 +1857,19 @@ private fun BoxScope.PlaybackSessionHost(
         }
 
         if (fullScreen || pipHandoffVisible) {
-            if ((initialPlaybackLoad || playbackTransition != null) && !presentPlaybackError) {
+            if (playbackTransition != null || (initialPlaybackLoad && !presentPlaybackError)) {
                 PlayerOpeningOverlay(
-                    artwork = playbackTransition?.artwork ?: request.artwork,
-                    logo = playbackTransition?.logo ?: request.logo,
+                    artwork = null,
+                    logo = null,
                     title = playbackTransition?.title ?: request.mediaName,
                     status = transitionStatus,
                     modifier = Modifier.matchParentSize(),
                 )
             }
-            if (fullScreen && session.playback.buffering && !initialPlaybackLoad && !presentPlaybackError) {
+            if (fullScreen && playbackTransition == null && session.playback.buffering && !initialPlaybackLoad && !presentPlaybackError) {
                 PlayerBufferingOverlay(Modifier.matchParentSize())
             }
-            if ((controlsVisible && !playerOverlayVisible) || pipHandoffVisible) {
+            if (playbackTransition != null || (controlsVisible && !playerOverlayVisible) || pipHandoffVisible) {
                 Row(
                     modifier = Modifier
                         .align(Alignment.TopStart)

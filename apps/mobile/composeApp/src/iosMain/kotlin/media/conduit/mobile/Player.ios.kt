@@ -85,6 +85,8 @@ actual fun PlayerOrientationLock(active: Boolean) {
 actual fun NativePlayer(
     url: String?,
     active: Boolean,
+    loadId: String,
+    controlsEnabled: Boolean,
     presentation: PlaybackPresentation,
     command: SequencedPlaybackCommand?,
     startPositionMs: Long,
@@ -147,24 +149,24 @@ actual fun NativePlayer(
         return
     }
 
-    var controlsVisible by remember(bridge) { mutableStateOf(true) }
-    val seekFeedback = remember(bridge) { DoubleTapSeekFeedback() }
-    var dragging by remember(bridge) { mutableStateOf(false) }
-    var draggedPosition by remember(bridge) { mutableLongStateOf(0L) }
-    var positionMs by remember(bridge) { mutableLongStateOf(0L) }
-    var durationMs by remember(bridge) { mutableLongStateOf(0L) }
-    var playing by remember(bridge) { mutableStateOf(false) }
-    var buffering by remember(bridge) { mutableStateOf(false) }
-    var playbackSpeed by remember(bridge) { mutableFloatStateOf(1f) }
-    var resizeMode by remember(bridge) { mutableIntStateOf(0) }
-    var showRemainingTime by remember(bridge) { mutableStateOf(false) }
-    var trackPanel by remember(bridge) { mutableStateOf<Int?>(null) }
+    var controlsVisible by remember(bridge, loadId) { mutableStateOf(true) }
+    val seekFeedback = remember(bridge, loadId) { DoubleTapSeekFeedback() }
+    var dragging by remember(bridge, loadId) { mutableStateOf(false) }
+    var draggedPosition by remember(bridge, loadId) { mutableLongStateOf(0L) }
+    var positionMs by remember(bridge, loadId) { mutableLongStateOf(0L) }
+    var durationMs by remember(bridge, loadId) { mutableLongStateOf(0L) }
+    var playing by remember(bridge, loadId) { mutableStateOf(false) }
+    var buffering by remember(bridge, loadId) { mutableStateOf(false) }
+    var playbackSpeed by remember(bridge, loadId) { mutableFloatStateOf(1f) }
+    var resizeMode by remember(bridge, loadId) { mutableIntStateOf(0) }
+    var showRemainingTime by remember(bridge, loadId) { mutableStateOf(false) }
+    var trackPanel by remember(bridge, loadId) { mutableStateOf<Int?>(null) }
     LaunchedEffect(trackPanel) { onOverlayVisibilityChanged(trackPanel != null) }
-    var speedMenuOpen by remember(bridge) { mutableStateOf(false) }
-    var playbackReady by remember(bridge) { mutableStateOf(false) }
-    var audioTracks by remember(bridge) { mutableStateOf<List<IosTrack>>(emptyList()) }
-    var subtitleTracks by remember(bridge) { mutableStateOf<List<IosTrack>>(emptyList()) }
-    var lastDiagnosticPlaybackState by remember(bridge) { mutableStateOf<String?>(null) }
+    var speedMenuOpen by remember(bridge, loadId) { mutableStateOf(false) }
+    var playbackReady by remember(bridge, loadId) { mutableStateOf(false) }
+    var audioTracks by remember(bridge, loadId) { mutableStateOf<List<IosTrack>>(emptyList()) }
+    var subtitleTracks by remember(bridge, loadId) { mutableStateOf<List<IosTrack>>(emptyList()) }
+    var lastDiagnosticPlaybackState by remember(bridge, loadId) { mutableStateOf<String?>(null) }
 
     val encodedHeaders = remember(requestHeaders) {
         Json.encodeToString<Map<String, String>>(requestHeaders)
@@ -182,7 +184,7 @@ actual fun NativePlayer(
         }
     }
 
-    LaunchedEffect(bridge, url, encodedHeaders, startPositionMs) {
+    LaunchedEffect(bridge, loadId, url, encodedHeaders, startPositionMs) {
         showRemainingTime = false
         resizeMode = 0
         playbackReady = false
@@ -193,6 +195,7 @@ actual fun NativePlayer(
             bridge.setPreferredSubtitleLanguage(preferredSubtitleLanguage)
             bridge.loadFile(
                 url = it,
+                loadId = loadId,
                 initialPositionMs = startPositionMs.coerceAtLeast(0),
                 headersJson = encodedHeaders,
                 subtitlesJson = encodedSubtitles,
@@ -206,7 +209,12 @@ actual fun NativePlayer(
     }
 
     LaunchedEffect(bridge, active) {
-        if (active) bridge.play() else bridge.pause()
+        if (active) {
+            bridge.play()
+        } else {
+            bridge.pause()
+            bridge.stopPictureInPicture()
+        }
     }
 
     LaunchedEffect(bridge, contentTitle, contentSubtitle, contentArtwork) {
@@ -245,8 +253,13 @@ actual fun NativePlayer(
         latestControlsCallback(controlsVisible)
     }
 
-    LaunchedEffect(bridge, presentation) {
+    LaunchedEffect(bridge, loadId, presentation) {
+        val callback = onState
         while (isActive) {
+            if (bridge.getLoadId() != loadId) {
+                delay(50)
+                continue
+            }
             val next = PlaybackState(
                 loading = bridge.getIsLoading(),
                 buffering = bridge.getIsBuffering(),
@@ -264,7 +277,7 @@ actual fun NativePlayer(
                     bridge.getVideoHeight() > 0 &&
                     bridge.getErrorMessage().isBlank(),
             )
-            currentCallback(next)
+            callback(next)
             val diagnosticState = "loading=${next.loading} buffering=${next.buffering} playing=${next.playing} " +
                 "positionMs=${next.positionMs} durationMs=${next.durationMs} video=${next.videoWidth}x${next.videoHeight} " +
                 "ended=${next.ended} error=${next.error != null}"
@@ -395,7 +408,7 @@ actual fun NativePlayer(
             interactive = false,
         )
 
-        if (controlsVisible && playbackReady && presentation != PlaybackPresentation.Mini) {
+        if (controlsEnabled && controlsVisible && playbackReady && presentation != PlaybackPresentation.Mini) {
             Box(
                 Modifier
                     .fillMaxSize()

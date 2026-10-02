@@ -99,6 +99,8 @@ private fun AndroidPlayerSystemChrome(presentation: PlaybackPresentation) {
 actual fun NativePlayer(
     url: String?,
     active: Boolean,
+    loadId: String,
+    controlsEnabled: Boolean,
     presentation: PlaybackPresentation,
     command: SequencedPlaybackCommand?,
     startPositionMs: Long,
@@ -137,7 +139,6 @@ actual fun NativePlayer(
     val isTablet = with(LocalDensity.current) {
         windowSize.width.toDp() >= 600.dp || windowSize.height.toDp() >= 600.dp
     }
-    val currentCallback by rememberUpdatedState(onState)
     val latestTemporarySpeedCallback by rememberUpdatedState(onTemporarySpeedChanged)
     val latestPipCallback by rememberUpdatedState(onSystemPipChanged)
     val latestPipAvailabilityCallback by rememberUpdatedState(onSystemPipAvailabilityChanged)
@@ -152,8 +153,8 @@ actual fun NativePlayer(
             .build()
             .apply { setAudioAttributes(AudioAttributes.DEFAULT, true) }
     }
-    var player by remember(url, requestHeaders) { mutableStateOf(createMedia3Player()) }
-    var activeEngine by remember(url, requestHeaders, androidPlaybackEngine) {
+    var player by remember(loadId, url, requestHeaders) { mutableStateOf(createMedia3Player()) }
+    var activeEngine by remember(loadId, url, requestHeaders, androidPlaybackEngine) {
         mutableStateOf(
             if (androidPlaybackEngine == AndroidPlaybackEngine.Libmpv) {
                 NativePlaybackEngine.Libmpv
@@ -162,14 +163,14 @@ actual fun NativePlayer(
             },
         )
     }
-    var fallbackAttempted by remember(url, requestHeaders, androidPlaybackEngine) { mutableStateOf(false) }
-    var fallbackReason by remember(url, requestHeaders, androidPlaybackEngine) { mutableStateOf<String?>(null) }
-    var fallbackStartPositionMs by remember(url, requestHeaders, androidPlaybackEngine) { mutableLongStateOf(0L) }
-    var media3StartPositionMs by remember(url, requestHeaders, androidPlaybackEngine) { mutableLongStateOf(startPositionMs) }
-    var fallbackPlaybackSpeed by remember(url, requestHeaders, androidPlaybackEngine) { mutableFloatStateOf(1f) }
-    var fallbackPlayWhenReady by remember(url, requestHeaders, androidPlaybackEngine) { mutableStateOf(true) }
-    var mpvView by remember(url, requestHeaders, activeEngine) { mutableStateOf<ConduitMpvView?>(null) }
-    var mpvTrackRevision by remember(url, requestHeaders, activeEngine) { mutableIntStateOf(0) }
+    var fallbackAttempted by remember(loadId, url, requestHeaders, androidPlaybackEngine) { mutableStateOf(false) }
+    var fallbackReason by remember(loadId, url, requestHeaders, androidPlaybackEngine) { mutableStateOf<String?>(null) }
+    var fallbackStartPositionMs by remember(loadId, url, requestHeaders, androidPlaybackEngine) { mutableLongStateOf(0L) }
+    var media3StartPositionMs by remember(loadId, url, requestHeaders, androidPlaybackEngine) { mutableLongStateOf(startPositionMs) }
+    var fallbackPlaybackSpeed by remember(loadId, url, requestHeaders, androidPlaybackEngine) { mutableFloatStateOf(1f) }
+    var fallbackPlayWhenReady by remember(loadId, url, requestHeaders, androidPlaybackEngine) { mutableStateOf(true) }
+    var mpvView by remember(loadId, url, requestHeaders, activeEngine) { mutableStateOf<ConduitMpvView?>(null) }
+    var mpvTrackRevision by remember(loadId, url, requestHeaders, activeEngine) { mutableIntStateOf(0) }
     var playbackError by remember(player) { mutableStateOf<String?>(null) }
     var controlsVisible by remember(player) { mutableStateOf(true) }
     var speedMenuOpen by remember(player) { mutableStateOf(false) }
@@ -187,10 +188,10 @@ actual fun NativePlayer(
     LaunchedEffect(trackPanel) { onOverlayVisibilityChanged(trackPanel != null) }
     var tracksRevision by remember { mutableIntStateOf(0) }
     var trackFallback by remember(player) { mutableStateOf<androidx.media3.common.TrackSelectionParameters?>(null) }
-    var selectedSubtitleId by remember(url, requestHeaders) { mutableStateOf<String?>(null) }
-    var selectedSubtitleLanguage by remember(url, requestHeaders) { mutableStateOf<String?>(null) }
-    var selectedSubtitleLabel by remember(url, requestHeaders) { mutableStateOf<String?>(null) }
-    var subtitlesEnabled by remember(url, requestHeaders) { mutableStateOf(true) }
+    var selectedSubtitleId by remember(loadId, url, requestHeaders) { mutableStateOf<String?>(null) }
+    var selectedSubtitleLanguage by remember(loadId, url, requestHeaders) { mutableStateOf<String?>(null) }
+    var selectedSubtitleLabel by remember(loadId, url, requestHeaders) { mutableStateOf<String?>(null) }
+    var subtitlesEnabled by remember(loadId, url, requestHeaders) { mutableStateOf(true) }
     var lastTrackChangeAt by remember(player) { mutableLongStateOf(0L) }
     var autoAudioSelection by remember(player) { mutableStateOf<String?>(null) }
     var resizeMode by remember(player) { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
@@ -471,7 +472,7 @@ actual fun NativePlayer(
         lifecycle.addObserver(observer)
         onDispose { lifecycle.removeObserver(observer) }
     }
-    LaunchedEffect(mpvView, url, requestHeaders, activeEngine) {
+    LaunchedEffect(loadId, mpvView, url, requestHeaders, activeEngine) {
         val view = mpvView ?: return@LaunchedEffect
         if (activeEngine != NativePlaybackEngine.Libmpv || url.isNullOrBlank()) return@LaunchedEffect
         withContext(Dispatchers.IO) {
@@ -507,7 +508,8 @@ actual fun NativePlayer(
             mpvView?.setPaused(!(active && (fallbackReason == null || fallbackPlayWhenReady)))
         }
     }
-    LaunchedEffect(player, mpvView, landscape, activeEngine, nowPlayingController) {
+    LaunchedEffect(loadId, player, mpvView, landscape, activeEngine, nowPlayingController) {
+        val callback = onState
         while (true) {
             val mpvSnapshot = if (activeEngine == NativePlaybackEngine.Libmpv) {
                 mpvView?.let { view -> withContext(Dispatchers.IO) { view.refreshSnapshot() } }
@@ -566,7 +568,7 @@ actual fun NativePlayer(
                     fallbackReason = fallbackReason,
                 )
             }
-            currentCallback(next)
+            callback(next)
             nowPlayingController.syncPlayback(
                 AndroidNowPlayingSnapshot(
                     loading = next.loading || next.buffering,
@@ -769,7 +771,7 @@ actual fun NativePlayer(
                     )
                 },
         )
-        if (controlsVisible && presentation == PlaybackPresentation.FullScreen) {
+        if (controlsEnabled && controlsVisible && presentation == PlaybackPresentation.FullScreen) {
             Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .42f))) {
                 val portraitLayout = !landscape
                 val timelineAvailable = durationMs > 0

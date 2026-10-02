@@ -143,6 +143,8 @@ expect fun PlayerOrientationLock(active: Boolean)
 expect fun NativePlayer(
     url: String?,
     active: Boolean,
+    loadId: String = "",
+    controlsEnabled: Boolean = true,
     presentation: PlaybackPresentation = PlaybackPresentation.FullScreen,
     command: SequencedPlaybackCommand? = null,
     startPositionMs: Long = 0,

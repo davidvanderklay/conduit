@@ -698,6 +698,7 @@ internal fun MediaDetailsScreen(
     var streamsError by remember(item.id) { mutableStateOf<String?>(null) }
     var selectedStreamAddonId by remember(item.id) { mutableStateOf(preferences.lastStreamAddonId) }
     var playing by remember(item.id) { mutableStateOf<StreamItem?>(null) }
+    var playbackAttemptId by remember(item.id) { mutableStateOf(playbackSession.currentAttemptId) }
     var streamVideoId by remember(item.id) { mutableStateOf<String?>(null) }
     var resumePosition by remember(item.id) { mutableStateOf(0L) }
     var currentAddonId by remember(item.id) { mutableStateOf<String?>(null) }
@@ -940,6 +941,8 @@ internal fun MediaDetailsScreen(
         playerStreamRequestJob?.cancel()
         playerStreamRequestJob = null
         val requestVersion = playerStreamRequestVersion
+        val attemptId = playbackSession.currentAttemptId
+        playbackSession.resolving(attemptId)
         val addonChoices = streamAddonChoicesFor(video.id)
         val effectiveAddonId = effectiveStreamAddonId(addonId, addonChoices)
         val requestedAddons = effectiveAddonId?.let { selectedId ->
@@ -956,7 +959,7 @@ internal fun MediaDetailsScreen(
         updatePlayerStreamPicker(picker)
         val requestJob = scope.launch(start = CoroutineStart.LAZY) {
             val result = loadStreamsForRequest(video.id, requestedAddons, autoResume = false)
-            if (requestVersion != playerStreamRequestVersion) return@launch
+            if (requestVersion != playerStreamRequestVersion || !playbackSession.isCurrentAttempt(attemptId)) return@launch
             val updatedPicker = playerStreamPicker ?: return@launch
             val nextPicker = result.fold(
                 onSuccess = { choices ->
@@ -1016,6 +1019,16 @@ internal fun MediaDetailsScreen(
             "streams/request",
             "video=${video?.id ?: videoIdOverride ?: item.id} autoPlay=$autoPlaySavedSource transition=${playbackSession.state.transition != null}",
         )
+        val videoId = video?.id ?: videoIdOverride ?: item.id
+        val identity = profile?.let { PlaybackIdentity(it.id, item.type, item.id, videoId) }
+        playbackAttemptId = playbackSession.beginTransition(
+            title = playbackTitle(video?.displayTitle, meta?.name ?: item.name, video?.season, video?.episode),
+            mediaName = meta?.name ?: item.name,
+            artwork = null,
+            identity = identity,
+        )
+        val attemptId = playbackAttemptId
+        playbackSession.resolving(attemptId)
         cancelStreamRequest()
         if (!autoPlaySavedSource) {
             streamPageOpen = true
@@ -1029,11 +1042,18 @@ internal fun MediaDetailsScreen(
         streamBackToHome?.let { streamSelectionReturnsHome = it }
         streamsLoading = true
         if (!autoPlaySavedSource) streamsError = null
-        val videoId = video?.id ?: videoIdOverride ?: item.id
         val requestVersion = ++streamRequestVersion
         val transitionRequest = playbackSession.state.transition != null
         streams = null
         streamVideoId = videoId
+        if (transitionRequest && !autoPlaySavedSource) {
+            streamPageOpen = false
+            streamsLoading = false
+            val pickerVideo = video ?: meta?.videos?.firstOrNull { it.id == videoId }
+                ?: VideoItem(videoId, title = meta?.name ?: item.name)
+            openPlayerStreamPicker(pickerVideo, movie = item.type == "movie")
+            return
+        }
         val requestJob = scope.launch(start = CoroutineStart.LAZY) {
             val compatibleAddons = addons.filter { it.enabled && it.supportsResource("stream", item.type, videoId) }
             val requestedAddonId = if (autoPlaySavedSource) null else addonId ?: selectedStreamAddonId
@@ -1057,7 +1077,7 @@ internal fun MediaDetailsScreen(
                 }
                 streams.await() to progress?.await()
             }
-            if (requestVersion != streamRequestVersion) return@launch
+            if (requestVersion != streamRequestVersion || !playbackSession.isCurrentAttempt(attemptId)) return@launch
             val pickerVideo = video
                 ?: meta?.videos?.firstOrNull { it.id == videoId }
                 ?: VideoItem(videoId, title = meta?.name ?: item.name)
@@ -1120,6 +1140,7 @@ internal fun MediaDetailsScreen(
                                 streamPageOpen = false
                                 openPlayerStreamPicker(
                                     pickerVideo,
+                                    movie = item.type == "movie",
                                     resumePositionMs = playbackStartPosition(targetProgress),
                                 )
                             } else {
@@ -1151,6 +1172,7 @@ internal fun MediaDetailsScreen(
                             streamPageOpen = false
                             openPlayerStreamPicker(
                                 pickerVideo,
+                                movie = item.type == "movie",
                                 resumePositionMs = playbackStartPosition(targetProgress),
                             )
                         } else {
@@ -1173,19 +1195,16 @@ internal fun MediaDetailsScreen(
         rankAllAutomaticStreams: Boolean = false,
         preferredSource: PlaybackSource? = null,
         streamBackToHome: Boolean? = null,
-        closePlaybackWithoutSaving: Boolean = false,
-        keepPlayerVisible: Boolean = false,
     ) {
         val shouldAutoPlay = autoPlaySavedSource ?: (preferredSource != null && preferences.autoSelectSavedStreams)
         DiagnosticLogStore.info(
             "playback/video",
-            "select video=${video?.id ?: item.id} autoPlay=$shouldAutoPlay keepPlayer=$keepPlayerVisible",
+            "select video=${video?.id ?: item.id} autoPlay=$shouldAutoPlay",
         )
         if (streamBackToHome != null) streamSelectionReturnsHome = streamBackToHome
         if (selectedVideo?.id != video?.id) {
             resetPlaybackForVideoChange(
-                saveProgress = !closePlaybackWithoutSaving,
-                keepPlayerVisible = keepPlayerVisible,
+                keepPlayerVisible = true,
             )
         }
         selectedVideo = video
@@ -1199,7 +1218,7 @@ internal fun MediaDetailsScreen(
         )
     }
 
-    val playingVideoId = selectedVideo?.id ?: streamVideoId ?: item.id
+    val playingVideoId = selectedVideo?.id ?: streamVideoId ?: effectiveInitialVideoId ?: item.id
     val streamAddonChoices = remember(addons, item.type, playingVideoId) {
         addons
             .filter { it.enabled && it.supportsResource("stream", item.type, playingVideoId) }
@@ -1235,6 +1254,12 @@ internal fun MediaDetailsScreen(
                 openMode = openMode,
                 addonsAvailable = addons.isNotEmpty(),
                 transitionActive = playbackSession.state.transition != null,
+                transitionOwnedByTarget = playbackSession.state.transition?.let { transition ->
+                    !transition.resolutionStarted && transition.loadingSessionId == null && transition.identity?.let { identity ->
+                        identity.profileId == profile?.id && identity.mediaId == item.id && identity.mediaType == item.type &&
+                            (identity.videoId == item.id || identity.videoId == selectedVideo?.id || identity.videoId == effectiveInitialVideoId)
+                    } == true
+                } == true,
             )
         ) return@LaunchedEffect
         if (item.type == "series" && effectiveInitialVideoId == null && selectedVideo == null) return@LaunchedEffect
@@ -1317,18 +1342,19 @@ internal fun MediaDetailsScreen(
     fun selectPlayerStream(source: StreamSource) {
         val picker = playerStreamPicker ?: return
         if (source.stream.url == null) return
+        playbackAttemptId = playbackSession.state.transition?.attemptId
         DiagnosticLogStore.info(
             "playback/source",
             "drawer source selected video=${picker.episode.id} addon=${source.addonId}",
         )
-        val switchingCurrentSource = picker.episode.id == playingVideoId
+        val switchingCurrentSource = playbackSession.state.request?.identity ==
+            profile?.let { PlaybackIdentity(it.id, item.type, item.id, picker.episode.id) }
         val previousResumePosition = resumePosition
-        val retainedPosition = if (switchingCurrentSource) {
-            playbackSession.state.playback.positionMs.takeIf { playbackSession.state.playback.durationMs > 0 }
-                ?: previousResumePosition
-        } else {
-            picker.resumePositionMs
-        }
+        val retainedPosition = sourceSwitchStartPosition(
+            session = playbackSession.state,
+            target = profile?.let { PlaybackIdentity(it.id, item.type, item.id, picker.episode.id) },
+            savedPositionMs = if (switchingCurrentSource) previousResumePosition else picker.resumePositionMs,
+        )
         if (switchingCurrentSource && currentAddonId != null && currentAddonName != null && playing != null) {
             manualSourceSwitchVideoIds = manualSourceSwitchVideoIds + picker.episode.id
             manualSourceFallbacks = manualSourceFallbacks + (
@@ -1417,8 +1443,6 @@ internal fun MediaDetailsScreen(
                         autoPlaySavedSource = true,
                         rankAllAutomaticStreams = true,
                         preferredSource = currentPlaybackSource(),
-                        closePlaybackWithoutSaving = true,
-                        keepPlayerVisible = true,
                     )
                 }
             },
@@ -1557,6 +1581,7 @@ internal fun MediaDetailsScreen(
         playbackReloadKey,
     ) {
         val streamUrl = selectedStream?.url ?: return@LaunchedEffect
+        if (playbackAttemptId != null && !playbackSession.isCurrentAttempt(playbackAttemptId)) return@LaunchedEffect
         val identity = requestIdentity ?: return@LaunchedEffect
         val callbacks = sessionCallbacks ?: return@LaunchedEffect
         val request = PlaybackRequest(
@@ -1596,7 +1621,7 @@ internal fun MediaDetailsScreen(
             "playback/request",
             "video=${identity.videoId} startMs=${request.startPositionMs} reload=${request.reloadKey} source=${request.source?.addonId ?: "none"}",
         )
-        playbackSession.start(request, callbacks)
+        playbackSession.start(request, callbacks, playbackAttemptId)
         openingPlayback = false
     }
     LaunchedEffect(requestIdentity, externalSubtitlesLoaded, externalSubtitles) {
@@ -1604,9 +1629,13 @@ internal fun MediaDetailsScreen(
         requestIdentity?.let { playbackSession.updateSubtitles(it, externalSubtitles) }
     }
     SideEffect {
-        if (requestIdentity != null && sessionCallbacks != null) playbackSession.attach(requestIdentity, sessionCallbacks)
+        if (requestIdentity != null && sessionCallbacks != null) {
+            playbackSession.attach(requestIdentity, sessionCallbacks)
+            playbackSession.attachTransition(requestIdentity, sessionCallbacks)
+        }
     }
     fun closeStreamSelection() {
+        if (playbackSession.state.transition != null) playbackSession.close()
         cancelStreamRequest()
         streamEpisodesOpen = false
         streamPageOpen = false
@@ -1614,6 +1643,7 @@ internal fun MediaDetailsScreen(
         if (streamSelectionReturnsHome) onBack()
     }
     fun cancelAutoResume() {
+        if (playbackSession.state.transition != null) playbackSession.close()
         cancelStreamRequest()
         autoResumeStage = AutoResumeStage.Inactive
         autoFallbackStreams = emptyMap()
@@ -1629,6 +1659,11 @@ internal fun MediaDetailsScreen(
     fun performNativeBack() {
         val session = playbackSession.state
         when {
+            session.transition != null -> {
+                cancelStreamRequest()
+                playbackSession.close()
+                onBack()
+            }
             session.streamPicker != null -> {
                 val picker = session.streamPicker
                 interactiveBackRestore = { playbackSession.showStreamPicker(picker) }
@@ -1696,8 +1731,8 @@ internal fun MediaDetailsScreen(
     if (waitingForSavedPlayback || openingPlayback) {
         Box(Modifier.fillMaxSize()) {
             PlayerOpeningOverlay(
-                artwork = meta?.background ?: item.background ?: meta?.poster ?: item.poster,
-                logo = meta?.logo,
+                artwork = null,
+                logo = null,
                 title = meta?.name ?: item.name,
                 status = if (waitingForSavedPlayback) "Finding source…" else "Starting playback…",
                 modifier = Modifier.fillMaxSize(),
@@ -1743,16 +1778,16 @@ internal fun MediaDetailsScreen(
             ) { source ->
                 if (source.stream.url != null) {
                     val videoId = selectedVideo?.id ?: streamVideoId ?: item.id
-                    val switchingCurrentSource = videoId == playingVideoId
+                    val switchingCurrentSource = playbackSession.state.request?.identity ==
+                        profile?.let { PlaybackIdentity(it.id, item.type, item.id, videoId) }
                     val previousResumePosition = resumePosition
-                    val retainedPosition = if (switchingCurrentSource) {
-                        playbackSession.state.playback.positionMs.takeIf { playbackSession.state.playback.durationMs > 0 }
-                            ?: previousResumePosition
-                    } else {
-                        0L
-                    }
+                    val retainedPosition = sourceSwitchStartPosition(
+                        session = playbackSession.state,
+                        target = profile?.let { PlaybackIdentity(it.id, item.type, item.id, videoId) },
+                        savedPositionMs = if (switchingCurrentSource) previousResumePosition else playbackStartPosition(progressForVideoId(videoId)),
+                    )
                     if (playbackSession.state.request != null) {
-                        playbackSession.beginTransition(
+                        playbackAttemptId = playbackSession.beginTransition(
                             title = playbackTitle(
                                 title = selectedVideo?.displayTitle,
                                 fallback = meta?.name ?: item.name,
@@ -1762,6 +1797,7 @@ internal fun MediaDetailsScreen(
                             mediaName = meta?.name ?: item.name,
                             artwork = selectedVideo?.thumbnail ?: meta?.background ?: item.background ?: item.poster,
                             logo = meta?.logo,
+                            identity = profile?.let { PlaybackIdentity(it.id, item.type, item.id, videoId) },
                         )
                     }
                     currentAddonId = source.addonId
@@ -2242,25 +2278,6 @@ internal fun PlayerOpeningOverlay(
     status: String? = null,
     modifier: Modifier = Modifier,
 ) {
-    val pulse = rememberInfiniteTransition(label = "player-opening")
-    val indicatorScale by pulse.animateFloat(
-        initialValue = .96f,
-        targetValue = 1.04f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1_250, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "opening-scale",
-    )
-    val indicatorAlpha by pulse.animateFloat(
-        initialValue = .72f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1_250, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "opening-alpha",
-    )
     Box(modifier.background(Color.Black)) {
         artwork?.let { AsyncImage(model = it, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
         Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = .64f)))
@@ -2273,12 +2290,7 @@ internal fun PlayerOpeningOverlay(
                 modifier = Modifier
                     .align(Alignment.Center)
                     .fillMaxWidth(.28f)
-                    .heightIn(max = 100.dp)
-                    .graphicsLayer {
-                        scaleX = indicatorScale
-                        scaleY = indicatorScale
-                        alpha = indicatorAlpha
-                    },
+                    .heightIn(max = 100.dp),
             )
         } else {
             Text(
@@ -2289,12 +2301,7 @@ internal fun PlayerOpeningOverlay(
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier
-                    .align(Alignment.Center)
-                    .graphicsLayer {
-                        scaleX = indicatorScale
-                        scaleY = indicatorScale
-                        alpha = indicatorAlpha
-                    },
+                    .align(Alignment.Center),
             )
         }
         status?.let {

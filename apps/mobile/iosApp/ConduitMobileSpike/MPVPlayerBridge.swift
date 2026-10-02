@@ -14,6 +14,7 @@ fileprivate struct ConduitSubtitle {
 
 private struct ConduitPendingLoad {
     let url: String
+    let loadId: String
     let initialPositionMs: Int64
     let headers: [String: String]
     let subtitles: [ConduitSubtitle]
@@ -77,12 +78,14 @@ final class ConduitMPVPlayerBridge: NSObject, IosPlayerBridge {
 
     func loadFile(
         url: String,
+        loadId: String,
         initialPositionMs: Int64,
         headersJson: String?,
         subtitlesJson: String?
     ) {
         ensurePlayerViewController().loadFile(
             url,
+            loadId: loadId,
             initialPositionMs: initialPositionMs,
             headers: parseHeaders(headersJson),
             subtitles: parseSubtitles(subtitlesJson)
@@ -228,6 +231,8 @@ final class ConduitMPVPlayerBridge: NSObject, IosPlayerBridge {
         playerViewController?.selectSubtitle(Int(trackId))
     }
 
+    func getLoadId() -> String { playerViewController?.loadId ?? "" }
+
     func getIsLoading() -> Bool {
         playerViewController?.refreshPlaybackState()
         return playerViewController?.isPlayerLoading ?? true
@@ -341,6 +346,11 @@ final class ConduitMPVPlayerViewController: UIViewController {
     private var mpv: OpaquePointer?
 
     private var pendingLoad: ConduitPendingLoad?
+    private(set) var loadId = ""
+    // Only the event queue reads or writes this ID.
+    private var eventLoadId = ""
+    private var eventPresentationBaseline: UInt64 = 0
+    private var firstFramePresentationBaseline: UInt64 = 0
     private var pendingRetry: DispatchWorkItem?
     private var activeHeaders: [String: String] = [:]
     private var preferredAudioLanguage = "System default"
@@ -633,6 +643,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
 
     fileprivate func loadFile(
         _ url: String,
+        loadId: String,
         initialPositionMs: Int64,
         headers: [String: String],
         subtitles: [ConduitSubtitle]
@@ -640,10 +651,11 @@ final class ConduitMPVPlayerViewController: UIViewController {
         emitDiagnostic(
             level: "info",
             category: "ios/load",
-            message: "load requested startMs=\(max(0, initialPositionMs)) headers=\(headers.count) subtitles=\(subtitles.count)",
+            message: "load requested id=\(loadId) startMs=\(max(0, initialPositionMs)) headers=\(headers.count) subtitles=\(subtitles.count)",
         )
         let request = ConduitPendingLoad(
             url: url,
+            loadId: loadId,
             initialPositionMs: max(0, initialPositionMs),
             headers: headers,
             subtitles: subtitles
@@ -651,6 +663,22 @@ final class ConduitMPVPlayerViewController: UIViewController {
 
         let prepareLoad = { [weak self] in
             guard let self else { return }
+            // Invalidate readiness immediately, even if PiP or layout defers loadfile.
+            self.pausePlayback()
+            self.bumpPlaybackStateGeneration()
+            self.loadId = request.loadId
+            self.clearError()
+            self.hasLoadedFile = false
+            self.hasVideoStream = false
+            self.isPlayerBuffering = false
+            self.waitingForInitialVideoFrame = true
+            self.isPlayerLoading = true
+            self.isPlayerPlaying = false
+            self.isPlayerEnded = false
+            self.positionMs = request.initialPositionMs
+            self.durationMs = 0
+            self.videoWidth = 0
+            self.videoHeight = 0
             self.pendingLoad = request
             guard let pictureInPicture = self.pictureInPicture else {
                 self.attemptStartPendingLoad()
@@ -687,10 +715,13 @@ final class ConduitMPVPlayerViewController: UIViewController {
             guard let self else { return }
             self.debugLog("playback command=play source=app-or-pip")
             self.shouldPlay = true
+            // Record autoplay intent without unpausing the previous file while
+            // the replacement waits for PiP shutdown or a usable surface.
             guard self.mpv != nil else { return }
             // Claim the session before unpausing so mpv's AudioUnit init does
             // not become the de facto owner of the shared session.
             self.activateAudioSession()
+            guard self.pendingLoad == nil, self.hasLoadedFile else { return }
             if self.videoOutputRecoveryState.failed {
                 self.retryVideoOutputOnMain()
                 return
@@ -918,7 +949,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
                 self.playbackStateRefreshLock.lock()
                 let isCurrentGeneration = generation == self.playbackStateGeneration
                 self.playbackStateRefreshLock.unlock()
-                guard isCurrentGeneration, !self.destroyStarted else { return }
+                guard isCurrentGeneration, !self.destroyStarted, self.pendingLoad == nil else { return }
                 self.applyPlaybackStateSnapshot(snapshot)
             }
         }
@@ -979,7 +1010,8 @@ final class ConduitMPVPlayerViewController: UIViewController {
     }
 
     private func applyPlaybackStateSnapshot(_ snapshot: PlaybackStateSnapshot) {
-        if waitingForInitialVideoFrame, hasLoadedFile, snapshot.hasInitialVideoOutput {
+        if waitingForInitialVideoFrame, hasLoadedFile, snapshot.hasInitialVideoOutput,
+           metalLayer.hasPresentedDrawable(after: firstFramePresentationBaseline) {
             waitingForInitialVideoFrame = false
             let elapsed = ProcessInfo.processInfo.systemUptime - loadStartedAtUptime
             emitDiagnostic(level: "info", category: "ios/startup", message: String(format: "first video output elapsed=%.2fs", elapsed))
@@ -1649,7 +1681,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
             "startMs=\(request.initialPositionMs) " +
             "externalSubtitles=\(request.subtitles.count)"
         )
-        emitDiagnostic(level: "info", category: "ios/load", message: "starting load startMs=\(request.initialPositionMs) subtitles=\(request.subtitles.count)")
+        emitDiagnostic(level: "info", category: "ios/load", message: "starting load id=\(request.loadId) startMs=\(request.initialPositionMs) subtitles=\(request.subtitles.count)")
         layoutMetalLayer()
         pictureInPictureClock.reset(positionMs: request.initialPositionMs)
         clearError()
@@ -1669,19 +1701,27 @@ final class ConduitMPVPlayerViewController: UIViewController {
         print("[Conduit MPV][startup] opening stream")
 #endif
 
-        // loadFile() can be deferred while PiP capture drains. Reapply the
-        // latest intent here so an earlier play() is not overwritten when the
-        // replacement stream finally starts.
-        setFlag("pause", !shouldPlay)
-        command(
-            "loadfile",
-            args: [
-                request.url,
-                "replace",
-                "-1",
-                playbackFileOptions(initialPositionMs: request.initialPositionMs).joined(separator: ","),
-            ]
-        )
+        // Keep the old file paused until the serialized stop/load completes.
+        // First-frame presentation applies the latest play intent to the new file.
+        setFlag("pause", true)
+        eventQueue.async { [weak self] in
+            guard let self else { return }
+            // Tag all already-queued events with the previous load before
+            // accepting events from this replacement.
+            self.command("stop")
+            self.drainEvents()
+            self.eventPresentationBaseline = self.metalLayer.currentDrawableID()
+            self.eventLoadId = request.loadId
+            self.command(
+                "loadfile",
+                args: [
+                    request.url,
+                    "replace",
+                    "-1",
+                    playbackFileOptions(initialPositionMs: request.initialPositionMs).joined(separator: ","),
+                ]
+            )
+        }
 
     }
 
@@ -1923,82 +1963,97 @@ final class ConduitMPVPlayerViewController: UIViewController {
     }
 
     private func readEvents() {
-        eventQueue.async { [weak self] in
-            guard let self, let mpv = self.mpv else { return }
-            while true {
-                guard let event = mpv_wait_event(mpv, 0) else { return }
-                let eventId = event.pointee.event_id
-                if eventId == MPV_EVENT_NONE { return }
+        eventQueue.async { [weak self] in self?.drainEvents() }
+    }
 
-                switch eventId {
-                case MPV_EVENT_PROPERTY_CHANGE:
-                    let tracksChanged = event.pointee.reply_userdata == 6 ||
-                        event.pointee.reply_userdata == 7
-                    DispatchQueue.main.async { [weak self] in
-                        self?.refreshPlaybackState()
-                        if tracksChanged { self?.refreshTracks() }
-                    }
-                case MPV_EVENT_FILE_LOADED:
-                    DispatchQueue.main.async { [weak self] in
-                        guard let self else { return }
-                        self.hasLoadedFile = true
-                        self.clearError()
-                        let elapsed = ProcessInfo.processInfo.systemUptime - self.loadStartedAtUptime
-                        self.emitDiagnostic(level: "info", category: "ios/startup", message: String(format: "file loaded elapsed=%.2fs", elapsed))
-#if DEBUG
-                        print(String(format: "[Conduit MPV][startup] file loaded in %.2fs", elapsed))
-#endif
-                        self.refreshPlaybackState()
-                        self.refreshTracks()
-                        let videoCodec = self.getString("video-codec")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                        self.hasVideoStream = !videoCodec.isEmpty
-                        if videoCodec.isEmpty {
-                            self.waitingForInitialVideoFrame = false
-                            if self.shouldPlay { self.setFlag("pause", false) }
-                        }
-                    }
-                case MPV_EVENT_PLAYBACK_RESTART:
-                    DispatchQueue.main.async { [weak self] in
-                        self?.refreshPlaybackState()
-                    }
-                case MPV_EVENT_END_FILE:
-                    guard let data = event.pointee.data else { continue }
-                    let endFile = UnsafePointer<mpv_event_end_file>(OpaquePointer(data)).pointee
-                    DispatchQueue.main.async { [weak self] in
-                        guard let self else { return }
-                        self.isPlayerEnded = endFile.reason != MPV_END_FILE_REASON_ERROR
-                        if endFile.reason == MPV_END_FILE_REASON_ERROR {
-                            self.recordError("[mpv] \(String(cString: mpv_error_string(endFile.error)))")
-                        }
-                    }
-                case MPV_EVENT_LOG_MESSAGE:
-                    guard let data = event.pointee.data,
-                          let message = UnsafeMutablePointer<mpv_event_log_message>(OpaquePointer(data)).pointee.text,
-                          let level = UnsafeMutablePointer<mpv_event_log_message>(OpaquePointer(data)).pointee.level
-                    else { continue }
-                    let text = String(cString: message).trimmingCharacters(in: .whitespacesAndNewlines)
-                    let levelString = String(cString: level)
-                    let nativeLevel: String
-                    switch levelString {
-                    case "error", "fatal": nativeLevel = "error"
-                    case "warn", "warning": nativeLevel = "warn"
-                    case "info": nativeLevel = "info"
-                    default: nativeLevel = "debug"
-                    }
-                    self.emitDiagnostic(level: nativeLevel, category: "ios/mpv", message: text)
-#if DEBUG
-                    let rawLog = UnsafeMutablePointer<mpv_event_log_message>(OpaquePointer(data)).pointee
-                    let prefix = rawLog.prefix.map(String.init(cString:)) ?? "mpv"
-                    print("[Conduit MPV][\(prefix)][\(levelString)] \(text)")
-#endif
-                    if levelString == "error" || levelString == "fatal" {
-                        self.recordDiagnostic(text)
-                    }
-                case MPV_EVENT_SHUTDOWN:
-                    return
-                default:
-                    continue
+    private func drainEvents() {
+        guard let mpv else { return }
+        let eventLoadId = self.eventLoadId
+        let presentationBaseline = eventPresentationBaseline
+        while true {
+            guard let event = mpv_wait_event(mpv, 0) else { return }
+            let eventId = event.pointee.event_id
+            if eventId == MPV_EVENT_NONE { return }
+
+            switch eventId {
+            case MPV_EVENT_PROPERTY_CHANGE:
+                let tracksChanged = event.pointee.reply_userdata == 6 ||
+                    event.pointee.reply_userdata == 7
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, self.loadId == eventLoadId else { return }
+                    self.refreshPlaybackState()
+                    if tracksChanged { self.refreshTracks() }
                 }
+            case MPV_EVENT_FILE_LOADED:
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, self.loadId == eventLoadId else { return }
+                    // The stop/load barrier excludes old in-flight drawables
+                    // and includes a new frame presented before FILE_LOADED.
+                    self.firstFramePresentationBaseline = presentationBaseline
+                    self.hasLoadedFile = true
+                    self.clearError()
+                    let elapsed = ProcessInfo.processInfo.systemUptime - self.loadStartedAtUptime
+                    self.emitDiagnostic(level: "info", category: "ios/startup", message: String(format: "file loaded elapsed=%.2fs", elapsed))
+#if DEBUG
+                    print(String(format: "[Conduit MPV][startup] file loaded in %.2fs", elapsed))
+#endif
+                    self.refreshPlaybackState()
+                    self.refreshTracks()
+                    let videoCodec = self.getString("video-codec")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    let trackCount = max(0, self.getInt("track-list/count"))
+                    let hasVideoTrack = (0..<trackCount).contains { index in
+                        self.getString("track-list/\(index)/type") == "video"
+                    }
+                    self.hasVideoStream = hasVideoTrack || !videoCodec.isEmpty
+                    if !self.hasVideoStream {
+                        self.waitingForInitialVideoFrame = false
+                        if self.shouldPlay { self.setFlag("pause", false) }
+                    }
+                }
+            case MPV_EVENT_PLAYBACK_RESTART:
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, self.loadId == eventLoadId else { return }
+                    self.refreshPlaybackState()
+                }
+            case MPV_EVENT_END_FILE:
+                guard let data = event.pointee.data else { continue }
+                let endFile = UnsafePointer<mpv_event_end_file>(OpaquePointer(data)).pointee
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, self.loadId == eventLoadId else { return }
+                    // Replacing a file produces STOP for the old stream.
+                    guard endFile.reason != MPV_END_FILE_REASON_STOP else { return }
+                    self.isPlayerEnded = endFile.reason != MPV_END_FILE_REASON_ERROR
+                    if endFile.reason == MPV_END_FILE_REASON_ERROR {
+                        self.recordError("[mpv] \(String(cString: mpv_error_string(endFile.error)))")
+                    }
+                }
+            case MPV_EVENT_LOG_MESSAGE:
+                guard let data = event.pointee.data,
+                      let message = UnsafeMutablePointer<mpv_event_log_message>(OpaquePointer(data)).pointee.text,
+                      let level = UnsafeMutablePointer<mpv_event_log_message>(OpaquePointer(data)).pointee.level
+                else { continue }
+                let text = String(cString: message).trimmingCharacters(in: .whitespacesAndNewlines)
+                let levelString = String(cString: level)
+                let nativeLevel: String
+                switch levelString {
+                case "error", "fatal": nativeLevel = "error"
+                case "warn", "warning": nativeLevel = "warn"
+                case "info": nativeLevel = "info"
+                default: nativeLevel = "debug"
+                }
+                self.emitDiagnostic(level: nativeLevel, category: "ios/mpv", message: text)
+#if DEBUG
+                let rawLog = UnsafeMutablePointer<mpv_event_log_message>(OpaquePointer(data)).pointee
+                let prefix = rawLog.prefix.map(String.init(cString:)) ?? "mpv"
+                print("[Conduit MPV][\(prefix)][\(levelString)] \(text)")
+#endif
+                if levelString == "error" || levelString == "fatal" {
+                    self.recordDiagnostic(text)
+                }
+            case MPV_EVENT_SHUTDOWN:
+                return
+            default:
+                continue
             }
         }
     }
