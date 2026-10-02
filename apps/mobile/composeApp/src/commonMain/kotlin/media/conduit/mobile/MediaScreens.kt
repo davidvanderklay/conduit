@@ -3778,7 +3778,7 @@ private fun DebugLogsScreen(
             style = MaterialTheme.typography.bodySmall,
         )
         Text(
-            "Timestamps use UTC and logs are kept in memory only. Debug logging is ${if (debugLogging) "enabled" else "disabled"}.",
+            "UTC timestamps. Current and two previous sessions are stored locally. Debug logging is ${if (debugLogging) "enabled" else "disabled"}.",
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.bodySmall,
         )
