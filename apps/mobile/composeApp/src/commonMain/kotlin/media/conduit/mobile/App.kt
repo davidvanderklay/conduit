@@ -1260,6 +1260,7 @@ private fun AppShell(
         PlaybackSessionHost(
             controller = playbackSession,
             preferences = preferences,
+            onPreferencesChanged = onPreferencesChanged,
             expanded = expanded,
             isTablet = isTablet,
             isIpad = isIpad,
@@ -1537,6 +1538,7 @@ private fun DestinationContent(
 private fun BoxScope.PlaybackSessionHost(
     controller: PlaybackSessionController,
     preferences: DevicePreferences,
+    onPreferencesChanged: (DevicePreferences) -> Unit,
     expanded: Boolean,
     isTablet: Boolean,
     isIpad: Boolean,
@@ -1833,6 +1835,8 @@ private fun BoxScope.PlaybackSessionHost(
             holdToSpeed = preferences.holdToSpeed && playbackTransition == null,
             preferredAudioLanguage = preferences.preferredAudioLanguage,
             preferredSubtitleLanguage = preferences.preferredSubtitleLanguage,
+            subtitleStyle = preferences.subtitleStyle,
+            onSubtitleStyleChanged = { onPreferencesChanged(preferences.copy(subtitleStyle = it)) },
             androidPlaybackEngine = preferences.androidPlaybackEngine,
             onControlsVisibilityChanged = { controlsVisible = it },
             onOverlayVisibilityChanged = { playerOverlayVisible = it },

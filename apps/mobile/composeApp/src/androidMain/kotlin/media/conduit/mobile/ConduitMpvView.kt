@@ -14,6 +14,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import media.conduit.mobile.account.SubtitleItem
+import media.conduit.mobile.foundation.SubtitleStyle
 
 internal data class MpvPlaybackSnapshot(
     val loading: Boolean,
@@ -55,6 +56,9 @@ private data class MpvLoadRequest(
 
 private const val EmbeddedSubtitleSelectionPrefix = "embedded:"
 
+/** mpv's `sub-pos` for the default style: slightly above the bottom edge. */
+private const val MpvDefaultSubtitlePosition = 95
+
 /**
  * Small conduit-owned wrapper around the pinned mpv-android AAR. The view owns
  * the libmpv handle and exposes only the operations needed by the Compose
@@ -95,6 +99,8 @@ internal class ConduitMpvView(
     @Volatile private var activeLoadGeneration = 0L
     @Volatile private var lastLoadSignature: String? = null
     private var lastResizeMode: Int? = null
+    private var lastSubtitleStyle: SubtitleStyle? = null
+    private var defaultSubtitleOutlineSize: Double? = null
     private val nativeLock = Any()
     private val nativeScope = CoroutineScope(SupervisorJob() + Dispatchers.IO.limitedParallelism(1))
     private val subtitleScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -131,7 +137,8 @@ internal class ConduitMpvView(
         // bottom edge, with the same scaled-pixel baseline as Media3's full-
         // screen subtitle size. These are global options so they also apply
         // when external subtitles are added after the first video frame.
-        mpv.setOptionString("sub-pos", "95")
+        // applySubtitleStyle layers the user's size and position on top.
+        mpv.setOptionString("sub-pos", MpvDefaultSubtitlePosition.toString())
         mpv.setOptionString("sub-align-x", "center")
         mpv.setOptionString("sub-align-y", "bottom")
         mpv.setOptionString("sub-font-size", "38")
@@ -421,6 +428,19 @@ internal class ConduitMpvView(
         enqueueNative {
             mpv.setPropertyDouble("panscan", panscan)
             mpv.setPropertyString("video-aspect-override", "no")
+        }
+    }
+
+    /** Applies the user's subtitle size, position, and outline to the running player. */
+    fun applySubtitleStyle(style: SubtitleStyle) {
+        if (lastSubtitleStyle == style) return
+        lastSubtitleStyle = style
+        enqueueNative {
+            val outlineSize = defaultSubtitleOutlineSize
+                ?: (mpv.getPropertyDouble("sub-outline-size") ?: 3.0).also { defaultSubtitleOutlineSize = it }
+            mpv.setPropertyDouble("sub-scale", style.scale.toDouble())
+            mpv.setPropertyInt("sub-pos", MpvDefaultSubtitlePosition - style.offsetPercent)
+            mpv.setPropertyDouble("sub-outline-size", if (style.outline) outlineSize else 0.0)
         }
     }
 

@@ -11,6 +11,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import media.conduit.mobile.account.SubtitleItem
+import media.conduit.mobile.foundation.SubtitleStyle
 
 private const val PlayerHoldToSpeedDelayMs = 450L
 private const val PlayerDoubleTapTimeoutMs = 300L
@@ -162,6 +163,8 @@ expect fun NativePlayer(
     holdToSpeed: Boolean = true,
     preferredAudioLanguage: String = "System default",
     preferredSubtitleLanguage: String = "English",
+    subtitleStyle: SubtitleStyle = SubtitleStyle(),
+    onSubtitleStyleChanged: (SubtitleStyle) -> Unit = {},
     androidPlaybackEngine: AndroidPlaybackEngine = AndroidPlaybackEngine.Automatic,
     onEpisodes: () -> Unit = {},
     onSources: () -> Unit = {},

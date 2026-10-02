@@ -9,7 +9,9 @@ import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
@@ -51,6 +53,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import media.conduit.mobile.account.DiagnosticLogStore
 import media.conduit.mobile.account.SubtitleItem
+import media.conduit.mobile.foundation.SubtitleStyle
 
 private data class IosTrack(
     val id: Int,
@@ -104,6 +107,8 @@ actual fun NativePlayer(
     holdToSpeed: Boolean,
     preferredAudioLanguage: String,
     preferredSubtitleLanguage: String,
+    subtitleStyle: SubtitleStyle,
+    onSubtitleStyleChanged: (SubtitleStyle) -> Unit,
     androidPlaybackEngine: AndroidPlaybackEngine,
     onEpisodes: () -> Unit,
     onSources: () -> Unit,
@@ -247,6 +252,10 @@ actual fun NativePlayer(
 
     LaunchedEffect(bridge, preferredSubtitleLanguage) {
         bridge.setPreferredSubtitleLanguage(preferredSubtitleLanguage)
+    }
+
+    LaunchedEffect(bridge, subtitleStyle) {
+        bridge.setSubtitleStyle(subtitleStyle.sizePercent, subtitleStyle.offsetPercent, subtitleStyle.outline)
     }
 
     LaunchedEffect(controlsVisible) {
@@ -588,6 +597,8 @@ actual fun NativePlayer(
                 IosSubtitlePanel(
                     tracks = subtitleTracks,
                     preferredLanguage = preferredSubtitleLanguage,
+                    subtitleStyle = subtitleStyle,
+                    onSubtitleStyleChanged = onSubtitleStyleChanged,
                     onSelect = { trackId ->
                         bridge.selectSubtitleTrack(trackId)
                         subtitleTracks = subtitleTracks.map { track ->
@@ -777,6 +788,8 @@ private fun BoxScope.IosPlayerTrackPanel(
 private fun BoxScope.IosSubtitlePanel(
     tracks: List<IosTrack>,
     preferredLanguage: String,
+    subtitleStyle: SubtitleStyle,
+    onSubtitleStyleChanged: (SubtitleStyle) -> Unit,
     onSelect: (Int) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -876,13 +889,13 @@ private fun BoxScope.IosSubtitlePanel(
                 }
                 Column(Modifier.weight(1f)) {
                     Text("Subtitle Settings", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                    Spacer(Modifier.weight(1f))
-                    Text(
-                        "Subtitle appearance is controlled by conduit Settings. Your language, size, position, and outline preferences apply across playback.",
-                        color = Color.White.copy(alpha = .72f),
-                        style = MaterialTheme.typography.bodyLarge,
+                    Spacer(Modifier.height(18.dp))
+                    SubtitleStyleControls(
+                        style = subtitleStyle,
+                        onChange = onSubtitleStyleChanged,
+                        modifier = Modifier.verticalScroll(rememberScrollState()),
+                        contentColor = Color.White,
                     )
-                    Spacer(Modifier.weight(1f))
                 }
             }
           }

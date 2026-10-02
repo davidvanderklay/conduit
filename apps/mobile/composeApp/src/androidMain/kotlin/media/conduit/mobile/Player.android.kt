@@ -1,10 +1,12 @@
 package media.conduit.mobile
 
 import android.app.Activity
+import android.content.Context
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.os.SystemClock
 import android.util.Log
+import android.view.accessibility.CaptioningManager
 import android.widget.Toast
 import androidx.annotation.OptIn
 import androidx.compose.runtime.*
@@ -15,6 +17,8 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -54,11 +58,14 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.ui.PlayerView
 import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.CaptionStyleCompat
+import androidx.media3.ui.SubtitleView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import media.conduit.mobile.account.DiagnosticLogStore
 import media.conduit.mobile.account.SubtitleItem
+import media.conduit.mobile.foundation.SubtitleStyle
 import android.net.Uri
 
 internal const val ANDROID_RESIZE_MODE_ZOOM = -1
@@ -118,6 +125,8 @@ actual fun NativePlayer(
     holdToSpeed: Boolean,
     preferredAudioLanguage: String,
     preferredSubtitleLanguage: String,
+    subtitleStyle: SubtitleStyle,
+    onSubtitleStyleChanged: (SubtitleStyle) -> Unit,
     androidPlaybackEngine: AndroidPlaybackEngine,
     onEpisodes: () -> Unit,
     onSources: () -> Unit,
@@ -674,6 +683,9 @@ actual fun NativePlayer(
             mpvView?.let { view -> withContext(Dispatchers.IO) { view.applyResizeMode(resizeMode) } }
         }
     }
+    LaunchedEffect(mpvView, subtitleStyle, activeEngine) {
+        if (activeEngine == NativePlaybackEngine.Libmpv) mpvView?.applySubtitleStyle(subtitleStyle)
+    }
     LaunchedEffect(controlsVisible, playing, speedMenuOpen) {
         if (controlsVisible && playing && !speedMenuOpen) {
             delay(4_000)
@@ -738,9 +750,7 @@ actual fun NativePlayer(
                     val scale = if (resizeMode == ANDROID_RESIZE_MODE_ZOOM) 1.15f else 1f
                     it.scaleX = scale
                     it.scaleY = scale
-                    it.subtitleView?.setFractionalTextSize(
-                        if (presentation == PlaybackPresentation.FullScreen) .0533f else .035f,
-                    )
+                    it.subtitleView?.applySubtitleStyle(subtitleStyle, presentation == PlaybackPresentation.FullScreen)
                     (activity as? MainActivity)?.setConduitPipSourceView(it)
                 },
                 modifier = Modifier.fillMaxSize(),
@@ -892,6 +902,8 @@ actual fun NativePlayer(
                         type = type,
                         revision = mpvTrackRevision,
                         preferredSubtitleLanguage = preferredSubtitleLanguage,
+                        subtitleStyle = subtitleStyle,
+                        onSubtitleStyleChanged = onSubtitleStyleChanged,
                         onSubtitleSelectionChanged = { id, language, label, enabled ->
                             selectedSubtitleId = id
                             selectedSubtitleLanguage = language
@@ -906,6 +918,8 @@ actual fun NativePlayer(
                 PlayerTrackPanel(
                     player = player,
                     type = type,
+                    subtitleStyle = subtitleStyle,
+                    onSubtitleStyleChanged = onSubtitleStyleChanged,
                     onBeforeSelection = { trackFallback = player.trackSelectionParameters; lastTrackChangeAt = SystemClock.elapsedRealtime() },
                     onSubtitleSelectionChanged = { id, language, enabled ->
                         selectedSubtitleId = id
@@ -999,6 +1013,34 @@ private fun PlayerTimePill(
     }
 }
 
+/**
+ * Media3 keeps the viewer's Android caption colors and font. Size and position
+ * come from conduit, and the outline preference swaps in an outlined edge.
+ */
+@OptIn(UnstableApi::class)
+private fun SubtitleView.applySubtitleStyle(style: SubtitleStyle, fullScreen: Boolean) {
+    setFractionalTextSize((if (fullScreen) .0533f else .035f) * style.scale)
+    setBottomPaddingFraction(SubtitleView.DEFAULT_BOTTOM_PADDING_FRACTION + style.offsetPercent / 100f)
+    val captions = (context.getSystemService(Context.CAPTIONING_SERVICE) as? CaptioningManager)
+        ?.takeIf { it.isEnabled }
+        ?.let { CaptionStyleCompat.createFromCaptionStyle(it.userStyle) }
+        ?: CaptionStyleCompat.DEFAULT
+    setStyle(
+        if (style.outline) {
+            CaptionStyleCompat(
+                captions.foregroundColor,
+                captions.backgroundColor,
+                captions.windowColor,
+                CaptionStyleCompat.EDGE_TYPE_OUTLINE,
+                android.graphics.Color.BLACK,
+                captions.typeface,
+            )
+        } else {
+            captions
+        },
+    )
+}
+
 private fun nextAndroidResizeMode(mode: Int): Int = when (mode) {
     AspectRatioFrameLayout.RESIZE_MODE_FIT -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
     AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> ANDROID_RESIZE_MODE_ZOOM
@@ -1015,6 +1057,8 @@ private fun androidResizeModeLabel(mode: Int): String = when (mode) {
 private fun BoxScope.PlayerTrackPanel(
     player: ExoPlayer,
     type: Int,
+    subtitleStyle: SubtitleStyle,
+    onSubtitleStyleChanged: (SubtitleStyle) -> Unit,
     onBeforeSelection: () -> Unit,
     onSubtitleSelectionChanged: (String?, String?, Boolean) -> Unit,
     onDismiss: () -> Unit,
@@ -1033,7 +1077,7 @@ private fun BoxScope.PlayerTrackPanel(
         if (close) onDismiss() else subtitlePage = "overview"
     }
     if (type == C.TRACK_TYPE_TEXT) {
-        FullscreenSubtitlePanel(player, options, selectedOption, onBeforeSelection, onSubtitleSelectionChanged, onDismiss)
+        FullscreenSubtitlePanel(player, options, selectedOption, subtitleStyle, onSubtitleStyleChanged, onBeforeSelection, onSubtitleSelectionChanged, onDismiss)
         return
     }
     Surface(modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight().fillMaxWidth(.48f), color = Color(0xF21A1A1D), shape = RoundedCornerShape(topStart = 28.dp, bottomStart = 28.dp), shadowElevation = 18.dp) {
@@ -1091,6 +1135,8 @@ private fun BoxScope.FullscreenSubtitlePanel(
     player: ExoPlayer,
     options: List<PlayerTrackOption>,
     selected: PlayerTrackOption?,
+    subtitleStyle: SubtitleStyle,
+    onSubtitleStyleChanged: (SubtitleStyle) -> Unit,
     onBeforeSelection: () -> Unit,
     onSubtitleSelectionChanged: (String?, String?, Boolean) -> Unit,
     onDismiss: () -> Unit,
@@ -1120,7 +1166,7 @@ private fun BoxScope.FullscreenSubtitlePanel(
             Row(Modifier.fillMaxWidth().weight(1f).padding(horizontal = 18.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(30.dp)) {
                 Column(Modifier.weight(1f)) { Text("Subtitle Languages", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold); Spacer(Modifier.height(18.dp)); LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) { item { PlayerTrackRow("Disabled", selectedTrackKey == null) { selectedTrackKey = null; onSubtitleSelectionChanged(null, null, false); player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().clearOverridesOfType(C.TRACK_TYPE_TEXT).setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build() } }; options.distinctBy(PlayerTrackOption::languageKey).forEach { option -> item(option.languageKey) { PlayerTrackRow(option.languageName, selectedTrackKey != null && language == option.languageKey, option.supported) { val best = options.firstOrNull { it.languageKey == option.languageKey && it.supported } ?: option; choose(best) } } } } }
                 Column(Modifier.weight(1f)) { Text("Subtitle Variants", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold); Spacer(Modifier.height(18.dp)); LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) { options.filter { it.languageKey == language }.forEach { option -> item(option.key) { PlayerTrackRow(option.variantName, option.key == selectedTrackKey, option.supported) { choose(option) } } } } }
-                Column(Modifier.weight(1f)) { Text("Subtitle Settings", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold); Spacer(Modifier.weight(1f)); Text("Subtitle appearance follows Android system settings. Change it under Accessibility → Caption preferences for consistent styling across apps.", color = Color.White.copy(.72f), style = MaterialTheme.typography.bodyLarge); Spacer(Modifier.weight(1f)) }
+                Column(Modifier.weight(1f)) { Text("Subtitle Settings", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold); Spacer(Modifier.height(18.dp)); SubtitleStyleControls(subtitleStyle, onSubtitleStyleChanged, Modifier.verticalScroll(rememberScrollState()), contentColor = Color.White) }
             }
           }
         }
