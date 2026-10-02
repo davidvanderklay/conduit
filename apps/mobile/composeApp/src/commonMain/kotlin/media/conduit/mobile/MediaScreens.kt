@@ -3602,7 +3602,12 @@ private fun PlaybackSettingsScreen(platform: PlatformInfo, preferences: DevicePr
         SettingsGroup("AUDIO & SUBTITLES") {
             SettingsAction("Preferred audio language", preferences.preferredAudioLanguage) { picker = "audio" }
             HorizontalDivider(color = Color.White.copy(.06f)); SettingsAction("Preferred subtitle language", preferences.preferredSubtitleLanguage) { picker = "subtitle" }
-            HorizontalDivider(color = Color.White.copy(.06f)); SettingsToggle("Subtitle outline", "Improve readability on bright scenes", preferences.subtitleOutline) { update(preferences.copy(subtitleOutline = it)) }
+            HorizontalDivider(color = Color.White.copy(.06f))
+            SubtitleStyleControls(
+                style = preferences.subtitleStyle,
+                onChange = { update(preferences.copy(subtitleStyle = it)) },
+                modifier = Modifier.padding(vertical = 10.dp),
+            )
         }
         SettingsGroup("AUTOPLAY") { SettingsToggle("Automatically continue playback", "Start the next queued item or episode when playback ends", preferences.autoplayNextEpisode) { update(preferences.copy(autoplayNextEpisode = it)) } }
         SettingsGroup("P2P STREAMING") {

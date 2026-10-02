@@ -107,6 +107,13 @@ final class ConduitMPVPlayerBridge: NSObject, IosPlayerBridge {
     func setPreferredSubtitleLanguage(language: String) {
         ensurePlayerViewController().setPreferredSubtitleLanguage(language)
     }
+    func setSubtitleStyle(sizePercent: Int32, offsetPercent: Int32, outline: Bool) {
+        ensurePlayerViewController().setSubtitleStyle(
+            sizePercent: Int(sizePercent),
+            offsetPercent: Int(offsetPercent),
+            outline: outline
+        )
+    }
     func setResizeMode(mode: Int32) { playerViewController?.setResize(Int(mode)) }
     func retryVideoOutput() { playerViewController?.retryVideoOutput() }
     func setImmersivePlayback(enabled: Bool) {
@@ -356,6 +363,10 @@ final class ConduitMPVPlayerViewController: UIViewController {
     private var preferredAudioLanguage = "System default"
     private var preferredSubtitleLanguage = "English"
     private var preferredSubtitleApplied = false
+    private var subtitleSizePercent = 100
+    private var subtitleOffsetPercent = 0
+    private var subtitleOutline = true
+    private var defaultSubtitleOutlineSize: Double?
     fileprivate var hasLoadedFile = false
     private var shouldPlay = false
     private var resumeAfterAudioInterruption = false
@@ -823,6 +834,16 @@ final class ConduitMPVPlayerViewController: UIViewController {
             self.preferredSubtitleLanguage = language
             self.preferredSubtitleApplied = false
             self.applyPreferredSubtitleSelection()
+        }
+    }
+
+    func setSubtitleStyle(sizePercent: Int, offsetPercent: Int, outline: Bool) {
+        runOnMain { [weak self] in
+            guard let self else { return }
+            self.subtitleSizePercent = sizePercent
+            self.subtitleOffsetPercent = offsetPercent
+            self.subtitleOutline = outline
+            self.applySubtitleStyle()
         }
     }
 
@@ -1596,6 +1617,9 @@ final class ConduitMPVPlayerViewController: UIViewController {
         setOptionString(mpv, name: "keep-open", value: "yes")
         setOptionString(mpv, name: "subs-match-os-language", value: "yes")
         setOptionString(mpv, name: "subs-fallback", value: "yes")
+        // PiP crops the captured frame to the picture, so subtitles drawn in
+        // the letterbox or pillarbox bars would be cut off there.
+        setOptionString(mpv, name: "sub-use-margins", value: "no")
         setOptionString(mpv, name: "target-colorspace-hint", value: "yes")
         setOptionString(mpv, name: "tone-mapping", value: "auto")
         setOptionString(mpv, name: "hdr-compute-peak", value: "yes")
@@ -1607,6 +1631,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
         checkError(initializeStatus)
         guard initializeStatus >= 0 else { return }
         applyPreferredAudioLanguage()
+        applySubtitleStyle()
 
         for (index, property) in [
             (1, "pause"),
@@ -1935,31 +1960,40 @@ final class ConduitMPVPlayerViewController: UIViewController {
     /// uses the corresponding power-of-two scale factor.
     private func updateSubtitlePosition() {
         guard mpv != nil else { return }
-        let position: CGFloat
-        guard
-            (resizeMode == 1 || resizeMode == 2),
-            videoWidth > 0,
-            videoHeight > 0,
-            videoSurfaceSize.width > 1,
-            videoSurfaceSize.height > 1
-        else {
-            position = 100
-            setStringProperty("sub-pos", "100")
-            return
+        var bottom: CGFloat = 100
+        var visibleFraction: CGFloat = 1
+        if (resizeMode == 1 || resizeMode == 2),
+           videoWidth > 0,
+           videoHeight > 0,
+           videoSurfaceSize.width > 1,
+           videoSurfaceSize.height > 1 {
+            let baseScale = max(
+                videoSurfaceSize.width / CGFloat(videoWidth),
+                videoSurfaceSize.height / CGFloat(videoHeight),
+            )
+            let zoomScale = resizeMode == 2 ? CGFloat(pow(2.0, 0.15)) : 1
+            let displayedHeight = CGFloat(videoHeight) * baseScale * zoomScale
+            let croppedTop = max(0, (displayedHeight - videoSurfaceSize.height) / 2)
+            bottom = min(
+                100,
+                max(0, (videoSurfaceSize.height + croppedTop) / displayedHeight * 100),
+            )
+            visibleFraction = min(1, videoSurfaceSize.height / displayedHeight)
         }
-
-        let baseScale = max(
-            videoSurfaceSize.width / CGFloat(videoWidth),
-            videoSurfaceSize.height / CGFloat(videoHeight),
-        )
-        let zoomScale = resizeMode == 2 ? CGFloat(pow(2.0, 0.15)) : 1
-        let displayedHeight = CGFloat(videoHeight) * baseScale * zoomScale
-        let croppedTop = max(0, (displayedHeight - videoSurfaceSize.height) / 2)
-        position = min(
-            100,
-            max(0, (videoSurfaceSize.height + croppedTop) / displayedHeight * 100),
-        )
+        // The user's offset is a share of the visible picture, so scale it
+        // down when a crop mode makes MPV's video rectangle taller than that.
+        let position = max(0, bottom - CGFloat(subtitleOffsetPercent) * visibleFraction)
         setStringProperty("sub-pos", String(format: "%.3f", Double(position)))
+    }
+
+    /// Applies the size, position, and outline chosen in conduit settings.
+    private func applySubtitleStyle() {
+        guard mpv != nil else { return }
+        let outlineSize = defaultSubtitleOutlineSize ?? getDouble("sub-outline-size")
+        defaultSubtitleOutlineSize = outlineSize
+        setStringProperty("sub-scale", String(format: "%.2f", Double(subtitleSizePercent) / 100))
+        setStringProperty("sub-outline-size", subtitleOutline ? String(format: "%.2f", outlineSize) : "0")
+        updateSubtitlePosition()
     }
 
     private func readEvents() {

@@ -106,4 +106,22 @@ class DevicePreferencesTest {
 
         assertEquals(NavigationStyle.Compact, preferences.normalizedForPlatform("Android").navigationStyle)
     }
+
+    @Test
+    fun subtitleStyleRoundTripsAndClampsStoredValues() {
+        val store = MemorySettingsStore()
+        val repository = DevicePreferencesRepository(store)
+
+        assertEquals(SubtitleStyle(), repository.load().subtitleStyle)
+        val style = SubtitleStyle(sizePercent = 140, offsetPercent = 12, outline = false)
+        repository.save(repository.load().copy(subtitleStyle = style))
+        assertEquals(style, repository.load().subtitleStyle)
+
+        store.put("preferences.v1.subtitle-size", "900")
+        store.put("preferences.v1.subtitle-offset", "-4")
+        assertEquals(
+            SubtitleStyle(sizePercent = 200, offsetPercent = 0, outline = false),
+            repository.load().subtitleStyle,
+        )
+    }
 }

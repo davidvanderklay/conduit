@@ -14,6 +14,26 @@ enum class SkipButtonPosition(val label: String, val description: String) {
     Right("Right", "Place skip prompts on the right side of the player"),
 }
 
+/**
+ * Subtitle appearance applied by every native renderer (Media3, Android
+ * libmpv, and iOS mpv). [offsetPercent] raises the text from its default
+ * bottom position by that share of the picture height.
+ */
+data class SubtitleStyle(
+    val sizePercent: Int = 100,
+    val offsetPercent: Int = 0,
+    val outline: Boolean = true,
+) {
+    val scale: Float get() = sizePercent / 100f
+
+    companion object {
+        val SizeRange = 50..200
+        val OffsetRange = 0..50
+        const val SizeStep = 10
+        const val OffsetStep = 2
+    }
+}
+
 data class DevicePreferences(
     val amoledBlack: Boolean = false,
     val navigationStyle: NavigationStyle = NavigationStyle.Adaptive,
@@ -21,9 +41,7 @@ data class DevicePreferences(
     val reduceAnimations: Boolean = false,
     val preferredAudioLanguage: String = "System default",
     val preferredSubtitleLanguage: String = "English",
-    val subtitleSizePercent: Int = 100,
-    val subtitleOffset: Int = 0,
-    val subtitleOutline: Boolean = true,
+    val subtitleStyle: SubtitleStyle = SubtitleStyle(),
     val touchGestures: Boolean = true,
     val holdToSpeed: Boolean = true,
     val autoSelectSavedStreams: Boolean = false,
@@ -56,9 +74,11 @@ class DevicePreferencesRepository(private val store: SettingsStore) {
         reduceAnimations = bool("reduce-animations", false),
         preferredAudioLanguage = text("audio-language", "System default"),
         preferredSubtitleLanguage = text("subtitle-language", "English"),
-        subtitleSizePercent = number("subtitle-size", 100),
-        subtitleOffset = number("subtitle-offset", 0),
-        subtitleOutline = bool("subtitle-outline", true),
+        subtitleStyle = SubtitleStyle(
+            sizePercent = number("subtitle-size", 100).coerceIn(SubtitleStyle.SizeRange),
+            offsetPercent = number("subtitle-offset", 0).coerceIn(SubtitleStyle.OffsetRange),
+            outline = bool("subtitle-outline", true),
+        ),
         touchGestures = bool("touch-gestures", true),
         holdToSpeed = bool("hold-to-speed", true),
         autoSelectSavedStreams = bool("auto-select-saved-streams", false),
@@ -85,9 +105,9 @@ class DevicePreferencesRepository(private val store: SettingsStore) {
         store.put(prefix + "reduce-animations", value.reduceAnimations.toString())
         store.put(prefix + "audio-language", value.preferredAudioLanguage)
         store.put(prefix + "subtitle-language", value.preferredSubtitleLanguage)
-        store.put(prefix + "subtitle-size", value.subtitleSizePercent.toString())
-        store.put(prefix + "subtitle-offset", value.subtitleOffset.toString())
-        store.put(prefix + "subtitle-outline", value.subtitleOutline.toString())
+        store.put(prefix + "subtitle-size", value.subtitleStyle.sizePercent.toString())
+        store.put(prefix + "subtitle-offset", value.subtitleStyle.offsetPercent.toString())
+        store.put(prefix + "subtitle-outline", value.subtitleStyle.outline.toString())
         store.put(prefix + "touch-gestures", value.touchGestures.toString())
         store.put(prefix + "hold-to-speed", value.holdToSpeed.toString())
         store.put(prefix + "auto-select-saved-streams", value.autoSelectSavedStreams.toString())

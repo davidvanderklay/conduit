@@ -20,7 +20,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
@@ -42,6 +44,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.media3.common.C
+import media.conduit.mobile.foundation.SubtitleStyle
 
 @Composable
 internal fun BoxScope.MpvTrackPanel(
@@ -49,6 +52,8 @@ internal fun BoxScope.MpvTrackPanel(
     type: Int,
     revision: Int,
     preferredSubtitleLanguage: String,
+    subtitleStyle: SubtitleStyle,
+    onSubtitleStyleChanged: (SubtitleStyle) -> Unit,
     onSubtitleSelectionChanged: (String?, String?, String?, Boolean) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -62,6 +67,8 @@ internal fun BoxScope.MpvTrackPanel(
             tracks = tracks,
             preferredLanguage = preferredSubtitleLanguage,
             view = view,
+            subtitleStyle = subtitleStyle,
+            onSubtitleStyleChanged = onSubtitleStyleChanged,
             onSubtitleSelectionChanged = onSubtitleSelectionChanged,
             onDismiss = onDismiss,
         )
@@ -140,6 +147,8 @@ private fun BoxScope.MpvSubtitlePanel(
     tracks: List<MpvTrack>,
     preferredLanguage: String,
     view: ConduitMpvView,
+    subtitleStyle: SubtitleStyle,
+    onSubtitleStyleChanged: (SubtitleStyle) -> Unit,
     onSubtitleSelectionChanged: (String?, String?, String?, Boolean) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -259,13 +268,13 @@ private fun BoxScope.MpvSubtitlePanel(
                     }
                     Column(Modifier.weight(1f)) {
                         Text("Subtitle Settings", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                        Spacer(Modifier.weight(1f))
-                        Text(
-                            "Subtitle appearance is controlled by conduit Settings. Your language, size, position, and outline preferences apply across playback.",
-                            color = Color.White.copy(alpha = .72f),
-                            style = MaterialTheme.typography.bodyLarge,
+                        Spacer(Modifier.height(18.dp))
+                        SubtitleStyleControls(
+                            style = subtitleStyle,
+                            onChange = onSubtitleStyleChanged,
+                            modifier = Modifier.verticalScroll(rememberScrollState()),
+                            contentColor = Color.White,
                         )
-                        Spacer(Modifier.weight(1f))
                     }
                 }
             }
