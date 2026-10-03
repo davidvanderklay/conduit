@@ -11,6 +11,9 @@ import { completionEpisodeIds, seriesWatchVideos } from "../lib/watch-status"
 import { mediaForWatchActions, setEpisodeWatched, setVideosWatched } from "../lib/watch-actions"
 import { PosterWatchStatus } from "./poster-watch-status"
 import { PosterActionMenu } from "./poster-action-menu"
+import { queueMenuActions } from "./queue"
+import { queueItemFor } from "../lib/queue"
+import { useQueueControls } from "../lib/use-queue"
 import { PaginationControls } from "./pagination-controls"
 import { PosterResumeButton } from "./poster-resume-button"
 import { VirtualPosterGrid } from "./virtual-poster-grid"
@@ -286,6 +289,7 @@ function LibraryPosterMenu({
   onSelect: () => void
 }) {
   const library = useLibraryToggle(profileId, item)
+  const queue = useQueueControls(profileId)
   const queryClient = useQueryClient()
   const videos = "videos" in item ? item.videos ?? [] : []
   const seriesVideos = item.type === "series" ? seriesWatchVideos(videos) : []
@@ -325,6 +329,7 @@ function LibraryPosterMenu({
           onSelect: () => watched.mutate(),
           disabled: watched.isPending || (item.type === "series" && seriesVideos.length === 0),
         },
+        ...queueMenuActions(queue, queueItemFor(item)),
         {
           label: "Remove from library",
           icon: <Trash2 size={16} />,

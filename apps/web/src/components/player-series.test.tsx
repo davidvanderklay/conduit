@@ -4,6 +4,7 @@ import { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { Video } from "../lib/core"
+import { episodeUpNext } from "../lib/queue"
 import {
   NEXT_EPISODE_COUNTDOWN,
   NextEpisodePrompt,
@@ -52,8 +53,7 @@ describe("next episode prompt", () => {
     act(() => {
       root.render(
         <NextEpisodePrompt
-          seriesName="Example"
-          episode={episode}
+          upNext={episodeUpNext("Example", episode)}
           position={80}
           duration={100}
           paused={false}
@@ -75,8 +75,7 @@ describe("next episode prompt", () => {
     act(() => {
       root.render(
         <NextEpisodePrompt
-          seriesName="Example"
-          episode={episode}
+          upNext={episodeUpNext("Example", episode)}
           position={80}
           duration={100}
           paused={false}
@@ -97,8 +96,7 @@ describe("next episode prompt", () => {
     const renderAt = (position: number) => {
       root.render(
         <NextEpisodePrompt
-          seriesName="Example"
-          episode={episode}
+          upNext={episodeUpNext("Example", episode)}
           position={position}
           duration={100}
           paused={false}
@@ -124,8 +122,7 @@ describe("next episode prompt", () => {
     const renderAt = (position: number) => {
       root.render(
         <NextEpisodePrompt
-          seriesName="Example"
-          episode={episode}
+          upNext={episodeUpNext("Example", episode)}
           position={position}
           duration={100}
           paused={false}

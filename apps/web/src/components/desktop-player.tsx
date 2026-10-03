@@ -16,6 +16,7 @@ import {
   nativeFullscreen,
   nativePlayerSnapshot,
   openNativePlayer,
+  updateNativePlayerOverlay,
   redrawNativeSurface,
   refreshNativeSurface,
   resetNativeOverlaySurface,
@@ -40,7 +41,17 @@ import { mpvVideoScaleCommands, type VideoScale } from "../lib/video-scale"
 import { usePlaybackProgress } from "../lib/progress"
 import { AUTO_SELECTION_STARTUP_TIMEOUT_MS } from "../lib/stream-selection"
 import { Card } from "./ui/card"
-import { NextEpisodePrompt, PlayerEpisodeDrawer, type PlayerSeriesContext } from "./player-series"
+import {
+  NextEpisodePrompt,
+  PlayerEpisodeDrawer,
+  nextControlLabel,
+  type PlayerDrawerOpen,
+  type PlayerQueue,
+  type PlayerSeriesContext,
+} from "./player-series"
+import type { PlayerUpNext } from "../lib/queue"
+import type { QueueItem } from "../lib/api"
+import { QueueIcon, QueueNotice } from "./queue"
 import { SkipSegmentButton } from "./player-skip-prompt"
 import { VideoScaleControl } from "./video-scale-control"
 import { SubtitlePicker } from "./subtitle-picker"
@@ -114,8 +125,8 @@ export function DesktopPlayer({
   artwork,
   addons,
   seriesContext,
-  nextEpisode,
-  nextEpisodeLabel,
+  upNext,
+  queue,
   onSelectEpisode,
   onNextEpisode,
   onEnded,
@@ -137,8 +148,8 @@ export function DesktopPlayer({
   artwork?: PlayerArtwork
   addons: InstalledAddon[]
   seriesContext?: PlayerSeriesContext
-  nextEpisode?: Video
-  nextEpisodeLabel?: string
+  upNext?: PlayerUpNext
+  queue?: PlayerQueue
   onSelectEpisode?: (video: Video) => void | Promise<void>
   onNextEpisode?: () => void | Promise<void>
   onEnded?: (allowAutoplay?: boolean) => void | Promise<void>
@@ -165,7 +176,7 @@ export function DesktopPlayer({
   const [addonSubtitlesResolved, setAddonSubtitlesResolved] = useState(false)
   const [selectedAddonSubtitle, setSelectedAddonSubtitle] = useState<string>()
   const [subtitlePosition, setSubtitlePosition] = useState(preferences.subtitlePosition)
-  const [episodeDrawerOpen, setEpisodeDrawerOpen] = useState(false)
+  const [episodeDrawerOpen, setEpisodeDrawerOpen] = useState<PlayerDrawerOpen>(false)
   const [skipSegments, setSkipSegments] = useState<SkipSegment[]>([])
   const [holdSpeedActive, setHoldSpeedActive] = useState(false)
   const hideTimer = useRef<number | undefined>(undefined)
@@ -180,7 +191,7 @@ export function DesktopPlayer({
   const previousMenu = useRef<TrackMenuName | undefined>(undefined)
   const previousMenuContent = useRef("")
   const previousChromeVisible = useRef(true)
-  const previousEpisodeDrawerOpen = useRef(false)
+  const previousEpisodeDrawerOpen = useRef<PlayerDrawerOpen>(false)
   const previousLoadingOverlayVisible = useRef(false)
   const previousPaused = useRef(false)
   const resumed = useRef(false)
@@ -325,11 +336,29 @@ export function DesktopPlayer({
     window.requestAnimationFrame(() => void redrawNativeSurface())
   }, [])
 
+  // The Linux overlay window cannot reach the API, so queue state is mirrored to it.
+  const overlayQueueState = JSON.stringify({
+    upNext,
+    queue: queue && { items: queue.controls.items, media: queue.media },
+  })
+  const latestOverlayQueueState = useRef(overlayQueueState)
+  latestOverlayQueueState.current = overlayQueueState
+  useEffect(() => {
+    void updateNativePlayerOverlay(JSON.parse(overlayQueueState)).catch(() => undefined)
+  }, [overlayQueueState])
+
   const resetOverlay = useCallback(() => {
     window.requestAnimationFrame(() => {
       window.requestAnimationFrame(() => void resetNativeOverlaySurface())
     })
   }, [])
+
+  const playQueued = (item: QueueItem) => {
+    if (!queue || nextTransitionRequested.current) return
+    nextTransitionRequested.current = true
+    resetOverlay()
+    queue.onPlay(item)
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -378,6 +407,10 @@ export function DesktopPlayer({
         playerStarted = true
         if (initial.duration > 0) mediaDurationObserved.current = true
         setSnapshot(initial)
+        // The overlay only exists once the player is open; resend what it missed.
+        void updateNativePlayerOverlay(JSON.parse(latestOverlayQueueState.current)).catch(
+          () => undefined,
+        )
         if (initial.firstFrameReady) setPlaybackStarted(true)
         await nativePlayerCommand(["set", "sub-pos", preferences.subtitlePosition])
         await nativePlayerCommand(["set", "sub-border-size", preferences.subtitleOutline ? 3 : 0])
@@ -483,13 +516,22 @@ export function DesktopPlayer({
           setError(cause instanceof Error ? cause.message : String(cause))
         })
       }) ?? (() => undefined)
+    const unsubscribeQueuePlay =
+      electron.onPlayerOverlayQueuePlay?.(playQueued) ?? (() => undefined)
+    const unsubscribeQueueSet =
+      electron.onPlayerOverlayQueueSet?.((items) => queue?.controls.set(items)) ??
+      (() => undefined)
     return () => {
       unsubscribeClose()
       unsubscribeNext()
       unsubscribeEpisode()
       unsubscribeWatchAction()
+      unsubscribeQueuePlay()
+      unsubscribeQueueSet()
     }
   }, [
+    playQueued,
+    queue?.controls,
     onClose,
     onNextEpisode,
     onSelectEpisode,
@@ -919,7 +961,7 @@ export function DesktopPlayer({
     controlsVisible ||
     Boolean(snapshot?.paused) ||
     Boolean(activeMenu) ||
-    episodeDrawerOpen ||
+    Boolean(episodeDrawerOpen) ||
     !snapshot
   const electronNativePlayer = window.__CONDUIT_ELECTRON__ !== undefined
   const expandedControls = fullscreen || spaciousViewport
@@ -932,7 +974,7 @@ export function DesktopPlayer({
   const upNextVisible = Boolean(
     partySession?.role !== "guest" &&
     snapshot &&
-    nextEpisode &&
+    upNext &&
     shouldShowUpNext(snapshot.position, snapshot.duration, skipSegments),
   )
 
@@ -1032,9 +1074,27 @@ export function DesktopPlayer({
           ) : undefined
         }
         actions={
-          onWatchParty ? (
-            <WatchPartyButton onClick={onWatchParty} active={Boolean(partySession)} />
-          ) : undefined
+          <>
+            {queue && (
+              <button
+                className="grid size-10 shrink-0 place-items-center rounded-xl text-zinc-400 transition-colors hover:bg-zinc-900 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+                type="button"
+                aria-label="Queue"
+                title="Queue"
+                data-native-overlay
+                data-player-drawer-toggle
+                onClick={(event) => {
+                  event.stopPropagation()
+                  setEpisodeDrawerOpen((open) => (open ? false : "queue"))
+                }}
+              >
+                <QueueIcon count={queue.controls.items.length} size={18} />
+              </button>
+            )}
+            {onWatchParty && (
+              <WatchPartyButton onClick={onWatchParty} active={Boolean(partySession)} />
+            )}
+          </>
         }
         onBack={close}
         onFullscreen={() => {
@@ -1090,8 +1150,7 @@ export function DesktopPlayer({
               />
             )}
             <NextEpisodePrompt
-              seriesName={seriesContext?.name ?? progressMetadata.name}
-              episode={nextEpisode}
+              upNext={upNext}
               position={snapshot.position}
               duration={snapshot.duration || lastPlayback.current.duration}
               paused={snapshot.paused}
@@ -1123,6 +1182,7 @@ export function DesktopPlayer({
         open={episodeDrawerOpen}
         handleVisible={chromeVisible}
         context={seriesContext}
+        queue={queue && { ...queue, onPlay: playQueued }}
         onOpenChange={setEpisodeDrawerOpen}
         onSelect={(video) => {
           if (nextTransitionRequested.current) return
@@ -1133,6 +1193,7 @@ export function DesktopPlayer({
           })
         }}
       />
+      <QueueNotice className="absolute left-6 top-16" />
 
       {snapshot && !error && (
         <DesktopPlayerChromeBottom expandedControls={expandedControls} visible={chromeVisible}>
@@ -1309,7 +1370,7 @@ export function DesktopPlayer({
             </PlayerIcon>
             {onNextEpisode && (
               <PlayerIcon
-                label={`Next episode${nextEpisodeLabel ? `: ${nextEpisodeLabel}` : ""}`}
+                label={nextControlLabel(upNext)}
                 expanded={expandedControls}
                 onClick={() => {
                   if (nextTransitionRequested.current) return

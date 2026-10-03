@@ -684,8 +684,8 @@ function PlaybackSettings({ preferences, update }: PreferencePageProps) {
         </SettingsGroup>
         <SettingsGroup title="AUTOPLAY">
           <SettingToggle
-            label="Autoplay next episode"
-            description="Continue after the next-episode prompt."
+            label="Automatically continue playback"
+            description="Start the next queued item or episode when playback ends."
             checked={preferences.autoplay}
             onChange={(value) => update("autoplay", value)}
           />

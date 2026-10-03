@@ -27,6 +27,10 @@ import {
   seasonWatchVideos,
 } from "../lib/watch-status"
 import type { WatchActionMedia } from "../lib/watch-actions"
+import { queueItemFor, queueItemKey, type QueueControls, type QueueMedia } from "../lib/queue"
+import { isReleasedEpisode } from "../lib/watch-status"
+import type { PosterAction } from "./poster-action-menu"
+import { queueMenuActions } from "./queue"
 
 export interface EpisodeSelectorShow {
   name: string
@@ -49,6 +53,8 @@ export function EpisodeSelector({
   className = "",
   media,
   show,
+  queue,
+  queueMedia,
   onWatchAction,
   onSeasonChange,
   onScroll,
@@ -66,6 +72,9 @@ export function EpisodeSelector({
   className?: string
   media?: WatchActionMedia
   show?: EpisodeSelectorShow
+  /** With [queueMedia], adds queue actions to each episode's menu. */
+  queue?: QueueControls
+  queueMedia?: QueueMedia
   onWatchAction?: (targets: Video[], watched: boolean) => Promise<void>
   onSeasonChange: (season: number) => void
   onScroll?: (scrollTop: number) => void
@@ -93,6 +102,16 @@ export function EpisodeSelector({
         `${video.episode ?? ""} ${video.title ?? ""}`.toLocaleLowerCase().includes(search)
     })
     .sort((a, b) => (a.episode ?? 0) - (b.episode ?? 0))
+  const queuedKeys = useMemo(() => {
+    const keys = new Set(queue?.items.map(queueItemKey))
+    const queuedVideoIds = queueMedia
+      ? videos.filter((video) => {
+          const item = queueItemFor(queueMedia, video)
+          return item && keys.has(queueItemKey(item))
+        })
+      : []
+    return new Set(queuedVideoIds.map((video) => video.id))
+  }, [queue?.items, queueMedia, videos])
   const seasonProgress = episodes.length > 0
     ? Math.round(
         episodes.reduce((total, video) => {
@@ -174,7 +193,7 @@ export function EpisodeSelector({
 
   const openContextMenuAt = (video: Video, clientX: number, clientY: number) => {
     const menuWidth = 250
-    const menuHeight = 190
+    const menuHeight = 270
     setContextMenu({
       video,
       x: Math.max(8, Math.min(clientX, window.innerWidth - menuWidth - 8)),
@@ -379,6 +398,7 @@ export function EpisodeSelector({
           const state = episodeWatchState(itemProgress)
           const percent = episodeProgressPercent(itemProgress)
           const current = video.id === currentVideoId
+          const queued = queuedKeys.has(video.id)
           const status = state === "watched"
             ? "Watched"
             : state === "in-progress"
@@ -426,6 +446,7 @@ export function EpisodeSelector({
                     {video.title ?? episodeLabel(video)}
                   </p>
                   <p className="mt-1 flex flex-wrap gap-x-2 text-[11px] text-zinc-500">
+                    {queued && <span className="font-medium text-amber-300">Queued</span>}
                     {state === "in-progress" && <span>{percent}%</span>}
                     {video.released && <span>{displayDate(video.released)}</span>}
                     {video.runtime && <span>{video.runtime}</span>}
@@ -474,6 +495,21 @@ export function EpisodeSelector({
           setContextMenu(undefined)
           onSelect(contextMenu.video)
         }}
+        queueActions={
+          queue && queueMedia && contextMenu.video.id !== currentVideoId
+            ? queueMenuActions(
+                queue,
+                queueItemFor(queueMedia, contextMenu.video),
+                isReleasedEpisode(contextMenu.video),
+              ).map((action) => ({
+                ...action,
+                onSelect: () => {
+                  setContextMenu(undefined)
+                  action.onSelect()
+                },
+              }))
+            : []
+        }
         onMark={(watched) => runWatchAction([contextMenu.video], watched)}
         onMarkSeason={(watched) => runWatchAction(season, watched)}
       />,
@@ -494,6 +530,7 @@ function EpisodeContextMenu({
   season,
   pending,
   style,
+  queueActions,
   onPlay,
   onMark,
   onMarkSeason,
@@ -503,6 +540,7 @@ function EpisodeContextMenu({
   season: Video[]
   pending: boolean
   style: CSSProperties
+  queueActions: PosterAction[]
   onPlay: () => void
   onMark: (watched: boolean) => void
   onMarkSeason: (watched: boolean) => void
@@ -521,6 +559,15 @@ function EpisodeContextMenu({
       onContextMenu={(event) => event.preventDefault()}
     >
       <ContextMenuAction label="Play" icon={<Play size={15} />} disabled={pending} onClick={onPlay} />
+      {queueActions.map((action) => (
+        <ContextMenuAction
+          key={action.label}
+          label={action.label}
+          icon={action.icon}
+          disabled={false}
+          onClick={action.onSelect}
+        />
+      ))}
       <ContextMenuAction
         label={watched ? "Mark as unwatched" : "Mark as watched"}
         icon={watched ? <RotateCcw size={15} /> : <Check size={15} />}

@@ -50,6 +50,16 @@ contextBridge.exposeInMainWorld("__CONDUIT_ELECTRON__", {
     ipcRenderer.on("conduit:player-overlay-watch-action", handler)
     return () => ipcRenderer.removeListener("conduit:player-overlay-watch-action", handler)
   },
+  onPlayerOverlayQueuePlay(listener: (item: unknown) => void) {
+    const handler = (_event: Electron.IpcRendererEvent, item: unknown) => listener(item)
+    ipcRenderer.on("conduit:player-overlay-queue-play", handler)
+    return () => ipcRenderer.removeListener("conduit:player-overlay-queue-play", handler)
+  },
+  onPlayerOverlayQueueSet(listener: (items: unknown[]) => void) {
+    const handler = (_event: Electron.IpcRendererEvent, items: unknown[]) => listener(items)
+    ipcRenderer.on("conduit:player-overlay-queue-set", handler)
+    return () => ipcRenderer.removeListener("conduit:player-overlay-queue-set", handler)
+  },
   onPlayerOverlayMedia(
     listener: (media: {
       title: string
@@ -69,6 +79,8 @@ contextBridge.exposeInMainWorld("__CONDUIT_ELECTRON__", {
         progress: unknown[]
         currentVideoId: string
       }
+      upNext?: unknown
+      queue?: unknown
     }) => void,
   ) {
     const handler = (
@@ -92,6 +104,8 @@ contextBridge.exposeInMainWorld("__CONDUIT_ELECTRON__", {
           progress: unknown[]
           currentVideoId: string
         }
+        upNext?: unknown
+        queue?: unknown
       },
     ) => listener(media)
     ipcRenderer.on("conduit:player-overlay-media", handler)

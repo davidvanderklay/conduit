@@ -317,6 +317,9 @@ type PlayerOverlayMedia = {
     progress: unknown[]
     currentVideoId: string
   }
+  // Queue state is opaque here: the main window owns it and the overlay renders it.
+  upNext?: unknown
+  queue?: unknown
 }
 
 function refreshNativeSurface() {
@@ -908,6 +911,25 @@ async function invoke(command: string, args: Record<string, unknown> = {}): Prom
   if (command === "player_overlay_episode") {
     if (typeof args.videoId === "string") {
       mainWindow?.webContents.send("conduit:player-overlay-episode", args.videoId)
+    }
+    return null
+  }
+  if (command === "player_overlay_update") {
+    if (playerOverlayMedia && playerOverlayWindow && !playerOverlayWindow.isDestroyed()) {
+      playerOverlayMedia = { ...playerOverlayMedia, upNext: args.upNext, queue: args.queue }
+      playerOverlayWindow.webContents.send("conduit:player-overlay-media", playerOverlayMedia)
+    }
+    return null
+  }
+  if (command === "player_overlay_queue_play") {
+    if (args.item && typeof args.item === "object") {
+      mainWindow?.webContents.send("conduit:player-overlay-queue-play", args.item)
+    }
+    return null
+  }
+  if (command === "player_overlay_queue_set") {
+    if (Array.isArray(args.items)) {
+      mainWindow?.webContents.send("conduit:player-overlay-queue-set", args.items)
     }
     return null
   }
