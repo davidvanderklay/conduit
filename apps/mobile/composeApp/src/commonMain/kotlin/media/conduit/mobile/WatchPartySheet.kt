@@ -69,7 +69,7 @@ internal fun BoxScope.WatchPartySheet(controller: WatchPartySessionController, a
             val modalMaxHeight = (maxHeight - 48.dp).coerceAtLeast(240.dp)
             Surface(
                 modifier = if (sidebar) Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(panelWidth) else Modifier.align(Alignment.Center).width(panelWidth).heightIn(max = modalMaxHeight),
-                color = Color.Black,
+                color = if (inPlayer) Color(0xF21A1A1D) else Color.Black,
                 contentColor = Color.White,
                 shape = if (sidebar) RoundedCornerShape(topStart = 28.dp, bottomStart = 28.dp) else RoundedCornerShape(20.dp),
                 shadowElevation = 20.dp,

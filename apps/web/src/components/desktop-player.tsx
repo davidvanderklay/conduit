@@ -400,6 +400,8 @@ export function DesktopPlayer({
         profileId,
         media: mediaFromProgressMetadata(progressMetadata, videoId),
         role: partySession?.role,
+        party: partySession?.party,
+        connected: partySession?.connected,
       },
     )
       .then(async (initial) => {
@@ -519,8 +521,7 @@ export function DesktopPlayer({
     const unsubscribeQueuePlay =
       electron.onPlayerOverlayQueuePlay?.(playQueued) ?? (() => undefined)
     const unsubscribeQueueSet =
-      electron.onPlayerOverlayQueueSet?.((items) => queue?.controls.set(items)) ??
-      (() => undefined)
+      electron.onPlayerOverlayQueueSet?.((items) => queue?.controls.set(items)) ?? (() => undefined)
     return () => {
       unsubscribeClose()
       unsubscribeNext()
@@ -652,12 +653,20 @@ export function DesktopPlayer({
   }, [partySession, snapshot?.firstFrameReady, snapshot?.loading])
 
   useEffect(() => {
-    void window.__CONDUIT_ELECTRON__?.invoke("player_overlay_context", {
-      profileId,
-      media: mediaFromProgressMetadata(progressMetadata, videoId),
-      role: partySession?.role,
+    const updateContext = () => {
+      void window.__CONDUIT_ELECTRON__?.invoke("player_overlay_context", {
+        profileId,
+        media: mediaFromProgressMetadata(progressMetadata, videoId),
+        role: partySession?.party ? partySession.role : undefined,
+        party: partySession?.party,
+        connected: partySession?.connected,
+      })
+    }
+    updateContext()
+    return partySession?.subscribe((event) => {
+      if (event.type !== "state") updateContext()
     })
-  }, [partySession?.role, profileId, progressMetadata, videoId])
+  }, [partySession, profileId, progressMetadata, videoId])
 
   useEffect(() => {
     if (!partySession) return

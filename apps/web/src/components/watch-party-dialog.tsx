@@ -56,6 +56,7 @@ export function WatchPartyDialog({
   initialInviteToken,
   initialParty,
   initialSession,
+  connectionStatus,
   onPartyJoined,
   onPartyLeft,
   onPartyMediaChange,
@@ -69,6 +70,7 @@ export function WatchPartyDialog({
   initialInviteToken?: string
   initialParty?: WatchPartySummary
   initialSession?: WatchPartySession
+  connectionStatus?: "connecting" | "connected" | "offline"
   onPartyJoined?: (
     party: WatchPartySummary,
     session: WatchPartySession,
@@ -91,14 +93,12 @@ export function WatchPartyDialog({
   const [connection, setConnection] = useState<"connecting" | "connected" | "offline">("connecting")
 
   useEffect(() => {
-    if (
-      initialParty &&
-      (party?.id !== initialParty.id ||
-        partyMediaKey(party.media) !== partyMediaKey(initialParty.media))
-    )
-      setParty(initialParty)
-    if (initialSession && initialSession !== session) setSession(initialSession)
-  }, [initialParty, initialSession, party, session])
+    setParty(initialParty)
+  }, [initialParty])
+
+  useEffect(() => {
+    setSession(initialSession)
+  }, [initialSession])
 
   const restoreHostedParty = useEffectEvent((hostedParty: WatchPartySummary | undefined) => {
     if (!hostedParty || party || session) return
@@ -190,6 +190,7 @@ export function WatchPartyDialog({
     })
   }, [session])
 
+  const partyConnection = connectionStatus ?? connection
   const activeParty = party?.status === "active" ? party : undefined
   const canCreate = true
 
@@ -303,7 +304,7 @@ export function WatchPartyDialog({
       <div
         ref={panelRef}
         tabIndex={-1}
-        className={`flex w-[24rem] flex-col bg-black text-white shadow-2xl shadow-black/60 outline-none ${presentation === "sidebar" ? "h-dvh max-w-[90vw] rounded-l-3xl border-l border-white/10" : "max-h-[calc(100dvh-2rem)] max-w-full overflow-hidden rounded-2xl border border-white/10"}`}
+        className={`flex w-[24rem] flex-col text-white shadow-2xl shadow-black/60 outline-none ${presentation === "sidebar" ? "h-dvh max-w-[90vw] rounded-l-3xl border-l border-white/10 bg-zinc-950/95 backdrop-blur-xl" : "max-h-[calc(100dvh-2rem)] max-w-full overflow-hidden rounded-2xl border border-white/10 bg-black"}`}
         role="dialog"
         aria-modal="true"
         aria-label="Watch together"
@@ -366,11 +367,11 @@ export function WatchPartyDialog({
                   </p>
                   <p className="mt-1 flex items-center gap-2 text-xs text-zinc-400">
                     <span
-                      className={`size-1.5 rounded-full ${connection === "connected" ? "bg-amber-400" : "bg-zinc-500"}`}
+                      className={`size-1.5 rounded-full ${partyConnection === "connected" ? "bg-amber-400" : "bg-zinc-500"}`}
                     />
-                    {connection === "connected"
+                    {partyConnection === "connected"
                       ? "Connected"
-                      : connection === "connecting"
+                      : partyConnection === "connecting"
                         ? "Connecting…"
                         : "Reconnecting…"}
                   </p>
@@ -539,6 +540,7 @@ export function mediaForParty(metadata: ProgressMetadata, videoId: string) {
 export function createWatchPartySession(profileId: string, response: WatchPartySessionResponse) {
   return new WatchPartySession({
     partyId: response.party.id,
+    party: response.party,
     ticket: response.ticket,
     expiresAt: response.expiresAt,
     socketPath: response.socketPath,
@@ -585,10 +587,4 @@ function partyMediaTitle(media?: WatchPartyMedia): string {
   return media?.videoTitle
     ? `${media.title} · ${media.videoTitle}`
     : (media?.title ?? "Waiting for content")
-}
-
-function partyMediaKey(media?: WatchPartyMedia): string {
-  return media
-    ? [media.type, media.mediaId, media.videoId, media.season ?? "", media.episode ?? ""].join(":")
-    : ""
 }

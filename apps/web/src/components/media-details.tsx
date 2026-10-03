@@ -463,10 +463,8 @@ export function MediaDetails({
   ])
 
   useEffect(() => {
-    if (initialWatchPartySession && initialWatchPartySession !== watchPartySession) {
-      setWatchPartySession(initialWatchPartySession)
-    }
-  }, [initialWatchPartySession, watchPartySession])
+    setWatchPartySession(initialWatchPartySession)
+  }, [initialWatchPartySession])
 
   useEffect(() => {
     if (selectedVideo && selectedSeason == null) {
@@ -787,9 +785,7 @@ export function MediaDetails({
     return playAutomatically(video)
   }
 
-  const queuedNext = activeVideoId
-    ? nextQueuedItem(queue.items, item.id, activeVideoId)
-    : undefined
+  const queuedNext = activeVideoId ? nextQueuedItem(queue.items, item.id, activeVideoId) : undefined
   const upNext: PlayerUpNext | undefined = queuedNext
     ? queuedUpNext(queuedNext)
     : nextEpisode && episodeUpNext(meta.name, nextEpisode)

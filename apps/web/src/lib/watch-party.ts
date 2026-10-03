@@ -73,6 +73,7 @@ export type WatchPartyEvent =
 export interface WatchPartySessionOptions extends WatchPartyTicket {
   partyId: string
   role: "host" | "guest"
+  party?: WatchPartySummary
   refreshTicket?: () => Promise<WatchPartyTicket>
   apiUrl?: string
 }
@@ -104,6 +105,17 @@ export class WatchPartySession {
     this.role = options.role
     this.ticket = options
     this.options = options
+  }
+  get party(): WatchPartySummary | undefined {
+    const party = this.options.party
+    if (!party || this.closed) return undefined
+    if (!this.snapshot) return party
+    return {
+      ...party,
+      media: this.snapshot.media,
+      members: this.snapshot.participants,
+      memberCount: this.snapshot.participants.length,
+    }
   }
   get state(): WatchPartyState | undefined {
     return this.snapshot?.state
@@ -363,5 +375,23 @@ function isMember(value: unknown): value is WatchPartyMember {
     isRecord(value) &&
     typeof value.profileId === "string" &&
     (value.role === "host" || value.role === "guest")
+  )
+}
+
+/** Validate the party summary received by the separate Electron player renderer. */
+export function isWatchPartySummary(value: unknown): value is WatchPartySummary {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    (value.mode === "private" || value.mode === "shared") &&
+    (value.status === "active" || value.status === "ended") &&
+    typeof value.isHost === "boolean" &&
+    typeof value.hostProfileId === "string" &&
+    finite(value.memberCount) &&
+    Array.isArray(value.members) &&
+    value.members.every(isMember) &&
+    typeof value.createdAt === "string" &&
+    typeof value.expiresAt === "string" &&
+    (value.media === undefined || isMedia(value.media))
   )
 }

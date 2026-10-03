@@ -1,11 +1,13 @@
 import type { PlayerArtwork, QueueItem, WatchProgress } from "./api"
 import type { Video } from "./core"
 import type { PlayerUpNext, QueueMedia } from "./queue"
-import type { WatchPartyMedia } from "./watch-party"
+import type { WatchPartyMedia, WatchPartySummary } from "./watch-party"
 import type { WatchPartySessionResponse } from "./watch-party-api"
 
 export interface ElectronPlayerOverlayContext {
   role?: "host" | "guest"
+  party?: WatchPartySummary
+  connected?: boolean
   profileId: string
   media: WatchPartyMedia
 }
