@@ -31,6 +31,8 @@ const developmentUrl = process.env.CONDUIT_ELECTRON_DEV_URL ?? "http://localhost
 type ElectronOzonePlatform = "x11" | "wayland"
 
 type PlayerOverlayContext = {
+  party?: unknown
+  connected?: boolean
   role?: "host" | "guest"
   profileId: string
   media: {
@@ -64,6 +66,8 @@ function normalizePlayerOverlayContext(value: unknown): PlayerOverlayContext | u
   )
     return undefined
   return {
+    party: context.party,
+    connected: context.connected === true,
     profileId: context.profileId,
     role: context.role === "guest" ? "guest" : context.role === "host" ? "host" : undefined,
     media: {

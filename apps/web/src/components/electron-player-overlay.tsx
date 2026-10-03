@@ -47,7 +47,11 @@ import {
 import { isDesktopBuffering, isDesktopInitialLoading } from "../lib/desktop-player-state"
 import { WatchPartyDialog } from "./watch-party-dialog"
 import type { WatchPartySessionResponse } from "../lib/watch-party-api"
-import type { WatchPartySession, WatchPartySummary } from "../lib/watch-party"
+import {
+  isWatchPartySummary,
+  type WatchPartySession,
+  type WatchPartySummary,
+} from "../lib/watch-party"
 import {
   VIDEO_SCALE_OPTIONS,
   mpvVideoScaleCommands,
@@ -295,6 +299,10 @@ export function ElectronPlayerOverlay({
   )
 
   const handoffPartyLeave = useCallback((partyId: string) => {
+    setWatchPartyContext((current) =>
+      current ? { ...current, party: undefined, role: undefined } : current,
+    )
+    setWatchPartyOpen(false)
     void window.__CONDUIT_ELECTRON__?.invoke("player_overlay_watch_party_left", { partyId })
   }, [])
 
@@ -869,6 +877,8 @@ export function ElectronPlayerOverlay({
           onOpenChange={setWatchPartyOpen}
           profile={overlayProfile(watchPartyContext)}
           media={watchPartyContext.media}
+          initialParty={watchPartyContext.party}
+          connectionStatus={watchPartyContext.connected ? "connected" : "offline"}
           onPartyJoined={handoffParty}
           onPartyLeft={handoffPartyLeave}
         />
@@ -891,6 +901,8 @@ function parsePlayerOverlayContext(value: unknown): ElectronPlayerOverlayContext
   )
     return undefined
   return {
+    party: isWatchPartySummary(context.party) ? context.party : undefined,
+    connected: context.connected === true,
     profileId: context.profileId,
     role: context.role === "guest" ? "guest" : context.role === "host" ? "host" : undefined,
     media: {

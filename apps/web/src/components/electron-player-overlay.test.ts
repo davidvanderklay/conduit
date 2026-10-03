@@ -4,6 +4,13 @@ import { act, createElement } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { defaultSubtitleTrack, ElectronPlayerOverlay } from "./electron-player-overlay"
+import { listWatchParties, leaveWatchParty } from "../lib/watch-party-api"
+import type { WatchPartySummary } from "../lib/watch-party"
+
+vi.mock("../lib/watch-party-api", () => ({
+  listWatchParties: vi.fn().mockResolvedValue({ parties: [] }),
+  leaveWatchParty: vi.fn().mockResolvedValue(undefined),
+}))
 
 const desktop = vi.hoisted(() => ({
   isDesktop: () => false,
@@ -323,6 +330,67 @@ describe("Electron episode drawer", () => {
     act(() => host.querySelector<HTMLButtonElement>('button[aria-label="Pause"]')?.click())
     expect(desktop.nativePlayerCommand).toHaveBeenCalledWith(["set", "pause", "yes"])
     expect(desktop.setNativePlayerPlaying).toHaveBeenCalledWith(false)
+  })
+
+  it("shows the joined party in the player and restores transport controls after leaving", async () => {
+    const party: WatchPartySummary = {
+      id: "party",
+      mode: "private",
+      status: "active",
+      isHost: false,
+      hostProfileId: "host",
+      memberCount: 2,
+      members: [
+        { profileId: "host", role: "host" },
+        { profileId: "guest", role: "guest" },
+      ],
+      media: { type: "movie", mediaId: "movie", videoId: "movie", title: "Example" },
+      createdAt: "2026-01-01",
+      expiresAt: "2099-01-01",
+    }
+    vi.mocked(listWatchParties).mockResolvedValue({ parties: [party] })
+    let updateContext: ((context: unknown) => void) | undefined
+    window.__CONDUIT_ELECTRON__!.onPlayerOverlayContext = (listener) => {
+      updateContext = listener
+      return () => undefined
+    }
+    const context = {
+      profileId: "guest",
+      role: "guest" as const,
+      media: party.media!,
+      party,
+      connected: true,
+    }
+    await act(async () => {
+      root.render(
+        createElement(ElectronPlayerOverlay, {
+          initialMedia: { title: "Example" },
+          initialWatchPartyContext: { ...context, party: undefined },
+        }),
+      )
+    })
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('button[aria-label="Watch together"]')?.click(),
+    )
+    await act(async () => updateContext?.(context))
+    const leave = [...host.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent === "Leave party",
+    )
+    expect(leave).toBeDefined()
+    expect(host.textContent).toContain("Following host")
+    expect(host.textContent).toContain("Connected")
+    expect(host.textContent).not.toContain("Join a party")
+    await act(async () => leave?.click())
+    expect(leaveWatchParty).toHaveBeenCalledWith("party", "guest")
+    expect(desktop.invoke).toHaveBeenCalledWith("player_overlay_watch_party_left", {
+      partyId: "party",
+    })
+    expect(host.querySelector<HTMLInputElement>('input[aria-label="Seek"]')?.disabled).toBe(false)
+    expect(host.querySelector('button[aria-label="Pause"]')).not.toBeNull()
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('button[aria-label="Pause"]')?.click(),
+    )
+    expect(desktop.nativePlayerCommand).toHaveBeenCalledWith(["set", "pause", "yes"])
   })
 
   it("hides the native cursor when the controls time out", async () => {
