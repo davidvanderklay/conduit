@@ -1737,6 +1737,7 @@ private fun BoxScope.PlaybackSessionHost(
     val interactiveBackAvailable = fullScreen &&
         (session.episodePickerOpen || session.streamPicker != null || session.queueOpen)
     fun performNativeBack() {
+        val session = controller.state
         when {
             session.queueOpen -> {
                 interactiveBackRestore = { controller.openQueue() }
@@ -1751,6 +1752,10 @@ private fun BoxScope.PlaybackSessionHost(
                 interactiveBackRestore = { controller.openEpisodes() }
                 controller.closeEpisodes()
             }
+            else -> {
+                if (session.transition != null) controller.close()
+                else controller.leaveFullScreen(preferences.miniplayerOnBack)
+            }
         }
     }
     fun cancelNativeBack() {
@@ -1758,7 +1763,9 @@ private fun BoxScope.PlaybackSessionHost(
         interactiveBackRestore = null
     }
     PlatformBackHandler(
-        enabled = fullScreen && (session.episodePickerOpen || session.streamPicker != null || session.queueOpen),
+        // Restoring the mini player does not reopen its details screen, so this
+        // host must also handle Android Back when no media screen owns playback.
+        enabled = fullScreen && (platformBackIncludesFullscreenPlayer || interactiveBackAvailable),
         onBack = ::performNativeBack,
         onBackCancelled = ::cancelNativeBack,
         interactiveBack = interactiveBackAvailable,

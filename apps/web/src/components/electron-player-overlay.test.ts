@@ -266,6 +266,65 @@ describe("Electron episode drawer", () => {
     expect(skipIntro?.className).toContain("bottom-36")
   })
 
+  it("keeps guest background clicks from optimistically pausing host playback", async () => {
+    vi.useFakeTimers()
+    let updateContext: ((context: unknown) => void) | undefined
+    window.__CONDUIT_ELECTRON__!.onPlayerOverlayContext = (listener) => {
+      updateContext = listener
+      return () => undefined
+    }
+    desktop.nativePlayerSnapshot.mockResolvedValue({
+      running: true,
+      ended: false,
+      paused: false,
+      loading: false,
+      firstFrameReady: true,
+      position: 10,
+      duration: 100,
+      bufferedDuration: 30,
+      volume: 80,
+      playbackPath: "directPlay",
+      tracks: [],
+    })
+    await act(async () => {
+      root.render(
+        createElement(ElectronPlayerOverlay, {
+          initialMedia: { title: "Example" },
+          initialWatchPartyContext: {
+            role: "guest",
+            profileId: "guest",
+            media: { type: "movie", mediaId: "movie", videoId: "movie", title: "Example" },
+          },
+        }),
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    desktop.nativePlayerCommand.mockClear()
+    desktop.setNativePlayerPlaying.mockClear()
+
+    act(() => (host.firstElementChild as HTMLElement).click())
+
+    expect(desktop.nativePlayerCommand).not.toHaveBeenCalled()
+    expect(desktop.setNativePlayerPlaying).not.toHaveBeenCalledWith(false)
+    expect(host.querySelector('button[aria-label="Play"]')).toBeNull()
+    expect(host.querySelector('button[aria-label="Pause"]')).toBeNull()
+    expect(host.querySelector('button[aria-label="Next episode"]')).toBeNull()
+    expect(host.querySelector<HTMLInputElement>('input[aria-label="Seek"]')?.disabled).toBe(true)
+    expect(host.querySelector('button[aria-label="Mute"]')).not.toBeNull()
+
+    act(() =>
+      updateContext?.({
+        profileId: "guest",
+        media: { type: "movie", mediaId: "movie", videoId: "movie", title: "Example" },
+      }),
+    )
+    expect(host.querySelector<HTMLInputElement>('input[aria-label="Seek"]')?.disabled).toBe(false)
+    act(() => host.querySelector<HTMLButtonElement>('button[aria-label="Pause"]')?.click())
+    expect(desktop.nativePlayerCommand).toHaveBeenCalledWith(["set", "pause", "yes"])
+    expect(desktop.setNativePlayerPlaying).toHaveBeenCalledWith(false)
+  })
+
   it("hides the native cursor when the controls time out", async () => {
     vi.useFakeTimers()
     desktop.nativePlayerSnapshot.mockResolvedValue({

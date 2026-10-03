@@ -261,8 +261,8 @@ export function ElectronPlayerOverlay({
     }),
     [queueItems, queueMedia],
   )
-  // Party guests follow the host, so they get no queue controls.
-  const queueAvailable = watchPartyContext?.role !== "guest"
+  // Party guests follow the host and keep only local playback controls.
+  const transportAvailable = watchPartyContext?.role !== "guest"
 
   useEffect(() => {
     let cancelled = false
@@ -354,12 +354,13 @@ export function ElectronPlayerOverlay({
 
   const previewSeek = useCallback(
     (position: number) => {
+      if (!transportAvailable) return
       seekDraft.current = position
       setSnapshot((current) => (current ? { ...current, position } : current))
       window.clearTimeout(seekCommitTimer.current)
       seekCommitTimer.current = window.setTimeout(commitSeek, 180)
     },
-    [commitSeek],
+    [commitSeek, transportAvailable],
   )
 
   useEffect(
@@ -381,6 +382,7 @@ export function ElectronPlayerOverlay({
   const beginHoldSpeed = useCallback(
     (event: ReactPointerEvent) => {
       if (
+        !transportAvailable ||
         !snapshot ||
         snapshot.loading ||
         snapshot.duration <= 0 ||
@@ -397,7 +399,7 @@ export function ElectronPlayerOverlay({
         command(["set", "speed", 2])
       }, 450)
     },
-    [command, snapshot],
+    [command, snapshot, transportAvailable],
   )
 
   useEffect(
@@ -412,10 +414,11 @@ export function ElectronPlayerOverlay({
   )
 
   const togglePlayback = useCallback(() => {
+    if (watchPartyContext?.role === "guest") return
     const paused = snapshot?.paused ?? false
     command(["set", "pause", paused ? "no" : "yes"])
     setSnapshot((current) => (current ? { ...current, paused: !paused } : current))
-  }, [command, snapshot?.paused])
+  }, [command, snapshot?.paused, watchPartyContext?.role])
 
   const toggleFullscreen = useCallback(() => {
     void toggleNativeFullscreen()
@@ -569,7 +572,7 @@ export function ElectronPlayerOverlay({
             » 2×
           </div>
         )}
-        {snapshot && !episodeDrawerOpen && (
+        {transportAvailable && snapshot && !episodeDrawerOpen && (
           <>
             {preferences.skipButtonPlacement === "left" && activeSkip && (
               <SkipSegmentButton
@@ -642,7 +645,7 @@ export function ElectronPlayerOverlay({
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {queueAvailable && (
+            {transportAvailable && (
               <span className="contents" data-player-drawer-toggle>
                 <OverlayButton
                   label="Queue"
@@ -668,7 +671,7 @@ export function ElectronPlayerOverlay({
           open={episodeDrawerOpen}
           handleVisible={chromeVisible}
           context={
-            series
+            transportAvailable && series
               ? {
                   name: series.name,
                   show: series.show,
@@ -679,7 +682,7 @@ export function ElectronPlayerOverlay({
                 }
               : undefined
           }
-          queue={queueAvailable ? queue : undefined}
+          queue={transportAvailable ? queue : undefined}
           onOpenChange={setEpisodeDrawerOpen}
           onSelect={selectEpisode}
         />
@@ -706,6 +709,7 @@ export function ElectronPlayerOverlay({
                 step={0.1}
                 value={Math.min(snapshot?.position ?? 0, snapshot?.duration || 0)}
                 aria-label="Seek"
+                disabled={!transportAvailable}
                 onChange={(event) => previewSeek(Number(event.target.value))}
                 onPointerUp={commitSeek}
                 onPointerCancel={commitSeek}
@@ -738,16 +742,20 @@ export function ElectronPlayerOverlay({
             </div>
 
             <div className="pointer-events-auto relative mt-3 flex items-center gap-3">
-              <OverlayButton
-                large
-                label={snapshot?.paused ? "Play" : "Pause"}
-                onClick={togglePlayback}
-              >
-                {snapshot?.paused ? <Play size={28} /> : <Pause size={28} />}
-              </OverlayButton>
-              <OverlayButton large label={nextControlLabel(upNext)} onClick={nextEpisode}>
-                <SkipForward size={27} />
-              </OverlayButton>
+              {transportAvailable && (
+                <OverlayButton
+                  large
+                  label={snapshot?.paused ? "Play" : "Pause"}
+                  onClick={togglePlayback}
+                >
+                  {snapshot?.paused ? <Play size={28} /> : <Pause size={28} />}
+                </OverlayButton>
+              )}
+              {transportAvailable && (
+                <OverlayButton large label={nextControlLabel(upNext)} onClick={nextEpisode}>
+                  <SkipForward size={27} />
+                </OverlayButton>
+              )}
               <OverlayButton
                 large
                 label={snapshot?.volume === 0 ? "Unmute" : "Mute"}
