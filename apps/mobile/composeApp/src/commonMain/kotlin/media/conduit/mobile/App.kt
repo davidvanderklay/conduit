@@ -1937,7 +1937,7 @@ private fun BoxScope.PlaybackSessionHost(
                     )
                     if (showPlaybackActions && watchParty != null) {
                         IconButton(onClick = { watchParty.sheetOpen = true }) {
-                            Icon(Icons.Rounded.People, "Watch together", tint = if (watchParty.party != null) Color(0xFFFBBF24) else Color.White)
+                            Icon(Icons.Rounded.People, "Watch together", tint = Color.White)
                         }
                     }
                     if (showPlaybackActions) {
