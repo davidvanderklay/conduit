@@ -1806,7 +1806,7 @@ internal fun MediaDetailsScreen(
                                 episode = selectedVideo?.episode,
                             ),
                             mediaName = meta?.name ?: item.name,
-                            artwork = selectedVideo?.thumbnail ?: meta?.background ?: item.background ?: item.poster,
+                            artwork = meta?.background ?: item.background ?: meta?.poster ?: item.poster,
                             logo = meta?.logo,
                             identity = profile?.let { PlaybackIdentity(it.id, item.type, item.id, videoId) },
                         )

@@ -161,6 +161,12 @@ class PlaybackSessionController(
         if (transition?.identity != null && transition.identity != request.identity) return
         val current = state.request
         val sameStream = current?.isSameStream(request) == true
+        // The request carries the title's own art, which a transition begun
+        // before its metadata loaded may lack.
+        val cover = transition?.copy(
+            artwork = request.artwork ?: transition.artwork,
+            logo = request.logo ?: transition.logo,
+        )
         DiagnosticLogStore.info(
             "playback/session",
             "start session=${if (sameStream) state.sessionId else "new"} video=${request.identity.videoId} startMs=${request.startPositionMs} reload=${request.reloadKey} sameStream=$sameStream",
@@ -175,7 +181,7 @@ class PlaybackSessionController(
             state.copy(
                 request = request,
                 presentation = PlaybackPresentation.FullScreen,
-                transition = transition?.takeIf { it.loadingSessionId == state.sessionId },
+                transition = cover?.takeIf { it.loadingSessionId == state.sessionId },
             )
         } else {
             // Keep the cover until this native load reports its first frame.
@@ -185,7 +191,7 @@ class PlaybackSessionController(
                 sessionId = "playback-${++sessionSequence}",
                 presentation = PlaybackPresentation.FullScreen,
                 notice = state.notice,
-                transition = transition?.copy(loadingSessionId = "playback-$sessionSequence"),
+                transition = cover?.copy(loadingSessionId = "playback-$sessionSequence"),
             )
         }
         if (!sameStream) checkpointSequence = 0L
@@ -361,7 +367,8 @@ class PlaybackSessionController(
             restore()
             return null
         }
-        return beginTransition(title, title, artwork, identity = identity)
+        val sameTitle = state.request?.takeIf { it.identity.mediaId == identity.mediaId }
+        return beginTransition(title, title, sameTitle?.artwork ?: artwork, sameTitle?.logo, identity)
     }
 
     fun isCurrentAttempt(attemptId: Long?): Boolean = activeAttemptId == attemptId
@@ -405,10 +412,12 @@ class PlaybackSessionController(
     fun playQueueItem(item: PlaybackQueueItem) {
         if (state.request == null || state.transition != null) return
         persist()
+        val sameTitle = state.request?.takeIf { it.identity.mediaId == item.mediaId }
         beginTransition(
             title = queueItemPlaybackTitle(item),
             mediaName = item.name,
-            artwork = item.artwork ?: item.poster,
+            artwork = sameTitle?.artwork ?: item.titleBackground ?: item.poster,
+            logo = sameTitle?.logo,
         )
         state = state.copy(queueOpen = false)
         callbacks?.playQueueItem?.invoke(item)
@@ -469,7 +478,7 @@ class PlaybackSessionController(
         beginTransition(
             title = picker.episode.displayTitle,
             mediaName = state.transition?.mediaName ?: state.request?.mediaName ?: picker.episode.displayTitle,
-            artwork = picker.episode.thumbnail ?: state.transition?.artwork ?: state.request?.artwork,
+            artwork = state.transition?.artwork ?: state.request?.artwork,
             logo = state.transition?.logo ?: state.request?.logo,
             identity = state.transition?.identity ?: state.request?.identity?.copy(videoId = picker.episode.id),
         )
@@ -516,7 +525,8 @@ class PlaybackSessionController(
         beginTransition(
             title = episode?.displayTitle ?: request.title,
             mediaName = request.mediaName,
-            artwork = episode?.thumbnail ?: request.artwork,
+            artwork = request.artwork,
+            logo = request.logo,
             identity = request.identity.copy(videoId = videoId),
         )
         callbacks?.selectEpisode?.invoke(videoId)

@@ -1059,7 +1059,7 @@ private fun AppShell(
                 type = queued.mediaType,
                 name = queued.name,
                 poster = queued.poster,
-                background = queued.artwork,
+                background = queued.titleBackground,
             )
             beginPlaybackIntent(queuedMedia, queued.videoId)
             selectedMedia = queuedMedia

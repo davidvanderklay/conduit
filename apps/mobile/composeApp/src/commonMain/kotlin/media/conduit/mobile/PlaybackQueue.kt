@@ -21,6 +21,13 @@ internal fun playbackQueueItem(item: CatalogItem, video: VideoItem? = null): Pla
     )
 }
 
+/**
+ * A queued episode stores its own thumbnail as artwork, so only other items
+ * have art that represents the whole title.
+ */
+internal val PlaybackQueueItem.titleBackground: String?
+    get() = artwork.takeIf { mediaType != "series" }
+
 internal fun List<PlaybackQueueItem>.addToQueue(item: PlaybackQueueItem): List<PlaybackQueueItem> =
     if (any { it.key == item.key }) this else this + item
 
