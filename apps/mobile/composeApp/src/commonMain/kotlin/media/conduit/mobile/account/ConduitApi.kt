@@ -281,7 +281,7 @@ data class WatchPartyMedia(
 )
 
 @Serializable
-data class WatchPartyMember(val profileId: String, val role: String)
+data class WatchPartyMember(val profileId: String, val role: String, val ready: Boolean = false)
 
 @Serializable
 data class WatchPartySummary(

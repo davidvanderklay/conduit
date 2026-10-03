@@ -1,5 +1,5 @@
-import { useEffect, useEffectEvent, useState } from "react"
-import { UsersRound, X } from "lucide-react"
+import { useEffect, useEffectEvent, useRef, useState } from "react"
+import { Check, Film, House, Link, UsersRound, X } from "lucide-react"
 import type { Profile } from "../lib/api"
 import { API_URL } from "../lib/auth"
 import {
@@ -76,6 +76,7 @@ export function WatchPartyDialog({
   onPartyMediaChange?: (media: WatchPartyMedia | undefined, session: WatchPartySession) => void
   onSessionChange?: (session: WatchPartySession | undefined) => void
 }) {
+  const panelRef = useRef<HTMLDivElement>(null)
   const [parties, setParties] = useState<WatchPartySummary[]>([])
   const [party, setParty] = useState<WatchPartySummary | undefined>(initialParty)
   const [inviteUrl, setInviteUrl] = useState<string>()
@@ -138,12 +139,12 @@ export function WatchPartyDialog({
 
   useEffect(() => {
     if (!open) return
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onOpenChange(false)
+    const previousFocus = document.activeElement
+    panelRef.current?.focus()
+    return () => {
+      if (previousFocus instanceof HTMLElement && previousFocus.isConnected) previousFocus.focus()
     }
-    window.addEventListener("keydown", closeOnEscape)
-    return () => window.removeEventListener("keydown", closeOnEscape)
-  }, [onOpenChange, open])
+  }, [open])
 
   useEffect(() => {
     notifySession(session)
@@ -292,91 +293,169 @@ export function WatchPartyDialog({
 
   return (
     <div
-      className="fixed inset-0 z-[70] flex items-end justify-center bg-black/70 p-3 sm:items-center"
+      className="fixed inset-0 z-[70] flex justify-end bg-black/25"
       onPointerDown={(event) => {
         if (event.target === event.currentTarget) onOpenChange(false)
       }}
     >
       <div
-        className="max-h-[90dvh] w-full max-w-md overflow-y-auto border border-zinc-700 bg-black p-5 text-white"
+        ref={panelRef}
+        tabIndex={-1}
+        className="flex h-dvh w-[24rem] max-w-[90vw] flex-col rounded-l-3xl border-l border-white/10 bg-black text-white shadow-2xl shadow-black/60 outline-none"
         role="dialog"
         aria-modal="true"
         aria-label="Watch together"
+        onKeyDown={(event) => {
+          if (event.key === "Escape") onOpenChange(false)
+          if (event.key !== "Tab") return
+          const controls = event.currentTarget.querySelectorAll<HTMLElement>(
+            'button:not(:disabled), input:not(:disabled), [tabindex="0"]',
+          )
+          const first = controls[0]
+          const last = controls[controls.length - 1]
+          if (
+            event.shiftKey &&
+            (document.activeElement === first || document.activeElement === event.currentTarget)
+          ) {
+            event.preventDefault()
+            last?.focus()
+          } else if (!event.shiftKey && document.activeElement === last) {
+            event.preventDefault()
+            first?.focus()
+          }
+        }}
       >
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-semibold">Watch together</h2>
-          <button type="button" aria-label="Close watch party" onClick={() => onOpenChange(false)}>
+        <div className="flex shrink-0 items-center justify-between px-6 pb-5 pt-6">
+          <div className="flex items-center gap-3">
+            <UsersRound size={20} className="text-amber-400" />
+            <h2 className="font-display text-lg font-semibold tracking-tight">Watch together</h2>
+          </div>
+          <button
+            className="grid size-9 place-items-center rounded-lg text-zinc-400 hover:bg-zinc-900 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+            type="button"
+            aria-label="Close watch party"
+            onClick={() => onOpenChange(false)}
+          >
             <X size={20} />
           </button>
         </div>
         {activeParty ? (
           <>
-            <div className="flex justify-between gap-3 border-b border-zinc-700 pb-3">
-              <span>{partyMediaTitle(activeParty.media)}</span>
-              <span className="text-sm">
-                {connection === "connected"
-                  ? "Connected"
-                  : connection === "connecting"
-                    ? "Connecting…"
-                    : "Reconnecting…"}
-              </span>
-            </div>
-            {activeParty.members.map((member) => (
-              <div
-                key={member.profileId}
-                className="flex justify-between border-b border-zinc-800 py-3 text-sm"
-              >
-                <span>
-                  {member.profileId === profile.id
-                    ? "You"
-                    : member.role === "host"
-                      ? "Host"
-                      : "Guest"}
-                </span>
-                <span>
-                  {member.role === "host"
-                    ? "Controls playback"
-                    : member.ready
-                      ? "Ready"
-                      : "Following host"}
-                </span>
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6">
+              <div className="flex items-center gap-3 border-b border-white/10 pb-5">
+                <div className="relative grid h-16 w-11 shrink-0 place-items-center overflow-hidden rounded-md bg-zinc-900 text-zinc-500">
+                  <Film size={20} />
+                  {activeParty.media?.poster && (
+                    <img
+                      src={activeParty.media.poster}
+                      alt=""
+                      className="absolute inset-0 size-full object-cover"
+                      onError={(event) => {
+                        event.currentTarget.hidden = true
+                      }}
+                    />
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="font-display text-sm font-semibold leading-5">
+                    {partyMediaTitle(activeParty.media)}
+                  </p>
+                  <p className="mt-1 flex items-center gap-2 text-xs text-zinc-400">
+                    <span
+                      className={`size-1.5 rounded-full ${connection === "connected" ? "bg-amber-400" : "bg-zinc-500"}`}
+                    />
+                    {connection === "connected"
+                      ? "Connected"
+                      : connection === "connecting"
+                        ? "Connecting…"
+                        : "Reconnecting…"}
+                  </p>
+                </div>
               </div>
-            ))}
-            <div className="mt-4 flex gap-4">
+              <h3 className="mb-2 mt-5 text-xs font-medium text-zinc-300">
+                Watching · {activeParty.members.length}
+              </h3>
+              {activeParty.members.map((member, index) => {
+                const self = member.profileId === profile.id
+                const label = self
+                  ? "You"
+                  : member.role === "host"
+                    ? "Host"
+                    : `Guest ${activeParty.members.slice(0, index + 1).filter((candidate) => candidate.role !== "host").length}`
+                return (
+                  <div key={member.profileId} className="flex min-h-12 items-center gap-3 text-sm">
+                    <span
+                      className={`grid size-8 shrink-0 place-items-center rounded-lg text-xs font-medium ${self ? "bg-amber-400/15 text-amber-300" : "bg-zinc-900 text-zinc-300"}`}
+                    >
+                      {self ? "Y" : member.role === "host" ? "H" : "G"}
+                    </span>
+                    <span>{label}</span>
+                    <span className="ml-auto flex items-center gap-1.5 text-xs text-zinc-400">
+                      {member.role === "host" ? (
+                        "Host"
+                      ) : member.ready ? (
+                        <>
+                          <Check size={13} className="text-amber-400" />
+                          Ready
+                        </>
+                      ) : (
+                        "Following host"
+                      )}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+            <div className="mx-6 flex shrink-0 flex-col gap-2 border-t border-white/10 py-5">
               {activeParty.isHost && activeParty.mode === "shared" && (
                 <button
+                  className="flex min-h-10 items-center justify-center gap-2 rounded-lg bg-amber-400 px-4 text-sm font-semibold text-zinc-950 hover:bg-amber-300 disabled:opacity-50"
                   disabled={loading}
                   type="button"
                   onClick={() => void (inviteUrl ? copyInvite() : invite())}
                 >
+                  {copied ? <Check size={16} /> : <Link size={16} />}
                   {inviteUrl ? (copied ? "Copied" : "Copy invite") : "Create invite"}
                 </button>
               )}
-              <button disabled={loading} type="button" onClick={() => void leave()}>
+              <button
+                className="min-h-10 rounded-lg text-sm text-red-300 hover:bg-red-500/10 disabled:opacity-50"
+                disabled={loading}
+                type="button"
+                onClick={() => void leave()}
+              >
                 {activeParty.isHost ? "End party" : "Leave party"}
               </button>
             </div>
           </>
         ) : (
-          <>
-            <div className="mb-4 flex gap-4">
-              <button
-                type="button"
-                onClick={() => setMode("private")}
-                aria-pressed={mode === "private"}
-              >
-                {mode === "private" ? "✓ " : ""}Household
-              </button>
-              <button
-                type="button"
-                onClick={() => setMode("shared")}
-                aria-pressed={mode === "shared"}
-              >
-                {mode === "shared" ? "✓ " : ""}Invite guests
-              </button>
+          <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-6 pb-6">
+            <div className="space-y-1">
+              {(["private", "shared"] as const).map((choice) => (
+                <button
+                  key={choice}
+                  type="button"
+                  onClick={() => setMode(choice)}
+                  aria-pressed={mode === choice}
+                  className={`flex min-h-16 w-full items-center gap-3 rounded-xl px-3 text-left ${mode === choice ? "bg-amber-400 text-zinc-950" : "text-zinc-300 hover:bg-zinc-900"}`}
+                >
+                  {choice === "private" ? <House size={18} /> : <Link size={18} />}
+                  <span className="flex-1">
+                    <span className="block text-sm font-medium">
+                      {choice === "private" ? "Household" : "Invite guests"}
+                    </span>
+                    <span
+                      className={`mt-1 block text-xs ${mode === choice ? "text-amber-950/80" : "text-zinc-500"}`}
+                    >
+                      {choice === "private" ? "Profiles in your household" : "Share a one-use link"}
+                    </span>
+                  </span>
+                  {mode === choice && <Check size={16} />}
+                </button>
+              ))}
             </div>
             <button
-              className="border border-zinc-600 px-3 py-2"
+              className="mt-4 min-h-10 shrink-0 rounded-lg bg-amber-400 px-4 text-sm font-semibold text-zinc-950 hover:bg-amber-300 disabled:opacity-50"
               disabled={loading || !canCreate}
               type="button"
               onClick={() => void create()}
@@ -388,39 +467,59 @@ export function WatchPartyDialog({
               .map((candidate) => (
                 <div
                   key={candidate.id}
-                  className="mt-3 flex items-center justify-between border-b border-zinc-700 py-3"
+                  className="mt-4 flex items-center gap-3 border-t border-white/10 pt-4"
                 >
-                  <span>
-                    {partyMediaTitle(candidate.media)} · {candidate.memberCount}
-                  </span>
-                  <button disabled={loading} type="button" onClick={() => void join(candidate)}>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium">{partyMediaTitle(candidate.media)}</p>
+                    <p className="mt-1 text-xs text-zinc-400">{candidate.memberCount} watching</p>
+                  </div>
+                  <button
+                    className="min-h-9 rounded-lg border border-white/15 px-3 text-xs hover:bg-zinc-900 disabled:opacity-50"
+                    disabled={loading}
+                    type="button"
+                    onClick={() => void join(candidate)}
+                  >
                     Join
                   </button>
                 </div>
               ))}
-            <label className="mt-5 block text-sm" htmlFor="party-invite">
-              Invite link or token
-            </label>
-            <input
-              id="party-invite"
-              className="my-2 w-full border border-zinc-600 bg-black p-2 text-white"
-              value={inviteToken}
-              onChange={(event) => setInviteToken(event.target.value)}
-            />
-            <button
-              disabled={loading || !inviteToken.trim()}
-              type="button"
-              onClick={() => void acceptInvite()}
-            >
-              Join party
-            </button>
-          </>
+            <div className="mt-auto pt-8">
+              <label
+                className="mb-3 block border-t border-white/10 pt-5 text-xs font-medium text-zinc-300"
+                htmlFor="party-invite"
+              >
+                Join a party
+              </label>
+              <div className="flex items-center gap-2 rounded-lg border border-zinc-700 p-1.5 focus-within:border-amber-400">
+                <input
+                  id="party-invite"
+                  placeholder="Paste invite link"
+                  aria-label="Invite link or token"
+                  className="min-w-0 flex-1 bg-transparent px-2 py-1 text-sm text-white outline-none placeholder:text-zinc-500"
+                  value={inviteToken}
+                  onChange={(event) => setInviteToken(event.target.value)}
+                />
+                <button
+                  className="min-h-8 rounded-md bg-zinc-800 px-3 text-xs font-medium hover:bg-zinc-700 disabled:opacity-40"
+                  disabled={loading || !inviteToken.trim()}
+                  type="button"
+                  onClick={() => void acceptInvite()}
+                >
+                  Join party
+                </button>
+              </div>
+            </div>
+          </div>
         )}
-        {loading && <p className="mt-3 text-sm">Working…</p>}
-        {error && (
-          <p role="alert" className="mt-3 text-sm text-red-300">
-            {error}
-          </p>
+        {(loading || error) && (
+          <div className="shrink-0 px-6 pb-5">
+            {loading && <p className="text-xs text-zinc-400">Working…</p>}
+            {error && (
+              <p role="alert" className="mt-2 text-sm text-red-300">
+                {error}
+              </p>
+            )}
+          </div>
         )}
       </div>
     </div>
