@@ -54,6 +54,7 @@ import {
 import { nativeFullscreen, onNativeFullscreenChange } from "../lib/desktop"
 import { mediaForWatchActions, setEpisodeWatched, setVideosWatched } from "../lib/watch-actions"
 import { episodeProgressPercent, episodeWatchState, resumePositionLabel } from "../lib/watch-status"
+import { joinWatchParty, updateWatchPartyMedia } from "../lib/watch-party-api"
 import { Button } from "./ui/button"
 import { Player } from "./player"
 import { LibraryToggle } from "./library-toggle"
@@ -61,6 +62,13 @@ import { EpisodeSelector } from "./episode-selector"
 import { usesExpandedPlayerControls } from "./desktop-player"
 import { DesktopPlayerChrome, DesktopPlayerControl } from "./desktop-player-chrome"
 import { DesktopPlayerOpeningOverlay } from "./desktop-player-overlays"
+import { createWatchPartySession, WatchPartyDialog, mediaForParty } from "./watch-party-dialog"
+import {
+  type WatchPartyMedia,
+  type WatchPartySession,
+  type WatchPartySummary,
+} from "../lib/watch-party"
+import type { WatchPartySessionResponse } from "../lib/watch-party-api"
 
 interface ResolvedStream extends Stream {
   key: string
@@ -81,6 +89,12 @@ export function MediaDetails({
   profileId,
   initialVideoId,
   initialProgress,
+  initialWatchPartyParty,
+  initialWatchPartySession,
+  onWatchPartySessionChange,
+  onExternalWatchPartyJoined,
+  onWatchPartyJoined,
+  onWatchPartyMediaChange,
   onBrowse,
   onClose,
   streamSelectionReturnToHome = false,
@@ -92,6 +106,12 @@ export function MediaDetails({
   profileId: string
   initialVideoId?: string
   initialProgress?: WatchProgress
+  initialWatchPartyParty?: WatchPartySummary
+  initialWatchPartySession?: WatchPartySession
+  onWatchPartySessionChange?: (session: WatchPartySession | undefined) => void
+  onExternalWatchPartyJoined?: (response: WatchPartySessionResponse) => void
+  onWatchPartyJoined?: (party: WatchPartySummary, session: WatchPartySession) => void
+  onWatchPartyMediaChange?: (media: WatchPartyMedia | undefined, session: WatchPartySession) => void
   onBrowse?: (target: MetadataBrowseTarget) => void
   onClose: () => void
   streamSelectionReturnToHome?: boolean
@@ -106,8 +126,15 @@ export function MediaDetails({
   const [streamAddonId, setStreamAddonId] = useState<string | undefined>(
     () => readPreferences().lastStreamAddonId,
   )
+  const [watchPartyOpen, setWatchPartyOpen] = useState(false)
+  const [watchPartySession, setWatchPartySession] = useState<WatchPartySession | undefined>(
+    initialWatchPartySession,
+  )
+  const [partyConnectionVersion, setPartyConnectionVersion] = useState(0)
   const queryClient = useQueryClient()
   const episodeTransition = useRef(0)
+  const partyStreamHandoffKey = useRef<string | undefined>(undefined)
+  const publishedPartyMediaKey = useRef<string | undefined>(undefined)
   const initialSeriesVideoResolved = useRef(false)
   const seriesSeasonManuallySelected = useRef(false)
   const episodeRailScrollTop = useRef<number | undefined>(undefined)
@@ -133,6 +160,31 @@ export function MediaDetails({
   const nextEpisode = selectedVideo ? adjacentSeriesVideo(videos, selectedVideo.id, 1) : undefined
   const episodeMode = item.type === "series" && Boolean(selectedVideo)
   const activeVideoId = episodeMode ? selectedVideoId : item.id
+  const watchPartyMedia = useMemo(
+    () =>
+      mediaForParty(
+        {
+          mediaType: item.type,
+          mediaId: item.id,
+          name: meta.name,
+          poster: meta.poster,
+          videoTitle: selectedVideo?.title,
+          season: selectedVideo?.season,
+          episode: selectedVideo?.episode,
+        },
+        activeVideoId ?? item.id,
+      ),
+    [
+      activeVideoId,
+      item.id,
+      item.type,
+      meta.name,
+      meta.poster,
+      selectedVideo?.episode,
+      selectedVideo?.season,
+      selectedVideo?.title,
+    ],
+  )
   const addonIds = addons.map((addon) => addon.id)
   const streamAddons = activeVideoId
     ? addonsForResource(addons, "stream", item.type, activeVideoId)
@@ -159,13 +211,7 @@ export function MediaDetails({
     ? progressForMediaVideo(mediaProgress, item.type, item.id, activeVideoId, selectedVideo)
     : undefined
   const savedPlaybackSource = activeVideoId
-    ? playbackSourceForMediaVideo(
-        mediaProgress,
-        item.type,
-        item.id,
-        activeVideoId,
-        selectedVideo,
-      )
+    ? playbackSourceForMediaVideo(mediaProgress, item.type, item.id, activeVideoId, selectedVideo)
     : undefined
   const autoResumeEligible =
     autoResumeOnOpen &&
@@ -194,9 +240,7 @@ export function MediaDetails({
   const shouldWaitForSavedPlayback =
     autoResumeStage === "resolving" || autoResumeStage === "starting"
   const seriesProgressReady = progress.isSuccess || progress.isError
-  const seriesProgress = [
-    ...mediaProgress,
-  ]
+  const seriesProgress = [...mediaProgress]
   const seriesSelectorTarget = useMemo(() => {
     if (item.type !== "series" || selectedVideoId || !videos.length || !seriesProgressReady)
       return undefined
@@ -387,6 +431,12 @@ export function MediaDetails({
   ])
 
   useEffect(() => {
+    if (initialWatchPartySession && initialWatchPartySession !== watchPartySession) {
+      setWatchPartySession(initialWatchPartySession)
+    }
+  }, [initialWatchPartySession, watchPartySession])
+
+  useEffect(() => {
     if (selectedVideo && selectedSeason == null) {
       setSelectedSeason(selectedVideo.season ?? 1)
       return
@@ -419,6 +469,115 @@ export function MediaDetails({
       window.removeEventListener("keydown", closeOnEscape)
     }
   }, [onClose, playing])
+
+  const activePartyMedia = playing?.url ? watchPartyMedia : undefined
+
+  useEffect(() => {
+    if (watchPartySession?.role !== "host") return
+    return watchPartySession.subscribe((event) => {
+      if (event.type !== "connected") return
+      publishedPartyMediaKey.current = undefined
+      setPartyConnectionVersion((version) => version + 1)
+    })
+  }, [watchPartySession])
+
+  useEffect(() => {
+    if (watchPartySession?.role !== "host") return
+    const mediaKey = activePartyMedia ? partyMediaKey(activePartyMedia) : "none"
+    const publicationKey = `${watchPartySession.partyId}:${mediaKey}`
+    if (publishedPartyMediaKey.current === publicationKey) return
+    publishedPartyMediaKey.current = publicationKey
+    void updateWatchPartyMedia(
+      watchPartySession.partyId,
+      initialWatchPartyParty?.hostProfileId ?? profileId,
+      activePartyMedia,
+    ).catch(() => undefined)
+    onWatchPartyMediaChange?.(activePartyMedia, watchPartySession)
+  }, [
+    activePartyMedia,
+    initialWatchPartyParty?.hostProfileId,
+    onWatchPartyMediaChange,
+    partyConnectionVersion,
+    profileId,
+    watchPartySession,
+  ])
+
+  useEffect(() => {
+    const partyMedia = initialWatchPartyParty?.media
+    if (initialWatchPartySession?.role !== "guest" || !partyMedia) return
+    const key = `${initialWatchPartyParty.id}:${partyMedia.videoId}`
+    if (
+      partyStreamHandoffKey.current === key ||
+      activeVideoId !== partyMedia.videoId ||
+      !streams.isSuccess
+    )
+      return
+    partyStreamHandoffKey.current = key
+    const firstPlayableStream = streams.data.find((stream) => Boolean(stream.url))
+    setStreamResolutionError(
+      firstPlayableStream ? undefined : "No playable source found. Choose a source below.",
+    )
+    if (firstPlayableStream) setPlaying(firstPlayableStream)
+  }, [
+    activeVideoId,
+    initialWatchPartyParty,
+    initialWatchPartySession,
+    streams.data,
+    streams.isSuccess,
+  ])
+
+  useEffect(() => {
+    const electron = window.__CONDUIT_ELECTRON__
+    if (!electron) return
+    const unsubscribeOpen = electron.onPlayerOverlayWatchParty?.(() => setWatchPartyOpen(true))
+    const unsubscribeJoined = electron.onPlayerOverlayWatchPartyJoined?.((handoff) => {
+      void joinWatchParty(handoff.party.id, profileId)
+        .then((response) => {
+          const next = createWatchPartySession(profileId, response)
+          const isCurrentMedia =
+            (response.party.isHost && !response.party.media) ||
+            (response.party.media?.mediaId === item.id &&
+              (item.type !== "series" || response.party.media?.videoId === activeVideoId))
+          if (isCurrentMedia) {
+            setWatchPartySession(next)
+            onWatchPartySessionChange?.(next)
+            onWatchPartyJoined?.(response.party, next)
+          } else {
+            onExternalWatchPartyJoined?.(response)
+            onClose()
+          }
+        })
+        .catch(() => setWatchPartyOpen(true))
+    })
+    const unsubscribeLeft = electron.onPlayerOverlayWatchPartyLeft?.((partyId) => {
+      if (watchPartySession?.partyId !== partyId) return
+      watchPartySession.close()
+      setWatchPartySession(undefined)
+      onWatchPartySessionChange?.(undefined)
+    })
+    return () => {
+      unsubscribeOpen?.()
+      unsubscribeJoined?.()
+      unsubscribeLeft?.()
+    }
+  }, [
+    activeVideoId,
+    item.id,
+    item.type,
+    onClose,
+    onExternalWatchPartyJoined,
+    onWatchPartyJoined,
+    onWatchPartySessionChange,
+    profileId,
+    watchPartySession,
+  ])
+
+  useEffect(
+    () => () => {
+      if (!onWatchPartyJoined) watchPartySession?.close()
+    },
+    [onWatchPartyJoined, watchPartySession],
+  )
 
   const browse = (target: MetadataBrowseTarget) => {
     onClose()
@@ -557,6 +716,21 @@ export function MediaDetails({
       setStreamResolutionError("The next source could not be resolved. Choose a source below.")
     }
   }
+  const updateWatchPartySession = useCallback(
+    (next: WatchPartySession | undefined) => {
+      setWatchPartySession(next)
+      onWatchPartySessionChange?.(next)
+    },
+    [onWatchPartySessionChange],
+  )
+
+  const handleRemoteMedia = useCallback(
+    (media?: WatchPartyMedia) => {
+      if (watchPartySession?.role !== "guest") return
+      onWatchPartyMediaChange?.(media, watchPartySession)
+    },
+    [onWatchPartyMediaChange, watchPartySession],
+  )
 
   return (
     <>
@@ -783,8 +957,25 @@ export function MediaDetails({
             cancelPendingAutoResume()
             setPlaying(undefined)
           }}
+          partySession={watchPartySession}
+          onWatchParty={() => setWatchPartyOpen(true)}
+          onRemoteMedia={handleRemoteMedia}
         />
       )}
+      <WatchPartyDialog
+        open={watchPartyOpen}
+        onOpenChange={setWatchPartyOpen}
+        profile={{ id: profileId, name: "", isKids: false }}
+        media={activePartyMedia}
+        initialParty={initialWatchPartyParty}
+        initialSession={initialWatchPartySession}
+        onPartyJoined={(party, session) => {
+          onWatchPartyJoined?.(party, session)
+          setWatchPartyOpen(false)
+        }}
+        onPartyMediaChange={onWatchPartyMediaChange}
+        onSessionChange={updateWatchPartySession}
+      />
     </>
   )
 }
@@ -1274,6 +1465,12 @@ function StreamSelectionLoading({
         }
       />
     </div>
+  )
+}
+
+function partyMediaKey(media: WatchPartyMedia): string {
+  return [media.type, media.mediaId, media.videoId, media.season ?? "", media.episode ?? ""].join(
+    ":",
   )
 }
 

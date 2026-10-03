@@ -90,6 +90,7 @@ data class PlaybackState(
     val playing: Boolean = false,
     val positionMs: Long = 0,
     val durationMs: Long = 0,
+    val rate: Double = 1.0,
     val videoWidth: Int = 0,
     val videoHeight: Int = 0,
     val ended: Boolean = false,

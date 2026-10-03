@@ -8,16 +8,12 @@ import {
   Play,
   Settings2,
   SkipForward,
+  UsersRound,
   Volume2,
   VolumeX,
 } from "lucide-react"
 import type Hls from "hls.js"
-import type {
-  InstalledAddon,
-  PlaybackSource,
-  PlayerArtwork,
-  ProgressMetadata,
-} from "../lib/api"
+import type { InstalledAddon, PlaybackSource, PlayerArtwork, ProgressMetadata } from "../lib/api"
 import { addonsForResource } from "../lib/addons"
 import { loadSubtitles, type Subtitle, type Video } from "../lib/core"
 import { isDesktop } from "../lib/desktop"
@@ -29,13 +25,10 @@ import { AUTO_SELECTION_STARTUP_TIMEOUT_MS } from "../lib/stream-selection"
 import { subtitlePositionForVideoScale, videoObjectFit, type VideoScale } from "../lib/video-scale"
 import { usePlaybackProgress } from "../lib/progress"
 import { DesktopPlayer } from "./desktop-player"
-import {
-  NextEpisodePrompt,
-  PlayerEpisodeDrawer,
-  type PlayerSeriesContext,
-} from "./player-series"
+import { NextEpisodePrompt, PlayerEpisodeDrawer, type PlayerSeriesContext } from "./player-series"
 import { VideoScaleControl } from "./video-scale-control"
 import { SubtitlePicker } from "./subtitle-picker"
+import { partyPositionAt, type WatchPartySession, type WatchPartyMedia } from "../lib/watch-party"
 
 interface PlayerSubtitle extends Subtitle {
   key: string
@@ -71,6 +64,9 @@ export function Player({
   onAutoRecoveryStarted,
   onAutoRecoveryFailed,
   onClose,
+  partySession,
+  onWatchParty,
+  onRemoteMedia,
 }: {
   accountId?: string
   url: string
@@ -91,6 +87,9 @@ export function Player({
   onAutoRecoveryStarted?: () => void
   onAutoRecoveryFailed?: () => void
   onClose: () => void
+  partySession?: WatchPartySession
+  onWatchParty?: () => void
+  onRemoteMedia?: (media?: WatchPartyMedia) => void
 }) {
   if (isDesktop()) {
     return (
@@ -104,16 +103,19 @@ export function Player({
         progressMetadata={progressMetadata}
         artwork={artwork}
         addons={addons}
-        seriesContext={seriesContext}
-        nextEpisode={nextEpisode}
+        seriesContext={partySession?.role === "guest" ? undefined : seriesContext}
+        nextEpisode={partySession?.role === "guest" ? undefined : nextEpisode}
         nextEpisodeLabel={nextEpisodeLabel}
-        onSelectEpisode={onSelectEpisode}
-        onNextEpisode={onNextEpisode}
+        onSelectEpisode={partySession?.role === "guest" ? undefined : onSelectEpisode}
+        onNextEpisode={partySession?.role === "guest" ? undefined : onNextEpisode}
         onEnded={onEnded}
         autoRecoveryAttempt={autoRecoveryAttempt}
         onAutoRecoveryStarted={onAutoRecoveryStarted}
         onAutoRecoveryFailed={onAutoRecoveryFailed}
         onClose={onClose}
+        partySession={partySession}
+        onWatchParty={onWatchParty}
+        onRemoteMedia={onRemoteMedia}
       />
     )
   }
@@ -127,16 +129,19 @@ export function Player({
       playbackSource={playbackSource}
       progressMetadata={progressMetadata}
       addons={addons}
-      seriesContext={seriesContext}
-      nextEpisode={nextEpisode}
+      seriesContext={partySession?.role === "guest" ? undefined : seriesContext}
+      nextEpisode={partySession?.role === "guest" ? undefined : nextEpisode}
       nextEpisodeLabel={nextEpisodeLabel}
-      onSelectEpisode={onSelectEpisode}
-      onNextEpisode={onNextEpisode}
+      onSelectEpisode={partySession?.role === "guest" ? undefined : onSelectEpisode}
+      onNextEpisode={partySession?.role === "guest" ? undefined : onNextEpisode}
       onEnded={onEnded}
       autoRecoveryAttempt={autoRecoveryAttempt}
       onAutoRecoveryStarted={onAutoRecoveryStarted}
       onAutoRecoveryFailed={onAutoRecoveryFailed}
       onClose={onClose}
+      partySession={partySession}
+      onWatchParty={onWatchParty}
+      onRemoteMedia={onRemoteMedia}
     />
   )
 }
@@ -160,6 +165,9 @@ function WebPlayer({
   onAutoRecoveryStarted,
   onAutoRecoveryFailed,
   onClose,
+  partySession,
+  onWatchParty,
+  onRemoteMedia,
 }: {
   accountId?: string
   url: string
@@ -179,6 +187,9 @@ function WebPlayer({
   onAutoRecoveryStarted?: () => void
   onAutoRecoveryFailed?: () => void
   onClose: () => void
+  partySession?: WatchPartySession
+  onWatchParty?: () => void
+  onRemoteMedia?: (media?: WatchPartyMedia) => void
 }) {
   const preferences = readPreferences()
   const heading = playerHeading(progressMetadata)
@@ -207,6 +218,7 @@ function WebPlayer({
   const nextTransitionSuppressed = useRef(false)
   const nextTransitionRequested = useRef(false)
   const [playbackStarted, setPlaybackStarted] = useState(false)
+  const applyingPartyUpdate = useRef(false)
   const { progress, save: saveProgress } = usePlaybackProgress(
     profileId,
     videoId,
@@ -293,10 +305,66 @@ function WebPlayer({
   }
 
   useEffect(() => {
+    if (!partySession) return
+    const video = videoRef.current
+    const applyRemoteState = (state: Parameters<typeof partyPositionAt>[0]) => {
+      if (!video || partySession.role !== "guest") return
+      if (video.readyState < 1) return
+      applyingPartyUpdate.current = true
+      const nextPosition = partySession.positionAt(state)
+      if (Math.abs(video.currentTime - nextPosition) > 0.75) video.currentTime = nextPosition
+      video.playbackRate = state.rate
+      if (state.playing && video.paused) void video.play().catch(() => undefined)
+      if (!state.playing && !video.paused) video.pause()
+      window.setTimeout(() => {
+        applyingPartyUpdate.current = false
+      }, 0)
+    }
+    const unsubscribe = partySession.subscribe((event) => {
+      if (event.type === "joined" && event.state) applyRemoteState(event.state)
+      if (event.type === "state") applyRemoteState(event.state)
+      if (
+        (event.type === "disconnected" || event.type === "host-disconnected") &&
+        partySession.role === "guest"
+      )
+        video?.pause()
+      if (event.type === "media") onRemoteMedia?.(event.media ?? undefined)
+    })
+    const applyLatest = () => {
+      partySession.sendReady(Boolean(video && video.readyState >= 3))
+      if (partySession.state) applyRemoteState(partySession.state)
+    }
+    video?.addEventListener("loadedmetadata", applyLatest)
+    video?.addEventListener("canplay", applyLatest)
+    partySession.connect()
+    return () => {
+      unsubscribe()
+      video?.removeEventListener("loadedmetadata", applyLatest)
+      video?.removeEventListener("canplay", applyLatest)
+    }
+  }, [onRemoteMedia, partySession])
+
+  useEffect(() => {
+    if (!partySession || partySession.role !== "host") return
+    const publish = () => {
+      const video = videoRef.current
+      if (!video || !Number.isFinite(video.duration)) return
+      partySession.publishState({
+        position: video.currentTime,
+        duration: video.duration,
+        playing: !video.paused && video.readyState >= 3,
+        rate: video.playbackRate,
+      })
+    }
+    const timer = window.setInterval(publish, 1000)
+    return () => window.clearInterval(timer)
+  }, [partySession])
+
+  useEffect(() => {
     const video = videoRef.current
     if (resumed.current || !video || !duration || !progress.isSuccess) return
     resumed.current = true
-    if (!progress.data || progress.data.watched) return
+    if (partySession?.role === "guest" || !progress.data || progress.data.watched) return
     const saved = progress.data.positionMs / 1000
     if (saved > 0 && saved < duration - 5) {
       video.currentTime = saved
@@ -524,6 +592,10 @@ function WebPlayer({
   const togglePlayback = () => {
     const video = videoRef.current
     if (!video) return
+    if (partySession?.role === "guest") {
+      if (partySession.state?.playing) void video.play().catch(() => undefined)
+      return
+    }
     if (video.paused) void video.play()
     else video.pause()
   }
@@ -564,7 +636,10 @@ function WebPlayer({
             <Play className="rotate-180 fill-current" size={22} />
           </button>
           <PlayerHeadingText heading={heading} />
-          <div className="ml-auto">
+          <div className="ml-auto flex items-center gap-1">
+            {onWatchParty && (
+              <PartyPlayerButton onClick={onWatchParty} active={partySession != null} />
+            )}
             <button
               className="grid size-10 place-items-center rounded-full bg-black/60 text-zinc-200 hover:bg-white/15"
               type="button"
@@ -592,9 +667,13 @@ function WebPlayer({
               setPlaying(true)
               setPlaybackStarted(true)
               markAutoRecoveryStarted()
+              if (partySession?.role === "host" && !applyingPartyUpdate.current)
+                partySession.publishCommand("play")
             }}
             onPause={(event) => {
               setPlaying(false)
+              if (partySession?.role === "host" && !applyingPartyUpdate.current)
+                partySession.publishCommand("pause")
               if (resumed.current) {
                 void saveProgress(
                   event.currentTarget.currentTime,
@@ -633,15 +712,14 @@ function WebPlayer({
               if (!nextTransitionRequested.current) {
                 nextTransitionRequested.current = true
                 void Promise.resolve(
-                  onEnded?.(!nextTransitionSuppressed.current),
+                  onEnded?.(partySession?.role !== "guest" && !nextTransitionSuppressed.current),
                 ).catch(() => undefined)
               }
               void saveProgress(
                 event.currentTarget.duration,
                 event.currentTarget.duration,
                 true,
-              )
-                .catch(() => undefined)
+              ).catch(() => undefined)
             }}
             onDurationChange={(event) => setDuration(event.currentTarget.duration || 0)}
             onLoadedMetadata={() => {
@@ -660,19 +738,21 @@ function WebPlayer({
                 <p className="mt-2 text-sm leading-6 text-zinc-400">{playbackError}</p>
               </div>
             </div>
-          ) : waiting && (
-            <div
-              className="pointer-events-none absolute inset-0 grid place-items-center bg-black/65"
-              role="status"
-              aria-label="Video loading"
-            >
-              <div className="flex items-center gap-3 rounded-xl border border-white/15 bg-black/80 px-4 py-3 shadow-xl shadow-black/40">
-                <LoaderCircle className="animate-spin text-amber-300" size={28} />
-                <PlayerHeadingText heading={heading} />
+          ) : (
+            waiting && (
+              <div
+                className="pointer-events-none absolute inset-0 grid place-items-center bg-black/65"
+                role="status"
+                aria-label="Video loading"
+              >
+                <div className="flex items-center gap-3 rounded-xl border border-white/15 bg-black/80 px-4 py-3 shadow-xl shadow-black/40">
+                  <LoaderCircle className="animate-spin text-amber-300" size={28} />
+                  <PlayerHeadingText heading={heading} />
+                </div>
               </div>
-            </div>
+            )
           )}
-          {!episodeDrawerOpen && (
+          {!episodeDrawerOpen && partySession?.role !== "guest" && (
             <NextEpisodePrompt
               seriesName={seriesContext?.name ?? progressMetadata.name}
               episode={nextEpisode}
@@ -707,10 +787,10 @@ function WebPlayer({
               style={
                 {
                   "--player-progress": `${
-                    duration > 0 ? Math.min(100, currentTime / duration * 100) : 0
+                    duration > 0 ? Math.min(100, (currentTime / duration) * 100) : 0
                   }%`,
                   "--player-buffered": `${
-                    duration > 0 ? Math.min(100, bufferedEnd / duration * 100) : 0
+                    duration > 0 ? Math.min(100, (bufferedEnd / duration) * 100) : 0
                   }%`,
                 } as React.CSSProperties
               }
@@ -721,7 +801,10 @@ function WebPlayer({
               value={Math.min(currentTime, duration || 0)}
               aria-label="Seek"
               onChange={(event) => {
-                if (videoRef.current) videoRef.current.currentTime = Number(event.target.value)
+                if (partySession?.role === "guest") return
+                const position = Number(event.target.value)
+                if (videoRef.current) videoRef.current.currentTime = position
+                if (partySession?.role === "host") partySession.publishCommand("seek", position)
               }}
             />
             <div className="flex items-center gap-3">
@@ -855,13 +938,25 @@ function Control({
   )
 }
 
+function PartyPlayerButton({ onClick, active }: { onClick: () => void; active: boolean }) {
+  return (
+    <button
+      type="button"
+      aria-label="Watch together"
+      title="Watch together"
+      className={`grid size-10 place-items-center rounded-full transition-colors hover:bg-white/15 ${active ? "text-amber-300" : "text-zinc-200"}`}
+      onClick={onClick}
+    >
+      <UsersRound size={21} />
+    </button>
+  )
+}
+
 function PlayerHeadingText({ heading }: { heading: PlayerHeading }) {
   return (
     <div className="min-w-0">
       <p className="truncate font-display font-semibold">{heading.primary}</p>
-      {heading.secondary && (
-        <p className="truncate text-xs text-zinc-400">{heading.secondary}</p>
-      )}
+      {heading.secondary && <p className="truncate text-xs text-zinc-400">{heading.secondary}</p>}
     </div>
   )
 }

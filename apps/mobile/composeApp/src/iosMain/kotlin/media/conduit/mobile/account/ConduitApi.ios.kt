@@ -1,5 +1,6 @@
 package media.conduit.mobile.account
 
+import io.ktor.client.plugins.websocket.WebSockets
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.darwin.Darwin
 import io.ktor.client.plugins.HttpTimeout
@@ -9,6 +10,7 @@ import kotlinx.serialization.json.Json
 
 actual fun createPlatformHttpClient(): HttpClient = HttpClient(Darwin) {
     expectSuccess = false
+    install(WebSockets) { pingIntervalMillis = 15_000 }
     install(HttpTimeout) {
         connectTimeoutMillis = 5_000
         requestTimeoutMillis = 10_000

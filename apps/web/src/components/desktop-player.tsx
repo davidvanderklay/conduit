@@ -54,6 +54,12 @@ import {
   DesktopPlayerChromeTop,
   DesktopPlayerControl as PlayerIcon,
 } from "./desktop-player-chrome"
+import { WatchPartyButton } from "./watch-party-dialog"
+import {
+  mediaFromProgressMetadata,
+  type WatchPartyMedia,
+  type WatchPartySession,
+} from "../lib/watch-party"
 
 type TrackMenuName = "audio" | "subtitles"
 
@@ -117,6 +123,9 @@ export function DesktopPlayer({
   onAutoRecoveryStarted,
   onAutoRecoveryFailed,
   onClose,
+  partySession,
+  onWatchParty,
+  onRemoteMedia,
 }: {
   accountId?: string
   url: string
@@ -137,6 +146,9 @@ export function DesktopPlayer({
   onAutoRecoveryStarted?: () => void
   onAutoRecoveryFailed?: () => void
   onClose: () => void
+  partySession?: WatchPartySession
+  onWatchParty?: () => void
+  onRemoteMedia?: (media?: WatchPartyMedia) => void
 }) {
   const preferences = readPreferences()
   const [snapshot, setSnapshot] = useState<NativePlayerSnapshot>()
@@ -172,10 +184,12 @@ export function DesktopPlayer({
   const previousLoadingOverlayVisible = useRef(false)
   const previousPaused = useRef(false)
   const resumed = useRef(false)
+  const mediaDurationObserved = useRef(false)
   const endedHandled = useRef(false)
   const nextTransitionSuppressed = useRef(false)
   const nextTransitionRequested = useRef(false)
   const lastPlayback = useRef({ position: 0, duration: 0 })
+  const latestSnapshot = useRef<NativePlayerSnapshot | undefined>(undefined)
   const lastNativeSnapshot = useRef<NativePlayerSnapshot | undefined>(undefined)
   const seekActive = useRef(false)
   const seekDraft = useRef<number | undefined>(undefined)
@@ -255,6 +269,7 @@ export function DesktopPlayer({
     const timeout = window.setTimeout(reportAutoRecoveryFailure, AUTO_SELECTION_STARTUP_TIMEOUT_MS)
     return () => window.clearTimeout(timeout)
   }, [autoRecoveryAttempt, reportAutoRecoveryFailure, url])
+  latestSnapshot.current = snapshot
 
   const showControls = useCallback(() => {
     setControlsVisible(true)
@@ -275,6 +290,7 @@ export function DesktopPlayer({
   const beginHoldSpeed = useCallback(
     (event: ReactPointerEvent) => {
       if (
+        partySession?.role === "guest" ||
         !snapshot ||
         snapshot.loading ||
         snapshot.duration <= 0 ||
@@ -291,7 +307,7 @@ export function DesktopPlayer({
         void nativePlayerCommand(["set", "speed", 2]).catch(() => undefined)
       }, 450)
     },
-    [snapshot],
+    [snapshot, partySession?.role],
   )
 
   useEffect(
@@ -328,6 +344,7 @@ export function DesktopPlayer({
     nextTransitionRequested.current = false
     seekActive.current = false
     seekDraft.current = undefined
+    mediaDurationObserved.current = false
     lastNativeSnapshot.current = undefined
     lastPlayback.current = { position: 0, duration: 0 }
     document.documentElement.classList.add("native-playback")
@@ -350,10 +367,16 @@ export function DesktopPlayer({
             }
           : undefined,
       },
+      {
+        profileId,
+        media: mediaFromProgressMetadata(progressMetadata, videoId),
+        role: partySession?.role,
+      },
     )
       .then(async (initial) => {
         if (cancelled) return
         playerStarted = true
+        if (initial.duration > 0) mediaDurationObserved.current = true
         setSnapshot(initial)
         if (initial.firstFrameReady) setPlaybackStarted(true)
         await nativePlayerCommand(["set", "sub-pos", preferences.subtitlePosition])
@@ -381,6 +404,7 @@ export function DesktopPlayer({
       void nativePlayerSnapshot()
         .then((next) => {
           if (cancelled) return
+          if (next.duration > 0) mediaDurationObserved.current = true
           const previous = lastNativeSnapshot.current
           const resolved = nativePlaybackEnded(previous, next) ? { ...next, ended: true } : next
           lastNativeSnapshot.current = resolved
@@ -573,13 +597,77 @@ export function DesktopPlayer({
   useEffect(() => {
     if (resumed.current || !snapshot?.duration || !progress.isSuccess) return
     resumed.current = true
-    if (!progress.data || progress.data.watched) return
+    if (partySession?.role === "guest" || !progress.data || progress.data.watched) return
     const saved = progress.data.positionMs / 1000
     if (saved > 0 && (!snapshot.duration || saved < snapshot.duration - 5)) {
       void nativePlayerCommand(["seek", saved, "absolute+exact"])
       setSnapshot((current) => (current ? { ...current, position: saved } : current))
     }
   }, [progress.data, progress.isSuccess, snapshot])
+
+  useEffect(() => {
+    partySession?.sendReady(Boolean(snapshot?.firstFrameReady && !snapshot.loading))
+  }, [partySession, snapshot?.firstFrameReady, snapshot?.loading])
+
+  useEffect(() => {
+    void window.__CONDUIT_ELECTRON__?.invoke("player_overlay_context", {
+      profileId,
+      media: mediaFromProgressMetadata(progressMetadata, videoId),
+      role: partySession?.role,
+    })
+  }, [partySession?.role, profileId, progressMetadata, videoId])
+
+  useEffect(() => {
+    if (!partySession) return
+    const applyState = () => {
+      const state = partySession.state
+      const current = latestSnapshot.current
+      if (
+        !partySession.connected ||
+        partySession.role !== "guest" ||
+        !state ||
+        !current?.firstFrameReady ||
+        partySession.media?.videoId !== videoId
+      )
+        return
+      const position = partySession.positionAt(state)
+      if (Math.abs(current.position - position) > 0.75)
+        void nativePlayerCommand(["seek", position, "absolute+exact"])
+      if (current.paused === state.playing)
+        void nativePlayerCommand(["set", "pause", !state.playing])
+      if ((current.rate ?? 1) !== state.rate) void nativePlayerCommand(["set", "speed", state.rate])
+    }
+    const unsubscribe = partySession.subscribe((event) => {
+      if (event.type === "joined" || event.type === "state") applyState()
+      if (
+        (event.type === "disconnected" || event.type === "host-disconnected") &&
+        partySession.role === "guest"
+      )
+        void nativePlayerCommand(["set", "pause", true])
+      if (event.type === "media") onRemoteMedia?.(event.media ?? undefined)
+    })
+    const timer = window.setInterval(applyState, 1000)
+    partySession.connect()
+    return () => {
+      unsubscribe()
+      window.clearInterval(timer)
+    }
+  }, [onRemoteMedia, partySession, videoId])
+
+  useEffect(() => {
+    if (!partySession || partySession.role !== "host") return
+    const timer = window.setInterval(() => {
+      const current = latestSnapshot.current
+      if (!current || current.duration <= 0) return
+      partySession.publishState({
+        position: current.position,
+        duration: current.duration,
+        playing: !current.paused && !current.loading,
+        rate: current.rate ?? 1,
+      })
+    }, 1000)
+    return () => window.clearInterval(timer)
+  }, [partySession])
 
   useEffect(() => {
     if (!snapshot || !resumed.current) return
@@ -595,13 +683,15 @@ export function DesktopPlayer({
   }, [saveProgress, snapshot])
 
   useEffect(() => {
-    if (!snapshot?.ended || endedHandled.current) return
+    if (!snapshot?.ended || endedHandled.current || !mediaDurationObserved.current) return
     endedHandled.current = true
     const duration = snapshot.duration || lastPlayback.current.duration
     if (!nextTransitionRequested.current) {
       nextTransitionRequested.current = true
       resetOverlay()
-      void Promise.resolve(onEnded?.(!nextTransitionSuppressed.current)).catch((cause: unknown) => {
+      void Promise.resolve(
+        onEnded?.(partySession?.role !== "guest" && !nextTransitionSuppressed.current),
+      ).catch((cause: unknown) => {
         setError(cause instanceof Error ? cause.message : String(cause))
       })
     }
@@ -664,11 +754,13 @@ export function DesktopPlayer({
   }
 
   const togglePlayback = useCallback(() => {
-    if (!snapshot) return
+    if (!snapshot || partySession?.role === "guest") return
     void nativePlayerCommand(["cycle", "pause"])
+    if (partySession?.role === "host")
+      partySession.publishCommand(snapshot.paused ? "play" : "pause")
     setSnapshot((current) => (current ? { ...current, paused: !current.paused } : current))
     showControls()
-  }, [showControls, snapshot])
+  }, [partySession, showControls, snapshot])
 
   const closeTrackMenu = useCallback(() => {
     setActiveMenu(undefined)
@@ -680,7 +772,7 @@ export function DesktopPlayer({
 
   const seekRelative = useCallback(
     (seconds: number) => {
-      if (!snapshot) return
+      if (!snapshot || partySession?.role === "guest") return
       void nativePlayerCommand(["seek", seconds, "relative+exact"])
       setSnapshot((current) =>
         current
@@ -695,7 +787,7 @@ export function DesktopPlayer({
       )
       showControls()
     },
-    [showControls, snapshot],
+    [partySession?.role, showControls, snapshot],
   )
 
   const commitSeek = useCallback(() => {
@@ -704,12 +796,14 @@ export function DesktopPlayer({
     const position = seekDraft.current
     seekDraft.current = undefined
     seekActive.current = false
-    if (position === undefined) return
+    if (position === undefined || partySession?.role === "guest") return
     void nativePlayerCommand(["seek", position, "absolute+exact"])
-  }, [])
+    if (partySession?.role === "host") partySession.publishCommand("seek", position)
+  }, [partySession])
 
   const previewSeek = useCallback(
     (position: number) => {
+      if (partySession?.role === "guest") return
       seekActive.current = true
       seekDraft.current = position
       setSnapshot((current) => (current ? { ...current, position } : current))
@@ -832,11 +926,14 @@ export function DesktopPlayer({
   const loadingOverlayVisible = isDesktopInitialLoading(snapshot, error)
   const bufferingOverlayVisible = isDesktopBuffering(snapshot, error)
   const activeSkip =
-    snapshot && preferences.skipSegments
+    partySession?.role !== "guest" && snapshot && preferences.skipSegments
       ? activeSkipSegment(snapshot.position, skipSegments)
       : undefined
   const upNextVisible = Boolean(
-    snapshot && nextEpisode && shouldShowUpNext(snapshot.position, snapshot.duration, skipSegments),
+    partySession?.role !== "guest" &&
+    snapshot &&
+    nextEpisode &&
+    shouldShowUpNext(snapshot.position, snapshot.duration, skipSegments),
   )
 
   useEffect(() => {
@@ -932,6 +1029,11 @@ export function DesktopPlayer({
             >
               {nativePlaybackDescription(snapshot)}
             </p>
+          ) : undefined
+        }
+        actions={
+          onWatchParty ? (
+            <WatchPartyButton onClick={onWatchParty} active={Boolean(partySession)} />
           ) : undefined
         }
         onBack={close}

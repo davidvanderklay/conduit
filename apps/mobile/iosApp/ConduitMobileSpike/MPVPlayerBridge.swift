@@ -105,6 +105,7 @@ final class ConduitMPVPlayerBridge: NSObject, IosPlayerBridge {
         ensurePlayerViewController().updateExternalSubtitles(parseSubtitles(subtitlesJson))
     }
 
+    func setTransportEnabled(enabled: Bool) { playerViewController?.transportEnabled = enabled }
     func play() { playerViewController?.playPlayback() }
     func pause() { playerViewController?.pausePlayback() }
     func seekTo(positionMs: Int64) { playerViewController?.seekToMs(positionMs) }
@@ -793,6 +794,8 @@ final class ConduitMPVPlayerViewController: UIViewController {
     func clearNowPlayingMetadata() {
         nowPlayingController.clear()
     }
+
+    var transportEnabled = true
 
     func seekToMs(_ milliseconds: Int64) {
         runOnMain { [weak self] in
@@ -3197,6 +3200,7 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         _ pictureInPictureController: AVPictureInPictureController,
         setPlaying playing: Bool
     ) {
+        guard owner?.transportEnabled != false else { return }
         debugLog(
             "AVKit setPlaying=\(playing) starting=\(starting) active=\(isActive) " +
                 "ownerPlaying=\(owner?.isPlayerPlaying == true)"
@@ -3255,6 +3259,7 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         skipByInterval skipInterval: CMTime,
         completion completionHandler: @escaping () -> Void
     ) {
+        guard owner?.transportEnabled != false else { completionHandler(); return }
         let seconds = CMTimeGetSeconds(skipInterval)
         guard seconds.isFinite else {
             completionHandler()

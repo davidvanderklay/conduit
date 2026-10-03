@@ -20,6 +20,7 @@ interface IosPlayerBridge {
         subtitlesJson: String?,
     )
     fun updateExternalSubtitles(subtitlesJson: String)
+    fun setTransportEnabled(enabled: Boolean)
     fun play()
     fun pause()
     fun seekTo(positionMs: Long)

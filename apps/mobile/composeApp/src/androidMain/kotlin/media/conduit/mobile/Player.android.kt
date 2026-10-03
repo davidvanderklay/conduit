@@ -108,6 +108,7 @@ actual fun NativePlayer(
     active: Boolean,
     loadId: String,
     controlsEnabled: Boolean,
+    transportEnabled: Boolean,
     presentation: PlaybackPresentation,
     command: SequencedPlaybackCommand?,
     startPositionMs: Long,
@@ -187,6 +188,7 @@ actual fun NativePlayer(
     var positionMs by remember(player) { mutableLongStateOf(0L) }
     var durationMs by remember(player) { mutableLongStateOf(0L) }
     var playing by remember(player) { mutableStateOf(false) }
+    val latestTransportEnabled by rememberUpdatedState(transportEnabled)
     var playbackSpeed by remember(player) { mutableFloatStateOf(1f) }
     var initialLoadComplete by remember(player, activeEngine) { mutableStateOf(false) }
     var firstFrameRendered by remember(player, activeEngine) { mutableStateOf(false) }
@@ -210,7 +212,8 @@ actual fun NativePlayer(
     var lastDiagnosticPlaybackState by remember(player, activeEngine) { mutableStateOf<String?>(null) }
     val currentNowPlayingControls by rememberUpdatedState(
         AndroidPlayerNowPlayingController.Controls(
-            play = {
+            play = play@{
+                if (!latestTransportEnabled) return@play
                 fallbackPlayWhenReady = true
                 if (activeEngine == NativePlaybackEngine.Media3) {
                     if (canStartNativePlayback(active, true, firstFrameRendered)) player.play()
@@ -218,14 +221,17 @@ actual fun NativePlayer(
                     mpvView?.setPaused(false)
                 }
             },
-            pause = {
+            pause = pause@{
+                if (!latestTransportEnabled) return@pause
                 fallbackPlayWhenReady = false
                 if (activeEngine == NativePlaybackEngine.Media3) player.pause() else mpvView?.setPaused(true)
             },
-            seekTo = { position ->
+            seekTo = seek@{ position ->
+                if (!latestTransportEnabled) return@seek
                 if (activeEngine == NativePlaybackEngine.Media3) player.seekTo(position) else mpvView?.seekTo(position)
             },
-            seekBy = { offset ->
+            seekBy = seek@{ offset ->
+                if (!latestTransportEnabled) return@seek
                 if (activeEngine == NativePlaybackEngine.Media3) {
                     player.seekTo((player.currentPosition + offset).coerceAtLeast(0))
                 } else {
@@ -449,13 +455,13 @@ actual fun NativePlayer(
         if (activeEngine == NativePlaybackEngine.Media3) {
             mainActivity?.attachConduitPipSession(
                 isPlaying = { player.isPlaying },
-                togglePlayback = { if (player.isPlaying) player.pause() else player.play() },
+                togglePlayback = { if (latestTransportEnabled) { if (player.isPlaying) player.pause() else player.play() } },
                 onModeChanged = { latestPipCallback(it) },
             )
         } else if (mpvView != null) {
             mainActivity?.attachConduitPipSession(
                 isPlaying = { mpvView?.snapshot()?.playing == true },
-                togglePlayback = { mpvView?.let { view -> view.setPaused(view.snapshot().playing) } },
+                togglePlayback = { if (latestTransportEnabled) mpvView?.let { view -> view.setPaused(view.snapshot().playing) } },
                 onModeChanged = { latestPipCallback(it) },
             )
         }
@@ -536,6 +542,7 @@ actual fun NativePlayer(
                     loading = mpvSnapshot.loading,
                     buffering = mpvSnapshot.buffering,
                     playing = mpvSnapshot.playing,
+                    rate = mpvView?.playbackSpeed()?.toDouble() ?: 1.0,
                     positionMs = mpvSnapshot.positionMs,
                     durationMs = mpvSnapshot.durationMs,
                     videoWidth = mpvSnapshot.videoWidth,
@@ -566,6 +573,7 @@ actual fun NativePlayer(
                     loading = !initialLoadComplete,
                     buffering = isBuffering,
                     playing = player.isPlaying,
+                    rate = player.playbackParameters.speed.toDouble(),
                     positionMs = player.currentPosition.coerceAtLeast(0),
                     durationMs = player.duration.coerceAtLeast(0),
                     videoWidth = player.videoSize.width,
@@ -629,6 +637,19 @@ actual fun NativePlayer(
 
     LaunchedEffect(command?.sequence) {
         when (val next = command?.command) {
+            is PlaybackCommand.PartyState -> {
+                fallbackPlayWhenReady = next.playing
+                fallbackPlaybackSpeed = next.rate
+                if (activeEngine == NativePlaybackEngine.Media3) {
+                    next.seekMs?.let(player::seekTo)
+                    player.setPlaybackSpeed(next.rate)
+                    if (next.playing && canStartNativePlayback(active, true, firstFrameRendered)) player.play() else player.pause()
+                } else {
+                    next.seekMs?.let { mpvView?.seekTo(it) }
+                    mpvView?.setPlaybackSpeed(next.rate)
+                    mpvView?.setPaused(!next.playing)
+                }
+            }
             PlaybackCommand.Play -> {
                 fallbackPlayWhenReady = true
                 if (activeEngine == NativePlaybackEngine.Media3) {
@@ -703,11 +724,12 @@ actual fun NativePlayer(
     }
     val doubleTapSlopPx = with(LocalDensity.current) { 48.dp.toPx() }
     val currentSpeed: () -> Float = { if (activeEngine == NativePlaybackEngine.Media3) player.playbackParameters.speed else mpvView?.playbackSpeed() ?: playbackSpeed }
-    val setPlaybackSpeed: (Float) -> Unit = { speed -> if (activeEngine == NativePlaybackEngine.Media3) player.setPlaybackSpeed(speed) else mpvView?.setPlaybackSpeed(speed) }
-    val seekTo: (Long) -> Unit = { position -> if (activeEngine == NativePlaybackEngine.Media3) player.seekTo(position) else mpvView?.seekTo(position) }
-    val seekBy: (Long) -> Unit = { offset -> if (activeEngine == NativePlaybackEngine.Media3) player.seekTo((player.currentPosition + offset).coerceAtLeast(0L)) else mpvView?.seekBy(offset) }
+    val setPlaybackSpeed: (Float) -> Unit = speed@{ speed -> if (!transportEnabled) return@speed; if (activeEngine == NativePlaybackEngine.Media3) player.setPlaybackSpeed(speed) else mpvView?.setPlaybackSpeed(speed) }
+    val seekTo: (Long) -> Unit = seek@{ position -> if (!transportEnabled) return@seek; if (activeEngine == NativePlaybackEngine.Media3) player.seekTo(position) else mpvView?.seekTo(position) }
+    val seekBy: (Long) -> Unit = seek@{ offset -> if (!transportEnabled) return@seek; if (activeEngine == NativePlaybackEngine.Media3) player.seekTo((player.currentPosition + offset).coerceAtLeast(0L)) else mpvView?.seekBy(offset) }
     val seekFeedback = remember(player) { DoubleTapSeekFeedback() }
-    val togglePlayback: () -> Unit = {
+    val togglePlayback: () -> Unit = toggle@{
+        if (!transportEnabled) return@toggle
         if (activeEngine == NativePlaybackEngine.Media3) {
             fallbackPlayWhenReady = !playing
             if (canStartNativePlayback(active, fallbackPlayWhenReady, firstFrameRendered)) player.play() else player.pause()
@@ -803,7 +825,7 @@ actual fun NativePlayer(
                 }
                 Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(start = 18.dp, end = 18.dp, top = 6.dp, bottom = if (portraitLayout) 66.dp else 14.dp), verticalArrangement = Arrangement.spacedBy(0.dp)) {
                     Slider(
-                        enabled = timelineAvailable,
+                        enabled = timelineAvailable && transportEnabled,
                         value = if (dragging) draggedPosition else positionMs.toFloat(),
                         onValueChange = { dragging = true; draggedPosition = it },
                         onValueChangeFinished = { seekTo(draggedPosition.toLong()); dragging = false; controlsVisible = true },

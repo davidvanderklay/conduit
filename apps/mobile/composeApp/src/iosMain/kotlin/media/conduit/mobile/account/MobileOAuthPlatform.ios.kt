@@ -10,6 +10,7 @@ object IosOAuthCallbacks {
     internal val url = mutableStateOf<String?>(null)
 
     fun capture(url: String) {
+        if (media.conduit.mobile.WatchPartyLinks.capture(url)) return
         if (url.startsWith("conduit://oauth/callback")) this.url.value = url
     }
 }

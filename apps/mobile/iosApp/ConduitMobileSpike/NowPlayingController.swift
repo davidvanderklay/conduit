@@ -176,7 +176,10 @@ final class ConduitNowPlayingController {
         _ command: MPRemoteCommand,
         handler: @escaping (MPRemoteCommandEvent) -> MPRemoteCommandHandlerStatus
     ) {
-        let token = command.addTarget(handler: handler)
+        let token = command.addTarget { [weak self] event in
+            guard self?.owner?.transportEnabled == true else { return .commandFailed }
+            return handler(event)
+        }
         remoteTargets.append(RemoteTarget(command: command, token: token))
     }
 

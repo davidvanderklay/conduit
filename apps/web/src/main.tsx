@@ -25,7 +25,12 @@ const recoveryRoute = createRoute({
   path: "/recover/admin",
   component: App,
 })
-const routeTree = rootRoute.addChildren([indexRoute, adminRoute, recoveryRoute])
+const partyRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/party/$token",
+  component: App,
+})
+const routeTree = rootRoute.addChildren([indexRoute, adminRoute, recoveryRoute, partyRoute])
 const router = createRouter({ routeTree })
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -90,17 +95,17 @@ function DesktopTitleBar() {
 
 void initializeCore().then(() => {
   ReactDOM.createRoot(document.getElementById("root")!).render(
-    overlayMedia !== undefined
-      ? <ElectronPlayerOverlay initialMedia={overlayMedia} />
-      : (
-        <>
-          <DesktopTitleBar />
-          <React.StrictMode>
-            <QueryClientProvider client={queryClient}>
-              <RouterProvider router={router} />
-            </QueryClientProvider>
-          </React.StrictMode>
-        </>
-      ),
+    overlayMedia !== undefined ? (
+      <ElectronPlayerOverlay initialMedia={overlayMedia} />
+    ) : (
+      <>
+        <DesktopTitleBar />
+        <React.StrictMode>
+          <QueryClientProvider client={queryClient}>
+            <RouterProvider router={router} />
+          </QueryClientProvider>
+        </React.StrictMode>
+      </>
+    ),
   )
 })

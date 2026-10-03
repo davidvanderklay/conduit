@@ -90,6 +90,7 @@ actual fun NativePlayer(
     active: Boolean,
     loadId: String,
     controlsEnabled: Boolean,
+    transportEnabled: Boolean,
     presentation: PlaybackPresentation,
     command: SequencedPlaybackCommand?,
     startPositionMs: Long,
@@ -231,8 +232,15 @@ actual fun NativePlayer(
         }
     }
 
+    LaunchedEffect(bridge, transportEnabled) { bridge.setTransportEnabled(transportEnabled) }
+
     LaunchedEffect(bridge, command?.sequence) {
         when (val next = command?.command) {
+            is PlaybackCommand.PartyState -> {
+                next.seekMs?.let(bridge::seekTo)
+                bridge.setPlaybackSpeed(next.rate)
+                if (next.playing) bridge.play() else bridge.pause()
+            }
             PlaybackCommand.Play -> bridge.play()
             PlaybackCommand.Pause -> bridge.pause()
             is PlaybackCommand.SeekTo -> bridge.seekTo(next.positionMs.coerceAtLeast(0))
@@ -273,6 +281,7 @@ actual fun NativePlayer(
                 loading = bridge.getIsLoading(),
                 buffering = bridge.getIsBuffering(),
                 playing = bridge.getIsPlaying(),
+                rate = bridge.getPlaybackSpeed().toDouble(),
                 positionMs = bridge.getPositionMs().coerceAtLeast(0),
                 durationMs = bridge.getDurationMs().coerceAtLeast(0),
                 videoWidth = bridge.getVideoWidth(),
@@ -427,6 +436,7 @@ actual fun NativePlayer(
                     if (shouldShowCenterPlaybackControl(controlsVisible, dragging, buffering, presentation == PlaybackPresentation.SystemPip)) {
                         FilledIconButton(
                             onClick = {
+                                if (!transportEnabled) return@FilledIconButton
                                 if (playing) {
                                     bridge.pause()
                                     playing = false
@@ -525,7 +535,7 @@ actual fun NativePlayer(
                             ) {
                                 val index = speeds.indexOfFirst { it == playbackSpeed }.takeIf { it >= 0 } ?: 2
                                 val next = speeds[(index + 1) % speeds.size]
-                                bridge.setPlaybackSpeed(next)
+                                if (transportEnabled) bridge.setPlaybackSpeed(next)
                                 playbackSpeed = next
                                 controlsVisible = true
                             }
@@ -551,7 +561,7 @@ actual fun NativePlayer(
                                         text = { Text("${speed.trimSpeed()}×", color = if (selected) Color.White else Color.White.copy(alpha = .78f), fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal) },
                                         trailingIcon = if (selected) {{ Icon(Icons.Rounded.Check, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp)) }} else null,
                                         onClick = {
-                                            bridge.setPlaybackSpeed(speed)
+                                            if (transportEnabled) bridge.setPlaybackSpeed(speed)
                                             playbackSpeed = speed
                                             speedMenuOpen = false
                                             controlsVisible = true

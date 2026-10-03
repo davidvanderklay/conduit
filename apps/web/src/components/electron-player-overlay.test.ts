@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { defaultSubtitleTrack, ElectronPlayerOverlay } from "./electron-player-overlay"
 
 const desktop = vi.hoisted(() => ({
+  isDesktop: () => false,
   invoke: vi.fn(function invoke<T>(_command: string, _args?: unknown): Promise<T> {
     return Promise.resolve(undefined as T)
   }),
@@ -216,11 +217,12 @@ describe("Electron episode drawer", () => {
     vi.useFakeTimers()
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () =>
-        new Response(JSON.stringify({ intro: { start_sec: 30, end_sec: 60 } }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        }),
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ intro: { start_sec: 30, end_sec: 60 } }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
       ),
     )
     desktop.nativePlayerSnapshot.mockResolvedValue({
@@ -259,7 +261,7 @@ describe("Electron episode drawer", () => {
       await Promise.resolve()
     })
 
-    const skipIntro = host.querySelector<HTMLButtonElement>('button[data-native-overlay]')
+    const skipIntro = host.querySelector<HTMLButtonElement>("button[data-native-overlay]")
     expect(skipIntro?.textContent).toContain("Skip intro")
     expect(skipIntro?.className).toContain("bottom-36")
   })
