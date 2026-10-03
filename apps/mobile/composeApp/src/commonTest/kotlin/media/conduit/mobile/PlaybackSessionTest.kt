@@ -68,7 +68,8 @@ class PlaybackSessionTest {
             mediaId = "other-show",
             videoId = "s2e3",
             name = "Other Show",
-            artwork = "https://example.test/other.jpg",
+            poster = "https://example.test/other-poster.jpg",
+            artwork = "https://example.test/other-episode.jpg",
             videoTitle = "The Return",
             season = 2,
             episode = 3,
@@ -92,7 +93,8 @@ class PlaybackSessionTest {
         assertEquals(queued, selected)
         assertEquals("The Return - (2x3)", controller.state.transition?.title)
         assertEquals("Other Show", controller.state.transition?.mediaName)
-        assertEquals("https://example.test/other.jpg", controller.state.transition?.artwork)
+        // The queued episode's thumbnail must not back the loading cover.
+        assertEquals("https://example.test/other-poster.jpg", controller.state.transition?.artwork)
         assertEquals(PlaybackPresentation.FullScreen, controller.state.presentation)
     }
 
