@@ -66,16 +66,15 @@ internal fun BoxScope.WatchPartySheet(controller: WatchPartySessionController, a
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val sidebar = inPlayer && maxWidth > maxHeight
             val panelWidth = (maxWidth * .9f).coerceAtMost(384.dp)
-            val modalHeight = (controller.party?.let { (320 + it.members.size * 48).dp } ?: 520.dp)
-                .coerceAtMost((maxHeight - 48.dp).coerceAtLeast(240.dp))
+            val modalMaxHeight = (maxHeight - 48.dp).coerceAtLeast(240.dp)
             Surface(
-                modifier = if (sidebar) Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(panelWidth) else Modifier.align(Alignment.Center).width(panelWidth).height(modalHeight),
+                modifier = if (sidebar) Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(panelWidth) else Modifier.align(Alignment.Center).width(panelWidth).heightIn(max = modalMaxHeight),
                 color = Color.Black,
                 contentColor = Color.White,
                 shape = if (sidebar) RoundedCornerShape(topStart = 28.dp, bottomStart = 28.dp) else RoundedCornerShape(20.dp),
                 shadowElevation = 20.dp,
             ) {
-                Column(Modifier.fillMaxSize().then(if (sidebar) Modifier.statusBarsPadding().navigationBarsPadding() else Modifier).padding(horizontal = 24.dp, vertical = 12.dp)) {
+                Column(Modifier.fillMaxWidth().then(if (sidebar) Modifier.fillMaxHeight().statusBarsPadding().navigationBarsPadding() else Modifier).padding(horizontal = 24.dp, vertical = if (sidebar) 12.dp else 24.dp)) {
                     Row(Modifier.fillMaxWidth().padding(bottom = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Rounded.People, null, tint = partyAmber, modifier = Modifier.size(22.dp))
                         Spacer(Modifier.width(12.dp))
@@ -84,7 +83,7 @@ internal fun BoxScope.WatchPartySheet(controller: WatchPartySessionController, a
                     }
                     val active = controller.party
                     if (active != null) {
-                        Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())) {
+                        Column(Modifier.weight(1f, fill = sidebar).fillMaxWidth().verticalScroll(rememberScrollState())) {
                             Row(Modifier.fillMaxWidth().padding(bottom = 18.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 Box(Modifier.width(44.dp).height(64.dp).clip(RoundedCornerShape(6.dp)).background(Color(0xFF18181B)), contentAlignment = Alignment.Center) {
                                     Icon(Icons.Rounded.Movie, null, tint = Color.White.copy(.4f))
@@ -127,7 +126,7 @@ internal fun BoxScope.WatchPartySheet(controller: WatchPartySessionController, a
                             TextButton(enabled = !busy, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp), colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFFCA5A5)), onClick = { run { controller.leave(); controller.sheetOpen = false } }) { Text(if (active.isHost) "End party" else "Leave party") }
                         }
                     } else {
-                        Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())) {
+                        Column(Modifier.weight(1f, fill = sidebar).fillMaxWidth().verticalScroll(rememberScrollState())) {
                             listOf(false, true).forEach { option ->
                                 val selected = shared == option
                                 Surface(onClick = { shared = option }, color = if (selected) partyAmber else Color.Transparent, contentColor = if (selected) Color.Black else Color.White, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp)) {

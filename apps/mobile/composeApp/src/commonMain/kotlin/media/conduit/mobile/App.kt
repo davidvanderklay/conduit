@@ -40,6 +40,7 @@ import androidx.compose.material.icons.rounded.Explore
 import androidx.compose.material.icons.rounded.Extension
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.People
 import androidx.compose.material.icons.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.FastForward
 import androidx.compose.runtime.*
@@ -1299,11 +1300,6 @@ private fun AppShell(
                 onChange = { items -> mutateProfile(ProfileMutation.SetQueue(items)) },
             )
         }
-        if (watchParty != null) {
-            TextButton(onClick = { watchParty.sheetOpen = true }, modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(top = 8.dp, end = if (playbackSession.state.request != null) 110.dp else 12.dp)) {
-                Text(if (watchParty.party == null) "Watch together" else "Party · ${watchParty.party?.memberCount}", color = Color.White)
-            }
-        }
         watchParty?.let { WatchPartySheet(it, api, account.session.token, inPlayer = playbackSession.state.presentation == PlaybackPresentation.FullScreen) }
         if (initialLoading) {
             Surface(
@@ -1578,6 +1574,7 @@ private fun BoxScope.PlaybackSessionHost(
 ) {
     val scope = rememberCoroutineScope()
     val session = controller.state
+    val watchParty = LocalWatchParty.current
     val request = session.request ?: return
     val upNext = playbackUpNext(request, snapshot?.queue.orEmpty())
     SideEffect {
@@ -1938,6 +1935,11 @@ private fun BoxScope.PlaybackSessionHost(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
                     )
+                    if (showPlaybackActions && watchParty != null) {
+                        IconButton(onClick = { watchParty.sheetOpen = true }) {
+                            Icon(Icons.Rounded.People, "Watch together", tint = if (watchParty.party != null) Color(0xFFFBBF24) else Color.White)
+                        }
+                    }
                     if (showPlaybackActions) {
                         BadgedBox(
                             badge = {
@@ -2517,6 +2519,7 @@ private fun MainTopBar(
     onSignOut: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val watchParty = LocalWatchParty.current
     val searchFocus = remember { FocusRequester() }
     var profileMenuOpen by remember { mutableStateOf(false) }
     var showAllProfiles by remember { mutableStateOf(false) }
@@ -2653,6 +2656,14 @@ private fun MainTopBar(
                         )
                     }
                     HorizontalDivider()
+                    if (watchParty != null) {
+                        DropdownMenuItem(
+                            modifier = Modifier.clip(RoundedCornerShape(16.dp)),
+                            text = { Text("Watch together") },
+                            leadingIcon = { Icon(Icons.Rounded.People, null) },
+                            onClick = { profileMenuOpen = false; watchParty.sheetOpen = true },
+                        )
+                    }
                     if (queueSize > 0) {
                         DropdownMenuItem(
                             modifier = Modifier.clip(RoundedCornerShape(16.dp)),
