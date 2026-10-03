@@ -1223,6 +1223,16 @@ function ProfileApp({
     partyShownHere && watchPartyLaunch && watchPartyLaunch.media
       ? catalogItemFromPartyMedia(watchPartyLaunch.media)
       : undefined
+  const partyMedia = partyShownHere ? watchPartyLaunch?.media : undefined
+  useEffect(() => {
+    if (!partyMedia) return
+    // Keep the current title open when party membership is cleared.
+    setSelection((current) => ({
+      ...current,
+      item: catalogItemFromPartyMedia(partyMedia),
+      videoId: partyMedia.videoId,
+    }))
+  }, [partyMedia])
   const addons = useQuery({
     queryKey: ["addons", profile.id],
     queryFn: () => api<{ addons: InstalledAddon[] }>(`/v1/profiles/${profile.id}/addons`),
@@ -1421,6 +1431,15 @@ function MediaHome({
   const [selectedProgress, setSelectedProgress] = useState<WatchProgress>()
   const [autoResumeOnOpen, setAutoResumeOnOpen] = useState(true)
   const [returnHomeFromStreamSelection, setReturnHomeFromStreamSelection] = useState(false)
+  const partyMedia = watchPartyLaunch?.media
+  useEffect(() => {
+    if (!partyMedia) return
+    // Party playback becomes an ordinary selection after leaving.
+    setSelectedItem(catalogItemFromPartyMedia(partyMedia))
+    setSelectedVideoId(partyMedia.videoId)
+    setSelectedProgress(undefined)
+    setAutoResumeOnOpen(true)
+  }, [partyMedia])
   const continueWatching = useProgressList(profile.id, "continue", 50)
   const watchedProgress = useProgressList(profile.id, "status", 1000)
   const catalogs = useQuery({
