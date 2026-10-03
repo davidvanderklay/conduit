@@ -52,6 +52,16 @@ func playbackFileOptions(initialPositionMs: Int64) -> [String] {
     ]
 }
 
+/// The loading cover lifts once a drawable from the new file is on screen.
+/// Presentation cannot be observed while the surface is off screen (detached,
+/// backgrounded, or locked), so configured output that stays unconfirmed for
+/// this long lifts it as well.
+let initialVideoFramePresentationTimeout: TimeInterval = 1.0
+
+func isInitialVideoFrameReady(presented: Bool, outputAge: TimeInterval) -> Bool {
+    presented || outputAge >= initialVideoFramePresentationTimeout
+}
+
 /// The Swift half of the Kotlin/iOS player boundary.
 ///
 /// This follows the same shape as Nuvio's iOS integration: Compose owns the
@@ -400,6 +410,8 @@ final class ConduitMPVPlayerViewController: UIViewController {
     private var loadedExternalSubtitleURLs = Set<String>()
     private var subtitleLoadGeneration = 0
     private var loadStartedAtUptime: TimeInterval = 0
+    /// When the current load first reported configured video output.
+    private var initialVideoOutputUptime: TimeInterval?
     private var destroyStarted = false
     private var audioSessionActivationRequested = false
     private var resizeMode = 0
@@ -1031,18 +1043,26 @@ final class ConduitMPVPlayerViewController: UIViewController {
     }
 
     private func applyPlaybackStateSnapshot(_ snapshot: PlaybackStateSnapshot) {
-        if waitingForInitialVideoFrame, hasLoadedFile, snapshot.hasInitialVideoOutput,
-           metalLayer.hasPresentedDrawable(after: firstFramePresentationBaseline) {
-            waitingForInitialVideoFrame = false
-            let elapsed = ProcessInfo.processInfo.systemUptime - loadStartedAtUptime
-            emitDiagnostic(level: "info", category: "ios/startup", message: String(format: "first video output elapsed=%.2fs", elapsed))
+        if waitingForInitialVideoFrame, hasLoadedFile, snapshot.hasInitialVideoOutput {
+            // A paused file renders a single frame. If that frame is drawn
+            // before the surface reaches the screen, nothing redraws and the
+            // cover would wait forever, so frames must keep flowing.
+            if shouldPlay, snapshot.paused { setFlag("pause", false) }
+            let now = ProcessInfo.processInfo.systemUptime
+            let outputStartedAt = initialVideoOutputUptime ?? now
+            initialVideoOutputUptime = outputStartedAt
+            let presented = metalLayer.hasPresentedDrawable(after: firstFramePresentationBaseline)
+            if isInitialVideoFrameReady(presented: presented, outputAge: now - outputStartedAt) {
+                waitingForInitialVideoFrame = false
+                let elapsed = now - loadStartedAtUptime
+                emitDiagnostic(level: "info", category: "ios/startup", message: String(format: "first video output elapsed=%.2fs", elapsed) + " presented=\(presented)")
 #if DEBUG
-            print(String(format: "[Conduit MPV][startup] first video frame in %.2fs", elapsed))
+                print(String(format: "[Conduit MPV][startup] first video frame in %.2fs", elapsed))
 #endif
-            loadPendingExternalSubtitles()
-            if shouldPlay { setFlag("pause", false) }
-            scheduleVideoOutputWatchdog()
-            pictureInPicture?.schedulePrewarm()
+                loadPendingExternalSubtitles()
+                scheduleVideoOutputWatchdog()
+                pictureInPicture?.schedulePrewarm()
+            }
         }
 
         let nextVideoWidth = max(snapshot.displayWidth, 0)
@@ -1723,12 +1743,13 @@ final class ConduitMPVPlayerViewController: UIViewController {
         pendingExternalSubtitles = request.subtitles
         invalidateExternalSubtitleLoads(clearPending: false)
         loadStartedAtUptime = ProcessInfo.processInfo.systemUptime
+        initialVideoOutputUptime = nil
 #if DEBUG
         print("[Conduit MPV][startup] opening stream")
 #endif
 
         // Keep the old file paused until the serialized stop/load completes.
-        // First-frame presentation applies the latest play intent to the new file.
+        // Configured video output applies the latest play intent to the new file.
         setFlag("pause", true)
         eventQueue.async { [weak self] in
             guard let self else { return }

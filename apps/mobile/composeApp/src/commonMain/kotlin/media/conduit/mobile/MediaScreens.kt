@@ -1034,7 +1034,8 @@ internal fun MediaDetailsScreen(
         playbackAttemptId = playbackSession.beginTransition(
             title = playbackTitle(video?.displayTitle, meta?.name ?: item.name, video?.season, video?.episode),
             mediaName = meta?.name ?: item.name,
-            artwork = null,
+            artwork = meta?.background ?: item.background ?: meta?.poster ?: item.poster,
+            logo = meta?.logo,
             identity = identity,
         )
         val attemptId = playbackAttemptId
@@ -1741,8 +1742,8 @@ internal fun MediaDetailsScreen(
     if (waitingForSavedPlayback || openingPlayback) {
         Box(Modifier.fillMaxSize()) {
             PlayerOpeningOverlay(
-                artwork = null,
-                logo = null,
+                artwork = meta?.background ?: item.background ?: meta?.poster ?: item.poster,
+                logo = meta?.logo,
                 title = meta?.name ?: item.name,
                 status = if (waitingForSavedPlayback) "Finding source…" else "Starting playback…",
                 modifier = Modifier.fillMaxSize(),
