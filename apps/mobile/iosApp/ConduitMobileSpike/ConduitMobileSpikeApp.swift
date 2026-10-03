@@ -236,7 +236,7 @@ private struct ConduitRootView: View {
             .ignoresSafeArea()
         }
         .statusBarHidden(systemChrome.immersivePlayback)
-        .modifier(ConduitPersistentSystemOverlaysModifier(hidden: systemChrome.immersivePlayback))
+        .modifier(ConduitImmersiveSystemUIModifier(immersive: systemChrome.immersivePlayback))
     }
 }
 
@@ -661,13 +661,20 @@ private final class ConduitTabBarContainer: UIView {
     }
 }
 
-private struct ConduitPersistentSystemOverlaysModifier: ViewModifier {
-    let hidden: Bool
+/// Hides the home indicator during playback and defers the Home and side
+/// edge gestures to the app. Deferral makes the first Home swipe reach the
+/// player while the app is still active, which is when automatic PiP can
+/// start. The player controller's own deferral preference never reaches the
+/// system because it is embedded below Compose.
+private struct ConduitImmersiveSystemUIModifier: ViewModifier {
+    let immersive: Bool
 
     @ViewBuilder
     func body(content: Content) -> some View {
         if #available(iOS 16.0, *) {
-            content.persistentSystemOverlays(hidden ? .hidden : .automatic)
+            content
+                .persistentSystemOverlays(immersive ? .hidden : .automatic)
+                .defersSystemGestures(on: immersive ? [.bottom, .leading, .trailing] : [])
         } else {
             content
         }
