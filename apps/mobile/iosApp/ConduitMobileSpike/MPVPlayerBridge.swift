@@ -1042,6 +1042,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
             loadPendingExternalSubtitles()
             if shouldPlay { setFlag("pause", false) }
             scheduleVideoOutputWatchdog()
+            pictureInPicture?.seedSourceFrame()
         }
 
         let nextVideoWidth = max(snapshot.displayWidth, 0)
@@ -2653,6 +2654,29 @@ final class ConduitPictureInPictureCoordinator: NSObject,
     }
 
     // MARK: - Automatic entry (Home swipe)
+
+    /// AVKit only reports PiP as possible after the sample-buffer layer has
+    /// received a frame, and that flips asynchronously. Without a seed, the
+    /// first Home swipe of a file primes the layer too late: the app is
+    /// already leaving the foreground when the start becomes possible. Called
+    /// once a file first renders; the short priming burst disarms itself.
+    func seedSourceFrame() {
+        guard isSupported,
+              !isActive,
+              !starting,
+              !automaticArmed,
+              !automaticPreparationInFlight
+        else { return }
+        debugLog("seeding PiP source frame")
+        beginPriming(stopAfterFirstFrame: true) { [weak self] in
+            DispatchQueue.main.async {
+                self?.controller?.invalidatePlaybackState()
+            }
+        }
+        if let latest = metalLayer.latestDrawableTextureSnapshot() {
+            frameCapture?.submitRetainedTexture(latest.texture, presentationID: latest.presentationID)
+        }
+    }
 
     /// Captures a short burst immediately before an automatic Home-swipe
     /// transition. Ordinary foreground playback leaves PiP capture disarmed.
