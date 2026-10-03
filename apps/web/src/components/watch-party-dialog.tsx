@@ -49,6 +49,7 @@ export function WatchPartyButton({
 
 export function WatchPartyDialog({
   open,
+  presentation = "modal",
   onOpenChange,
   profile,
   media,
@@ -61,6 +62,7 @@ export function WatchPartyDialog({
   onSessionChange,
 }: {
   open: boolean
+  presentation?: "modal" | "sidebar"
   onOpenChange: (open: boolean) => void
   profile: Profile
   media?: WatchPartyMedia
@@ -293,7 +295,7 @@ export function WatchPartyDialog({
 
   return (
     <div
-      className="fixed inset-0 z-[70] flex justify-end bg-black/25"
+      className={`fixed inset-0 z-[70] flex ${presentation === "sidebar" ? "justify-end bg-black/25" : "items-center justify-center bg-black/60 p-4"}`}
       onPointerDown={(event) => {
         if (event.target === event.currentTarget) onOpenChange(false)
       }}
@@ -301,7 +303,7 @@ export function WatchPartyDialog({
       <div
         ref={panelRef}
         tabIndex={-1}
-        className="flex h-dvh w-[24rem] max-w-[90vw] flex-col rounded-l-3xl border-l border-white/10 bg-black text-white shadow-2xl shadow-black/60 outline-none"
+        className={`flex w-[24rem] flex-col bg-black text-white shadow-2xl shadow-black/60 outline-none ${presentation === "sidebar" ? "h-dvh max-w-[90vw] rounded-l-3xl border-l border-white/10" : "max-h-[calc(100dvh-2rem)] max-w-full overflow-hidden rounded-2xl border border-white/10"}`}
         role="dialog"
         aria-modal="true"
         aria-label="Watch together"
@@ -341,7 +343,9 @@ export function WatchPartyDialog({
         </div>
         {activeParty ? (
           <>
-            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6">
+            <div
+              className={`min-h-0 overflow-y-auto overscroll-contain px-6 ${presentation === "sidebar" ? "flex-1" : ""}`}
+            >
               <div className="flex items-center gap-3 border-b border-white/10 pb-5">
                 <div className="relative grid h-16 w-11 shrink-0 place-items-center overflow-hidden rounded-md bg-zinc-900 text-zinc-500">
                   <Film size={20} />
@@ -429,7 +433,9 @@ export function WatchPartyDialog({
             </div>
           </>
         ) : (
-          <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-6 pb-6">
+          <div
+            className={`flex min-h-0 flex-col overflow-y-auto overscroll-contain px-6 pb-6 ${presentation === "sidebar" ? "flex-1" : ""}`}
+          >
             <div className="space-y-1">
               {(["private", "shared"] as const).map((choice) => (
                 <button

@@ -963,6 +963,7 @@ export function MediaDetails({
         />
       )}
       <WatchPartyDialog
+        presentation={playing?.url ? "sidebar" : "modal"}
         open={watchPartyOpen}
         onOpenChange={setWatchPartyOpen}
         profile={{ id: profileId, name: "", isKids: false }}

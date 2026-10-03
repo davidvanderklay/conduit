@@ -32,7 +32,7 @@ import media.conduit.mobile.account.*
 private val partyAmber = Color(0xFFFBBF24)
 
 @Composable
-internal fun BoxScope.WatchPartySheet(controller: WatchPartySessionController, api: ConduitApi, token: String) {
+internal fun BoxScope.WatchPartySheet(controller: WatchPartySessionController, api: ConduitApi, token: String, inPlayer: Boolean = false) {
     if (!controller.sheetOpen) return
     val scope = rememberCoroutineScope()
     val clipboard = LocalClipboardManager.current
@@ -61,18 +61,21 @@ internal fun BoxScope.WatchPartySheet(controller: WatchPartySessionController, a
         }
     }
     PlatformBackHandler(enabled = true, onBack = { controller.sheetOpen = false })
-    Box(Modifier.matchParentSize().background(Color.Black.copy(.25f))) {
+    Box(Modifier.matchParentSize().background(Color.Black.copy(if (inPlayer) .25f else .6f))) {
         Box(Modifier.matchParentSize().clickable(onClick = { controller.sheetOpen = false }))
         BoxWithConstraints(Modifier.fillMaxSize()) {
-            val panelWidth = (maxWidth * .86f).coerceAtMost(384.dp)
+            val sidebar = inPlayer && maxWidth > maxHeight
+            val panelWidth = (maxWidth * .9f).coerceAtMost(384.dp)
+            val modalHeight = (controller.party?.let { (320 + it.members.size * 48).dp } ?: 520.dp)
+                .coerceAtMost((maxHeight - 48.dp).coerceAtLeast(240.dp))
             Surface(
-                modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(panelWidth),
+                modifier = if (sidebar) Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(panelWidth) else Modifier.align(Alignment.Center).width(panelWidth).height(modalHeight),
                 color = Color.Black,
                 contentColor = Color.White,
-                shape = RoundedCornerShape(topStart = 28.dp, bottomStart = 28.dp),
+                shape = if (sidebar) RoundedCornerShape(topStart = 28.dp, bottomStart = 28.dp) else RoundedCornerShape(20.dp),
                 shadowElevation = 20.dp,
             ) {
-                Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 24.dp, vertical = 12.dp)) {
+                Column(Modifier.fillMaxSize().then(if (sidebar) Modifier.statusBarsPadding().navigationBarsPadding() else Modifier).padding(horizontal = 24.dp, vertical = 12.dp)) {
                     Row(Modifier.fillMaxWidth().padding(bottom = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Rounded.People, null, tint = partyAmber, modifier = Modifier.size(22.dp))
                         Spacer(Modifier.width(12.dp))

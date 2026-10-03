@@ -806,6 +806,7 @@ export function ElectronPlayerOverlay({
       </div>
       {watchPartyContext && (
         <WatchPartyDialog
+          presentation="sidebar"
           key={watchPartyDialogKey}
           open={watchPartyOpen}
           onOpenChange={setWatchPartyOpen}

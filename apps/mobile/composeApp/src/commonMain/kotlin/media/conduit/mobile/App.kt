@@ -1304,7 +1304,7 @@ private fun AppShell(
                 Text(if (watchParty.party == null) "Watch together" else "Party · ${watchParty.party?.memberCount}", color = Color.White)
             }
         }
-        watchParty?.let { WatchPartySheet(it, api, account.session.token) }
+        watchParty?.let { WatchPartySheet(it, api, account.session.token, inPlayer = playbackSession.state.presentation == PlaybackPresentation.FullScreen) }
         if (initialLoading) {
             Surface(
                 onClick = {},
