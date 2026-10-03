@@ -25,7 +25,16 @@ import { AUTO_SELECTION_STARTUP_TIMEOUT_MS } from "../lib/stream-selection"
 import { subtitlePositionForVideoScale, videoObjectFit, type VideoScale } from "../lib/video-scale"
 import { usePlaybackProgress } from "../lib/progress"
 import { DesktopPlayer } from "./desktop-player"
-import { NextEpisodePrompt, PlayerEpisodeDrawer, type PlayerSeriesContext } from "./player-series"
+import {
+  NextEpisodePrompt,
+  PlayerEpisodeDrawer,
+  nextControlLabel,
+  type PlayerDrawerOpen,
+  type PlayerQueue,
+  type PlayerSeriesContext,
+} from "./player-series"
+import type { PlayerUpNext } from "../lib/queue"
+import { QueueIcon, QueueNotice } from "./queue"
 import { VideoScaleControl } from "./video-scale-control"
 import { SubtitlePicker } from "./subtitle-picker"
 import { partyPositionAt, type WatchPartySession, type WatchPartyMedia } from "../lib/watch-party"
@@ -55,8 +64,8 @@ export function Player({
   artwork,
   addons,
   seriesContext,
-  nextEpisode,
-  nextEpisodeLabel,
+  upNext,
+  queue,
   onSelectEpisode,
   onNextEpisode,
   onEnded,
@@ -78,8 +87,8 @@ export function Player({
   artwork?: PlayerArtwork
   addons: InstalledAddon[]
   seriesContext?: PlayerSeriesContext
-  nextEpisode?: Video
-  nextEpisodeLabel?: string
+  upNext?: PlayerUpNext
+  queue?: PlayerQueue
   onSelectEpisode?: (video: Video) => void | Promise<void>
   onNextEpisode?: () => void | Promise<void>
   onEnded?: (allowAutoplay?: boolean) => void | Promise<void>
@@ -104,8 +113,8 @@ export function Player({
         artwork={artwork}
         addons={addons}
         seriesContext={partySession?.role === "guest" ? undefined : seriesContext}
-        nextEpisode={partySession?.role === "guest" ? undefined : nextEpisode}
-        nextEpisodeLabel={nextEpisodeLabel}
+        upNext={partySession?.role === "guest" ? undefined : upNext}
+        queue={partySession?.role === "guest" ? undefined : queue}
         onSelectEpisode={partySession?.role === "guest" ? undefined : onSelectEpisode}
         onNextEpisode={partySession?.role === "guest" ? undefined : onNextEpisode}
         onEnded={onEnded}
@@ -130,8 +139,8 @@ export function Player({
       progressMetadata={progressMetadata}
       addons={addons}
       seriesContext={partySession?.role === "guest" ? undefined : seriesContext}
-      nextEpisode={partySession?.role === "guest" ? undefined : nextEpisode}
-      nextEpisodeLabel={nextEpisodeLabel}
+      upNext={partySession?.role === "guest" ? undefined : upNext}
+      queue={partySession?.role === "guest" ? undefined : queue}
       onSelectEpisode={partySession?.role === "guest" ? undefined : onSelectEpisode}
       onNextEpisode={partySession?.role === "guest" ? undefined : onNextEpisode}
       onEnded={onEnded}
@@ -156,8 +165,8 @@ function WebPlayer({
   progressMetadata,
   addons,
   seriesContext,
-  nextEpisode,
-  nextEpisodeLabel,
+  upNext,
+  queue,
   onSelectEpisode,
   onNextEpisode,
   onEnded,
@@ -178,8 +187,8 @@ function WebPlayer({
   progressMetadata: ProgressMetadata
   addons: InstalledAddon[]
   seriesContext?: PlayerSeriesContext
-  nextEpisode?: Video
-  nextEpisodeLabel?: string
+  upNext?: PlayerUpNext
+  queue?: PlayerQueue
   onSelectEpisode?: (video: Video) => void | Promise<void>
   onNextEpisode?: () => void | Promise<void>
   onEnded?: (allowAutoplay?: boolean) => void | Promise<void>
@@ -214,7 +223,7 @@ function WebPlayer({
   const [audioChoices, setAudioChoices] = useState<AudioChoice[]>([])
   const [selectedAudio, setSelectedAudio] = useState<number>()
   const [videoScale, setVideoScale] = useState<VideoScale>("fit")
-  const [episodeDrawerOpen, setEpisodeDrawerOpen] = useState(false)
+  const [episodeDrawerOpen, setEpisodeDrawerOpen] = useState<PlayerDrawerOpen>(false)
   const nextTransitionSuppressed = useRef(false)
   const nextTransitionRequested = useRef(false)
   const [playbackStarted, setPlaybackStarted] = useState(false)
@@ -637,6 +646,18 @@ function WebPlayer({
           </button>
           <PlayerHeadingText heading={heading} />
           <div className="ml-auto flex items-center gap-1">
+            {queue && (
+              <button
+                className="grid size-10 place-items-center rounded-full text-zinc-200 transition-colors hover:bg-white/15"
+                type="button"
+                aria-label="Queue"
+                title="Queue"
+                data-player-drawer-toggle
+                onClick={() => setEpisodeDrawerOpen((open) => (open ? false : "queue"))}
+              >
+                <QueueIcon count={queue.controls.items.length} />
+              </button>
+            )}
             {onWatchParty && (
               <PartyPlayerButton onClick={onWatchParty} active={partySession != null} />
             )}
@@ -754,8 +775,7 @@ function WebPlayer({
           )}
           {!episodeDrawerOpen && partySession?.role !== "guest" && (
             <NextEpisodePrompt
-              seriesName={seriesContext?.name ?? progressMetadata.name}
-              episode={nextEpisode}
+              upNext={upNext}
               position={currentTime}
               duration={duration}
               paused={!playing}
@@ -774,6 +794,16 @@ function WebPlayer({
           <PlayerEpisodeDrawer
             open={episodeDrawerOpen}
             context={seriesContext}
+            queue={
+              queue && {
+                ...queue,
+                onPlay: (item) => {
+                  if (nextTransitionRequested.current) return
+                  nextTransitionRequested.current = true
+                  queue.onPlay(item)
+                },
+              }
+            }
             onOpenChange={setEpisodeDrawerOpen}
             onSelect={(video) => {
               if (nextTransitionRequested.current) return
@@ -781,6 +811,7 @@ function WebPlayer({
               void onSelectEpisode?.(video)
             }}
           />
+          <QueueNotice className="absolute left-6 top-16" />
           <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/95 via-black/60 to-transparent px-4 pb-4 pt-16 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
             <input
               className="web-player-seek mb-3 block w-full cursor-pointer"
@@ -813,7 +844,7 @@ function WebPlayer({
               </Control>
               {onNextEpisode && (
                 <Control
-                  label={`Next episode${nextEpisodeLabel ? `: ${nextEpisodeLabel}` : ""}`}
+                  label={nextControlLabel(upNext)}
                   onClick={() => {
                     if (nextTransitionRequested.current) return
                     nextTransitionRequested.current = true

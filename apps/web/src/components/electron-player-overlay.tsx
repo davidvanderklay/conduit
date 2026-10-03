@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -39,6 +40,7 @@ import {
   setNativePlayerPlaying,
   toggleNativeFullscreen,
   type PlayerOverlayMedia,
+  type PlayerOverlayQueueState,
   type NativePlayerSnapshot,
   type NativeTrack,
 } from "../lib/desktop"
@@ -70,10 +72,21 @@ import {
   DesktopPlayerBufferingOverlay,
   DesktopPlayerOpeningOverlay,
 } from "./desktop-player-overlays"
-import { NextEpisodePrompt, PlayerEpisodeDrawer } from "./player-series"
+import {
+  NextEpisodePrompt,
+  PlayerEpisodeDrawer,
+  nextControlLabel,
+  type PlayerDrawerOpen,
+  type PlayerQueue,
+} from "./player-series"
+import type { QueueItem } from "../lib/api"
+import { episodeUpNext } from "../lib/queue"
+import { QueueIcon, QueueNotice } from "./queue"
 import { SkipSegmentButton } from "./player-skip-prompt"
 
 type TrackMenuName = "audio" | "subtitles"
+
+const noQueueItems: QueueItem[] = []
 
 export function ElectronPlayerOverlay({
   initialMedia,
@@ -85,6 +98,7 @@ export function ElectronPlayerOverlay({
   const [title, setTitle] = useState(initialMedia.title)
   const [artwork, setArtwork] = useState<PlayerArtwork>(initialMedia)
   const [series, setSeries] = useState(initialMedia.series)
+  const [queueState, setQueueState] = useState<PlayerOverlayQueueState>(initialMedia)
   const [watchPartyContext, setWatchPartyContext] = useState(
     () => initialWatchPartyContext ?? readPlayerOverlayContext(),
   )
@@ -97,7 +111,7 @@ export function ElectronPlayerOverlay({
   const [showRemainingTime, setShowRemainingTime] = useState(false)
   const [holdSpeedActive, setHoldSpeedActive] = useState(false)
   const [activeTrackMenu, setActiveTrackMenu] = useState<TrackMenuName>()
-  const [episodeDrawerOpen, setEpisodeDrawerOpen] = useState(false)
+  const [episodeDrawerOpen, setEpisodeDrawerOpen] = useState<PlayerDrawerOpen>(false)
   const [skipSegments, setSkipSegments] = useState<SkipSegment[]>([])
   const [selectedSubtitleCode, setSelectedSubtitleCode] = useState<string>()
   const [subtitlePosition, setSubtitlePosition] = useState(() => readPreferences().subtitlePosition)
@@ -195,6 +209,7 @@ export function ElectronPlayerOverlay({
       setTitle(media.title)
       setArtwork(media)
       setSeries(media.series)
+      setQueueState(media)
       setShowRemainingTime(false)
       window.clearTimeout(seekCommitTimer.current)
       seekDraft.current = undefined
@@ -225,6 +240,29 @@ export function ElectronPlayerOverlay({
   const nextVideo = series
     ? adjacentSeriesVideo(series.videos, series.currentVideoId, 1)
     : undefined
+  // Until the main window mirrors its queue state, the next episode is the best guess.
+  const upNext =
+    queueState.upNext ?? (series && nextVideo ? episodeUpNext(series.name, nextVideo) : undefined)
+  const queueItems = queueState.queue?.items ?? noQueueItems
+  const queueMedia = queueState.queue?.media
+  const queue = useMemo<PlayerQueue>(
+    () => ({
+      controls: {
+        items: queueItems,
+        set: (items) => {
+          setQueueState((current) => ({ ...current, queue: { ...current.queue, items } }))
+          void window.__CONDUIT_ELECTRON__?.invoke("player_overlay_queue_set", { items })
+        },
+      },
+      media: queueMedia,
+      onPlay: (item) => {
+        void window.__CONDUIT_ELECTRON__?.invoke("player_overlay_queue_play", { item })
+      },
+    }),
+    [queueItems, queueMedia],
+  )
+  // Party guests follow the host, so they get no queue controls.
+  const queueAvailable = watchPartyContext?.role !== "guest"
 
   useEffect(() => {
     let cancelled = false
@@ -452,10 +490,10 @@ export function ElectronPlayerOverlay({
       ? activeSkipSegment(snapshot.position, skipSegments)
       : undefined
   const upNextVisible = Boolean(
-    snapshot && nextVideo && shouldShowUpNext(snapshot.position, snapshot.duration, skipSegments),
+    snapshot && upNext && shouldShowUpNext(snapshot.position, snapshot.duration, skipSegments),
   )
   const chromeVisible =
-    controlsVisible || episodeDrawerOpen || Boolean(snapshot?.paused) || !snapshot
+    controlsVisible || Boolean(episodeDrawerOpen) || Boolean(snapshot?.paused) || !snapshot
   const rootClassName =
     "native-player electron-native-player electron-player-overlay fixed inset-0 z-50 select-none " +
     (chromeVisible ? "cursor-default" : "cursor-none")
@@ -564,8 +602,7 @@ export function ElectronPlayerOverlay({
                 />
               )}
               <NextEpisodePrompt
-                seriesName={series?.name ?? title}
-                episode={nextVideo}
+                upNext={upNext}
                 position={snapshot.position}
                 duration={snapshot.duration}
                 paused={snapshot.paused}
@@ -605,6 +642,16 @@ export function ElectronPlayerOverlay({
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {queueAvailable && (
+              <span className="contents" data-player-drawer-toggle>
+                <OverlayButton
+                  label="Queue"
+                  onClick={() => setEpisodeDrawerOpen((open) => (open ? false : "queue"))}
+                >
+                  <QueueIcon count={queueItems.length} />
+                </OverlayButton>
+              </span>
+            )}
             <OverlayButton label="Watch together" onClick={() => setWatchPartyOpen(true)}>
               <UsersRound size={20} />
             </OverlayButton>
@@ -632,9 +679,11 @@ export function ElectronPlayerOverlay({
                 }
               : undefined
           }
+          queue={queueAvailable ? queue : undefined}
           onOpenChange={setEpisodeDrawerOpen}
           onSelect={selectEpisode}
         />
+        <QueueNotice className="absolute left-6 top-16" />
 
         <div
           className={
@@ -696,7 +745,7 @@ export function ElectronPlayerOverlay({
               >
                 {snapshot?.paused ? <Play size={28} /> : <Pause size={28} />}
               </OverlayButton>
-              <OverlayButton large label="Next episode" onClick={nextEpisode}>
+              <OverlayButton large label={nextControlLabel(upNext)} onClick={nextEpisode}>
                 <SkipForward size={27} />
               </OverlayButton>
               <OverlayButton

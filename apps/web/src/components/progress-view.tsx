@@ -17,6 +17,9 @@ import { applyProgressOperation, progressIdentity } from "../lib/progress"
 import { Card } from "./ui/card"
 import { PaginationControls } from "./pagination-controls"
 import { PosterActionMenu, type PosterAction } from "./poster-action-menu"
+import { queueMenuActions } from "./queue"
+import { queueItemFor } from "../lib/queue"
+import { useQueueControls } from "../lib/use-queue"
 import { PosterResumeButton } from "./poster-resume-button"
 import { VirtualPosterGrid } from "./virtual-poster-grid"
 
@@ -463,6 +466,13 @@ function ProgressMenu({
   const queryClient = useQueryClient()
   const library = useLibrary(profileId)
   const libraryToggle = useLibraryToggle(profileId, toCatalogItem(item))
+  const queue = useQueueControls(profileId)
+  const queueItem = queueItemFor(
+    { id: item.mediaId, type: item.mediaType, name: item.name, poster: item.poster },
+    item.mediaType === "series"
+      ? { id: item.videoId, title: item.videoTitle, season: item.season, episode: item.episode }
+      : undefined,
+  )
   const saved = library.data?.items.some(
     (entry) => entry.type === item.mediaType && entry.id === item.mediaId,
   )
@@ -524,6 +534,7 @@ function ProgressMenu({
           },
         ]
       : []),
+    ...queueMenuActions(queue, queueItem),
   ]
   if (history) {
     if (saved) {

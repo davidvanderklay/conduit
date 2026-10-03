@@ -73,6 +73,19 @@ export interface LibraryItem {
   updatedAt: string
 }
 
+/** One entry of a profile's playback queue. Movies use their media id as the video id. */
+export interface QueueItem {
+  mediaType: "movie" | "series"
+  mediaId: string
+  videoId: string
+  name: string
+  poster?: string
+  artwork?: string
+  videoTitle?: string
+  season?: number
+  episode?: number
+}
+
 export interface WatchProgress {
   canonicalTitleId?: string
   canonicalEpisodeKey?: string

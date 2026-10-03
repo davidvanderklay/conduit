@@ -63,6 +63,7 @@ const desktop = vi.hoisted(() => ({
   nativeFullscreen: vi.fn(async () => false),
   nativePlayerSnapshot: vi.fn(async () => snapshot),
   openNativePlayer: vi.fn(async () => snapshot),
+  updateNativePlayerOverlay: vi.fn(async () => undefined),
   redrawNativeSurface: vi.fn(async () => undefined),
   refreshNativeSurface: vi.fn(async () => undefined),
   resetNativeOverlaySurface: vi.fn(async () => undefined),
@@ -372,7 +373,13 @@ describe("DesktopPlayer track menus", () => {
             name: "Test series",
           }}
           addons={[]}
-          nextEpisodeLabel="S1 E2"
+          upNext={{
+            key: "series:1:2",
+            queued: false,
+            heading: "Next on Test series",
+            title: "Episode 2",
+            detail: "S1 E2",
+          }}
           onNextEpisode={next}
           onClose={() => undefined}
         />,

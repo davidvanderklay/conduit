@@ -20,7 +20,13 @@ import {
   Volume2,
   X,
 } from "lucide-react"
-import { api, type InstalledAddon, type PlayerArtwork, type WatchProgress } from "../lib/api"
+import {
+  api,
+  type InstalledAddon,
+  type PlayerArtwork,
+  type QueueItem,
+  type WatchProgress,
+} from "../lib/api"
 import { addonsForResource } from "../lib/addons"
 import {
   loadMeta,
@@ -43,6 +49,15 @@ import {
   trailerUrl,
 } from "../lib/metadata"
 import { readPreferences, writePreferences } from "../lib/preferences"
+import {
+  episodeUpNext,
+  nextQueuedItem,
+  queueAfterPlaybackStarted,
+  queuedUpNext,
+  queueItemFor,
+  type PlayerUpNext,
+} from "../lib/queue"
+import { useQueueControls } from "../lib/use-queue"
 import { applyProgressOperation, progressIdentity } from "../lib/progress"
 import {
   AUTO_SELECTION_STARTUP_TIMEOUT_MS,
@@ -53,12 +68,18 @@ import {
 } from "../lib/stream-selection"
 import { nativeFullscreen, onNativeFullscreenChange } from "../lib/desktop"
 import { mediaForWatchActions, setEpisodeWatched, setVideosWatched } from "../lib/watch-actions"
-import { episodeProgressPercent, episodeWatchState, resumePositionLabel } from "../lib/watch-status"
+import {
+  episodeProgressPercent,
+  episodeWatchState,
+  isReleasedEpisode,
+  resumePositionLabel,
+} from "../lib/watch-status"
 import { joinWatchParty, updateWatchPartyMedia } from "../lib/watch-party-api"
 import { Button } from "./ui/button"
 import { Player } from "./player"
 import { LibraryToggle } from "./library-toggle"
 import { EpisodeSelector } from "./episode-selector"
+import { QueueToggle } from "./queue"
 import { usesExpandedPlayerControls } from "./desktop-player"
 import { DesktopPlayerChrome, DesktopPlayerControl } from "./desktop-player-chrome"
 import { DesktopPlayerOpeningOverlay } from "./desktop-player-overlays"
@@ -97,8 +118,10 @@ export function MediaDetails({
   onWatchPartyMediaChange,
   onBrowse,
   onClose,
+  onPlayQueued,
   streamSelectionReturnToHome = false,
   autoResumeOnOpen = true,
+  startQueued = false,
 }: {
   accountId?: string
   item: CatalogItem
@@ -114,8 +137,12 @@ export function MediaDetails({
   onWatchPartyMediaChange?: (media: WatchPartyMedia | undefined, session: WatchPartySession) => void
   onBrowse?: (target: MetadataBrowseTarget) => void
   onClose: () => void
+  /** Hands playback to a queued item that belongs to a different title. */
+  onPlayQueued: (item: QueueItem) => void
   streamSelectionReturnToHome?: boolean
   autoResumeOnOpen?: boolean
+  /** Opened from the queue: start the target video on an automatic source right away. */
+  startQueued?: boolean
 }) {
   const [selectedVideoId, setSelectedVideoId] = useState<string | undefined>(
     initialVideoId && initialVideoId !== item.id ? initialVideoId : undefined,
@@ -131,6 +158,10 @@ export function MediaDetails({
     initialWatchPartySession,
   )
   const [partyConnectionVersion, setPartyConnectionVersion] = useState(0)
+  const [queueStarting, setQueueStarting] = useState(startQueued)
+  const queueStartRequested = useRef(false)
+  const consumedPlayback = useRef<string | undefined>(undefined)
+  const queue = useQueueControls(profileId)
   const queryClient = useQueryClient()
   const episodeTransition = useRef(0)
   const partyStreamHandoffKey = useRef<string | undefined>(undefined)
@@ -215,6 +246,7 @@ export function MediaDetails({
     : undefined
   const autoResumeEligible =
     autoResumeOnOpen &&
+    !startQueued &&
     autoSelectSavedStreams &&
     Boolean(savedPlaybackSource) &&
     Boolean(activeVideoId)
@@ -589,12 +621,12 @@ export function MediaDetails({
     writePreferences({ ...readPreferences(), lastStreamAddonId: addonId })
   }
 
-  const autoplayNextEpisode = (allowAutoplay = true) => {
-    if (!allowAutoplay || !nextEpisode || !readPreferences().autoplay) {
+  const continueAfterEnd = (allowAutoplay = true) => {
+    if (!allowAutoplay || !upNext || !readPreferences().autoplay) {
       setPlaying(undefined)
       return
     }
-    void playNextEpisode(nextEpisode)
+    void playUpNext()
   }
 
   const cancelPendingAutoResume = useCallback(() => {
@@ -678,14 +710,24 @@ export function MediaDetails({
     seriesReturnVideoId.current = video.id
   }
 
-  const playNextEpisode = async (video: Video) => {
+  /**
+   * Starts a video of this title on the best automatic source, or lands on its
+   * source list when none qualifies. Omit [video] for a movie.
+   */
+  const playAutomatically = async (video?: Video) => {
+    const videoId = video?.id ?? item.id
     const transition = ++episodeTransition.current
     cancelPendingAutoResume()
     setStreamResolutionError(undefined)
+    const showSources = (message: string) => {
+      if (video) openEpisodeSources(video)
+      else setPlaying(undefined)
+      setStreamResolutionError(message)
+    }
     try {
       const resolved = await queryClient.fetchQuery({
-        queryKey: ["streams", item.type, video.id, addonIds, "automatic"],
-        queryFn: () => resolveStreams(addons, item.type, video.id),
+        queryKey: ["streams", item.type, videoId, addonIds, "automatic"],
+        queryFn: () => resolveStreams(addons, item.type, videoId),
         staleTime: 5 * 60 * 1000,
       })
       if (transition !== episodeTransition.current) return
@@ -693,7 +735,7 @@ export function MediaDetails({
         mediaProgress,
         item.type,
         item.id,
-        video.id,
+        videoId,
         video,
       )
       const candidate = rankAutomaticStreams(
@@ -702,18 +744,18 @@ export function MediaDetails({
         savedSource,
       )[0]
       if (!candidate) {
-        openEpisodeSources(video)
-        setStreamResolutionError("No automatic source was available. Choose a source below.")
+        showSources("No automatic source was available. Choose a source below.")
         return
       }
-      setSelectedVideoId(video.id)
-      setSelectedSeason(video.season ?? 1)
-      seriesReturnVideoId.current = video.id
+      if (video) {
+        setSelectedVideoId(video.id)
+        setSelectedSeason(video.season ?? 1)
+        seriesReturnVideoId.current = video.id
+      }
       setPlaying(candidate)
     } catch {
       if (transition !== episodeTransition.current) return
-      openEpisodeSources(video)
-      setStreamResolutionError("The next source could not be resolved. Choose a source below.")
+      showSources("The next source could not be resolved. Choose a source below.")
     }
   }
   const updateWatchPartySession = useCallback(
@@ -731,6 +773,54 @@ export function MediaDetails({
     },
     [onWatchPartyMediaChange, watchPartySession],
   )
+
+  /** Queued episodes of this title play in place; anything else reopens under its own title. */
+  const playQueued = (queued: QueueItem) => {
+    const video =
+      queued.mediaType === item.type && queued.mediaId === item.id
+        ? videos.find((candidate) => candidate.id === queued.videoId)
+        : undefined
+    if (!video) {
+      onPlayQueued(queued)
+      return
+    }
+    return playAutomatically(video)
+  }
+
+  const queuedNext = activeVideoId
+    ? nextQueuedItem(queue.items, item.id, activeVideoId)
+    : undefined
+  const upNext: PlayerUpNext | undefined = queuedNext
+    ? queuedUpNext(queuedNext)
+    : nextEpisode && episodeUpNext(meta.name, nextEpisode)
+  const playUpNext = () => {
+    if (queuedNext) return playQueued(queuedNext)
+    if (nextEpisode) return playAutomatically(nextEpisode)
+  }
+
+  useEffect(() => {
+    if (!queueStarting || queueStartRequested.current) return
+    if (item.type === "series" && metadata.isPending) return
+    queueStartRequested.current = true
+    if (item.type === "series" && !selectedVideo) {
+      setQueueStarting(false)
+      return
+    }
+    void playAutomatically(selectedVideo).finally(() => setQueueStarting(false))
+  })
+
+  // A queued item leaves the queue once its playback starts, however it was
+  // opened. The guard keeps a failed write from being retried in a loop.
+  const playingKey = playing?.key
+  useEffect(() => {
+    if (!playingKey || !activeVideoId) return
+    const remaining = queueAfterPlaybackStarted(queue.items, item.id, activeVideoId)
+    if (remaining.length === queue.items.length) return
+    const playbackKey = `${activeVideoId}:${playingKey}`
+    if (consumedPlayback.current === playbackKey) return
+    consumedPlayback.current = playbackKey
+    queue.set(remaining)
+  }, [activeVideoId, item.id, playingKey, queue])
 
   return (
     <>
@@ -791,8 +881,10 @@ export function MediaDetails({
             </div>
           </div>
 
-          {item.type === "series" && !episodeMode ? (
+          {!queueStarting && item.type === "series" && !episodeMode ? (
             <EpisodeSelector
+              queue={queue}
+              queueMedia={meta}
               videos={videos}
               loading={metadata.isLoading}
               progress={progress.data ?? []}
@@ -839,7 +931,7 @@ export function MediaDetails({
                 setSelectedVideoId(video.id)
               }}
             />
-          ) : shouldWaitForSavedPlayback ? (
+          ) : queueStarting || shouldWaitForSavedPlayback ? (
             <StreamSelectionLoading
               artwork={{
                 background: meta.background,
@@ -944,11 +1036,18 @@ export function MediaDetails({
                 }
               : undefined
           }
-          nextEpisode={nextEpisode}
-          nextEpisodeLabel={nextEpisode ? episodeLabel(nextEpisode) : undefined}
+          upNext={upNext}
+          queue={{
+            controls: queue,
+            media:
+              item.type === "series"
+                ? { id: meta.id, type: meta.type, name: meta.name, poster: meta.poster }
+                : undefined,
+            onPlay: playQueued,
+          }}
           onSelectEpisode={openEpisodeSources}
-          onNextEpisode={nextEpisode ? () => playNextEpisode(nextEpisode) : undefined}
-          onEnded={autoplayNextEpisode}
+          onNextEpisode={upNext ? playUpNext : undefined}
+          onEnded={continueAfterEnd}
           autoRecoveryAttempt={autoResumeStage === "starting"}
           onAutoRecoveryStarted={handleAutoRecoveryStarted}
           onAutoRecoveryFailed={handleAutoRecoveryFailed}
@@ -990,6 +1089,7 @@ function MediaSummary({
   profileId: string
   onBrowse?: (target: MetadataBrowseTarget) => void
 }) {
+  const queue = useQueueControls(profileId)
   const trailer = trailerUrl(meta)
   const description = meta.description?.trim()
   const awards = meta.awards?.trim()
@@ -1080,6 +1180,7 @@ function MediaSummary({
           </Button>
         )}
         <LibraryToggle profileId={profileId} item={meta} revealLabel />
+        <QueueToggle queue={queue} item={queueItemFor(meta)} />
       </div>
     </section>
   )
@@ -1096,6 +1197,7 @@ function EpisodeSummary({
   profileId: string
   progress: WatchProgress[]
 }) {
+  const queue = useQueueControls(profileId)
   const state = progress.find((item) => item.videoId === video.id)
   const watchState = episodeWatchState(state)
   const percent = episodeProgressPercent(state)
@@ -1151,6 +1253,11 @@ function EpisodeSummary({
           media={{ type: meta.type, id: meta.id, name: meta.name, poster: meta.poster }}
         />
         <LibraryToggle profileId={profileId} item={meta} revealLabel />
+        <QueueToggle
+          queue={queue}
+          item={queueItemFor(meta, video)}
+          canQueue={isReleasedEpisode(video)}
+        />
       </div>
     </section>
   )

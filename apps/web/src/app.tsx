@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { ArrowLeft, Check, Film, Globe2, Search, Server, Shield, X } from "lucide-react"
 import {
@@ -6,6 +6,7 @@ import {
   type Bootstrap,
   type InstalledAddon,
   type Profile,
+  type QueueItem,
   type WatchProgress,
 } from "./lib/api"
 import { API_URL, DESKTOP_SESSION_TOKEN, authClient } from "./lib/auth"
@@ -46,6 +47,8 @@ import { DiscoverView, type DiscoverSelection } from "./components/discover-view
 import { VirtualVerticalList } from "./components/virtual-vertical-list"
 import { FullscreenToggle } from "./components/fullscreen-toggle"
 import { BrowsePosterMenu } from "./components/browse-poster-menu"
+import { QueueDrawer, QueueIcon, QueueNotice } from "./components/queue"
+import { useQueueControls } from "./lib/use-queue"
 import { ConduitMark } from "./components/conduit-mark"
 import { clearLegacyProgressOutbox, clearProgressOutbox, flushProgressOutbox } from "./lib/progress"
 import {
@@ -716,6 +719,8 @@ function AuthenticatedApp({
   const [watchPartyInviteToken] = useState(() => readWatchPartyInviteToken())
   const [watchPartyLaunch, setWatchPartyLaunch] = useState<WatchPartyLaunch>()
   const [watchPartyDialogKey, setWatchPartyDialogKey] = useState(0)
+  const [queueOpen, setQueueOpen] = useState(false)
+  const closeQueue = useCallback(() => setQueueOpen(false), [])
   const scrollViewportRef = useRef<HTMLDivElement>(null)
 
   const profiles = useMemo(
@@ -941,6 +946,7 @@ function AuthenticatedApp({
             <div className="hidden sm:block">
               <FullscreenToggle />
             </div>
+            <QueueButton profileId={activeProfile.id} onOpen={() => setQueueOpen(true)} />
             <WatchPartyButton
               active={Boolean(watchPartyLaunch)}
               onClick={() => setWatchPartyOpen(true)}
@@ -1001,6 +1007,8 @@ function AuthenticatedApp({
           onNavigate={navigate}
           onSelectProfile={setActiveProfileId}
           onSignedOut={handleSignedOut}
+          queueOpen={queueOpen}
+          onQueueClose={closeQueue}
           searchInput={searchInput}
           query={query}
           discoverSelection={discoverSelection}
@@ -1133,6 +1141,34 @@ function HouseholdSetup() {
   )
 }
 
+/** Opens the queue drawer. Only present while something is queued. */
+function QueueButton({ profileId, onOpen }: { profileId: string; onOpen: () => void }) {
+  const count = useQueueControls(profileId).items.length
+  if (count === 0) return null
+  return (
+    <button
+      type="button"
+      className="grid size-10 place-items-center rounded-xl text-zinc-400 hover:bg-zinc-900 hover:text-white"
+      aria-label={`Queue, ${count} ${count === 1 ? "item" : "items"}`}
+      title="Queue"
+      onClick={onOpen}
+    >
+      <QueueIcon count={count} size={18} />
+    </button>
+  )
+}
+
+/** The title open in the details view and how it was opened. */
+interface MediaSelection {
+  item: CatalogItem
+  videoId?: string
+  progress?: WatchProgress
+  /** Open the details page without auto-resuming a saved source. */
+  detailsOnly?: boolean
+  /** Set when opened from the queue; counts queued opens to key remounts. */
+  queued?: number
+}
+
 function ProfileApp({
   accountId,
   profile,
@@ -1142,6 +1178,8 @@ function ProfileApp({
   onNavigate,
   onSelectProfile,
   onSignedOut,
+  queueOpen,
+  onQueueClose,
   searchInput,
   query,
   discoverSelection,
@@ -1158,6 +1196,8 @@ function ProfileApp({
   profile: Profile
   profiles: Profile[]
   householdId: string
+  queueOpen: boolean
+  onQueueClose: () => void
   section: AppSection
   onNavigate: (section: AppSection) => void
   onSelectProfile: (profileId: string) => void
@@ -1174,12 +1214,13 @@ function ProfileApp({
   onWatchPartyMediaClose: () => void
   onMetadataBrowse: (target: MetadataBrowseTarget) => void
 }) {
-  const [selectedItem, setSelectedItem] = useState<CatalogItem>()
-  const [selectedVideoId, setSelectedVideoId] = useState<string>()
-  const [selectedProgress, setSelectedProgress] = useState<WatchProgress>()
-  const [autoResumeOnOpen, setAutoResumeOnOpen] = useState(true)
+  const [selection, setSelection] = useState<MediaSelection>()
+  const queue = useQueueControls(profile.id)
+  // Home shows the party's media itself, unless a title is already open here
+  // (a queued handoff), in which case this view keeps hosting the party.
+  const partyShownHere = section !== "home" || Boolean(selection)
   const watchPartyItem: CatalogItem | undefined =
-    section !== "home" && watchPartyLaunch && watchPartyLaunch.media
+    partyShownHere && watchPartyLaunch && watchPartyLaunch.media
       ? catalogItemFromPartyMedia(watchPartyLaunch.media)
       : undefined
   const addons = useQuery({
@@ -1188,10 +1229,29 @@ function ProfileApp({
   })
 
   useEffect(() => {
-    setSelectedItem(undefined)
-    setSelectedProgress(undefined)
-    setAutoResumeOnOpen(true)
+    setSelection(undefined)
   }, [profile.id])
+
+  // Each queued open gets a fresh number so the details view remounts even
+  // when the next item belongs to the title that is already open.
+  const playQueued = (item: QueueItem) => {
+    onQueueClose()
+    // The party's current media would otherwise keep the old title open; the
+    // host republishes once the queued item starts.
+    if (watchPartyLaunch) onWatchPartyMediaClose()
+    setSelection((current) => ({
+      item: {
+        id: item.mediaId,
+        type: item.mediaType,
+        name: item.name,
+        poster: item.poster,
+        // A queued episode's artwork is its own thumbnail, not the title's backdrop.
+        background: item.mediaType === "series" ? undefined : item.artwork,
+      },
+      videoId: item.videoId,
+      queued: (current?.queued ?? 0) + 1,
+    }))
+  }
 
   return (
     <PosterWatchStatusProvider profileId={profile.id}>
@@ -1201,7 +1261,7 @@ function ProfileApp({
           profile={profile}
           addons={addons.data?.addons ?? []}
           onContinueWatching={() => onNavigate("continue")}
-          watchPartyLaunch={watchPartyLaunch}
+          watchPartyLaunch={partyShownHere ? undefined : watchPartyLaunch}
           onWatchPartySessionChange={onWatchPartySessionChange}
           onWatchPartyJoined={onWatchPartyJoined}
           onWatchPartyMediaChange={onWatchPartyMediaChange}
@@ -1211,6 +1271,7 @@ function ProfileApp({
             onNavigate("discover")
           }}
           onMetadataBrowse={onMetadataBrowse}
+          onPlayQueued={playQueued}
         />
       )}
       {!searchInput && section === "discover" && (
@@ -1219,48 +1280,32 @@ function ProfileApp({
           addons={addons.data?.addons ?? []}
           selection={discoverSelection}
           onChange={onDiscoverSelection}
-          onSelect={(item) => {
-            setSelectedVideoId(undefined)
-            setSelectedProgress(undefined)
-            setAutoResumeOnOpen(true)
-            setSelectedItem(item)
-          }}
+          onSelect={(item) => setSelection({ item })}
         />
       )}
       {!searchInput && section === "library" && (
         <LibraryView
           profileId={profile.id}
           addons={addons.data?.addons ?? []}
-          onSelect={(item, progress) => {
-            setSelectedVideoId(progress?.videoId)
-            setSelectedProgress(progress)
-            setAutoResumeOnOpen(true)
-            setSelectedItem(item)
-          }}
+          onSelect={(item, progress) =>
+            setSelection({ item, videoId: progress?.videoId, progress })
+          }
         />
       )}
       {!searchInput && section === "continue" && (
         <ContinueWatchingView
           profileId={profile.id}
           addons={addons.data?.addons ?? []}
-          onSelect={(item, videoId, progress, mode) => {
-            setSelectedItem(item)
-            setSelectedVideoId(videoId)
-            setSelectedProgress(progress)
-            setAutoResumeOnOpen(mode !== "details")
-          }}
+          onSelect={(item, videoId, progress, mode) =>
+            setSelection({ item, videoId, progress, detailsOnly: mode === "details" })
+          }
         />
       )}
       {!searchInput && section === "calendar" && (
         <CalendarView
           profileId={profile.id}
           addons={addons.data?.addons ?? []}
-          onSelect={(item, videoId) => {
-            setSelectedItem(item)
-            setSelectedVideoId(videoId)
-            setSelectedProgress(undefined)
-            setAutoResumeOnOpen(true)
-          }}
+          onSelect={(item, videoId) => setSelection({ item, videoId })}
         />
       )}
       {!searchInput && section === "addons" && (
@@ -1285,23 +1330,20 @@ function ProfileApp({
           profileId={profile.id}
           addons={addons.data?.addons ?? []}
           query={query}
-          onSelect={(item) => {
-            setSelectedVideoId(undefined)
-            setSelectedProgress(undefined)
-            setAutoResumeOnOpen(true)
-            setSelectedItem(item)
-          }}
+          onSelect={(item) => setSelection({ item })}
         />
       )}
-      {(watchPartyItem ?? selectedItem) && addons.data && (
+      {(watchPartyItem ?? selection?.item) && addons.data && (
         <MediaDetails
+          key={selection?.queued}
           accountId={accountId}
-          item={watchPartyItem ?? selectedItem!}
+          item={watchPartyItem ?? selection!.item}
           addons={addons.data.addons}
           profileId={profile.id}
-          initialVideoId={watchPartyLaunch?.media?.videoId ?? selectedVideoId}
-          initialProgress={selectedProgress}
-          autoResumeOnOpen={autoResumeOnOpen}
+          initialVideoId={watchPartyLaunch?.media?.videoId ?? selection?.videoId}
+          initialProgress={selection?.progress}
+          autoResumeOnOpen={!selection?.detailsOnly}
+          startQueued={!watchPartyItem && selection?.queued !== undefined}
           initialWatchPartyParty={watchPartyLaunch?.party}
           initialWatchPartySession={watchPartyLaunch?.session}
           onWatchPartySessionChange={onWatchPartySessionChange}
@@ -1310,12 +1352,15 @@ function ProfileApp({
           onWatchPartyMediaChange={onWatchPartyMediaChange}
           onBrowse={onMetadataBrowse}
           onClose={() => {
-            setSelectedItem(undefined)
+            setSelection(undefined)
             if (watchPartyLaunch) onWatchPartyMediaClose()
-            setSelectedProgress(undefined)
-            setAutoResumeOnOpen(true)
           }}
+          onPlayQueued={playQueued}
         />
+      )}
+      {queueOpen && <QueueDrawer queue={queue} onClose={onQueueClose} onPlay={playQueued} />}
+      {!(watchPartyItem ?? selection) && (
+        <QueueNotice className="fixed bottom-24 left-1/2 -translate-x-1/2 md:bottom-6" />
       )}
     </PosterWatchStatusProvider>
   )
@@ -1356,6 +1401,7 @@ function MediaHome({
   onWatchPartyMediaClose,
   onDiscover,
   onMetadataBrowse,
+  onPlayQueued,
 }: {
   accountId: string
   profile: Profile
@@ -1368,6 +1414,7 @@ function MediaHome({
   onWatchPartyMediaClose: () => void
   onDiscover: (selection: DiscoverSelection) => void
   onMetadataBrowse: (target: MetadataBrowseTarget) => void
+  onPlayQueued: (item: QueueItem) => void
 }) {
   const [selectedItem, setSelectedItem] = useState<CatalogItem>()
   const [selectedVideoId, setSelectedVideoId] = useState<string>()
@@ -1513,6 +1560,10 @@ function MediaHome({
             setSelectedProgress(undefined)
             setAutoResumeOnOpen(true)
             setReturnHomeFromStreamSelection(false)
+          }}
+          onPlayQueued={(item) => {
+            setSelectedItem(undefined)
+            onPlayQueued(item)
           }}
         />
       )}

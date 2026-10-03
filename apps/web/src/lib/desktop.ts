@@ -1,5 +1,6 @@
-import type { PlayerArtwork, WatchProgress } from "./api"
+import type { PlayerArtwork, QueueItem, WatchProgress } from "./api"
 import type { Video } from "./core"
+import type { PlayerUpNext, QueueMedia } from "./queue"
 import type { WatchPartyMedia } from "./watch-party"
 import type { WatchPartySessionResponse } from "./watch-party-api"
 
@@ -52,6 +53,8 @@ export interface ElectronDesktopBridge {
   onPlayerOverlayWatchAction?: (
     listener: (action: { videoIds: string[]; watched: boolean }) => void,
   ) => () => void
+  onPlayerOverlayQueuePlay?: (listener: (item: QueueItem) => void) => () => void
+  onPlayerOverlayQueueSet?: (listener: (items: QueueItem[]) => void) => () => void
   onPlayerOverlayMedia(listener: (media: PlayerOverlayMedia) => void): () => void
   notifyPlayerOverlayReady?: () => void
   onPlayerOverlayWatchParty?(listener: () => void): () => void
@@ -71,9 +74,16 @@ export interface ElectronDesktopBridge {
   openExternal(url: string): Promise<void>
 }
 
-export type PlayerOverlayMedia = PlayerArtwork & {
-  title: string
-  series?: PlayerOverlaySeries
+export type PlayerOverlayMedia = PlayerArtwork &
+  PlayerOverlayQueueState & {
+    title: string
+    series?: PlayerOverlaySeries
+  }
+
+/** Queue state the main window mirrors into the overlay, which has no API access. */
+export interface PlayerOverlayQueueState {
+  upNext?: PlayerUpNext
+  queue?: { items: QueueItem[]; media?: QueueMedia }
 }
 
 export interface PlayerOverlaySeries {
@@ -123,6 +133,10 @@ export function openNativePlayer(
     artwork,
     ...(watchPartyContext ? { watchPartyContext } : {}),
   })
+}
+
+export function updateNativePlayerOverlay(state: PlayerOverlayQueueState): Promise<void> {
+  return invoke("player_overlay_update", { ...state })
 }
 
 export function nativePlayerSnapshot(): Promise<NativePlayerSnapshot> {

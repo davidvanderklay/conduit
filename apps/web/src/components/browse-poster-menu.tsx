@@ -3,11 +3,14 @@ import { Bookmark, Check, Info } from "lucide-react"
 import type { InstalledAddon } from "../lib/api"
 import { addonsForResource } from "../lib/addons"
 import { useLibraryToggle } from "../lib/library"
+import { queueItemFor } from "../lib/queue"
+import { useQueueControls } from "../lib/use-queue"
 import { loadMeta, type CatalogItem, type MetaItem } from "../lib/core"
 import { completionEpisodeIds, posterWatchState, seriesWatchVideos } from "../lib/watch-status"
 import { mediaForWatchActions, setEpisodeWatched, setVideosWatched } from "../lib/watch-actions"
 import { PosterActionMenu } from "./poster-action-menu"
 import { usePosterProgress } from "./poster-watch-status"
+import { queueMenuActions } from "./queue"
 
 export function BrowsePosterMenu({
   profileId,
@@ -23,6 +26,7 @@ export function BrowsePosterMenu({
   const queryClient = useQueryClient()
   const progress = usePosterProgress(item)
   const library = useLibraryToggle(profileId, item)
+  const queue = useQueueControls(profileId)
   const metadata = useQuery({
     queryKey: ["poster-status-meta", item.type, item.id, addons.map((addon) => addon.id)],
     enabled: item.type === "series" && progress.length > 0,
@@ -71,6 +75,7 @@ export function BrowsePosterMenu({
           onSelect: () => library.toggle(),
           disabled: library.loading,
         },
+        ...queueMenuActions(queue, queueItemFor(item)),
         { label: "Details", icon: <Info size={16} />, onSelect },
       ]}
     />
