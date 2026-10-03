@@ -8,6 +8,7 @@ type DesktopPlayerChromeTopProps = {
   fullscreenDisabled?: boolean
   heading: ReactNode
   description?: ReactNode
+  actions?: ReactNode
   onBack: () => void
   onFullscreen?: () => void
 }
@@ -19,6 +20,7 @@ export function DesktopPlayerChromeTop({
   fullscreenDisabled = false,
   heading,
   description,
+  actions,
   onBack,
   onFullscreen,
 }: DesktopPlayerChromeTopProps) {
@@ -49,19 +51,22 @@ export function DesktopPlayerChromeTop({
           {description}
         </div>
       </div>
-      <button
-        className={`pointer-events-auto grid shrink-0 place-items-center rounded-full bg-black/60 text-zinc-200 hover:bg-white/15 ${
-          expandedControls ? "size-13 [&_svg]:size-7" : "size-10"
-        }`}
-        type="button"
-        aria-label={fullscreen ? "Exit fullscreen" : "Fullscreen"}
-        title={fullscreen ? "Exit fullscreen" : "Fullscreen"}
-        data-native-overlay
-        disabled={fullscreenDisabled}
-        onClick={onFullscreen}
-      >
-        {fullscreen ? <Minimize size={20} /> : <Maximize size={20} />}
-      </button>
+      <div className="pointer-events-auto flex items-center gap-2">
+        {actions}
+        <button
+          className={`pointer-events-auto grid shrink-0 place-items-center rounded-full bg-black/60 text-zinc-200 hover:bg-white/15 ${
+            expandedControls ? "size-13 [&_svg]:size-7" : "size-10"
+          }`}
+          type="button"
+          aria-label={fullscreen ? "Exit fullscreen" : "Fullscreen"}
+          title={fullscreen ? "Exit fullscreen" : "Fullscreen"}
+          data-native-overlay
+          disabled={fullscreenDisabled}
+          onClick={onFullscreen}
+        >
+          {fullscreen ? <Minimize size={20} /> : <Maximize size={20} />}
+        </button>
+      </div>
     </div>
   )
 }

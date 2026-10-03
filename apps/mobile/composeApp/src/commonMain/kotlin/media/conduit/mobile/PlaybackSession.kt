@@ -60,6 +60,7 @@ data class PlaybackRequest(
 )
 
 sealed interface PlaybackCommand {
+    data class PartyState(val seekMs: Long?, val rate: Float, val playing: Boolean) : PlaybackCommand
     data object Play : PlaybackCommand
     data object Pause : PlaybackCommand
     data class SeekTo(val positionMs: Long) : PlaybackCommand
@@ -142,6 +143,8 @@ class PlaybackSessionController(
 
     var state by mutableStateOf(PlaybackSessionState())
         private set
+
+    var partyGuest by mutableStateOf(false)
 
     private var callbacks: PlaybackSessionCallbacks? = null
     private var queuedNext: PlaybackQueueItem? = null
@@ -308,6 +311,7 @@ class PlaybackSessionController(
     }
 
     fun playNext() {
+        if (partyGuest) return
         if (state.request == null || state.transition != null) return
         DiagnosticLogStore.info(
             "playback/next",
@@ -410,6 +414,7 @@ class PlaybackSessionController(
     }
 
     fun playQueueItem(item: PlaybackQueueItem) {
+        if (partyGuest) return
         if (state.request == null || state.transition != null) return
         persist()
         val sameTitle = state.request?.takeIf { it.identity.mediaId == item.mediaId }
@@ -518,6 +523,7 @@ class PlaybackSessionController(
     }
 
     fun selectEpisode(videoId: String) {
+        if (partyGuest) return
         if (state.request == null) return
         closeEpisodes()
         val request = state.request ?: return
@@ -532,7 +538,12 @@ class PlaybackSessionController(
         callbacks?.selectEpisode?.invoke(videoId)
     }
 
+    fun sendPartyState(seekMs: Long?, rate: Float, playing: Boolean) {
+        send(PlaybackCommand.PartyState(seekMs, rate, playing))
+    }
+
     fun send(command: PlaybackCommand) {
+        if (partyGuest && (command is PlaybackCommand.Play || command is PlaybackCommand.Pause || command is PlaybackCommand.SeekTo)) return
         if (state.request == null) return
         commandSequence += 1
         state = state.copy(command = SequencedPlaybackCommand(commandSequence, command))

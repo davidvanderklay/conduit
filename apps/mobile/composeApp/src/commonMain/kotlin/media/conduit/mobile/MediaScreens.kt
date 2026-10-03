@@ -1229,6 +1229,14 @@ internal fun MediaDetailsScreen(
         )
     }
 
+    val watchParty = LocalWatchParty.current
+    LaunchedEffect(watchParty?.media?.videoId, meta?.id) {
+        val media = watchParty?.media ?: return@LaunchedEffect
+        if (watchParty.isGuest && media.mediaId == item.id && meta != null && playbackSession.state.request?.identity?.videoId != media.videoId) {
+            val video = meta?.videos?.firstOrNull { it.id == media.videoId }
+            selectVideo(video, autoPlaySavedSource = true, rankAllAutomaticStreams = true)
+        }
+    }
     val playingVideoId = selectedVideo?.id ?: streamVideoId ?: effectiveInitialVideoId ?: item.id
     val streamAddonChoices = remember(addons, item.type, playingVideoId) {
         addons
@@ -1260,6 +1268,7 @@ internal fun MediaDetailsScreen(
     val savedPlaybackSource = (selectedVideo?.id ?: effectiveInitialVideoId)?.let(::autoResumeSourceFor)
     val currentAutoResumeAttemptKey = savedPlaybackSource?.let(::autoResumeAttemptKey)
     LaunchedEffect(meta?.id, selectedVideo?.id, effectiveInitialVideoId, savedPlaybackSource, addonSignature, preferences.autoSelectSavedStreams, autoResumeRequested) {
+        if (watchParty?.isGuest == true && watchParty.media?.mediaId == item.id) return@LaunchedEffect
         if (
             !shouldRunAutomaticStreamResolution(
                 openMode = openMode,

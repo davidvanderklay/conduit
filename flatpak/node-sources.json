@@ -6214,5 +6214,12 @@
             "echo \"store-dir=$PWD/flatpak-node/pnpm-store\" >> .npmrc",
             "bash flatpak-node/setup_sdk_node_headers.sh"
         ]
+    },
+    {
+        "type": "file",
+        "url": "https://registry.npmjs.org/@types/ws/-/ws-8.18.1.tgz",
+        "sha512": "4e1545e83095840f24506cbe69acc543891743b1354f2ec0df2a4539ed0870957c3bf339d751bdf405b6e22acaad6e7a5ade38c86f7e8a3f056aaa011a4b815e",
+        "dest": "flatpak-node/pnpm-tarballs",
+        "dest-filename": "@types__ws-8.18.1.tgz"
     }
 ]

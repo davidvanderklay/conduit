@@ -58,6 +58,7 @@ const snapshot = {
 }
 
 const desktop = vi.hoisted(() => ({
+  isDesktop: () => false,
   nativePlayerCommand: vi.fn(async (_command: unknown[]) => undefined),
   nativeFullscreen: vi.fn(async () => false),
   nativePlayerSnapshot: vi.fn(async () => snapshot),

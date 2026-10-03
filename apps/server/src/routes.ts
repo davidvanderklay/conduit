@@ -17,6 +17,8 @@ import {
 import { registerProgressSyncRoutes } from "./route-modules/progress-sync-routes.js"
 import { registerPlaybackRoutes } from "./route-modules/playback-routes.js"
 
+import { registerWatchPartyRoutes } from "./route-modules/watch-party-routes.js"
+
 export async function registerRoutes(app: FastifyInstance, context: RouteContext) {
   await rehashAddonInstallationUrls(context.db, context.config.addonEncryptionKey)
 
@@ -38,6 +40,7 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
   registerProgressSyncRoutes(app, context)
   registerPlaybackRoutes(app)
   registerQueueRoutes(app, context)
+  registerWatchPartyRoutes(app, context)
 }
 
 export {

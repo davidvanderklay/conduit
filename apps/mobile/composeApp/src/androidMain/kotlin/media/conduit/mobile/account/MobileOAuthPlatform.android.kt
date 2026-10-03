@@ -15,6 +15,7 @@ internal object MobileOAuthCallbacks {
     val url = mutableStateOf<String?>(null)
 
     fun capture(intent: Intent?) {
+        intent?.dataString?.let { if (media.conduit.mobile.WatchPartyLinks.capture(it)) return }
         intent?.dataString?.takeIf { it.startsWith("conduit://oauth/callback") }?.let {
             url.value = it
         }

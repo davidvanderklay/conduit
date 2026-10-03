@@ -22,6 +22,7 @@ import {
   Plus,
   Scaling,
   SkipForward,
+  UsersRound,
   Volume2,
   VolumeX,
   X,
@@ -29,7 +30,9 @@ import {
 import { audioTrackDisplay } from "../lib/audio-track-display"
 import type { PlayerArtwork } from "../lib/api"
 import type { Video } from "../lib/core"
+import type { Profile } from "../lib/api"
 import {
+  type ElectronPlayerOverlayContext,
   nativePlayerCommand,
   nativePlayerSnapshot,
   setNativePlayerCursorHidden,
@@ -40,6 +43,9 @@ import {
   type NativeTrack,
 } from "../lib/desktop"
 import { isDesktopBuffering, isDesktopInitialLoading } from "../lib/desktop-player-state"
+import { WatchPartyDialog } from "./watch-party-dialog"
+import type { WatchPartySessionResponse } from "../lib/watch-party-api"
+import type { WatchPartySession, WatchPartySummary } from "../lib/watch-party"
 import {
   VIDEO_SCALE_OPTIONS,
   mpvVideoScaleCommands,
@@ -69,10 +75,21 @@ import { SkipSegmentButton } from "./player-skip-prompt"
 
 type TrackMenuName = "audio" | "subtitles"
 
-export function ElectronPlayerOverlay({ initialMedia }: { initialMedia: PlayerOverlayMedia }) {
+export function ElectronPlayerOverlay({
+  initialMedia,
+  initialWatchPartyContext,
+}: {
+  initialMedia: PlayerOverlayMedia
+  initialWatchPartyContext?: ElectronPlayerOverlayContext
+}) {
   const [title, setTitle] = useState(initialMedia.title)
   const [artwork, setArtwork] = useState<PlayerArtwork>(initialMedia)
   const [series, setSeries] = useState(initialMedia.series)
+  const [watchPartyContext, setWatchPartyContext] = useState(
+    () => initialWatchPartyContext ?? readPlayerOverlayContext(),
+  )
+  const [watchPartyOpen, setWatchPartyOpen] = useState(false)
+  const [watchPartyDialogKey, setWatchPartyDialogKey] = useState(0)
   const [snapshot, setSnapshot] = useState<NativePlayerSnapshot>()
   const [fullscreen, setFullscreen] = useState(false)
   const [scale, setScale] = useState<VideoScale>("fit")
@@ -182,6 +199,14 @@ export function ElectronPlayerOverlay({ initialMedia }: { initialMedia: PlayerOv
       window.clearTimeout(seekCommitTimer.current)
       seekDraft.current = undefined
     })
+    const unsubscribeTitle = electron.onPlayerOverlayTitle?.(setTitle)
+    const unsubscribeContext = electron.onPlayerOverlayContext?.((context) => {
+      const next = parsePlayerOverlayContext(context)
+      if (next) setWatchPartyContext(next)
+    })
+    const unsubscribeWatchParty = electron.onPlayerOverlayWatchParty?.(() =>
+      setWatchPartyOpen(true),
+    )
     const unsubscribeWake = electron.onPlayerOverlayWake
       ? electron.onPlayerOverlayWake(showControls)
       : undefined
@@ -189,6 +214,9 @@ export function ElectronPlayerOverlay({ initialMedia }: { initialMedia: PlayerOv
     return () => {
       unsubscribeFullscreen()
       unsubscribeMedia()
+      unsubscribeTitle?.()
+      unsubscribeContext?.()
+      unsubscribeWatchParty?.()
       unsubscribeWake?.()
     }
   }, [showControls])
@@ -214,6 +242,23 @@ export function ElectronPlayerOverlay({ initialMedia }: { initialMedia: PlayerOv
       cancelled = true
     }
   }, [currentVideo, series?.mediaId])
+  const handoffParty = useCallback(
+    (
+      _party: WatchPartySummary,
+      session: WatchPartySession,
+      response: WatchPartySessionResponse,
+    ) => {
+      void window.__CONDUIT_ELECTRON__?.invoke("player_overlay_watch_party_joined", response)
+      session.close()
+      setWatchPartyOpen(false)
+      setWatchPartyDialogKey((key) => key + 1)
+    },
+    [],
+  )
+
+  const handoffPartyLeave = useCallback((partyId: string) => {
+    void window.__CONDUIT_ELECTRON__?.invoke("player_overlay_watch_party_left", { partyId })
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -248,9 +293,17 @@ export function ElectronPlayerOverlay({ initialMedia }: { initialMedia: PlayerOv
     void setNativePlayerPlaying(playing).catch(() => undefined)
   }, [snapshot?.ended, snapshot?.firstFrameReady, snapshot?.paused, snapshot?.running])
 
-  const command = useCallback((next: unknown[]) => {
-    void nativePlayerCommand(next).catch(() => undefined)
-  }, [])
+  const command = useCallback(
+    (next: unknown[]) => {
+      if (
+        watchPartyContext?.role === "guest" &&
+        (next[0] === "seek" || (next[0] === "set" && (next[1] === "pause" || next[1] === "speed")))
+      )
+        return
+      void nativePlayerCommand(next).catch(() => undefined)
+    },
+    [watchPartyContext?.role],
+  )
 
   const commitSeek = useCallback(() => {
     window.clearTimeout(seekCommitTimer.current)
@@ -348,15 +401,20 @@ export function ElectronPlayerOverlay({ initialMedia }: { initialMedia: PlayerOv
   }, [])
 
   const nextEpisode = useCallback(() => {
+    if (watchPartyContext?.role === "guest") return
     void window.__CONDUIT_ELECTRON__?.invoke("player_overlay_next")
-  }, [])
+  }, [watchPartyContext?.role])
 
-  const selectEpisode = useCallback((video: Video) => {
-    setEpisodeDrawerOpen(false)
-    void window.__CONDUIT_ELECTRON__?.invoke("player_overlay_episode", {
-      videoId: video.id,
-    })
-  }, [])
+  const selectEpisode = useCallback(
+    (video: Video) => {
+      if (watchPartyContext?.role === "guest") return
+      setEpisodeDrawerOpen(false)
+      void window.__CONDUIT_ELECTRON__?.invoke("player_overlay_episode", {
+        videoId: video.id,
+      })
+    },
+    [watchPartyContext?.role],
+  )
 
   const episodeWatchAction = useCallback(async (targets: Video[], watched: boolean) => {
     const electron = window.__CONDUIT_ELECTRON__
@@ -441,59 +499,44 @@ export function ElectronPlayerOverlay({ initialMedia }: { initialMedia: PlayerOv
   }, [activeTrackMenu])
 
   return (
-    <div
-      className={rootClassName}
-      onMouseMove={showControls}
-      onPointerDown={beginHoldSpeed}
-      onPointerUp={endHoldSpeed}
-      onPointerCancel={endHoldSpeed}
-      onPointerLeave={endHoldSpeed}
-      onClick={(event) => {
-        if (holdSpeedTriggered.current) {
-          holdSpeedTriggered.current = false
-          event.preventDefault()
-          return
-        }
-        if (event.target === event.currentTarget) togglePlayback()
-      }}
-    >
-      {loadingOverlayVisible && <DesktopPlayerOpeningOverlay artwork={artwork} title={title} />}
-      {!loadingOverlayVisible && bufferingOverlayVisible && <DesktopPlayerBufferingOverlay />}
-      {/* Edge scrims keep the chrome legible without darkening the subtitle plane. */}
+    <>
       <div
-        className={`pointer-events-none absolute inset-x-0 top-0 h-48 bg-gradient-to-b from-black/85 via-black/55 to-transparent transition-opacity duration-300 ${chromeVisible ? "opacity-100" : "opacity-0"}`}
-        aria-hidden="true"
-      />
-      {holdSpeedActive && (
+        className={rootClassName}
+        onMouseMove={showControls}
+        onPointerDown={beginHoldSpeed}
+        onPointerUp={endHoldSpeed}
+        onPointerCancel={endHoldSpeed}
+        onPointerLeave={endHoldSpeed}
+        onClick={(event) => {
+          if (holdSpeedTriggered.current) {
+            holdSpeedTriggered.current = false
+            event.preventDefault()
+            return
+          }
+          if (event.target === event.currentTarget) togglePlayback()
+        }}
+      >
+        {loadingOverlayVisible && <DesktopPlayerOpeningOverlay artwork={artwork} title={title} />}
+        {!loadingOverlayVisible && bufferingOverlayVisible && <DesktopPlayerBufferingOverlay />}
+        {/* Edge scrims keep the chrome legible without darkening the subtitle plane. */}
         <div
-          className="pointer-events-none absolute inset-x-0 top-6 z-20 text-center text-xl font-semibold text-white drop-shadow-[0_2px_10px_rgba(0,0,0,0.95)]"
-          aria-live="polite"
-        >
-          » 2×
-        </div>
-      )}
-      {snapshot && !episodeDrawerOpen && (
-        <>
-          {preferences.skipButtonPlacement === "left" && activeSkip && (
-            <SkipSegmentButton
-              segment={activeSkip}
-              placement="left"
-              revealKey={chromeVisible}
-              onSkip={() => {
-                command(["seek", activeSkip.end, "absolute", "exact"])
-                setSnapshot((current) =>
-                  current ? { ...current, position: activeSkip.end } : current,
-                )
-                showControls()
-              }}
-            />
-          )}
-          <div className="pointer-events-none absolute bottom-36 right-6 z-20 flex flex-col items-end gap-3">
-            {preferences.skipButtonPlacement === "right" && activeSkip && (
+          className={`pointer-events-none absolute inset-x-0 top-0 h-48 bg-gradient-to-b from-black/85 via-black/55 to-transparent transition-opacity duration-300 ${chromeVisible ? "opacity-100" : "opacity-0"}`}
+          aria-hidden="true"
+        />
+        {holdSpeedActive && (
+          <div
+            className="pointer-events-none absolute inset-x-0 top-6 z-20 text-center text-xl font-semibold text-white drop-shadow-[0_2px_10px_rgba(0,0,0,0.95)]"
+            aria-live="polite"
+          >
+            » 2×
+          </div>
+        )}
+        {snapshot && !episodeDrawerOpen && (
+          <>
+            {preferences.skipButtonPlacement === "left" && activeSkip && (
               <SkipSegmentButton
                 segment={activeSkip}
-                placement="right"
-                contained
+                placement="left"
                 revealKey={chromeVisible}
                 onSkip={() => {
                   command(["seek", activeSkip.end, "absolute", "exact"])
@@ -504,241 +547,320 @@ export function ElectronPlayerOverlay({ initialMedia }: { initialMedia: PlayerOv
                 }}
               />
             )}
-            <NextEpisodePrompt
-              seriesName={series?.name ?? title}
-              episode={nextVideo}
-              position={snapshot.position}
-              duration={snapshot.duration}
-              paused={snapshot.paused}
-              autoplay={preferences.autoplay}
-              visible={upNextVisible}
-              contained
-              onDismiss={showControls}
-              onWatchNow={nextEpisode}
-            />
+            <div className="pointer-events-none absolute bottom-36 right-6 z-20 flex flex-col items-end gap-3">
+              {preferences.skipButtonPlacement === "right" && activeSkip && (
+                <SkipSegmentButton
+                  segment={activeSkip}
+                  placement="right"
+                  contained
+                  revealKey={chromeVisible}
+                  onSkip={() => {
+                    command(["seek", activeSkip.end, "absolute", "exact"])
+                    setSnapshot((current) =>
+                      current ? { ...current, position: activeSkip.end } : current,
+                    )
+                    showControls()
+                  }}
+                />
+              )}
+              <NextEpisodePrompt
+                seriesName={series?.name ?? title}
+                episode={nextVideo}
+                position={snapshot.position}
+                duration={snapshot.duration}
+                paused={snapshot.paused}
+                autoplay={preferences.autoplay}
+                visible={upNextVisible}
+                contained
+                onDismiss={showControls}
+                onWatchNow={nextEpisode}
+              />
+            </div>
+          </>
+        )}
+        <div
+          className={`pointer-events-none absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-black via-black/70 to-transparent transition-opacity duration-300 ${chromeVisible ? "opacity-100" : "opacity-0"}`}
+          aria-hidden="true"
+        />
+        <div
+          className={
+            "pointer-events-none absolute inset-x-0 top-0 z-10 flex items-start justify-between gap-4 " +
+            "px-5 pb-12 pt-4 transition-opacity " +
+            (chromeVisible ? "opacity-100" : "opacity-0")
+          }
+        >
+          <div className="flex min-w-0 items-center gap-3">
+            <OverlayButton label="Back to details" onClick={close}>
+              <Play className="rotate-180 fill-current" size={21} />
+            </OverlayButton>
+            <div className="min-w-0 drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)]">
+              <h2 className="truncate font-display text-lg font-semibold text-white [text-shadow:0_1px_8px_rgba(0,0,0,0.9)]">
+                {title}
+              </h2>
+              {snapshot && (
+                <p className="truncate text-xs text-zinc-300">
+                  {nativePlaybackDescription(snapshot)}
+                </p>
+              )}
+            </div>
           </div>
-        </>
-      )}
-      <div
-        className={`pointer-events-none absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-black via-black/70 to-transparent transition-opacity duration-300 ${chromeVisible ? "opacity-100" : "opacity-0"}`}
-        aria-hidden="true"
-      />
-      <div
-        className={
-          "pointer-events-none absolute inset-x-0 top-0 z-10 flex items-start justify-between gap-4 " +
-          "px-5 pb-12 pt-4 transition-opacity " +
-          (chromeVisible ? "opacity-100" : "opacity-0")
-        }
-      >
-        <div className="flex min-w-0 items-center gap-3">
-          <OverlayButton label="Back to details" onClick={close}>
-            <Play className="rotate-180 fill-current" size={21} />
-          </OverlayButton>
-          <div className="min-w-0 drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)]">
-            <h2 className="truncate font-display text-lg font-semibold text-white [text-shadow:0_1px_8px_rgba(0,0,0,0.9)]">
-              {title}
-            </h2>
-            {snapshot && (
-              <p className="truncate text-xs text-zinc-300">
-                {nativePlaybackDescription(snapshot)}
-              </p>
+          <div className="flex items-center gap-2">
+            <OverlayButton label="Watch together" onClick={() => setWatchPartyOpen(true)}>
+              <UsersRound size={20} />
+            </OverlayButton>
+            <OverlayButton
+              label={fullscreen ? "Exit fullscreen" : "Fullscreen"}
+              onClick={toggleFullscreen}
+            >
+              {fullscreen ? <Minimize size={20} /> : <Maximize size={20} />}
+            </OverlayButton>
+          </div>
+        </div>
+
+        <PlayerEpisodeDrawer
+          open={episodeDrawerOpen}
+          handleVisible={chromeVisible}
+          context={
+            series
+              ? {
+                  name: series.name,
+                  show: series.show,
+                  onWatchAction: episodeWatchAction,
+                  videos: series.videos,
+                  progress: series.progress,
+                  currentVideoId: series.currentVideoId,
+                }
+              : undefined
+          }
+          onOpenChange={setEpisodeDrawerOpen}
+          onSelect={selectEpisode}
+        />
+
+        <div
+          className={
+            "pointer-events-none absolute inset-x-0 bottom-0 z-10 px-5 pb-5 pt-24 transition-opacity " +
+            (chromeVisible ? "opacity-100" : "opacity-0")
+          }
+        >
+          <div className="w-full">
+            <div className="flex items-center gap-4 text-base tabular-nums text-zinc-200">
+              <span className="min-w-16 text-right text-lg">
+                {formatTime(snapshot?.position ?? 0)}
+              </span>
+              <input
+                className="player-seek pointer-events-auto block h-2 min-w-0 flex-1 cursor-pointer"
+                data-overlay-interactive
+                style={seekSliderStyle(snapshot?.position ?? 0, snapshot?.duration ?? 0)}
+                type="range"
+                min={0}
+                max={snapshot?.duration || 0}
+                step={0.1}
+                value={Math.min(snapshot?.position ?? 0, snapshot?.duration || 0)}
+                aria-label="Seek"
+                onChange={(event) => previewSeek(Number(event.target.value))}
+                onPointerUp={commitSeek}
+                onPointerCancel={commitSeek}
+                onKeyUp={commitSeek}
+                onBlur={commitSeek}
+              />
+              <button
+                className="pointer-events-auto min-w-16 cursor-pointer border-0 bg-transparent p-0 text-left text-lg text-zinc-200 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300"
+                data-overlay-interactive
+                type="button"
+                aria-label={
+                  showRemainingTime
+                    ? "Time remaining. Click to show end time."
+                    : "End time. Click to show time remaining."
+                }
+                title={
+                  showRemainingTime ? "Click to show end time" : "Click to show time remaining"
+                }
+                onClick={() => {
+                  setShowRemainingTime((current) => !current)
+                  showControls()
+                }}
+              >
+                {showRemainingTime
+                  ? `-${formatTime(
+                      Math.max(0, (snapshot?.duration ?? 0) - (snapshot?.position ?? 0)),
+                    )}`
+                  : formatTime(snapshot?.duration ?? 0)}
+              </button>
+            </div>
+
+            <div className="pointer-events-auto relative mt-3 flex items-center gap-3">
+              <OverlayButton
+                large
+                label={snapshot?.paused ? "Play" : "Pause"}
+                onClick={togglePlayback}
+              >
+                {snapshot?.paused ? <Play size={28} /> : <Pause size={28} />}
+              </OverlayButton>
+              <OverlayButton large label="Next episode" onClick={nextEpisode}>
+                <SkipForward size={27} />
+              </OverlayButton>
+              <OverlayButton
+                large
+                label={snapshot?.volume === 0 ? "Unmute" : "Mute"}
+                onClick={() => command(["set", "volume", snapshot?.volume === 0 ? 100 : 0])}
+              >
+                {snapshot?.volume === 0 ? <VolumeX size={27} /> : <Volume2 size={27} />}
+              </OverlayButton>
+              <input
+                className="player-volume hidden h-5 w-32 sm:block"
+                data-overlay-interactive
+                style={sliderStyle(snapshot?.volume ?? 100)}
+                type="range"
+                min={0}
+                max={100}
+                value={snapshot?.volume ?? 100}
+                aria-label="Volume"
+                onChange={(event) => command(["set", "volume", Number(event.target.value)])}
+              />
+              <div className="flex-1" />
+              <div ref={audioAnchorRef} data-track-menu-trigger>
+                <TrackSelect
+                  large
+                  ariaLabel="Audio track"
+                  icon={<Languages size={27} />}
+                  tracks={audioTracks}
+                  empty="Audio"
+                  active={activeTrackMenu === "audio"}
+                  onClick={() =>
+                    setActiveTrackMenu((current) => (current === "audio" ? undefined : "audio"))
+                  }
+                />
+              </div>
+              <div ref={subtitleAnchorRef} data-track-menu-trigger>
+                <TrackSelect
+                  large
+                  ariaLabel="Subtitle track"
+                  icon={<Captions size={27} />}
+                  tracks={subtitleTracks}
+                  empty="Subtitles"
+                  allowOff
+                  active={activeTrackMenu === "subtitles"}
+                  onClick={() => {
+                    setSelectedSubtitleCode(
+                      selectedSubtitleCode ?? activeSubtitleGroup?.code ?? subtitleGroups[0]?.code,
+                    )
+                    setActiveTrackMenu((current) =>
+                      current === "subtitles" ? undefined : "subtitles",
+                    )
+                  }}
+                />
+              </div>
+              <OverlayButton large label={"Video scale: " + selectedScale} onClick={changeScale}>
+                <Scaling size={27} />
+              </OverlayButton>
+            </div>
+            {activeTrackMenu === "audio" && (
+              <AudioTrackMenu
+                anchor={audioAnchorRef}
+                tracks={audioTracks}
+                onSelect={(id) => {
+                  command(["set", "aid", id])
+                  setActiveTrackMenu(undefined)
+                }}
+                onClose={() => setActiveTrackMenu(undefined)}
+              />
+            )}
+            {activeTrackMenu === "subtitles" && (
+              <SubtitleTrackMenu
+                anchor={subtitleAnchorRef}
+                groups={subtitleGroups}
+                selectedCode={selectedSubtitleCode}
+                selectedGroup={selectedSubtitleGroup}
+                subtitlePosition={subtitlePosition}
+                onSelectLanguage={(code) => {
+                  setSelectedSubtitleCode(code)
+                  const group = subtitleGroups.find((candidate) => candidate.code === code)
+                  const track = group && defaultSubtitleTrack(group)
+                  if (track) selectSubtitleTrack(track, command, setSnapshot)
+                }}
+                onSelectTrack={(track) => selectSubtitleTrack(track, command, setSnapshot)}
+                onOff={() => {
+                  setSelectedSubtitleCode(undefined)
+                  command(["set", "sid", "no"])
+                  setSnapshot((current) =>
+                    current
+                      ? {
+                          ...current,
+                          tracks: current.tracks.map((track) =>
+                            track.type === "sub" ? { ...track, selected: false } : track,
+                          ),
+                        }
+                      : current,
+                  )
+                }}
+                onSubtitlePosition={(value) => {
+                  setSubtitlePosition(value)
+                  writePreferences({ ...readPreferences(), subtitlePosition: value })
+                  command(["set", "sub-pos", value])
+                }}
+                onClose={() => setActiveTrackMenu(undefined)}
+              />
             )}
           </div>
         </div>
-        <OverlayButton
-          label={fullscreen ? "Exit fullscreen" : "Fullscreen"}
-          onClick={toggleFullscreen}
-        >
-          {fullscreen ? <Minimize size={20} /> : <Maximize size={20} />}
-        </OverlayButton>
       </div>
-
-      <PlayerEpisodeDrawer
-        open={episodeDrawerOpen}
-        handleVisible={chromeVisible}
-        context={
-          series
-            ? {
-                name: series.name,
-                show: series.show,
-                onWatchAction: episodeWatchAction,
-                videos: series.videos,
-                progress: series.progress,
-                currentVideoId: series.currentVideoId,
-              }
-            : undefined
-        }
-        onOpenChange={setEpisodeDrawerOpen}
-        onSelect={selectEpisode}
-      />
-
-      <div
-        className={
-          "pointer-events-none absolute inset-x-0 bottom-0 z-10 px-5 pb-5 pt-24 transition-opacity " +
-          (chromeVisible ? "opacity-100" : "opacity-0")
-        }
-      >
-        <div className="w-full">
-          <div className="flex items-center gap-4 text-base tabular-nums text-zinc-200">
-            <span className="min-w-16 text-right text-lg">
-              {formatTime(snapshot?.position ?? 0)}
-            </span>
-            <input
-              className="player-seek pointer-events-auto block h-2 min-w-0 flex-1 cursor-pointer"
-              data-overlay-interactive
-              style={seekSliderStyle(snapshot?.position ?? 0, snapshot?.duration ?? 0)}
-              type="range"
-              min={0}
-              max={snapshot?.duration || 0}
-              step={0.1}
-              value={Math.min(snapshot?.position ?? 0, snapshot?.duration || 0)}
-              aria-label="Seek"
-              onChange={(event) => previewSeek(Number(event.target.value))}
-              onPointerUp={commitSeek}
-              onPointerCancel={commitSeek}
-              onKeyUp={commitSeek}
-              onBlur={commitSeek}
-            />
-            <button
-              className="pointer-events-auto min-w-16 cursor-pointer border-0 bg-transparent p-0 text-left text-lg text-zinc-200 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300"
-              data-overlay-interactive
-              type="button"
-              aria-label={
-                showRemainingTime
-                  ? "Time remaining. Click to show end time."
-                  : "End time. Click to show time remaining."
-              }
-              title={showRemainingTime ? "Click to show end time" : "Click to show time remaining"}
-              onClick={() => {
-                setShowRemainingTime((current) => !current)
-                showControls()
-              }}
-            >
-              {showRemainingTime
-                ? `-${formatTime(
-                    Math.max(0, (snapshot?.duration ?? 0) - (snapshot?.position ?? 0)),
-                  )}`
-                : formatTime(snapshot?.duration ?? 0)}
-            </button>
-          </div>
-
-          <div className="pointer-events-auto relative mt-3 flex items-center gap-3">
-            <OverlayButton
-              large
-              label={snapshot?.paused ? "Play" : "Pause"}
-              onClick={togglePlayback}
-            >
-              {snapshot?.paused ? <Play size={28} /> : <Pause size={28} />}
-            </OverlayButton>
-            <OverlayButton large label="Next episode" onClick={nextEpisode}>
-              <SkipForward size={27} />
-            </OverlayButton>
-            <OverlayButton
-              large
-              label={snapshot?.volume === 0 ? "Unmute" : "Mute"}
-              onClick={() => command(["set", "volume", snapshot?.volume === 0 ? 100 : 0])}
-            >
-              {snapshot?.volume === 0 ? <VolumeX size={27} /> : <Volume2 size={27} />}
-            </OverlayButton>
-            <input
-              className="player-volume hidden h-5 w-32 sm:block"
-              data-overlay-interactive
-              style={sliderStyle(snapshot?.volume ?? 100)}
-              type="range"
-              min={0}
-              max={100}
-              value={snapshot?.volume ?? 100}
-              aria-label="Volume"
-              onChange={(event) => command(["set", "volume", Number(event.target.value)])}
-            />
-            <div className="flex-1" />
-            <div ref={audioAnchorRef} data-track-menu-trigger>
-              <TrackSelect
-                large
-                ariaLabel="Audio track"
-                icon={<Languages size={27} />}
-                tracks={audioTracks}
-                empty="Audio"
-                active={activeTrackMenu === "audio"}
-                onClick={() =>
-                  setActiveTrackMenu((current) => (current === "audio" ? undefined : "audio"))
-                }
-              />
-            </div>
-            <div ref={subtitleAnchorRef} data-track-menu-trigger>
-              <TrackSelect
-                large
-                ariaLabel="Subtitle track"
-                icon={<Captions size={27} />}
-                tracks={subtitleTracks}
-                empty="Subtitles"
-                allowOff
-                active={activeTrackMenu === "subtitles"}
-                onClick={() => {
-                  setSelectedSubtitleCode(
-                    selectedSubtitleCode ?? activeSubtitleGroup?.code ?? subtitleGroups[0]?.code,
-                  )
-                  setActiveTrackMenu((current) =>
-                    current === "subtitles" ? undefined : "subtitles",
-                  )
-                }}
-              />
-            </div>
-            <OverlayButton large label={"Video scale: " + selectedScale} onClick={changeScale}>
-              <Scaling size={27} />
-            </OverlayButton>
-          </div>
-          {activeTrackMenu === "audio" && (
-            <AudioTrackMenu
-              anchor={audioAnchorRef}
-              tracks={audioTracks}
-              onSelect={(id) => {
-                command(["set", "aid", id])
-                setActiveTrackMenu(undefined)
-              }}
-              onClose={() => setActiveTrackMenu(undefined)}
-            />
-          )}
-          {activeTrackMenu === "subtitles" && (
-            <SubtitleTrackMenu
-              anchor={subtitleAnchorRef}
-              groups={subtitleGroups}
-              selectedCode={selectedSubtitleCode}
-              selectedGroup={selectedSubtitleGroup}
-              subtitlePosition={subtitlePosition}
-              onSelectLanguage={(code) => {
-                setSelectedSubtitleCode(code)
-                const group = subtitleGroups.find((candidate) => candidate.code === code)
-                const track = group && defaultSubtitleTrack(group)
-                if (track) selectSubtitleTrack(track, command, setSnapshot)
-              }}
-              onSelectTrack={(track) => selectSubtitleTrack(track, command, setSnapshot)}
-              onOff={() => {
-                setSelectedSubtitleCode(undefined)
-                command(["set", "sid", "no"])
-                setSnapshot((current) =>
-                  current
-                    ? {
-                        ...current,
-                        tracks: current.tracks.map((track) =>
-                          track.type === "sub" ? { ...track, selected: false } : track,
-                        ),
-                      }
-                    : current,
-                )
-              }}
-              onSubtitlePosition={(value) => {
-                setSubtitlePosition(value)
-                writePreferences({ ...readPreferences(), subtitlePosition: value })
-                command(["set", "sub-pos", value])
-              }}
-              onClose={() => setActiveTrackMenu(undefined)}
-            />
-          )}
-        </div>
-      </div>
-    </div>
+      {watchPartyContext && (
+        <WatchPartyDialog
+          presentation="sidebar"
+          key={watchPartyDialogKey}
+          open={watchPartyOpen}
+          onOpenChange={setWatchPartyOpen}
+          profile={overlayProfile(watchPartyContext)}
+          media={watchPartyContext.media}
+          onPartyJoined={handoffParty}
+          onPartyLeft={handoffPartyLeave}
+        />
+      )}
+    </>
   )
+}
+
+function parsePlayerOverlayContext(value: unknown): ElectronPlayerOverlayContext | undefined {
+  if (!value || typeof value !== "object") return undefined
+  const context = value as Record<string, unknown>
+  if (typeof context.profileId !== "string" || !context.media || typeof context.media !== "object")
+    return undefined
+  const media = context.media as Record<string, unknown>
+  if (
+    (media.type !== "movie" && media.type !== "series") ||
+    typeof media.mediaId !== "string" ||
+    typeof media.videoId !== "string" ||
+    typeof media.title !== "string"
+  )
+    return undefined
+  return {
+    profileId: context.profileId,
+    role: context.role === "guest" ? "guest" : context.role === "host" ? "host" : undefined,
+    media: {
+      type: media.type,
+      mediaId: media.mediaId,
+      videoId: media.videoId,
+      title: media.title,
+      poster: typeof media.poster === "string" ? media.poster : undefined,
+      videoTitle: typeof media.videoTitle === "string" ? media.videoTitle : undefined,
+      season: typeof media.season === "number" ? media.season : undefined,
+      episode: typeof media.episode === "number" ? media.episode : undefined,
+    },
+  }
+}
+
+function readPlayerOverlayContext(): ElectronPlayerOverlayContext | undefined {
+  const encoded = new URLSearchParams(window.location.search).get("watchPartyContext")
+  if (!encoded) return undefined
+  try {
+    return parsePlayerOverlayContext(JSON.parse(encoded))
+  } catch {
+    return undefined
+  }
+}
+
+function overlayProfile(context: ElectronPlayerOverlayContext): Profile {
+  return { id: context.profileId, name: "", isKids: false }
 }
 
 export function defaultSubtitleTrack(

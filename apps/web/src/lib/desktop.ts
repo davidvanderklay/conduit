@@ -1,5 +1,13 @@
 import type { PlayerArtwork, WatchProgress } from "./api"
 import type { Video } from "./core"
+import type { WatchPartyMedia } from "./watch-party"
+import type { WatchPartySessionResponse } from "./watch-party-api"
+
+export interface ElectronPlayerOverlayContext {
+  role?: "host" | "guest"
+  profileId: string
+  media: WatchPartyMedia
+}
 
 export interface NativeTrack {
   id: number
@@ -24,6 +32,7 @@ export interface NativePlayerSnapshot {
   position: number
   duration: number
   bufferedDuration: number
+  rate?: number
   volume: number
   title?: string
   tracks: NativeTrack[]
@@ -45,6 +54,13 @@ export interface ElectronDesktopBridge {
   ) => () => void
   onPlayerOverlayMedia(listener: (media: PlayerOverlayMedia) => void): () => void
   notifyPlayerOverlayReady?: () => void
+  onPlayerOverlayWatchParty?(listener: () => void): () => void
+  onPlayerOverlayContext?(listener: (context: unknown) => void): () => void
+  onPlayerOverlayWatchPartyJoined?(
+    listener: (response: WatchPartySessionResponse) => void,
+  ): () => void
+  onPlayerOverlayWatchPartyLeft?(listener: (partyId: string) => void): () => void
+  onPlayerOverlayTitle?(listener: (title: string) => void): () => void
   setPlayerOverlayInteractiveRegions(
     regions: Array<{ left: number; top: number; right: number; bottom: number }>,
   ): void
@@ -97,6 +113,7 @@ export function openNativePlayer(
   readAheadSeconds: number,
   hardwareAcceleration: boolean,
   artwork?: PlayerOverlayMedia,
+  watchPartyContext?: ElectronPlayerOverlayContext,
 ): Promise<NativePlayerSnapshot> {
   return invoke("player_open", {
     url,
@@ -104,6 +121,7 @@ export function openNativePlayer(
     readAheadSeconds,
     hardwareAcceleration,
     artwork,
+    ...(watchPartyContext ? { watchPartyContext } : {}),
   })
 }
 

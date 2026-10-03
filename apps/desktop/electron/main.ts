@@ -26,7 +26,58 @@ protocol.registerSchemesAsPrivileged([
   },
 ])
 
+const developmentUrl = process.env.CONDUIT_ELECTRON_DEV_URL ?? "http://localhost:5173"
+
 type ElectronOzonePlatform = "x11" | "wayland"
+
+type PlayerOverlayContext = {
+  role?: "host" | "guest"
+  profileId: string
+  media: {
+    type: "movie" | "series"
+    mediaId: string
+    videoId: string
+    title: string
+    poster?: string
+    videoTitle?: string
+    season?: number
+    episode?: number
+  }
+}
+
+function normalizePlayerOverlayContext(value: unknown): PlayerOverlayContext | undefined {
+  if (!value || typeof value !== "object") return undefined
+  const context = value as Record<string, unknown>
+  if (
+    typeof context.profileId !== "string" ||
+    !context.media ||
+    typeof context.media !== "object"
+  ) {
+    return undefined
+  }
+  const media = context.media as Record<string, unknown>
+  if (
+    (media.type !== "movie" && media.type !== "series") ||
+    typeof media.mediaId !== "string" ||
+    typeof media.videoId !== "string" ||
+    typeof media.title !== "string"
+  )
+    return undefined
+  return {
+    profileId: context.profileId,
+    role: context.role === "guest" ? "guest" : context.role === "host" ? "host" : undefined,
+    media: {
+      type: media.type,
+      mediaId: media.mediaId,
+      videoId: media.videoId,
+      title: media.title,
+      poster: typeof media.poster === "string" ? media.poster : undefined,
+      videoTitle: typeof media.videoTitle === "string" ? media.videoTitle : undefined,
+      season: typeof media.season === "number" ? media.season : undefined,
+      episode: typeof media.episode === "number" ? media.episode : undefined,
+    },
+  }
+}
 
 function electronOzonePlatform(): ElectronOzonePlatform {
   const configured = process.env.CONDUIT_ELECTRON_OZONE
@@ -429,12 +480,13 @@ function closePlayerOverlay() {
   if (!overlay.isDestroyed()) overlay.close()
 }
 
-async function ensurePlayerOverlay(media: PlayerOverlayMedia) {
+async function ensurePlayerOverlay(media: PlayerOverlayMedia, context?: PlayerOverlayContext) {
   if (!mainWindow) throw new Error("Main window is unavailable.")
   playerOverlayMedia = media
   if (playerOverlayWindow && !playerOverlayWindow.isDestroyed()) {
     try {
       playerOverlayWindow.webContents.send("conduit:player-overlay-media", media)
+      if (context) playerOverlayWindow.webContents.send("conduit:player-overlay-context", context)
       positionPlayerOverlay()
       return
     } catch {
@@ -504,8 +556,9 @@ async function ensurePlayerOverlay(media: PlayerOverlayMedia) {
       ...(media.logo ? { logo: media.logo } : {}),
       ...(media.poster ? { poster: media.poster } : {}),
     })
+    if (context) query.set("watchPartyContext", JSON.stringify(context))
     const url = rendererIsDevelopment()
-      ? "http://localhost:5173/?" + query.toString()
+      ? developmentUrl + "/?" + query.toString()
       : "conduit://localhost/?" + query.toString()
     await overlay.loadURL(url)
     if (sequence === playerOverlaySequence && !overlay.isDestroyed()) syncPlayerOverlayVisibility()
@@ -589,7 +642,7 @@ function isTrustedRendererUrl(value: string): boolean {
   try {
     const url = new URL(value)
     return rendererIsDevelopment()
-      ? url.origin === "http://localhost:5173"
+      ? url.origin === new URL(developmentUrl).origin
       : url.protocol === "conduit:" && url.hostname === "localhost"
   } catch {
     return false
@@ -643,7 +696,7 @@ async function startDevelopmentWebServer() {
   const deadline = Date.now() + 30_000
   while (Date.now() < deadline) {
     try {
-      await fetch("http://localhost:5173")
+      await fetch(developmentUrl)
       return
     } catch {
       await new Promise((resolve) => setTimeout(resolve, 250))
@@ -784,7 +837,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
     setTimeout(resyncFullscreenOverlay, 1000)
   })
 
-  if (rendererIsDevelopment()) await window.loadURL("http://localhost:5173")
+  if (rendererIsDevelopment()) await window.loadURL(developmentUrl)
   else await window.loadURL("conduit://localhost/")
   return window
 }
@@ -870,6 +923,26 @@ async function invoke(command: string, args: Record<string, unknown> = {}): Prom
     }
     return null
   }
+  if (command === "player_overlay_context") {
+    const context = normalizePlayerOverlayContext(args)
+    playerOverlayWindow?.webContents.send("conduit:player-overlay-context", context)
+    return null
+  }
+  if (command === "player_overlay_watch_party") {
+    playerOverlayWindow?.webContents.send("conduit:player-overlay-watch-party")
+    return null
+  }
+  if (command === "player_overlay_watch_party_joined") {
+    mainWindow?.webContents.send("conduit:player-overlay-watch-party-joined", args)
+    return null
+  }
+  if (command === "player_overlay_watch_party_left") {
+    mainWindow?.webContents.send(
+      "conduit:player-overlay-watch-party-left",
+      typeof args.partyId === "string" ? args.partyId : "",
+    )
+    return null
+  }
   if (command === "player_toggle_fullscreen") {
     if (!mainWindow) throw new Error("Main window is unavailable.")
     const fullscreen = !mainWindowFullscreen
@@ -915,10 +988,12 @@ async function invoke(command: string, args: Record<string, unknown> = {}): Prom
   if (command === "player_open") {
     if (!mainWindow) throw new Error("Main window is unavailable.")
     playbackInhibitor.setPlaying(false)
+    const { watchPartyContext: rawWatchPartyContext, ...playerArgs } = args
+    const watchPartyContext = normalizePlayerOverlayContext(rawWatchPartyContext)
     nativePlayer?.close()
     const client = createNativePlayerClient(nativeWindowId(mainWindow))
     nativePlayer = client
-    const nativePlayerArgs = { ...args }
+    const nativePlayerArgs = { ...playerArgs }
     delete nativePlayerArgs.artwork
     try {
       const result = await client.request("player_open", nativePlayerArgs)
@@ -931,13 +1006,16 @@ async function invoke(command: string, args: Record<string, unknown> = {}): Prom
           args.artwork && typeof args.artwork === "object"
             ? (args.artwork as Record<string, unknown>)
             : {}
-        await ensurePlayerOverlay({
-          title: typeof args.title === "string" ? args.title : "",
-          background: typeof artwork.background === "string" ? artwork.background : undefined,
-          logo: typeof artwork.logo === "string" ? artwork.logo : undefined,
-          poster: typeof artwork.poster === "string" ? artwork.poster : undefined,
-          series: artwork.series as PlayerOverlayMedia["series"],
-        })
+        await ensurePlayerOverlay(
+          {
+            title: typeof args.title === "string" ? args.title : "",
+            background: typeof artwork.background === "string" ? artwork.background : undefined,
+            logo: typeof artwork.logo === "string" ? artwork.logo : undefined,
+            poster: typeof artwork.poster === "string" ? artwork.poster : undefined,
+            series: artwork.series as PlayerOverlayMedia["series"],
+          },
+          watchPartyContext,
+        )
       }
       return result
     } catch (error) {

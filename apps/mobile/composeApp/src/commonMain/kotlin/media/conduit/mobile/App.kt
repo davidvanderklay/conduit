@@ -40,6 +40,7 @@ import androidx.compose.material.icons.rounded.Explore
 import androidx.compose.material.icons.rounded.Extension
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.People
 import androidx.compose.material.icons.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.FastForward
 import androidx.compose.runtime.*
@@ -769,6 +770,18 @@ private fun AppShell(
     val profileSyncMutex = remember { Mutex() }
     val appScope = rememberCoroutineScope()
     val playbackSession = remember(appScope) { PlaybackSessionController(appScope) }
+    val watchParty = remember(endpoint.baseUrl, account.session.token, activeProfile?.id) {
+        activeProfile?.let { WatchPartySessionController(appScope, api, endpoint.baseUrl, account.session.token, it.id, playbackSession) }
+    }
+    LaunchedEffect(watchParty, WatchPartyLinks.pending) {
+        val link = WatchPartyLinks.pending ?: return@LaunchedEffect
+        val controller = watchParty ?: return@LaunchedEffect
+        controller.inviteLink = link
+        controller.sheetOpen = true
+        WatchPartyLinks.pending = null
+    }
+    DisposableEffect(watchParty) { onDispose { watchParty?.close() } }
+
     LaunchedEffect(activeProfile?.id) {
         val playbackProfileId = playbackSession.state.request?.identity?.profileId
         if (playbackProfileId != null && playbackProfileId != activeProfile?.id) playbackSession.close()
@@ -931,6 +944,7 @@ private fun AppShell(
         selectedMediaReturnsToOrigin = false
         selectedMediaOpenMode = MediaOpenMode.Details
     }
+    CompositionLocalProvider(LocalWatchParty provides watchParty) {
         BoxWithConstraints(Modifier.fillMaxSize()) {
         // A rotated phone can be wider than 720dp while still having very little
         // vertical room. Treat only genuinely large windows as the expanded
@@ -1039,6 +1053,15 @@ private fun AppShell(
             if (!state.richActionsHintShown) {
                 dispatch(AppAction.RichActionsHintShown)
                 appScope.launch { snackbarHostState.showSnackbar("Touch and hold a title for more options") }
+            }
+        }
+        LaunchedEffect(watchParty?.media?.videoId, watchParty?.party?.id) {
+            val media = watchParty?.media ?: return@LaunchedEffect
+            if (watchParty.isGuest) {
+                if (playbackSession.state.request?.identity?.videoId != media.videoId) {
+                    playbackSession.close()
+                    openContinueWatching(CatalogItem(id = media.mediaId, type = media.type, name = media.title, poster = media.poster), media.videoId)
+                }
             }
         }
         val openLibraryEntry: (CatalogItem, String?) -> Unit = { item, videoId ->
@@ -1277,6 +1300,7 @@ private fun AppShell(
                 onChange = { items -> mutateProfile(ProfileMutation.SetQueue(items)) },
             )
         }
+        watchParty?.let { WatchPartySheet(it, api, account.session.token, inPlayer = playbackSession.state.presentation == PlaybackPresentation.FullScreen) }
         if (initialLoading) {
             Surface(
                 onClick = {},
@@ -1287,6 +1311,7 @@ private fun AppShell(
             }
         }
     }
+}
 }
 
 private fun ProfileMutation.progressOperations(): List<ProgressOperation> = when (this) {
@@ -1549,6 +1574,7 @@ private fun BoxScope.PlaybackSessionHost(
 ) {
     val scope = rememberCoroutineScope()
     val session = controller.state
+    val watchParty = LocalWatchParty.current
     val request = session.request ?: return
     val upNext = playbackUpNext(request, snapshot?.queue.orEmpty())
     SideEffect {
@@ -1820,6 +1846,7 @@ private fun BoxScope.PlaybackSessionHost(
             url = request.url,
             loadId = session.sessionId,
             controlsEnabled = playbackTransition == null,
+            transportEnabled = !controller.partyGuest,
             active = playbackTransition == null || playbackTransition.loadingSessionId == session.sessionId,
             presentation = session.presentation,
             command = session.command,
@@ -1830,14 +1857,14 @@ private fun BoxScope.PlaybackSessionHost(
             contentTitle = request.title,
             contentSubtitle = request.mediaName.takeUnless { it == request.title },
             contentArtwork = request.poster ?: request.artwork,
-            hasNextEpisode = upNext != null,
+            hasNextEpisode = upNext != null && !controller.partyGuest,
             onNextEpisode = controller::playNext,
             hasEpisodes = request.hasEpisodes,
             onEpisodes = controller::openEpisodes,
             hasSources = true,
             onSources = controller::openSources,
-            touchGestures = preferences.touchGestures && playbackTransition == null,
-            holdToSpeed = preferences.holdToSpeed && playbackTransition == null,
+            touchGestures = preferences.touchGestures && playbackTransition == null && !controller.partyGuest,
+            holdToSpeed = preferences.holdToSpeed && playbackTransition == null && !controller.partyGuest,
             preferredAudioLanguage = preferences.preferredAudioLanguage,
             preferredSubtitleLanguage = preferences.preferredSubtitleLanguage,
             subtitleStyle = preferences.subtitleStyle,
@@ -1908,6 +1935,11 @@ private fun BoxScope.PlaybackSessionHost(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
                     )
+                    if (showPlaybackActions && watchParty != null) {
+                        IconButton(onClick = { watchParty.sheetOpen = true }) {
+                            Icon(Icons.Rounded.People, "Watch together", tint = Color.White)
+                        }
+                    }
                     if (showPlaybackActions) {
                         BadgedBox(
                             badge = {
@@ -2487,6 +2519,7 @@ private fun MainTopBar(
     onSignOut: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val watchParty = LocalWatchParty.current
     val searchFocus = remember { FocusRequester() }
     var profileMenuOpen by remember { mutableStateOf(false) }
     var showAllProfiles by remember { mutableStateOf(false) }
@@ -2623,6 +2656,14 @@ private fun MainTopBar(
                         )
                     }
                     HorizontalDivider()
+                    if (watchParty != null) {
+                        DropdownMenuItem(
+                            modifier = Modifier.clip(RoundedCornerShape(16.dp)),
+                            text = { Text("Watch together") },
+                            leadingIcon = { Icon(Icons.Rounded.People, null) },
+                            onClick = { profileMenuOpen = false; watchParty.sheetOpen = true },
+                        )
+                    }
                     if (queueSize > 0) {
                         DropdownMenuItem(
                             modifier = Modifier.clip(RoundedCornerShape(16.dp)),

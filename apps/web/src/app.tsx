@@ -48,17 +48,20 @@ import { FullscreenToggle } from "./components/fullscreen-toggle"
 import { BrowsePosterMenu } from "./components/browse-poster-menu"
 import { ConduitMark } from "./components/conduit-mark"
 import { clearLegacyProgressOutbox, clearProgressOutbox, flushProgressOutbox } from "./lib/progress"
+import {
+  createWatchPartySession,
+  WatchPartyButton,
+  WatchPartyDialog,
+} from "./components/watch-party-dialog"
+import { WatchPartySession, type WatchPartyMedia, type WatchPartySummary } from "./lib/watch-party"
+import { joinWatchParty } from "./lib/watch-party-api"
+import type { WatchPartySessionResponse } from "./lib/watch-party-api"
 
 export function App() {
   const session = authClient.useSession()
   useEffect(() => applyPreferences(readPreferences()), [])
   useEffect(() => {
-    if (
-      !session.isPending &&
-      !session.error &&
-      DESKTOP_SESSION_TOKEN &&
-      !session.data?.user
-    ) {
+    if (!session.isPending && !session.error && DESKTOP_SESSION_TOKEN && !session.data?.user) {
       clearDesktopSessionToken()
       window.location.reload()
     }
@@ -195,10 +198,13 @@ function AuthScreen() {
       if (requestId !== handoff.requestId || !code) {
         throw new Error("The desktop authentication response did not match this sign-in attempt.")
       }
-      const exchange = await api<{ token: string; expiresAt: string }>("/v1/auth/desktop/exchange", {
-        method: "POST",
-        body: JSON.stringify({ requestId, code, verifier: pkce.verifier }),
-      })
+      const exchange = await api<{ token: string; expiresAt: string }>(
+        "/v1/auth/desktop/exchange",
+        {
+          method: "POST",
+          body: JSON.stringify({ requestId, code, verifier: pkce.verifier }),
+        },
+      )
       saveDesktopSessionToken(API_URL, exchange.token, exchange.expiresAt)
       queryClient.clear()
       window.location.reload()
@@ -370,7 +376,9 @@ function AuthScreen() {
                       name="password"
                       type="password"
                       autoComplete={mode === "register" ? "new-password" : "current-password"}
-                      placeholder={mode === "register" ? "At least 8 characters" : "Enter your password"}
+                      placeholder={
+                        mode === "register" ? "At least 8 characters" : "Enter your password"
+                      }
                       disabled={!authConfig.isSuccess || pending}
                       minLength={8}
                       required
@@ -392,25 +400,29 @@ function AuthScreen() {
                       </div>
                     )}
                   </AuthField>
-                  {mode === "register" && authConfig.data?.bootstrapMode === "setup-token" && authConfig.data.needsOwner && (
-                    <AuthField id="auth-bootstrap-token" label="Setup token">
-                      <Input
-                        id="auth-bootstrap-token"
-                        name="bootstrapToken"
-                        type="password"
-                        autoComplete="one-time-code"
-                        placeholder="Enter the token from the server operator"
-                        disabled={!authConfig.isSuccess || pending}
-                        required
-                      />
-                    </AuthField>
-                  )}
+                  {mode === "register" &&
+                    authConfig.data?.bootstrapMode === "setup-token" &&
+                    authConfig.data.needsOwner && (
+                      <AuthField id="auth-bootstrap-token" label="Setup token">
+                        <Input
+                          id="auth-bootstrap-token"
+                          name="bootstrapToken"
+                          type="password"
+                          autoComplete="one-time-code"
+                          placeholder="Enter the token from the server operator"
+                          disabled={!authConfig.isSuccess || pending}
+                          required
+                        />
+                      </AuthField>
+                    )}
                   {mode === "register" && (
                     <p className="rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-2.5 text-xs leading-5 text-zinc-500">
                       No personal name required. Profiles remain separate from your account.
                     </p>
                   )}
-                  {error && <AuthMessage message={error} success={error.startsWith("Password reset")} />}
+                  {error && (
+                    <AuthMessage message={error} success={error.startsWith("Password reset")} />
+                  )}
                   <Button className="h-11 w-full" disabled={pending || !authConfig.isSuccess}>
                     {pending ? "Working…" : mode === "register" ? "Create account" : "Sign in"}
                   </Button>
@@ -449,7 +461,8 @@ function AuthScreen() {
           )}
           {authConfig.data?.needsOwner && authConfig.data.bootstrapMode === "manual" && (
             <p className="border-t border-zinc-800/80 bg-zinc-950/40 px-6 py-4 text-center text-sm text-zinc-500">
-              The server operator must create the first owner with <code className="text-zinc-300">conduit admin create-owner</code>.
+              The server operator must create the first owner with{" "}
+              <code className="text-zinc-300">conduit admin create-owner</code>.
             </p>
           )}
           {recoveryCodes.length === 0 && !recovering && authConfig.data?.localRegistration && (
@@ -467,6 +480,14 @@ function AuthScreen() {
             </div>
           )}
         </Card>
+        {readWatchPartyInviteToken() && (
+          <a
+            className="mt-4 block text-center text-sm text-white"
+            href={`conduit://party/${readWatchPartyInviteToken()}?server=${encodeURIComponent(API_URL)}`}
+          >
+            Open in app
+          </a>
+        )}
         <button
           type="button"
           className="mx-auto mt-5 flex max-w-full items-center gap-2 rounded-full border border-zinc-800/80 bg-zinc-900/60 px-3 py-1.5 text-xs text-zinc-500 transition hover:border-zinc-700 hover:text-zinc-300"
@@ -607,16 +628,25 @@ function ServerSelector({ onClose }: { onClose: () => void }) {
                 </AuthField>
                 <p className="mt-2 text-xs leading-5 text-zinc-600">
                   Include <span className="font-mono text-zinc-500">https://</span>. Local
-                  development servers may use <span className="font-mono text-zinc-500">http://</span>.
+                  development servers may use{" "}
+                  <span className="font-mono text-zinc-500">http://</span>.
                 </p>
               </div>
             )}
 
-            {error && <div className="mt-5"><AuthMessage message={error} /></div>}
+            {error && (
+              <div className="mt-5">
+                <AuthMessage message={error} />
+              </div>
+            )}
           </div>
           <div className="border-t border-zinc-800 bg-zinc-950/40 px-6 py-4 sm:px-8">
             <Button className="h-11 w-full" disabled={pending}>
-              {pending ? "Checking server…" : choice === "default" ? "Use default server" : "Connect to server"}
+              {pending
+                ? "Checking server…"
+                : choice === "default"
+                  ? "Use default server"
+                  : "Connect to server"}
             </Button>
           </div>
         </form>
@@ -682,6 +712,10 @@ function AuthenticatedApp({
   const [searchInput, setSearchInput] = useState("")
   const [query, setQuery] = useState("")
   const [discoverSelection, setDiscoverSelection] = useState<DiscoverSelection>({})
+  const [watchPartyOpen, setWatchPartyOpen] = useState(false)
+  const [watchPartyInviteToken] = useState(() => readWatchPartyInviteToken())
+  const [watchPartyLaunch, setWatchPartyLaunch] = useState<WatchPartyLaunch>()
+  const [watchPartyDialogKey, setWatchPartyDialogKey] = useState(0)
   const scrollViewportRef = useRef<HTMLDivElement>(null)
 
   const profiles = useMemo(
@@ -754,6 +788,51 @@ function AuthenticatedApp({
     }
   }, [bootstrap.data])
 
+  useEffect(() => {
+    if (watchPartyInviteToken) setWatchPartyOpen(true)
+  }, [watchPartyInviteToken])
+
+  const restorableProfileId =
+    activeProfileId && profiles.some((profile) => profile.id === activeProfileId)
+      ? activeProfileId
+      : profiles[0]?.id
+
+  useEffect(() => {
+    if (!restorableProfileId || watchPartyLaunch) return
+    const partyId = readStoredWatchPartyId(restorableProfileId)
+    if (!partyId) return
+    let cancelled = false
+    void joinWatchParty(partyId, restorableProfileId)
+      .then((response) => {
+        if (cancelled) return
+        const session = createWatchPartySession(restorableProfileId, response)
+        session.connect()
+        setWatchPartyLaunch({ party: response.party, session, media: response.party.media })
+        setWatchPartyDialogKey((key) => key + 1)
+      })
+      .catch(() => {
+        if (!cancelled) clearStoredWatchPartyId(restorableProfileId, partyId)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [restorableProfileId, watchPartyLaunch])
+
+  useEffect(() => {
+    const session = watchPartyLaunch?.session
+    return () => session?.close()
+  }, [watchPartyLaunch?.session])
+
+  const previousPartyProfile = useRef(restorableProfileId)
+  useEffect(() => {
+    if (previousPartyProfile.current !== restorableProfileId) {
+      setWatchPartyLaunch(undefined)
+      setWatchPartyOpen(false)
+      setWatchPartyDialogKey((key) => key + 1)
+      previousPartyProfile.current = restorableProfileId
+    }
+  }, [restorableProfileId])
+
   if (bootstrap.isLoading) {
     return <CenteredMessage>Synchronizing your household…</CenteredMessage>
   }
@@ -781,6 +860,50 @@ function AuthenticatedApp({
     setSection(nextSection)
     setSearchInput("")
     setQuery("")
+  }
+  const launchWatchParty = (party: WatchPartySummary, session: WatchPartySession) => {
+    storeWatchPartyId(activeProfile.id, party.id)
+    setWatchPartyLaunch({ party, session, media: party.media })
+    setWatchPartyOpen(false)
+    setWatchPartyDialogKey((key) => key + 1)
+  }
+  const updateWatchPartySession = (session: WatchPartySession | undefined) => {
+    if (!session && watchPartyLaunch) {
+      clearStoredWatchPartyId(activeProfile.id, watchPartyLaunch.party.id)
+    }
+    setWatchPartyLaunch((current) => {
+      if (!current) return current
+      return session ? { ...current, session } : undefined
+    })
+    if (!session) setWatchPartyDialogKey((key) => key + 1)
+  }
+  const handleExternalWatchPartyJoined = (response: WatchPartySessionResponse) => {
+    launchWatchParty(response.party, createWatchPartySession(activeProfile.id, response))
+  }
+  const updateWatchPartyMedia = (
+    media: WatchPartyMedia | undefined,
+    session: WatchPartySession,
+  ) => {
+    setWatchPartyLaunch((current) => {
+      if (!current || current.session.partyId !== session.partyId) return current
+      return {
+        ...current,
+        media,
+        party: { ...current.party, media },
+      }
+    })
+  }
+  const clearWatchPartyMedia = () => {
+    setWatchPartyLaunch((current) => (current ? { ...current, media: undefined } : current))
+  }
+  const handleWatchPartyLeft = (partyId: string) => {
+    clearStoredWatchPartyId(activeProfile.id, partyId)
+    setWatchPartyLaunch((current) => {
+      if (!current || current.party.id !== partyId) return current
+      current.session.close()
+      return undefined
+    })
+    setWatchPartyDialogKey((key) => key + 1)
   }
 
   return (
@@ -815,7 +938,13 @@ function AuthenticatedApp({
             )}
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            <div className="hidden sm:block"><FullscreenToggle /></div>
+            <div className="hidden sm:block">
+              <FullscreenToggle />
+            </div>
+            <WatchPartyButton
+              active={Boolean(watchPartyLaunch)}
+              onClick={() => setWatchPartyOpen(true)}
+            />
             <ProfileSwitcher
               profiles={profiles}
               activeProfile={activeProfile}
@@ -876,6 +1005,12 @@ function AuthenticatedApp({
           query={query}
           discoverSelection={discoverSelection}
           onDiscoverSelection={setDiscoverSelection}
+          watchPartyLaunch={watchPartyLaunch}
+          onWatchPartySessionChange={updateWatchPartySession}
+          onExternalWatchPartyJoined={handleExternalWatchPartyJoined}
+          onWatchPartyJoined={launchWatchParty}
+          onWatchPartyMediaChange={updateWatchPartyMedia}
+          onWatchPartyMediaClose={clearWatchPartyMedia}
           onMetadataBrowse={(target) => {
             if (target.kind === "genre") {
               setSearchInput("")
@@ -889,8 +1024,67 @@ function AuthenticatedApp({
           }}
         />
       </div>
+      <WatchPartyDialog
+        key={watchPartyDialogKey}
+        open={watchPartyOpen}
+        onOpenChange={setWatchPartyOpen}
+        profile={activeProfile}
+        media={watchPartyLaunch?.media}
+        initialInviteToken={watchPartyInviteToken}
+        initialParty={watchPartyLaunch?.party}
+        initialSession={watchPartyLaunch?.session}
+        onPartyJoined={launchWatchParty}
+        onPartyLeft={handleWatchPartyLeft}
+        onPartyMediaChange={updateWatchPartyMedia}
+      />
     </div>
   )
+}
+
+interface WatchPartyLaunch {
+  party: WatchPartySummary
+  session: WatchPartySession
+  media?: WatchPartyMedia
+}
+
+const WATCH_PARTY_STORAGE_PREFIX = "conduit:watch-party:"
+
+function watchPartyStorageKey(profileId: string): string {
+  return `${WATCH_PARTY_STORAGE_PREFIX}${API_URL}:${profileId}`
+}
+
+function readStoredWatchPartyId(profileId: string): string | undefined {
+  try {
+    return window.localStorage.getItem(watchPartyStorageKey(profileId)) ?? undefined
+  } catch {
+    return undefined
+  }
+}
+
+function storeWatchPartyId(profileId: string, partyId: string): void {
+  try {
+    window.localStorage.setItem(watchPartyStorageKey(profileId), partyId)
+  } catch {
+    // Storage can be unavailable in restricted browser contexts.
+  }
+}
+
+function clearStoredWatchPartyId(profileId: string, partyId?: string): void {
+  try {
+    const key = watchPartyStorageKey(profileId)
+    if (!partyId || window.localStorage.getItem(key) === partyId) {
+      window.localStorage.removeItem(key)
+    }
+  } catch {
+    // Storage can be unavailable in restricted browser contexts.
+  }
+}
+
+function readWatchPartyInviteToken(): string | undefined {
+  const prefix = "/party/"
+  if (!window.location.pathname.startsWith(prefix)) return undefined
+  const token = window.location.pathname.slice(prefix.length).split("/")[0]
+  return token || undefined
 }
 
 export function bootstrapQueryKey(userId: string) {
@@ -952,6 +1146,12 @@ function ProfileApp({
   query,
   discoverSelection,
   onDiscoverSelection,
+  watchPartyLaunch,
+  onWatchPartySessionChange,
+  onExternalWatchPartyJoined,
+  onWatchPartyJoined,
+  onWatchPartyMediaChange,
+  onWatchPartyMediaClose,
   onMetadataBrowse,
 }: {
   accountId: string
@@ -966,12 +1166,22 @@ function ProfileApp({
   query: string
   discoverSelection: DiscoverSelection
   onDiscoverSelection: (selection: DiscoverSelection) => void
+  watchPartyLaunch?: WatchPartyLaunch
+  onWatchPartySessionChange: (session: WatchPartySession | undefined) => void
+  onExternalWatchPartyJoined: (response: WatchPartySessionResponse) => void
+  onWatchPartyJoined: (party: WatchPartySummary, session: WatchPartySession) => void
+  onWatchPartyMediaChange: (media: WatchPartyMedia | undefined, session: WatchPartySession) => void
+  onWatchPartyMediaClose: () => void
   onMetadataBrowse: (target: MetadataBrowseTarget) => void
 }) {
   const [selectedItem, setSelectedItem] = useState<CatalogItem>()
   const [selectedVideoId, setSelectedVideoId] = useState<string>()
   const [selectedProgress, setSelectedProgress] = useState<WatchProgress>()
   const [autoResumeOnOpen, setAutoResumeOnOpen] = useState(true)
+  const watchPartyItem: CatalogItem | undefined =
+    section !== "home" && watchPartyLaunch && watchPartyLaunch.media
+      ? catalogItemFromPartyMedia(watchPartyLaunch.media)
+      : undefined
   const addons = useQuery({
     queryKey: ["addons", profile.id],
     queryFn: () => api<{ addons: InstalledAddon[] }>(`/v1/profiles/${profile.id}/addons`),
@@ -991,6 +1201,11 @@ function ProfileApp({
           profile={profile}
           addons={addons.data?.addons ?? []}
           onContinueWatching={() => onNavigate("continue")}
+          watchPartyLaunch={watchPartyLaunch}
+          onWatchPartySessionChange={onWatchPartySessionChange}
+          onWatchPartyJoined={onWatchPartyJoined}
+          onWatchPartyMediaChange={onWatchPartyMediaChange}
+          onWatchPartyMediaClose={onWatchPartyMediaClose}
           onDiscover={(selection) => {
             onDiscoverSelection(selection)
             onNavigate("discover")
@@ -1078,18 +1293,25 @@ function ProfileApp({
           }}
         />
       )}
-      {selectedItem && addons.data && (
+      {(watchPartyItem ?? selectedItem) && addons.data && (
         <MediaDetails
           accountId={accountId}
-          item={selectedItem}
+          item={watchPartyItem ?? selectedItem!}
           addons={addons.data.addons}
           profileId={profile.id}
-          initialVideoId={selectedVideoId}
+          initialVideoId={watchPartyLaunch?.media?.videoId ?? selectedVideoId}
           initialProgress={selectedProgress}
           autoResumeOnOpen={autoResumeOnOpen}
+          initialWatchPartyParty={watchPartyLaunch?.party}
+          initialWatchPartySession={watchPartyLaunch?.session}
+          onWatchPartySessionChange={onWatchPartySessionChange}
+          onExternalWatchPartyJoined={onExternalWatchPartyJoined}
+          onWatchPartyJoined={onWatchPartyJoined}
+          onWatchPartyMediaChange={onWatchPartyMediaChange}
           onBrowse={onMetadataBrowse}
           onClose={() => {
             setSelectedItem(undefined)
+            if (watchPartyLaunch) onWatchPartyMediaClose()
             setSelectedProgress(undefined)
             setAutoResumeOnOpen(true)
           }}
@@ -1097,6 +1319,15 @@ function ProfileApp({
       )}
     </PosterWatchStatusProvider>
   )
+}
+
+function catalogItemFromPartyMedia(media: WatchPartyMedia): CatalogItem {
+  return {
+    id: media.mediaId,
+    type: media.type,
+    name: media.title,
+    poster: media.poster,
+  }
 }
 
 interface HomeCatalog {
@@ -1118,6 +1349,11 @@ function MediaHome({
   profile,
   addons,
   onContinueWatching,
+  watchPartyLaunch,
+  onWatchPartySessionChange,
+  onWatchPartyJoined,
+  onWatchPartyMediaChange,
+  onWatchPartyMediaClose,
   onDiscover,
   onMetadataBrowse,
 }: {
@@ -1125,6 +1361,11 @@ function MediaHome({
   profile: Profile
   addons: InstalledAddon[]
   onContinueWatching: () => void
+  watchPartyLaunch?: WatchPartyLaunch
+  onWatchPartySessionChange: (session: WatchPartySession | undefined) => void
+  onWatchPartyJoined: (party: WatchPartySummary, session: WatchPartySession) => void
+  onWatchPartyMediaChange: (media: WatchPartyMedia | undefined, session: WatchPartySession) => void
+  onWatchPartyMediaClose: () => void
   onDiscover: (selection: DiscoverSelection) => void
   onMetadataBrowse: (target: MetadataBrowseTarget) => void
 }) {
@@ -1246,19 +1487,29 @@ function MediaHome({
         }}
       />
 
-      {selectedItem && (
+      {(watchPartyLaunch?.media || selectedItem) && (
         <MediaDetails
           accountId={accountId}
-          item={selectedItem}
+          item={
+            watchPartyLaunch?.media
+              ? catalogItemFromPartyMedia(watchPartyLaunch.media)
+              : selectedItem!
+          }
           addons={addons}
           profileId={profile.id}
-          initialVideoId={selectedVideoId}
+          initialVideoId={watchPartyLaunch?.media?.videoId ?? selectedVideoId}
           initialProgress={selectedProgress}
           autoResumeOnOpen={autoResumeOnOpen}
           streamSelectionReturnToHome={returnHomeFromStreamSelection}
+          initialWatchPartyParty={watchPartyLaunch?.party}
+          initialWatchPartySession={watchPartyLaunch?.session}
+          onWatchPartySessionChange={onWatchPartySessionChange}
+          onWatchPartyJoined={onWatchPartyJoined}
+          onWatchPartyMediaChange={onWatchPartyMediaChange}
           onBrowse={onMetadataBrowse}
           onClose={() => {
             setSelectedItem(undefined)
+            if (watchPartyLaunch) onWatchPartyMediaClose()
             setSelectedProgress(undefined)
             setAutoResumeOnOpen(true)
             setReturnHomeFromStreamSelection(false)
@@ -1335,7 +1586,10 @@ function CatalogShelf({
           </button>
         )}
       </div>
-      <div className="grid gap-x-3 gap-y-6" style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>
+      <div
+        className="grid gap-x-3 gap-y-6"
+        style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
+      >
         {visible.map((item) => (
           <div className="group relative" key={`${item.type}:${item.id}`}>
             <button className="w-full text-left" onClick={() => onSelect(item)}>
@@ -1431,10 +1685,22 @@ function errorDescription(cause: unknown): string {
 function GoogleMark() {
   return (
     <svg aria-hidden="true" viewBox="0 0 24 24" className="size-4.5">
-      <path fill="#4285F4" d="M21.6 12.23c0-.71-.06-1.4-.18-2.07H12v3.92h5.38a4.6 4.6 0 0 1-2 3.02v2.54h3.24c1.9-1.75 2.98-4.32 2.98-7.41Z" />
-      <path fill="#34A853" d="M12 22c2.7 0 4.98-.9 6.63-2.36l-3.25-2.54c-.9.6-2.05.96-3.38.96-2.61 0-4.82-1.76-5.61-4.13H3.04v2.62A10 10 0 0 0 12 22Z" />
-      <path fill="#FBBC05" d="M6.39 13.93A6.02 6.02 0 0 1 6.08 12c0-.67.11-1.32.31-1.93V7.45H3.04A10 10 0 0 0 2 12c0 1.63.39 3.17 1.04 4.55l3.35-2.62Z" />
-      <path fill="#EA4335" d="M12 5.94c1.47 0 2.79.5 3.82 1.5l2.88-2.88A9.64 9.64 0 0 0 12 2a10 10 0 0 0-8.96 5.45l3.35 2.62C7.18 7.7 9.39 5.94 12 5.94Z" />
+      <path
+        fill="#4285F4"
+        d="M21.6 12.23c0-.71-.06-1.4-.18-2.07H12v3.92h5.38a4.6 4.6 0 0 1-2 3.02v2.54h3.24c1.9-1.75 2.98-4.32 2.98-7.41Z"
+      />
+      <path
+        fill="#34A853"
+        d="M12 22c2.7 0 4.98-.9 6.63-2.36l-3.25-2.54c-.9.6-2.05.96-3.38.96-2.61 0-4.82-1.76-5.61-4.13H3.04v2.62A10 10 0 0 0 12 22Z"
+      />
+      <path
+        fill="#FBBC05"
+        d="M6.39 13.93A6.02 6.02 0 0 1 6.08 12c0-.67.11-1.32.31-1.93V7.45H3.04A10 10 0 0 0 2 12c0 1.63.39 3.17 1.04 4.55l3.35-2.62Z"
+      />
+      <path
+        fill="#EA4335"
+        d="M12 5.94c1.47 0 2.79.5 3.82 1.5l2.88-2.88A9.64 9.64 0 0 0 12 2a10 10 0 0 0-8.96 5.45l3.35 2.62C7.18 7.7 9.39 5.94 12 5.94Z"
+      />
     </svg>
   )
 }
@@ -1492,8 +1758,8 @@ function RecoverySetup() {
       <Card className="w-full max-w-md p-7">
         <h1 className="font-display text-2xl font-semibold">Protect your account</h1>
         <p className="mt-2 text-sm text-zinc-400">
-          conduit does not depend on paid email reset services. Generate ten one-time recovery
-          codes before continuing.
+          conduit does not depend on paid email reset services. Generate ten one-time recovery codes
+          before continuing.
         </p>
         {error && <p className="mt-4 text-sm text-red-400">{error}</p>}
         <Button
@@ -1583,8 +1849,9 @@ function AdminRecoveryScreen() {
         ) : (
           <>
             <p className="mt-3 text-sm leading-6 text-zinc-400">
-              Set a new local password for <span className="text-zinc-200">{recovery.data!.email}</span>.
-              This link will be consumed and all existing sessions will be revoked.
+              Set a new local password for{" "}
+              <span className="text-zinc-200">{recovery.data!.email}</span>. This link will be
+              consumed and all existing sessions will be revoked.
             </p>
             <form
               className="mt-6 space-y-4"
@@ -1639,14 +1906,19 @@ function AdminScreen() {
   if (settings.isError) {
     return (
       <CenteredMessage>
-        This page is only available to the instance owner. <a className="text-amber-300" href="/">Return to conduit</a>
+        This page is only available to the instance owner.{" "}
+        <a className="text-amber-300" href="/">
+          Return to conduit
+        </a>
       </CenteredMessage>
     )
   }
   const value = settings.data!
   return (
     <main className="mx-auto min-h-screen w-full max-w-3xl px-5 py-10">
-      <a className="text-sm text-zinc-500 hover:text-white" href="/">← Back to conduit</a>
+      <a className="text-sm text-zinc-500 hover:text-white" href="/">
+        ← Back to conduit
+      </a>
       <div className="mt-6 flex items-center gap-3">
         <Shield className="text-amber-400" />
         <div>
@@ -1705,30 +1977,58 @@ function AdminScreen() {
             <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-4 text-sm">
               <p className="font-medium text-zinc-200">Google defaults</p>
               <dl className="mt-3 grid gap-2 text-xs sm:grid-cols-2">
-                <div><dt className="text-zinc-600">Login button</dt><dd className="mt-1">Continue with Google</dd></div>
-                <div><dt className="text-zinc-600">Requested access</dt><dd className="mt-1">Email address only</dd></div>
+                <div>
+                  <dt className="text-zinc-600">Login button</dt>
+                  <dd className="mt-1">Continue with Google</dd>
+                </div>
+                <div>
+                  <dt className="text-zinc-600">Requested access</dt>
+                  <dd className="mt-1">Email address only</dd>
+                </div>
               </dl>
               <input type="hidden" name="oidcDisplayName" value="Continue with Google" />
               <input type="hidden" name="oidcScopes" value="openid email" />
             </div>
           ) : (
             <div className="grid gap-4 sm:grid-cols-2">
-              <Input name="oidcDisplayName" defaultValue={value.oidcDisplayName} placeholder="Button label" required />
-              <Input name="oidcScopes" defaultValue={value.oidcScopes} placeholder="openid email" required />
+              <Input
+                name="oidcDisplayName"
+                defaultValue={value.oidcDisplayName}
+                placeholder="Button label"
+                required
+              />
+              <Input
+                name="oidcScopes"
+                defaultValue={value.oidcScopes}
+                placeholder="openid email"
+                required
+              />
             </div>
           )}
           {oauthProvider === "oidc" && (
-            <Input name="oidcIssuer" defaultValue={value.oidcIssuer} placeholder="https://id.example.com/.well-known/openid-configuration" />
+            <Input
+              name="oidcIssuer"
+              defaultValue={value.oidcIssuer}
+              placeholder="https://id.example.com/.well-known/openid-configuration"
+            />
           )}
           {oauthProvider === "google" && <input type="hidden" name="oidcIssuer" value="" />}
           <Input name="oidcClientId" defaultValue={value.oidcClientId} placeholder="Client ID" />
           <Input
             name="oidcClientSecret"
             type="password"
-            placeholder={value.hasClientSecret ? "Client secret saved — leave blank to keep it" : "Client secret"}
+            placeholder={
+              value.hasClientSecret
+                ? "Client secret saved — leave blank to keep it"
+                : "Client secret"
+            }
           />
           <label className="flex items-center gap-3 text-sm">
-            <input name="oidcAutoRegister" type="checkbox" defaultChecked={value.oidcAutoRegister} />
+            <input
+              name="oidcAutoRegister"
+              type="checkbox"
+              defaultChecked={value.oidcAutoRegister}
+            />
             Automatically create accounts for new OAuth users
           </label>
           <div className="rounded-xl bg-zinc-950 p-4">
@@ -1738,8 +2038,8 @@ function AdminScreen() {
             </code>
           </div>
           <p className="text-xs leading-5 text-zinc-500">
-            Saving does not activate a provider immediately. Restart the conduit server, then
-            sign out or use a private browser window to see the login button.
+            Saving does not activate a provider immediately. Restart the conduit server, then sign
+            out or use a private browser window to see the login button.
           </p>
           {message && <p className="text-sm text-amber-300">{message}</p>}
           {save.error && <p className="text-sm text-red-400">{save.error.message}</p>}

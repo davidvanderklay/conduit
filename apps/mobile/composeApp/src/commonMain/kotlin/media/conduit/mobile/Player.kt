@@ -146,6 +146,7 @@ expect fun NativePlayer(
     active: Boolean,
     loadId: String = "",
     controlsEnabled: Boolean = true,
+    transportEnabled: Boolean = true,
     presentation: PlaybackPresentation = PlaybackPresentation.FullScreen,
     command: SequencedPlaybackCommand? = null,
     startPositionMs: Long = 0,
