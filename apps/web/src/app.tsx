@@ -1216,8 +1216,11 @@ function ProfileApp({
 }) {
   const [selection, setSelection] = useState<MediaSelection>()
   const queue = useQueueControls(profile.id)
+  // Home shows the party's media itself, unless a title is already open here
+  // (a queued handoff), in which case this view keeps hosting the party.
+  const partyShownHere = section !== "home" || Boolean(selection)
   const watchPartyItem: CatalogItem | undefined =
-    section !== "home" && watchPartyLaunch && watchPartyLaunch.media
+    partyShownHere && watchPartyLaunch && watchPartyLaunch.media
       ? catalogItemFromPartyMedia(watchPartyLaunch.media)
       : undefined
   const addons = useQuery({
@@ -1233,6 +1236,9 @@ function ProfileApp({
   // when the next item belongs to the title that is already open.
   const playQueued = (item: QueueItem) => {
     onQueueClose()
+    // The party's current media would otherwise keep the old title open; the
+    // host republishes once the queued item starts.
+    if (watchPartyLaunch) onWatchPartyMediaClose()
     setSelection((current) => ({
       item: {
         id: item.mediaId,
@@ -1255,7 +1261,7 @@ function ProfileApp({
           profile={profile}
           addons={addons.data?.addons ?? []}
           onContinueWatching={() => onNavigate("continue")}
-          watchPartyLaunch={watchPartyLaunch}
+          watchPartyLaunch={partyShownHere ? undefined : watchPartyLaunch}
           onWatchPartySessionChange={onWatchPartySessionChange}
           onWatchPartyJoined={onWatchPartyJoined}
           onWatchPartyMediaChange={onWatchPartyMediaChange}
