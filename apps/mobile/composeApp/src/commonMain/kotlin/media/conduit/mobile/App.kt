@@ -1740,6 +1740,11 @@ private fun BoxScope.PlaybackSessionHost(
     val initialPlaybackLoad = !playbackHasStarted &&
         (session.playback.loading || session.playback.buffering || !playbackSurfaceReady)
     val playbackTransition = session.transition
+    // Until a replacement loads, the request still describes the outgoing
+    // title, so its art may only back the cover for the same title.
+    val coverRequest = request.takeIf {
+        playbackTransition == null || playbackTransition.identity?.mediaId == request.identity.mediaId
+    }
     val transitionStatus = when {
         playbackTransition == null -> null
         session.streamPicker != null && !session.streamPicker.loading -> "Choose a source"
@@ -1863,8 +1868,8 @@ private fun BoxScope.PlaybackSessionHost(
         if (fullScreen || pipHandoffVisible) {
             if (playbackTransition != null || (initialPlaybackLoad && !presentPlaybackError)) {
                 PlayerOpeningOverlay(
-                    artwork = null,
-                    logo = null,
+                    artwork = playbackTransition?.artwork ?: coverRequest?.artwork,
+                    logo = playbackTransition?.logo ?: coverRequest?.logo,
                     title = playbackTransition?.title ?: request.mediaName,
                     status = transitionStatus,
                     modifier = Modifier.matchParentSize(),

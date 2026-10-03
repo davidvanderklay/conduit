@@ -37,6 +37,17 @@ final class ConduitPlaybackStartupTests: XCTestCase {
         )
     }
 
+    func testUnobservedFirstFrameStopsHoldingTheLoadingCover() {
+        XCTAssertTrue(isInitialVideoFrameReady(presented: true, outputAge: 0))
+        XCTAssertFalse(isInitialVideoFrameReady(presented: false, outputAge: 0.5))
+        XCTAssertTrue(
+            isInitialVideoFrameReady(
+                presented: false,
+                outputAge: initialVideoFramePresentationTimeout
+            )
+        )
+    }
+
     func testRendererPresentationUpdatesDoNotBlockOnMain() {
         let applied = expectation(description: "Presentation updates applied on main")
         DispatchQueue.main.async {
