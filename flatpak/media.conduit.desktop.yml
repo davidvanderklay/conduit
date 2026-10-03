@@ -15,6 +15,9 @@ finish-args:
   - --socket=pulseaudio
   - --device=dri
   - --filesystem=xdg-download
+  # Electron's display sleep blocker uses GNOME's session API with a ScreenSaver fallback.
+  - --talk-name=org.gnome.SessionManager
+  - --talk-name=org.freedesktop.ScreenSaver
 
 cleanup:
   - /rust
