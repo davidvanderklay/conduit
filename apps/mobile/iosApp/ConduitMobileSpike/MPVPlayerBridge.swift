@@ -1042,7 +1042,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
             loadPendingExternalSubtitles()
             if shouldPlay { setFlag("pause", false) }
             scheduleVideoOutputWatchdog()
-            pictureInPicture?.seedSourceFrame()
+            pictureInPicture?.schedulePrewarm()
         }
 
         let nextVideoWidth = max(snapshot.displayWidth, 0)
@@ -2493,6 +2493,7 @@ final class ConduitPictureInPictureCoordinator: NSObject,
     private var startRetryWork: DispatchWorkItem?
     private var restoreResumeWork: DispatchWorkItem?
     private var abortCancelWork: DispatchWorkItem?
+    private var prewarmWork: DispatchWorkItem?
     private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
     private var lastLayoutSize: CGSize = .zero
 
@@ -2645,6 +2646,9 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         if (isActive || starting || automaticArmed), owner?.isPlayerPlaying == false {
             frameCapture?.requestRenderBurst(count: 2)
         }
+        if !isStartingOrActive, owner?.isPlayerPlaying == true {
+            schedulePrewarm()
+        }
     }
 
     func timelineDidSeek() {
@@ -2656,30 +2660,25 @@ final class ConduitPictureInPictureCoordinator: NSObject,
     // MARK: - Automatic entry (Home swipe)
 
     /// AVKit only reports PiP as possible after the sample-buffer layer has
-    /// received a frame, and that flips asynchronously. Without a seed, the
-    /// first Home swipe of a file primes the layer too late: the app is
-    /// already leaving the foreground when the start becomes possible. Called
-    /// once a file first renders; the short priming burst disarms itself.
-    func seedSourceFrame() {
-        guard isSupported,
-              !isActive,
-              !starting,
-              !automaticArmed,
-              !automaticPreparationInFlight
-        else { return }
-        debugLog("seeding PiP source frame")
-        beginPriming(stopAfterFirstFrame: true) { [weak self] in
-            DispatchQueue.main.async {
-                self?.controller?.invalidatePlaybackState()
-            }
+    /// received a frame, and that flips asynchronously. Prewarming only at
+    /// willResignActive is too late: the first Home swipe of a file would
+    /// find PiP not yet possible while the app is leaving the foreground.
+    /// So the layer is also seeded when a file first renders, on play/seek,
+    /// after returning to the foreground, and after PiP stops. Each prewarm
+    /// is a short burst that disarms itself, so ordinary playback does not
+    /// keep a second frame copy running. The delay lets play/seek settle.
+    func schedulePrewarm() {
+        prewarmWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            self?.prewarmWork = nil
+            self?.prewarmForAutomaticEntry()
         }
-        if let latest = metalLayer.latestDrawableTextureSnapshot() {
-            frameCapture?.submitRetainedTexture(latest.texture, presentationID: latest.presentationID)
-        }
+        prewarmWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: work)
     }
 
-    /// Captures a short burst immediately before an automatic Home-swipe
-    /// transition. Ordinary foreground playback leaves PiP capture disarmed.
+    /// Captures a short burst so a fresh frame sits in the sample-buffer
+    /// layer before an automatic Home-swipe transition.
     func prewarmForAutomaticEntry(requirePlaying: Bool = true) {
         guard isSupported,
               let frameCapture,
@@ -2704,6 +2703,9 @@ final class ConduitPictureInPictureCoordinator: NSObject,
                 self.automaticPreparedAt = CACurrentMediaTime()
                 self.controller?.invalidatePlaybackState()
             }
+        }
+        if let latest = metalLayer.latestDrawableTextureSnapshot() {
+            frameCapture.submitRetainedTexture(latest.texture, presentationID: latest.presentationID)
         }
     }
 
@@ -2766,6 +2768,7 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         defer {
             if !isActive, !starting {
                 clearPlaybackPreservation()
+                schedulePrewarm()
             }
         }
         guard hasAutomaticPreparation, !isActive else { return }
@@ -2828,6 +2831,8 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         restoreResumeWork = nil
         abortCancelWork?.cancel()
         abortCancelWork = nil
+        prewarmWork?.cancel()
+        prewarmWork = nil
         endBackgroundTask()
 
         let displayView = self.displayView
@@ -3129,6 +3134,9 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         // would flag the absent swapchain as a failure.
         if UIApplication.shared.applicationState != .background {
             owner?.resumeVideoOutputWatchdogAfterPictureInPicture()
+        }
+        if UIApplication.shared.applicationState == .active {
+            schedulePrewarm()
         }
 
         if resumeAfterRestore {
