@@ -111,6 +111,7 @@ actual fun NativePlayer(
     subtitleStyle: SubtitleStyle,
     onSubtitleStyleChanged: (SubtitleStyle) -> Unit,
     androidPlaybackEngine: AndroidPlaybackEngine,
+    playbackTuning: PlaybackTuning,
     onEpisodes: () -> Unit,
     onSources: () -> Unit,
     onControlsVisibilityChanged: (Boolean) -> Unit,
@@ -203,6 +204,8 @@ actual fun NativePlayer(
                 url = it,
                 loadId = loadId,
                 initialPositionMs = startPositionMs.coerceAtLeast(0),
+                readAheadSeconds = playbackTuning.boundedReadAheadSeconds ?: 0,
+                hardwareDecoding = playbackTuning.hardwareDecoding,
                 headersJson = encodedHeaders,
                 subtitlesJson = encodedSubtitles,
             )

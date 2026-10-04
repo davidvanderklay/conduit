@@ -1982,6 +1982,9 @@ private fun BoxScope.PlaybackSessionHost(
             subtitleStyle = preferences.subtitleStyle,
             onSubtitleStyleChanged = { onPreferencesChanged(preferences.copy(subtitleStyle = it)) },
             androidPlaybackEngine = preferences.androidPlaybackEngine,
+            playbackTuning = remember(session.sessionId) {
+                PlaybackTuning(preferences.readAheadSeconds, preferences.hardwareDecoding)
+            },
             onControlsVisibilityChanged = { if (tv == null) controlsVisible = it },
             onOverlayVisibilityChanged = { playerOverlayVisible = it },
             onTemporarySpeedChanged = { temporarySpeedActive = it },

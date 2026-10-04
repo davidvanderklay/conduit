@@ -34,6 +34,12 @@ data class SubtitleStyle(
     }
 }
 
+enum class ResumeBehavior(val label: String) {
+    Ask("Ask every time"),
+    Always("Always resume"),
+    Restart("Start over"),
+}
+
 data class DevicePreferences(
     val amoledBlack: Boolean = false,
     val navigationStyle: NavigationStyle = NavigationStyle.Adaptive,
@@ -52,6 +58,9 @@ data class DevicePreferences(
     val skipSegments: Boolean = true,
     val skipButtonPosition: SkipButtonPosition = SkipButtonPosition.Left,
     val p2pEnabled: Boolean = false,
+    val resumeBehavior: ResumeBehavior = ResumeBehavior.Ask,
+    val readAheadSeconds: Int? = null,
+    val hardwareDecoding: Boolean = true,
     val androidPlaybackEngine: AndroidPlaybackEngine = AndroidPlaybackEngine.Automatic,
     val rememberLastProfile: Boolean = true,
     val debugLogging: Boolean = false,
@@ -94,11 +103,18 @@ class DevicePreferencesRepository(private val store: SettingsStore) {
         androidPlaybackEngine = store.get(prefix + "android-playback-engine")
             ?.let { runCatching { AndroidPlaybackEngine.valueOf(it) }.getOrNull() }
             ?: AndroidPlaybackEngine.Automatic,
+        // Old installations resumed automatically. New installs can ask.
+        resumeBehavior = store.get(prefix + "resume-behavior")
+            ?.let { runCatching { ResumeBehavior.valueOf(it) }.getOrNull() }
+            ?: if (store.get(prefix + "amoled") != null) ResumeBehavior.Always else ResumeBehavior.Ask,
+        readAheadSeconds = store.get(prefix + "read-ahead-seconds")?.toIntOrNull()?.coerceIn(10, 120),
+        hardwareDecoding = bool("hardware-decoding", true),
         rememberLastProfile = bool("remember-profile", true),
         debugLogging = bool("debug-logging", false),
     )
 
-    fun save(value: DevicePreferences): DevicePreferences {
+    fun save(preferences: DevicePreferences): DevicePreferences {
+        val value = preferences.copy(readAheadSeconds = preferences.readAheadSeconds?.coerceIn(10, 120))
         store.put(prefix + "amoled", value.amoledBlack.toString())
         store.put(prefix + "navigation", value.navigationStyle.name)
         store.put(prefix + "rail-on-tablets", value.railOnTablets.toString())
@@ -119,6 +135,9 @@ class DevicePreferencesRepository(private val store: SettingsStore) {
         store.put(prefix + "skip-button-position", value.skipButtonPosition.name)
         store.put(prefix + "p2p", value.p2pEnabled.toString())
         store.put(prefix + "android-playback-engine", value.androidPlaybackEngine.name)
+        store.put(prefix + "resume-behavior", value.resumeBehavior.name)
+        store.put(prefix + "read-ahead-seconds", value.readAheadSeconds?.toString().orEmpty())
+        store.put(prefix + "hardware-decoding", value.hardwareDecoding.toString())
         store.put(prefix + "remember-profile", value.rememberLastProfile.toString())
         store.put(prefix + "debug-logging", value.debugLogging.toString())
         return value
