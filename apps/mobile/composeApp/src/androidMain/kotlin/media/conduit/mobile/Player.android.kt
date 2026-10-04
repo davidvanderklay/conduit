@@ -137,6 +137,7 @@ actual fun NativePlayer(
     subtitleStyle: SubtitleStyle,
     onSubtitleStyleChanged: (SubtitleStyle) -> Unit,
     androidPlaybackEngine: AndroidPlaybackEngine,
+    playbackTuning: PlaybackTuning,
     onEpisodes: () -> Unit,
     onSources: () -> Unit,
     onControlsVisibilityChanged: (Boolean) -> Unit,
@@ -167,6 +168,21 @@ actual fun NativePlayer(
             .setDefaultRequestProperties(requestHeaders)
         val renderers = DefaultRenderersFactory(context).setEnableDecoderFallback(true)
         return ExoPlayer.Builder(context, renderers)
+            .apply {
+                playbackTuning.boundedReadAheadSeconds?.let { seconds ->
+                    val targetMs = seconds * 1000
+                    setLoadControl(androidx.media3.exoplayer.DefaultLoadControl.Builder()
+                        .setBufferDurationsMs(
+                            minOf(androidx.media3.exoplayer.DefaultLoadControl.DEFAULT_MIN_BUFFER_MS, targetMs),
+                            targetMs,
+                            androidx.media3.exoplayer.DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_MS,
+                            androidx.media3.exoplayer.DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS,
+                        )
+                        .setTargetBufferBytes(64 * 1024 * 1024)
+                        .setPrioritizeTimeOverSizeThresholds(false)
+                        .build())
+                }
+            }
             .setMediaSourceFactory(DefaultMediaSourceFactory(http))
             .build()
             .apply { setAudioAttributes(AudioAttributes.DEFAULT, true) }
@@ -775,7 +791,7 @@ actual fun NativePlayer(
         if (activeEngine == NativePlaybackEngine.Libmpv) {
             AndroidView(
                 factory = { viewContext ->
-                    ConduitMpvView.create(viewContext).apply {
+                    ConduitMpvView.create(viewContext, playbackTuning).apply {
                         layoutParams = android.view.ViewGroup.LayoutParams(-1, -1)
                         installObservers {}
                         mpvView = this

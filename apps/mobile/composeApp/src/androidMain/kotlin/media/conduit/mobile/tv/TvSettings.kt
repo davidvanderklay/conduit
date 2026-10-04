@@ -66,6 +66,8 @@ import media.conduit.mobile.account.DiagnosticLogEntry
 import media.conduit.mobile.account.DiagnosticLogStore
 import media.conduit.mobile.account.InstalledAddonSummary
 import media.conduit.mobile.account.ProfileSummary
+import media.conduit.mobile.foundation.DevicePreferences
+import media.conduit.mobile.foundation.ResumeBehavior
 import media.conduit.mobile.foundation.AppAction
 import media.conduit.mobile.licenseNotices
 import media.conduit.mobile.normalizeManifestUrl
@@ -145,7 +147,7 @@ internal fun TvSettings(model: TvShellModel, memory: TvFocusMemory, active: Bool
                         else profileList(model, onEdit = { editing = it })
                     }
                     TvSettingsSection.Addons -> item { TvAddonManager(model) }
-                    TvSettingsSection.Playback -> playbackSettings(model)
+                    TvSettingsSection.Playback -> playbackSettings(model.preferences, model.onPreferencesChanged)
                     TvSettingsSection.Appearance -> appearanceSettings(model)
                     TvSettingsSection.Account -> item { TvAccountSettings(model) }
                     TvSettingsSection.Advanced -> advancedSettings(model, logsOpen, onLogs = { logsOpen = it })
@@ -472,9 +474,7 @@ private fun TvAddonManager(model: TvShellModel) {
 
 private val playbackLanguages = listOf("System default", "English", "Spanish", "French", "German", "Japanese", "Korean")
 
-private fun LazyListScope.playbackSettings(model: TvShellModel) {
-    val preferences = model.preferences
-    val update = model.onPreferencesChanged
+internal fun LazyListScope.playbackSettings(preferences: DevicePreferences, update: (DevicePreferences) -> Unit) {
     sectionLabel("Player")
     item {
         TvSettingChoice(
@@ -484,10 +484,30 @@ private fun LazyListScope.playbackSettings(model: TvShellModel) {
             preferences.androidPlaybackEngine.name,
         ) { key -> AndroidPlaybackEngine.entries.firstOrNull { it.name == key }?.let { update(preferences.copy(androidPlaybackEngine = it)) } }
     }
+    item {
+        TvSettingChoice("Resume behavior", preferences.resumeBehavior.label, ResumeBehavior.entries.map { it.name to it.label }, preferences.resumeBehavior.name) { key ->
+            ResumeBehavior.entries.firstOrNull { it.name == key }?.let { update(preferences.copy(resumeBehavior = it)) }
+        }
+    }
     item { TvSettingToggle("Auto-select saved streams", "Reuse the last selected stream when it is available", preferences.autoSelectSavedStreams) { update(preferences.copy(autoSelectSavedStreams = it)) } }
     item { TvSettingToggle("Automatically select streams", "Choose sources for Next and queued playback", preferences.autoSelectNextStreams) { update(preferences.copy(autoSelectNextStreams = it)) } }
     item { TvSettingToggle("Skip intro and credits", "Show skip buttons when timestamps are available", preferences.skipSegments) { update(preferences.copy(skipSegments = it)) } }
     item { TvSettingToggle("Automatically continue playback", "Start the next queued item or episode when playback ends", preferences.autoplayNextEpisode) { update(preferences.copy(autoplayNextEpisode = it)) } }
+    sectionLabel("Playback tuning")
+    item {
+        val durations = ((10..120 step 10).toList() + listOfNotNull(preferences.readAheadSeconds)).distinct().sorted()
+        val options = listOf("automatic" to "Automatic") + durations.map { it.toString() to "$it seconds" }
+        TvSettingChoice("Network read-ahead", preferences.readAheadSeconds?.let { "$it seconds" } ?: "Automatic", options, preferences.readAheadSeconds?.toString() ?: "automatic") { key ->
+            update(preferences.copy(readAheadSeconds = key.toIntOrNull()))
+        }
+    }
+    if (preferences.androidPlaybackEngine != AndroidPlaybackEngine.Media3) {
+        item {
+            TvSettingToggle("Hardware decoding", "Applies to libmpv, including automatic fallback. Changes apply to the next playback.", preferences.hardwareDecoding) {
+                update(preferences.copy(hardwareDecoding = it))
+            }
+        }
+    }
     sectionLabel("Audio and subtitles")
     item {
         TvSettingChoice("Preferred audio language", preferences.preferredAudioLanguage, playbackLanguages.map { it to it }, preferences.preferredAudioLanguage) {

@@ -7,6 +7,39 @@ import kotlin.test.assertTrue
 
 class DevicePreferencesTest {
     @Test
+    fun playbackPreferencesMigrateAndRoundTrip() {
+        val store = MemorySettingsStore()
+        val repository = DevicePreferencesRepository(store)
+        assertEquals(ResumeBehavior.Ask, repository.load().resumeBehavior)
+        assertEquals(null, repository.load().readAheadSeconds)
+        assertEquals(true, repository.load().hardwareDecoding)
+        store.put("preferences.v1.amoled", "false")
+        assertEquals(ResumeBehavior.Always, repository.load().resumeBehavior)
+        val saved = repository.save(repository.load().copy(resumeBehavior = ResumeBehavior.Restart, readAheadSeconds = 45, hardwareDecoding = false))
+        assertEquals(saved, repository.load())
+        repository.save(saved.copy(readAheadSeconds = null))
+        assertEquals(null, repository.load().readAheadSeconds)
+    }
+
+    @Test
+    fun invalidPlaybackPreferencesUseSafeValues() {
+        val store = MemorySettingsStore()
+        val repository = DevicePreferencesRepository(store)
+        store.put("preferences.v1.resume-behavior", "unknown")
+        store.put("preferences.v1.hardware-decoding", "invalid")
+        store.put("preferences.v1.read-ahead-seconds", "invalid")
+        assertEquals(ResumeBehavior.Ask, repository.load().resumeBehavior)
+        assertEquals(true, repository.load().hardwareDecoding)
+        assertEquals(null, repository.load().readAheadSeconds)
+        store.put("preferences.v1.read-ahead-seconds", "900")
+        assertEquals(120, repository.load().readAheadSeconds)
+        store.put("preferences.v1.read-ahead-seconds", "-4")
+        assertEquals(10, repository.load().readAheadSeconds)
+        assertEquals(120, repository.save(repository.load().copy(readAheadSeconds = 900)).readAheadSeconds)
+        assertEquals(10, repository.save(repository.load().copy(readAheadSeconds = -4)).readAheadSeconds)
+    }
+
+    @Test
     fun savedStreamSelectionDefaultsToDisabled() {
         val preferences = DevicePreferencesRepository(MemorySettingsStore()).load()
 

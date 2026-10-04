@@ -167,6 +167,7 @@ expect fun NativePlayer(
     subtitleStyle: SubtitleStyle = SubtitleStyle(),
     onSubtitleStyleChanged: (SubtitleStyle) -> Unit = {},
     androidPlaybackEngine: AndroidPlaybackEngine = AndroidPlaybackEngine.Automatic,
+    playbackTuning: PlaybackTuning = PlaybackTuning(),
     onEpisodes: () -> Unit = {},
     onSources: () -> Unit = {},
     onControlsVisibilityChanged: (Boolean) -> Unit = {},

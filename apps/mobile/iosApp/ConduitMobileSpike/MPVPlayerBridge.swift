@@ -16,6 +16,8 @@ private struct ConduitPendingLoad {
     let url: String
     let loadId: String
     let initialPositionMs: Int64
+    let readAheadSeconds: Int
+    let hardwareDecoding: Bool
     let headers: [String: String]
     let subtitles: [ConduitSubtitle]
 }
@@ -46,10 +48,30 @@ func shouldStartPendingLoad(surfaceSize: CGSize) -> Bool {
 
 /// Every replacement load gets an explicit timestamp. In particular,
 /// `start=0` prevents libmpv from retaining the previous episode's position.
-func playbackFileOptions(initialPositionMs: Int64) -> [String] {
-    [
-        String(format: "start=%.3f", Double(max(0, initialPositionMs)) / 1000.0),
-    ]
+/// Tuning is file-local, so Automatic on the next load restores engine defaults.
+func playbackFileOptions(
+    initialPositionMs: Int64,
+    readAheadSeconds: Int = 0,
+    hardwareDecoding: Bool? = nil
+) -> [String] {
+    var options = [String(format: "start=%.3f", Double(max(0, initialPositionMs)) / 1000.0)]
+    if readAheadSeconds > 0 {
+        let seconds = min(120, max(10, readAheadSeconds))
+        options += [
+            "cache-secs=\(seconds)",
+            "demuxer-readahead-secs=\(seconds)",
+            "demuxer-max-bytes=64MiB",
+            "demuxer-max-back-bytes=16MiB",
+        ]
+    }
+    if let hardwareDecoding {
+#if targetEnvironment(simulator)
+        options.append("hwdec=no")
+#else
+        options.append("hwdec=\(hardwareDecoding ? "videotoolbox" : "no")")
+#endif
+    }
+    return options
 }
 
 /// The loading cover lifts once a drawable from the new file is on screen.
@@ -90,6 +112,8 @@ final class ConduitMPVPlayerBridge: NSObject, IosPlayerBridge {
         url: String,
         loadId: String,
         initialPositionMs: Int64,
+        readAheadSeconds: Int32,
+        hardwareDecoding: Bool,
         headersJson: String?,
         subtitlesJson: String?
     ) {
@@ -97,6 +121,8 @@ final class ConduitMPVPlayerBridge: NSObject, IosPlayerBridge {
             url,
             loadId: loadId,
             initialPositionMs: initialPositionMs,
+            readAheadSeconds: Int(readAheadSeconds),
+            hardwareDecoding: hardwareDecoding,
             headers: parseHeaders(headersJson),
             subtitles: parseSubtitles(subtitlesJson)
         )
@@ -669,6 +695,8 @@ final class ConduitMPVPlayerViewController: UIViewController {
         _ url: String,
         loadId: String,
         initialPositionMs: Int64,
+        readAheadSeconds: Int,
+        hardwareDecoding: Bool,
         headers: [String: String],
         subtitles: [ConduitSubtitle]
     ) {
@@ -681,6 +709,8 @@ final class ConduitMPVPlayerViewController: UIViewController {
             url: url,
             loadId: loadId,
             initialPositionMs: max(0, initialPositionMs),
+            readAheadSeconds: readAheadSeconds,
+            hardwareDecoding: hardwareDecoding,
             headers: headers,
             subtitles: subtitles
         )
@@ -1768,7 +1798,11 @@ final class ConduitMPVPlayerViewController: UIViewController {
                     request.url,
                     "replace",
                     "-1",
-                    playbackFileOptions(initialPositionMs: request.initialPositionMs).joined(separator: ","),
+                    playbackFileOptions(
+                        initialPositionMs: request.initialPositionMs,
+                        readAheadSeconds: request.readAheadSeconds,
+                        hardwareDecoding: request.hardwareDecoding
+                    ).joined(separator: ","),
                 ]
             )
         }

@@ -67,6 +67,7 @@ private const val MpvDefaultSubtitlePosition = 95
 internal class ConduitMpvView(
     context: Context,
     attrs: AttributeSet? = null,
+    private val playbackTuning: PlaybackTuning = PlaybackTuning(),
 ) : BaseMPVView(context, attrs) {
     init {
         keepScreenOn = true
@@ -131,7 +132,8 @@ internal class ConduitMpvView(
         // Direct MediaCodec rendering intermittently loses the SurfaceView's
         // native window on Android. Copying decoded frames keeps the GPU VO
         // path intact and lets mpv fall back to software decoding quickly.
-        mpv.setOptionString("hwdec", "auto-copy")
+        mpv.setOptionString("hwdec", if (playbackTuning.hardwareDecoding) "auto-copy" else "no")
+        playbackTuning.mpvBufferOptions().forEach { (name, value) -> mpv.setOptionString(name, value) }
         mpv.setOptionString("hwdec-software-fallback", "yes")
         // Match the iOS subtitle treatment: centered text, slightly above the
         // bottom edge, with the same scaled-pixel baseline as Media3's full-
@@ -894,7 +896,7 @@ internal class ConduitMpvView(
     }
 
     companion object {
-        fun create(context: Context): ConduitMpvView = ConduitMpvView(context).apply {
+        fun create(context: Context, playbackTuning: PlaybackTuning = PlaybackTuning()): ConduitMpvView = ConduitMpvView(context, playbackTuning = playbackTuning).apply {
             runCatching {
                 Utils.copyAssets(context)
                 initialize(context.filesDir.path, context.cacheDir.path)

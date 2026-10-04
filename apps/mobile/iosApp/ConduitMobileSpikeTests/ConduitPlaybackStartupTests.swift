@@ -37,6 +37,16 @@ final class ConduitPlaybackStartupTests: XCTestCase {
         )
     }
 
+    func testCustomBufferOptionsAreBoundedAndAutomaticDoesNotRetainAnOverride() {
+        let custom = playbackFileOptions(initialPositionMs: 42_000, readAheadSeconds: 900, hardwareDecoding: false)
+        XCTAssertTrue(custom.contains("cache-secs=120"))
+        XCTAssertTrue(custom.contains("demuxer-max-bytes=64MiB"))
+        XCTAssertTrue(custom.contains("demuxer-max-back-bytes=16MiB"))
+        XCTAssertTrue(custom.contains("hwdec=no"))
+        let automatic = playbackFileOptions(initialPositionMs: 0, readAheadSeconds: 0, hardwareDecoding: false)
+        XCTAssertFalse(automatic.contains { $0.hasPrefix("cache-secs=") })
+    }
+
     func testUnobservedFirstFrameStopsHoldingTheLoadingCover() {
         XCTAssertTrue(isInitialVideoFrameReady(presented: true, outputAge: 0))
         XCTAssertFalse(isInitialVideoFrameReady(presented: false, outputAge: 0.5))

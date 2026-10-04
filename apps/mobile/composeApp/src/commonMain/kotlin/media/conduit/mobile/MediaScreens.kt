@@ -59,6 +59,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Velocity
 import coil3.compose.AsyncImage
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -739,6 +740,9 @@ internal fun MediaDetailsScreen(
     var playbackAttemptId by remember(item.id) { mutableStateOf(playbackSession.currentAttemptId) }
     var streamVideoId by remember(item.id) { mutableStateOf<String?>(null) }
     var resumePosition by remember(item.id) { mutableStateOf(0L) }
+    var explicitResume by remember(item.id) { mutableStateOf(openMode == MediaOpenMode.AutoResume) }
+    var resumePrompt by remember(item.id) { mutableStateOf<Pair<Long, CompletableDeferred<Long?>>?>(null) }
+    var resolvedResumeAttempt by remember(item.id) { mutableStateOf<Triple<PlaybackIdentity, Long?, Long>?>(null) }
     var currentAddonId by remember(item.id) { mutableStateOf<String?>(null) }
     var currentAddonName by remember(item.id) { mutableStateOf<String?>(null) }
     var externalSubtitles by remember(item.id) { mutableStateOf<List<SubtitleItem>>(emptyList()) }
@@ -1235,7 +1239,9 @@ internal fun MediaDetailsScreen(
         rankAllAutomaticStreams: Boolean = false,
         preferredSource: PlaybackSource? = null,
         streamBackToHome: Boolean? = null,
+        resumeExplicitly: Boolean = false,
     ) {
+        explicitResume = resumeExplicitly
         val shouldAutoPlay = autoPlaySavedSource ?: (preferredSource != null && preferences.autoSelectSavedStreams)
         DiagnosticLogStore.info(
             "playback/video",
@@ -1292,7 +1298,11 @@ internal fun MediaDetailsScreen(
         externalSubtitlesLoaded = true
     }
     LaunchedEffect(playingVideoId, profile?.id) {
-        resumePosition = playbackStartPosition(loadPlaybackProgressFor(playingVideoId))
+        val savedPosition = playbackStartPosition(loadPlaybackProgressFor(playingVideoId))
+        // Populate the source picker without racing the decision for a selected stream.
+        if (playing == null) {
+            resumePosition = if (preferences.resumeBehavior == ResumeBehavior.Restart && !explicitResume) 0L else savedPosition
+        }
     }
     val savedPlaybackSource = (selectedVideo?.id ?: effectiveInitialVideoId)?.let(::autoResumeSourceFor)
     val currentAutoResumeAttemptKey = savedPlaybackSource?.let(::autoResumeAttemptKey)
@@ -1633,6 +1643,43 @@ internal fun MediaDetailsScreen(
         if (playbackAttemptId != null && !playbackSession.isCurrentAttempt(playbackAttemptId)) return@LaunchedEffect
         val identity = requestIdentity ?: return@LaunchedEffect
         val callbacks = sessionCallbacks ?: return@LaunchedEffect
+        val attemptKey = Triple(identity, playbackAttemptId, playbackReloadKey)
+        val currentRequest = playbackSession.state.request?.takeIf { it.identity == identity }
+        // Reopening the same mounted player must keep its original start argument.
+        // Changing that argument would make the iOS bridge load the file again.
+        if (currentRequest?.url == streamUrl && currentRequest.reloadKey == playbackReloadKey) {
+            resumePosition = currentRequest.startPositionMs
+        }
+        val retainedPosition = resumePosition.takeIf { currentRequest != null || resolvedResumeAttempt == attemptKey }
+        val savedPosition = if (retainedPosition == null) playbackStartPosition(loadPlaybackProgressFor(identity.videoId)) else 0L
+        val decision = playbackResumeDecision(
+            preferences.resumeBehavior,
+            savedPosition,
+            explicitPositionMs = savedPosition.takeIf { retainedPosition == null && (explicitResume || watchParty?.isGuest == true) },
+            retainedPositionMs = retainedPosition,
+        )
+        val position = when (decision) {
+            is PlaybackResumeDecision.Start -> decision.positionMs
+            is PlaybackResumeDecision.Ask -> {
+                val answer = CompletableDeferred<Long?>()
+                resumePrompt = decision.positionMs to answer
+                try {
+                    answer.await()
+                } finally {
+                    if (resumePrompt?.second === answer) resumePrompt = null
+                }
+            }
+        }
+        if (position == null) {
+            playing = null
+            openingPlayback = false
+            autoResumeStage = AutoResumeStage.Inactive
+            playbackSession.cancelTransition()
+            return@LaunchedEffect
+        }
+        if (playbackAttemptId != null && !playbackSession.isCurrentAttempt(playbackAttemptId)) return@LaunchedEffect
+        resumePosition = position
+        resolvedResumeAttempt = attemptKey
         val request = PlaybackRequest(
             identity = identity,
             url = streamUrl,
@@ -1854,6 +1901,14 @@ internal fun MediaDetailsScreen(
         }
     }
     val saved = snapshot?.library.orEmpty().any { it.type == actionItem.type && it.id == actionItem.id }
+    resumePrompt?.let { (position, answer) ->
+        PlaybackResumeDialog(
+            positionMs = position,
+            onResume = { answer.complete(position) },
+            onRestart = { answer.complete(0L) },
+            onDismiss = { answer.complete(null) },
+        )
+    }
     if (tv != null) {
         tv.Details(
             TvDetailsModel(
@@ -1864,7 +1919,13 @@ internal fun MediaDetailsScreen(
                 saved = saved,
                 playLabel = playTarget.label,
                 playVideoId = playTarget.video?.id,
-                onPlay = { selectVideo(playTarget.video, autoPlaySavedSource = false) },
+                onPlay = {
+                    selectVideo(
+                        playTarget.video,
+                        autoPlaySavedSource = false,
+                        resumeExplicitly = playbackStartPosition(progressForVideoId(playTarget.video?.id ?: item.id)) > 0L,
+                    )
+                },
                 seasons = detailSeasons,
                 selectedSeason = selectedSeason,
                 onSelectSeason = { season ->
@@ -2093,7 +2154,13 @@ internal fun MediaDetailsScreen(
                 if (details == null && error == null) CircularProgressIndicator()
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 Button(
-                    onClick = { selectVideo(playTarget.video, autoPlaySavedSource = false) },
+                    onClick = {
+                        selectVideo(
+                            playTarget.video,
+                            autoPlaySavedSource = false,
+                            resumeExplicitly = playbackStartPosition(progressForVideoId(playTarget.video?.id ?: item.id)) > 0L,
+                        )
+                    },
                     modifier = Modifier.fillMaxWidth().height(54.dp),
                 ) {
                     Icon(Icons.Rounded.PlayArrow, null); Spacer(Modifier.width(8.dp)); Text(playTarget.label)
@@ -3410,7 +3477,7 @@ internal fun ProfileSettingsScreen(
         ProfileRoute.Appearance -> return AppearanceSettingsScreen(platform, preferences, onPreferencesChanged, { route = ProfileRoute.Settings }, modifier)
         ProfileRoute.Content -> return ContentSettingsScreen({ route = ProfileRoute.Settings }, { route = ProfileRoute.Addons }, modifier)
         ProfileRoute.Playback -> return PlaybackSettingsScreen(platform, preferences, onPreferencesChanged, { route = ProfileRoute.Settings }, modifier)
-        ProfileRoute.Advanced -> return AdvancedSettingsScreen(preferences, onPreferencesChanged, { route = ProfileRoute.Settings }, { route = ProfileRoute.Diagnostics }, modifier)
+        ProfileRoute.Advanced -> return AdvancedSettingsScreen(platform, preferences, onPreferencesChanged, { route = ProfileRoute.Settings }, { route = ProfileRoute.Diagnostics }, modifier)
         ProfileRoute.Integrations -> return InformationalSettingsScreen("Integrations", "Connected services", listOf("conduit currently uses your installed Stremio add-ons directly.", "Trakt, debrid, and metadata-service connections will appear here only when their credential storage and synchronization flows are implemented."), { route = ProfileRoute.Settings }, modifier)
         ProfileRoute.Supporters -> return InformationalSettingsScreen("Supporters & contributors", "conduit is open source", listOf("Contributors are acknowledged through the project repository.", "https://github.com/davidvanderklay/conduit", "A server-funding goal will appear here once a verified funding source is configured."), { route = ProfileRoute.Settings }, modifier)
         ProfileRoute.Privacy -> return InformationalSettingsScreen("Privacy policy", "Your server, your data", listOf("conduit stores account, profile, library, and viewing data on the server you choose.", "https://github.com/davidvanderklay/conduit#data-and-privacy-model"), { route = ProfileRoute.Settings }, modifier)
@@ -3652,10 +3719,11 @@ private fun ContentSettingsScreen(onBack: () -> Unit, onAddons: () -> Unit, modi
 }
 
 @Composable
-private fun PlaybackSettingsScreen(platform: PlatformInfo, preferences: DevicePreferences, update: (DevicePreferences) -> Unit, onBack: () -> Unit, modifier: Modifier) {
+internal fun PlaybackSettingsScreen(platform: PlatformInfo, preferences: DevicePreferences, update: (DevicePreferences) -> Unit, onBack: () -> Unit, modifier: Modifier) {
     val languages = listOf("System default", "English", "Spanish", "French", "German", "Japanese", "Korean")
     var picker by remember { mutableStateOf<String?>(null) }
     var enginePicker by remember { mutableStateOf(false) }
+    var resumePicker by remember { mutableStateOf(false) }
     var showSkipButtonPosition by remember { mutableStateOf(false) }
     val android = platform.name.equals("Android", ignoreCase = true)
     val isIpad = platform.isIpad()
@@ -3665,6 +3733,7 @@ private fun PlaybackSettingsScreen(platform: PlatformInfo, preferences: DevicePr
                 SettingsAction("Android player engine", preferences.androidPlaybackEngine.description) { enginePicker = true }
                 HorizontalDivider(color = Color.White.copy(.06f))
             }
+            SettingsAction("Resume behavior", preferences.resumeBehavior.label) { resumePicker = true }
             SettingsToggle("Auto-select saved streams", "Reuse the last selected stream when it is available", preferences.autoSelectSavedStreams) { update(preferences.copy(autoSelectSavedStreams = it)) }
             SettingsToggle("Automatically select streams", "Choose sources for Next and queued playback", preferences.autoSelectNextStreams) { update(preferences.copy(autoSelectNextStreams = it)) }
             SettingsToggle("Skip intro and credits", "Show skip buttons for intros, recaps, and outros when timestamps are available", preferences.skipSegments) { update(preferences.copy(skipSegments = it)) }
@@ -3692,6 +3761,11 @@ private fun PlaybackSettingsScreen(platform: PlatformInfo, preferences: DevicePr
             if (!platform.p2pAvailable) Text("This distribution does not include a P2P engine. Builds that permit P2P can expose this switch without changing the rest of the playback settings.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(bottom = 12.dp))
         }
     }
+    if (resumePicker) ResumeBehaviorDialog(
+        selected = preferences.resumeBehavior,
+        onSelect = { update(preferences.copy(resumeBehavior = it)); resumePicker = false },
+        onDismiss = { resumePicker = false },
+    )
     if (showSkipButtonPosition) AlertDialog(
         onDismissRequest = { showSkipButtonPosition = false },
         title = { Text("Skip button position") },
@@ -3748,7 +3822,23 @@ private fun PlaybackSettingsScreen(platform: PlatformInfo, preferences: DevicePr
 }
 
 @Composable
-private fun AdvancedSettingsScreen(preferences: DevicePreferences, update: (DevicePreferences) -> Unit, onBack: () -> Unit, onDiagnostics: () -> Unit, modifier: Modifier) = SettingsPage("Advanced settings", onBack, modifier) {
+internal fun AdvancedSettingsScreen(platform: PlatformInfo, preferences: DevicePreferences, update: (DevicePreferences) -> Unit, onBack: () -> Unit, onDiagnostics: () -> Unit, modifier: Modifier) = SettingsPage("Advanced settings", onBack, modifier) {
+    var readAheadPicker by remember { mutableStateOf(false) }
+    SettingsGroup("PLAYBACK") {
+        SettingsAction("Network read-ahead", preferences.readAheadSeconds?.let { "$it seconds" } ?: "Automatic") { readAheadPicker = true }
+        if (platform.name.isIosPlatformName() || preferences.androidPlaybackEngine != AndroidPlaybackEngine.Media3) {
+            SettingsToggle(
+                "Hardware decoding",
+                if (platform.name.isIosPlatformName()) "Use the device video decoder. Applies to the next playback." else "Applies to libmpv, including automatic fallback. Changes apply to the next playback.",
+                preferences.hardwareDecoding,
+            ) { update(preferences.copy(hardwareDecoding = it)) }
+        }
+    }
+    if (readAheadPicker) ReadAheadDialog(
+        seconds = preferences.readAheadSeconds,
+        onSave = { update(preferences.copy(readAheadSeconds = it)); readAheadPicker = false },
+        onDismiss = { readAheadPicker = false },
+    )
     SettingsGroup("STARTUP") { SettingsToggle("Remember last profile", "Return to the profile used on this device", preferences.rememberLastProfile) { update(preferences.copy(rememberLastProfile = it)) } }
     SettingsGroup("CACHE") { ListItem(headlineContent = { Text("Continue Watching cache") }, supportingContent = { Text("Viewing progress currently comes directly from your server; there is no separate local cache to clear") }, colors = ListItemDefaults.colors(containerColor = Color.Transparent)) }
     SettingsGroup("DIAGNOSTICS") { SettingsToggle("Debug logging", "Collect additional local diagnostic information", preferences.debugLogging) { update(preferences.copy(debugLogging = it)) }; SettingsAction("View debug logs", "Playback, stream, and app diagnostics", onClick = onDiagnostics) }

@@ -16,6 +16,8 @@ interface IosPlayerBridge {
         url: String,
         loadId: String,
         initialPositionMs: Long,
+        readAheadSeconds: Int,
+        hardwareDecoding: Boolean,
         headersJson: String?,
         subtitlesJson: String?,
     )
