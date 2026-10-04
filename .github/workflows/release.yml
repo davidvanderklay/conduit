@@ -51,6 +51,9 @@ jobs:
     needs: [prepare, production-config]
     if: github.event_name != 'workflow_dispatch' || inputs.target == 'all'
     name: Windows NSIS
+    env:
+      CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+      CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -79,19 +82,10 @@ jobs:
           RELEASE_DATE="$(git show -s --format=%cs HEAD)" \
             node scripts/set-release-version.mjs "$RELEASE_VERSION"
       - run: pnpm --filter @conduit/desktop setup:windows
-      - name: Require Windows signing for releases
-        if: github.event_name == 'push'
-        shell: bash
-        env:
-          CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
-        run: test -n "$CSC_LINK"
       - name: Build Electron NSIS installer
-        env:
-          CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
-        run: pnpm --filter @conduit/desktop dist:win --config.forceCodeSigning=${{ github.event_name == 'push' }}
+        run: pnpm --filter @conduit/desktop dist:win --config.forceCodeSigning=${{ env.CSC_LINK != '' }}
       - name: Verify Windows release signature
-        if: github.event_name == 'push'
+        if: env.CSC_LINK != ''
         shell: pwsh
         run: |
           Get-ChildItem apps/desktop/dist/*.exe | ForEach-Object {
@@ -338,6 +332,13 @@ jobs:
     needs: [prepare, production-config]
     if: github.event_name != 'workflow_dispatch' || inputs.target == 'all' || inputs.target == 'macos'
     name: macOS ${{ matrix.arch }}
+    env:
+      CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+      CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+      CSC_IDENTITY_AUTO_DISCOVERY: ${{ secrets.MAC_CSC_LINK != '' && 'true' || 'false' }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
     strategy:
       fail-fast: false
       matrix:
@@ -379,33 +380,26 @@ jobs:
         run: |
           RELEASE_DATE="$(git show -s --format=%cs HEAD)" \
             node scripts/set-release-version.mjs "$RELEASE_VERSION"
-      - name: Require Mac signing and notarization for releases
-        if: github.event_name == 'push'
-        env:
-          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: test -n "$CSC_LINK" && test -n "$APPLE_ID" && test -n "$APPLE_APP_SPECIFIC_PASSWORD" && test -n "$APPLE_TEAM_ID"
       - name: Build Electron DMG and update ZIP
         env:
-          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          NOTARIZE: ${{ env.CSC_LINK != '' && env.APPLE_ID != '' && env.APPLE_APP_SPECIFIC_PASSWORD != '' && env.APPLE_TEAM_ID != '' }}
         run: |
           if [ "${{ matrix.arch }}" = "arm64" ]; then
-            pnpm --filter @conduit/desktop dist:mac:arm64 --config.forceCodeSigning=${{ github.event_name == 'push' }}
+            pnpm --filter @conduit/desktop dist:mac:arm64 --config.forceCodeSigning=${{ env.CSC_LINK != '' }} --config.mac.notarize="$NOTARIZE"
           else
-            pnpm --filter @conduit/desktop dist:mac:x64 --config.forceCodeSigning=${{ github.event_name == 'push' }}
+            pnpm --filter @conduit/desktop dist:mac:x64 --config.forceCodeSigning=${{ env.CSC_LINK != '' }} --config.mac.notarize="$NOTARIZE"
           fi
-      - name: Verify signed and notarized Mac application
-        if: github.event_name == 'push'
+      - name: Verify signed Mac application
+        if: env.CSC_LINK != ''
         run: |
           application="$(find apps/desktop/dist -maxdepth 2 -type d -name 'conduit.app')"
           test -n "$application"
           codesign --verify --deep --strict "$application"
+      - name: Verify notarized Mac application
+        if: env.CSC_LINK != '' && env.APPLE_ID != '' && env.APPLE_APP_SPECIFIC_PASSWORD != '' && env.APPLE_TEAM_ID != ''
+        run: |
+          application="$(find apps/desktop/dist -maxdepth 2 -type d -name 'conduit.app')"
+          test -n "$application"
           xcrun stapler validate "$application"
       - name: Preserve architecture-specific updater metadata
         run: |
