@@ -21,7 +21,7 @@
     "dev:web": "pnpm --filter @conduit/web dev",
     "test:releases": "node --test scripts/release-context.test.mjs scripts/publish-component-release.test.mjs scripts/verify-android-release.test.mjs scripts/publish-update-feed.test.mjs scripts/publish-nightly-tags.test.mjs",
     "test": "vp run ci:test",
-    "test:updates": "pnpm --filter @conduit/updates build && vitest run packages/updates/src apps/server/src/updates.test.ts apps/server/src/route-modules/update-routes.test.ts apps/desktop/electron/updates.test.ts"
+    "test:updates": "pnpm --filter @conduit/updates build && vp test run packages/updates/src apps/server/src/updates.test.ts apps/server/src/route-modules/update-routes.test.ts apps/desktop/electron/updates.test.ts"
   },
   "devDependencies": {
     "@voidzero-dev/vite-plus-core": "0.3.3",
