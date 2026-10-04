@@ -166,8 +166,8 @@ final class ConduitShareBridge: NSObject, IosShareBridge {
 
 /// Owns the picker delegate until selection or cancellation and reads only bounded UTF-8 archives.
 final class ConduitProfileFilesBridge: NSObject, IosProfileFilesBridge, UIDocumentPickerDelegate {
-    private var importCompletion: ((String?, String?, String?) -> KotlinUnit)?
-    private var exportCompletion: ((KotlinBoolean, String?) -> KotlinUnit)?
+    private var importCompletion: ((String?, String?, String?) -> Void)?
+    private var exportCompletion: ((KotlinBoolean, String?) -> Void)?
     private var exportURL: URL?
 
     private func presenter() -> UIViewController? {
@@ -179,9 +179,9 @@ final class ConduitProfileFilesBridge: NSObject, IosProfileFilesBridge, UIDocume
         return controller
     }
 
-    func pick(completion: @escaping (String?, String?, String?) -> KotlinUnit) {
+    func pick(completion: @escaping (String?, String?, String?) -> Void) {
         guard importCompletion == nil, exportCompletion == nil, let presenter = presenter() else {
-            _ = completion(nil, nil, "Unable to open file picker")
+            completion(nil, nil, "Unable to open file picker")
             return
         }
         importCompletion = completion
@@ -190,9 +190,9 @@ final class ConduitProfileFilesBridge: NSObject, IosProfileFilesBridge, UIDocume
         presenter.present(picker, animated: true)
     }
 
-    func save(name: String, contents: String, completion: @escaping (KotlinBoolean, String?) -> KotlinUnit) {
+    func save(name: String, contents: String, completion: @escaping (KotlinBoolean, String?) -> Void) {
         guard importCompletion == nil, exportCompletion == nil, let presenter = presenter() else {
-            _ = completion(KotlinBoolean(bool: false), "Unable to open file picker")
+            completion(KotlinBoolean(bool: false), "Unable to open file picker")
             return
         }
         do {
@@ -208,14 +208,14 @@ final class ConduitProfileFilesBridge: NSObject, IosProfileFilesBridge, UIDocume
         } catch {
             if let url = exportURL { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
             exportURL = nil
-            _ = completion(KotlinBoolean(bool: false), error.localizedDescription)
+            completion(KotlinBoolean(bool: false), error.localizedDescription)
         }
     }
 
     func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
         if let completion = importCompletion {
             importCompletion = nil
-            guard let url = urls.first else { _ = completion(nil, nil, nil); return }
+            guard let url = urls.first else { completion(nil, nil, nil); return }
             let scoped = url.startAccessingSecurityScopedResource()
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
             do {
@@ -223,20 +223,20 @@ final class ConduitProfileFilesBridge: NSObject, IosProfileFilesBridge, UIDocume
                 defer { try? handle.close() }
                 let data = try handle.read(upToCount: 10 * 1024 * 1024 + 1) ?? Data()
                 guard data.count <= 10 * 1024 * 1024 else {
-                    _ = completion(nil, nil, "Import exceeds the 10 MiB limit")
+                    completion(nil, nil, "Import exceeds the 10 MiB limit")
                     return
                 }
                 guard let text = String(data: data, encoding: .utf8) else {
-                    _ = completion(nil, nil, "Import must be UTF-8 JSON")
+                    completion(nil, nil, "Import must be UTF-8 JSON")
                     return
                 }
-                _ = completion(url.lastPathComponent, text, nil)
-            } catch { _ = completion(nil, nil, error.localizedDescription) }
+                completion(url.lastPathComponent, text, nil)
+            } catch { completion(nil, nil, error.localizedDescription) }
         } else { finishExport(saved: !urls.isEmpty) }
     }
 
     func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
-        if let completion = importCompletion { importCompletion = nil; _ = completion(nil, nil, nil) }
+        if let completion = importCompletion { importCompletion = nil; completion(nil, nil, nil) }
         finishExport(saved: false)
     }
 
@@ -245,7 +245,7 @@ final class ConduitProfileFilesBridge: NSObject, IosProfileFilesBridge, UIDocume
         exportCompletion = nil
         if let url = exportURL { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         exportURL = nil
-        _ = completion?(KotlinBoolean(bool: saved), nil)
+        completion?(KotlinBoolean(bool: saved), nil)
     }
 }
 
