@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest"
-import type { InstalledAddon } from "./api"
 import {
   configuredTrackLanguage,
   matchesTrackLanguage,
@@ -13,10 +12,14 @@ describe("track language preferences", () => {
     expect(normalizeLanguage("Japanese")).toBe("ja")
   })
 
-  it("uses an explicit preference before an add-on manifest language", () => {
-    const addons = [{ manifest: { language: "en-US" } }] as unknown as InstalledAddon[]
-    expect(configuredTrackLanguage("ja", addons)).toBe("ja")
-    expect(configuredTrackLanguage("auto", addons)).toBe("en")
+  it("uses the device language for System default", () => {
+    expect(configuredTrackLanguage("auto", "en-US")).toBe("en")
+    expect(configuredTrackLanguage("auto", "de-DE")).toBe("de")
+    expect(configuredTrackLanguage("", "fr-CA")).toBe("fr")
+  })
+
+  it("uses an explicit preference before the device language", () => {
+    expect(configuredTrackLanguage("ja", "en-US")).toBe("ja")
   })
 
   it("matches track codes and human-readable titles", () => {

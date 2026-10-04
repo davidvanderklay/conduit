@@ -1,5 +1,3 @@
-import type { InstalledAddon } from "./api"
-
 const ISO_639_ALIASES: Record<string, string> = {
   eng: "en",
   english: "en",
@@ -26,14 +24,12 @@ const ISO_639_ALIASES: Record<string, string> = {
 
 export function configuredTrackLanguage(
   preference: string,
-  addons: InstalledAddon[],
+  systemLanguage = navigator.language,
 ): string | undefined {
-  if (preference && preference !== "auto") return normalizeLanguage(preference)
-  for (const addon of addons) {
-    const language = (addon.manifest as unknown as Record<string, unknown>).language
-    if (typeof language === "string" && language.trim()) return normalizeLanguage(language)
-  }
-  return undefined
+  return (
+    normalizeLanguage(preference && preference !== "auto" ? preference : systemLanguage) ||
+    undefined
+  )
 }
 
 export function matchesTrackLanguage(

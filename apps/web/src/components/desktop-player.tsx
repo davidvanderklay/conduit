@@ -218,8 +218,8 @@ export function DesktopPlayer({
   onAutoRecoveryStartedRef.current = onAutoRecoveryStarted
   onAutoRecoveryFailedRef.current = onAutoRecoveryFailed
   const [playbackStarted, setPlaybackStarted] = useState(false)
-  const preferredAudioLanguage = configuredTrackLanguage(preferences.audioLanguage, addons)
-  const preferredSubtitleLanguage = configuredTrackLanguage(preferences.subtitleLanguage, addons)
+  const preferredAudioLanguage = configuredTrackLanguage(preferences.audioLanguage)
+  const preferredSubtitleLanguage = configuredTrackLanguage(preferences.subtitleLanguage)
   const { progress, save: saveProgress } = usePlaybackProgress(
     profileId,
     videoId,
@@ -403,6 +403,7 @@ export function DesktopPlayer({
         party: partySession?.party,
         connected: partySession?.connected,
       },
+      preferredAudioLanguage,
     )
       .then(async (initial) => {
         if (cancelled) return
@@ -471,6 +472,7 @@ export function DesktopPlayer({
     mediaTitle,
     preferences.subtitleOutline,
     preferences.subtitlePosition,
+    preferredAudioLanguage,
     reportAutoRecoveryFailure,
     type,
     url,
@@ -546,13 +548,19 @@ export function DesktopPlayer({
     if (preferredAudioApplied.current || !preferredAudioLanguage || !snapshot) {
       return
     }
+    // The Linux overlay can select audio independently of this component.
+    if (snapshot.audioSelectionExplicit) {
+      preferredAudioApplied.current = true
+      return
+    }
     const audioTracks = snapshot.tracks.filter((track) => track.type === "audio")
     if (!audioTracks.length) return
-    preferredAudioApplied.current = true
     const match = audioTracks.find((track) =>
       matchesTrackLanguage(preferredAudioLanguage, track.lang, track.title),
     )
-    if (!match || match.selected) return
+    if (!match) return
+    preferredAudioApplied.current = true
+    if (match.selected) return
     void nativePlayerCommand(["set", "aid", match.id])
       .then(() => {
         setSnapshot((current) =>
@@ -566,7 +574,9 @@ export function DesktopPlayer({
             : current,
         )
       })
-      .catch(() => undefined)
+      .catch(() => {
+        preferredAudioApplied.current = false
+      })
   }, [preferredAudioLanguage, snapshot])
 
   useEffect(() => {
@@ -931,6 +941,7 @@ export function DesktopPlayer({
 
   const selectTrack = async (property: "aid" | "sid", track: NativeTrack) => {
     try {
+      if (property === "aid") preferredAudioApplied.current = true
       await nativePlayerCommand(["set", property, track.id])
       if (property === "sid") setSelectedAddonSubtitle(undefined)
       setSnapshot((current) =>
