@@ -90,8 +90,9 @@ iOS-specific workflows:
   runs JVM tests, and assembles a debug APK;
 - `.github/workflows/mobile-ios.yml` builds the Rust Apple libraries and runs
   the iOS simulator test target; and
-- `.github/workflows/release.yml` packages the Android APK and iOS IPA on a
-  version tag or through its manual `android` and `ios` targets.
+- `.github/workflows/release-android.yml` packages the universal Android APK;
+- `.github/workflows/release-ios.yml` packages the iOS IPA. Each accepts its own
+  component tag or a manual build-only run.
 
 ## Android development
 
@@ -192,14 +193,21 @@ The server-side authentication model is documented in
 
 ## Release packaging
 
-Create a semantic version tag to run the complete release workflow:
+Create a component tag to release one mobile app:
 
 ```sh
-git tag v0.2.0
-git push origin v0.2.0
+git tag android/v0.2.0
+git push origin android/v0.2.0
+# Use ios/v0.2.0 for an independent iOS release.
 ```
 
-The workflow publishes these mobile artifacts with the GitHub release:
+The TV implementation in `feat/android-tv-kmp` uses the same Android module,
+app ID, signing key, and universal APK as phones. Once merged, `android/v*`
+releases cover both phone and TV support. There is no separate TV flavor to
+package. Publish its server pairing endpoints first and document the required
+server version before shipping the first TV-capable Android release.
+
+Each component workflow publishes its artifact with its own GitHub release:
 
 - `conduit-<version>-android-universal.apk`, a signed APK containing ARM64
   and x86_64 native libraries, plus a SHA-256 checksum;
@@ -212,8 +220,8 @@ for every update. iOS packaging intentionally disables code signing and is
 useful for sideloading environments or a later signing step. It is not a
 store-ready submission.
 
-To build the mobile release targets without publishing a tag, run the release
-workflow manually and choose `android` or `ios`. For local IPA packaging, use
+To build without publishing a tag, run **Android release** or **iOS release**
+manually. For local IPA packaging, use
 the commands in [Releases](releases.md#ios).
 
 ### Previous-session diagnostics

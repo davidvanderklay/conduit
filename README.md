@@ -59,16 +59,18 @@ on each GitHub release as a fallback.
 ## Self-hosting with Docker
 
 Download the deployment files into any empty directory. No source checkout or
-local image build is required:
+local image build is required. Replace `YOUR_VERSION` with a published server
+component version. Historical combined releases use their shared
+`CONDUIT_VERSION` pin; see the migration notes in [deployment docs](docs/deployment.md):
 
 ```sh
 mkdir conduit && cd conduit
-release=v0.1.2-alpha.12
+release=server/vYOUR_VERSION
 curl -fsSLO "https://github.com/davidvanderklay/conduit/releases/download/${release}/compose.yaml"
 curl -fsSLO "https://github.com/davidvanderklay/conduit/releases/download/${release}/.env.docker.example"
 cp .env.docker.example .env
-# Edit .env, replace every replace-with-* value, and pin CONDUIT_VERSION to the
-# downloaded release without the leading v (for example 0.1.2-alpha.12).
+# Edit .env and replace every replace-with-* value. Keep its tested
+# CONDUIT_SERVER_VERSION and CONDUIT_WEB_VERSION pins.
 docker compose up -d
 ```
 

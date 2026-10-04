@@ -2,87 +2,91 @@ name: Container release
 
 on:
   push:
-    tags:
-      - "v[0-9]+.[0-9]+.[0-9]+*"
+    tags: ["server/v*", "web/v*"]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing server/vVERSION or web/vVERSION tag to build; manual runs never publish
+        type: string
+        required: true
+      counterpart_version:
+        description: Exact version of the other image to test; defaults to releases/container-pair.json
+        type: string
+        required: false
 
 permissions:
-  contents: read
+  contents: write
   packages: write
 
 concurrency:
-  group: container-release-${{ github.ref }}
+  group: container-release-${{ startsWith(inputs.release_tag || github.ref_name, 'server/') && 'server' || 'web' }}
   cancel-in-progress: false
 
 jobs:
+  prepare:
+    uses: ./.github/workflows/release-context.yml
+    with:
+      component: container
+      release_tag: ${{ inputs.release_tag || '' }}
+
   release:
-    name: Build, smoke-test, and publish images
+    name: Build and test selected image
+    needs: prepare
     runs-on: ubuntu-22.04
+    env:
+      COMPONENT: ${{ needs.prepare.outputs.component }}
+      RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+      RELEASE_REVISION: ${{ needs.prepare.outputs.revision }}
+      RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-
-      - name: Validate the image-based Compose file
+        with:
+          ref: ${{ inputs.release_tag && format('refs/tags/{0}', inputs.release_tag) || github.ref }}
+          fetch-depth: 0
+      - name: Select the published counterpart
+        id: pair
         env:
-          CONDUIT_VERSION: ci
-          POSTGRES_PASSWORD: ci-postgres-password
-          BETTER_AUTH_SECRET: ci-auth-secret-that-is-long-enough
-          ADDON_ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
-        run: |
-          test -z "$(rg -n '^\s+build:' compose.yaml || true)"
-          docker compose -f compose.yaml config >/dev/null
-
-      - name: Generate server image metadata
-        id: server-meta
+          COUNTERPART_VERSION: ${{ inputs.counterpart_version }}
+        run: node scripts/container-release-pair.mjs
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Generate selected image metadata
+        id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
-          images: ghcr.io/davidvanderklay/conduit-server
+          images: ghcr.io/davidvanderklay/conduit-${{ env.COMPONENT }}
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-            type=sha,prefix=sha-
+            type=semver,pattern={{version}},value=${{ env.RELEASE_VERSION }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ env.RELEASE_VERSION }}
+            type=semver,pattern={{major}},value=${{ env.RELEASE_VERSION }},enable=${{ !startsWith(env.RELEASE_VERSION, '0.') }}
+            type=raw,value=sha-${{ env.RELEASE_REVISION }}
+          labels: |
+            org.opencontainers.image.ref.name=${{ env.RELEASE_TAG }}
+            org.opencontainers.image.revision=${{ env.RELEASE_REVISION }}
           flavor: |
             latest=auto
-
-      - name: Generate web image metadata
-        id: web-meta
-        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
-        with:
-          images: ghcr.io/davidvanderklay/conduit-web
-          tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-            type=sha,prefix=sha-
-          flavor: |
-            latest=auto
-
-      - name: Build the server image for smoke testing
+      - name: Build selected image for testing
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
-          target: server
+          target: ${{ env.COMPONENT }}
           load: true
-          tags: ghcr.io/davidvanderklay/conduit-server:ci
-          cache-from: type=gha,scope=conduit-server
-          cache-to: type=gha,mode=max,scope=conduit-server
-
-      - name: Build the web image for smoke testing
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
-        with:
-          context: .
-          target: web
-          load: true
-          tags: ghcr.io/davidvanderklay/conduit-web:ci
-          cache-from: type=gha,scope=conduit-web
-          cache-to: type=gha,mode=max,scope=conduit-web
-
-      - name: Smoke-test from a clean deployment directory
+          tags: ghcr.io/davidvanderklay/conduit-${{ env.COMPONENT }}:ci
+          build-args: |
+            RELEASE_VERSION=${{ env.RELEASE_VERSION }}
+            RELEASE_TAG=${{ env.RELEASE_TAG }}
+            RELEASE_REVISION=${{ env.RELEASE_REVISION }}
+          cache-from: type=gha,scope=conduit-${{ env.COMPONENT }}
+          cache-to: type=gha,mode=max,scope=conduit-${{ env.COMPONENT }}
+      - name: Smoke-test with the existing counterpart image
+        env:
+          CONDUIT_SERVER_VERSION: ${{ steps.pair.outputs.test_server_version }}
+          CONDUIT_WEB_VERSION: ${{ steps.pair.outputs.test_web_version }}
+          COUNTERPART_COMPONENT: ${{ steps.pair.outputs.counterpart_component }}
+          COUNTERPART_VERSION: ${{ steps.pair.outputs.counterpart_version }}
         run: |
+          docker pull "ghcr.io/davidvanderklay/conduit-${COUNTERPART_COMPONENT}:${COUNTERPART_VERSION}"
           deployment_dir="$(mktemp -d)"
           cp compose.yaml "$deployment_dir/compose.yaml"
-          export CONDUIT_VERSION=ci
           export CONDUIT_URL=http://localhost:8321
           export CONDUIT_BIND_ADDRESS=127.0.0.1
           export CONDUIT_PORT=8321
@@ -91,6 +95,8 @@ jobs:
           export BETTER_AUTH_SECRET=ci-auth-secret-that-is-long-enough
           export ADDON_ENCRYPTION_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
           trap 'docker compose -p conduit-container-ci -f "$deployment_dir/compose.yaml" down -v --remove-orphans' EXIT
+          test -z "$(rg -n '^\s+build:' "$deployment_dir/compose.yaml" || true)"
+          docker compose -f "$deployment_dir/compose.yaml" config >/dev/null
           docker compose -p conduit-container-ci -f "$deployment_dir/compose.yaml" up -d
           for attempt in $(seq 1 30); do
             if curl --fail --silent http://127.0.0.1:8321/health >/dev/null; then
@@ -103,41 +109,44 @@ jobs:
             sleep 2
           done
           curl --fail --silent --show-error http://127.0.0.1:8321/health | grep -F '"status":"ok"'
-          curl \
-            --fail \
-            --silent \
-            --show-error \
-            --retry 10 \
-            --retry-delay 1 \
-            --retry-connrefused \
-            --output /dev/null \
-            http://127.0.0.1:8321/
-
+          curl --fail --silent --show-error --retry 10 --retry-delay 1 --retry-connrefused \
+            --output /dev/null http://127.0.0.1:8321/
+          curl --fail --silent --show-error --output /dev/null http://127.0.0.1:8321/v1/auth/config
       - name: Log in to GitHub Container Registry
+        if: needs.prepare.outputs.publish == 'true'
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Publish the server image
+      - name: Publish selected image
+        if: needs.prepare.outputs.publish == 'true'
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
-          target: server
+          target: ${{ env.COMPONENT }}
           push: true
-          tags: ${{ steps.server-meta.outputs.tags }}
-          labels: ${{ steps.server-meta.outputs.labels }}
-          cache-from: type=gha,scope=conduit-server
-          cache-to: type=gha,mode=max,scope=conduit-server
-
-      - name: Publish the web image
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            RELEASE_VERSION=${{ env.RELEASE_VERSION }}
+            RELEASE_TAG=${{ env.RELEASE_TAG }}
+            RELEASE_REVISION=${{ env.RELEASE_REVISION }}
+          cache-from: type=gha,scope=conduit-${{ env.COMPONENT }}
+          cache-to: type=gha,mode=max,scope=conduit-${{ env.COMPONENT }}
+      - name: Publish component notes and deployment files
+        if: needs.prepare.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COUNTERPART_COMPONENT: ${{ steps.pair.outputs.counterpart_component }}
+          COUNTERPART_VERSION: ${{ steps.pair.outputs.counterpart_version }}
+        run: |
+          node scripts/publish-component-release.mjs
+          bash scripts/upload-release-assets.sh "$RELEASE_TAG" compose.yaml .env.docker.example
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          context: .
-          target: web
-          push: true
-          tags: ${{ steps.web-meta.outputs.tags }}
-          labels: ${{ steps.web-meta.outputs.labels }}
-          cache-from: type=gha,scope=conduit-web
-          cache-to: type=gha,mode=max,scope=conduit-web
+          name: conduit-${{ env.COMPONENT }}-deployment
+          path: |
+            compose.yaml
+            .env.docker.example
+          include-hidden-files: true

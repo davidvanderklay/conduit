@@ -1,26 +1,20 @@
-name: Release
+name: Desktop release
 
 env:
   VITE_API_URL: ${{ vars.PRODUCTION_API_URL }}
 
 on:
   push:
-    tags:
-      - "v[0-9]+.[0-9]+.[0-9]+*"
+    tags: ["desktop/v*"]
   workflow_dispatch:
     inputs:
       target:
-        description: Release artifact to build
+        description: Desktop artifact to build
         type: choice
-        options:
-          - all
-          - android
-          - flatpak
-          - ios
-          - macos
+        options: [all, flatpak, macos]
         default: all
       release_tag:
-        description: Existing release version to rebuild
+        description: Existing desktop/vVERSION tag to rebuild; empty builds the selected ref without publishing
         type: string
         required: false
 
@@ -29,12 +23,20 @@ permissions:
   pages: write
   id-token: write
 
+# All desktop tags share the signed Flatpak repository history.
 concurrency:
-  group: release
+  group: release-desktop
   cancel-in-progress: false
 
 jobs:
+  prepare:
+    uses: ./.github/workflows/release-context.yml
+    with:
+      component: desktop
+      release_tag: ${{ inputs.release_tag || '' }}
+
   production-config:
+    needs: prepare
     name: Validate production server
     runs-on: ubuntu-22.04
     steps:
@@ -46,12 +48,14 @@ jobs:
           esac
 
   windows:
-    needs: production-config
+    needs: [prepare, production-config]
     if: github.event_name != 'workflow_dispatch' || inputs.target == 'all'
     name: Windows NSIS
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.release_tag && format('refs/tags/{0}', inputs.release_tag) || github.ref }}
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
         with:
           version: 10.14.0
@@ -67,10 +71,13 @@ jobs:
         with:
           tool: wasm-pack
       - run: pnpm install --frozen-lockfile
-      - name: Set version from tag
-        if: github.ref_type == 'tag'
+      - name: Set desktop version
         shell: bash
-        run: node scripts/set-release-version.mjs "${GITHUB_REF_NAME#v}"
+        env:
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          RELEASE_DATE="$(git show -s --format=%cs HEAD)" \
+            node scripts/set-release-version.mjs "$RELEASE_VERSION"
       - run: pnpm --filter @conduit/desktop setup:windows
       - name: Build Electron NSIS installer
         run: pnpm --filter @conduit/desktop dist:win
@@ -84,12 +91,14 @@ jobs:
           if-no-files-found: error
 
   linux-appimage:
-    needs: production-config
+    needs: [prepare, production-config]
     if: github.event_name != 'workflow_dispatch' || inputs.target == 'all'
     name: Linux AppImage
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.release_tag && format('refs/tags/{0}', inputs.release_tag) || github.ref }}
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
         with:
           version: 10.14.0
@@ -114,9 +123,13 @@ jobs:
             libx11-dev \
             xvfb
       - run: pnpm install --frozen-lockfile
-      - name: Set version from tag
-        if: github.ref_type == 'tag'
-        run: node scripts/set-release-version.mjs "${GITHUB_REF_NAME#v}"
+      - name: Set desktop version
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          RELEASE_DATE="$(git show -s --format=%cs HEAD)" \
+            node scripts/set-release-version.mjs "$RELEASE_VERSION"
       - name: Build Electron AppImage
         run: xvfb-run --auto-servernum pnpm --filter @conduit/desktop dist:linux
       - name: Verify AppImage
@@ -130,13 +143,14 @@ jobs:
           if-no-files-found: error
 
   linux-flatpak:
-    needs: production-config
+    needs: [prepare, production-config]
     if: github.event_name != 'workflow_dispatch' || inputs.target == 'all' || inputs.target == 'flatpak'
     name: Linux Flatpak
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ inputs.release_tag && format('refs/tags/{0}', inputs.release_tag) || github.ref }}
           fetch-depth: 0
       - name: Install Flatpak tooling
         run: |
@@ -146,13 +160,13 @@ jobs:
             flatpak \
             flatpak-builder \
             ostree
-      - name: Set version from release
-        if: github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && inputs.target == 'flatpak' && inputs.release_tag != '')
+      - name: Set desktop version
+        shell: bash
         env:
-          RELEASE_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || inputs.release_tag }}
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
         run: |
-          RELEASE_DATE="$(git show -s --format=%cs "$GITHUB_SHA")" \
-            node scripts/set-release-version.mjs "${RELEASE_VERSION#v}"
+          RELEASE_DATE="$(git show -s --format=%cs HEAD)" \
+            node scripts/set-release-version.mjs "$RELEASE_VERSION"
       - name: Configure production server
         run: |
           # shellcheck disable=SC2016
@@ -168,14 +182,14 @@ jobs:
             );
           '
       - name: Import repository signing key
-        if: github.ref_type == 'tag'
+        if: github.event_name == 'push'
         id: gpg
         uses: crazy-max/ghaction-import-gpg@2dc316deee8e90f13e1a351ab510b4d5bc0c82cd # v7.0.0
         with:
           gpg_private_key: ${{ secrets.FLATPAK_GPG_PRIVATE_KEY }}
           passphrase: ${{ secrets.FLATPAK_GPG_PASSPHRASE }}
       - name: Restore published repository
-        if: github.ref_type == 'tag'
+        if: github.event_name == 'push'
         run: |
           if git show-ref --verify --quiet refs/remotes/origin/flatpak-repo; then
             git worktree add -B flatpak-repo flatpak-site origin/flatpak-repo
@@ -193,7 +207,7 @@ jobs:
         run: |
           repository=flatpak-repo
           signing_options=()
-          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+          if [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
             repository=flatpak-site/repo
             signing_options=(
               "--gpg-sign=${GPG_KEY_ID}"
@@ -227,7 +241,7 @@ jobs:
             media.conduit.desktop \
             --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo
       - name: Finalize and verify signed repository
-        if: github.ref_type == 'tag'
+        if: github.event_name == 'push'
         env:
           GPG_KEY_ID: ${{ steps.gpg.outputs.fingerprint }}
         run: |
@@ -273,7 +287,7 @@ jobs:
           test -f flatpak-build/files/lib/conduit/resources/web/index.html
           test -s target/release/bundle/conduit.flatpak
       - name: Preserve repository history
-        if: github.ref_type == 'tag'
+        if: github.event_name == 'push'
         run: |
           git -C flatpak-site config user.name github-actions
           git -C flatpak-site config user.email \
@@ -290,13 +304,13 @@ jobs:
           path: target/release/bundle/conduit.flatpak
           if-no-files-found: error
       - name: Upload GitHub Pages artifact
-        if: github.ref_type == 'tag'
+        if: github.event_name == 'push'
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: flatpak-site
 
   macos:
-    needs: production-config
+    needs: [prepare, production-config]
     if: github.event_name != 'workflow_dispatch' || inputs.target == 'all' || inputs.target == 'macos'
     name: macOS ${{ matrix.arch }}
     strategy:
@@ -313,7 +327,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ inputs.target == 'macos' && inputs.release_tag || github.ref }}
+          ref: ${{ inputs.release_tag && format('refs/tags/{0}', inputs.release_tag) || github.ref }}
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
         with:
           version: 10.14.0
@@ -333,11 +347,13 @@ jobs:
       - name: Install macOS packaging dependencies
         run: brew install mpv pkg-config
       - run: pnpm install --frozen-lockfile
-      - name: Set version from tag
-        if: github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && inputs.target == 'macos' && inputs.release_tag != '')
+      - name: Set desktop version
+        shell: bash
         env:
-          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
-        run: node scripts/set-release-version.mjs "${RELEASE_TAG#v}"
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          RELEASE_DATE="$(git show -s --format=%cs HEAD)" \
+            node scripts/set-release-version.mjs "$RELEASE_VERSION"
       - name: Build Electron DMG
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
@@ -367,129 +383,16 @@ jobs:
             apps/desktop/dist/*-macos-${{ matrix.arch }}.dmg.sha256
           if-no-files-found: error
 
-  ios:
-    needs: production-config
-    if: github.event_name != 'workflow_dispatch' || inputs.target == 'all' || inputs.target == 'ios'
-    name: iOS unsigned IPA
-    runs-on: macos-15
-    env:
-      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Verify iOS 26 SDK
-        run: |
-          xcodebuild -version
-          sdk_version="$(xcrun --sdk iphoneos --show-sdk-version)"
-          [[ "$sdk_version" == 26.* ]] || {
-            echo "Expected an iOS 26 SDK, found $sdk_version" >&2
-            exit 1
-          }
-      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
-        with:
-          distribution: temurin
-          java-version: 17
-          cache: gradle
-          cache-dependency-path: apps/mobile/**/*.gradle*
-      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
-        with:
-          targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
-        with:
-          workspaces: .
-      - name: Build iOS Rust libraries
-        run: apps/mobile/scripts/build-rust-ios.sh
-      - name: Install XcodeGen
-        run: brew install xcodegen
-      - name: Build unsigned iOS IPA
-        env:
-          CONDUIT_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || inputs.release_tag || format('0.0.0-ci.{0}', github.run_number) }}
-        run: |
-          version="${CONDUIT_VERSION#v}"
-          apps/mobile/scripts/package-ios-ipa.sh "$version" "$GITHUB_RUN_NUMBER"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: conduit-ios
-          path: target/release/bundle/ios/*
-          if-no-files-found: error
-
-  android:
-    if: github.event_name != 'workflow_dispatch' || inputs.target == 'all' || inputs.target == 'android'
-    name: Android APK
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
-        with:
-          distribution: temurin
-          java-version: 17
-          cache: gradle
-          cache-dependency-path: apps/mobile/**/*.gradle*
-      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
-        with:
-          packages: platform-tools
-      - name: Install pinned Android SDK components
-        run: >-
-          sdkmanager
-          "platforms;android-36"
-          "build-tools;36.0.0"
-          "ndk;28.2.13676358"
-      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
-        with:
-          targets: aarch64-linux-android,x86_64-linux-android
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
-        with:
-          workspaces: .
-      - name: Install pinned Rust Android packager
-        uses: taiki-e/install-action@9983c65e42da123ff25d1f78505eb6de315aa172 # v2
-        with:
-          tool: cargo-ndk@3.5.4
-      - name: Build Rust JNI libraries
-        run: ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358" apps/mobile/scripts/build-rust-android.sh
-      - name: Restore release keystore
-        env:
-          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: |
-          test -n "$KEYSTORE_BASE64"
-          test -n "$KEYSTORE_PASSWORD"
-          test -n "$KEY_ALIAS"
-          test -n "$KEY_PASSWORD"
-          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/conduit-release.jks"
-      - name: Build signed release APK
-        working-directory: apps/mobile
-        env:
-          ANDROID_KEYSTORE_FILE: ${{ runner.temp }}/conduit-release.jks
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-          CONDUIT_VERSION_NAME: ${{ github.ref_type == 'tag' && github.ref_name || format('0.0.0-ci.{0}', github.run_number) }}
-          CONDUIT_VERSION_CODE: ${{ github.run_number }}
-        run: |
-          version="${CONDUIT_VERSION_NAME#v}"
-          CONDUIT_VERSION_NAME="$version" ./gradlew --no-daemon :composeApp:testDebugUnitTest :composeApp:assembleRelease
-          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose \
-            composeApp/build/outputs/apk/release/composeApp-release.apk
-          mkdir -p ../../target/release/bundle/android
-          cp composeApp/build/outputs/apk/release/composeApp-release.apk \
-            "../../target/release/bundle/android/conduit-${version}-android-universal.apk"
-          cd ../../target/release/bundle/android
-          sha256sum "conduit-${version}-android-universal.apk" \
-            > "conduit-${version}-android-universal.apk.sha256"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: conduit-android
-          path: target/release/bundle/android/*
-          if-no-files-found: error
-
   publish:
     name: Publish GitHub release
-    if: github.ref_type == 'tag' && (github.event_name != 'workflow_dispatch' || inputs.target == 'all')
-    needs: [windows, linux-appimage, linux-flatpak, macos, ios, android]
+    if: github.event_name == 'push'
+    needs: [prepare, windows, linux-appimage, linux-flatpak, macos]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.release_tag && format('refs/tags/{0}', inputs.release_tag) || github.ref }}
+          fetch-depth: 0
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: conduit-*
@@ -518,10 +421,16 @@ jobs:
             ! -name '*.dmg' \
             ! -name '*.dmg.sha256' \
             -exec cp {} release-files/ \;
-          cp compose.yaml .env.docker.example release-files/
+      - name: Write desktop release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMPONENT: desktop
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+        run: node scripts/publish-component-release.mjs
       - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
-          generate_release_notes: true
+          tag_name: ${{ needs.prepare.outputs.tag }}
+          make_latest: false
           prerelease: ${{ contains(github.ref_name, '-') }}
           draft: false
           files: release-files/*
@@ -538,6 +447,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.release_tag && format('refs/tags/{0}', inputs.release_tag) || github.ref }}
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: conduit-macos-*
@@ -570,6 +481,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.release_tag && format('refs/tags/{0}', inputs.release_tag) || github.ref }}
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: conduit-linux-flatpak
@@ -629,7 +542,7 @@ jobs:
 
   publish-flatpak-repository:
     name: Publish Flatpak repository
-    if: github.ref_type == 'tag'
+    if: github.event_name == 'push'
     needs: [linux-flatpak]
     runs-on: ubuntu-latest
     environment:

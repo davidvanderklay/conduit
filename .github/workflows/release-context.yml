@@ -1,0 +1,52 @@
+name: Prepare component release
+
+on:
+  workflow_call:
+    inputs:
+      component:
+        type: string
+        required: true
+      release_tag:
+        type: string
+        default: ""
+    outputs:
+      component:
+        value: ${{ jobs.prepare.outputs.component }}
+      version:
+        value: ${{ jobs.prepare.outputs.version }}
+      tag:
+        value: ${{ jobs.prepare.outputs.tag }}
+      revision:
+        value: ${{ jobs.prepare.outputs.revision }}
+      publish:
+        value: ${{ jobs.prepare.outputs.publish }}
+      build_number:
+        value: ${{ jobs.prepare.outputs.build_number }}
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      component: ${{ steps.context.outputs.component }}
+      version: ${{ steps.context.outputs.version }}
+      tag: ${{ steps.context.outputs.tag }}
+      revision: ${{ steps.source.outputs.revision }}
+      publish: ${{ steps.context.outputs.publish }}
+      build_number: ${{ steps.context.outputs.build_number }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.release_tag && format('refs/tags/{0}', inputs.release_tag) || github.ref }}
+      - name: Record checked-out revision
+        id: source
+        run: echo "revision=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Validate component and version
+        id: context
+        env:
+          COMPONENT: ${{ inputs.component }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          MOBILE_BUILD_NUMBER_OFFSET: ${{ vars.MOBILE_BUILD_NUMBER_OFFSET }}
+        run: node scripts/release-context.mjs "$COMPONENT"
