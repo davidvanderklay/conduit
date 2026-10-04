@@ -83,7 +83,12 @@ jobs:
             node scripts/set-release-version.mjs "$RELEASE_VERSION"
       - run: pnpm --filter @conduit/desktop setup:windows
       - name: Build Electron NSIS installer
-        run: pnpm --filter @conduit/desktop dist:win --config.forceCodeSigning=${{ env.CSC_LINK != '' }}
+        shell: bash
+        run: |
+          if [ -z "$CSC_LINK" ]; then
+            unset CSC_LINK CSC_KEY_PASSWORD
+          fi
+          pnpm --filter @conduit/desktop dist:win --config.forceCodeSigning=${{ env.CSC_LINK != '' }}
       - name: Verify Windows release signature
         if: env.CSC_LINK != ''
         shell: pwsh
@@ -384,6 +389,9 @@ jobs:
         env:
           NOTARIZE: ${{ env.CSC_LINK != '' && env.APPLE_ID != '' && env.APPLE_APP_SPECIFIC_PASSWORD != '' && env.APPLE_TEAM_ID != '' }}
         run: |
+          if [ -z "$CSC_LINK" ]; then
+            unset CSC_LINK CSC_KEY_PASSWORD
+          fi
           if [ "${{ matrix.arch }}" = "arm64" ]; then
             pnpm --filter @conduit/desktop dist:mac:arm64 --config.forceCodeSigning=${{ env.CSC_LINK != '' }} --config.mac.notarize="$NOTARIZE"
           else
