@@ -178,6 +178,7 @@ modules:
         CARGO_HOME: /run/build/conduit/cargo
         XDG_CACHE_HOME: /run/build/conduit/flatpak-node/cache
     cleanup:
+      - /bin/pnpm
       - /bin/wasm-bindgen
       - /bin/wasm-bindgen-test-runner
       - /bin/wasm-pack
@@ -189,17 +190,18 @@ modules:
       - rust-std-wasm32-unknown-unknown/install.sh --prefix="$PWD/rust-toolchain" --disable-ldconfig
       - mv rust-toolchain/bin/rustc rust-toolchain/bin/rustc-real
       - install -Dm755 rustc-wrapper rust-toolchain/bin/rustc
-      - node pnpm/bin/pnpm.cjs install --offline --frozen-lockfile
+      - install -Dm755 pnpm-wrapper /app/bin/pnpm
+      - pnpm install --offline --frozen-lockfile
       - mkdir -p /run/build/conduit/cargo && printf '[source.crates-io]\nreplace-with = "vendored-sources"\n[source.vendored-sources]\ndirectory = "/run/build/conduit/cargo/vendor"\n' > /run/build/conduit/cargo/config.toml
       - PATH="$PWD/rust-toolchain/bin:$PATH" wasm-pack build packages/core --target web --out-dir pkg --no-opt
-      - node pnpm/bin/pnpm.cjs --filter @conduit/web build
-      - node pnpm/bin/pnpm.cjs --filter @conduit/desktop electron:main:build
+      - pnpm --filter @conduit/web build
+      - pnpm --filter @conduit/desktop electron:main:build
       - cargo build --offline --release -p conduit-electron-native --features linux-helper
       - install -Dm755 target/release/conduit-electron-native /app/bin/conduit-electron-native
       - mkdir -p /app/lib/conduit/resources/app/electron /app/lib/conduit/resources/web
       - unzip -q flatpak-node/cache/electron/electron-v*-linux-*.zip -d /app/lib/conduit
       - mv /app/lib/conduit/electron /app/lib/conduit/conduit
-      - node pnpm/bin/pnpm.cjs --filter @conduit/desktop deploy --prod --legacy --offline /run/build/conduit/desktop-runtime
+      - pnpm --filter @conduit/desktop deploy --prod --legacy --offline /run/build/conduit/desktop-runtime
       - cp -a /run/build/conduit/desktop-runtime/node_modules /app/lib/conduit/resources/app/
       - cp -a apps/desktop/electron/dist /app/lib/conduit/resources/app/electron/
       - cp -a apps/web/dist/. /app/lib/conduit/resources/web/
@@ -219,6 +221,10 @@ modules:
         url: https://static.rust-lang.org/dist/2026-07-16/rust-std-1.97.1-wasm32-unknown-unknown.tar.xz
         sha256: fa0edb6e9f34faae5735554d62d50875eded839dc707d0f1c01467a918d8453b
         dest: rust-std-wasm32-unknown-unknown
+      - type: script
+        dest-filename: pnpm-wrapper
+        commands:
+          - exec node /run/build/conduit/pnpm/bin/pnpm.cjs "$@"
       - type: inline
         dest-filename: rustc-wrapper
         contents: |
