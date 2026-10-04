@@ -21,6 +21,9 @@ sealed interface AccountStatus {
     data class Error(val message: String) : AccountStatus
 }
 
+/** A pending TV sign-in together with the PKCE verifier that proves this device started it. */
+class TvPairing(val request: TvAuthStart, val verifier: String)
+
 class AccountRepository(
     private val api: ConduitApi,
     private val vault: SessionVault,
@@ -47,6 +50,19 @@ class AccountRepository(
             vault.savePendingOAuth(it)
             LifecycleDiagnostics.event("oauth.pending.saved")
         }
+    }
+
+    /** Starts a sign-in that a phone approves; nothing is persisted because the TV polls while the code is on screen. */
+    suspend fun startTvPairing(endpoint: ServerEndpoint, pkce: PkcePair): TvPairing =
+        TvPairing(api.startTvAuth(endpoint.baseUrl, pkce.challenge), pkce.verifier)
+
+    /** Returns null while approval is pending and throws once the request is rejected or expired. */
+    suspend fun pollTvPairing(endpoint: ServerEndpoint, pairing: TvPairing): AccountStatus.SignedIn? {
+        val exchanged = api.exchangeTvAuth(endpoint.baseUrl, pairing.request.requestId, pairing.verifier) ?: return null
+        val session = StoredSession(endpoint.baseUrl, exchanged.token, exchanged.expiresAt)
+        vault.save(session)
+        LifecycleDiagnostics.event("tv-pairing.session.saved")
+        return AccountStatus.SignedIn(session, api.bootstrap(endpoint.baseUrl, session.token))
     }
 
     fun hasPendingOAuth(serverBaseUrl: String): Boolean = vault.pendingOAuth(serverBaseUrl) != null

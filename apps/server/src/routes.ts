@@ -2,6 +2,7 @@ import { registerUpdateRoutes } from "./route-modules/update-routes.js"
 import type { FastifyInstance } from "fastify"
 import { registerAddonRoutes } from "./route-modules/addon-routes.js"
 import { registerAuthRoutes } from "./route-modules/auth-routes.js"
+import { registerTvAuthRoutes } from "./route-modules/tv-auth-routes.js"
 import { registerBootstrapRoutes } from "./route-modules/bootstrap-routes.js"
 import type { RouteContext } from "./route-modules/context.js"
 import { rehashAddonInstallationUrls } from "./route-modules/helpers.js"
@@ -34,6 +35,7 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
 
   registerUpdateRoutes(app, context)
   registerAuthRoutes(app, context)
+  registerTvAuthRoutes(app, context)
   registerBootstrapRoutes(app, context)
   registerProfileRoutes(app, context)
   registerAddonRoutes(app, context)

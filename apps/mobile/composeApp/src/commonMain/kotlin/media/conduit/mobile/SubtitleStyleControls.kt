@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
@@ -69,7 +70,7 @@ fun SubtitleStyleControls(
         )
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text("Outline", color = contentColor, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
-            Switch(style.outline, { onChange(style.copy(outline = it)) })
+            Switch(style.outline, { onChange(style.copy(outline = it)) }, modifier = Modifier.focusRing(RoundedCornerShape(50), Color.White))
         }
     }
 }
@@ -110,11 +111,11 @@ private fun SubtitleStepper(
 ) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(label, color = contentColor, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
-        IconButton(onClick = { onStep(-1) }, enabled = canDecrease, modifier = Modifier.size(40.dp)) {
+        IconButton(onClick = { onStep(-1) }, enabled = canDecrease, modifier = Modifier.size(40.dp).focusRing(CircleShape, Color.White)) {
             Icon(Icons.Rounded.Remove, "Decrease $label", tint = contentColor.copy(alpha = if (canDecrease) 1f else .3f))
         }
         Text(value, color = contentColor, textAlign = TextAlign.Center, modifier = Modifier.width(64.dp))
-        IconButton(onClick = { onStep(1) }, enabled = canIncrease, modifier = Modifier.size(40.dp)) {
+        IconButton(onClick = { onStep(1) }, enabled = canIncrease, modifier = Modifier.size(40.dp).focusRing(CircleShape, Color.White)) {
             Icon(Icons.Rounded.Add, "Increase $label", tint = contentColor.copy(alpha = if (canIncrease) 1f else .3f))
         }
     }

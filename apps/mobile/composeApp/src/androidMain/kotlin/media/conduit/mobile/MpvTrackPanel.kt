@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -85,7 +86,7 @@ private fun BoxScope.MpvAudioTrackPanel(
         Modifier
             .matchParentSize()
             .background(Color.Black.copy(alpha = .32f))
-            .clickable(onClick = onDismiss),
+            .onTap(onDismiss),
     )
     Surface(
         modifier = Modifier
@@ -94,7 +95,7 @@ private fun BoxScope.MpvAudioTrackPanel(
             .fillMaxHeight(.72f)
             .widthIn(max = 1_100.dp)
             .heightIn(max = 760.dp)
-            .clickable(onClick = {}),
+            .onTap {},
         color = Color(0xF21A1A1D),
         shape = RoundedCornerShape(22.dp),
         shadowElevation = 20.dp,
@@ -126,6 +127,7 @@ private fun MpvAudioTrackRow(track: MpvTrack, onClick: () -> Unit) {
     ).joinToString(" · ")
     Surface(
         onClick = onClick,
+        modifier = Modifier.focusRing(RoundedCornerShape(12.dp), Color.White).initialFocus(track.selected),
         color = if (track.selected) MaterialTheme.colorScheme.primary.copy(alpha = .18f) else Color.White.copy(alpha = .05f),
         shape = RoundedCornerShape(12.dp),
     ) {
@@ -199,7 +201,7 @@ private fun BoxScope.MpvSubtitlePanel(
                 Modifier
                     .fillMaxSize()
                     .background(Color.Black.copy(alpha = .52f))
-                    .clickable(onClick = onDismiss),
+                    .onTap(onDismiss),
             )
         }
         Surface(
@@ -210,7 +212,7 @@ private fun BoxScope.MpvSubtitlePanel(
                     .fillMaxHeight(.8f)
                     .widthIn(max = 1_100.dp)
                     .heightIn(max = 760.dp)
-                    .clickable(onClick = {})
+                    .onTap {}
             } else {
                 Modifier.fillMaxSize()
             },
@@ -222,7 +224,7 @@ private fun BoxScope.MpvSubtitlePanel(
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text("Subtitles", color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.weight(1f))
-                    IconButton(onClick = onDismiss) { Icon(Icons.Rounded.Close, "Close", tint = Color.White, modifier = Modifier.size(30.dp)) }
+                    IconButton(onClick = onDismiss, modifier = Modifier.focusRing(CircleShape, Color.White)) { Icon(Icons.Rounded.Close, "Close", tint = Color.White, modifier = Modifier.size(30.dp)) }
                 }
                 Row(
                     Modifier
@@ -287,7 +289,7 @@ private fun MpvPanelHeader(title: String, onDismiss: () -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(title, color = Color.White, style = MaterialTheme.typography.headlineSmall)
         Spacer(Modifier.weight(1f))
-        IconButton(onClick = onDismiss) { Icon(Icons.Rounded.Close, "Close", tint = Color.White) }
+        IconButton(onClick = onDismiss, modifier = Modifier.focusRing(CircleShape, Color.White)) { Icon(Icons.Rounded.Close, "Close", tint = Color.White) }
     }
 }
 
@@ -295,6 +297,7 @@ private fun MpvPanelHeader(title: String, onDismiss: () -> Unit) {
 private fun MpvTrackRow(label: String, selected: Boolean, onClick: () -> Unit) {
     Surface(
         onClick = onClick,
+        modifier = Modifier.focusRing(RoundedCornerShape(12.dp), Color.White).initialFocus(selected),
         color = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = .18f) else Color.White.copy(alpha = .05f),
         shape = RoundedCornerShape(12.dp),
     ) {

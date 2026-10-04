@@ -66,6 +66,12 @@ import kotlinx.coroutines.withContext
 import media.conduit.mobile.account.DiagnosticLogStore
 import media.conduit.mobile.account.SubtitleItem
 import media.conduit.mobile.foundation.SubtitleStyle
+import media.conduit.mobile.tv.isTelevision
+import media.conduit.mobile.tv.requestFocusWhenReady
+import media.conduit.mobile.tv.tvFocusTrap
+import androidx.activity.compose.BackHandler
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import android.net.Uri
 
 internal const val ANDROID_RESIZE_MODE_ZOOM = -1
@@ -73,6 +79,8 @@ internal const val ANDROID_RESIZE_MODE_ZOOM = -1
 @Composable
 actual fun PlayerOrientationLock(active: Boolean) {
     val activity = androidx.compose.ui.platform.LocalContext.current as? Activity
+    // A television is always landscape; requesting an orientation would letterbox the app.
+    if (activity?.isTelevision() == true) return
     val restoresPortrait = activity?.resources?.configuration?.smallestScreenWidthDp
         ?.let(::shouldRestorePortraitAfterPlayback)
         ?: true
@@ -197,6 +205,8 @@ actual fun NativePlayer(
     var draggedPosition by remember(player) { mutableFloatStateOf(0f) }
     var trackPanel by remember { mutableStateOf<Int?>(null) }
     LaunchedEffect(trackPanel) { onOverlayVisibilityChanged(trackPanel != null) }
+    // Android TV draws its own control bar in the session host and calls back through this bridge.
+    val engineBridge = LocalPlayerEngineBridge.current
     var tracksRevision by remember { mutableIntStateOf(0) }
     var trackFallback by remember(player) { mutableStateOf<androidx.media3.common.TrackSelectionParameters?>(null) }
     var selectedSubtitleId by remember(loadId, url, requestHeaders) { mutableStateOf<String?>(null) }
@@ -739,6 +749,25 @@ actual fun NativePlayer(
             playing = nextPlaying
         }
     }
+    val playbackSpeeds = listOf(.5f, .75f, 1f, 1.25f, 1.5f, 2f)
+    val cyclePlaybackSpeed = {
+        val current = currentSpeed()
+        val index = playbackSpeeds.indexOfFirst { it == current }.takeIf { it >= 0 } ?: 2
+        playbackSpeed = playbackSpeeds[(index + 1) % playbackSpeeds.size]
+        setPlaybackSpeed(playbackSpeed)
+    }
+    if (engineBridge != null) {
+        SideEffect {
+            engineBridge.openAudio = { trackPanel = C.TRACK_TYPE_AUDIO }
+            engineBridge.openSubtitles = { trackPanel = C.TRACK_TYPE_TEXT }
+            engineBridge.cycleSpeed = cyclePlaybackSpeed
+            engineBridge.cycleScale = { resizeMode = nextAndroidResizeMode(resizeMode) }
+            engineBridge.speedLabel = "$playbackSpeed×"
+            engineBridge.scaleLabel = androidResizeModeLabel(resizeMode)
+            engineBridge.panelOpen = trackPanel != null
+        }
+        BackHandler(enabled = trackPanel != null) { trackPanel = null }
+    }
     Box(modifier.background(Color.Black).pointerInput(player, activeEngine, resizeMode) { detectTransformGestures { _, _, zoom, _ ->
         val next = when { zoom > 1.04f -> ANDROID_RESIZE_MODE_ZOOM; zoom < .96f -> AspectRatioFrameLayout.RESIZE_MODE_FIT; else -> resizeMode }
         if (next != resizeMode) resizeMode = next
@@ -803,7 +832,7 @@ actual fun NativePlayer(
                     )
                 },
         )
-        if (controlsEnabled && controlsVisible && presentation == PlaybackPresentation.FullScreen) {
+        if (engineBridge == null && controlsEnabled && controlsVisible && presentation == PlaybackPresentation.FullScreen) {
             Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .42f))) {
                 val portraitLayout = !landscape
                 val timelineAvailable = durationMs > 0
@@ -854,7 +883,7 @@ actual fun NativePlayer(
                     }
                     if (!portraitLayout) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceEvenly) {
                         val haptics = LocalHapticFeedback.current
-                        val speeds = listOf(.5f, .75f, 1f, 1.25f, 1.5f, 2f)
+                        val speeds = playbackSpeeds
                         Box {
                             PlayerBottomAction(
                                 Icons.Rounded.Speed,
@@ -866,10 +895,7 @@ actual fun NativePlayer(
                                     controlsVisible = true
                                 },
                             ) {
-                                val current = currentSpeed()
-                                val index = speeds.indexOfFirst { it == current }.takeIf { it >= 0 } ?: 2
-                                playbackSpeed = speeds[(index + 1) % speeds.size]
-                                setPlaybackSpeed(playbackSpeed)
+                                cyclePlaybackSpeed()
                                 controlsVisible = true
                             }
                             DropdownMenu(
@@ -917,6 +943,14 @@ actual fun NativePlayer(
             }
         }
         trackPanel?.let { type ->
+            val panelFocus = remember { FocusRequester() }
+            val panelGroup = remember { FocusRequester() }
+            if (engineBridge != null) {
+                // Start on the selected track; fall back to the panel's first control.
+                LaunchedEffect(type) { if (!panelFocus.requestFocusWhenReady()) panelGroup.requestFocus() }
+            }
+            CompositionLocalProvider(LocalInitialFocus provides panelFocus.takeIf { engineBridge != null }) {
+            Box(if (engineBridge != null) Modifier.fillMaxSize().focusRequester(panelGroup).tvFocusTrap() else Modifier.fillMaxSize()) {
             if (activeEngine == NativePlaybackEngine.Libmpv) {
                 mpvView?.let {
                     MpvTrackPanel(
@@ -951,6 +985,8 @@ actual fun NativePlayer(
                     },
                     onDismiss = { trackPanel = null },
                 )
+            }
+            }
             }
         }
 
@@ -1107,7 +1143,7 @@ private fun BoxScope.PlayerTrackPanel(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (type == C.TRACK_TYPE_TEXT && subtitlePage != "overview") IconButton(onClick = { subtitlePage = "overview" }) { Icon(Icons.Rounded.ArrowBack, "Back", tint = Color.White) }
                 Text(if (type == C.TRACK_TYPE_AUDIO) "Audio" else when (subtitlePage) { "language" -> "Subtitle language"; "variant" -> "Subtitle variant"; else -> "Subtitles" }, color = Color.White, style = MaterialTheme.typography.headlineSmall)
-                Spacer(Modifier.weight(1f)); IconButton(onClick = onDismiss) { Icon(Icons.Rounded.Close, "Close", tint = Color.White) }
+                Spacer(Modifier.weight(1f)); IconButton(onClick = onDismiss, modifier = Modifier.focusRing(CircleShape, Color.White)) { Icon(Icons.Rounded.Close, "Close", tint = Color.White) }
             }
             Text(if (type == C.TRACK_TYPE_AUDIO) "Choose an audio language" else when (subtitlePage) { "language" -> "A compatible variant is selected automatically"; "variant" -> "Override the selected variant"; else -> "Language, variant, and appearance" }, color = Color.White.copy(.6f))
             Spacer(Modifier.height(14.dp))
@@ -1169,11 +1205,11 @@ private fun BoxScope.FullscreenSubtitlePanel(
     fun choose(option: PlayerTrackOption) { onBeforeSelection(); onSubtitleSelectionChanged(option.trackId, option.languageKey, true); language = option.languageKey; selectedTrackKey = option.key; player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false).clearOverridesOfType(C.TRACK_TYPE_TEXT).addOverride(TrackSelectionOverride(option.group.mediaTrackGroup, option.index)).build() }
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val expanded = maxWidth >= 700.dp && maxHeight >= 500.dp
-        if (expanded) Box(Modifier.fillMaxSize().background(Color.Black.copy(.52f)).clickable(onClick = onDismiss))
+        if (expanded) Box(Modifier.fillMaxSize().background(Color.Black.copy(.52f)).onTap(onDismiss))
         Surface(
             modifier = if (expanded) {
                 Modifier.align(Alignment.Center).fillMaxWidth(.9f).fillMaxHeight(.8f)
-                    .widthIn(max = 1_100.dp).heightIn(max = 760.dp).clickable(onClick = {})
+                    .widthIn(max = 1_100.dp).heightIn(max = 760.dp).onTap {}
             } else Modifier.fillMaxSize(),
             color = Color(0xFA0D0C22),
             shape = if (expanded) RoundedCornerShape(24.dp) else RoundedCornerShape(0.dp),
@@ -1183,7 +1219,7 @@ private fun BoxScope.FullscreenSubtitlePanel(
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text("Subtitles", color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
                 Spacer(Modifier.weight(1f))
-                IconButton(onClick = onDismiss) { Icon(Icons.Rounded.Close, "Close", tint = Color.White, modifier = Modifier.size(30.dp)) }
+                IconButton(onClick = onDismiss, modifier = Modifier.focusRing(CircleShape, Color.White)) { Icon(Icons.Rounded.Close, "Close", tint = Color.White, modifier = Modifier.size(30.dp)) }
             }
             Row(Modifier.fillMaxWidth().weight(1f).padding(horizontal = 18.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(30.dp)) {
                 Column(Modifier.weight(1f)) { Text("Subtitle Languages", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold); Spacer(Modifier.height(18.dp)); LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) { item { PlayerTrackRow("Disabled", selectedTrackKey == null) { selectedTrackKey = null; onSubtitleSelectionChanged(null, null, false); player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().clearOverridesOfType(C.TRACK_TYPE_TEXT).setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build() } }; options.distinctBy(PlayerTrackOption::languageKey).forEach { option -> item(option.languageKey) { PlayerTrackRow(option.languageName, selectedTrackKey != null && language == option.languageKey, option.supported) { val best = options.firstOrNull { it.languageKey == option.languageKey && it.supported } ?: option; choose(best) } } } } }
@@ -1233,8 +1269,8 @@ private data class PlayerTrackOption(val group: Tracks.Group, val index: Int) {
 }
 
 @Composable
-private fun PlayerTrackRow(label: String, selected: Boolean, enabled: Boolean = true, onClick: () -> Unit) {
-    Surface(onClick = onClick, enabled = enabled, color = if (selected) MaterialTheme.colorScheme.primary.copy(.18f) else Color.White.copy(.06f), shape = RoundedCornerShape(14.dp), border = if (selected) androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null) {
+private fun PlayerTrackRow(label: String, selected: Boolean, enabled: Boolean = true, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Surface(onClick = onClick, enabled = enabled, modifier = modifier.focusRing(RoundedCornerShape(14.dp), Color.White).initialFocus(selected), color = if (selected) MaterialTheme.colorScheme.primary.copy(.18f) else Color.White.copy(.06f), shape = RoundedCornerShape(14.dp), border = if (selected) androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null) {
         Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) { Text(label, color = Color.White.copy(if (enabled) 1f else .38f), modifier = Modifier.weight(1f)); if (selected) Icon(Icons.Rounded.CheckCircle, null, tint = MaterialTheme.colorScheme.primary) else if (!enabled) Icon(Icons.Rounded.Block, null, tint = Color.White.copy(.35f)) }
     }
 }
@@ -1244,9 +1280,10 @@ private fun PlayerAudioTrackRow(
     display: AudioTrackDisplay,
     selected: Boolean,
     enabled: Boolean,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
-    Surface(onClick = onClick, enabled = enabled, color = if (selected) MaterialTheme.colorScheme.primary.copy(.18f) else Color.White.copy(.06f), shape = RoundedCornerShape(14.dp), border = if (selected) androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null) {
+    Surface(onClick = onClick, enabled = enabled, modifier = modifier.focusRing(RoundedCornerShape(14.dp), Color.White).initialFocus(selected), color = if (selected) MaterialTheme.colorScheme.primary.copy(.18f) else Color.White.copy(.06f), shape = RoundedCornerShape(14.dp), border = if (selected) androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null) {
         Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(display.primary, color = Color.White.copy(if (enabled) 1f else .38f), fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)

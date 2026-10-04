@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
@@ -202,7 +203,7 @@ internal fun MobileCalendarScreen(
 @Composable
 private fun CalendarHeader(onBack: () -> Unit) {
     Row(verticalAlignment = Alignment.Top) {
-        IconButton(onClick = onBack) {
+        IconButton(onClick = onBack, modifier = Modifier.focusRing(CircleShape)) {
             Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to library")
         }
         Column(Modifier.weight(1f).padding(top = 5.dp)) {
@@ -301,7 +302,7 @@ private fun CalendarMonthCard(
     ) {
         Column(Modifier.padding(horizontal = 14.dp, vertical = 18.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onPrevious) { Icon(Icons.Rounded.ChevronLeft, "Previous month") }
+                IconButton(onClick = onPrevious, modifier = Modifier.focusRing(CircleShape)) { Icon(Icons.Rounded.ChevronLeft, "Previous month") }
                 Column(Modifier.weight(1f)) {
                     Text(
                         "${CalendarMonthNames[month.month - 1]} ${month.year}",
@@ -314,10 +315,10 @@ private fun CalendarMonthCard(
                         style = MaterialTheme.typography.bodyMedium,
                     )
                 }
-                FilledTonalButton(onClick = onToday, shape = RoundedCornerShape(50)) {
+                FilledTonalButton(onClick = onToday, shape = RoundedCornerShape(50), modifier = Modifier.focusRing(RoundedCornerShape(50))) {
                     Text("Today", fontWeight = FontWeight.Bold)
                 }
-                IconButton(onClick = onNext) { Icon(Icons.Rounded.ChevronRight, "Next month") }
+                IconButton(onClick = onNext, modifier = Modifier.focusRing(CircleShape)) { Icon(Icons.Rounded.ChevronRight, "Next month") }
             }
 
             Spacer(Modifier.height(18.dp))
@@ -373,7 +374,7 @@ private fun CalendarDay(
 ) {
     Surface(
         onClick = onClick,
-        modifier = modifier.aspectRatio(1f).padding(2.dp),
+        modifier = modifier.aspectRatio(1f).padding(2.dp).focusRing(RoundedCornerShape(14.dp)),
         shape = RoundedCornerShape(14.dp),
         color = if (selected) Color.White else Color.Transparent,
         contentColor = if (selected) Color(0xFF111113) else if (hasRelease) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -399,6 +400,7 @@ private fun CalendarReleaseRow(
 ) {
     Surface(
         onClick = onClick,
+        modifier = Modifier.focusRing(RoundedCornerShape(18.dp)),
         shape = RoundedCornerShape(18.dp),
         color = Color(0xFF202023),
         border = BorderStroke(1.dp, Color.White.copy(alpha = .12f)),

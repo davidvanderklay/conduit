@@ -1,5 +1,9 @@
 package media.conduit.mobile
 
+import androidx.compose.foundation.focusGroup
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -525,7 +529,15 @@ internal fun MediaActionSheet(
         sheetState = sheetState,
         containerColor = Color(0xFF171719),
     ) {
-        Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = 8.dp)) {
+        // A remote has no pointer to start from, so on TV focus opens on the first action.
+        val firstAction = remember { FocusRequester() }
+        if (LocalTvPresentation.current != null) {
+            LaunchedEffect(Unit) {
+                withFrameNanos { }
+                runCatching { firstAction.requestFocus() }
+            }
+        }
+        Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = 8.dp).focusRequester(firstAction).focusGroup()) {
             Text(
                 resolvedVideo?.title
                     ?: resolvedVideo?.name
@@ -710,6 +722,6 @@ private fun ActionRow(label: String, icon: androidx.compose.ui.graphics.vector.I
         headlineContent = { Text(label, color = if (!enabled) MaterialTheme.colorScheme.onSurfaceVariant else if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface) },
         leadingContent = { Icon(icon, null, tint = if (!enabled) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .5f) else if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant) },
         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).combinedClickable(enabled = enabled, onClick = onClick),
+        modifier = Modifier.fillMaxWidth().focusRing(RoundedCornerShape(10.dp)).clip(RoundedCornerShape(10.dp)).combinedClickable(enabled = enabled, onClick = onClick),
     )
 }

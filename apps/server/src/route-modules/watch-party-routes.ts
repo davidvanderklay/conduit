@@ -13,6 +13,8 @@ import {
   type WatchPartyMedia,
 } from "../db/schema.js"
 import { WatchPartyHub } from "../watch-party.js"
+import { tvAuthMessagePage } from "../tv-auth.js"
+import { TvPartyHandoffs, inviteTokenFromInput, tvPartyHandoffPage } from "../tv-party-handoff.js"
 import type { RouteContext } from "./context.js"
 import { requireUser, canAccessProfile, consumeRateLimit } from "./helpers.js"
 const MAX_WATCH_PARTY_MEMBERS = 8
@@ -82,6 +84,53 @@ export function registerWatchPartyRoutes(app: FastifyInstance, { auth, config, d
     clearInterval(expirationTimer)
     watchPartyHub.close()
   })
+  // A TV cannot paste an invitation link, so a phone sends it through a short-lived request.
+  const tvHandoffs = new TvPartyHandoffs()
+  const handoffParams = { params: Type.Object({ id: Type.String({ minLength: 32, maxLength: 100 }) }) }
+  app.post("/v1/watch-parties/handoff", async (request, reply) => {
+    const user = await requireUser(request, reply, auth)
+    if (!user) return
+    if (!(await consumeRateLimit(db, `watch-party-handoff:${user.id}`, 20, 15 * 60_000))) {
+      return reply.tooManyRequests("Too many requests. Try again later.")
+    }
+    const { id, expiresAt } = tvHandoffs.start(user.id)
+    return {
+      requestId: id,
+      expiresAt: new Date(expiresAt).toISOString(),
+      url: `${config.authUrl.replace(/\/$/, "")}/v1/watch-parties/handoff/${id}`,
+    }
+  })
+  app.get("/v1/watch-parties/handoff/:id", { schema: handoffParams }, async (request, reply) => {
+    const { id } = request.params as { id: string }
+    reply.header("content-type", "text/html; charset=utf-8").header("cache-control", "no-store")
+    if (!tvHandoffs.isOpen(id)) {
+      return reply.code(404).send(tvAuthMessagePage("Request expired", "Start again on your TV and scan the new code."))
+    }
+    return reply.send(tvPartyHandoffPage(id))
+  })
+  app.post(
+    "/v1/watch-parties/handoff/:id/invite",
+    { schema: { ...handoffParams, body: Type.Object({ invite: Type.String({ maxLength: 2048 }) }) } },
+    async (request, reply) => {
+      if (!(await consumeRateLimit(db, `watch-party-handoff:${request.ip}`, 20, 60_000))) {
+        return reply.tooManyRequests("Too many attempts. Try again later.")
+      }
+      const { id } = request.params as { id: string }
+      const token = inviteTokenFromInput((request.body as { invite: string }).invite)
+      if (!token) return reply.badRequest("Enter a valid invitation")
+      if (!tvHandoffs.submit(id, token)) return reply.notFound("This request expired")
+      return { sent: true }
+    },
+  )
+  app.post("/v1/watch-parties/handoff/:id/collect", { schema: handoffParams }, async (request, reply) => {
+    const user = await requireUser(request, reply, auth)
+    if (!user) return
+    const outcome = tvHandoffs.collect((request.params as { id: string }).id, user.id)
+    if (outcome === "expired") return reply.notFound("This request expired")
+    if (outcome === "pending") return reply.code(202).send({ status: "pending" })
+    return { status: "received", token: outcome.token }
+  })
+
   app.get("/v1/watch-parties/capabilities", async () => ({
     protocolVersion: 1,
     maxMembers: MAX_WATCH_PARTY_MEMBERS,

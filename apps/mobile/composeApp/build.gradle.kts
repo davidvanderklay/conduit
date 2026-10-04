@@ -77,6 +77,7 @@ kotlin {
             implementation("androidx.media3:media3-ui:1.10.1")
             implementation("io.github.abdallahmehiz:mpv-android-lib:0.1.12")
             implementation("io.ktor:ktor-client-okhttp:3.5.1")
+            implementation("com.google.zxing:core:3.5.3")
         }
         androidInstrumentedTest.dependencies {
             implementation("androidx.compose.ui:ui-test-junit4:1.10.0")

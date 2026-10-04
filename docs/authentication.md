@@ -186,3 +186,29 @@ Profile exports contain profile configuration, library, progress, and optional
 add-on URLs. They do not contain account credentials or OAuth relationships.
 Export regularly so media state remains portable even if account recovery is
 impossible.
+
+## Television sign-in
+
+A television cannot receive a browser redirect, so it signs in through a
+request that a phone approves:
+
+1. The TV creates a PKCE verifier and calls `POST /v1/auth/tv/start`. The
+   server returns a request id, a short confirmation code, and a verification
+   link. The request expires after five minutes.
+2. The TV shows the link as a QR code together with the confirmation code. The
+   link contains only the request id, never a session.
+3. The phone opens the link. If its browser has no conduit session, the server
+   starts the configured OpenID Connect or Google sign-in and returns to the
+   same page. Servers without an external provider ask the viewer to sign in
+   to conduit in that browser first.
+4. The page shows the account and the confirmation code. The viewer approves
+   only if the code matches the TV. Approval is a same-origin `POST
+   /v1/auth/tv/approve` and requires the browser session.
+5. The TV polls `POST /v1/auth/tv/exchange` with the request id and verifier.
+   It receives `202` while approval is pending and a seven-day bearer session
+   once approved. A wrong verifier, an expired request, or a reused request is
+   rejected.
+
+Email and password sign-in, registration, and recovery codes remain available
+on the TV itself.
+
