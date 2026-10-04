@@ -95,7 +95,7 @@ feed changes from other components, reject older candidates, and keeps payloads 
 
 Stable metadata never contains prereleases. The Nightly feed accepts Nightly
 builds and a stable release that supersedes its current candidate by SemVer. When
-Stable supersedes Nightly, both feeds reference the same signed stable payloads.
+Stable supersedes Nightly, both feeds reference the same stable payloads.
 
 Desktop publication waits for its Windows installer, Intel and Apple Silicon
 DMGs/ZIPs, AppImage and Flatpak. Mac YAML is preserved per architecture before
@@ -113,13 +113,17 @@ Each component's next planned version is in `releases/nightly-versions.json`.
 Advance its base after promoting that version to Stable. Skip unchanged components.
 Mobile nightly scheduling and mobile updater UI remain outside this first version.
 
-### Required repository secrets
+### Repository secrets
 
-Before tagged desktop publication, configure:
+Windows and Mac signing are optional. To enable them, configure:
 
 - `WIN_CSC_LINK` and `WIN_CSC_KEY_PASSWORD` for the Windows signing certificate.
 - `MAC_CSC_LINK` and `MAC_CSC_KEY_PASSWORD` for an Apple Developer ID certificate.
 - `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID` for notarization.
+  Notarization runs only when all three and the Mac signing certificate are set.
+
+Flatpak publication and scheduled Nightly releases still require:
+
 - The existing `FLATPAK_GPG_PRIVATE_KEY` and `FLATPAK_GPG_PASSPHRASE` for Flatpak.
 - `NIGHTLY_RELEASE_TOKEN` with permission to push repository tags and trigger their
   workflows. The default workflow token does not trigger workflows from its tag
@@ -127,11 +131,18 @@ Before tagged desktop publication, configure:
   a private repository need the appropriate repo scope. Do not put this token in
   app builds.
 
-Tagged Windows/Mac builds require credentials and force code signing. Both tracks
-use the same signing identities. Old unsigned/ad-hoc-signed installations need
-one manual installation of the first signed updater-enabled release. Verify N to
-N+1 installation on Windows and both Mac architectures in native CI before
-announcing the feature as available.
+When a signing certificate is configured, builds force signing and verify the
+signature. Invalid configured credentials fail the build instead of silently
+publishing unsigned artifacts. Without a certificate, Windows builds are unsigned
+and Mac builds use electron-builder's unsigned/ad-hoc signing defaults without
+notarization. Both tracks use the same signing identities when configured.
+
+Mac in-app installation requires Developer ID signing. Unsigned/ad-hoc-signed Mac
+builds require manual updates, including a manual installation of the first
+Developer ID signed release. See electron-builder's
+[macOS updater requirement](https://www.electron.build/v26/docs/features/auto-update/).
+Verify N to N+1 installation on Windows and both Mac architectures in native CI
+before announcing the feature as available.
 
 The feed and application currently declare API compatibility level 1. When making
 an API break, update `API_LEVEL` in the shared updates package and the corresponding

@@ -212,10 +212,14 @@ Store an encrypted offline backup of the keystore and its passwords. Losing
 them makes it impossible to publish an update that existing installations will
 accept. Do not commit the keystore or its encoded contents.
 
-Tagged Windows and macOS releases now require code-signing credentials. Mac builds
-also require notarization and publish ZIPs for in-app updates alongside DMGs.
-Both update tracks use the same signing identities. Legacy unsigned or ad-hoc
-signed installations need one manual installation of an updater-enabled release.
+Windows and macOS releases build without paid signing credentials. Configuring
+`WIN_CSC_LINK` or `MAC_CSC_LINK` enables signing and signature verification for that
+platform; invalid configured credentials fail the build. Mac notarization runs
+only when the signing certificate and all three Apple notarization secrets are
+configured. Mac builds publish ZIPs alongside DMGs, but unsigned or ad-hoc-signed
+Mac installations require manual updates. Both update tracks use the same signing
+identities when configured. Install the first Developer ID signed Mac release
+manually before using in-app updates.
 The AppImage remains a manual replacement; the Flatpak repository and its
 application commits remain signed with the dedicated release key.
 
