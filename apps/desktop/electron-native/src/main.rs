@@ -54,6 +54,8 @@ struct OpenParams {
     read_ahead_seconds: u32,
     hardware_acceleration: bool,
     window_id: String,
+    #[serde(default)]
+    preferred_audio_language: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -108,6 +110,7 @@ struct PlayerSnapshot {
     volume: f64,
     title: Option<String>,
     tracks: Vec<PlayerTrack>,
+    audio_selection_explicit: bool,
     playback_path: PlaybackPath,
     container: Option<String>,
     video_codec: Option<String>,
@@ -166,6 +169,7 @@ impl Drop for VideoHost {
 #[derive(Default)]
 struct Player {
     mpv: Option<Mpv>,
+    audio_selection_explicit: bool,
     parent_window: Option<u64>,
     #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
     host_window: Option<VideoHost>,
@@ -261,6 +265,9 @@ impl Player {
             } else {
                 initializer.set_option("hwdec", "no")?;
             }
+            if let Some(language) = params.preferred_audio_language.as_deref() {
+                initializer.set_option("alang", language)?;
+            }
             initializer.set_option("audio-channels", "auto-safe")?;
             initializer.set_option("video-timing-offset", "0")?;
             Ok(())
@@ -304,6 +311,7 @@ impl Player {
         #[cfg(target_os = "macos")]
         let _ = render_macos::uninstall();
         self.mpv.take();
+        self.audio_selection_explicit = false;
         self.host_window.take();
         self.parent_window = None;
     }
@@ -346,7 +354,7 @@ impl Player {
         Ok(())
     }
 
-    fn command(&self, command: Vec<Value>) -> Result<Value, NativeError> {
+    fn command(&mut self, command: Vec<Value>) -> Result<Value, NativeError> {
         let mpv = self.mpv.as_ref().ok_or(NativeError::NotRunning)?;
         let args = command.iter().map(value_to_arg).collect::<Vec<_>>();
         if args.is_empty() {
@@ -354,6 +362,9 @@ impl Player {
         }
         let refs = args.iter().map(String::as_str).collect::<Vec<_>>();
         argv_command(mpv, &refs)?;
+        if refs.first() == Some(&"set") && refs.get(1) == Some(&"aid") {
+            self.audio_selection_explicit = true;
+        }
         Ok(Value::Null)
     }
 
@@ -383,6 +394,7 @@ impl Player {
             volume: mpv.get_property::<f64>("volume").unwrap_or(100.0),
             title: mpv.get_property::<String>("media-title").ok(),
             tracks,
+            audio_selection_explicit: self.audio_selection_explicit,
             playback_path: PlaybackPath::DirectPlay,
             container: non_empty_property(mpv, "file-format"),
             video_codec: non_empty_property(mpv, "video-format"),

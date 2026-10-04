@@ -4,6 +4,7 @@ import { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import * as core from "../lib/core"
+import type { NativePlayerSnapshot } from "../lib/desktop"
 import {
   DesktopPlayer,
   dedupeAddonSubtitles,
@@ -61,8 +62,12 @@ const desktop = vi.hoisted(() => ({
   isDesktop: () => false,
   nativePlayerCommand: vi.fn(async (_command: unknown[]) => undefined),
   nativeFullscreen: vi.fn(async () => false),
-  nativePlayerSnapshot: vi.fn(async () => snapshot),
-  openNativePlayer: vi.fn(async () => snapshot),
+  nativePlayerSnapshot: vi.fn(async (): Promise<NativePlayerSnapshot> => snapshot),
+  openNativePlayer: vi.fn(
+    async (
+      ..._args: Parameters<typeof import("../lib/desktop").openNativePlayer>
+    ): Promise<NativePlayerSnapshot> => snapshot,
+  ),
   updateNativePlayerOverlay: vi.fn(async () => undefined),
   redrawNativeSurface: vi.fn(async () => undefined),
   refreshNativeSurface: vi.fn(async () => undefined),
@@ -154,6 +159,100 @@ describe("DesktopPlayer track menus", () => {
     vi.useRealTimers()
     vi.unstubAllGlobals()
     vi.clearAllMocks()
+    desktop.nativePlayerSnapshot.mockResolvedValue(snapshot)
+    desktop.openNativePlayer.mockResolvedValue(snapshot)
+    localStorage.removeItem("conduit.device-preferences.v1")
+    vi.restoreAllMocks()
+  })
+
+  const russian = {
+    id: 10,
+    type: "audio" as const,
+    title: "Russian",
+    lang: "rus",
+    selected: true,
+    external: false,
+  }
+  const english = {
+    id: 11,
+    type: "audio" as const,
+    title: "English",
+    lang: "eng",
+    selected: false,
+    external: false,
+  }
+
+  async function openAudioExample(initialTracks: NativePlayerSnapshot["tracks"]) {
+    desktop.openNativePlayer.mockResolvedValueOnce({ ...snapshot, tracks: initialTracks })
+    await act(async () => {
+      root.render(
+        <DesktopPlayer
+          url="https://example.com/multilingual.mkv"
+          type="series"
+          videoId="monk:1:1"
+          profileId="00000000-0000-4000-8000-000000000001"
+          progressMetadata={{ mediaType: "series", mediaId: "monk", name: "Monk" }}
+          addons={[]}
+          onClose={() => undefined}
+        />,
+      )
+      await Promise.resolve()
+    })
+  }
+
+  async function pollAudio(tracks: NativePlayerSnapshot["tracks"]) {
+    desktop.nativePlayerSnapshot.mockResolvedValue({ ...snapshot, tracks })
+    await act(async () => {
+      vi.advanceTimersByTime(250)
+      await Promise.resolve()
+    })
+  }
+
+  it("selects English when it appears after the initial Russian track", async () => {
+    await openAudioExample([russian])
+    expect(desktop.nativePlayerCommand).not.toHaveBeenCalledWith(["set", "aid", english.id])
+    await pollAudio([russian, english])
+    expect(desktop.nativePlayerCommand).toHaveBeenCalledWith(["set", "aid", english.id])
+  })
+
+  it("selects English when its language metadata arrives later", async () => {
+    await openAudioExample([russian, { ...english, lang: undefined, title: "Track 2" }])
+    await pollAudio([russian, english])
+    expect(desktop.nativePlayerCommand).toHaveBeenCalledWith(["set", "aid", english.id])
+  })
+
+  it("uses the device language for System default instead of the file default", async () => {
+    localStorage.setItem("conduit.device-preferences.v1", JSON.stringify({ audioLanguage: "auto" }))
+    vi.spyOn(navigator, "language", "get").mockReturnValue("en-US")
+    await openAudioExample([russian, english])
+    expect(desktop.nativePlayerCommand).toHaveBeenCalledWith(["set", "aid", english.id])
+    expect(desktop.openNativePlayer.mock.calls.at(-1)?.[6]).toBe("en")
+  })
+
+  it("preserves a manual selection made in the Linux overlay", async () => {
+    await openAudioExample([russian])
+    desktop.nativePlayerSnapshot.mockResolvedValue({
+      ...snapshot,
+      tracks: [russian, english],
+      audioSelectionExplicit: true,
+    })
+    await act(async () => {
+      vi.advanceTimersByTime(250)
+      await Promise.resolve()
+    })
+    expect(desktop.nativePlayerCommand).not.toHaveBeenCalledWith(["set", "aid", english.id])
+  })
+
+  it("leaves a manual choice alone while waiting for the preferred track", async () => {
+    await openAudioExample([russian])
+    click(button("Audio: Russian"))
+    await act(async () => {
+      button("Russian").click()
+      await Promise.resolve()
+    })
+    desktop.nativePlayerCommand.mockClear()
+    await pollAudio([russian, english])
+    expect(desktop.nativePlayerCommand).not.toHaveBeenCalledWith(["set", "aid", english.id])
   })
 
   it("resets stale overlay pixels after native playback opens", () => {

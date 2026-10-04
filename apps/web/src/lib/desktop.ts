@@ -39,6 +39,7 @@ export interface NativePlayerSnapshot {
   volume: number
   title?: string
   tracks: NativeTrack[]
+  audioSelectionExplicit?: boolean
   playbackPath: "directPlay"
   container?: string
   videoCodec?: string
@@ -126,12 +127,14 @@ export function openNativePlayer(
   hardwareAcceleration: boolean,
   artwork?: PlayerOverlayMedia,
   watchPartyContext?: ElectronPlayerOverlayContext,
+  preferredAudioLanguage?: string,
 ): Promise<NativePlayerSnapshot> {
   return invoke("player_open", {
     url,
     title,
     readAheadSeconds,
     hardwareAcceleration,
+    preferredAudioLanguage,
     artwork,
     ...(watchPartyContext ? { watchPartyContext } : {}),
   })
