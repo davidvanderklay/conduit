@@ -59,6 +59,7 @@ data class AuthenticationConfiguration(
     val needsOwner: Boolean,
     val localRegistration: Boolean,
     val oidc: OidcConfiguration,
+    val webUrl: String? = null,
 )
 
 @Serializable
@@ -861,6 +862,48 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
         }
         if (!response.status.isSuccess()) throw ServerRequestException("Profile update returned HTTP ${response.status.value}", response.status.value)
         return response.body<ProfileResponse>().profile
+    }
+
+    suspend fun profileTransferWebUrl(baseUrl: String): String? {
+        val response = client.get("$baseUrl/v1/auth/config")
+        if (!response.status.isSuccess()) throw profileTransferError(response)
+        return response.body<AuthenticationConfiguration>().webUrl
+    }
+
+    suspend fun exportProfile(baseUrl: String, token: String, profileId: String, includeSecrets: Boolean = false): JsonObject {
+        val response = client.get("$baseUrl/v1/profiles/${profileId.encodeURLPathPart()}/export") {
+            bearerAuth(token)
+            url { parameters.append("includeSecrets", includeSecrets.toString()) }
+        }
+        if (!response.status.isSuccess()) throw profileTransferError(response)
+        return response.body()
+    }
+
+    suspend fun previewProfileImport(baseUrl: String, token: String, profileId: String, data: JsonObject): ProfileImportPreview {
+        val response = client.post("$baseUrl/v1/profiles/${profileId.encodeURLPathPart()}/import/preview") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody(data)
+        }
+        if (!response.status.isSuccess()) throw profileTransferError(response)
+        return response.body()
+    }
+
+    suspend fun importProfile(baseUrl: String, token: String, profileId: String, data: JsonObject, mode: ProfileImportMode) {
+        val response = client.post("$baseUrl/v1/profiles/${profileId.encodeURLPathPart()}/import") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody(buildJsonObject { put("mode", mode.value); put("data", data) })
+        }
+        if (!response.status.isSuccess()) throw profileTransferError(response)
+    }
+
+    private suspend fun profileTransferError(response: HttpResponse): ServerRequestException {
+        val body = response.bodyAsText()
+        val message = runCatching {
+            Json.parseToJsonElement(body).jsonObject["message"]?.jsonPrimitive?.contentOrNull
+        }.getOrNull()
+        return ServerRequestException(message ?: "Profile transfer returned HTTP ${response.status.value}", response.status.value)
     }
 
     suspend fun installAddon(baseUrl: String, token: String, profileId: String, rawUrl: String) {

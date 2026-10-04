@@ -76,6 +76,7 @@ import media.conduit.mobile.profileColor
 private enum class TvSettingsSection(val label: String) {
     Profiles("Profiles"),
     Addons("Add-ons"),
+    Data("Profile data"),
     Playback("Playback"),
     Appearance("Appearance"),
     Account("Account"),
@@ -135,7 +136,9 @@ internal fun TvSettings(model: TvShellModel, memory: TvFocusMemory, active: Bool
                     }
                 }
             }
-            LazyColumn(
+            if (section == TvSettingsSection.Data) {
+                TvProfileData(model, onBack = { section = TvSettingsSection.Profiles }, Modifier.weight(1f).fillMaxHeight())
+            } else LazyColumn(
                 Modifier.weight(1f).fillMaxHeight(),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
                 contentPadding = PaddingValues(bottom = 60.dp),
@@ -146,6 +149,7 @@ internal fun TvSettings(model: TvShellModel, memory: TvFocusMemory, active: Bool
                         if (draft != null) profileEditor(model, draft, onDone = { editing = null })
                         else profileList(model, onEdit = { editing = it })
                     }
+                    TvSettingsSection.Data -> Unit
                     TvSettingsSection.Addons -> item { TvAddonManager(model) }
                     TvSettingsSection.Playback -> playbackSettings(model.preferences, model.onPreferencesChanged)
                     TvSettingsSection.Appearance -> appearanceSettings(model)
@@ -155,6 +159,36 @@ internal fun TvSettings(model: TvShellModel, memory: TvFocusMemory, active: Bool
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun TvProfileData(model: TvShellModel, onBack: () -> Unit, modifier: Modifier) {
+    model.activeProfile?.let { profile ->
+        media.conduit.mobile.ProfileTransferScreen(
+            profile, requireNotNull(model.state.endpoint).baseUrl, model.account.session.token, model.api,
+            onBack = onBack,
+            onImported = { model.onProfilesChanged(profile.id); model.onRefresh() },
+            modifier = modifier,
+            webHandoff = {
+                Text("Continue on phone or browser", color = Color.White)
+                var address by remember { mutableStateOf<String?>(null) }
+                LaunchedEffect(model.state.endpoint?.baseUrl) {
+                    try {
+                        address = model.api.profileTransferWebUrl(requireNotNull(model.state.endpoint).baseUrl)
+                    } catch (cause: kotlinx.coroutines.CancellationException) { throw cause }
+                    catch (_: Exception) { address = null }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+                    address?.let { url -> TvQrCode(url, Modifier.size(120.dp)) }
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        address?.let { Text(it, color = Color.White) }
+                        Text("Sign in, select ${profile.name}, then open Settings > Your data on the web, or Profile data on mobile.", color = Color.White)
+                        if (address == null) Text("Use the web or mobile app connected to this server.", color = Color.White)
+                    }
+                }
+            },
+        )
     }
 }
 

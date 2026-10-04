@@ -29,6 +29,7 @@ The mobile client currently supports:
   touch gestures, episode navigation, background audio, and lock-screen media
   controls;
 - add-on installation, enable/disable, reorder, refresh, and removal;
+- profile JSON export and import with server preview, merge, and confirmed replacement;
 - device preferences for appearance, navigation, playback, subtitles, and
   diagnostics; and
 - an encrypted cached profile snapshot for limited offline access to the
@@ -290,3 +291,23 @@ logs from Settings. Repeat through four launches to check that only two previous
 sessions remain. Clear Logs, wait for the writer, and reopen to confirm old
 events are gone. Check playback replacement with Debug logging enabled; the
 export should contain native player create/load/destroy markers.
+
+## Profile import and export
+
+Open Settings > Profile data, then choose Export profile or Import profile.
+Android and iOS use their system document pickers. Imports accept UTF-8 JSON
+up to 10 MiB and show the server preview before applying changes. Merge is
+the default. Replace requires confirmation because it removes the target
+profile's library, history, and add-ons. Both modes update the profile name
+and kids setting. Device preferences remain local.
+
+Add-on URLs are excluded from exports unless explicitly selected because they
+can contain credentials. Mobile clients preserve optional archive fields when
+sending a selected file to the server. See [Portable profile format](portable-profile-format.md).
+
+Android TV checks for document picker activities and excludes the stock TV
+framework stubs. TVs without a picker show a phone/browser handoff with the
+web address advertised by `/v1/auth/config`. Sign in on that device, select
+the same profile, and open profile data in Settings. Older servers without
+`webUrl` still show these instructions. TV users can also choose this route
+when their installed file picker is difficult to use with a remote.

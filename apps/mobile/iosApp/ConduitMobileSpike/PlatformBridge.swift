@@ -5,6 +5,7 @@ import CryptoKit
 import Foundation
 import Security
 import UIKit
+import UniformTypeIdentifiers
 
 /// Keeps video playback from taking exclusive ownership of the device audio
 /// session. This matters on iPad, where another app can remain audible beside
@@ -163,12 +164,98 @@ final class ConduitShareBridge: NSObject, IosShareBridge {
     }
 }
 
+/// Owns the picker delegate until selection or cancellation and reads only bounded UTF-8 archives.
+final class ConduitProfileFilesBridge: NSObject, IosProfileFilesBridge, UIDocumentPickerDelegate {
+    private var importCompletion: ((String?, String?, String?) -> Void)?
+    private var exportCompletion: ((KotlinBoolean, String?) -> Void)?
+    private var exportURL: URL?
+
+    private func presenter() -> UIViewController? {
+        var controller = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive }?
+            .windows.first { $0.isKeyWindow }?.rootViewController
+        while let presented = controller?.presentedViewController { controller = presented }
+        return controller
+    }
+
+    func pick(completion: @escaping (String?, String?, String?) -> Void) {
+        guard importCompletion == nil, exportCompletion == nil, let presenter = presenter() else {
+            completion(nil, nil, "Unable to open file picker")
+            return
+        }
+        importCompletion = completion
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.json, .plainText], asCopy: true)
+        picker.delegate = self
+        presenter.present(picker, animated: true)
+    }
+
+    func save(name: String, contents: String, completion: @escaping (KotlinBoolean, String?) -> Void) {
+        guard importCompletion == nil, exportCompletion == nil, let presenter = presenter() else {
+            completion(KotlinBoolean(bool: false), "Unable to open file picker")
+            return
+        }
+        do {
+            let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let url = directory.appendingPathComponent(URL(fileURLWithPath: name).lastPathComponent)
+            exportURL = url
+            try Data(contents.utf8).write(to: url, options: .atomic)
+            exportCompletion = completion
+            let picker = UIDocumentPickerViewController(forExporting: [url], asCopy: true)
+            picker.delegate = self
+            presenter.present(picker, animated: true)
+        } catch {
+            if let url = exportURL { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+            exportURL = nil
+            completion(KotlinBoolean(bool: false), error.localizedDescription)
+        }
+    }
+
+    func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+        if let completion = importCompletion {
+            importCompletion = nil
+            guard let url = urls.first else { completion(nil, nil, nil); return }
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            do {
+                let handle = try FileHandle(forReadingFrom: url)
+                defer { try? handle.close() }
+                let data = try handle.read(upToCount: 10 * 1024 * 1024 + 1) ?? Data()
+                guard data.count <= 10 * 1024 * 1024 else {
+                    completion(nil, nil, "Import exceeds the 10 MiB limit")
+                    return
+                }
+                guard let text = String(data: data, encoding: .utf8) else {
+                    completion(nil, nil, "Import must be UTF-8 JSON")
+                    return
+                }
+                completion(url.lastPathComponent, text, nil)
+            } catch { completion(nil, nil, error.localizedDescription) }
+        } else { finishExport(saved: !urls.isEmpty) }
+    }
+
+    func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+        if let completion = importCompletion { importCompletion = nil; completion(nil, nil, nil) }
+        finishExport(saved: false)
+    }
+
+    private func finishExport(saved: Bool) {
+        let completion = exportCompletion
+        exportCompletion = nil
+        if let url = exportURL { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        exportURL = nil
+        completion?(KotlinBoolean(bool: saved), nil)
+    }
+}
+
 enum ConduitPlatformRegistration {
     static func register() {
         IosPlatformBridgeFactory.shared.register(
             secureStore: ConduitKeychainStore(),
             oauthBridge: ConduitOAuthBridge(),
-            shareBridge: ConduitShareBridge()
+            shareBridge: ConduitShareBridge(),
+            profileFiles: ConduitProfileFilesBridge()
         )
     }
 }

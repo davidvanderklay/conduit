@@ -17,7 +17,14 @@ interface IosShareBridge {
     fun shareText(text: String)
 }
 
+/** Native document picker callbacks return an error message or null on cancellation. */
+interface IosProfileFilesBridge {
+    fun pick(completion: (String?, String?, String?) -> Unit)
+    fun save(name: String, contents: String, completion: (Boolean, String?) -> Unit)
+}
+
 object IosPlatformBridgeFactory {
+    private var profileFiles: IosProfileFilesBridge? = null
     private var secureStore: IosSecureStoreBridge? = null
     private var oauthBridge: IosOAuthBridge? = null
     private var shareBridge: IosShareBridge? = null
@@ -26,12 +33,15 @@ object IosPlatformBridgeFactory {
         secureStore: IosSecureStoreBridge,
         oauthBridge: IosOAuthBridge,
         shareBridge: IosShareBridge,
+        profileFiles: IosProfileFilesBridge,
     ) {
+        this.profileFiles = profileFiles
         this.secureStore = secureStore
         this.oauthBridge = oauthBridge
         this.shareBridge = shareBridge
     }
 
+    fun profileFiles(): IosProfileFilesBridge? = profileFiles
     fun secureStore(): IosSecureStoreBridge? = secureStore
     fun oauthBridge(): IosOAuthBridge? = oauthBridge
     fun shareBridge(): IosShareBridge? = shareBridge
