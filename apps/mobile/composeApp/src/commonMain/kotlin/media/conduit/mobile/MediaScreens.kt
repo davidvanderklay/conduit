@@ -3439,6 +3439,7 @@ internal fun ProfileSettingsScreen(
             ProfileRoute.Create -> route = ProfileRoute.Switcher
             is ProfileRoute.Edit -> route = ProfileRoute.Overview
             ProfileRoute.Diagnostics -> route = ProfileRoute.Advanced
+            ProfileRoute.Data,
             ProfileRoute.Addons,
             ProfileRoute.Account,
             ProfileRoute.Appearance,
@@ -3472,6 +3473,11 @@ internal fun ProfileSettingsScreen(
         ProfileRoute.Create -> return ProfileEditorScreen(null, activeProfile, api, state, account, { route = ProfileRoute.Switcher }, onProfilesChanged, modifier)
         is ProfileRoute.Edit -> return ProfileEditorScreen(current.profile, activeProfile, api, state, account, { route = ProfileRoute.Overview }, onProfilesChanged, modifier)
         ProfileRoute.Addons -> return AddonManagerScreen(activeProfile, profileSync.snapshot?.addons.orEmpty(), api, state, account, { route = ProfileRoute.Settings }, onProfileDataChanged, modifier)
+        ProfileRoute.Data -> return activeProfile?.let { profile ->
+            ProfileTransferScreen(profile, requireNotNull(state.endpoint).baseUrl, account.session.token, api,
+                onBack = { route = ProfileRoute.Settings },
+                onImported = { onProfilesChanged(profile.id); onProfileDataChanged() }, modifier = modifier)
+        } ?: Unit
         ProfileRoute.History -> return WatchHistoryScreen(profileSync.snapshot, closeHistory, onSelectMedia, onProfileMutation, modifier)
         ProfileRoute.Account -> return AccountSettingsScreen(state, account, api, onSignOut, { route = ProfileRoute.Settings }, modifier)
         ProfileRoute.Appearance -> return AppearanceSettingsScreen(platform, preferences, onPreferencesChanged, { route = ProfileRoute.Settings }, modifier)
@@ -3505,6 +3511,7 @@ internal fun ProfileSettingsScreen(
                 SettingEntry("Appearance & layout", "Theme, language, and navigation", Icons.Rounded.Tune),
                 SettingEntry("Content & discovery", "Add-ons, catalogs, and search", Icons.Rounded.Explore),
                 SettingEntry("Playback", "Player, subtitles, and behavior", Icons.Rounded.PlayCircle),
+                SettingEntry("Profile data", "Import and export", Icons.Rounded.ImportExport),
                 SettingEntry("Integrations", "Connected media services", Icons.Rounded.Extension),
             )),
             SettingSection("About", listOf(
@@ -3573,6 +3580,7 @@ internal fun ProfileSettingsScreen(
                         "Appearance & layout" -> route = ProfileRoute.Appearance
                         "Content & discovery" -> route = ProfileRoute.Content
                         "Playback" -> route = ProfileRoute.Playback
+                        "Profile data" -> route = ProfileRoute.Data
                         "Integrations" -> route = ProfileRoute.Integrations
                         "Supporters & contributors" -> route = ProfileRoute.Supporters
                         "Privacy policy" -> route = ProfileRoute.Privacy
@@ -4019,6 +4027,7 @@ private sealed interface ProfileRoute {
     data object Supporters : ProfileRoute
     data object Privacy : ProfileRoute
     data object Licenses : ProfileRoute
+    data object Data : ProfileRoute
     data object Diagnostics : ProfileRoute
     data class Edit(val profile: ProfileSummary) : ProfileRoute
 }

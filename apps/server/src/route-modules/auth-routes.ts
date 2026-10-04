@@ -50,6 +50,7 @@ export function registerAuthRoutes(app: FastifyInstance, context: RouteContext) 
           ? canCreateFirstAccount(config, existing.length)
           : authSettings.registrationMode === "open",
       bootstrapMode: config.bootstrapMode,
+      webUrl: config.webOrigin,
       oidc: authSettings.oidc
         ? {
             enabled: true,
