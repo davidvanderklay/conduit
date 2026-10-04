@@ -6,16 +6,17 @@ origin. PostgreSQL is the only application data volume.
 
 ## Docker Compose quick start
 
-Download a tagged Compose file and its environment template into any empty
-directory. The files have no source checkout or repository-relative paths:
+Select a server or web component release from the GitHub releases page and
+replace `YOUR_VERSION` below with its version. Download its Compose file and
+environment template into any empty directory. The files have no source checkout or repository-relative paths:
 
 ```sh
 mkdir conduit && cd conduit
-release=v0.1.2-alpha.12
+release=server/vYOUR_VERSION
 curl --fail --location --remote-name "https://github.com/davidvanderklay/conduit/releases/download/${release}/compose.yaml"
 curl --fail --location --remote-name "https://github.com/davidvanderklay/conduit/releases/download/${release}/.env.docker.example"
 cp .env.docker.example .env
-# Set CONDUIT_VERSION to the downloaded release without the leading v.
+# Keep the server/web pins from the attached template, which records the tested pair.
 ```
 
 Edit `.env` before starting. Generate stable values once and keep them backed
@@ -41,21 +42,29 @@ The web container publishes `8321` on `127.0.0.1` by default. Open
 create the first owner. Migrations run automatically before the API accepts
 traffic. The database volume is named `conduit-postgres`.
 
+Existing deployments using `CONDUIT_VERSION` continue to work with the new
+Compose file. Explicit component pins take precedence. Historical combined
+release assets still use the old shared pin; until the first component release
+is available, use a historical tag such as `v0.1.4` and set `CONDUIT_VERSION=0.1.4`
+with those assets. New container releases attach a template with both exact pins.
+
 ## Compose settings
 
 The deployment template exposes the settings most operators need:
 
-| Setting | Purpose |
-| --- | --- |
-| `CONDUIT_VERSION` | Matching API and web image tag. Pin a release for repeatable upgrades. |
-| `CONDUIT_URL` | Public browser and authentication origin. |
-| `CONDUIT_BIND_ADDRESS` | Host interface for the published web port. Defaults to `127.0.0.1`. |
-| `CONDUIT_PORT` | Host web port. Defaults to `8321`. |
-| `CONDUIT_BOOTSTRAP_MODE` | `setup-token` for Docker, `manual` for CLI setup, or `first-user` for compatibility. |
-| `CONDUIT_BOOTSTRAP_TOKEN` | Required only for `setup-token`; never exposed by `/v1/auth/config`. |
-| `POSTGRES_PASSWORD` | Database password. Keep it stable for `conduit-postgres`. |
-| `BETTER_AUTH_SECRET` | Session and recovery signing secret. Keep it stable. |
-| `ADDON_ENCRYPTION_KEY` | Exactly 64 hexadecimal characters. Keep it stable for encrypted add-ons and OAuth secrets. |
+| Setting                   | Purpose                                                                                    |
+| ------------------------- | ------------------------------------------------------------------------------------------ |
+| `CONDUIT_SERVER_VERSION`  | Exact API image version.                                                                   |
+| `CONDUIT_WEB_VERSION`     | Exact web image version; may differ from the API.                                          |
+| `CONDUIT_VERSION`         | Legacy fallback when either component pin is unset or empty.                               |
+| `CONDUIT_URL`             | Public browser and authentication origin.                                                  |
+| `CONDUIT_BIND_ADDRESS`    | Host interface for the published web port. Defaults to `127.0.0.1`.                        |
+| `CONDUIT_PORT`            | Host web port. Defaults to `8321`.                                                         |
+| `CONDUIT_BOOTSTRAP_MODE`  | `setup-token` for Docker, `manual` for CLI setup, or `first-user` for compatibility.       |
+| `CONDUIT_BOOTSTRAP_TOKEN` | Required only for `setup-token`; never exposed by `/v1/auth/config`.                       |
+| `POSTGRES_PASSWORD`       | Database password. Keep it stable for `conduit-postgres`.                                  |
+| `BETTER_AUTH_SECRET`      | Session and recovery signing secret. Keep it stable.                                       |
+| `ADDON_ENCRYPTION_KEY`    | Exactly 64 hexadecimal characters. Keep it stable for encrypted add-ons and OAuth secrets. |
 
 `DATABASE_URL`, `BETTER_AUTH_URL`, and `WEB_ORIGIN` are derived inside the
 Compose file. Do not regenerate stable secrets on restart. Losing either
@@ -101,7 +110,7 @@ pull the images without a registry login.
 ## Upgrade and rollback
 
 Back up PostgreSQL, `.env`, and the stable application secrets before upgrading.
-Change only the image version, then pull and restart:
+Change the affected component pin, then pull and restart:
 
 ```sh
 docker compose pull
@@ -110,13 +119,14 @@ docker compose ps
 curl --fail http://127.0.0.1:8321/health
 ```
 
-Keep `CONDUIT_VERSION` pinned and use a known-good previous tag for an
-application rollback. Do not roll binaries back across an irreversible database
+Keep both component versions pinned to a tested pair from the attached release
+template. For a rollback, restore the affected image's known-good version. Do not roll binaries back across an irreversible database
 migration without restoring a matching database backup.
 
 The shared Rust core ships with the web and packaged apps; users do not need
 to install Rust or reset their profiles or saved playback sources. Update the
-API and web images first, then install the matching desktop or mobile release.
+API and web images when needed, then install desktop or mobile releases whose
+server requirements you meet. Their version numbers do not need to match.
 Legacy saved-source keys remain supported when they identify a unique stream.
 
 Migration 0020 restores the provider/account identity format used by Better

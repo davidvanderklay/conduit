@@ -15,7 +15,7 @@ services:
       retries: 10
 
   server:
-    image: ghcr.io/davidvanderklay/conduit-server:${CONDUIT_VERSION:-latest}
+    image: ghcr.io/davidvanderklay/conduit-server:${CONDUIT_SERVER_VERSION:-${CONDUIT_VERSION:-latest}}
     restart: unless-stopped
     environment:
       DATABASE_URL: postgresql://conduit:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/conduit
@@ -37,7 +37,7 @@ services:
       retries: 10
 
   web:
-    image: ghcr.io/davidvanderklay/conduit-web:${CONDUIT_VERSION:-latest}
+    image: ghcr.io/davidvanderklay/conduit-web:${CONDUIT_WEB_VERSION:-${CONDUIT_VERSION:-latest}}
     restart: unless-stopped
     ports:
       - "${CONDUIT_BIND_ADDRESS:-127.0.0.1}:${CONDUIT_PORT:-8321}:8080"

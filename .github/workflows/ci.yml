@@ -46,6 +46,7 @@ jobs:
         run: pnpm check:deps
       - name: Audit production dependencies
         run: pnpm audit --prod --audit-level high
+      - run: pnpm test:releases
       - run: pnpm core:build
       - run: pnpm check
       - run: pnpm test

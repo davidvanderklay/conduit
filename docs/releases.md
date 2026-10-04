@@ -1,24 +1,147 @@
 # Releases
 
-Pushing a semantic version tag creates a GitHub release with a Windows NSIS
-installer, Linux AppImage, Linux Flatpak, macOS DMGs for Apple Silicon and
-Intel, a signed universal Android APK, and an unsigned iOS IPA:
+Conduit has independent server, web, desktop, Android, and iOS release streams.
+Only the component named in a tag builds and publishes. Historical `v*` tags and
+artifacts remain available, but new `v*` tags no longer trigger releases.
+
+| Component | Tag                  | Artifacts                                                     |
+| --------- | -------------------- | ------------------------------------------------------------- |
+| Server    | `server/v<version>`  | Server container, deployment files                            |
+| Web       | `web/v<version>`     | Web container, deployment files                               |
+| Desktop   | `desktop/v<version>` | Windows NSIS, AppImage, Flatpak, Apple Silicon and Intel DMGs |
+| Android   | `android/v<version>` | Signed universal APK and checksum                             |
+| iOS       | `ios/v<version>`     | Unsigned IPA and checksum                                     |
+
+For example, after choosing a reviewed commit on main and the next Android
+version:
 
 ```sh
-git tag v0.2.0
-git push origin v0.2.0
+git tag android/v0.2.0
+git push origin android/v0.2.0
 ```
 
-The workflow takes the application version from the tag, builds on native
-Windows, Ubuntu, Apple Silicon macOS, and Intel macOS runners, and generates
-release notes from the commits since the previous release. Run the workflow
-manually to test packaging without publishing a GitHub release.
+This builds Android only. Versions must be SemVer without build metadata.
+Prerelease tags such as `android/v0.2.0-alpha.1` create prereleases. Choose each
+stream's initial version above the last version shipped in its artifacts, not
+its checked-in manifest. The last combined release before this split was
+`v0.1.5-alpha.1`.
+
+Tags are the release version source. Desktop CI stamps the package, native
+crate, and Flatpak metadata; mobile builds receive their version directly.
+Container tags omit the component prefix, such as `conduit-server:0.2.0`.
+Image labels record the version, full release tag, and source revision. Private
+Rust libraries have no separate public releases.
+
+### Choosing what to release
+
+Compare each component to its own previous release tag. A server-only fix
+usually needs only a server release. Changes to `apps/web` can affect web and
+desktop because desktop embeds the web build. Changes to `packages/core` can
+affect all four clients. Shared Kotlin and `packages/mobile-bridge` changes
+can affect Android and iOS. Platform-specific mobile changes need only that
+platform's release. Inspect shared lockfile and build changes for their actual
+consumers instead of bumping every app automatically.
+
+Keep server APIs compatible with supported installed clients. Add endpoints
+before clients require them, and document minimum server requirements when
+they change. App versions do not need to match. The mobile bridge's protocol
+version remains a separate internal FFI contract.
+
+Android TV support in `feat/android-tv-kmp` extends the existing `composeApp`
+and keeps `media.conduit.mobile` as its application ID. Once that implementation
+lands, the same universal APK serves phones, tablets, Android TV, and Google TV.
+Use `android/v<version>` for all of them, with one signing key and build counter.
+There is no separate TV build target or `android-tv/v*` release stream. A
+TV-only source change still requires a new Android APK because it is one app.
+
+Android release verification checks the packaged app ID, version, both native
+ABIs, and phone launcher. When the source manifest enables TV, it also requires
+the packaged Leanback launcher, banner, and optional touchscreen and Leanback
+features. This permits releases before the TV work lands without pretending
+those APKs contain TV support.
+
+For the first TV-capable release, publish the server changes for television
+phone pairing and party handoff before publishing Android, and state the minimum
+server version in the release notes. Those endpoints are absent from the old
+`0.1.4` baseline. The existing server/web container smoke test does not validate
+TV pairing, so run the TV endpoint tests from that change as well.
+
+### Manual builds and rebuilds
+
+Run **Desktop release**, **Android release**, or **iOS release** manually for
+build-only validation. With an empty `release_tag`, they build the selected ref
+as `0.0.0-ci.<run>`. An existing component tag checks out that exact tag and uses
+its version. The container workflow requires an existing server or web tag.
+Manual runs do not create releases, publish images, or update the Flatpak remote.
+
+Desktop retains explicit replacement of macOS or Flatpak assets when a manual
+run selects that target and an existing desktop tag. It replaces only those
+assets on an existing release. The `all` target remains build-only on manual
+runs. macOS verification still downloads the published DMGs and checks them.
+
+Every stream has independent publication and concurrency. Desktop releases
+remain serialized to protect signed Flatpak repository history. A failed mobile
+build cannot block a desktop release.
+
+### Containers and tested deployment pairs
+
+`releases/container-pair.json` records exact counterpart versions for release
+smoke tests. It starts at the existing stable `0.1.4` server/web pair. Update it
+in a reviewed change after publishing and validating a newer pair. Do not put
+`latest` in this file.
+
+A server release builds only the server image and pulls the pinned web image.
+A web release builds only web and pulls the pinned server image. The workflow
+checks startup, health, web delivery, and the auth configuration endpoint through
+Compose. These checks do not prove every API feature is compatible; run the
+relevant client/API tests for contract changes.
+
+The release's attached `.env.docker.example` pins the new image and its tested
+counterpart. Stable releases update aliases for their image only; prereleases
+do not move `latest`. Version-zero releases do not publish a broad `0` alias.
+Manual container builds can supply `counterpart_version` to test another exact
+published version. To ship a feature across both images, preserve compatibility
+with the old counterpart first, publish the server, update the tested pair, then
+publish web against the new server.
+
+### Release notes and downloads
+
+Notes list commits affecting that component since its previous published tag.
+The first release in each stream uses the last ancestor legacy release as its
+baseline. Other streams' intervening tags are not used as the baseline. Shared
+code changes appear in every affected stream's notes.
+
+Preview notes without publishing from the intended release checkout:
+
+```sh
+COMPONENT=android RELEASE_TAG=android/v0.2.0 \
+  GITHUB_REPOSITORY=davidvanderklay/conduit \
+  node scripts/publish-component-release.mjs --dry-run
+```
+
+Component releases do not change GitHub's global latest-release marker. Browse
+[all releases](https://github.com/davidvanderklay/conduit/releases) and select the
+component you need, rather than using `/releases/latest` for downloads.
+Compose files belong to server and web releases, not desktop or mobile releases.
+The hosted demo still deploys from main through its separate workflow.
+
+### Mobile build counters
+
+Android `versionCode` and iOS numeric build numbers use
+`1000000 + github.run_number`. The old combined release workflow had reached
+run 143 when this split was implemented, so the new counters start above all
+its builds. Keep the new workflow identities stable. If a future workflow reset
+is necessary, set the repository variable `MOBILE_BUILD_NUMBER_OFFSET` to a
+larger value before shipping. Never lower it or exceed Android's 2100000000
+limit. Rerunning the same Actions run retains its build number; start a new run
+for a new installable build. App IDs and signing keys remain unchanged.
 
 ## iOS
 
 Tagged builds publish `conduit-<version>-ios-unsigned.ipa` and its SHA-256
 checksum. The IPA contains an arm64 device build with the semantic version from
-the tag and the Actions run number as its numeric build number. It is unsigned
+the tag and the offset Actions run number described above as its numeric build
+number. It is unsigned
 by design, so the workflow does not require an Apple Developer certificate or
 repository secrets.
 
@@ -32,7 +155,7 @@ corresponding source and build instructions described in
 [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md).
 
 To exercise the same packaging path without creating a release, run the
-workflow manually with the `ios` target. Its IPA is available from the workflow
+**iOS release** workflow manually. Its IPA is available from the workflow
 run's `conduit-ios` artifact. On a Mac with the prerequisites from
 `mobile-development.md`, reproduce the package locally with:
 
@@ -51,8 +174,8 @@ shasum -a 256 -c conduit-0.2.0-ios-unsigned.ipa.sha256
 
 The release APK contains both ARM64 and x86_64 native libraries. One APK is
 therefore sufficient for physical Android devices and the development
-emulator. Tagged builds use the tag as `versionName`, use the monotonically
-increasing Actions run number as `versionCode`, and publish both the APK and
+emulator. Tagged builds use the tag as `versionName`, use the offset Actions
+run number described above as `versionCode`, and publish both the APK and
 its SHA-256 checksum. Android releases use the application ID
 `media.conduit.mobile`.
 
