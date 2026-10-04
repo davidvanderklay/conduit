@@ -363,6 +363,42 @@ internal data class DiscoverSelection(
     val genre: String? = null,
 )
 
+/** A [DiscoverSelection] matched against the catalogs the installed add-ons actually offer. */
+internal class ResolvedDiscoverSelection(
+    val types: List<String>,
+    val type: String,
+    val typeCatalogs: List<DiscoverCatalog>,
+    val catalog: DiscoverCatalog?,
+    val genre: String?,
+) {
+    val selection get() = DiscoverSelection(catalog?.addonId, type, catalog?.id, genre)
+}
+
+/**
+ * Falls back to the first available type and catalog when the requested ones
+ * are missing, and keeps a genre only when the chosen catalog supports it.
+ */
+internal fun resolveDiscoverSelection(
+    catalogs: List<DiscoverCatalog>,
+    selection: DiscoverSelection,
+): ResolvedDiscoverSelection {
+    val types = catalogs.map(DiscoverCatalog::type).distinct()
+    val type = selection.type?.takeIf(types::contains) ?: types.firstOrNull().orEmpty()
+    val typeCatalogs = catalogs.filter { it.type == type }
+    val explicitlySelected = typeCatalogs.firstOrNull {
+        it.addonId == selection.addonId && it.id == selection.catalogId
+    }
+    val genreSelected = selection.genre?.let { requestedGenre ->
+        typeCatalogs.firstOrNull { it.supportsGenre && (it.genres.isEmpty() || requestedGenre in it.genres) }
+    }
+    val selected = explicitlySelected ?: genreSelected ?: typeCatalogs.firstOrNull()
+    val genre = selection.genre?.takeIf {
+        selected?.supportsGenre == true && (selected.genres.isEmpty() || it in selected.genres)
+    }
+        ?: selected?.genres?.firstOrNull()?.takeIf { selected.genreRequired }
+    return ResolvedDiscoverSelection(types, type, typeCatalogs, selected, genre)
+}
+
 internal sealed interface MobileBrowseTarget {
     data class Discover(val selection: DiscoverSelection) : MobileBrowseTarget
     data class Search(val query: String) : MobileBrowseTarget
@@ -384,21 +420,13 @@ internal fun SearchDiscoverScreen(
     modifier: Modifier = Modifier,
 ) {
     val catalogs = remember(addons) { discoverCatalogs(addons) }
-    val types = remember(catalogs) { catalogs.map(DiscoverCatalog::type).distinct() }
-    val type = selection.type?.takeIf(types::contains) ?: types.firstOrNull().orEmpty()
-    val typeCatalogs = remember(catalogs, type) { catalogs.filter { it.type == type } }
-    val explicitlySelected = typeCatalogs.firstOrNull {
-        it.addonId == selection.addonId && it.id == selection.catalogId
-    }
-    val genreSelected = selection.genre?.let { requestedGenre ->
-        typeCatalogs.firstOrNull { it.supportsGenre && (it.genres.isEmpty() || requestedGenre in it.genres) }
-    }
-    val selected = explicitlySelected ?: genreSelected ?: typeCatalogs.firstOrNull()
-    val genre = selection.genre?.takeIf {
-        selected?.supportsGenre == true && (selected.genres.isEmpty() || it in selected.genres)
-    }
-        ?: selected?.genres?.firstOrNull()?.takeIf { selected.genreRequired }
-    val normalizedSelection = DiscoverSelection(selected?.addonId, type, selected?.id, genre)
+    val resolved = remember(catalogs, selection) { resolveDiscoverSelection(catalogs, selection) }
+    val types = resolved.types
+    val type = resolved.type
+    val typeCatalogs = resolved.typeCatalogs
+    val selected = resolved.catalog
+    val genre = resolved.genre
+    val normalizedSelection = resolved.selection
     var results by remember(addons) { mutableStateOf<List<HomeCatalog>>(emptyList()) }
     var searchLoading by remember { mutableStateOf(false) }
     var discoverItems by remember { mutableStateOf<List<CatalogItem>>(emptyList()) }
@@ -595,7 +623,7 @@ private fun EmptyBrowseState(message: String) {
     }
 }
 
-private fun typeLabel(type: String): String = when (type.lowercase()) {
+internal fun typeLabel(type: String): String = when (type.lowercase()) {
     "movie" -> "Movie"
     "series" -> "Series"
     else -> type.replaceFirstChar(Char::uppercase)
@@ -759,6 +787,7 @@ internal fun MediaDetailsScreen(
     val uriHandler = LocalUriHandler.current
     val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
     var actionTarget by remember(item.id) { mutableStateOf<MediaActionTarget?>(null) }
+    val tv = LocalTvPresentation.current
 
     fun cancelStreamRequest() {
         streamRequestVersion += 1
@@ -1671,6 +1700,56 @@ internal fun MediaDetailsScreen(
         autoRecoverySavedSourceVideoIds = emptySet()
         onBack()
     }
+    fun selectStreamPageAddon(addonId: String?) {
+        val currentEffective = effectiveStreamAddonId(selectedStreamAddonId, streamAddonChoices)
+        val nextEffective = effectiveStreamAddonId(addonId, streamAddonChoices)
+        selectedStreamAddonId = addonId
+        onPreferencesChanged(preferences.copy(lastStreamAddonId = addonId))
+        if (currentEffective != nextEffective) requestStreams(selectedVideo, addonId = addonId)
+    }
+
+    /** Starts playback of a source chosen on the stream selection page. */
+    fun selectStreamFromPage(source: StreamSource) {
+        if (source.stream.url != null) {
+            val videoId = selectedVideo?.id ?: streamVideoId ?: item.id
+            val switchingCurrentSource = playbackSession.state.request?.identity ==
+                profile?.let { PlaybackIdentity(it.id, item.type, item.id, videoId) }
+            val previousResumePosition = resumePosition
+            val retainedPosition = sourceSwitchStartPosition(
+                session = playbackSession.state,
+                target = profile?.let { PlaybackIdentity(it.id, item.type, item.id, videoId) },
+                savedPositionMs = if (switchingCurrentSource) previousResumePosition else playbackStartPosition(progressForVideoId(videoId)),
+            )
+            if (playbackSession.state.request != null) {
+                playbackAttemptId = playbackSession.beginTransition(
+                    title = playbackTitle(
+                        title = selectedVideo?.displayTitle,
+                        fallback = meta?.name ?: item.name,
+                        season = selectedVideo?.season,
+                        episode = selectedVideo?.episode,
+                    ),
+                    mediaName = meta?.name ?: item.name,
+                    artwork = meta?.background ?: item.background ?: meta?.poster ?: item.poster,
+                    logo = meta?.logo,
+                    identity = profile?.let { PlaybackIdentity(it.id, item.type, item.id, videoId) },
+                )
+            }
+            currentAddonId = source.addonId
+            currentAddonName = source.addonName
+            val selectedSource = playbackSourceForStream(source.addonId, source.stream)
+            selectedPlaybackSources = selectedPlaybackSources + (videoId to selectedSource)
+            autoRecoveryVideoIds = autoRecoveryVideoIds - videoId
+            autoRecoverySavedSourceVideoIds = autoRecoverySavedSourceVideoIds - videoId
+            if (videoId == effectiveInitialVideoId) autoResumeAttemptedKey = autoResumeAttemptKey(selectedSource)
+            streamPageOpen = false
+            streams = null
+            streamsError = null
+            openingPlayback = true
+            playing = source.stream
+            resumePosition = retainedPosition
+            playbackReloadKey += 1L
+        }
+    }
     val ownsPlayback = requestIdentity != null && playbackSession.state.request?.identity == requestIdentity
     val interactiveBackAvailable = !waitingForSavedPlayback &&
         !openingPlayback &&
@@ -1717,7 +1796,7 @@ internal fun MediaDetailsScreen(
             }
             waitingForSavedPlayback -> cancelAutoResume()
             ownsPlayback && playbackSession.state.presentation == PlaybackPresentation.FullScreen -> {
-                playbackSession.leaveFullScreen(preferences.miniplayerOnBack)
+                playbackSession.leaveFullScreen(preferences.miniplayerOnBack && tv == null)
             }
             else -> {
                 interactiveBackRestore = onBackCancelled
@@ -1748,6 +1827,85 @@ internal fun MediaDetailsScreen(
         onBackCancelled = ::cancelNativeBack,
         interactiveBack = interactiveBackAvailable,
     )
+    val details = meta
+    val actionItem = details?.asCatalogItem() ?: item
+    val detailSeasons = details?.videos.orEmpty()
+        .mapNotNull(VideoItem::season)
+        .distinct()
+        .sortedWith(compareBy<Int> { if (it == 0) Int.MAX_VALUE else it })
+    val globalPlayTarget = detailsPlayTarget(
+        actionItem,
+        snapshot?.progress.orEmpty(),
+        details?.videos.orEmpty(),
+        details?.defaultVideoId,
+    )
+    val playTarget = selectedVideo?.let { video ->
+        val selectedProgress = progressForVideo(snapshot?.progress.orEmpty(), actionItem, video)
+        DetailsPlayTarget(video, detailsPlayLabel(actionItem, selectedProgress, video))
+    } ?: globalPlayTarget
+    LaunchedEffect(details?.id, playTarget.video?.season, detailSeasons, snapshot?.profileId) {
+        val targetSeason = playTarget.video?.season?.takeIf(detailSeasons::contains)
+            ?: detailSeasons.firstOrNull()
+        if (
+            selectedSeason == null ||
+            (snapshot != null && !detailsSeasonManuallySelected && selectedSeason != targetSeason)
+        ) {
+            selectedSeason = targetSeason
+        }
+    }
+    val saved = snapshot?.library.orEmpty().any { it.type == actionItem.type && it.id == actionItem.id }
+    if (tv != null) {
+        tv.Details(
+            TvDetailsModel(
+                item = actionItem,
+                meta = details,
+                error = error,
+                snapshot = snapshot,
+                saved = saved,
+                playLabel = playTarget.label,
+                playVideoId = playTarget.video?.id,
+                onPlay = { selectVideo(playTarget.video, autoPlaySavedSource = false) },
+                seasons = detailSeasons,
+                selectedSeason = selectedSeason,
+                onSelectSeason = { season ->
+                    detailsSeasonManuallySelected = true
+                    selectedSeason = season
+                },
+                onSelectEpisode = { video ->
+                    selectVideo(
+                        video,
+                        preferredSource = savedPlaybackSourceFor(video.id) ?: currentPlaybackSource(),
+                        streamBackToHome = false,
+                    )
+                },
+                streams = if (streamPageOpen) {
+                    TvStreamsModel(
+                        episode = selectedVideo,
+                        streams = streams.orEmpty(),
+                        addonChoices = streamAddonChoices,
+                        selectedAddonId = selectedStreamAddonId,
+                        resumeFrom = resumePositionLabel(resumePosition),
+                        loading = streamsLoading,
+                        error = streamsError,
+                        onSelectAddon = ::selectStreamPageAddon,
+                        onRetry = { requestStreams(selectedVideo, addonId = selectedStreamAddonId) },
+                        onSelect = ::selectStreamFromPage,
+                    )
+                } else {
+                    null
+                },
+                openingStatus = when {
+                    waitingForSavedPlayback -> "Finding source…"
+                    openingPlayback -> "Starting playback…"
+                    else -> null
+                },
+                onMutation = onMutation,
+                onBrowse = onBrowse,
+                onBack = ::performNativeBack,
+            ),
+        )
+        return
+    }
     if (waitingForSavedPlayback || openingPlayback) {
         Box(Modifier.fillMaxSize()) {
             PlayerOpeningOverlay(
@@ -1787,55 +1945,10 @@ internal fun MediaDetailsScreen(
                 resumeFrom = resumePositionLabel(resumePosition),
                 loading = streamsLoading,
                 error = streamsError,
-                onSelectAddon = { addonId ->
-                    val currentEffective = effectiveStreamAddonId(selectedStreamAddonId, streamAddonChoices)
-                    val nextEffective = effectiveStreamAddonId(addonId, streamAddonChoices)
-                    selectedStreamAddonId = addonId
-                    onPreferencesChanged(preferences.copy(lastStreamAddonId = addonId))
-                    if (currentEffective != nextEffective) requestStreams(selectedVideo, addonId = addonId)
-                },
+                onSelectAddon = ::selectStreamPageAddon,
                 onRetry = { requestStreams(selectedVideo, addonId = selectedStreamAddonId) },
-            ) { source ->
-                if (source.stream.url != null) {
-                    val videoId = selectedVideo?.id ?: streamVideoId ?: item.id
-                    val switchingCurrentSource = playbackSession.state.request?.identity ==
-                        profile?.let { PlaybackIdentity(it.id, item.type, item.id, videoId) }
-                    val previousResumePosition = resumePosition
-                    val retainedPosition = sourceSwitchStartPosition(
-                        session = playbackSession.state,
-                        target = profile?.let { PlaybackIdentity(it.id, item.type, item.id, videoId) },
-                        savedPositionMs = if (switchingCurrentSource) previousResumePosition else playbackStartPosition(progressForVideoId(videoId)),
-                    )
-                    if (playbackSession.state.request != null) {
-                        playbackAttemptId = playbackSession.beginTransition(
-                            title = playbackTitle(
-                                title = selectedVideo?.displayTitle,
-                                fallback = meta?.name ?: item.name,
-                                season = selectedVideo?.season,
-                                episode = selectedVideo?.episode,
-                            ),
-                            mediaName = meta?.name ?: item.name,
-                            artwork = meta?.background ?: item.background ?: meta?.poster ?: item.poster,
-                            logo = meta?.logo,
-                            identity = profile?.let { PlaybackIdentity(it.id, item.type, item.id, videoId) },
-                        )
-                    }
-                    currentAddonId = source.addonId
-                    currentAddonName = source.addonName
-                    val selectedSource = playbackSourceForStream(source.addonId, source.stream)
-                    selectedPlaybackSources = selectedPlaybackSources + (videoId to selectedSource)
-                    autoRecoveryVideoIds = autoRecoveryVideoIds - videoId
-                    autoRecoverySavedSourceVideoIds = autoRecoverySavedSourceVideoIds - videoId
-                    if (videoId == effectiveInitialVideoId) autoResumeAttemptedKey = autoResumeAttemptKey(selectedSource)
-                    streamPageOpen = false
-                    streams = null
-                    streamsError = null
-                    openingPlayback = true
-                    playing = source.stream
-                    resumePosition = retainedPosition
-                    playbackReloadKey += 1L
-                }
-            }
+                onSelect = ::selectStreamFromPage,
+            )
             MobileBackButton(
                 onClick = {
                     if (streamEpisodesOpen) streamEpisodesOpen = false else closeStreamPage()
@@ -1881,32 +1994,6 @@ internal fun MediaDetailsScreen(
         return
     }
 
-    val details = meta
-    val actionItem = details?.asCatalogItem() ?: item
-    val detailSeasons = details?.videos.orEmpty()
-        .mapNotNull(VideoItem::season)
-        .distinct()
-        .sortedWith(compareBy<Int> { if (it == 0) Int.MAX_VALUE else it })
-    val globalPlayTarget = detailsPlayTarget(
-        actionItem,
-        snapshot?.progress.orEmpty(),
-        details?.videos.orEmpty(),
-        details?.defaultVideoId,
-    )
-    val playTarget = selectedVideo?.let { video ->
-        val selectedProgress = progressForVideo(snapshot?.progress.orEmpty(), actionItem, video)
-        DetailsPlayTarget(video, detailsPlayLabel(actionItem, selectedProgress, video))
-    } ?: globalPlayTarget
-    LaunchedEffect(details?.id, playTarget.video?.season, detailSeasons, snapshot?.profileId) {
-        val targetSeason = playTarget.video?.season?.takeIf(detailSeasons::contains)
-            ?: detailSeasons.firstOrNull()
-        if (
-            selectedSeason == null ||
-            (snapshot != null && !detailsSeasonManuallySelected && selectedSeason != targetSeason)
-        ) {
-            selectedSeason = targetSeason
-        }
-    }
     val heroPullDp = with(LocalDensity.current) { heroPull.floatValue.toDp() }
     val heroScale = 1f + (heroPull.floatValue / maxHeroPullPx) * HeroMotion.expansionScale
     val heroHeight = if (item.type == "movie") 390.dp else 350.dp
@@ -1918,7 +2005,6 @@ internal fun MediaDetailsScreen(
                 detailsListState.firstVisibleItemScrollOffset >= detailHeaderCollapseOffset
         }
     }
-    val saved = snapshot?.library.orEmpty().any { it.type == actionItem.type && it.id == actionItem.id }
     val imdbId = listOfNotNull(details?.id, item.id).firstOrNull { id ->
         id.length > 2 && id.startsWith("tt") && id.drop(2).all(Char::isDigit)
     }
@@ -2739,12 +2825,12 @@ private fun WatchableSeasonChip(
     }
 }
 
-private fun effectiveStreamAddonId(selectedAddonId: String?, choices: List<StreamAddonChoice>): String? =
+internal fun effectiveStreamAddonId(selectedAddonId: String?, choices: List<StreamAddonChoice>): String? =
     selectedAddonId?.takeIf { selectedId -> choices.size > 1 && choices.any { it.id == selectedId } }
 
-private data class StreamCardCopy(val headline: String, val detailLines: List<String>)
+internal data class StreamCardCopy(val headline: String, val detailLines: List<String>)
 
-private fun StreamItem.streamCardCopy(): StreamCardCopy {
+internal fun StreamItem.streamCardCopy(): StreamCardCopy {
     val lines = listOfNotNull(name, title, description)
         .flatMap { value -> value.lineSequence().map { it.trim() }.filter(String::isNotBlank).toList() }
     val headline = lines.firstOrNull()
@@ -3273,26 +3359,7 @@ internal fun ProfileSettingsScreen(
     }
     LaunchedEffect(route) { onProfileFlowChanged(route != ProfileRoute.Settings) }
     DisposableEffect(Unit) { onDispose { onProfileFlowChanged(false) } }
-    val licenseNotices = if (platform.name.isIosPlatformName()) {
-        listOf(
-            "conduit Apple mobile application - GNU GPLv3",
-            "MPVKit and bundled libmpv/FFmpeg libraries - see upstream notices",
-            "Ktor - Apache License 2.0",
-            "Compose Multiplatform - Apache License 2.0",
-            "https://www.gnu.org/licenses/gpl-3.0.html",
-            "https://github.com/davidvanderklay/conduit/blob/main/apps/mobile/iosApp/LICENSE",
-            "https://github.com/davidvanderklay/conduit/blob/main/THIRD_PARTY_NOTICES.md",
-        )
-    } else {
-        listOf(
-            "conduit - MIT License",
-            "AndroidX Media3 - Apache License 2.0",
-            "Ktor - Apache License 2.0",
-            "Compose Multiplatform - Apache License 2.0",
-            "Coil - Apache License 2.0",
-            "https://github.com/davidvanderklay/conduit/blob/main/THIRD_PARTY_NOTICES.md",
-        )
-    }
+    val licenseNotices = licenseNotices(platform.name)
     fun navigateBack() {
         interactiveBackRoute = route
         interactiveBackHistoryFromLibrary = historyFromLibrary
@@ -3951,7 +4018,7 @@ private fun ProfileAvatar(profile: ProfileSummary?, size: Int, modifier: Modifie
     }
 }
 
-private fun profileColor(hex: String): Color = runCatching {
+internal fun profileColor(hex: String): Color = runCatching {
     Color((0xFF000000L or hex.removePrefix("#").toLong(16)).toInt())
 }.getOrDefault(Color(0xFFFFC107))
 
@@ -4126,6 +4193,28 @@ private fun Color.toHex(): String = "#${hexChannel(red)}${hexChannel(green)}${he
 private fun hexChannel(value: Float): String = (value * 255f).roundToInt().toString(16).uppercase().padStart(2, '0')
 
 internal fun normalizeManifestUrl(value: String): String = value.trim()
+
+/** Open-source notices shown in settings; the Apple build ships a different player stack and license. */
+internal fun licenseNotices(platformName: String): List<String> = if (platformName.isIosPlatformName()) {
+    listOf(
+        "conduit Apple mobile application - GNU GPLv3",
+        "MPVKit and bundled libmpv/FFmpeg libraries - see upstream notices",
+        "Ktor - Apache License 2.0",
+        "Compose Multiplatform - Apache License 2.0",
+        "https://www.gnu.org/licenses/gpl-3.0.html",
+        "https://github.com/davidvanderklay/conduit/blob/main/apps/mobile/iosApp/LICENSE",
+        "https://github.com/davidvanderklay/conduit/blob/main/THIRD_PARTY_NOTICES.md",
+    )
+} else {
+    listOf(
+        "conduit - MIT License",
+        "AndroidX Media3 - Apache License 2.0",
+        "Ktor - Apache License 2.0",
+        "Compose Multiplatform - Apache License 2.0",
+        "Coil - Apache License 2.0",
+        "https://github.com/davidvanderklay/conduit/blob/main/THIRD_PARTY_NOTICES.md",
+    )
+}
 
 @Composable
 private fun AddonManagerScreen(

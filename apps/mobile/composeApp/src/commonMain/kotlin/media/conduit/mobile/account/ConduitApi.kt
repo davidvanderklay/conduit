@@ -301,6 +301,9 @@ data class WatchPartySummary(
 data class WatchPartyInvite(val url: String, val expiresAt: String)
 
 @Serializable
+data class WatchPartyHandoff(val requestId: String, val expiresAt: String, val url: String)
+
+@Serializable
 data class WatchPartySessionResponse(
     val party: WatchPartySummary,
     val ticket: String,
@@ -626,6 +629,18 @@ data class MobileAuthStart(
 
 @Serializable
 data class MobileAuthExchange(val token: String, val expiresAt: String)
+
+/** A TV sign-in request: [verificationUrl] is shown as a QR code and [userCode] is confirmed on the phone. */
+@Serializable
+data class TvAuthStart(
+    val requestId: String,
+    val userCode: String,
+    val expiresAt: String,
+    val verificationUrl: String,
+)
+
+@Serializable
+private data class TvAuthExchange(val status: String, val token: String? = null, val expiresAt: String? = null)
 
 data class ValidatedServer(
     val authentication: AuthenticationConfiguration,
@@ -1139,6 +1154,20 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
         return response.body()
     }
 
+    /** Opens a request a phone can fill with an invitation link; [WatchPartyHandoff.url] is shown as a QR code. */
+    suspend fun startWatchPartyHandoff(baseUrl: String, token: String): WatchPartyHandoff {
+        val response = client.post("$baseUrl/v1/watch-parties/handoff") { bearerAuth(token) }
+        if (!response.status.isSuccess()) throw partyError(response, "Phone handoff is unavailable on this server")
+        return response.body()
+    }
+
+    /** Returns the invitation token once a phone has sent one, or null while still waiting. */
+    suspend fun collectWatchPartyHandoff(baseUrl: String, token: String, requestId: String): String? {
+        val response = client.post("$baseUrl/v1/watch-parties/handoff/$requestId/collect") { bearerAuth(token) }
+        if (!response.status.isSuccess()) throw partyError(response, "This request expired")
+        return response.body<JsonObject>()["token"]?.jsonPrimitive?.contentOrNull
+    }
+
     suspend fun createWatchPartyInvite(baseUrl: String, token: String, partyId: String, profileId: String): WatchPartyInvite {
         val response = client.post("$baseUrl/v1/watch-parties/$partyId/invites") { bearerAuth(token); contentType(ContentType.Application.Json); setBody(buildJsonObject { put("profileId", profileId) }) }
         if (!response.status.isSuccess()) throw partyError(response, "Unable to create invitation")
@@ -1463,6 +1492,28 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
             throw ServerRequestException("OAuth exchange was rejected", response.status.value)
         }
         return response.body()
+    }
+
+    suspend fun startTvAuth(baseUrl: String, challenge: String): TvAuthStart {
+        val response = client.post("$baseUrl/v1/auth/tv/start") {
+            contentType(ContentType.Application.Json)
+            setBody(buildJsonObject { put("codeChallenge", challenge) })
+        }
+        if (response.status.value == 404) throw ServerRequestException("This server does not support phone sign-in yet", 404)
+        if (!response.status.isSuccess()) throw ServerRequestException("Phone sign-in returned HTTP ${response.status.value}", response.status.value)
+        return response.body()
+    }
+
+    /** Returns null while the request still waits for approval on the phone. */
+    suspend fun exchangeTvAuth(baseUrl: String, requestId: String, verifier: String): MobileAuthExchange? {
+        val response = client.post("$baseUrl/v1/auth/tv/exchange") {
+            contentType(ContentType.Application.Json)
+            setBody(buildJsonObject { put("requestId", requestId); put("verifier", verifier) })
+        }
+        if (!response.status.isSuccess()) throw ServerRequestException("This sign-in request expired", response.status.value)
+        val exchange = response.body<TvAuthExchange>()
+        val token = exchange.token ?: return null
+        return MobileAuthExchange(token, exchange.expiresAt.orEmpty())
     }
 
     fun close() = client.close()

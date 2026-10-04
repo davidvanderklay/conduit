@@ -10,6 +10,12 @@ command -v cargo-ndk >/dev/null || {
   exit 1
 }
 
+# Android 15+ devices may use 16 KB memory pages. NDK r28 aligns to that by
+# default; setting it here keeps older NDKs producing compatible libraries.
+page_size_flags="-C link-arg=-Wl,-z,max-page-size=16384"
+export CARGO_TARGET_AARCH64_LINUX_ANDROID_RUSTFLAGS="$page_size_flags"
+export CARGO_TARGET_X86_64_LINUX_ANDROID_RUSTFLAGS="$page_size_flags"
+
 mkdir -p "$out"
 cargo ndk \
   --manifest-path "$repo_root/packages/mobile-bridge/Cargo.toml" \

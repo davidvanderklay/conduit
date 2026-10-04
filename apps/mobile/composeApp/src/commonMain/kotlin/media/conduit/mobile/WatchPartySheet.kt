@@ -4,7 +4,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
@@ -43,6 +46,7 @@ internal fun BoxScope.WatchPartySheet(controller: WatchPartySessionController, a
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var shared by remember { mutableStateOf(false) }
+    var handoff by remember { mutableStateOf<WatchPartyHandoff?>(null) }
     LaunchedEffect(controller.profileId) {
         runCatching { api.listWatchParties(controller.baseUrl, token, controller.profileId) }
             .onSuccess { parties = it }.onFailure { error = "Watch parties are unavailable on this server" }
@@ -61,8 +65,15 @@ internal fun BoxScope.WatchPartySheet(controller: WatchPartySessionController, a
         }
     }
     PlatformBackHandler(enabled = true, onBack = { controller.sheetOpen = false })
+    val tv = LocalTvPresentation.current
+    val panelFocus = remember { FocusRequester() }
+    // A remote has no pointer, so on TV the panel takes focus as it opens.
+    if (tv != null) LaunchedEffect(controller.party?.id) {
+        withFrameNanos { }
+        runCatching { panelFocus.requestFocus() }
+    }
     Box(Modifier.matchParentSize().background(Color.Black.copy(if (inPlayer) .25f else .6f))) {
-        Box(Modifier.matchParentSize().clickable(onClick = { controller.sheetOpen = false }))
+        Box(Modifier.matchParentSize().onTap { controller.sheetOpen = false })
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val sidebar = inPlayer && maxWidth > maxHeight
             val panelWidth = (maxWidth * .9f).coerceAtMost(384.dp)
@@ -74,12 +85,12 @@ internal fun BoxScope.WatchPartySheet(controller: WatchPartySessionController, a
                 shape = if (sidebar) RoundedCornerShape(topStart = 28.dp, bottomStart = 28.dp) else RoundedCornerShape(20.dp),
                 shadowElevation = 20.dp,
             ) {
-                Column(Modifier.fillMaxWidth().then(if (sidebar) Modifier.fillMaxHeight().statusBarsPadding().navigationBarsPadding() else Modifier).padding(horizontal = 24.dp, vertical = if (sidebar) 12.dp else 24.dp)) {
+                Column(Modifier.fillMaxWidth().then(if (sidebar) Modifier.fillMaxHeight().statusBarsPadding().navigationBarsPadding() else Modifier).padding(horizontal = 24.dp, vertical = if (sidebar) 12.dp else 24.dp).focusRequester(panelFocus).focusTrap(enabled = tv != null)) {
                     Row(Modifier.fillMaxWidth().padding(bottom = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Rounded.People, null, tint = partyAmber, modifier = Modifier.size(22.dp))
                         Spacer(Modifier.width(12.dp))
                         Text("Watch together", modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-                        IconButton(onClick = { controller.sheetOpen = false }) { Icon(Icons.Rounded.Close, "Close watch party", tint = Color.White.copy(.65f)) }
+                        IconButton(onClick = { controller.sheetOpen = false }, modifier = Modifier.focusRing(CircleShape)) { Icon(Icons.Rounded.Close, "Close watch party", tint = Color.White.copy(.65f)) }
                     }
                     val active = controller.party
                     if (active != null) {
@@ -114,7 +125,7 @@ internal fun BoxScope.WatchPartySheet(controller: WatchPartySessionController, a
                         HorizontalDivider(color = Color.White.copy(.1f))
                         Column(Modifier.fillMaxWidth().padding(top = 16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             if (active.isHost && active.mode == "shared") {
-                                Button(enabled = !busy, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp), colors = ButtonDefaults.buttonColors(containerColor = partyAmber, contentColor = Color.Black), onClick = {
+                                Button(enabled = !busy, modifier = Modifier.fillMaxWidth().focusRing(RoundedCornerShape(8.dp), Color.White), shape = RoundedCornerShape(8.dp), colors = ButtonDefaults.buttonColors(containerColor = partyAmber, contentColor = Color.Black), onClick = {
                                     if (invite != null) { clipboard.setText(AnnotatedString(invite!!)); copied = true }
                                     else run { invite = api.createWatchPartyInvite(controller.baseUrl, token, active.id, controller.profileId).url }
                                 }) {
@@ -122,14 +133,21 @@ internal fun BoxScope.WatchPartySheet(controller: WatchPartySessionController, a
                                     Spacer(Modifier.width(8.dp))
                                     Text(if (invite == null) "Create invite" else if (copied) "Copied" else "Copy invite")
                                 }
+                                // A TV cannot paste into a chat, so the invite is shown for a phone to scan.
+                                invite?.takeIf { tv != null }?.let { link ->
+                                    Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                        tv?.QrCode(link, Modifier.size(104.dp))
+                                        Text("Scan to join", style = MaterialTheme.typography.bodySmall, color = Color.White.copy(.7f))
+                                    }
+                                }
                             }
-                            TextButton(enabled = !busy, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp), colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFFCA5A5)), onClick = { run { controller.leave(); controller.sheetOpen = false } }) { Text(if (active.isHost) "End party" else "Leave party") }
+                            TextButton(enabled = !busy, modifier = Modifier.fillMaxWidth().focusRing(RoundedCornerShape(8.dp)), shape = RoundedCornerShape(8.dp), colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFFCA5A5)), onClick = { run { controller.leave(); controller.sheetOpen = false } }) { Text(if (active.isHost) "End party" else "Leave party") }
                         }
                     } else {
                         Column(Modifier.weight(1f, fill = sidebar).fillMaxWidth().verticalScroll(rememberScrollState())) {
                             listOf(false, true).forEach { option ->
                                 val selected = shared == option
-                                Surface(onClick = { shared = option }, color = if (selected) partyAmber else Color.Transparent, contentColor = if (selected) Color.Black else Color.White, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp)) {
+                                Surface(onClick = { shared = option }, color = if (selected) partyAmber else Color.Transparent, contentColor = if (selected) Color.Black else Color.White, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp).focusRing(RoundedCornerShape(12.dp), Color.White)) {
                                     Row(Modifier.padding(12.dp).heightIn(min = 42.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                         Icon(if (option) Icons.Rounded.Link else Icons.Rounded.Home, null, Modifier.size(18.dp))
                                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -140,7 +158,7 @@ internal fun BoxScope.WatchPartySheet(controller: WatchPartySessionController, a
                                     }
                                 }
                             }
-                            Button(enabled = !busy, modifier = Modifier.fillMaxWidth().padding(top = 12.dp), shape = RoundedCornerShape(8.dp), colors = ButtonDefaults.buttonColors(containerColor = partyAmber, contentColor = Color.Black), onClick = {
+                            Button(enabled = !busy, modifier = Modifier.fillMaxWidth().padding(top = 12.dp).focusRing(RoundedCornerShape(8.dp), Color.White), shape = RoundedCornerShape(8.dp), colors = ButtonDefaults.buttonColors(containerColor = partyAmber, contentColor = Color.Black), onClick = {
                                 run {
                                     val response = api.createWatchParty(controller.baseUrl, token, controller.profileId, if (shared) "shared" else "private")
                                     invite = response.invite?.url
@@ -154,15 +172,44 @@ internal fun BoxScope.WatchPartySheet(controller: WatchPartySessionController, a
                                         Text(party.media?.title ?: "Waiting for media", style = MaterialTheme.typography.bodyMedium)
                                         Text("${party.memberCount} watching", style = MaterialTheme.typography.bodySmall, color = Color.White.copy(.6f))
                                     }
-                                    OutlinedButton(enabled = !busy, shape = RoundedCornerShape(8.dp), onClick = { run { controller.join(api.joinWatchParty(controller.baseUrl, token, party.id, controller.profileId)) } }) { Text("Join", color = Color.White) }
+                                    OutlinedButton(enabled = !busy, shape = RoundedCornerShape(8.dp), modifier = Modifier.focusRing(RoundedCornerShape(8.dp)), onClick = { run { controller.join(api.joinWatchParty(controller.baseUrl, token, party.id, controller.profileId)) } }) { Text("Join", color = Color.White) }
+                                }
+                            }
+                        }
+                        // A TV cannot paste a link, so a phone sends the invitation through a scanned code.
+                        if (tv != null) {
+                            val pendingHandoff = handoff
+                            if (pendingHandoff == null) {
+                                TextButton(enabled = !busy, modifier = Modifier.fillMaxWidth().padding(top = 8.dp).focusRing(RoundedCornerShape(8.dp)), onClick = {
+                                    run { handoff = api.startWatchPartyHandoff(controller.baseUrl, token) }
+                                }) { Text("Send an invite from your phone", color = Color.White) }
+                            } else {
+                                LaunchedEffect(pendingHandoff.requestId) {
+                                    try {
+                                        while (true) {
+                                            kotlinx.coroutines.delay(2_500)
+                                            val invite = api.collectWatchPartyHandoff(controller.baseUrl, token, pendingHandoff.requestId) ?: continue
+                                            controller.join(api.acceptWatchPartyInvite(controller.baseUrl, token, invite, controller.profileId))
+                                            break
+                                        }
+                                    } catch (cancelled: CancellationException) {
+                                        throw cancelled
+                                    } catch (failure: Exception) {
+                                        error = failure.message ?: "Unable to join from your phone"
+                                    }
+                                    handoff = null
+                                }
+                                Row(Modifier.padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    tv.QrCode(pendingHandoff.url, Modifier.size(104.dp))
+                                    Text("Scan, then paste the invitation link on your phone", style = MaterialTheme.typography.bodySmall, color = Color.White.copy(.7f))
                                 }
                             }
                         }
                         HorizontalDivider(color = Color.White.copy(.1f))
-                        Text("Join a party", Modifier.padding(top = 16.dp, bottom = 12.dp), style = MaterialTheme.typography.labelMedium, color = Color.White.copy(.8f))
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedTextField(input, { input = it }, placeholder = { Text("Paste invite link", style = MaterialTheme.typography.bodySmall) }, singleLine = true, modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp), colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = partyAmber, focusedTextColor = Color.White, unfocusedTextColor = Color.White))
-                            TextButton(enabled = !busy && input.isNotBlank(), onClick = {
+                        if (handoff == null) Text("Join a party", Modifier.padding(top = 16.dp, bottom = 12.dp), style = MaterialTheme.typography.labelMedium, color = Color.White.copy(.8f))
+                        if (handoff == null) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(input, { input = it }, placeholder = { Text("Paste invite link", style = MaterialTheme.typography.bodySmall) }, singleLine = true, modifier = Modifier.weight(1f).dpadLeavesField(), shape = RoundedCornerShape(8.dp), colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = partyAmber, focusedTextColor = Color.White, unfocusedTextColor = Color.White))
+                            TextButton(enabled = !busy && input.isNotBlank(), modifier = Modifier.focusRing(RoundedCornerShape(8.dp)), onClick = {
                                 run { controller.join(api.acceptWatchPartyInvite(controller.baseUrl, token, watchPartyInviteToken(input, controller.baseUrl), controller.profileId)) }
                             }) { Text("Join", color = if (input.isNotBlank()) Color.White else Color.Gray) }
                         }

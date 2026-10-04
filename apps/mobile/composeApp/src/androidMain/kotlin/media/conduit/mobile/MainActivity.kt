@@ -19,7 +19,10 @@ import androidx.activity.compose.setContent
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.compose.runtime.CompositionLocalProvider
 import media.conduit.mobile.account.MobileOAuthCallbacks
+import media.conduit.mobile.tv.ConduitTvPresentation
+import media.conduit.mobile.tv.isTelevision
 import java.lang.ref.WeakReference
 
 class MainActivity : ComponentActivity() {
@@ -40,7 +43,8 @@ class MainActivity : ComponentActivity() {
             navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
         )
         MobileOAuthCallbacks.capture(intent)
-        setContent { App() }
+        val tv = ConduitTvPresentation.takeIf { isTelevision() }
+        setContent { CompositionLocalProvider(LocalTvPresentation provides tv) { App() } }
     }
 
     internal fun setConduitImmersivePlayback(enabled: Boolean) {

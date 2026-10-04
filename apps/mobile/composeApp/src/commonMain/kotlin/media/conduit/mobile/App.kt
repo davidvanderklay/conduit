@@ -302,6 +302,12 @@ private fun AccountGate(
                         .onFailure { dispatch(AppAction.ConnectionFailed(it.message ?: "Unable to connect to this conduit server")) }
                 }
             },
+            onStartTvPairing = { repository.startTvPairing(endpoint, oauthPlatform.createPkce()) },
+            onPollTvPairing = { pairing ->
+                val signedIn = repository.pollTvPairing(endpoint, pairing)
+                if (signedIn != null) account = signedIn
+                signedIn != null
+            },
         )
         is AccountStatus.SignedIn -> {
             if (current.bootstrap.households.isEmpty()) {
@@ -368,6 +374,7 @@ private fun AccountGate(
 
 @Composable
 private fun RecoveryCodesScreen(codes: List<String>, onSaved: () -> Unit) {
+    LocalTvPresentation.current?.let { it.RecoveryCodes(codes, onSaved); return }
     val clipboard = LocalClipboardManager.current
     Surface(Modifier.fillMaxSize()) {
         Column(
@@ -396,6 +403,7 @@ private fun RecoveryCodesScreen(codes: List<String>, onSaved: () -> Unit) {
 
 @Composable
 private fun HouseholdSetup(onCreate: (String, String) -> Unit) {
+    LocalTvPresentation.current?.let { it.HouseholdSetup(onCreate); return }
     var household by remember { mutableStateOf("Home") }
     var profile by remember { mutableStateOf("") }
     var pending by remember { mutableStateOf(false) }
@@ -501,7 +509,32 @@ private fun SignInScreen(
     serverError: String?,
     serverPending: Boolean,
     onConnectServer: (String) -> Unit,
+    onStartTvPairing: suspend () -> TvPairing,
+    onPollTvPairing: suspend (TvPairing) -> Boolean,
 ) {
+    LocalTvPresentation.current?.let { tv ->
+        LaunchedEffect(serverNotice) { if (serverNotice != null) onDismissServerNotice() }
+        tv.SignIn(
+            TvSignInModel(
+                endpoint = endpoint,
+                authentication = authentication,
+                error = initialError,
+                authenticationLoading = authenticationLoading,
+                authenticationReady = authenticationReady,
+                authenticationError = authenticationError,
+                onRetryAuthentication = onRetryAuthentication,
+                onSignIn = onSignIn,
+                onRegister = onRegister,
+                onRecover = onRecover,
+                serverError = serverError,
+                serverPending = serverPending,
+                onConnectServer = onConnectServer,
+                onStartPairing = onStartTvPairing,
+                onPollPairing = onPollTvPairing,
+            ),
+        )
+        return
+    }
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var error by remember(initialError) { mutableStateOf(initialError) }
@@ -669,6 +702,7 @@ private fun ServerChoiceRow(title: String, detail: String, selected: Boolean, on
 
 @Composable
 private fun ConnectionError(message: String, onRetry: () -> Unit, onChangeServer: () -> Unit) {
+    LocalTvPresentation.current?.let { it.ConnectionError(message, onRetry, onChangeServer); return }
     Surface(Modifier.fillMaxSize()) {
         Column(
             Modifier.fillMaxSize().padding(24.dp),
@@ -698,6 +732,7 @@ private fun ServerSetup(state: AppState, dispatch: (AppAction) -> Unit) {
                 )
             }
     }
+    LocalTvPresentation.current?.let { it.ServerSetup(state, dispatch); return }
     Surface(Modifier.fillMaxSize()) {
         BoxWithConstraints(Modifier.fillMaxSize().safeContentPadding().imePadding()) {
             Column(
@@ -1129,7 +1164,70 @@ private fun AppShell(
                 snackbarHostState.showSnackbar(notice)
             }
         }
-        Scaffold(
+        val tv = LocalTvPresentation.current
+        if (tv != null) {
+            tv.Shell(
+                TvShellModel(
+                    state = state,
+                    platform = platform,
+                    account = account,
+                    profiles = profiles,
+                    activeProfile = activeProfile,
+                    sync = profileSync,
+                    api = api,
+                    preferences = preferences,
+                    onPreferencesChanged = onPreferencesChanged,
+                    homeCache = homeCache,
+                    notices = snackbarHostState,
+                    playbackSession = playbackSession,
+                    detailsOpen = selectedMedia != null,
+                    details = {
+                        selectedMedia?.let { media ->
+                            key(MediaDetailsInstanceKey(media.type, media.id, selectedVideoId, selectedMediaOpenMode)) {
+                                MediaDetailsScreen(
+                                    item = media,
+                                    initialVideoId = selectedVideoId,
+                                    returnToHomeOnStreamBack = selectedMediaReturnsToOrigin,
+                                    openMode = selectedMediaOpenMode,
+                                    addons = profileSync.snapshot?.addons.orEmpty(),
+                                    api = api,
+                                    progressOutbox = progressOutbox,
+                                    profile = activeProfile,
+                                    snapshot = profileSync.snapshot,
+                                    baseUrl = endpoint.baseUrl,
+                                    token = account.session.token,
+                                    accountId = accountId,
+                                    preferences = preferences,
+                                    onPreferencesChanged = onPreferencesChanged,
+                                    onProgressChanged = onPlaybackProgressChanged,
+                                    onMutation = ::mutateProfile,
+                                    onBrowse = openBrowse,
+                                    onPlayQueueItem = openQueuedItem,
+                                    onBack = closeSelectedMedia,
+                                    playbackSession = playbackSession,
+                                )
+                            }
+                        }
+                    },
+                    browseQuery = browseQuery,
+                    onBrowseQueryChange = { browseQuery = it },
+                    discoverSelection = discoverSelection,
+                    onDiscoverSelectionChange = { discoverSelection = it },
+                    onOpenMedia = selectMedia,
+                    onResume = openLibraryEntry,
+                    onOpenResumeDetails = openContinueWatchingDetails,
+                    onPlayQueued = openQueuedItem,
+                    onMutation = ::mutateProfile,
+                    onRefresh = refreshProfileData,
+                    dispatch = dispatch,
+                    onSignOut = onSignOut,
+                    onProfilesChanged = onProfilesChanged,
+                    shareText = shareText,
+                    onWatchParty = watchParty?.let { party -> { party.sheetOpen = true } },
+                    overlayOpen = watchParty?.sheetOpen == true,
+                ),
+            )
+        } else Scaffold(
             snackbarHost = {
                 SnackbarHost(snackbarHostState) { data -> ConduitSnackbar(data) }
             },
@@ -1198,7 +1296,9 @@ private fun AppShell(
             (if (profileSync.snapshot == null) {
                 profileSync.refreshing && profileSync.error == null
             } else {
-                homeCache.result.value == null && homeCache.catalogError.value == null
+                // The TV composes only the active page, so home catalogs load only while Home is showing.
+                (tv == null || state.destination == AppDestination.Home) &&
+                    homeCache.result.value == null && homeCache.catalogError.value == null
             })
         val playbackAllowsAppChrome = playbackSession.state.presentation in setOf(
             PlaybackPresentation.Closed,
@@ -1216,7 +1316,7 @@ private fun AppShell(
             AppDestination.Profile,
             AppDestination.ContinueWatching,
         )
-        if (topChromeVisible) {
+        if (tv == null && topChromeVisible) {
             MainTopBar(
                 profiles = profiles,
                 activeProfile = activeProfile,
@@ -1247,7 +1347,7 @@ private fun AppShell(
         val appBottomNavigationVisible = !initialLoading && !expanded && bottomChromeVisible &&
             (!profileFlowActive || state.destination == AppDestination.Profile) &&
             !keyboardVisible
-        if (!expanded) {
+        if (tv == null && !expanded) {
             // Adaptive remains the phone default. On iPad it resolves to the
             // full-width native tab bar unless the user explicitly chooses the
             // expanded floating treatment.
@@ -1292,7 +1392,7 @@ private fun AppShell(
             onMutation = ::mutateProfile,
             skipSegmentsRepository = remember { SkipSegmentsRepository() },
         )
-        if (queueManagerOpen && playbackSession.state.request == null) {
+        if (tv == null && queueManagerOpen && playbackSession.state.request == null) {
             PlaybackQueueDrawer(
                 items = profileSync.snapshot?.queue.orEmpty(),
                 onClose = { queueManagerOpen = false },
@@ -1575,6 +1675,10 @@ private fun BoxScope.PlaybackSessionHost(
     val scope = rememberCoroutineScope()
     val session = controller.state
     val watchParty = LocalWatchParty.current
+    val tv = LocalTvPresentation.current
+    // A television has no touch surface to restore a mini player from.
+    val miniplayerOnBack = preferences.miniplayerOnBack && tv == null
+    val engineBridge = remember { PlayerEngineBridge() }
     val request = session.request ?: return
     val upNext = playbackUpNext(request, snapshot?.queue.orEmpty())
     SideEffect {
@@ -1754,7 +1858,7 @@ private fun BoxScope.PlaybackSessionHost(
             }
             else -> {
                 if (session.transition != null) controller.close()
-                else controller.leaveFullScreen(preferences.miniplayerOnBack)
+                else controller.leaveFullScreen(miniplayerOnBack)
             }
         }
     }
@@ -1840,7 +1944,7 @@ private fun BoxScope.PlaybackSessionHost(
             .offset { renderedMiniOffset }
             .width(miniWidthDp.dp)
             .aspectRatio(miniAspectRatio)
-        val playerModifier = if (fullScreen || systemPip) {
+        val playerModifier = if (fullScreen || systemPip || tv != null) {
             Modifier.fillMaxSize()
         } else {
             miniLayout.clip(RoundedCornerShape(10.dp))
@@ -1849,6 +1953,7 @@ private fun BoxScope.PlaybackSessionHost(
         // Nuvio follows this lifecycle: the existing surface stays attached and
         // the bridge receives a new URL, avoiding a second UIKit/Metal startup
         // race on the Next path.
+        CompositionLocalProvider(LocalPlayerEngineBridge provides engineBridge.takeIf { tv != null }) {
         NativePlayer(
             url = request.url,
             loadId = session.sessionId,
@@ -1877,7 +1982,7 @@ private fun BoxScope.PlaybackSessionHost(
             subtitleStyle = preferences.subtitleStyle,
             onSubtitleStyleChanged = { onPreferencesChanged(preferences.copy(subtitleStyle = it)) },
             androidPlaybackEngine = preferences.androidPlaybackEngine,
-            onControlsVisibilityChanged = { controlsVisible = it },
+            onControlsVisibilityChanged = { if (tv == null) controlsVisible = it },
             onOverlayVisibilityChanged = { playerOverlayVisible = it },
             onTemporarySpeedChanged = { temporarySpeedActive = it },
             onSystemPipChanged = controller::systemPipChanged,
@@ -1892,6 +1997,7 @@ private fun BoxScope.PlaybackSessionHost(
                 )
             },
         )
+        }
 
         if (shouldHideInlinePlaybackForPip(systemPip, systemPipKeepsAppVisible)) {
             // The native player must keep decoding for PiP, but its inline
@@ -1899,7 +2005,38 @@ private fun BoxScope.PlaybackSessionHost(
             Box(Modifier.matchParentSize().background(Color.Black))
         }
 
-        if (fullScreen || pipHandoffVisible) {
+        if (tv != null) {
+            tv.PlayerOverlays(
+                this,
+                TvPlayerModel(
+                    controller = controller,
+                    session = session,
+                    request = request,
+                    snapshot = snapshot,
+                    onMutation = onMutation,
+                    openingTitle = playbackTransition?.title ?: request.mediaName,
+                    openingArtwork = playbackTransition?.artwork ?: coverRequest?.artwork,
+                    openingLogo = playbackTransition?.logo ?: coverRequest?.logo,
+                    openingStatus = transitionStatus,
+                    opening = playbackTransition != null || (initialPlaybackLoad && !presentPlaybackError),
+                    buffering = playbackTransition == null && session.playback.buffering &&
+                        !initialPlaybackLoad && !presentPlaybackError,
+                    error = (session.playback.error ?: session.recoveryError).takeIf { presentPlaybackError },
+                    upNext = upNext.takeIf { upNextVisible },
+                    onDismissUpNext = { upNextDismissed = true },
+                    hasNext = upNext != null && !controller.partyGuest,
+                    skip = activeSkip.takeIf { skipPromptVisible },
+                    engine = engineBridge,
+                    onWatchParty = watchParty?.let { party -> { party.sheetOpen = true } },
+                    overlayOpen = watchParty?.sheetOpen == true,
+                    onControlsVisibilityChanged = { controlsVisible = it },
+                    onClose = {
+                        if (controller.state.transition != null) controller.close()
+                        else controller.leaveFullScreen(miniplayerOnBack)
+                    },
+                ),
+            )
+        } else if (fullScreen || pipHandoffVisible) {
             if (playbackTransition != null || (initialPlaybackLoad && !presentPlaybackError)) {
                 PlayerOpeningOverlay(
                     artwork = playbackTransition?.artwork ?: coverRequest?.artwork,

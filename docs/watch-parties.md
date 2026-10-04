@@ -15,3 +15,17 @@ Run a single API replica for watch parties. Playback state and sockets are held 
 ## Platform validation
 
 Browser, Linux Electron/libmpv, and Android playback have been exercised against an isolated server and local media fixture. Shared Kotlin tests cover timeline projection, invite endpoint validation, and guest transport restrictions. iOS uses the shared session and native player bridge, but its build and runtime require verification on macOS and an iOS device.
+
+## Joining from a TV
+
+A TV cannot paste an invitation link. In the Watch together panel it can show a
+QR code instead: the signed-in TV calls `POST /v1/watch-parties/handoff`, a
+phone opens the returned link and pastes the invitation, and the TV collects it
+with `POST /v1/watch-parties/handoff/:id/collect` and accepts it as usual. The
+request lasts five minutes, can be filled once, and is collected only by the
+account that created it. Like the live party timeline, pending requests live in
+the API process.
+
+A TV host shares an invitation the same way in reverse: the panel shows the
+invitation link as a QR code for a guest to scan.
+

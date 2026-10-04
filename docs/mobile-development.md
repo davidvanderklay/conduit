@@ -135,6 +135,51 @@ On NixOS, Android's generic Linux binaries may need an FHS environment. If
 AAPT2 or the NDK compiler cannot start, stop existing Gradle daemons and run
 the Gradle command inside an appropriate `steam-run` or equivalent FHS shell.
 
+## Android TV
+
+The same APK runs on Android TV and Google TV. `MainActivity` detects the
+television UI mode and installs the TV presentation
+(`composeApp/src/androidMain/kotlin/media/conduit/mobile/tv`); phones and tablets
+keep the mobile interface. The manifest declares the Leanback launcher entry, a
+home-screen banner, and optional touch input.
+
+The TV screens are a separate presentation over the shared logic. Account,
+profile sync, stream resolution, and the playback session stay in the shared
+composables, which hand their state to `TvPresentation` at a few render points
+(`TvPresentation.kt` in `commonMain`). Add TV behavior there rather than
+forking the shared logic.
+
+Every control must work with a remote:
+
+- D-pad moves focus, Select activates, Back closes the top layer first.
+- A long press of Select, or the Menu key, opens the action menu for a title.
+- In the player, with controls hidden, Left and Right seek, Select toggles
+  playback, and Up or Down shows the controls.
+- Text fields open the on-screen keyboard on Select and release focus on Up
+  and Down.
+
+Test with real key events, not accessibility clicks:
+
+```sh
+adb shell input keyevent KEYCODE_DPAD_DOWN
+adb shell input keyevent KEYCODE_DPAD_CENTER
+adb shell input keyevent --longpress KEYCODE_DPAD_CENTER
+adb shell input keyevent KEYCODE_BACK
+```
+
+Events injected this way come from a virtual keyboard, so TV code must not
+depend on the input device reporting a D-pad source.
+
+A TV usually has no browser, clipboard, or share sheet. Sign-in with a phone
+uses the pairing flow in [Authentication](authentication.md#television-sign-in),
+and watch-party invitations are shared and received through QR codes
+([Watch parties](watch-parties.md#joining-from-a-tv)). The mini player, touch
+gestures, and hold-to-speed are not offered on TV. Profile import and export
+and the web-only preferences are tracked separately and are not on TV yet.
+
+Hardware decoding, HDR, audio passthrough, and real remotes still need a
+physical-device pass; the emulator covers navigation and ordinary playback.
+
 ## iOS development
 
 Install Xcode and its command-line tools, XcodeGen, JDK 17, and Rust through
