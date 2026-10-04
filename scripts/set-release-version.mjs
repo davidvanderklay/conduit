@@ -12,6 +12,7 @@ const metainfoPath = new URL("../flatpak/media.conduit.desktop.metainfo.xml", im
 // Bump Electron desktop version
 const desktopPackage = JSON.parse(fs.readFileSync(desktopPackagePath, "utf8"))
 desktopPackage.version = version
+desktopPackage.build.publish.channel = version.includes("-nightly.") ? "nightly" : "latest"
 fs.writeFileSync(desktopPackagePath, `${JSON.stringify(desktopPackage, null, 2)}\n`)
 
 const cargo = fs.readFileSync(electronNativeCargoPath, "utf8")

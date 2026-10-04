@@ -199,6 +199,8 @@ modules:
       - mkdir -p /app/lib/conduit/resources/app/electron /app/lib/conduit/resources/web
       - unzip -q flatpak-node/cache/electron/electron-v*-linux-*.zip -d /app/lib/conduit
       - mv /app/lib/conduit/electron /app/lib/conduit/conduit
+      - node pnpm/bin/pnpm.cjs --filter @conduit/desktop deploy --prod --legacy --offline /run/build/conduit/desktop-runtime
+      - cp -a /run/build/conduit/desktop-runtime/node_modules /app/lib/conduit/resources/app/
       - cp -a apps/desktop/electron/dist /app/lib/conduit/resources/app/electron/
       - cp -a apps/web/dist/. /app/lib/conduit/resources/web/
       - install -Dm644 apps/desktop/package.json /app/lib/conduit/resources/app/package.json
@@ -238,6 +240,7 @@ modules:
           - export LD_LIBRARY_PATH="/app/lib64:/app/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
           # Flatpak is the outer application sandbox; Electron's setuid sandbox
           # cannot initialize inside it without a Zypak-enabled base app.
+          - export CONDUIT_FLATPAK_TRACK=stable
           - exec /app/lib/conduit/conduit --ozone-platform="$CONDUIT_ELECTRON_OZONE" --no-sandbox "$@"
       - type: dir
         path: ..

@@ -17,6 +17,7 @@ import { promises as fs } from "node:fs"
 import path from "node:path"
 import { createRequire } from "node:module"
 import { pathToFileURL } from "node:url"
+import { DesktopUpdates } from "./updates"
 import { createPlaybackInhibitor } from "./playback-inhibition"
 
 protocol.registerSchemesAsPrivileged([
@@ -270,6 +271,7 @@ let mainWindow: BrowserWindow | undefined
 let playerOverlayWindow: BrowserWindow | undefined
 let playerOverlayMedia: PlayerOverlayMedia | undefined
 let nativePlayer: NativePlayerClient | undefined
+let desktopUpdates: DesktopUpdates | undefined
 let authServer: Server | undefined
 let devWebServer: ChildProcess | undefined
 let playerOverlayVisibilityTimer: NodeJS.Timeout | undefined
@@ -1012,6 +1014,7 @@ async function invoke(command: string, args: Record<string, unknown> = {}): Prom
   if (command === "player_reset_overlay_surface") return null
 
   if (command === "player_open") {
+    if (desktopUpdates?.getStatus().phase === "downloading") await desktopUpdates.cancel()
     if (!mainWindow) throw new Error("Main window is unavailable.")
     playbackInhibitor.setPlaying(false)
     const { watchPartyContext: rawWatchPartyContext, ...playerArgs } = args
@@ -1096,6 +1099,20 @@ function registerIpcHandlers() {
     if (!isTrustedIpcSender(event, true)) throw new Error("Untrusted renderer")
     return invoke(command, args)
   })
+  ipcMain.handle("conduit:updates", async (event, command: unknown, args: unknown) => {
+    if (!isTrustedIpcSender(event) || !mainWindow || event.sender.id !== mainWindow.webContents.id) throw new Error("Untrusted renderer")
+    if (!desktopUpdates) throw new Error("Updater unavailable")
+    const values = args && typeof args === "object" ? args as Record<string, unknown> : {}
+    switch (command) {
+      case "status": return desktopUpdates.getStatus()
+      case "check": return desktopUpdates.check()
+      case "configure": return desktopUpdates.configure(values.track, values.enabled)
+      case "download": return desktopUpdates.download(values.serverApiLevel)
+      case "cancel": return desktopUpdates.cancel()
+      case "install": return desktopUpdates.install(values.serverApiLevel)
+      default: throw new Error("Unknown updater command")
+    }
+  })
   ipcMain.handle("conduit:choose-save-path", async (event, suggestedName: string) => {
     if (!isTrustedIpcSender(event)) throw new Error("Untrusted renderer")
     if (!mainWindow) throw new Error("Main window is unavailable.")
@@ -1123,6 +1140,7 @@ function registerIpcHandlers() {
 }
 
 async function closeResources() {
+  desktopUpdates?.close()
   authServer?.close()
   authServer = undefined
   closePlayerOverlay()
@@ -1144,6 +1162,8 @@ void app
     await registerApplicationProtocol()
     registerIpcHandlers()
     mainWindow = await createMainWindow()
+    desktopUpdates = new DesktopUpdates(() => Boolean(nativePlayer))
+    await desktopUpdates.start()
     const smokeVideo = process.env.CONDUIT_ELECTRON_SMOKE_VIDEO
     if (smokeVideo) {
       const smokeUrl = smokeVideo.includes(":") ? smokeVideo : pathToFileURL(smokeVideo).toString()

@@ -41,10 +41,27 @@ const inputs = {
     "docker",
     "compose.yaml",
     ".env.docker.example",
+    "packages/updates",
     "pnpm-lock.yaml",
   ],
-  web: ["apps/web", "packages/core", "Dockerfile", "docker", "pnpm-lock.yaml", "Cargo.lock"],
-  desktop: ["apps/desktop", "apps/web", "packages/core", "flatpak", "pnpm-lock.yaml", "Cargo.lock"],
+  web: [
+    "packages/updates",
+    "apps/web",
+    "packages/core",
+    "Dockerfile",
+    "docker",
+    "pnpm-lock.yaml",
+    "Cargo.lock",
+  ],
+  desktop: [
+    "packages/updates",
+    "apps/desktop",
+    "apps/web",
+    "packages/core",
+    "flatpak",
+    "pnpm-lock.yaml",
+    "Cargo.lock",
+  ],
   android: [
     "apps/mobile/composeApp/src/commonMain",
     "apps/mobile/composeApp/src/androidMain",
@@ -123,6 +140,7 @@ try {
   const notesPath = path.join(directory, "notes.md")
   fs.writeFileSync(notesPath, notes)
   const title = `Conduit ${component} ${version}`
+  const draft = process.argv.includes("--draft")
   const current = allReleases.find((release) => release.tag_name === tag)
   if (current) {
     gh(
@@ -137,6 +155,7 @@ try {
       notesPath,
       "--latest=false",
       `--prerelease=${prerelease}`,
+      ...(draft ? ["--draft=true"] : []),
     )
   } else {
     gh(
@@ -152,6 +171,7 @@ try {
       notesPath,
       "--latest=false",
       ...(prerelease ? ["--prerelease"] : []),
+      ...(draft ? ["--draft"] : []),
     )
   }
 } finally {

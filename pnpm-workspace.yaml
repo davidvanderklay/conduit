@@ -6,6 +6,7 @@ onlyBuiltDependencies:
   - esbuild
 
 overrides:
+  "electron-updater>js-yaml": 4.3.2
   vite: npm:@voidzero-dev/vite-plus-core@0.3.3
   "fast-uri@>=3.0.0 <3.1.8": 3.1.8
   "fast-uri@>=4.0.0 <4.1.5": 4.1.5

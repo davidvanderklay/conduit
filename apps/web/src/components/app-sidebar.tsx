@@ -1,5 +1,6 @@
 import {
   CalendarDays,
+  Download,
   Compass,
   Home,
   Library,
@@ -8,7 +9,7 @@ import {
   type LucideIcon,
 } from "lucide-react"
 
-export type AppSection = "home" | "discover" | "library" | "continue" | "calendar" | "addons" | "settings"
+export type AppSection = "home" | "discover" | "library" | "continue" | "calendar" | "addons" | "settings" | "updates"
 
 const items: Array<{ id: AppSection; label: string; icon: LucideIcon; primary?: boolean }> = [
   { id: "home", label: "Home", icon: Home, primary: true },
@@ -16,13 +17,16 @@ const items: Array<{ id: AppSection; label: string; icon: LucideIcon; primary?: 
   { id: "library", label: "Library", icon: Library, primary: true },
   { id: "calendar", label: "Calendar", icon: CalendarDays },
   { id: "addons", label: "Add-ons", icon: Puzzle },
+  { id: "updates", label: "Updates", icon: Download },
   { id: "settings", label: "Settings", icon: Settings, primary: true },
 ]
 
 export function AppSidebar({
   active,
   onNavigate,
+  updateCount = 0,
 }: {
+  updateCount?: number
   active: AppSection
   onNavigate: (section: AppSection) => void
 }) {
@@ -44,10 +48,11 @@ export function AppSidebar({
                   ? "bg-amber-400/15 text-amber-300"
                   : "text-zinc-500 hover:bg-zinc-900 hover:text-zinc-100"
               }`}
-              aria-label={item.label}
+              aria-label={item.id === "updates" && updateCount ? `Updates, ${updateCount} available` : item.label}
               aria-current={selected ? "page" : undefined}
               onClick={() => onNavigate(item.id)}
             >
+              {item.id === "updates" && updateCount > 0 && <span className="absolute right-0 top-0 text-[10px] text-white">{updateCount}</span>}
               <Icon size={20} strokeWidth={selected ? 2.4 : 2} />
               <span className="pointer-events-none absolute bottom-[calc(100%+0.4rem)] left-1/2 z-50 -translate-x-1/2 whitespace-nowrap rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-[11px] font-medium text-zinc-100 opacity-0 shadow-xl transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100 md:bottom-auto md:left-[calc(100%+0.6rem)] md:translate-x-0">
                 {item.label}

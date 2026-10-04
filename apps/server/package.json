@@ -7,8 +7,8 @@
   },
   "type": "module",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "check": "tsc -p tsconfig.json --noEmit",
+    "build": "pnpm --filter @conduit/updates build && tsc -p tsconfig.json",
+    "check": "pnpm --filter @conduit/updates build && tsc -p tsconfig.json --noEmit",
     "cli": "tsx src/cli.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
@@ -26,7 +26,8 @@
     "drizzle-orm": "0.45.3",
     "fastify": "5.12.5",
     "pg": "8.23.0",
-    "ws": "8.21.3"
+    "ws": "8.21.3",
+    "@conduit/updates": "workspace:*"
   },
   "devDependencies": {
     "@testcontainers/postgresql": "12.1.0",
@@ -37,5 +38,9 @@
     "tsx": "4.23.15",
     "typescript": "7.0.2",
     "vitest": "5.0.2"
-  }
+  },
+  "files": [
+    "dist",
+    "drizzle"
+  ]
 }

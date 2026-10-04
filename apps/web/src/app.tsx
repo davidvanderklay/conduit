@@ -1,3 +1,6 @@
+import { API_LEVEL } from "@conduit/updates"
+import { useUpdates } from "./lib/updates"
+import { UpdatesView } from "./components/updates-view"
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { ArrowLeft, Check, Film, Globe2, Search, Server, Shield, X } from "lucide-react"
@@ -706,6 +709,7 @@ function AuthenticatedApp({
   isOwner: boolean
 }) {
   const queryClient = useQueryClient()
+  const updates = useUpdates(isOwner, userId)
   const bootstrap = useQuery({
     queryKey: bootstrapQueryKey(userId),
     queryFn: () => api<Bootstrap>("/v1/bootstrap"),
@@ -992,7 +996,10 @@ function AuthenticatedApp({
           </div>
         </div>
       </header>
-      <AppSidebar active={section} onNavigate={navigate} />
+      {updates.server.data && updates.server.data.apiLevel < API_LEVEL && <div role="alert" className="border-b border-white bg-black px-5 py-2 text-sm text-white md:ml-16">
+        This server needs an update. <button className="ml-3 underline" onClick={() => navigate("updates")}>View details</button>
+      </div>}
+      <AppSidebar active={section} onNavigate={navigate} updateCount={updates.count} />
       <div
         ref={scrollViewportRef}
         id="app-scroll-viewport"
@@ -1000,6 +1007,7 @@ function AuthenticatedApp({
       >
         <ProfileApp
           accountId={userId}
+          isOwner={isOwner}
           profile={activeProfile}
           profiles={activeHousehold.profiles}
           householdId={activeHousehold.id}
@@ -1171,6 +1179,7 @@ interface MediaSelection {
 
 function ProfileApp({
   accountId,
+  isOwner,
   profile,
   profiles,
   householdId,
@@ -1193,6 +1202,7 @@ function ProfileApp({
   onMetadataBrowse,
 }: {
   accountId: string
+  isOwner: boolean
   profile: Profile
   profiles: Profile[]
   householdId: string
@@ -1325,6 +1335,7 @@ function ProfileApp({
           onRefresh={() => addons.refetch()}
         />
       )}
+      {!searchInput && section === "updates" && <UpdatesView isOwner={isOwner} accountId={accountId} restartBlocked={Boolean(watchPartyLaunch)} />}
       {!searchInput && section === "settings" && (
         <SettingsView
           profile={profile}

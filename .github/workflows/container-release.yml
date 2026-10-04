@@ -141,8 +141,9 @@ jobs:
           COUNTERPART_COMPONENT: ${{ steps.pair.outputs.counterpart_component }}
           COUNTERPART_VERSION: ${{ steps.pair.outputs.counterpart_version }}
         run: |
-          node scripts/publish-component-release.mjs
+          node scripts/publish-component-release.mjs --draft
           bash scripts/upload-release-assets.sh "$RELEASE_TAG" compose.yaml .env.docker.example
+          gh release edit "$RELEASE_TAG" --draft=false
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: conduit-${{ env.COMPONENT }}-deployment
@@ -150,3 +151,12 @@ jobs:
             compose.yaml
             .env.docker.example
           include-hidden-files: true
+
+  update-feed:
+    if: github.event_name == 'push'
+    needs: [prepare, release]
+    uses: ./.github/workflows/publish-update-feed.yml
+    with:
+      component: ${{ needs.prepare.outputs.component }}
+      release_tag: ${{ needs.prepare.outputs.tag }}
+      revision: ${{ needs.prepare.outputs.revision }}

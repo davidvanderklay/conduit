@@ -456,3 +456,5 @@ parameters or recovery URLs in long-lived proxy logs.
 
 Do not roll back binaries across irreversible migrations without restoring the
 matching database backup.
+
+See [Updates](updates.md) for server release notices, notification tracks and independent upgrade instructions.

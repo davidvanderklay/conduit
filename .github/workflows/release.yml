@@ -79,15 +79,36 @@ jobs:
           RELEASE_DATE="$(git show -s --format=%cs HEAD)" \
             node scripts/set-release-version.mjs "$RELEASE_VERSION"
       - run: pnpm --filter @conduit/desktop setup:windows
+      - name: Require Windows signing for releases
+        if: github.event_name == 'push'
+        shell: bash
+        env:
+          CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+        run: test -n "$CSC_LINK"
       - name: Build Electron NSIS installer
-        run: pnpm --filter @conduit/desktop dist:win
+        env:
+          CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+        run: pnpm --filter @conduit/desktop dist:win --config.forceCodeSigning=${{ github.event_name == 'push' }}
+      - name: Verify Windows release signature
+        if: github.event_name == 'push'
+        shell: pwsh
+        run: |
+          Get-ChildItem apps/desktop/dist/*.exe | ForEach-Object {
+            if ((Get-AuthenticodeSignature $_.FullName).Status -ne 'Valid') {
+              throw 'Windows installer signature is invalid'
+            }
+          }
       - name: Verify installer
         shell: bash
         run: ls -lh apps/desktop/dist/*.exe
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: conduit-windows
-          path: apps/desktop/dist/*.exe
+          path: |
+            apps/desktop/dist/*.exe
+            apps/desktop/dist/*.blockmap
+            apps/desktop/dist/*.yml
           if-no-files-found: error
 
   linux-appimage:
@@ -143,6 +164,8 @@ jobs:
           if-no-files-found: error
 
   linux-flatpak:
+    env:
+      FLATPAK_BRANCH: ${{ contains(github.ref_name, '-nightly.') && 'nightly' || 'master' }}
     needs: [prepare, production-config]
     if: github.event_name != 'workflow_dispatch' || inputs.target == 'all' || inputs.target == 'flatpak'
     name: Linux Flatpak
@@ -178,7 +201,8 @@ jobs:
             if (!source.includes(marker)) throw new Error("Flatpak environment marker not found");
             fs.writeFileSync(
               path,
-              source.replace(marker, `${marker}\n        VITE_API_URL: ${JSON.stringify(process.env.VITE_API_URL)}`),
+              source.replace(marker, `${marker}\n        VITE_API_URL: ${JSON.stringify(process.env.VITE_API_URL)}`)
+                .replace("CONDUIT_FLATPAK_TRACK=stable", `CONDUIT_FLATPAK_TRACK=${process.env.FLATPAK_BRANCH === "nightly" ? "nightly" : "stable"}`),
             );
           '
       - name: Import repository signing key
@@ -227,6 +251,7 @@ jobs:
             org.freedesktop.Sdk.Extension.node24/x86_64/25.08
           flatpak-builder \
             --force-clean \
+            --default-branch="$FLATPAK_BRANCH" \
             --user \
             --jobs=2 \
             --install-deps-from=flathub \
@@ -238,7 +263,7 @@ jobs:
           flatpak build-bundle \
             "$repository" \
             target/release/bundle/conduit.flatpak \
-            media.conduit.desktop \
+            media.conduit.desktop "$FLATPAK_BRANCH" \
             --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo
       - name: Finalize and verify signed repository
         if: github.event_name == 'push'
@@ -354,15 +379,39 @@ jobs:
         run: |
           RELEASE_DATE="$(git show -s --format=%cs HEAD)" \
             node scripts/set-release-version.mjs "$RELEASE_VERSION"
-      - name: Build Electron DMG
+      - name: Require Mac signing and notarization for releases
+        if: github.event_name == 'push'
         env:
-          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: test -n "$CSC_LINK" && test -n "$APPLE_ID" && test -n "$APPLE_APP_SPECIFIC_PASSWORD" && test -n "$APPLE_TEAM_ID"
+      - name: Build Electron DMG and update ZIP
+        env:
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           if [ "${{ matrix.arch }}" = "arm64" ]; then
-            pnpm --filter @conduit/desktop dist:mac:arm64
+            pnpm --filter @conduit/desktop dist:mac:arm64 --config.forceCodeSigning=${{ github.event_name == 'push' }}
           else
-            pnpm --filter @conduit/desktop dist:mac:x64
+            pnpm --filter @conduit/desktop dist:mac:x64 --config.forceCodeSigning=${{ github.event_name == 'push' }}
           fi
+      - name: Verify signed and notarized Mac application
+        if: github.event_name == 'push'
+        run: |
+          application="$(find apps/desktop/dist -maxdepth 2 -type d -name 'conduit.app')"
+          test -n "$application"
+          codesign --verify --deep --strict "$application"
+          xcrun stapler validate "$application"
+      - name: Preserve architecture-specific updater metadata
+        run: |
+          for metadata in apps/desktop/dist/*-mac.yml; do
+            mv "$metadata" "${metadata%.yml}-${{ matrix.arch }}.yml"
+          done
       - name: Verify DMG
         shell: bash
         run: |
@@ -381,6 +430,9 @@ jobs:
           path: |
             apps/desktop/dist/*-macos-${{ matrix.arch }}.dmg
             apps/desktop/dist/*-macos-${{ matrix.arch }}.dmg.sha256
+            apps/desktop/dist/*-macos-${{ matrix.arch }}.zip
+            apps/desktop/dist/*.blockmap
+            apps/desktop/dist/*-mac-${{ matrix.arch }}.yml
           if-no-files-found: error
 
   publish:
@@ -412,93 +464,24 @@ jobs:
             actual="$(sha256sum "$dmg" | awk '{print $1}')"
             test "$expected" = "$actual"
           done
-      - name: Stage non-DMG release assets
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p release-files
-          find artifacts -maxdepth 1 -type f \
-            ! -name '*.dmg' \
-            ! -name '*.dmg.sha256' \
-            -exec cp {} release-files/ \;
-      - name: Write desktop release notes
+      - name: Create draft desktop release
         env:
           GH_TOKEN: ${{ github.token }}
           COMPONENT: desktop
           RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
-        run: node scripts/publish-component-release.mjs
-      - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
-        with:
-          tag_name: ${{ needs.prepare.outputs.tag }}
-          make_latest: false
-          prerelease: ${{ contains(github.ref_name, '-') }}
-          draft: false
-          files: release-files/*
-      - name: Upload DMGs with GitHub CLI
+        run: node scripts/publish-component-release.mjs --draft
+      - name: Upload all desktop artifacts and publish
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.ref_name }}
-        run: bash scripts/upload-release-assets.sh "$RELEASE_TAG" artifacts/*.dmg
-
-  replace-macos-assets:
-    name: Replace macOS release assets
-    if: github.event_name == 'workflow_dispatch' && inputs.target == 'macos' && inputs.release_tag != ''
-    needs: macos
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ inputs.release_tag && format('refs/tags/{0}', inputs.release_tag) || github.ref }}
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          pattern: conduit-macos-*
-          path: artifacts
-          merge-multiple: true
-      - name: Verify replacement DMGs
-        shell: bash
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
         run: |
-          set -euo pipefail
-          shopt -s nullglob
-          dmgs=(artifacts/*.dmg)
-          test "${#dmgs[@]}" -eq 2
-          for dmg in "${dmgs[@]}"; do
-            manifest="$dmg.sha256"
-            test -f "$manifest"
-            expected="$(<"$manifest")"
-            actual="$(sha256sum "$dmg" | awk '{print $1}')"
-            test "$expected" = "$actual"
-          done
-      - name: Replace DMGs on the existing release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ inputs.release_tag }}
-        run: bash scripts/upload-release-assets.sh "$RELEASE_TAG" artifacts/*.dmg
-
-  replace-flatpak-asset:
-    name: Replace Flatpak release asset
-    if: github.event_name == 'workflow_dispatch' && inputs.target == 'flatpak' && inputs.release_tag != ''
-    needs: linux-flatpak
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ inputs.release_tag && format('refs/tags/{0}', inputs.release_tag) || github.ref }}
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: conduit-linux-flatpak
-          path: artifacts
-      - name: Verify Flatpak bundle
-        run: test -s artifacts/conduit.flatpak
-      - name: Replace Flatpak on the existing release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ inputs.release_tag }}
-        run: bash scripts/upload-release-assets.sh "$RELEASE_TAG" artifacts/conduit.flatpak
+          bash scripts/upload-release-assets.sh "$RELEASE_TAG" artifacts/*
+          gh release edit "$RELEASE_TAG" --draft=false
 
   verify-macos-release:
     name: Verify public macOS DMGs
-    if: always() && (needs.publish.result == 'success' || needs.replace-macos-assets.result == 'success')
-    needs: [publish, replace-macos-assets]
+    if: needs.publish.result == 'success'
+    needs: [publish]
     runs-on: macos-15
     steps:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -552,3 +535,12 @@ jobs:
       - name: Deploy repository atomically
         id: deployment
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
+
+  update-feed:
+    if: github.event_name == 'push'
+    needs: [prepare, publish, verify-macos-release]
+    uses: ./.github/workflows/publish-update-feed.yml
+    with:
+      component: desktop
+      release_tag: ${{ needs.prepare.outputs.tag }}
+      revision: ${{ needs.prepare.outputs.revision }}

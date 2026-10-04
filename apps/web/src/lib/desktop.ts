@@ -1,3 +1,4 @@
+import type { DesktopUpdateStatus } from "@conduit/updates"
 import type { PlayerArtwork, QueueItem, WatchProgress } from "./api"
 import type { Video } from "./core"
 import type { PlayerUpNext, QueueMedia } from "./queue"
@@ -48,6 +49,7 @@ export interface NativePlayerSnapshot {
 }
 
 export interface ElectronDesktopBridge {
+  updates?: (command: "status" | "check" | "configure" | "download" | "cancel" | "install", args?: { track?: "stable" | "nightly"; enabled?: boolean; serverApiLevel?: number }) => Promise<DesktopUpdateStatus | undefined>
   invoke<T>(command: string, args?: unknown): Promise<T>
   onFullscreenChange(listener: (fullscreen: boolean) => void): () => void
   onPlayerOverlayClose(listener: () => void): () => void

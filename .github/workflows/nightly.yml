@@ -1,0 +1,43 @@
+name: Nightly releases
+on:
+  schedule:
+    - cron: "0 7 * * *"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: conduit-nightly
+  cancel-in-progress: false
+jobs:
+  tags:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Require a release token that can trigger tag workflows
+        env:
+          NIGHTLY_RELEASE_TOKEN: ${{ secrets.NIGHTLY_RELEASE_TOKEN }}
+        run: test -n "$NIGHTLY_RELEASE_TOKEN"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.NIGHTLY_RELEASE_TOKEN }}
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 10.14.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+      - name: Require successful CI for the selected main revision
+        env:
+          GH_TOKEN: ${{ secrets.NIGHTLY_RELEASE_TOKEN }}
+        run: |
+          revision="$(git rev-parse HEAD)"
+          passed="$(gh run list --workflow ci.yml --commit "$revision" --event push --json status,conclusion --jq '.[] | select(.status == "completed" and .conclusion == "success") | .conclusion')"
+          test -n "$passed" || { echo "CI has not passed for this revision. Retry after CI completes." >&2; exit 1; }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test:releases
+      - run: pnpm test:updates
+      - run: pnpm lint
+      - run: node scripts/publish-nightly-tags.mjs
+        env:
+          GH_TOKEN: ${{ secrets.NIGHTLY_RELEASE_TOKEN }}
