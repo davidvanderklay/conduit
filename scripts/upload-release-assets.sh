@@ -9,11 +9,23 @@ test "$#" -gt 0
 : "${GH_TOKEN:?GH_TOKEN is required}"
 : "${GITHUB_REPOSITORY:?GITHUB_REPOSITORY is required}"
 
-release_id="$(gh api \
-  --paginate \
-  "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
-  --jq ".[] | select(.tag_name == \"$release_tag\") | .id" | head -n 1)"
-test -n "$release_id"
+# Newly created drafts can take a few seconds to appear in the release listing.
+for attempt in {1..5}; do
+  release_id="$(gh api \
+    --paginate \
+    "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+    --jq ".[] | select(.tag_name == \"$release_tag\") | .id" | head -n 1)"
+  if [ -n "$release_id" ]; then
+    break
+  fi
+  if [ "$attempt" -lt 5 ]; then
+    sleep 2
+  fi
+done
+if [ -z "$release_id" ]; then
+  echo "Release did not appear in the API listing: $release_tag" >&2
+  exit 1
+fi
 
 upload_url="$(gh api \
   "repos/$GITHUB_REPOSITORY/releases/$release_id" \

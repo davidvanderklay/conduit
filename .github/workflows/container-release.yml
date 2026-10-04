@@ -95,7 +95,7 @@ jobs:
           export BETTER_AUTH_SECRET=ci-auth-secret-that-is-long-enough
           export ADDON_ENCRYPTION_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
           trap 'docker compose -p conduit-container-ci -f "$deployment_dir/compose.yaml" down -v --remove-orphans' EXIT
-          test -z "$(rg -n '^\s+build:' "$deployment_dir/compose.yaml" || true)"
+          ! grep -Eq '^[[:space:]]+build:' "$deployment_dir/compose.yaml"
           docker compose -f "$deployment_dir/compose.yaml" config >/dev/null
           docker compose -p conduit-container-ci -f "$deployment_dir/compose.yaml" up -d
           for attempt in $(seq 1 30); do
