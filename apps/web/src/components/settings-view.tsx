@@ -46,6 +46,7 @@ type SettingsPage =
   | "integrations"
   | "data"
   | "about"
+  | "updates"
   | "advanced"
 
 interface SettingsEntry {
@@ -58,6 +59,7 @@ interface SettingsEntry {
 }
 
 const settingsEntries: SettingsEntry[] = [
+  { id: "updates", group: "About", title: "Updates", description: "Client and server versions", keywords: "stable nightly release version update", icon: Download },
   {
     id: "profile",
     group: "Account",
@@ -284,6 +286,7 @@ export function SettingsView({
                 onPreferences={setPreferences}
               />
             )}
+            {page === "updates" && <button className="border border-white px-3 py-2 text-white" onClick={() => onNavigate("updates")}>Open updates</button>}
             {page === "about" && <AboutSettings />}
             {page === "advanced" && (
               <AdvancedSettings preferences={preferences} update={update} profile={profile} />

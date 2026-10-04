@@ -171,6 +171,7 @@ export function ProfileSwitcher({
           <div className="mt-2 border-t border-zinc-800 pt-2">
             <p className="truncate px-3 py-1 text-xs text-zinc-600">{userName}</p>
             <MenuAction icon={Settings} label="Settings" onClick={() => { onNavigate("settings"); setOpen(false) }} />
+            <MenuAction icon={Settings} label="Updates" onClick={() => { onNavigate("updates"); setOpen(false) }} />
             <MenuAction icon={Puzzle} label="Add-ons" onClick={() => { onNavigate("addons"); setOpen(false) }} />
             <MenuAction icon={LogOut} label="Log out" onClick={onSignOut} />
           </div>

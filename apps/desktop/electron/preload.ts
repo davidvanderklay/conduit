@@ -17,6 +17,9 @@ ipcRenderer.on("conduit:fullscreen-changed", (_event, fullscreen: boolean) => {
 })
 
 contextBridge.exposeInMainWorld("__CONDUIT_ELECTRON__", {
+  updates(command: "status" | "check" | "configure" | "download" | "cancel" | "install", args?: unknown) {
+    return ipcRenderer.invoke("conduit:updates", command, args)
+  },
   invoke(command: string, args?: unknown) {
     return ipcRenderer.invoke("conduit:invoke", command, args)
   },

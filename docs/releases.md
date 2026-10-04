@@ -212,13 +212,15 @@ Store an encrypted offline backup of the keystore and its passwords. Losing
 them makes it impossible to publish an update that existing installations will
 accept. Do not commit the keystore or its encoded contents.
 
-The Windows installer is currently unsigned. Windows will therefore show an
-unrecognized-publisher warning until a code-signing certificate is configured.
-The macOS applications receive an ad-hoc signature so their bundled libraries
-are internally consistent, but they are not notarized with an Apple Developer
-ID; Gatekeeper will warn users. The AppImage remains unsigned; the Flatpak
-repository and its application commits are signed with the dedicated release
-key.
+Tagged Windows and macOS releases now require code-signing credentials. Mac builds
+also require notarization and publish ZIPs for in-app updates alongside DMGs.
+Both update tracks use the same signing identities. Legacy unsigned or ad-hoc
+signed installations need one manual installation of an updater-enabled release.
+The AppImage remains a manual replacement; the Flatpak repository and its
+application commits remain signed with the dedicated release key.
+
+See [Updates](updates.md) for Stable/Nightly behavior, feed publication, signing
+secrets and the first-install transition.
 
 ## Flatpak
 

@@ -4,24 +4,24 @@
   "license": "MIT",
   "main": "electron/dist/main.js",
   "scripts": {
-    "build": "pnpm --dir ../.. core:build && pnpm electron:native:build && pnpm --dir ../.. --filter @conduit/web build && pnpm electron:main:build",
-    "check": "if ! pkg-config --exists mpv 2>/dev/null; then echo 'Skipping desktop check (pkg-config mpv not found)'; else cargo check -p conduit-electron-native; fi",
+    "build": "pnpm --filter @conduit/updates build && pnpm --dir ../.. core:build && pnpm electron:native:build && pnpm --dir ../.. --filter @conduit/web build && pnpm electron:main:build",
+    "check": "pnpm electron:main:build && pnpm --filter @conduit/updates build && if ! pkg-config --exists mpv 2>/dev/null; then echo 'Skipping desktop check (pkg-config mpv not found)'; else cargo check -p conduit-electron-native; fi",
     "dev": "pnpm electron:native:build && pnpm electron:main:build && node electron/run.mjs .",
     "electron:build": "pnpm electron:native:build && pnpm --dir ../.. --filter @conduit/web build && pnpm electron:main:build",
     "electron:dev": "pnpm electron:native:build && pnpm electron:main:build && node electron/run.mjs .",
-    "electron:main:build": "tsc -p electron/tsconfig.json",
+    "electron:main:build": "pnpm --filter @conduit/updates build && tsc -p electron/tsconfig.json",
     "electron:native:build": "node electron-native/build.mjs",
     "electron:native:build:release": "node electron-native/build.mjs --release",
     "electron:run": "node electron/run.mjs .",
     "setup:windows": "powershell -ExecutionPolicy Bypass -File scripts/setup-windows.ps1",
     "test": "cargo test -p conduit-electron-native",
-    "dist": "pnpm build && pnpm electron:native:build:release && electron-builder",
-    "dist:win": "pnpm build && pnpm electron:native:build:release && electron-builder --win --x64",
-    "dist:linux": "pnpm build && pnpm electron:native:build:release && electron-builder --linux --x64",
-    "dist:mac": "pnpm build && pnpm electron:native:build:release && electron-builder --mac",
-    "dist:win:arm64": "pnpm build && pnpm electron:native:build:release && electron-builder --win --arm64",
-    "dist:mac:arm64": "pnpm build && pnpm electron:native:build:release && electron-builder --mac --arm64",
-    "dist:mac:x64": "pnpm build && pnpm electron:native:build:release && electron-builder --mac --x64"
+    "dist": "pnpm build && pnpm electron:native:build:release && electron-builder --publish never",
+    "dist:win": "pnpm build && pnpm electron:native:build:release && electron-builder --win --x64 --publish never",
+    "dist:linux": "pnpm build && pnpm electron:native:build:release && electron-builder --linux --x64 --publish never",
+    "dist:mac": "pnpm build && pnpm electron:native:build:release && electron-builder --mac --publish never",
+    "dist:win:arm64": "pnpm build && pnpm electron:native:build:release && electron-builder --win --arm64 --publish never",
+    "dist:mac:arm64": "pnpm build && pnpm electron:native:build:release && electron-builder --mac --arm64 --publish never",
+    "dist:mac:x64": "pnpm build && pnpm electron:native:build:release && electron-builder --mac --x64 --publish never"
   },
   "devDependencies": {
     "@types/node": "26.6.2",
@@ -88,22 +88,45 @@
       "artifactName": "${productName}-${version}-linux-${arch}.${ext}"
     },
     "mac": {
-      "target": {
-        "target": "dmg",
-        "arch": [
-          "arm64",
-          "x64"
-        ]
-      },
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
       "icon": "icons/icon.icns",
       "category": "public.app-category.entertainment",
-      "artifactName": "${productName}-${version}-macos-${arch}.${ext}"
+      "artifactName": "${productName}-${version}-macos-${arch}.${ext}",
+      "hardenedRuntime": true
     },
     "dmg": {
       "sign": false
     },
-    "executableName": "conduit"
+    "executableName": "conduit",
+    "publish": {
+      "provider": "generic",
+      "url": "https://raw.githubusercontent.com/davidvanderklay/conduit/update-feeds/desktop/stable/",
+      "channel": "latest"
+    }
   },
   "description": "Conduit desktop media client",
-  "author": "Conduit"
+  "author": "Conduit",
+  "dependencies": {
+    "@conduit/updates": "workspace:*",
+    "electron-updater": "6.8.9"
+  },
+  "files": [
+    "electron/dist",
+    "icons"
+  ]
 }

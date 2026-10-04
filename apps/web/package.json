@@ -4,8 +4,8 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "build": "tsc -b && vp build",
-    "check": "tsc -b --pretty false",
+    "build": "pnpm --filter @conduit/updates build && tsc -b && vp build",
+    "check": "pnpm --filter @conduit/updates build && tsc -b --pretty false",
     "dev": "vp dev",
     "test": "vitest run src"
   },
@@ -20,7 +20,8 @@
     "lucide-react": "1.48.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
-    "tailwind-merge": "3.7.0"
+    "tailwind-merge": "3.7.0",
+    "@conduit/updates": "workspace:*"
   },
   "devDependencies": {
     "@tailwindcss/vite": "4.3.3",

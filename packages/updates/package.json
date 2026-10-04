@@ -1,0 +1,23 @@
+{
+  "name": "@conduit/updates",
+  "version": "0.0.0",
+  "private": true,
+  "files": [
+    "dist"
+  ],
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run src"
+  },
+  "dependencies": {
+    "semver": "7.8.5"
+  },
+  "devDependencies": {
+    "@types/semver": "7.7.1",
+    "typescript": "7.0.2",
+    "vitest": "5.0.2"
+  }
+}

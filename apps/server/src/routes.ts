@@ -1,3 +1,4 @@
+import { registerUpdateRoutes } from "./route-modules/update-routes.js"
 import type { FastifyInstance } from "fastify"
 import { registerAddonRoutes } from "./route-modules/addon-routes.js"
 import { registerAuthRoutes } from "./route-modules/auth-routes.js"
@@ -31,6 +32,7 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
 
   app.get("/health", async () => ({ status: "ok" }))
 
+  registerUpdateRoutes(app, context)
   registerAuthRoutes(app, context)
   registerBootstrapRoutes(app, context)
   registerProfileRoutes(app, context)

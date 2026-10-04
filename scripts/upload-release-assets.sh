@@ -35,9 +35,8 @@ for asset in "$@"; do
     "repos/$GITHUB_REPOSITORY/releases/$release_id/assets?per_page=100" \
     --jq ".[] | select(.name == \"$name\") | .id" | head -n 1 || true)"
   if [ -n "$existing_id" ]; then
-    gh api \
-      --method DELETE \
-      "repos/$GITHUB_REPOSITORY/releases/assets/$existing_id" >/dev/null
+    echo "Release assets are immutable: $name already exists. Publish a new version." >&2
+    exit 1
   fi
 
   curl --fail --location --silent --show-error \

@@ -7,6 +7,7 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml vite.config.ts ./
 COPY apps/server/package.json apps/server/package.json
 COPY apps/web/package.json apps/web/package.json
 COPY apps/desktop/package.json apps/desktop/package.json
+COPY packages/updates packages/updates
 
 FROM dependencies AS server-build
 RUN pnpm --filter @conduit/server... install --frozen-lockfile
@@ -15,6 +16,8 @@ RUN pnpm --filter @conduit/server build \
     && pnpm --filter @conduit/server deploy --prod --legacy /prod/server
 
 FROM dependencies AS web-build
+ARG RELEASE_VERSION=development
+ENV VITE_RELEASE_VERSION=$RELEASE_VERSION
 RUN pnpm --filter conduit --filter @conduit/web... install --frozen-lockfile
 COPY apps/web apps/web
 COPY packages/core packages/core
@@ -43,7 +46,7 @@ ARG RELEASE_REVISION
 LABEL org.opencontainers.image.version=$RELEASE_VERSION \
       org.opencontainers.image.ref.name=$RELEASE_TAG \
       org.opencontainers.image.revision=$RELEASE_REVISION
-ENV NODE_ENV=production
+ENV NODE_ENV=production CONDUIT_RELEASE_VERSION=$RELEASE_VERSION CONDUIT_RELEASE_REVISION=$RELEASE_REVISION
 WORKDIR /app
 COPY --from=server-build /prod/server ./
 USER node
