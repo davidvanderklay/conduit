@@ -4,11 +4,14 @@ Conduit has independent server, web, desktop, Android, and iOS release streams.
 Only the component named in a tag builds and publishes. Historical `v*` tags and
 artifacts remain available, but new `v*` tags no longer trigger releases.
 
+For downloads, installation, and Stable/Nightly selection, start with
+[Installation](installation.md). This page covers packaging and publication.
+
 | Component | Tag                  | Artifacts                                                     |
 | --------- | -------------------- | ------------------------------------------------------------- |
 | Server    | `server/v<version>`  | Server container, deployment files                            |
 | Web       | `web/v<version>`     | Web container, deployment files                               |
-| Desktop   | `desktop/v<version>` | Windows NSIS, AppImage, Flatpak, Apple Silicon and Intel DMGs |
+| Desktop   | `desktop/v<version>` | Windows NSIS, AppImage, Flatpak, Apple Silicon and Intel DMGs/ZIPs |
 | Android   | `android/v<version>` | Signed universal APK and checksum                             |
 | iOS       | `ios/v<version>`     | Unsigned IPA and checksum                                     |
 
@@ -47,18 +50,17 @@ before clients require them, and document minimum server requirements when
 they change. App versions do not need to match. The mobile bridge's protocol
 version remains a separate internal FFI contract.
 
-Android TV support in `feat/android-tv-kmp` extends the existing `composeApp`
-and keeps `media.conduit.mobile` as its application ID. Once that implementation
-lands, the same universal APK serves phones, tablets, Android TV, and Google TV.
-Use `android/v<version>` for all of them, with one signing key and build counter.
+Android TV and Google TV support is very experimental and is included in the
+existing `composeApp`, with `media.conduit.mobile` as its application ID. The
+same universal APK serves phones, tablets, Android TV, and Google TV. Use
+`android/v<version>` for all of them, with one signing key and build counter.
 There is no separate TV build target or `android-tv/v*` release stream. A
 TV-only source change still requires a new Android APK because it is one app.
 
 Android release verification checks the packaged app ID, version, both native
-ABIs, and phone launcher. When the source manifest enables TV, it also requires
-the packaged Leanback launcher, banner, and optional touchscreen and Leanback
-features. This permits releases before the TV work lands without pretending
-those APKs contain TV support.
+ABIs, and phone launcher. With TV enabled in the source manifest, it also
+requires the packaged Leanback launcher, banner, and optional touchscreen and
+Leanback features. These packaging checks do not validate physical TV playback.
 
 For the first TV-capable release, publish the server changes for television
 phone pairing and party handoff before publishing Android, and state the minimum
@@ -74,10 +76,11 @@ as `0.0.0-ci.<run>`. An existing component tag checks out that exact tag and use
 its version. The container workflow requires an existing server or web tag.
 Manual runs do not create releases, publish images, or update the Flatpak remote.
 
-Desktop retains explicit replacement of macOS or Flatpak assets when a manual
-run selects that target and an existing desktop tag. It replaces only those
-assets on an existing release. The `all` target remains build-only on manual
-runs. macOS verification still downloads the published DMGs and checks them.
+Desktop manual runs can select `all`, `macos`, or `flatpak` build targets.
+They produce workflow artifacts only, even when an existing tag is selected.
+Published assets are immutable; corrected artifacts require a new version.
+Tagged desktop publication verifies the public macOS DMGs before publishing
+the update feed.
 
 Every stream has independent publication and concurrency. Desktop releases
 remain serialized to protect signed Flatpak repository history. A failed mobile
@@ -107,8 +110,10 @@ Compose file with:
 ```dotenv
 CONDUIT_SERVER_VERSION=nightly
 CONDUIT_WEB_VERSION=nightly
+CONDUIT_UPDATE_TRACK=nightly
 ```
 
+`CONDUIT_UPDATE_TRACK` controls server update notices, not which images run.
 Then run `docker compose pull server web` and `docker compose up -d server web`
 when you want to update. Pulling does not update running containers until they
 are recreated. Each component's alias advances independently; use exact version
@@ -166,8 +171,8 @@ The bundle identifier is `media.conduit.mobile`, and the app requires iOS 15 or
 newer. The Apple mobile
 application is GPLv3, so every distributed IPA must be accompanied by the
 corresponding source and build instructions described in
-[`apps/mobile/iosApp/LICENSE`](../apps/mobile/iosApp/LICENSE) and
-[`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md).
+[`apps/mobile/iosApp/LICENSE`](https://github.com/davidvanderklay/conduit/blob/main/apps/mobile/iosApp/LICENSE) and
+[`THIRD_PARTY_NOTICES.md`](https://github.com/davidvanderklay/conduit/blob/main/THIRD_PARTY_NOTICES.md).
 
 To exercise the same packaging path without creating a release, run the
 **iOS release** workflow manually. Its IPA is available from the workflow
@@ -256,12 +261,14 @@ user:
 ```sh
 flatpak remote-add --user --if-not-exists conduit \
   https://davidvanderklay.github.io/conduit/conduit.flatpakrepo
-flatpak install --user conduit media.conduit.desktop
+flatpak install --user conduit media.conduit.desktop//master
 flatpak run media.conduit.desktop
 ```
 
 The repository descriptor contains the public key used to verify repository
-metadata and application commits. New releases are available without re-adding
+metadata and application commits. Stable uses the `master` Flatpak branch;
+Nightly uses `nightly`. See [Installation](installation.md#linux-flatpak) for
+selecting either branch. New releases are available without re-adding
 the remote:
 
 ```sh
@@ -303,8 +310,17 @@ flatpak run media.conduit.desktop
 Tagged releases publish a signed OSTree repository through GitHub Pages. The
 workflow restores the previous repository from the dedicated `flatpak-repo`
 branch, appends the new release, validates signatures and AppStream metadata,
-then pushes the history and deploys the same snapshot atomically. The branch
-is workflow-owned: do not edit it manually, delete it, or force-push it.
+then pushes the history and calls the shared Pages publisher. That publisher
+combines current documentation from `main` with the current `flatpak-repo`
+snapshot and deploys them atomically. Docs live under `/conduit/docs/`; the
+Flatpak repository, descriptor, and signing-key URLs retain their existing paths.
+The branch is workflow-owned: do not edit it manually, delete it, or force-push it.
+
+Documentation pushes and desktop releases share one publishing lock. The
+publisher fetches both branches after acquiring it, so a queued run does not
+restore older docs or Flatpak history. Missing or empty required Flatpak files
+fail publication; the existing Pages site remains available. See
+[Documentation publishing](development.md#documentation).
 
 Before the first repository release:
 

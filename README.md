@@ -6,9 +6,10 @@ installed add-ons, libraries, and watch progress; clients contact add-ons and
 media sources directly.
 
 The project is under active development. The web and desktop clients are
-available today, and the shared Android/iOS mobile client is in release
-preparation. Treat current deployments and mobile builds as pre-release
-installations and keep profile exports and database backups.
+available alongside a shared Android/iOS client distributed by sideloading.
+Android TV and Google TV support is very experimental and uses the same Android
+APK. Treat current deployments as pre-release installations and keep profile
+exports and database backups.
 
 ## What Conduit does
 
@@ -16,6 +17,7 @@ installations and keep profile exports and database backups.
 - Stremio-compatible catalogs, metadata, streams, and subtitles
 - Web and Electron desktop clients backed by one shared interface
 - Android and iOS clients with shared Compose UI and native playback
+- Very experimental Android TV and Google TV support with remote navigation
 - Portable profile import/export
 - Local password accounts without an email-delivery dependency
 - Google OAuth or administrator-configured OpenID Connect
@@ -41,20 +43,26 @@ The web client runs at `http://localhost:5173` and the API server at
 See [Development](docs/development.md) for repository structure, individual
 commands, tests, database migrations, and desktop requirements.
 
-## Install the desktop app on Linux
+## Install Conduit
+
+Start with [Installation](docs/installation.md) for Windows, macOS, Linux,
+Android, Android TV, and iOS. It explains how to choose Stable or Nightly and
+how to update. Release tracks are independent for each component.
+
+### Linux Flatpak
 
 Install the signed Flatpak repository and Conduit for the current user:
 
 ```sh
 flatpak remote-add --user --if-not-exists conduit \
   https://davidvanderklay.github.io/conduit/conduit.flatpakrepo
-flatpak install --user conduit media.conduit.desktop
+flatpak install --user conduit media.conduit.desktop//master
 ```
 
 Later releases are delivered through the normal `flatpak update` flow. See
 [Desktop releases](docs/releases.md#flatpak) for update, removal, and
 troubleshooting instructions. A standalone `.flatpak` bundle remains available
-on each GitHub release as a fallback.
+on each desktop GitHub release as a fallback.
 
 ## Self-hosting with Docker
 
@@ -82,10 +90,16 @@ backups, bootstrap modes, and upgrades.
 
 ## Documentation
 
+Read the [documentation site](https://davidvanderklay.github.io/conduit/docs/)
+for navigation and search, or browse the Markdown guides below.
+
+- [Installation and Stable/Nightly tracks](docs/installation.md)
 - [User and authentication setup](docs/authentication.md)
 - [Deployment and operations](docs/deployment.md)
 - [Desktop, Android, and iOS releases](docs/releases.md)
+- [Updates and track switching](docs/updates.md)
 - [Mobile development and release](docs/mobile-development.md)
+- [Watch parties](docs/watch-parties.md)
 - [Media compatibility](docs/media-compatibility.md)
 - [Development guide](docs/development.md)
 - [Project roadmap](docs/roadmap.md)
@@ -134,9 +148,11 @@ playback. See
 [Mobile development and release](docs/mobile-development.md) for the current
 support boundary and packaging path.
 
-The next major product targets are mobile release hardening and TV-oriented
-experiences including tvOS. Longer-term work includes first-class
-Jellyfin/Plex integration for unified progress and library workflows. See the
+Android TV and Google TV now have a very experimental interface in the Android
+app. See [TV setup](docs/installation.md#android-tv-and-google-tv) for installation,
+phone sign-in, and current limits. The next major product targets are mobile
+and TV release hardening; tvOS remains planned. Longer-term work includes
+first-class Jellyfin/Plex integration for unified progress and library workflows. See the
 detailed [Roadmap](docs/roadmap.md).
 
 Conduit is intentionally not becoming a general reader or media inbox. YouTube,

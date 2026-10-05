@@ -138,6 +138,9 @@ the Gradle command inside an appropriate `steam-run` or equivalent FHS shell.
 
 ## Android TV
 
+Android TV and Google TV support is very experimental. For installation and
+phone sign-in, see [TV setup](installation.md#android-tv-and-google-tv).
+
 The same APK runs on Android TV and Google TV. `MainActivity` detects the
 television UI mode and installs the TV presentation
 (`composeApp/src/androidMain/kotlin/media/conduit/mobile/tv`); phones and tablets
@@ -176,7 +179,9 @@ uses the pairing flow in [Authentication](authentication.md#television-sign-in),
 and watch-party invitations are shared and received through QR codes
 ([Watch parties](watch-parties.md#joining-from-a-tv)). The mini player, touch
 gestures, and hold-to-speed are not offered on TV. Profile import and export
-and the web-only preferences are tracked separately and are not on TV yet.
+use a system document picker when available, with a phone/browser handoff
+otherwise. See [Profile import and export](#profile-import-and-export).
+Web-only preferences are not offered on TV.
 
 Hardware decoding, HDR, audio passthrough, and real remotes still need a
 physical-device pass; the emulator covers navigation and ordinary playback.
@@ -210,8 +215,8 @@ Exercise the same account, profile, add-on, catalog, playback, progress,
 subtitle, audio, and OAuth cases as Android. Also test background/foreground,
 lock-screen and Control Center commands, rotation, interruptions, repeated
 player open/close cycles, PiP, and memory cleanup on a physical iPhone and iPad. The Apple mobile target is
-GPLv3; see [`apps/mobile/iosApp/LICENSE`](../apps/mobile/iosApp/LICENSE) and
-[`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md) before distributing a
+GPLv3; see [`apps/mobile/iosApp/LICENSE`](https://github.com/davidvanderklay/conduit/blob/main/apps/mobile/iosApp/LICENSE) and
+[`THIRD_PARTY_NOTICES.md`](https://github.com/davidvanderklay/conduit/blob/main/THIRD_PARTY_NOTICES.md) before distributing a
 release.
 
 ## Mobile authentication and storage
@@ -247,9 +252,9 @@ git push origin android/v0.2.0
 # Use ios/v0.2.0 for an independent iOS release.
 ```
 
-The TV implementation in `feat/android-tv-kmp` uses the same Android module,
-app ID, signing key, and universal APK as phones. Once merged, `android/v*`
-releases cover both phone and TV support. There is no separate TV flavor to
+The very experimental TV implementation uses the same Android module, app ID,
+signing key, and universal APK as phones. `android/v*` releases cover both
+phone and TV support. There is no separate TV flavor to
 package. Publish its server pairing endpoints first and document the required
 server version before shipping the first TV-capable Android release.
 

@@ -44,9 +44,56 @@ traffic. The database volume is named `conduit-postgres`.
 
 Existing deployments using `CONDUIT_VERSION` continue to work with the new
 Compose file. Explicit component pins take precedence. Historical combined
-release assets still use the old shared pin; until the first component release
-is available, use a historical tag such as `v0.1.4` and set `CONDUIT_VERSION=0.1.4`
-with those assets. New container releases attach a template with both exact pins.
+release assets still use the old shared pin. To install those assets, use their
+tag, such as `v0.1.4`, and set `CONDUIT_VERSION=0.1.4`. New container releases
+attach a template with both exact pins.
+Do not use `/releases/latest` to fetch these files; the global release marker
+does not select the latest server or web component.
+
+## Stable and Nightly
+
+Server and web have independent Stable and Nightly release tracks. The source
+`.env.docker.example` defaults both image pins to `latest`, which follows Stable.
+A release's attached template instead records exact versions for the new image
+and its tested counterpart. Prefer those exact pins for repeatable deployments.
+
+To follow the moving Stable images, set these values in your existing `.env`:
+
+```dotenv
+CONDUIT_SERVER_VERSION=latest
+CONDUIT_WEB_VERSION=latest
+CONDUIT_UPDATE_TRACK=stable
+```
+
+To follow Nightly, use:
+
+```dotenv
+CONDUIT_SERVER_VERSION=nightly
+CONDUIT_WEB_VERSION=nightly
+CONDUIT_UPDATE_TRACK=nightly
+```
+
+Both aliases advance independently. A moving server/web combination is not
+necessarily the pair tested by either release. For a fixed Nightly installation,
+download a nightly server or web release's deployment files and keep its exact
+pins, including any stable counterpart it tested against.
+
+`CONDUIT_UPDATE_TRACK` only selects server update notices. It does not change
+image tags or deploy updates. Client update preferences are also independent.
+After changing image pins, pull and recreate the containers:
+
+```sh
+docker compose pull server web
+docker compose up -d server web
+docker compose ps
+curl --fail http://127.0.0.1:8321/health
+```
+
+Back up PostgreSQL and configuration before switching tracks. Returning to
+`latest` from Nightly may downgrade the server. Check migration compatibility
+and use a matching database backup if rollback requires it. Preserve your
+existing secrets and database password; do not replace `.env` with a fresh
+example during an upgrade.
 
 ## Compose settings
 
@@ -54,8 +101,10 @@ The deployment template exposes the settings most operators need:
 
 | Setting                   | Purpose                                                                                    |
 | ------------------------- | ------------------------------------------------------------------------------------------ |
-| `CONDUIT_SERVER_VERSION`  | Exact API image version.                                                                   |
-| `CONDUIT_WEB_VERSION`     | Exact web image version; may differ from the API.                                          |
+| `CONDUIT_SERVER_VERSION`  | API image tag, preferably an exact version.                                               |
+| `CONDUIT_WEB_VERSION`     | Web image tag, preferably an exact version; may differ from the API.                        |
+| `CONDUIT_UPDATE_TRACK`    | `stable` or `nightly` for server update notices; does not deploy images.                      |
+| `CONDUIT_UPDATE_CHECKS`   | `true` by default; `false` disables outbound update checks.                                 |
 | `CONDUIT_VERSION`         | Legacy fallback when either component pin is unset or empty.                               |
 | `CONDUIT_URL`             | Public browser and authentication origin.                                                  |
 | `CONDUIT_BIND_ADDRESS`    | Host interface for the published web port. Defaults to `127.0.0.1`.                        |
@@ -110,6 +159,8 @@ pull the images without a registry login.
 ## Upgrade and rollback
 
 Back up PostgreSQL, `.env`, and the stable application secrets before upgrading.
+Read the target release notes and retain a compatible server/web pair. Compare
+new Compose settings with your existing files while preserving `.env` secrets.
 Change the affected component pin, then pull and restart:
 
 ```sh

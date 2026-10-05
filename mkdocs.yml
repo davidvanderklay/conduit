@@ -1,0 +1,65 @@
+site_name: Conduit
+site_description: Install, use, and self-host Conduit.
+site_url: https://davidvanderklay.github.io/conduit/docs/
+repo_url: https://github.com/davidvanderklay/conduit
+repo_name: davidvanderklay/conduit
+edit_uri: edit/main/docs/
+site_dir: site/docs
+strict: true
+
+theme:
+  name: material
+  font: false
+  palette:
+    scheme: slate
+    primary: black
+    accent: white
+  features:
+    - navigation.sections
+    - navigation.expand
+    - navigation.footer
+    - content.action.edit
+    - content.code.copy
+
+plugins:
+  - search
+
+markdown_extensions:
+  - tables
+  - fenced_code
+  - toc:
+      permalink: true
+
+extra_css:
+  - stylesheets/conduit.css
+
+validation:
+  nav:
+    omitted_files: warn
+  links:
+    not_found: warn
+    anchors: warn
+    unrecognized_links: warn
+
+nav:
+  - Overview: index.md
+  - Use Conduit:
+      - Installation: installation.md
+      - Accounts and recovery: authentication.md
+      - Updates: updates.md
+      - Watch parties: watch-parties.md
+      - Media compatibility: media-compatibility.md
+      - Profile exports: portable-profile-format.md
+  - Self-host:
+      - Deployment: deployment.md
+  - Contribute:
+      - Development: development.md
+      - Mobile and TV: mobile-development.md
+      - Releases: releases.md
+      - Roadmap: roadmap.md
+      - Architecture decisions:
+          - Mobile architecture spike: adr/0001-mobile-architecture-spike.md
+          - Mobile application foundation: adr/0002-mobile-application-foundation.md
+          - Mobile engine protocol: adr/0003-mobile-engine-protocol-v2.md
+          - Mobile server sessions: adr/0004-mobile-server-session-foundation.md
+          - Shared Rust policy: adr/0005-shared-rust-domain-policy.md

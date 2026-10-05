@@ -150,8 +150,12 @@ APK/IPA packaging. The mobile CI workflows are:
   libraries, runs unit tests, and assembles a debug APK;
 - `.github/workflows/mobile-ios.yml`, which builds the Apple Rust libraries and
   runs the iOS simulator tests; and
-- `.github/workflows/release.yml`, which packages mobile artifacts alongside
-  desktop releases from a semantic version tag.
+- `.github/workflows/release-android.yml` and `release-ios.yml`, which package
+  Android and iOS independently from their component tags.
+
+Desktop packaging uses `.github/workflows/release.yml`; server and web use
+`container-release.yml`. See [Releases](releases.md) for tag formats and
+[Updates](updates.md) for scheduled Nightly builds from `main`.
 
 Authentication changes should be tested with:
 
@@ -237,10 +241,8 @@ For development outside Nix:
 Linux playback uses libmpv's OpenGL render API through X11/Ozone. The packaged
 app and development launcher use X11 by default because native Wayland does not
 provide the window ID required by the embedded player.
-Conduit keeps WebKitGTK's accelerated DMA-BUF renderer enabled on Intel and AMD
-and disables it automatically on NVIDIA to avoid known black-screen and
-protocol-failure paths. Set `WEBKIT_DISABLE_DMABUF_RENDERER=1` manually when
-diagnosing a non-NVIDIA driver that cannot use DMA-BUF reliably.
+For Electron GPU-driver troubleshooting, use the environment variables in
+[Start development](#start-development).
 
 ### Windows playback test matrix
 
@@ -272,3 +274,44 @@ pnpm admin:recover
 
 The CLI reads the same `.env` as the server and prompts for an email. Test links
 against the configured `WEB_ORIGIN`.
+
+## Documentation
+
+The [documentation site](https://davidvanderklay.github.io/conduit/docs/) is built
+with MkDocs and Material from `docs/`. Its layout has topic navigation, an
+article, and a page outline, with search and a black background. Keep new pages
+in `mkdocs.yml` so they appear in navigation. Python 3.12 is used in CI.
+
+Install and preview locally from the repository root:
+
+```sh
+python3 -m venv .venv-docs
+. .venv-docs/bin/activate
+python -m pip install -r requirements-docs.txt
+python -m mkdocs serve
+```
+
+MkDocs serves the documentation at `http://127.0.0.1:8000/conduit/docs/`.
+Validate before committing:
+
+```sh
+python -m mkdocs build --strict
+python -m unittest discover -s scripts -p test_pages_site.py
+```
+
+CI builds docs strictly, including page and anchor validation, and tests that
+assembling Pages preserves Flatpak files. Links to source files outside `docs/`
+should use GitHub URLs, because those files are not part of the site.
+
+`.github/workflows/pages.yml` is the only Pages publisher. Documentation changes
+on `main` trigger it; desktop releases call it after updating the signed
+`flatpak-repo` branch. It can also be run manually. One concurrency group covers
+the checkout, build, and deployment. Each run reads current `main` and
+`flatpak-repo`, builds docs under `/conduit/docs/`, and preserves Flatpak files
+at their original URLs. It never writes to the signed repository branch.
+
+GitHub Pages must use **GitHub Actions** as its source. The publisher requires
+an existing signed `flatpak-repo`; missing required files fail the run rather
+than deploying a docs-only site. Fix that input and rerun the publisher if a
+release updated the branch but Pages failed. Do not use `mkdocs gh-deploy` or add
+a second Pages deployment workflow: either could replace the Flatpak site.
