@@ -2,6 +2,7 @@ package media.conduit.mobile
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
@@ -52,6 +53,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.StrokeCap
@@ -103,6 +105,11 @@ fun App() {
     var preferences by remember { mutableStateOf(initialPreferences) }
     val updatePreferences: (DevicePreferences) -> Unit = { preferences = preferencesRepository.save(it) }
     SideEffect { DiagnosticLogStore.setDebugLoggingEnabled(preferences.debugLogging) }
+    val accessibility = rememberSystemAccessibility()
+    CompositionLocalProvider(
+        LocalReducedMotion provides (preferences.reduceAnimations || accessibility.reduceMotion),
+        LocalScreenReader provides accessibility.screenReader,
+    ) {
     ConduitTheme(amoledBlack = preferences.amoledBlack) {
         val store = remember(services.settings, services.secure) {
             AppStore(services.settings, SessionVault(services.secure))
@@ -122,10 +129,11 @@ fun App() {
             if (state.endpoint == null) {
                 ServerSetup(state, dispatch)
             } else {
-                AccountGate(state, services, preferences, updatePreferences, dispatch)
+                key(state.endpoint?.baseUrl) { AccountGate(state, services, preferences, updatePreferences, dispatch) }
             }
         }
     }
+}
 }
 
 @Composable
@@ -144,6 +152,7 @@ private fun AccountGate(
     val authenticationCache = remember(services.settings) { AuthenticationConfigurationCache(services.settings) }
     val cachedAuthentication = remember(endpoint.baseUrl) { authenticationCache.load(endpoint.baseUrl) }
     val hasStoredSession = remember(endpoint.baseUrl) { repository.hasStoredSession(endpoint.baseUrl) }
+    val cachedAccount = remember(endpoint.baseUrl) { repository.cachedAccount(endpoint.baseUrl) }
     val discoveryPlaceholder = remember {
         AuthenticationConfiguration(
             needsOwner = false,
@@ -156,11 +165,12 @@ private fun AccountGate(
     val lifecycleMutex = remember(repository) { Mutex() }
     var account by remember(endpoint.baseUrl) {
         mutableStateOf<AccountStatus>(
-            if (hasStoredSession) AccountStatus.Loading
+            cachedAccount ?: if (hasStoredSession) AccountStatus.Loading
             else AccountStatus.SignedOut(cachedAuthentication ?: discoveryPlaceholder),
         )
     }
     var restoreStarted by remember(endpoint.baseUrl) { mutableStateOf(false) }
+    var restoreJob by remember(repository) { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     var authenticationLoading by remember(endpoint.baseUrl) { mutableStateOf(!hasStoredSession) }
     var authenticationReady by remember(endpoint.baseUrl) { mutableStateOf(cachedAuthentication != null) }
     var authenticationError by remember(endpoint.baseUrl) { mutableStateOf<String?>(null) }
@@ -171,6 +181,8 @@ private fun AccountGate(
     LaunchedEffect(repository) {
         if (restoreStarted) return@LaunchedEffect
         restoreStarted = true
+        restoreJob = coroutineContext[kotlinx.coroutines.Job]
+        if (cachedAccount != null) dispatch(AppAction.Navigate(AppDestination.Library))
         lifecycleMutex.withLock {
             if (hasStoredSession) {
                 account = repository.restore(endpoint)
@@ -192,6 +204,15 @@ private fun AccountGate(
             }
             oauthPending = repository.hasPendingOAuth(endpoint.baseUrl)
         }
+    }
+    LaunchedEffect((account as? AccountStatus.SignedIn)?.session) {
+        val session = (account as? AccountStatus.SignedIn)?.session ?: return@LaunchedEffect
+        val expiry = session.expiresAt?.let { runCatching { kotlin.time.Instant.parse(it) }.getOrNull() } ?: return@LaunchedEffect
+        val remaining = (expiry - Clock.System.now()).inWholeMilliseconds
+        if (remaining > 0) kotlinx.coroutines.delay(remaining)
+        restoreJob?.cancel()
+        sessionVault.clear()
+        account = AccountStatus.SignedOut(cachedAuthentication ?: discoveryPlaceholder, "Your session expired. Sign in again.")
     }
     LaunchedEffect(oauthPlatform.callbackUrl) {
         val callback = oauthPlatform.callbackUrl ?: return@LaunchedEffect
@@ -330,12 +351,33 @@ private fun AccountGate(
                     onPreferencesChanged = onPreferencesChanged,
                     shareText = services.shareText,
                     dispatch = dispatch,
-                    onSignOut = {
+                    onAuthenticationRequired = {
+                        restoreJob?.cancel()
+                        sessionVault.clear()
+                        account = AccountStatus.SignedOut(cachedAuthentication ?: discoveryPlaceholder, "Your session expired. Sign in again.")
+                    },
+                    onSignOutRequested = {
+                        // Remove the shell immediately so obsolete UI jobs are cancelled before cleanup.
+                        restoreJob?.cancel()
+                        account = AccountStatus.Loading
+                        sessionVault.clear()
                         accountScope.launch {
-                            account = repository.signOut(endpoint, current.session)
-                            (account as? AccountStatus.SignedOut)?.authentication?.let { configuration ->
-                                authenticationCache.save(endpoint.baseUrl, configuration)
-                                authenticationReady = true
+                            val accountId = current.bootstrap.user?.email ?: current.session.token
+                            val profiles = current.bootstrap.households.flatMap { it.profiles }
+                            val sync = ProfileSyncRepository(api, services.secure, profileCacheScope(endpoint.baseUrl, accountId))
+                            val progress = IncrementalProgressRepository(api, progressDatabase)
+                            PlaybackProgressOutbox(api, services.secure).clear(endpoint.baseUrl, current.bootstrap.user?.email ?: current.session.token)
+                            profiles.forEach { profile ->
+                                sync.clear(profile.id)
+                                progress.clear(endpoint.baseUrl, accountId, profile.id)
+                            }
+                            account = AccountStatus.SignedOut(cachedAuthentication ?: discoveryPlaceholder)
+                            authenticationLoading = false
+                            authenticationReady = cachedAuthentication != null
+                            try {
+                                api.signOut(endpoint.baseUrl, current.session.token)
+                            } catch (cause: Exception) {
+                                if (cause is CancellationException) throw cause
                             }
                         }
                     },
@@ -480,7 +522,7 @@ private fun ConduitLoadingScreen(
 
 @Composable
 private fun ConduitLoadingIndicator(modifier: Modifier = Modifier) {
-    CircularProgressIndicator(
+    StaticLoadingIndicator(
         modifier = modifier.size(29.dp),
         color = Color(0xFFFBBF24),
         trackColor = Color.White.copy(alpha = .12f),
@@ -582,7 +624,7 @@ private fun SignInScreen(
             Text(if (recovering) "Enter one of the recovery codes you saved." else if (registering) "Create a private account for this conduit instance." else "Sign in to continue to your household.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
             if (authenticationLoading && !authenticationReady) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                    CircularProgressIndicator(Modifier.size(17.dp), strokeWidth = 2.dp)
+                    StaticLoadingIndicator(Modifier.size(17.dp), strokeWidth = 2.dp)
                     Text("Waking server…", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                 }
             }
@@ -654,7 +696,7 @@ private fun SignInScreen(
                 serverError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.End)) {
                     TextButton(onClick = { showServerDialog = false }, enabled = !serverPending) { Text("Cancel", color = Color.White.copy(.7f)) }
-                    Button(onClick = { onConnectServer(if (useDefault) DefaultServerEndpoint.baseUrl else customServer) }, enabled = !serverPending && (useDefault || customServer.isNotBlank())) { if (serverPending) { CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp); Spacer(Modifier.width(8.dp)) }; Text(if (serverPending) "Checking…" else "Connect") }
+                    Button(onClick = { onConnectServer(if (useDefault) DefaultServerEndpoint.baseUrl else customServer) }, enabled = !serverPending && (useDefault || customServer.isNotBlank())) { if (serverPending) { StaticLoadingIndicator(Modifier.size(18.dp), strokeWidth = 2.dp); Spacer(Modifier.width(8.dp)) }; Text(if (serverPending) "Checking…" else "Connect") }
                 }
               }
             }
@@ -761,7 +803,7 @@ private fun ServerSetup(state: AppState, dispatch: (AppAction) -> Unit) {
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     if (state.pendingEndpoint != null) {
-                        CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                        StaticLoadingIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                         Spacer(Modifier.width(8.dp))
                         Text("Checking server…")
                     } else {
@@ -790,14 +832,15 @@ private fun AppShell(
     onPreferencesChanged: (DevicePreferences) -> Unit,
     shareText: (String) -> Unit,
     dispatch: (AppAction) -> Unit,
-    onSignOut: () -> Unit,
+    onSignOutRequested: () -> Unit,
     onProfilesChanged: (String?) -> Unit,
+    onAuthenticationRequired: () -> Unit,
 ) {
     val profiles = account.bootstrap.households.flatMap { it.profiles }
     val activeProfile = profiles.firstOrNull { it.id == state.activeProfileId } ?: profiles.firstOrNull()
     val endpoint = checkNotNull(state.endpoint)
     val accountId = account.bootstrap.user?.email ?: account.session.token
-    val profileCacheScope = "${endpoint.baseUrl.length}:${endpoint.baseUrl}${accountId.length}:$accountId"
+    val profileCacheScope = profileCacheScope(endpoint.baseUrl, accountId)
     val syncRepository = remember(api, secureStore, profileCacheScope) { ProfileSyncRepository(api, secureStore, profileCacheScope) }
     val incrementalProgress = remember(api, progressDatabase) { IncrementalProgressRepository(api, progressDatabase) }
     val progressOutbox = remember(api, secureStore, incrementalProgress) { PlaybackProgressOutbox(api, secureStore, incrementalProgress) }
@@ -805,6 +848,12 @@ private fun AppShell(
     val profileSyncMutex = remember { Mutex() }
     val appScope = rememberCoroutineScope()
     val playbackSession = remember(appScope) { PlaybackSessionController(appScope) }
+    DisposableEffect(playbackSession) { onDispose { playbackSession.close(saveProgress = false) } }
+    val onSignOut: () -> Unit = {
+        playbackSession.close(saveProgress = false)
+        appScope.coroutineContext[kotlinx.coroutines.Job]?.cancel()
+        onSignOutRequested()
+    }
     val watchParty = remember(endpoint.baseUrl, account.session.token, activeProfile?.id) {
         activeProfile?.let { WatchPartySessionController(appScope, api, endpoint.baseUrl, account.session.token, it.id, playbackSession) }
     }
@@ -826,23 +875,23 @@ private fun AppShell(
             ProfileSyncState(
                 snapshot = activeProfile?.let { syncRepository.cached(it.id) },
                 refreshing = activeProfile != null,
+                offline = account.cached,
+                issue = if (account.cached) SyncIssue.Network else null,
+                lastSyncedAt = activeProfile?.let { syncRepository.lastSyncedAt(it.id) },
             ),
         )
     }
     var queueManagerOpen by remember(activeProfile?.id) { mutableStateOf(false) }
     suspend fun synchronizeProfileData(profileId: String, fullResync: Boolean = false): ProfileSyncState {
         progressOutbox.flush(endpoint.baseUrl, account.session.token, accountId)
-        val progress = if (fullResync) {
-            incrementalProgress.fullResync(endpoint.baseUrl, account.session.token, accountId, profileId)
-        } else {
-            incrementalProgress.synchronize(endpoint.baseUrl, account.session.token, accountId, profileId)
+        val progress = incrementalProgress.synchronizeResult(endpoint.baseUrl, account.session.token, accountId, profileId, fullResync)
+        progress.failure?.let { cause ->
+            return profileSyncFailureState(
+                (syncRepository.cached(profileId) ?: profileSync.snapshot)?.withProgressUpdates(progress.items),
+                cause, syncRepository.lastSyncedAt(profileId),
+            )
         }
-        val result = syncRepository.synchronize(
-            endpoint.baseUrl,
-            account.session.token,
-            profileId,
-            progressOverride = progress,
-        )
+        val result = syncRepository.synchronize(endpoint.baseUrl, account.session.token, profileId, progressOverride = progress.items)
         return result
     }
     suspend fun synchronizeProfileDataSafely(profileId: String, fullResync: Boolean = false): ProfileSyncState {
@@ -857,16 +906,29 @@ private fun AppShell(
             profileSyncFailureState(
                 snapshot = runCatching { syncRepository.cached(profileId) }.getOrNull() ?: profileSync.snapshot,
                 cause = cause,
+                lastSyncedAt = syncRepository.lastSyncedAt(profileId),
             )
         }
     }
-    LaunchedEffect(activeProfile?.id, account.session.token) {
+    val refreshRequests = remember(activeProfile?.id, account.session.token) { RefreshRequests() }
+    var refreshFailures by remember(activeProfile?.id) { mutableIntStateOf(0) }
+    val requestRefresh: (Boolean) -> Unit = { full -> refreshRequests.request(full) }
+    LaunchedEffect(refreshRequests) {
         val profile = activeProfile ?: return@LaunchedEffect
-        profileSync = profileSync.copy(refreshing = true)
-        profileSyncMutex.withLock {
-            profileSync = synchronizeProfileDataSafely(profile.id)
+        refreshRequests.request()
+        while (true) {
+            val full = refreshRequests.next()
+            profileSync = profileSync.copy(refreshing = true)
+            val result = profileSyncMutex.withLock { synchronizeProfileDataSafely(profile.id, full) }
+            if (result.issue == SyncIssue.Authentication) {
+                onAuthenticationRequired()
+                return@LaunchedEffect
+            }
+            profileSync = result
+            refreshFailures = if (result.issue == null) 0 else (refreshFailures + 1).coerceAtMost(5)
         }
     }
+    DisposableEffect(refreshRequests) { onDispose { refreshRequests.close() } }
     LaunchedEffect(activeProfile?.id, state.activeProfileId) {
         if (activeProfile != null && activeProfile.id != state.activeProfileId) {
             dispatch(AppAction.SelectProfile(activeProfile.id))
@@ -923,24 +985,8 @@ private fun AppShell(
         profileLaunchRequest = ProfileLaunchRequest(target, profileLaunchSequence, returnToLibrary)
         dispatch(AppAction.Navigate(AppDestination.Profile))
     }
-    val refreshProfileData: () -> Unit = {
-        activeProfile?.let { profile ->
-            appScope.launch {
-                profileSyncMutex.withLock {
-                    profileSync = synchronizeProfileDataSafely(profile.id, fullResync = true)
-                }
-            }
-        }
-    }
-    rememberAppRecoveryTriggers {
-        activeProfile?.let { profile ->
-            appScope.launch {
-                profileSyncMutex.withLock {
-                    profileSync = synchronizeProfileDataSafely(profile.id)
-                }
-            }
-        }
-    }
+    val refreshProfileData: () -> Unit = { requestRefresh(true) }
+    rememberAppRecoveryTriggers(retryDelayMs = 30_000L * (1L shl refreshFailures)) { requestRefresh(false) }
     LaunchedEffect(
         state.destination,
         browseQuery,
@@ -1297,7 +1343,7 @@ private fun AppShell(
                 profileSync.refreshing && profileSync.error == null
             } else {
                 // The TV composes only the active page, so home catalogs load only while Home is showing.
-                (tv == null || state.destination == AppDestination.Home) &&
+                !profileSync.offline && (tv == null || state.destination == AppDestination.Home) &&
                     homeCache.result.value == null && homeCache.catalogError.value == null
             })
         val playbackAllowsAppChrome = playbackSession.state.presentation in setOf(
@@ -1577,7 +1623,7 @@ private fun DestinationContent(
     Box(modifier.fillMaxSize()) {
         AppDestination.entries.forEach { destination ->
             val active = selectedMedia == null && state.destination == destination
-            val tabModifier = if (active) Modifier.fillMaxSize() else Modifier.size(0.dp)
+            val tabModifier = if (active) Modifier.fillMaxSize() else Modifier.size(0.dp).clearAndSetSemantics {}
             when (destination) {
                 AppDestination.Home -> HomeScreen(
                     profileSync, api, onSelectMedia, onSelectContinueWatching, onSelectContinueWatchingDetails, onProfileMutation,
@@ -1599,6 +1645,7 @@ private fun DestinationContent(
                     onOpenCalendar = { dispatch(AppAction.Navigate(AppDestination.Calendar)) },
                     onSelect = { onSelectMedia(it, null) }, onSelectVideo = onSelectLibraryEntry,
                     gridState = libraryGridState, modifier = tabModifier,
+                    syncState = profileSync, onRetry = onProfileDataChanged,
                 )
                 AppDestination.Calendar -> MobileCalendarScreen(
                     snapshot = profileSync.snapshot,
@@ -1655,7 +1702,7 @@ private fun DestinationContent(
                 )
             }
         }
-        if (profileSync.refreshing) LinearProgressIndicator(Modifier.fillMaxWidth().align(Alignment.TopCenter))
+        // Refresh status uses static text in SyncStatusRow rather than an indeterminate animation.
     }
 }
 
@@ -1718,9 +1765,10 @@ private fun BoxScope.PlaybackSessionHost(
     var miniSize by remember { mutableStateOf(IntSize.Zero) }
     val playbackSurfaceReady = session.playback.videoWidth > 0 && session.playback.videoHeight > 0
     val density = LocalDensity.current
+    val reducedMotion = LocalReducedMotion.current
     val animatedMiniOffset by animateIntOffsetAsState(
         targetValue = miniOffset,
-        animationSpec = spring(dampingRatio = .78f, stiffness = 520f),
+        animationSpec = if (reducedMotion) androidx.compose.animation.core.snap() else spring(dampingRatio = .78f, stiffness = 520f),
         label = "mini-player-corner",
     )
 
@@ -1728,9 +1776,15 @@ private fun BoxScope.PlaybackSessionHost(
         active = session.presentation == PlaybackPresentation.FullScreen,
     )
     LaunchedEffect(request.identity, request.url) {
+        var lastCheckpoint: Triple<Long, Long, Boolean>? = null
         while (true) {
             kotlinx.coroutines.delay(15_000)
-            controller.persist()
+            val playback = controller.state.playback
+            val checkpoint = Triple(playback.positionMs, playback.durationMs, playback.ended)
+            if (checkpoint != lastCheckpoint) {
+                controller.persist()
+                lastCheckpoint = checkpoint
+            }
         }
     }
     LaunchedEffect(session.playback.ended) {
@@ -2706,7 +2760,7 @@ private fun MainTopBar(
             OutlinedTextField(
                 value = query,
                 onValueChange = onQueryChange,
-                modifier = Modifier.weight(1f).height(52.dp).focusRequester(searchFocus),
+                modifier = Modifier.weight(1f).height(mainTopBarHeight(LocalDensity.current.fontScale)).focusRequester(searchFocus),
                 placeholder = { Text("Search Conduit", maxLines = 1) },
                 leadingIcon = { Icon(Icons.Rounded.Search, null, Modifier.size(20.dp)) },
                 trailingIcon = if (query.isNotBlank()) {{
@@ -2875,12 +2929,12 @@ internal fun RowScope.MobileNavigationItem(
     Column(
         modifier.clip(RoundedCornerShape(24.dp))
             .background(if (selected) MaterialTheme.colorScheme.primary.copy(alpha = .12f) else Color.Transparent)
-            .clickable(onClick = onClick).padding(top = if (showLabel) 8.dp else 10.dp, bottom = if (showLabel) 7.dp else 10.dp),
+            .selectable(selected = selected, role = androidx.compose.ui.semantics.Role.Tab, onClick = onClick).padding(top = if (showLabel) 8.dp else 10.dp, bottom = if (showLabel) 7.dp else 10.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Icon(destination.icon, destination.label, tint = color, modifier = Modifier.size(24.dp))
-        if (showLabel) Text(destination.label, color = color, style = MaterialTheme.typography.labelMedium, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
+        Icon(destination.icon, if (showLabel) null else destination.label, tint = color, modifier = Modifier.size(24.dp))
+        if (showLabel) Text(destination.label, color = color, style = MaterialTheme.typography.labelMedium, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
     }
 }
 

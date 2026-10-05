@@ -33,6 +33,8 @@ internal fun startIosDiagnosticLogging() {
 }
 
 /** Native events enter the writer directly, even when Compose is not polling. */
+fun redactIosDiagnosticMessage(value: String): String = media.conduit.mobile.account.sanitizeDiagnosticMessage(value)
+
 fun recordIosDiagnosticEvent(encoded: String) {
     DiagnosticLogStore.recordNativeEvent(encoded)
 }

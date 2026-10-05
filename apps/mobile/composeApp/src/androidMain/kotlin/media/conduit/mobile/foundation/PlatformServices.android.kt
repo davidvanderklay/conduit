@@ -56,6 +56,7 @@ actual fun rememberPlatformServices(): PlatformServices {
 actual fun rememberAppLifecycleEvents(
     onForeground: () -> Unit,
     onConnectivityRecovered: () -> Unit,
+    onActiveChanged: (Boolean) -> Unit,
 ) {
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val context = LocalContext.current.applicationContext
@@ -64,20 +65,25 @@ actual fun rememberAppLifecycleEvents(
     }
     val latestForeground = rememberUpdatedState(onForeground)
     val latestConnectivity = rememberUpdatedState(onConnectivityRecovered)
+    val latestActive = rememberUpdatedState(onActiveChanged)
+    val handler = android.os.Handler(android.os.Looper.getMainLooper())
     DisposableEffect(lifecycle, connectivity) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_START || event == Lifecycle.Event.ON_RESUME) {
+            if (event == Lifecycle.Event.ON_RESUME) {
+                latestActive.value(true)
                 latestForeground.value()
-            }
+            } else if (event == Lifecycle.Event.ON_PAUSE) latestActive.value(false)
         }
         val networkCallback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
-                latestConnectivity.value()
+                handler.post { if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) latestConnectivity.value() }
             }
         }
         lifecycle.addObserver(observer)
         connectivity.registerDefaultNetworkCallback(networkCallback)
-        if (lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) latestForeground.value()
+        val active = lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+        latestActive.value(active)
+        if (active) latestForeground.value()
         onDispose {
             lifecycle.removeObserver(observer)
             connectivity.unregisterNetworkCallback(networkCallback)

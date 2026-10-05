@@ -11,6 +11,12 @@ import kotlin.test.assertTrue
 
 class DiagnosticLogStoreTest {
     @Test
+    fun callbacksAndRecoverySecretsAreRedactedBeforePersistence() {
+        val safe = sanitizeDiagnosticMessage("conduit://oauth/callback?code=callback verifier=pkce code=one-time recovery_code=backup https://addon.example/key/manifest.json")
+        listOf("callback", "pkce", "one-time", "backup", "addon.example").forEach { assertFalse(it in safe) }
+    }
+
+    @Test
     fun persistedEntryValuesRedactHeadersAndJsonCredentials() {
         DiagnosticLogStore.clear()
         DiagnosticLogStore.info("network", "Authorization: Bearer top-secret\nCookie: session=private\n" +

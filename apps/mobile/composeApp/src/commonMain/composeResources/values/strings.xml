@@ -1,0 +1,19 @@
+<resources>
+    <string name="sync_offline">Offline</string>
+    <string name="sync_server_error">Sync unavailable</string>
+    <string name="sync_authentication">Sign in again</string>
+    <string name="sync_saved_at">Saved %1$s</string>
+    <string name="sync_saved_unknown">Using saved data</string>
+    <string name="sync_retry">Retry</string>
+    <string name="sync_refreshing">Refreshing</string>
+    <string name="library_title">Library</string>
+    <string name="history_title">Watch history</string>
+    <string name="history_open">Open watch history</string>
+    <string name="calendar_open">Open release calendar</string>
+    <string name="library_empty">Nothing saved here yet.</string>
+    <string name="history_empty">Nothing watched yet.</string>
+    <string name="sync_loading">Loading saved data</string>
+    <string name="loading">Loading</string>
+    <string name="sync_no_cache">No saved data</string>
+    <string name="history_back">Back</string>
+</resources>

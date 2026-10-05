@@ -2,6 +2,8 @@ package media.conduit.mobile.account
 
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.coroutines.CancellationException
+import kotlin.time.Clock
 import media.conduit.mobile.foundation.SecureStore
 
 data class ProfileSyncState(
@@ -9,14 +11,35 @@ data class ProfileSyncState(
     val refreshing: Boolean = false,
     val offline: Boolean = false,
     val error: String? = null,
+    val issue: SyncIssue? = null,
+    val lastSyncedAt: String? = null,
 )
 
-internal fun profileSyncFailureState(snapshot: ProfileSnapshot?, cause: Throwable): ProfileSyncState =
-    ProfileSyncState(
+enum class SyncIssue { Network, Authentication, Server }
+
+internal fun syncIssue(cause: Throwable): SyncIssue {
+    if (cause is CancellationException) throw cause
+    return when ((cause as? ServerRequestException)?.statusCode) {
+        null -> if (cause is ServerRequestException || cause is kotlinx.io.IOException || cause is io.ktor.client.plugins.HttpRequestTimeoutException) SyncIssue.Network else SyncIssue.Server
+        401 -> SyncIssue.Authentication
+        else -> SyncIssue.Server
+    }
+}
+
+internal fun profileSyncFailureState(snapshot: ProfileSnapshot?, cause: Throwable, lastSyncedAt: String? = null): ProfileSyncState {
+    val issue = syncIssue(cause)
+    return ProfileSyncState(
         snapshot = snapshot,
-        offline = snapshot != null,
-        error = cause.message ?: "Unable to synchronize this profile",
+        offline = issue == SyncIssue.Network,
+        error = when (issue) {
+            SyncIssue.Network -> "Unable to reach the server"
+            SyncIssue.Authentication -> "Your session expired. Sign in again."
+            SyncIssue.Server -> "Unable to synchronize this profile"
+        },
+        issue = issue,
+        lastSyncedAt = lastSyncedAt,
     )
+}
 
 internal fun ProfileSnapshot.withProgressUpdate(update: ProgressSummary): ProfileSnapshot =
     withProgressUpdates(listOf(update))
@@ -49,6 +72,8 @@ class ProfileSyncRepository(
 ) {
     private val json = Json { ignoreUnknownKeys = true }
 
+    fun lastSyncedAt(profileId: String): String? = secureStore.get(timestampKey(profileId))
+
     fun cached(profileId: String): ProfileSnapshot? = secureStore.get(cacheKey(profileId))
         ?.let { runCatching { json.decodeFromString<ProfileSnapshot>(it) }.getOrNull() }
         ?.let { snapshot ->
@@ -72,8 +97,11 @@ class ProfileSyncRepository(
             val snapshot = api.synchronizeProfile(baseUrl, token, profileId, progressOverride)
                 .withProgressUpdates(preservedProgress)
             secureStore.put(cacheKey(profileId), json.encodeToString(snapshot))
-            ProfileSyncState(snapshot = snapshot)
+            val syncedAt = Clock.System.now().toString()
+            secureStore.put(timestampKey(profileId), syncedAt)
+            ProfileSyncState(snapshot = snapshot, lastSyncedAt = syncedAt)
         } catch (cause: Exception) {
+            if (cause is CancellationException) throw cause
             val offlineSnapshot = cached?.let { snapshot ->
                 progressOverride?.let { progress ->
                     snapshot.copy(
@@ -85,11 +113,7 @@ class ProfileSyncRepository(
                     )
                 } ?: snapshot.withProgressUpdates(preservedProgress)
             }
-            ProfileSyncState(
-                snapshot = offlineSnapshot,
-                offline = cached != null,
-                error = cause.message ?: "Unable to synchronize this profile",
-            )
+            profileSyncFailureState(offlineSnapshot, cause, lastSyncedAt(profileId))
         }
     }
 
@@ -106,8 +130,16 @@ class ProfileSyncRepository(
 
     fun clearPendingQueue(profileId: String) = secureStore.remove(pendingQueueKey(profileId))
 
-    fun clear(profileId: String) = secureStore.remove(cacheKey(profileId))
+    fun clear(profileId: String) {
+        secureStore.remove(cacheKey(profileId))
+        secureStore.remove(timestampKey(profileId))
+        clearPendingQueue(profileId)
+    }
 
     private fun cacheKey(profileId: String) = "profile.snapshot.v2.${scope.length}:$scope.$profileId"
+    private fun timestampKey(profileId: String) = "profile.snapshot.time.v1.${scope.length}:$scope.$profileId"
     private fun pendingQueueKey(profileId: String) = "profile.queue.pending.v2.${scope.length}:$scope.$profileId"
 }
+
+internal fun profileCacheScope(baseUrl: String, accountId: String): String =
+    "${baseUrl.length}:$baseUrl${accountId.length}:$accountId"

@@ -3,6 +3,7 @@ import AuthenticationServices
 import AVFoundation
 import CryptoKit
 import Foundation
+import Network
 import Security
 import UIKit
 import UniformTypeIdentifiers
@@ -251,6 +252,7 @@ final class ConduitProfileFilesBridge: NSObject, IosProfileFilesBridge, UIDocume
 
 enum ConduitPlatformRegistration {
     static func register() {
+        IosPlatformBridgeFactory.shared.registerAppEvents(bridge: ConduitAppEventsBridge())
         IosPlatformBridgeFactory.shared.register(
             secureStore: ConduitKeychainStore(),
             oauthBridge: ConduitOAuthBridge(),
@@ -266,5 +268,40 @@ private extension Data {
             .replacingOccurrences(of: "+", with: "-")
             .replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: "=", with: "")
+    }
+}
+
+/// Sends network recovery hints on the UI thread; server reachability is checked by sync.
+final class ConduitAppEventsBridge: NSObject, IosAppEventsBridge {
+    private var monitor: NWPathMonitor?
+    private var listeners: [String: () -> Void] = [:]
+    private var available = false
+
+    func startConnectivity(onRecovered: @escaping () -> Void) -> String {
+        let subscription = UUID().uuidString
+        listeners[subscription] = onRecovered
+        if monitor == nil {
+            let next = NWPathMonitor()
+            available = false
+            next.pathUpdateHandler = { [weak self, weak next] path in
+                DispatchQueue.main.async {
+                    guard let self, let next, self.monitor === next else { return }
+                    let recovered = path.status == .satisfied && !self.available
+                    self.available = path.status == .satisfied
+                    if recovered { Array(self.listeners.values).forEach { $0() } }
+                }
+            }
+            monitor = next
+            next.start(queue: DispatchQueue(label: "media.conduit.connectivity"))
+        }
+        return subscription
+    }
+
+    func stopConnectivity(subscription: String) {
+        listeners.removeValue(forKey: subscription)
+        if listeners.isEmpty {
+            monitor?.cancel()
+            monitor = nil
+        }
     }
 }

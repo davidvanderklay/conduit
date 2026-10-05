@@ -1,5 +1,7 @@
 package media.conduit.mobile
 
+import media.conduit.mobile.foundation.LocalScreenReader
+
 import android.app.Activity
 import android.content.Context
 import android.content.pm.ActivityInfo
@@ -206,6 +208,7 @@ actual fun NativePlayer(
     var mpvView by remember(loadId, url, requestHeaders, activeEngine) { mutableStateOf<ConduitMpvView?>(null) }
     var mpvTrackRevision by remember(loadId, url, requestHeaders, activeEngine) { mutableIntStateOf(0) }
     var playbackError by remember(player) { mutableStateOf<String?>(null) }
+    val screenReader = LocalScreenReader.current
     var controlsVisible by remember(player) { mutableStateOf(true) }
     var speedMenuOpen by remember(player) { mutableStateOf(false) }
     LaunchedEffect(controlsVisible) { onControlsVisibilityChanged(controlsVisible) }
@@ -722,6 +725,7 @@ actual fun NativePlayer(
             null -> Unit
         }
     }
+    LaunchedEffect(screenReader) { if (screenReader) controlsVisible = true }
     LaunchedEffect(presentation) {
         controlsVisible = presentation == PlaybackPresentation.FullScreen
     }
@@ -733,8 +737,8 @@ actual fun NativePlayer(
     LaunchedEffect(mpvView, subtitleStyle, activeEngine) {
         if (activeEngine == NativePlaybackEngine.Libmpv) mpvView?.applySubtitleStyle(subtitleStyle)
     }
-    LaunchedEffect(controlsVisible, playing, speedMenuOpen) {
-        if (controlsVisible && playing && !speedMenuOpen) {
+    LaunchedEffect(controlsVisible, playing, speedMenuOpen, screenReader) {
+        if (!screenReader && controlsVisible && playing && !speedMenuOpen) {
             delay(4_000)
             controlsVisible = false
         }
