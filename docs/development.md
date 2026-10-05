@@ -15,14 +15,35 @@
 
 ## Prerequisites
 
-The supported development environment is the repository's Nix flake:
+The supported development environment is the repository's Nix flake. Install
+Nix with flakes and `nix-command` enabled, then enter the shell from your
+checkout:
+
+```sh
+nix develop
+```
+
+Alternatively, install direnv and enable its shell hook, then allow this
+repository's `.envrc` to enter the same shell automatically:
 
 ```sh
 direnv allow
 ```
 
-Without Nix, install Node.js, pnpm, Rust, wasm-pack, PostgreSQL, and the native
-dependencies required by Electron and libmpv.
+Without Nix, the minimal web/server toolchain is Node.js 22, pnpm 10.14.0,
+stable Rust with the `wasm32-unknown-unknown` target, wasm-pack, and Docker
+Compose v2 for local PostgreSQL. The root `packageManager` field pins pnpm;
+CI uses Node.js 22. Install the Rust target with:
+
+```sh
+rustup target add wasm32-unknown-unknown
+```
+
+Desktop development additionally needs Electron and libmpv dependencies listed
+below. Mobile uses its own Android/iOS toolchains. You do not need those native
+client dependencies to work on web or server code. The Nix shell includes the
+desktop dependencies but does not install Docker or start its daemon; Docker
+must already be available.
 
 ## Environment
 
@@ -55,20 +76,42 @@ openssl rand -hex 32
 
 Never commit `.env`.
 
-## Start development
+## Start web and server development
 
 ```sh
 docker compose -f compose.source.yaml -f compose.dev.yaml up -d postgres
-pnpm install
+pnpm install --frozen-lockfile
 pnpm core:build
+pnpm --filter @conduit/updates build
 pnpm db:migrate
 pnpm dev
 ```
+
+Open `http://localhost:5173`. The API is at `http://localhost:3000` and
+`GET /health` should succeed. Register a disposable local account, create a
+household and profile, then install an add-on from its manifest URL to browse
+catalogs. The local `first-user` bootstrap mode makes the first account the
+owner; OAuth setup is optional for ordinary development.
+
+The updates package is built explicitly because the server's development
+command imports its compiled output. Rebuild it after editing that package.
 
 The development overlay publishes PostgreSQL on `localhost:5432`. Running
 `docker compose up -d postgres` without `compose.dev.yaml` starts the
 production-only database network and does not expose PostgreSQL to host
 commands such as `pnpm db:migrate`.
+
+If port 5432 is already in use, change both `POSTGRES_PORT` and the port in
+`DATABASE_URL` in `.env`. To isolate a checkout's database from other Conduit
+checkouts, add `-p conduit-my-branch` to every Compose command for that checkout.
+Use the same project name when stopping it:
+
+```sh
+docker compose -p conduit-my-branch -f compose.source.yaml -f compose.dev.yaml stop postgres
+```
+
+Stopping preserves the database volume. Avoid `down -v` unless you intend to
+delete that project's data.
 
 Run individual applications:
 
@@ -121,6 +164,31 @@ but ensure the schema snapshot still represents the final structure.
 
 ## Checks and tests
 
+For web/server work, run the affected package's checks without building desktop:
+
+```sh
+pnpm lint
+cargo fmt --all -- --check
+cargo test -p conduit-core -p conduit-mobile
+pnpm --filter @conduit/server check
+pnpm --filter @conduit/server test
+pnpm --filter @conduit/web check
+pnpm --filter @conduit/web test
+pnpm --filter @conduit/server build
+pnpm --filter @conduit/web build
+```
+
+Run the relevant subset for a focused change. Server integration tests use
+Testcontainers to start their own disposable PostgreSQL containers, so Docker
+must be running and your user must be able to access it. They do not use your
+development database. Web tests require the generated `packages/core/pkg`
+output from `pnpm core:build`.
+
+The full repository commands below also include desktop/native Rust checks
+and tests. They require the desktop dependencies; root task commands use a
+POSIX shell, so use Nix or a suitable Linux/WSL environment for those commands
+on Windows. The Windows desktop commands below run in PowerShell.
+
 ```sh
 pnpm check
 pnpm test
@@ -131,15 +199,6 @@ pnpm build
 Use `pnpm lint:fix` for safe JavaScript/TypeScript lint fixes and `pnpm format`
 to format the repository. CI only verifies code; it never pushes formatting
 changes back to a branch.
-
-Server and web packages can be checked independently:
-
-```sh
-pnpm --filter @conduit/server check
-pnpm --filter @conduit/server test
-pnpm --filter @conduit/web check
-pnpm --filter @conduit/web test
-```
 
 Mobile development has platform-specific toolchains and a separate release
 path. Use [Mobile development and release](mobile-development.md) for Android
@@ -242,7 +301,7 @@ Linux playback uses libmpv's OpenGL render API through X11/Ozone. The packaged
 app and development launcher use X11 by default because native Wayland does not
 provide the window ID required by the embedded player.
 For Electron GPU-driver troubleshooting, use the environment variables in
-[Start development](#start-development).
+[Start web and server development](#start-web-and-server-development).
 
 ### Windows playback test matrix
 

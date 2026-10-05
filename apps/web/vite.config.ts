@@ -4,6 +4,7 @@ import react from "@vitejs/plugin-react"
 import { defineConfig } from "vite"
 
 export default defineConfig({
+  optimizeDeps: { include: ["@conduit/updates"] },
   build: { commonjsOptions: { include: [/node_modules/, /packages\/updates\/dist/] } },
   envDir: "../..",
   plugins: [react(), tailwindcss()],

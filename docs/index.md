@@ -15,6 +15,8 @@ watch progress. Clients fetch catalogs and media directly from add-ons and sourc
 
 ## Build and contribute
 
+Start with [Contributing](contributing.md) to find work, ask questions, report
+bugs, or help test on a device.
 Use the [development guide](development.md) for the repository setup, or
 [mobile and TV development](mobile-development.md) for native toolchains.
 [Releases](releases.md) explains packaging and publication;

@@ -1,15 +1,35 @@
 # Conduit
 
-Conduit is an open-source, self-hosted media application built around
-Stremio-compatible add-ons. The server synchronizes households, profiles,
-installed add-ons, libraries, and watch progress; clients contact add-ons and
-media sources directly.
+A self-hosted film and television app built around Stremio-compatible add-ons.
+Share household profiles, libraries, and watch progress across your devices.
+Clients fetch catalogs and media directly from add-ons and sources.
 
-The project is under active development. The web and desktop clients are
-available alongside a shared Android/iOS client distributed by sideloading.
-Android TV and Google TV support is very experimental and uses the same Android
-APK. Treat current deployments as pre-release installations and keep profile
-exports and database backups.
+[Install](docs/installation.md) · [Self-host](docs/deployment.md) ·
+[Contribute](CONTRIBUTING.md) · [Ask a question](https://github.com/davidvanderklay/conduit/discussions)
+
+![Web client browsing add-on catalogs](docs/assets/screenshots/web-home.png)
+
+## Platform status
+
+| Client | Current status |
+| --- | --- |
+| Web | Available. Playback depends on browser codecs and CORS. |
+| Windows, macOS, Linux | Available. Electron with native libmpv playback. |
+| Android and iOS | Available by sideloading. Release hardening underway. |
+| Android TV and Google TV | Very experimental. Uses the Android APK. |
+| tvOS | Planned. |
+
+Pre-release software. Keep profile exports and database backups.
+
+## Help build Conduit
+
+Code, documentation, reproducible bug reports, and device testing are welcome.
+
+- Pick a [good first issue](https://github.com/davidvanderklay/conduit/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22good%20first%20issue%22)
+  and comment before starting.
+- Read the [contribution guide](CONTRIBUTING.md) and [development setup](docs/development.md).
+- Use [Discussions](https://github.com/davidvanderklay/conduit/discussions) for questions,
+  ideas, and device test results.
 
 ## What Conduit does
 
@@ -28,11 +48,12 @@ exports and database backups.
 Prerequisites are provided by the Nix flake:
 
 ```sh
-direnv allow
+nix develop
 cp .env.example .env
 docker compose -f compose.source.yaml -f compose.dev.yaml up -d postgres
 pnpm install
 pnpm core:build
+pnpm --filter @conduit/updates build
 pnpm db:migrate
 pnpm dev
 ```

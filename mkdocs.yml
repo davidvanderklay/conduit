@@ -53,6 +53,7 @@ nav:
   - Self-host:
       - Deployment: deployment.md
   - Contribute:
+      - Start here: contributing.md
       - Development: development.md
       - Mobile and TV: mobile-development.md
       - Releases: releases.md

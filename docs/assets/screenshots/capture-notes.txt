@@ -1,0 +1,17 @@
+Captured October 5, 2026 for the contribution-readiness README proposals.
+
+web-home.png: web development server from this checkout, connected to the
+isolated local API on port 3309. Captured with the T3 collaborative preview.
+
+android-home.png: installed media.conduit.mobile development build,
+0.1.0-spike, on Pixel_10, Android 17. Captured through agent-device.
+
+android-tv-home.png: installed media.conduit.mobile development build,
+0.1.0-spike, on Television_1080p, Android 16. Captured through agent-device.
+
+The Android clients use adb reverse forwarding to the same isolated local API.
+The screenshots show a disposable profile named Alex, not a personal account.
+Catalog metadata and poster artwork come from the default Cinemeta add-on.
+The captures show browsing and do not establish playback/device compatibility.
+No iOS or native desktop screenshot is included. Desktop Rust/Electron builds
+were verified on this machine; no existing daily-driver session was modified.
