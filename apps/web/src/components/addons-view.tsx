@@ -86,6 +86,16 @@ export function AddonsView({
             <RefreshCw size={14} /> Sync
           </Button>
         </div>
+        {update.error && (
+          <p role="alert" className="mx-5 mt-3 text-sm text-red-400">
+            {update.error.message}
+          </p>
+        )}
+        {remove.error && (
+          <p role="alert" className="mx-5 mt-3 text-sm text-red-400">
+            {remove.error.message}
+          </p>
+        )}
         <div className="divide-y divide-zinc-800">
           {addons.map((addon, index) => (
             <div className={`flex items-center gap-4 p-4 ${addon.enabled ? "" : "opacity-55"}`} key={addon.id}>
@@ -120,6 +130,7 @@ export function AddonsView({
                   role="switch"
                   aria-checked={addon.enabled}
                   aria-label={`${addon.enabled ? "Disable" : "Enable"} ${addon.manifest.name}`}
+                  disabled={update.isPending}
                   className={`relative mx-2 h-6 w-11 rounded-full transition ${addon.enabled ? "bg-amber-400" : "bg-zinc-700"}`}
                   onClick={() => update.mutate({ id: addon.id, values: { enabled: !addon.enabled } })}
                 >
@@ -131,6 +142,7 @@ export function AddonsView({
                   size="icon"
                   variant="ghost"
                   title={`Uninstall ${addon.manifest.name}`}
+                  disabled={remove.isPending}
                   onClick={() => {
                     if (window.confirm(`Uninstall ${addon.manifest.name} from ${profile.name}?`)) {
                       remove.mutate(addon.id)
