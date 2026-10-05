@@ -5,6 +5,7 @@ export type SkipButtonPlacement = "left" | "right"
 export interface DevicePreferences {
   audioLanguage: string
   subtitleLanguage: string
+  secondarySubtitleLanguage: string | null
   subtitleSize: number
   subtitlePosition: number
   readAheadSeconds: number
@@ -29,6 +30,7 @@ const KEY = "conduit.device-preferences.v1"
 export const defaultPreferences: DevicePreferences = {
   audioLanguage: "en",
   subtitleLanguage: "en",
+  secondarySubtitleLanguage: null,
   subtitleSize: 100,
   subtitlePosition: 90,
   readAheadSeconds: 30,
@@ -53,6 +55,10 @@ export function readPreferences(storage: Storage = localStorage): DevicePreferen
     return {
       ...defaultPreferences,
       ...value,
+      secondarySubtitleLanguage:
+        typeof value.secondarySubtitleLanguage === "string"
+          ? value.secondarySubtitleLanguage || null
+          : null,
       subtitleSize: clamp(Number(value.subtitleSize ?? defaultPreferences.subtitleSize), 75, 200),
       subtitlePosition: clamp(
         Number(value.subtitlePosition ?? defaultPreferences.subtitlePosition),

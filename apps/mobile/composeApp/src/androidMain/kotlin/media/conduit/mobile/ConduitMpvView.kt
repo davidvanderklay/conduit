@@ -83,6 +83,8 @@ internal class ConduitMpvView(
     @Volatile private var currentSubtitles: List<SubtitleItem> = emptyList()
     @Volatile private var currentPreferredAudio = SystemLanguagePreference
     @Volatile private var currentPreferredSubtitle = "en"
+    @Volatile private var currentSecondarySubtitle: String? = null
+    @Volatile private var subtitlesResolved = false
     @Volatile private var currentPlaybackSpeed = 1f
     @Volatile private var currentStartPositionMs = 0L
     @Volatile private var currentPlayWhenReady = true
@@ -258,6 +260,8 @@ internal class ConduitMpvView(
         selectedSubtitleLanguage: String? = currentSelectedSubtitleLanguage,
         selectedSubtitleLabel: String? = currentSelectedSubtitleLabel,
         subtitlesEnabled: Boolean = currentSubtitlesEnabled,
+        secondarySubtitleLanguage: String? = currentSecondarySubtitle,
+        subtitlesResolved: Boolean = this.subtitlesResolved,
     ) {
         if (!mpv.isInitialized) {
             errorMessage = "libmpv could not be initialized on this device."
@@ -269,6 +273,8 @@ internal class ConduitMpvView(
         loadedExternalSubtitleKeys = emptySet()
         currentPreferredAudio = preferredAudioLanguage
         currentPreferredSubtitle = preferredSubtitleLanguage
+        currentSecondarySubtitle = secondarySubtitleLanguage
+        this.subtitlesResolved = subtitlesResolved
         currentPlaybackSpeed = playbackSpeed.coerceIn(0.25f, 4f)
         currentStartPositionMs = startPositionMs.coerceAtLeast(0L)
         currentPlayWhenReady = playWhenReady
@@ -337,6 +343,13 @@ internal class ConduitMpvView(
             )
         }
         enqueueNative { loadPendingSourceNative() }
+    }
+
+    fun updateSubtitlePreferences(primary: String, secondary: String?, resolved: Boolean) {
+        currentPreferredSubtitle = primary
+        currentSecondarySubtitle = secondary
+        subtitlesResolved = resolved
+        trackCacheRefreshRequested = true
     }
 
     fun updateExternalSubtitles(subtitles: List<SubtitleItem>) {
@@ -497,7 +510,7 @@ internal class ConduitMpvView(
                             }
                         }
                         ?.let(::subtitleSelectionKey)
-                        ?: embeddedSubtitleSelectionKey(
+                        ?: if (node.nodeBoolean("external") == true) "external:$id" else embeddedSubtitleSelectionKey(
                             id = id,
                             sourceId = node.nodeInt("src-id"),
                             language = language,
@@ -529,7 +542,10 @@ internal class ConduitMpvView(
     }
 
     fun selectSubtitle(trackId: Int?, selectionKey: String?, subtitlesEnabled: Boolean) {
+        preferredSubtitleApplied = true
         currentSelectedSubtitleId = selectionKey
+        currentSelectedSubtitleLanguage = null
+        currentSelectedSubtitleLabel = null
         currentSubtitlesEnabled = subtitlesEnabled
         enqueueNative {
             if (trackId == null) {
@@ -539,7 +555,7 @@ internal class ConduitMpvView(
                     mpv.command(
                         "sub-add",
                         subtitle.url,
-                        "select",
+                        "auto",
                         subtitle.addonName.orEmpty(),
                         subtitle.lang.orEmpty(),
                     )
@@ -552,6 +568,7 @@ internal class ConduitMpvView(
     }
 
     private fun selectSingleSubtitleNative(trackId: Int) {
+        mpv.setPropertyString("secondary-sid", "no")
         mpv.setPropertyString("sid", "no")
         mpv.setPropertyInt("sid", trackId)
     }
@@ -582,23 +599,32 @@ internal class ConduitMpvView(
         }
     }
 
-    /** Match iOS/desktop: prefer an embedded track in the configured language. */
+    private fun automaticSubtitleDecision(): SubtitleDecision<String> {
+        val tracks = cachedTracks["sub"].orEmpty()
+        val candidates = tracks.mapNotNull { track ->
+            track.selectionKey?.let { key -> SubtitleCandidate(key, track.language, track.label,
+                embedded = key.startsWith(EmbeddedSubtitleSelectionPrefix)) }
+        } + currentSubtitles.filter {
+            externalSubtitleLoadQueued || subtitleSelectionKey(it) !in loadedExternalSubtitleKeys
+        }.map { SubtitleCandidate(subtitleSelectionKey(it), it.lang, it.addonName, embedded = false) }
+        return preferredSubtitle(candidates, currentPreferredSubtitle, currentSecondarySubtitle,
+            java.util.Locale.getDefault().language, embeddedReady = loaded, addonsReady = subtitlesResolved)
+    }
+
     private fun applyPreferredSubtitleSelectionNative() {
         if (!currentSubtitlesEnabled || preferredSubtitleApplied) return
-        if (currentSelectedSubtitleId != null ||
-            currentSelectedSubtitleLanguage != null ||
-            currentSelectedSubtitleLabel != null
-        ) return
-        val preferred = devicePreferredLanguageCode(currentPreferredSubtitle) ?: return
-        val matchingTracks = cachedTracks["sub"].orEmpty().filter { track ->
-            trackLanguageCode(track.language, track.label) == preferred
-        }
-        val selectedTrack = matchingTracks.firstOrNull { it.selectionKey?.startsWith(EmbeddedSubtitleSelectionPrefix) == true }
-            ?: matchingTracks.firstOrNull()
-            ?: return
-        preferredSubtitleApplied = true
-        if (!selectedTrack.selected || cachedTracks["sub"].orEmpty().count(MpvTrack::selected) != 1) {
-            runCatching { selectSingleSubtitleNative(selectedTrack.id) }
+        if (currentSelectedSubtitleId != null || currentSelectedSubtitleLanguage != null || currentSelectedSubtitleLabel != null) return
+        when (val decision = automaticSubtitleDecision()) {
+            SubtitleDecision.Wait -> Unit
+            SubtitleDecision.Off -> {
+                mpv.setPropertyString("sid", "no")
+                preferredSubtitleApplied = true
+            }
+            is SubtitleDecision.Select -> {
+                val track = cachedTracks["sub"].orEmpty().firstOrNull { it.selectionKey == decision.track } ?: return
+                selectSingleSubtitleNative(track.id)
+                preferredSubtitleApplied = true
+            }
         }
     }
 
@@ -740,19 +766,16 @@ internal class ConduitMpvView(
         externalSubtitleLoadQueued = true
         pendingExternalSubtitles = emptyList()
         loadedExternalSubtitleKeys = loadedExternalSubtitleKeys + subtitles.map(::subtitleSelectionKey)
-        val selectedIndex = preferredExternalSubtitleIndex()
-        Log.d("ConduitMpv", "external subtitle load started count=${subtitles.size} selectedIndex=$selectedIndex")
+        Log.d("ConduitMpv", "external subtitle load started count=${subtitles.size}")
         subtitleScope.launch {
-            subtitles.forEachIndexed { index, subtitle ->
+            subtitles.forEach { subtitle ->
                 if (destroyed || generation != activeLoadGeneration) return@launch
                 runCatching {
                     mpv.command(
                         "sub-add",
                         subtitle.url,
-                        // mpv's `cached` flag selects the added subtitle. Use
-                        // `auto` for alternatives so loading them cannot
-                        // replace the user's current subtitle.
-                        if (index == selectedIndex) "select" else "auto",
+                        // Track selection happens on the serialized native queue after loading.
+                        "auto",
                         subtitle.addonName.orEmpty(),
                         subtitle.lang.orEmpty(),
                     )
@@ -773,27 +796,10 @@ internal class ConduitMpvView(
 
     private fun preferredExternalSubtitleIndex(): Int? {
         if (!currentSubtitlesEnabled || currentSubtitles.isEmpty()) return null
-        return currentSubtitles.indexOfFirst { subtitleSelectionKey(it) == currentSelectedSubtitleId }
-            .takeIf { it >= 0 }
-            ?: if (currentSelectedSubtitleId != null || currentSelectedSubtitleLanguage != null || currentSelectedSubtitleLabel != null) {
-                null
-            } else {
-                if (hasPreferredEmbeddedSubtitle()) return null
-                val preferred = devicePreferredLanguageCode(currentPreferredSubtitle)
-                preferred?.let { code ->
-                    currentSubtitles.indexOfFirst { subtitle ->
-                        trackLanguageCode(subtitle.lang) == code
-                    }.takeIf { it >= 0 }
-                } ?: currentSubtitles.indices.firstOrNull()
-            }
-    }
-
-    private fun hasPreferredEmbeddedSubtitle(): Boolean {
-        val preferred = devicePreferredLanguageCode(currentPreferredSubtitle) ?: return false
-        return cachedTracks["sub"].orEmpty().any { track ->
-            track.selectionKey?.startsWith(EmbeddedSubtitleSelectionPrefix) == true &&
-                trackLanguageCode(track.language, track.label) == preferred
-        }
+        val key = currentSelectedSubtitleId ?: if (currentSelectedSubtitleLanguage == null && currentSelectedSubtitleLabel == null) {
+            (automaticSubtitleDecision() as? SubtitleDecision.Select)?.track
+        } else null
+        return currentSubtitles.indexOfFirst { subtitleSelectionKey(it) == key }.takeIf { it >= 0 }
     }
 
     private fun setPausedNative(paused: Boolean) {

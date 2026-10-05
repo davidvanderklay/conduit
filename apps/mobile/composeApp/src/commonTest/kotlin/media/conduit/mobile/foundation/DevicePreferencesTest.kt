@@ -7,6 +7,20 @@ import kotlin.test.assertTrue
 
 class DevicePreferencesTest {
     @Test
+    fun secondarySubtitlePreferencePreservesLegacyPrimaryAndRoundTripsNone() {
+        val store = MemorySettingsStore()
+        store.put("preferences.v1.subtitle-language", "Japanese")
+        val repository = DevicePreferencesRepository(store)
+        assertEquals("ja", repository.load().preferredSubtitleLanguage)
+        assertEquals(null, repository.load().secondarySubtitleLanguage)
+        repository.save(repository.load().copy(secondarySubtitleLanguage = "es"))
+        assertEquals("es", repository.load().secondarySubtitleLanguage)
+        repository.save(repository.load().copy(secondarySubtitleLanguage = null))
+        assertEquals(null, repository.load().secondarySubtitleLanguage)
+        assertEquals("ja", repository.load().preferredSubtitleLanguage)
+    }
+
+    @Test
     fun playbackPreferencesMigrateAndRoundTrip() {
         val store = MemorySettingsStore()
         val repository = DevicePreferencesRepository(store)

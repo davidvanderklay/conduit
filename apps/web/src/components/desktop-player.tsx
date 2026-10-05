@@ -54,6 +54,7 @@ import type { QueueItem } from "../lib/api"
 import { QueueIcon, QueueNotice } from "./queue"
 import { SkipSegmentButton } from "./player-skip-prompt"
 import { VideoScaleControl } from "./video-scale-control"
+import { preferredSubtitle, subtitleLookupResults } from "../lib/subtitle-selection"
 import { SubtitlePicker } from "./subtitle-picker"
 import { trackDisplayName } from "../lib/track-display"
 import {
@@ -208,6 +209,9 @@ export function DesktopPlayer({
   const pendingAddonSubtitle = useRef(new Set<string>())
   const preferredAudioApplied = useRef(false)
   const preferredSubtitleApplied = useRef(false)
+  const subtitleSelectionGeneration = useRef(0)
+  const subtitlePlaybackReady = useRef(false)
+  const addonLookupReady = useRef(false)
   const subtitleMetadataReadyPolls = useRef(0)
   const autoRecoveryStarted = useRef(false)
   const autoRecoveryFailureReported = useRef(false)
@@ -219,7 +223,6 @@ export function DesktopPlayer({
   onAutoRecoveryFailedRef.current = onAutoRecoveryFailed
   const [playbackStarted, setPlaybackStarted] = useState(false)
   const preferredAudioLanguage = configuredTrackLanguage(preferences.audioLanguage)
-  const preferredSubtitleLanguage = configuredTrackLanguage(preferences.subtitleLanguage)
   const { progress, save: saveProgress } = usePlaybackProgress(
     profileId,
     videoId,
@@ -365,6 +368,10 @@ export function DesktopPlayer({
     let playerStarted = false
     preferredAudioApplied.current = false
     preferredSubtitleApplied.current = false
+    subtitleSelectionGeneration.current += 1
+    subtitlePlaybackReady.current = false
+    addonLookupReady.current = false
+    setAddonSubtitles([])
     setShowRemainingTime(false)
     subtitleMetadataReadyPolls.current = 0
     setAddonSubtitlesResolved(false)
@@ -408,6 +415,7 @@ export function DesktopPlayer({
       .then(async (initial) => {
         if (cancelled) return
         playerStarted = true
+        subtitlePlaybackReady.current = true
         if (initial.duration > 0) mediaDurationObserved.current = true
         setSnapshot(initial)
         // The overlay only exists once the player is open; resend what it missed.
@@ -415,6 +423,7 @@ export function DesktopPlayer({
           () => undefined,
         )
         if (initial.firstFrameReady) setPlaybackStarted(true)
+        if (!preferredSubtitleApplied.current) await nativePlayerCommand(["set", "sid", "no"])
         await nativePlayerCommand(["set", "sub-pos", preferences.subtitlePosition])
         await nativePlayerCommand(["set", "sub-border-size", preferences.subtitleOutline ? 3 : 0])
         const resolved = await resolveAddonSubtitles(addons, type, videoId)
@@ -425,6 +434,7 @@ export function DesktopPlayer({
           // download. The preference effect below loads only the selected
           // language, and manual selection loads one track at a time.
           setAddonSubtitles(resolved)
+          addonLookupReady.current = true
           setAddonSubtitlesResolved(true)
         }
       })
@@ -456,6 +466,7 @@ export function DesktopPlayer({
 
     return () => {
       cancelled = true
+      subtitleSelectionGeneration.current += 1
       playerStarted = false
       window.clearInterval(poll)
       window.clearTimeout(hideTimer.current)
@@ -492,6 +503,12 @@ export function DesktopPlayer({
   useEffect(() => {
     const electron = window.__CONDUIT_ELECTRON__
     if (!electron) return
+    const unsubscribeSubtitle =
+      electron.onPlayerOverlaySubtitle?.(() => {
+        preferredSubtitleApplied.current = true
+        subtitleSelectionGeneration.current += 1
+        setSelectedAddonSubtitle(undefined)
+      }) ?? (() => undefined)
     const unsubscribeClose = electron.onPlayerOverlayClose(onClose)
     const unsubscribeNext = electron.onPlayerOverlayNext(() => {
       if (!onNextEpisode || nextTransitionRequested.current) return
@@ -525,6 +542,7 @@ export function DesktopPlayer({
     const unsubscribeQueueSet =
       electron.onPlayerOverlayQueueSet?.((items) => queue?.controls.set(items)) ?? (() => undefined)
     return () => {
+      unsubscribeSubtitle()
       unsubscribeClose()
       unsubscribeNext()
       unsubscribeEpisode()
@@ -580,72 +598,79 @@ export function DesktopPlayer({
   }, [preferredAudioLanguage, snapshot])
 
   useEffect(() => {
-    if (
-      preferredSubtitleApplied.current ||
-      !preferredSubtitleLanguage ||
-      !snapshot ||
-      !addonSubtitlesResolved
-    ) {
+    if (!subtitlePlaybackReady.current || preferredSubtitleApplied.current || !snapshot?.duration)
       return
-    }
     const subtitleTracks = snapshot.tracks.filter((track) => track.type === "sub")
-    // mpv can report its first snapshot before the stream's embedded tracks
-    // are populated. Do not permanently apply an add-on/external fallback
-    // during that partial state; wait for loaded media and subtitle metadata.
-    if (!snapshot.duration) return
-    if (subtitleTracks.length === 0) {
-      // Allow mpv another polling cycle to publish embedded tracks. Streams
-      // with no subtitle tracks can still fall back to an add-on afterward.
-      subtitleMetadataReadyPolls.current += 1
-      if (subtitleMetadataReadyPolls.current < 2) return
-    }
-    const embeddedMatch = subtitleTracks.find(
-      (track) =>
-        !track.external && matchesTrackLanguage(preferredSubtitleLanguage, track.lang, track.title),
-    )
+    if (subtitleTracks.length === 0 && ++subtitleMetadataReadyPolls.current < 2) return
+    const selected = preferredSubtitle<
+      { kind: "embedded"; value: NativeTrack } | { kind: "addon"; value: ResolvedAddonSubtitle }
+    >({
+      candidates: [
+        ...subtitleTracks
+          .filter((track) => !track.external)
+          .map((track) => ({
+            track: { kind: "embedded" as const, value: track },
+            language: track.lang,
+            title: track.title,
+            embedded: true,
+          })),
+        ...addonSubtitles.map((track) => ({
+          track: { kind: "addon" as const, value: track },
+          language: track.language,
+          title: track.display,
+          embedded: false,
+        })),
+      ],
+      primary: preferences.subtitleLanguage,
+      secondary: preferences.secondarySubtitleLanguage,
+      embeddedReady: true,
+      addonsReady: addonLookupReady.current,
+    })
+    if (selected === undefined) return
     preferredSubtitleApplied.current = true
-    if (embeddedMatch) {
-      if (!embeddedMatch.selected) {
-        void nativePlayerCommand(["set", "sid", embeddedMatch.id])
-        setSnapshot((current) =>
-          current
-            ? {
-                ...current,
-                tracks: current.tracks.map((track) =>
-                  track.type === "sub"
-                    ? { ...track, selected: track.id === embeddedMatch.id }
-                    : track,
-                ),
-              }
-            : current,
-        )
-      }
+    if (selected === null) {
+      void nativePlayerCommand(["set", "sid", "no"]).catch(() => undefined)
       return
     }
-    const addonMatch = addonSubtitles.find((subtitle) =>
-      matchesTrackLanguage(preferredSubtitleLanguage, subtitle.language, subtitle.display),
-    )
-    if (!addonMatch) return
-    const loadedAddonMatch = subtitleTracks.find(
-      (track) => track.external && track.title === addonMatch.display,
-    )
-    if (loadedAddonMatch) {
-      setSelectedAddonSubtitle(addonMatch.key)
-      if (!loadedAddonMatch.selected) void nativePlayerCommand(["set", "sid", loadedAddonMatch.id])
+    if (selected.kind === "embedded") {
+      void nativePlayerCommand(["set", "sid", selected.value.id]).catch(() => undefined)
       return
     }
-    pendingAddonSubtitle.current.add(addonMatch.key)
-    void nativePlayerCommand([
-      "sub-add",
-      addonMatch.url,
-      "select",
-      addonMatch.display,
-      addonMatch.language,
-    ])
-      .then(() => setSelectedAddonSubtitle(addonMatch.key))
+    const subtitle = selected.value
+    const generation = subtitleSelectionGeneration.current
+    const loaded = subtitleTracks.find(
+      (track) => track.external && track.title === subtitle.display,
+    )
+    pendingAddonSubtitle.current.add(subtitle.key)
+    // Loading must not select a track after a newer manual choice.
+    void (
+      loaded
+        ? Promise.resolve()
+        : nativePlayerCommand([
+            "sub-add",
+            subtitle.url,
+            "auto",
+            subtitle.display,
+            subtitle.language,
+          ])
+    )
+      .then(async () => {
+        if (generation !== subtitleSelectionGeneration.current) return
+        const tracks = loaded ? [loaded] : (await nativePlayerSnapshot()).tracks
+        const track = tracks.find((track) => track.external && track.title === subtitle.display)
+        if (!track || generation !== subtitleSelectionGeneration.current) return
+        await nativePlayerCommand(["set", "sid", track.id])
+        setSelectedAddonSubtitle(subtitle.key)
+      })
       .catch(() => undefined)
-      .finally(() => pendingAddonSubtitle.current.delete(addonMatch.key))
-  }, [addonSubtitles, addonSubtitlesResolved, preferredSubtitleLanguage, snapshot])
+      .finally(() => pendingAddonSubtitle.current.delete(subtitle.key))
+  }, [
+    addonSubtitles,
+    addonSubtitlesResolved,
+    preferences.subtitleLanguage,
+    preferences.secondarySubtitleLanguage,
+    snapshot,
+  ])
 
   useEffect(() => {
     if (resumed.current || !snapshot?.duration || !progress.isSuccess) return
@@ -941,6 +966,10 @@ export function DesktopPlayer({
 
   const selectTrack = async (property: "aid" | "sid", track: NativeTrack) => {
     try {
+      if (property === "sid") {
+        preferredSubtitleApplied.current = true
+        subtitleSelectionGeneration.current += 1
+      }
       if (property === "aid") preferredAudioApplied.current = true
       await nativePlayerCommand(["set", property, track.id])
       if (property === "sid") setSelectedAddonSubtitle(undefined)
@@ -1247,6 +1276,8 @@ export function DesktopPlayer({
               allowOff
               onSelect={(track) => void selectTrack("sid", track)}
               onSelectAddon={async (subtitle) => {
+                preferredSubtitleApplied.current = true
+                const generation = ++subtitleSelectionGeneration.current
                 if (pendingAddonSubtitle.current.has(subtitle.key)) return
                 pendingAddonSubtitle.current.add(subtitle.key)
                 try {
@@ -1259,10 +1290,18 @@ export function DesktopPlayer({
                     await nativePlayerCommand([
                       "sub-add",
                       subtitle.url,
-                      "select",
+                      "auto",
                       subtitle.display,
                       subtitle.language,
                     ])
+                  }
+                  if (generation !== subtitleSelectionGeneration.current) return
+                  if (!existing) {
+                    const loaded = (await nativePlayerSnapshot()).tracks.find(
+                      (track) => track.external && track.title === subtitle.display,
+                    )
+                    if (!loaded || generation !== subtitleSelectionGeneration.current) return
+                    await nativePlayerCommand(["set", "sid", loaded.id])
                   }
                   setSelectedAddonSubtitle(subtitle.key)
                   setSnapshot((current) =>
@@ -1283,6 +1322,8 @@ export function DesktopPlayer({
                 }
               }}
               onOff={async () => {
+                preferredSubtitleApplied.current = true
+                subtitleSelectionGeneration.current += 1
                 try {
                   await nativePlayerCommand(["set", "sid", "no"])
                   setSelectedAddonSubtitle(undefined)
@@ -1714,7 +1755,7 @@ async function resolveAddonSubtitles(
   videoId: string,
 ): Promise<ResolvedAddonSubtitle[]> {
   const candidates = addonsForResource(addons, "subtitles", type, videoId)
-  const results = await Promise.allSettled(
+  const results = await subtitleLookupResults(
     candidates.map(async (addon) => ({
       addon,
       subtitles: await loadSubtitles(addon.manifestUrl, type, videoId),

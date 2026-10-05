@@ -49,11 +49,15 @@ export interface NativePlayerSnapshot {
 }
 
 export interface ElectronDesktopBridge {
-  updates?: (command: "status" | "check" | "configure" | "download" | "cancel" | "install", args?: { track?: "stable" | "nightly"; enabled?: boolean; serverApiLevel?: number }) => Promise<DesktopUpdateStatus | undefined>
+  updates?: (
+    command: "status" | "check" | "configure" | "download" | "cancel" | "install",
+    args?: { track?: "stable" | "nightly"; enabled?: boolean; serverApiLevel?: number },
+  ) => Promise<DesktopUpdateStatus | undefined>
   invoke<T>(command: string, args?: unknown): Promise<T>
   onFullscreenChange(listener: (fullscreen: boolean) => void): () => void
   onPlayerOverlayClose(listener: () => void): () => void
   onPlayerOverlayNext(listener: () => void): () => void
+  onPlayerOverlaySubtitle?: (listener: () => void) => () => void
   onPlayerOverlayEpisode?: (listener: (videoId: string) => void) => () => void
   onPlayerOverlayWatchAction?: (
     listener: (action: { videoIds: string[]; watched: boolean }) => void,

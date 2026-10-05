@@ -706,6 +706,131 @@ describe("DesktopPlayer track menus", () => {
     expect(filterAddedAddonSubtitles(subtitles, tracks)).toEqual([subtitles[1]])
   })
 
+  async function renderSubtitleCase(lookup: Promise<core.Subtitle[]>) {
+    localStorage.setItem(
+      "conduit.device-preferences.v1",
+      JSON.stringify({ subtitleLanguage: "en", secondarySubtitleLanguage: "es" }),
+    )
+    vi.spyOn(core, "loadSubtitles").mockReturnValue(lookup)
+    await act(async () => {
+      root.render(
+        <DesktopPlayer
+          url="https://example.com/subtitle-priority.mkv"
+          type="movie"
+          videoId="subtitle-priority"
+          profileId="profile"
+          progressMetadata={{ mediaType: "movie", mediaId: "subtitle-priority", name: "Movie" }}
+          addons={[
+            {
+              id: "addon",
+              manifestId: "subtitles",
+              manifestUrl: "https://addon.example/manifest.json",
+              position: 0,
+              enabled: true,
+              manifest: {
+                id: "subtitles",
+                version: "1",
+                name: "Provider",
+                resources: ["subtitles"],
+                types: ["movie"],
+                catalogs: [],
+              },
+            },
+          ]}
+          onClose={() => undefined}
+        />,
+      )
+    })
+  }
+
+  it("waits for delayed primary add-ons before selecting a secondary embedded track", async () => {
+    let resolve!: (subtitles: core.Subtitle[]) => void
+    await renderSubtitleCase(
+      new Promise((done) => {
+        resolve = done
+      }),
+    )
+    expect(desktop.nativePlayerCommand).not.toHaveBeenCalledWith(["set", "sid", 3])
+    await act(async () => resolve([]))
+    expect(desktop.nativePlayerCommand).toHaveBeenCalledWith(["set", "sid", 3])
+  })
+
+  it("loads the primary add-on instead of selecting an embedded secondary", async () => {
+    let resolve!: (subtitles: core.Subtitle[]) => void
+    await renderSubtitleCase(
+      new Promise((done) => {
+        resolve = done
+      }),
+    )
+    desktop.nativePlayerSnapshot.mockResolvedValue({
+      ...snapshot,
+      tracks: [
+        ...snapshot.tracks,
+        {
+          id: 4,
+          type: "sub",
+          title: "English · Provider",
+          lang: "en",
+          external: true,
+          selected: false,
+        },
+      ],
+    })
+    await act(async () =>
+      resolve([{ id: "english", lang: "en", url: "https://subs.example/en.vtt" }]),
+    )
+    expect(desktop.nativePlayerCommand).not.toHaveBeenCalledWith(["set", "sid", 3])
+    expect(desktop.nativePlayerCommand).toHaveBeenCalledWith(["set", "sid", 4])
+  })
+
+  it("preserves manual Off when a subtitle lookup finishes", async () => {
+    let resolve!: (subtitles: core.Subtitle[]) => void
+    await renderSubtitleCase(
+      new Promise((done) => {
+        resolve = done
+      }),
+    )
+    click(button("Subtitles: Off"))
+    await act(async () => button("Off").click())
+    desktop.nativePlayerCommand.mockClear()
+    await act(async () => resolve([]))
+    expect(desktop.nativePlayerCommand).not.toHaveBeenCalledWith(["set", "sid", 3])
+  })
+
+  it("does not select an add-on whose download completes after manual Off", async () => {
+    let loaded!: () => void
+    desktop.nativePlayerCommand.mockImplementation((command: unknown[]) =>
+      command[0] === "sub-add"
+        ? new Promise<undefined>((done) => {
+            loaded = () => done(undefined)
+          })
+        : Promise.resolve(undefined),
+    )
+    await renderSubtitleCase(
+      Promise.resolve([{ id: "english", lang: "en", url: "https://subs.example/en.vtt" }]),
+    )
+    click(button("Subtitles: Off"))
+    await act(async () => button("Off").click())
+    desktop.nativePlayerCommand.mockClear()
+    desktop.nativePlayerSnapshot.mockResolvedValue({
+      ...snapshot,
+      tracks: [
+        ...snapshot.tracks,
+        {
+          id: 4,
+          type: "sub",
+          title: "English · Provider",
+          lang: "en",
+          external: true,
+          selected: false,
+        },
+      ],
+    })
+    await act(async () => loaded())
+    expect(desktop.nativePlayerCommand).not.toHaveBeenCalledWith(["set", "sid", 4])
+    desktop.nativePlayerCommand.mockImplementation(async () => undefined)
+  })
+
   it("loads add-on subtitles into mpv for the Electron overlay", async () => {
     vi.spyOn(core, "loadSubtitles").mockResolvedValue([
       { id: "english", url: "https://subs.example/english.vtt", lang: "en" },
@@ -746,7 +871,7 @@ describe("DesktopPlayer track menus", () => {
     expect(desktop.nativePlayerCommand).toHaveBeenCalledWith([
       "sub-add",
       "https://subs.example/english.vtt",
-      "select",
+      "auto",
       "English · Subtitle add-on",
       "en",
     ])

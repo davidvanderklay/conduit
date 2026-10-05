@@ -36,6 +36,7 @@ import {
 import type { PlayerUpNext } from "../lib/queue"
 import { QueueIcon, QueueNotice } from "./queue"
 import { VideoScaleControl } from "./video-scale-control"
+import { preferredSubtitle, subtitleLookupResults } from "../lib/subtitle-selection"
 import { SubtitlePicker } from "./subtitle-picker"
 import { partyPositionAt, type WatchPartySession, type WatchPartyMedia } from "../lib/watch-party"
 
@@ -219,6 +220,14 @@ function WebPlayer({
   const [selectedSubtitle, setSelectedSubtitle] = useState("off")
   const [subtitleError, setSubtitleError] = useState<string>()
   const [subtitleLoading, setSubtitleLoading] = useState(true)
+  const [subtitleMetadataReady, setSubtitleMetadataReady] = useState(false)
+  const subtitleSelectionGeneration = useRef(0)
+  const manualSubtitleSelection = useRef(false)
+  const lastAutomaticSubtitle = useRef<string | null | undefined>(undefined)
+  const embeddedDiscoveryReady = useRef(false)
+  const addonLookupReady = useRef(false)
+  const externalSubtitleTrack = useRef<HTMLTrackElement | null>(null)
+  const addonTextTracks = useRef(new WeakSet<TextTrack>())
   const [subtitlePosition, setSubtitlePosition] = useState(preferences.subtitlePosition)
   const [audioChoices, setAudioChoices] = useState<AudioChoice[]>([])
   const [selectedAudio, setSelectedAudio] = useState<number>()
@@ -384,14 +393,24 @@ function WebPlayer({
   const refreshNativeTracks = useCallback(() => {
     const video = videoRef.current
     if (!video) return
-    const embedded = Array.from(video.textTracks).map((track, index) => ({
-      id: `embedded-${index}`,
-      key: `embedded-${index}`,
-      url: "",
-      lang: track.language,
-      display: track.label || languageName(track.language) || `Embedded ${index + 1}`,
-      embedded: true,
-    }))
+    const embedded = Array.from(video.textTracks).flatMap((track, index) =>
+      addonTextTracks.current.has(track)
+        ? []
+        : [
+            {
+              id: `embedded-${index}`,
+              key: `embedded-${index}`,
+              url: "",
+              lang: track.language,
+              display: track.label || languageName(track.language) || `Embedded ${index + 1}`,
+              embedded: true,
+            },
+          ],
+    )
+    if (video.readyState >= 1) {
+      embeddedDiscoveryReady.current = true
+      setSubtitleMetadataReady(true)
+    }
     setSubtitles((current) => [...current.filter((subtitle) => !subtitle.embedded), ...embedded])
 
     const tracks = getNativeAudioTracks(video)
@@ -413,11 +432,18 @@ function WebPlayer({
   }, [])
 
   useEffect(() => {
+    const tracks = videoRef.current?.textTracks
+    tracks?.addEventListener("addtrack", refreshNativeTracks)
+    return () => tracks?.removeEventListener("addtrack", refreshNativeTracks)
+  }, [refreshNativeTracks])
+
+  useEffect(() => {
     let cancelled = false
+    addonLookupReady.current = false
     setSubtitleLoading(true)
     setSubtitleError(undefined)
     const candidates = addonsForResource(addons, "subtitles", type, videoId)
-    void Promise.allSettled(
+    void subtitleLookupResults(
       candidates.map(async (addon) => ({
         addon,
         subtitles: await loadSubtitles(addon.manifestUrl, type, videoId),
@@ -454,6 +480,7 @@ function WebPlayer({
       } else if (!found.length && candidates.length) {
         setSubtitleError("No add-on subtitles were returned.")
       }
+      addonLookupReady.current = true
       setSubtitleLoading(false)
     })
     return () => {
@@ -470,6 +497,13 @@ function WebPlayer({
     let hls: Hls | undefined
     setWaiting(true)
     setPlaybackError(undefined)
+    manualSubtitleSelection.current = false
+    lastAutomaticSubtitle.current = undefined
+    embeddedDiscoveryReady.current = false
+    subtitleSelectionGeneration.current += 1
+    setSubtitleMetadataReady(false)
+    setSelectedSubtitle("off")
+    setSubtitles((current) => current.filter((subtitle) => !subtitle.embedded))
 
     if (isHls(url)) {
       void import("hls.js").then(({ default: HlsPlayer }) => {
@@ -528,62 +562,106 @@ function WebPlayer({
 
   useEffect(() => {
     return () => {
+      subtitleSelectionGeneration.current += 1
+      externalSubtitleTrack.current?.remove()
+      externalSubtitleTrack.current = null
       if (subtitleObjectUrl.current) URL.revokeObjectURL(subtitleObjectUrl.current)
     }
   }, [])
 
-  const chooseSubtitle = async (key: string, cuePosition = subtitlePosition) => {
-    const video = videoRef.current
-    if (!video) return
-    setSelectedSubtitle(key)
-    setSubtitleError(undefined)
-    Array.from(video.textTracks).forEach((track) => {
-      track.mode = "disabled"
-    })
-    if (subtitleObjectUrl.current) {
-      URL.revokeObjectURL(subtitleObjectUrl.current)
-      subtitleObjectUrl.current = null
-    }
-    if (key === "off") return
-    const subtitle = subtitles.find((candidate) => candidate.key === key)
-    if (!subtitle) return
-    if (subtitle.embedded) {
-      const index = Number(key.replace("embedded-", ""))
-      const textTrack = video.textTracks[index]
-      if (textTrack) {
-        textTrack.mode = "showing"
-        applyTextTrackPosition(textTrack, currentSubtitlePosition(cuePosition))
-      }
-      return
-    }
-    try {
-      const response = await fetch(subtitle.url)
-      if (!response.ok) throw new Error(`Subtitle request returned HTTP ${response.status}`)
-      const body = await response.text()
-      const effectivePosition = currentSubtitlePosition(cuePosition)
-      const vtt = positionWebVtt(toWebVtt(body), effectivePosition)
-      const objectUrl = URL.createObjectURL(new Blob([vtt], { type: "text/vtt" }))
-      subtitleObjectUrl.current = objectUrl
-      const track = document.createElement("track")
-      track.kind = "subtitles"
-      track.label = subtitle.display
-      track.srclang = subtitle.lang ?? subtitle.language ?? "und"
-      track.src = objectUrl
-      track.default = true
-      video.append(track)
-      track.addEventListener("load", () => {
-        applyTextTrackPosition(track.track, effectivePosition)
-        track.track.mode = "showing"
+  const chooseSubtitle = useCallback(
+    async (key: string, cuePosition = subtitlePosition, automatic = false) => {
+      if (!automatic) manualSubtitleSelection.current = true
+      const generation = ++subtitleSelectionGeneration.current
+      const video = videoRef.current
+      if (!video) return
+      setSelectedSubtitle(key)
+      setSubtitleError(undefined)
+      externalSubtitleTrack.current?.remove()
+      externalSubtitleTrack.current = null
+      Array.from(video.textTracks).forEach((track) => {
+        track.mode = "disabled"
       })
-    } catch (error) {
-      setSelectedSubtitle("off")
-      setSubtitleError(
-        error instanceof Error
-          ? `${error.message}. The subtitle host may not allow browser access.`
-          : "Could not load subtitles.",
-      )
-    }
-  }
+      if (subtitleObjectUrl.current) {
+        URL.revokeObjectURL(subtitleObjectUrl.current)
+        subtitleObjectUrl.current = null
+      }
+      if (key === "off") return
+      const subtitle = subtitles.find((candidate) => candidate.key === key)
+      if (!subtitle) return
+      if (subtitle.embedded) {
+        const index = Number(key.replace("embedded-", ""))
+        const textTrack = video.textTracks[index]
+        if (textTrack) {
+          textTrack.mode = "showing"
+          applyTextTrackPosition(textTrack, currentSubtitlePosition(cuePosition))
+        }
+        return
+      }
+      try {
+        const response = await fetch(subtitle.url)
+        if (!response.ok) throw new Error(`Subtitle request returned HTTP ${response.status}`)
+        const body = await response.text()
+        if (generation !== subtitleSelectionGeneration.current) return
+        const effectivePosition = currentSubtitlePosition(cuePosition)
+        const vtt = positionWebVtt(toWebVtt(body), effectivePosition)
+        const objectUrl = URL.createObjectURL(new Blob([vtt], { type: "text/vtt" }))
+        subtitleObjectUrl.current = objectUrl
+        const track = document.createElement("track")
+        track.kind = "subtitles"
+        track.label = subtitle.display
+        track.srclang = subtitle.lang ?? subtitle.language ?? "und"
+        track.src = objectUrl
+        track.default = false
+        externalSubtitleTrack.current = track
+        video.append(track)
+        addonTextTracks.current.add(track.track)
+        // Hidden starts cue loading without displaying a track before the request is current.
+        track.track.mode = "hidden"
+        track.addEventListener("load", () => {
+          if (generation !== subtitleSelectionGeneration.current) return
+          applyTextTrackPosition(track.track, effectivePosition)
+          track.track.mode = "showing"
+        })
+      } catch (error) {
+        if (generation !== subtitleSelectionGeneration.current) return
+        setSelectedSubtitle("off")
+        setSubtitleError(
+          error instanceof Error
+            ? `${error.message}. The subtitle host may not allow browser access.`
+            : "Could not load subtitles.",
+        )
+      }
+    },
+    [currentSubtitlePosition, subtitlePosition, subtitles],
+  )
+
+  useEffect(() => {
+    if (manualSubtitleSelection.current) return
+    const selected = preferredSubtitle({
+      candidates: subtitles.map((track) => ({
+        track: track.key,
+        language: track.lang ?? track.language,
+        title: track.display,
+        embedded: Boolean(track.embedded),
+      })),
+      primary: preferences.subtitleLanguage,
+      secondary: preferences.secondarySubtitleLanguage,
+      embeddedReady: embeddedDiscoveryReady.current && subtitleMetadataReady,
+      addonsReady: addonLookupReady.current && !subtitleLoading,
+    })
+    if (selected === undefined || selected === lastAutomaticSubtitle.current) return
+    lastAutomaticSubtitle.current = selected
+    void chooseSubtitle(selected ?? "off", subtitlePosition, true)
+  }, [
+    chooseSubtitle,
+    preferences.subtitleLanguage,
+    preferences.secondarySubtitleLanguage,
+    subtitleMetadataReady,
+    subtitleLoading,
+    subtitlePosition,
+    subtitles,
+  ])
 
   const chooseAudio = (choice: AudioChoice) => {
     const video = videoRef.current

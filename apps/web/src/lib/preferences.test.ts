@@ -13,6 +13,26 @@ function storage(value?: string): Storage {
 }
 
 describe("device preferences", () => {
+  it("preserves a legacy primary language and defaults secondary to None", () => {
+    expect(readPreferences(storage(JSON.stringify({ subtitleLanguage: "ja" })))).toMatchObject({
+      subtitleLanguage: "ja",
+      secondarySubtitleLanguage: null,
+    })
+  })
+  it("restores secondary preferences and an explicit None", () => {
+    expect(
+      readPreferences(storage(JSON.stringify({ secondarySubtitleLanguage: "es" })))
+        .secondarySubtitleLanguage,
+    ).toBe("es")
+    expect(
+      readPreferences(storage(JSON.stringify({ secondarySubtitleLanguage: null })))
+        .secondarySubtitleLanguage,
+    ).toBeNull()
+    expect(
+      readPreferences(storage(JSON.stringify({ secondarySubtitleLanguage: 42 })))
+        .secondarySubtitleLanguage,
+    ).toBeNull()
+  })
   it("defaults audio and subtitles to English", () => {
     expect(defaultPreferences.audioLanguage).toBe("en")
     expect(defaultPreferences.subtitleLanguage).toBe("en")

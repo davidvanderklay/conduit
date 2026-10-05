@@ -285,6 +285,15 @@ class PlaybackSessionTest {
 
         assertEquals(sessionId, controller.state.sessionId)
         assertEquals(listOf(subtitle), controller.state.request?.subtitles)
+        assertTrue(controller.state.request!!.subtitlesResolved)
+        controller.updateSubtitles(identity, emptyList(), false)
+        assertFalse(controller.state.request!!.subtitlesResolved)
+        controller.updateSubtitles(identity, emptyList(), true)
+        assertTrue(controller.state.request!!.subtitlesResolved)
+        assertEquals(sessionId, controller.state.sessionId)
+        controller.updateSubtitles(identity.copy(videoId = "stale"), listOf(subtitle), false)
+        assertTrue(controller.state.request!!.subtitlesResolved)
+        assertEquals(emptyList(), controller.state.request?.subtitles)
     }
 
     @Test

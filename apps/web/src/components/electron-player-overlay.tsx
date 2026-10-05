@@ -59,7 +59,6 @@ import {
   type VideoScale,
 } from "../lib/video-scale"
 import { groupSubtitles, type SubtitleLanguageGroup } from "../lib/subtitle-groups"
-import { configuredTrackLanguage } from "../lib/track-preference"
 import { readPreferences, writePreferences } from "../lib/preferences"
 import { adjacentSeriesVideo } from "../lib/metadata"
 import {
@@ -120,7 +119,6 @@ export function ElectronPlayerOverlay({
   const holdSpeedTimer = useRef<number | undefined>(undefined)
   const holdSpeedActiveRef = useRef(false)
   const holdSpeedTriggered = useRef(false)
-  const preferredSubtitleApplied = useRef(false)
   const seekDraft = useRef<number | undefined>(undefined)
   const seekCommitTimer = useRef<number | undefined>(undefined)
   const audioAnchorRef = useRef<HTMLDivElement>(null)
@@ -343,7 +341,13 @@ export function ElectronPlayerOverlay({
         (next[0] === "seek" || (next[0] === "set" && (next[1] === "pause" || next[1] === "speed")))
       )
         return
-      void nativePlayerCommand(next).catch(() => undefined)
+      if (next[0] === "set" && next[1] === "sid") {
+        void window.__CONDUIT_ELECTRON__
+          ?.invoke("player_overlay_subtitle", { id: next[2] })
+          .catch(() => undefined)
+      } else {
+        void nativePlayerCommand(next).catch(() => undefined)
+      }
     },
     [watchPartyContext?.role],
   )
@@ -478,16 +482,6 @@ export function ElectronPlayerOverlay({
     group.tracks.some((track) => track.selected),
   )
   const selectedSubtitleGroup = subtitleGroups.find((group) => group.code === selectedSubtitleCode)
-
-  useEffect(() => {
-    if (preferredSubtitleApplied.current || !subtitleTracks.length) return
-    const preferredCode = configuredTrackLanguage(readPreferences().subtitleLanguage)
-    const preferredGroup = subtitleGroups.find((group) => group.code === preferredCode)
-    const embeddedTrack = preferredGroup?.tracks.find((track) => !track.external)
-    if (!embeddedTrack) return
-    preferredSubtitleApplied.current = true
-    if (!embeddedTrack.selected) selectSubtitleTrack(embeddedTrack, command, setSnapshot)
-  }, [command, subtitleGroups, subtitleTracks.length])
 
   const selectedScale = VIDEO_SCALE_OPTIONS.find((option) => option.value === scale)?.label ?? scale
   const loadingOverlayVisible = isDesktopInitialLoading(snapshot)

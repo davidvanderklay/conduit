@@ -549,8 +549,13 @@ internal fun LazyListScope.playbackSettings(preferences: DevicePreferences, upda
         }
     }
     item {
-        TvSettingChoice("Preferred subtitle language", languagePreferenceLabel(preferences.preferredSubtitleLanguage), languagePreferenceOptions, preferences.preferredSubtitleLanguage) {
+        TvSettingChoice("Primary subtitle language", languagePreferenceLabel(preferences.preferredSubtitleLanguage), languagePreferenceOptions, preferences.preferredSubtitleLanguage) {
             update(preferences.copy(preferredSubtitleLanguage = it))
+        }
+    }
+    item {
+        TvSettingChoice("Secondary subtitle language", preferences.secondarySubtitleLanguage?.let(::languagePreferenceLabel) ?: "None", listOf("None" to "None") + languagePreferenceOptions, preferences.secondarySubtitleLanguage ?: "None") {
+            update(preferences.copy(secondarySubtitleLanguage = it.takeUnless { language -> language == "None" }))
         }
     }
     item {
