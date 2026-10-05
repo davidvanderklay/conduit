@@ -99,6 +99,21 @@ relevant client/API tests for contract changes.
 The release's attached `.env.docker.example` pins the new image and its tested
 counterpart. Stable releases update aliases for their image only; prereleases
 do not move `latest`. Version-zero releases do not publish a broad `0` alias.
+Nightly container releases also move their image's `nightly` alias after the
+smoke test passes. Stable and other prerelease versions do not move this alias.
+To follow nightly builds without editing version numbers, use the current
+Compose file with:
+
+```dotenv
+CONDUIT_SERVER_VERSION=nightly
+CONDUIT_WEB_VERSION=nightly
+```
+
+Then run `docker compose pull server web` and `docker compose up -d server web`
+when you want to update. Pulling does not update running containers until they
+are recreated. Each component's alias advances independently; use exact version
+tags to keep a fixed deployment pair or roll back.
+
 Manual container builds can supply `counterpart_version` to test another exact
 published version. To ship a feature across both images, preserve compatibility
 with the old counterpart first, publish the server, update the tested pair, then

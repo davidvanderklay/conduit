@@ -59,6 +59,7 @@ jobs:
             type=semver,pattern={{major}}.{{minor}},value=${{ env.RELEASE_VERSION }}
             type=semver,pattern={{major}},value=${{ env.RELEASE_VERSION }},enable=${{ !startsWith(env.RELEASE_VERSION, '0.') }}
             type=raw,value=sha-${{ env.RELEASE_REVISION }}
+            type=raw,value=nightly,enable=${{ contains(env.RELEASE_VERSION, '-nightly.') }}
           labels: |
             org.opencontainers.image.ref.name=${{ env.RELEASE_TAG }}
             org.opencontainers.image.revision=${{ env.RELEASE_REVISION }}
