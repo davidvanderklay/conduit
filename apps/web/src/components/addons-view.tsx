@@ -31,19 +31,29 @@ export function AddonsView({
     },
     onSuccess: invalidate,
   })
+  // Update and removal share one alert, so starting either clears the other's stale error.
   const update = useMutation({
     mutationFn: ({ id, values }: { id: string; values: { enabled?: boolean; position?: number } }) =>
       api(`/v1/profiles/${profile.id}/addons/${id}`, {
         method: "PATCH",
         body: JSON.stringify(values),
       }),
+    onMutate: () => {
+      remove.reset()
+    },
     onSuccess: invalidate,
   })
   const remove = useMutation({
     mutationFn: (id: string) =>
       api(`/v1/profiles/${profile.id}/addons/${id}`, { method: "DELETE" }),
+    onMutate: () => {
+      update.reset()
+    },
     onSuccess: invalidate,
   })
+  const changeError = update.error
+    ? `Could not update add-on: ${update.error.message}`
+    : remove.error && `Could not uninstall add-on: ${remove.error.message}`
 
   return (
     <ViewShell
@@ -86,14 +96,9 @@ export function AddonsView({
             <RefreshCw size={14} /> Sync
           </Button>
         </div>
-        {update.error && (
+        {changeError && (
           <p role="alert" className="mx-5 mt-3 text-sm text-red-400">
-            {update.error.message}
-          </p>
-        )}
-        {remove.error && (
-          <p role="alert" className="mx-5 mt-3 text-sm text-red-400">
-            {remove.error.message}
+            {changeError}
           </p>
         )}
         <div className="divide-y divide-zinc-800">
