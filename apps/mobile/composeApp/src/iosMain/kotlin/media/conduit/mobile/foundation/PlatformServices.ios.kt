@@ -9,7 +9,7 @@ import platform.Foundation.NSNotificationCenter
 import platform.UIKit.UIApplicationDidBecomeActiveNotification
 import platform.UIKit.UIApplicationWillResignActiveNotification
 import platform.UIKit.UIApplication
-import platform.UIKit.UIApplicationStateActive
+import platform.UIKit.UIApplicationState.UIApplicationStateActive
 import platform.UIKit.UIDevice
 import platform.UIKit.UIUserInterfaceIdiomPad
 
