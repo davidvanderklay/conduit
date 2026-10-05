@@ -1,6 +1,8 @@
 package media.conduit.mobile.foundation
 
 import media.conduit.mobile.AndroidPlaybackEngine
+import media.conduit.mobile.SystemLanguagePreference
+import media.conduit.mobile.storedLanguagePreference
 
 enum class NavigationStyle(val label: String, val description: String) {
     Adaptive("Adaptive", "Hide the full bar while scrolling on iOS; compact on Android phones"),
@@ -45,8 +47,9 @@ data class DevicePreferences(
     val navigationStyle: NavigationStyle = NavigationStyle.Adaptive,
     val railOnTablets: Boolean = false,
     val reduceAnimations: Boolean = false,
-    val preferredAudioLanguage: String = "System default",
-    val preferredSubtitleLanguage: String = "English",
+    /** Language code, or [SystemLanguagePreference]. */
+    val preferredAudioLanguage: String = SystemLanguagePreference,
+    val preferredSubtitleLanguage: String = "en",
     val subtitleStyle: SubtitleStyle = SubtitleStyle(),
     val touchGestures: Boolean = true,
     val holdToSpeed: Boolean = true,
@@ -81,8 +84,8 @@ class DevicePreferencesRepository(private val store: SettingsStore) {
         navigationStyle = store.get(prefix + "navigation")?.let { runCatching { NavigationStyle.valueOf(it) }.getOrNull() } ?: NavigationStyle.Adaptive,
         railOnTablets = bool("rail-on-tablets", false),
         reduceAnimations = bool("reduce-animations", false),
-        preferredAudioLanguage = text("audio-language", "System default"),
-        preferredSubtitleLanguage = text("subtitle-language", "English"),
+        preferredAudioLanguage = storedLanguagePreference(store.get(prefix + "audio-language"), SystemLanguagePreference),
+        preferredSubtitleLanguage = storedLanguagePreference(store.get(prefix + "subtitle-language"), "en"),
         subtitleStyle = SubtitleStyle(
             sizePercent = number("subtitle-size", 100).coerceIn(SubtitleStyle.SizeRange),
             offsetPercent = number("subtitle-offset", 0).coerceIn(SubtitleStyle.OffsetRange),

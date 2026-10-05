@@ -54,6 +54,9 @@ import kotlinx.serialization.json.Json
 import media.conduit.mobile.account.DiagnosticLogStore
 import media.conduit.mobile.account.SubtitleItem
 import media.conduit.mobile.foundation.SubtitleStyle
+import platform.Foundation.NSLocale
+import platform.Foundation.currentLocale
+import platform.Foundation.languageCode
 
 private data class IosTrack(
     val id: Int,
@@ -198,8 +201,8 @@ actual fun NativePlayer(
         url?.takeIf(String::isNotBlank)?.let {
             // Set preferences before mpv opens the asset so its initial
             // stream choice matches the app settings, not the first stream.
-            bridge.setPreferredAudioLanguage(preferredAudioLanguage)
-            bridge.setPreferredSubtitleLanguage(preferredSubtitleLanguage)
+            bridge.setPreferredAudioLanguage(iosPreferredLanguageCode(preferredAudioLanguage))
+            bridge.setPreferredSubtitleLanguage(iosPreferredLanguageCode(preferredSubtitleLanguage))
             bridge.loadFile(
                 url = it,
                 loadId = loadId,
@@ -258,11 +261,11 @@ actual fun NativePlayer(
     }
 
     LaunchedEffect(bridge, preferredAudioLanguage) {
-        bridge.setPreferredAudioLanguage(preferredAudioLanguage)
+        bridge.setPreferredAudioLanguage(iosPreferredLanguageCode(preferredAudioLanguage))
     }
 
     LaunchedEffect(bridge, preferredSubtitleLanguage) {
-        bridge.setPreferredSubtitleLanguage(preferredSubtitleLanguage)
+        bridge.setPreferredSubtitleLanguage(iosPreferredLanguageCode(preferredSubtitleLanguage))
     }
 
     LaunchedEffect(bridge, subtitleStyle) {
@@ -809,7 +812,7 @@ private fun BoxScope.IosSubtitlePanel(
     val orderedTracks = remember(tracks) {
         tracks.sortedWith(compareBy<IosTrack> { it.external }.thenBy { it.variantName.lowercase() })
     }
-    val preferredKey = remember(preferredLanguage) { iosSubtitleLanguageKey(preferredLanguage, preferredLanguage) }
+    val preferredKey = remember(preferredLanguage) { iosPreferredLanguageCode(preferredLanguage).ifBlank { "und" } }
     val languageGroups = remember(orderedTracks, preferredKey) {
         orderedTracks
             .groupBy { it.languageKey }
@@ -921,38 +924,11 @@ private val IosTrack.languageKey: String
 
 private val IosTrack.languageName: String
     get() = localizedLanguage.ifBlank {
-        iosLanguageName(languageKey) ?: label.takeIf { languageKey != "und" }.orEmpty().ifBlank { "Unknown language" }
+        languageName(languageKey) ?: label.takeIf { languageKey != "und" }.orEmpty().ifBlank { "Unknown language" }
     }
 
 private val IosTrack.audioLanguageName: String
-    get() = localizedLanguage.ifBlank { iosLanguageName(languageKey) ?: "Unknown language" }
-
-private fun iosLanguageName(languageKey: String): String? = when (languageKey) {
-        "en" -> "English"
-        "es" -> "Spanish"
-        "fr" -> "French"
-        "de" -> "German"
-        "hu" -> "Hungarian"
-        "it" -> "Italian"
-        "pt" -> "Portuguese"
-        "nl" -> "Dutch"
-        "ja" -> "Japanese"
-        "ko" -> "Korean"
-        "zh" -> "Chinese"
-        "ru" -> "Russian"
-        "ar" -> "Arabic"
-        "hi" -> "Hindi"
-        "id" -> "Indonesian"
-        "vi" -> "Vietnamese"
-        "ta" -> "Tamil"
-        "te" -> "Telugu"
-        "kn" -> "Kannada"
-        "ml" -> "Malayalam"
-        "mr" -> "Marathi"
-        "pa" -> "Punjabi"
-        "bn" -> "Bengali"
-        else -> null
-    }
+    get() = localizedLanguage.ifBlank { languageName(languageKey) ?: "Unknown language" }
 
 private val IosTrack.variantName: String
     get() {
@@ -961,30 +937,12 @@ private val IosTrack.variantName: String
         return subtitleCodec?.let { "${languageName}: $it" } ?: "Embedded"
     }
 
-private fun iosSubtitleLanguageKey(language: String, label: String): String {
-    val aliases = mapOf(
-        "eng" to "en", "english" to "en", "spa" to "es", "spanish" to "es", "español" to "es",
-        "fra" to "fr", "fre" to "fr", "french" to "fr", "deu" to "de", "ger" to "de", "german" to "de",
-        "hun" to "hu", "hungarian" to "hu", "magyar" to "hu",
-        "ita" to "it", "italian" to "it", "por" to "pt", "portuguese" to "pt", "nld" to "nl", "dut" to "nl", "dutch" to "nl",
-        "jpn" to "ja", "japanese" to "ja", "kor" to "ko", "korean" to "ko", "zho" to "zh", "chi" to "zh", "chinese" to "zh",
-        "rus" to "ru", "russian" to "ru", "ara" to "ar", "arabic" to "ar", "hin" to "hi", "hindi" to "hi",
-        "ind" to "id", "indonesian" to "id", "vie" to "vi", "vietnamese" to "vi",
-        "tam" to "ta", "tamil" to "ta", "tel" to "te", "telugu" to "te", "kan" to "kn", "kannada" to "kn",
-        "mal" to "ml", "malayalam" to "ml", "mar" to "mr", "marathi" to "mr", "pan" to "pa", "punjabi" to "pa",
-        "ben" to "bn", "bengali" to "bn",
-    )
-    fun normalize(value: String): String {
-        val normalized = value.trim().lowercase().replace('_', '-')
-            .split('-', ':', '(', '[', '·', ',', ' ')
-            .firstOrNull { it.isNotBlank() }
-            .orEmpty()
-        return aliases[normalized] ?: normalized.takeIf { it.length == 2 }.orEmpty()
-    }
-    return normalize(language).ifBlank {
-        normalize(label.substringBefore('(').substringBefore('[').trim()).ifBlank { "und" }
-    }
-}
+private fun iosSubtitleLanguageKey(language: String, label: String): String =
+    trackLanguageCode(language, label) ?: "und"
+
+/** Language a stored preference asks for on this device; blank when it names none. */
+private fun iosPreferredLanguageCode(preference: String): String =
+    preferredLanguageCode(preference, NSLocale.currentLocale.languageCode).orEmpty()
 
 @Composable
 private fun IosPlayerTrackRow(label: String, selected: Boolean, onClick: () -> Unit) {

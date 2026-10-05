@@ -3728,7 +3728,6 @@ private fun ContentSettingsScreen(onBack: () -> Unit, onAddons: () -> Unit, modi
 
 @Composable
 internal fun PlaybackSettingsScreen(platform: PlatformInfo, preferences: DevicePreferences, update: (DevicePreferences) -> Unit, onBack: () -> Unit, modifier: Modifier) {
-    val languages = listOf("System default", "English", "Spanish", "French", "German", "Japanese", "Korean")
     var picker by remember { mutableStateOf<String?>(null) }
     var enginePicker by remember { mutableStateOf(false) }
     var resumePicker by remember { mutableStateOf(false) }
@@ -3754,8 +3753,8 @@ internal fun PlaybackSettingsScreen(platform: PlatformInfo, preferences: DeviceP
             SettingsToggle("Hold to speed", "Hold the player to temporarily speed up", preferences.holdToSpeed) { update(preferences.copy(holdToSpeed = it)) }
         }
         SettingsGroup("AUDIO & SUBTITLES") {
-            SettingsAction("Preferred audio language", preferences.preferredAudioLanguage) { picker = "audio" }
-            HorizontalDivider(color = Color.White.copy(.06f)); SettingsAction("Preferred subtitle language", preferences.preferredSubtitleLanguage) { picker = "subtitle" }
+            SettingsAction("Preferred audio language", languagePreferenceLabel(preferences.preferredAudioLanguage)) { picker = "audio" }
+            HorizontalDivider(color = Color.White.copy(.06f)); SettingsAction("Preferred subtitle language", languagePreferenceLabel(preferences.preferredSubtitleLanguage)) { picker = "subtitle" }
             HorizontalDivider(color = Color.White.copy(.06f))
             SubtitleStyleControls(
                 style = preferences.subtitleStyle,
@@ -3801,7 +3800,34 @@ internal fun PlaybackSettingsScreen(platform: PlatformInfo, preferences: DeviceP
         },
         confirmButton = {},
     )
-    if (picker != null) AlertDialog(onDismissRequest = { picker = null }, title = { Text(if (picker == "audio") "Preferred audio language" else "Preferred subtitle language") }, text = { Column { languages.forEach { language -> Row(Modifier.fillMaxWidth().clickable { if (picker == "audio") update(preferences.copy(preferredAudioLanguage = language)) else update(preferences.copy(preferredSubtitleLanguage = language)); picker = null }.padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) { RadioButton((if (picker == "audio") preferences.preferredAudioLanguage else preferences.preferredSubtitleLanguage) == language, null); Spacer(Modifier.width(8.dp)); Text(language) } } } }, confirmButton = {})
+    picker?.let { target ->
+        val selected = if (target == "audio") preferences.preferredAudioLanguage else preferences.preferredSubtitleLanguage
+        AlertDialog(
+            onDismissRequest = { picker = null },
+            title = { Text(if (target == "audio") "Preferred audio language" else "Preferred subtitle language") },
+            text = {
+                // A short list that opens on the current choice instead of filling the screen.
+                val selectedIndex = languagePreferenceOptions.indexOfFirst { it.first == selected }.coerceAtLeast(0)
+                LazyColumn(Modifier.heightIn(max = 320.dp), state = rememberLazyListState(selectedIndex)) {
+                    items(languagePreferenceOptions.size) { index ->
+                        val (language, label) = languagePreferenceOptions[index]
+                        Row(
+                            Modifier.fillMaxWidth().clickable {
+                                update(if (target == "audio") preferences.copy(preferredAudioLanguage = language) else preferences.copy(preferredSubtitleLanguage = language))
+                                picker = null
+                            }.padding(vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            RadioButton(selected == language, null)
+                            Spacer(Modifier.width(8.dp))
+                            Text(label)
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+        )
+    }
     if (enginePicker) AlertDialog(
         onDismissRequest = { enginePicker = false },
         title = { Text("Android player engine") },

@@ -30,6 +30,7 @@ import {
 import { api, type Profile } from "../lib/api"
 import { API_URL, authClient } from "../lib/auth"
 import { isDesktop, prepareNativeTextSave } from "../lib/desktop"
+import { playbackLanguages } from "../lib/languages"
 import { readPreferences, writePreferences, type DevicePreferences } from "../lib/preferences"
 import { serverDisplayName as formatServerDisplayName } from "../lib/server"
 import { Button } from "./ui/button"
@@ -1364,12 +1365,7 @@ function LanguageSelect({ value, onChange }: { value: string; onChange: (value: 
       onChange={onChange}
       options={[
         ["auto", "System default"],
-        ["en", "English"],
-        ["es", "Spanish"],
-        ["fr", "French"],
-        ["de", "German"],
-        ["ja", "Japanese"],
-        ["ko", "Korean"],
+        ...playbackLanguages().map(({ code, name }) => [code, name]),
       ]}
     />
   )

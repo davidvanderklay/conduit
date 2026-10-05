@@ -1,3 +1,4 @@
+use crate::language::{playback_languages, track_language_code};
 use crate::media::{
     audio_track_display, continue_watching, eligible_watch_videos, episode_progress,
     episode_watch_state, group_continue_watching, is_playback_complete, order_library,
@@ -100,6 +101,13 @@ enum DomainAction {
     AudioTrackDisplay {
         info: AudioTrackInfo,
         fallback: String,
+    },
+    PlaybackLanguages,
+    LanguageCode {
+        #[serde(default)]
+        language: Option<String>,
+        #[serde(default)]
+        label: Option<String>,
     },
 }
 
@@ -217,6 +225,10 @@ pub fn evaluate_json(json: &str) -> String {
         } => value_response(is_playback_complete(position_ms, duration_ms)),
         DomainAction::AudioTrackDisplay { info, fallback } => {
             value_response(audio_track_display(&info, &fallback))
+        }
+        DomainAction::PlaybackLanguages => value_response(playback_languages()),
+        DomainAction::LanguageCode { language, label } => {
+            value_response(track_language_code(language.as_deref(), label.as_deref()))
         }
     };
     result

@@ -58,11 +58,8 @@ import {
   nextVideoScale,
   type VideoScale,
 } from "../lib/video-scale"
-import {
-  groupSubtitles,
-  normalizeSubtitleLanguage,
-  type SubtitleLanguageGroup,
-} from "../lib/subtitle-groups"
+import { groupSubtitles, type SubtitleLanguageGroup } from "../lib/subtitle-groups"
+import { configuredTrackLanguage } from "../lib/track-preference"
 import { readPreferences, writePreferences } from "../lib/preferences"
 import { adjacentSeriesVideo } from "../lib/metadata"
 import {
@@ -484,7 +481,7 @@ export function ElectronPlayerOverlay({
 
   useEffect(() => {
     if (preferredSubtitleApplied.current || !subtitleTracks.length) return
-    const preferredCode = normalizeSubtitleLanguage(readPreferences().subtitleLanguage)
+    const preferredCode = configuredTrackLanguage(readPreferences().subtitleLanguage)
     const preferredGroup = subtitleGroups.find((group) => group.code === preferredCode)
     const embeddedTrack = preferredGroup?.tracks.find((track) => !track.external)
     if (!embeddedTrack) return

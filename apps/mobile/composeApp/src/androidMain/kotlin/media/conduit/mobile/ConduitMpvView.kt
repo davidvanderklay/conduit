@@ -81,8 +81,8 @@ internal class ConduitMpvView(
     @Volatile private var currentUrl: String? = null
     @Volatile private var currentHeaders: Map<String, String> = emptyMap()
     @Volatile private var currentSubtitles: List<SubtitleItem> = emptyList()
-    @Volatile private var currentPreferredAudio = "System default"
-    @Volatile private var currentPreferredSubtitle = "English"
+    @Volatile private var currentPreferredAudio = SystemLanguagePreference
+    @Volatile private var currentPreferredSubtitle = "en"
     @Volatile private var currentPlaybackSpeed = 1f
     @Volatile private var currentStartPositionMs = 0L
     @Volatile private var currentPlayWhenReady = true
@@ -482,7 +482,7 @@ internal class ConduitMpvView(
                     ?: externalFilename?.substringAfterLast('/')
                     ?: node.nodeString("codec")
                     ?: "Track $id"
-                val language = node.nodeString("lang") ?: languageFromLabel(label)
+                val language = node.nodeString("lang") ?: trackLanguageCode(null, label)
                 val forced = node.nodeBoolean("forced") ?: false
                 MpvTrack(
                     id = id,
@@ -574,7 +574,7 @@ internal class ConduitMpvView(
                 currentSelectedSubtitleLabel != null && track.label == currentSelectedSubtitleLabel
             }
             ?: subtitleTracks.firstOrNull { track ->
-                sameSubtitleLanguage(track.language, currentSelectedSubtitleLanguage)
+                sameLanguage(track.language, currentSelectedSubtitleLanguage)
             }
             ?: return
         if (!selectedTrack.selected || subtitleTracks.count(MpvTrack::selected) != 1) {
@@ -589,10 +589,9 @@ internal class ConduitMpvView(
             currentSelectedSubtitleLanguage != null ||
             currentSelectedSubtitleLabel != null
         ) return
-        val preferred = mpvLanguageCode(currentPreferredSubtitle) ?: return
+        val preferred = devicePreferredLanguageCode(currentPreferredSubtitle) ?: return
         val matchingTracks = cachedTracks["sub"].orEmpty().filter { track ->
-            sameSubtitleLanguage(track.language, preferred) ||
-                sameSubtitleLanguage(languageFromLabel(track.label), preferred)
+            trackLanguageCode(track.language, track.label) == preferred
         }
         val selectedTrack = matchingTracks.firstOrNull { it.selectionKey?.startsWith(EmbeddedSubtitleSelectionPrefix) == true }
             ?: matchingTracks.firstOrNull()
@@ -780,21 +779,20 @@ internal class ConduitMpvView(
                 null
             } else {
                 if (hasPreferredEmbeddedSubtitle()) return null
-                val preferred = mpvLanguageCode(currentPreferredSubtitle)
+                val preferred = devicePreferredLanguageCode(currentPreferredSubtitle)
                 preferred?.let { code ->
                     currentSubtitles.indexOfFirst { subtitle ->
-                        subtitle.lang?.substringBefore('-')?.substringBefore('_') == code
+                        trackLanguageCode(subtitle.lang) == code
                     }.takeIf { it >= 0 }
                 } ?: currentSubtitles.indices.firstOrNull()
             }
     }
 
     private fun hasPreferredEmbeddedSubtitle(): Boolean {
-        val preferred = mpvLanguageCode(currentPreferredSubtitle) ?: return false
+        val preferred = devicePreferredLanguageCode(currentPreferredSubtitle) ?: return false
         return cachedTracks["sub"].orEmpty().any { track ->
             track.selectionKey?.startsWith(EmbeddedSubtitleSelectionPrefix) == true &&
-                (sameSubtitleLanguage(track.language, preferred) ||
-                    sameSubtitleLanguage(languageFromLabel(track.label), preferred))
+                trackLanguageCode(track.language, track.label) == preferred
         }
     }
 
@@ -882,7 +880,7 @@ internal class ConduitMpvView(
     }
 
     private fun setPreferredAudioLanguage(audio: String) {
-        mpvLanguageCode(audio)?.let { mpv.setPropertyString("alang", it) }
+        devicePreferredLanguageCode(audio)?.let { mpv.setPropertyString("alang", it) }
     }
 
     private fun applyRequestHeaders(headers: Map<String, String>) {
@@ -912,41 +910,6 @@ private fun Double?.toMillis(): Long = this?.takeIf { it.isFinite() && it > 0.0 
 private fun MPVNode.nodeString(key: String): String? = runCatching { this[key]?.asString() }.getOrNull()?.takeIf { it.isNotBlank() }
 private fun MPVNode.nodeInt(key: String): Int? = runCatching { this[key]?.asInt()?.toInt() }.getOrNull()
 private fun MPVNode.nodeBoolean(key: String): Boolean? = runCatching { this[key]?.asBoolean() }.getOrNull()
-
-private fun languageFromLabel(label: String): String? {
-    val normalized = label.lowercase()
-    return when {
-        "english" in normalized -> "en"
-        "spanish" in normalized -> "es"
-        "french" in normalized -> "fr"
-        "german" in normalized -> "de"
-        "japanese" in normalized -> "ja"
-        "korean" in normalized -> "ko"
-        else -> null
-    }
-}
-
-private fun mpvLanguageCode(preference: String): String? = when (preference) {
-    "System default" -> java.util.Locale.getDefault().language.takeIf(String::isNotBlank)
-    "English" -> "en"
-    "Spanish" -> "es"
-    "French" -> "fr"
-    "German" -> "de"
-    "Japanese" -> "ja"
-    "Korean" -> "ko"
-    else -> null
-}
-
-private fun sameSubtitleLanguage(first: String?, second: String?): Boolean {
-    val normalize = { language: String? ->
-        language
-            ?.replace('_', '-')
-            ?.substringBefore('-')
-            ?.lowercase()
-            ?.takeIf(String::isNotBlank)
-    }
-    return normalize(first) != null && normalize(first) == normalize(second)
-}
 
 private fun embeddedSubtitleSelectionKey(
     id: Int,

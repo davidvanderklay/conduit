@@ -69,6 +69,8 @@ import media.conduit.mobile.account.ProfileSummary
 import media.conduit.mobile.foundation.DevicePreferences
 import media.conduit.mobile.foundation.ResumeBehavior
 import media.conduit.mobile.foundation.AppAction
+import media.conduit.mobile.languagePreferenceLabel
+import media.conduit.mobile.languagePreferenceOptions
 import media.conduit.mobile.licenseNotices
 import media.conduit.mobile.normalizeManifestUrl
 import media.conduit.mobile.profileColor
@@ -506,8 +508,6 @@ private fun TvAddonManager(model: TvShellModel) {
 
 // --- Playback and appearance --------------------------------------------------
 
-private val playbackLanguages = listOf("System default", "English", "Spanish", "French", "German", "Japanese", "Korean")
-
 internal fun LazyListScope.playbackSettings(preferences: DevicePreferences, update: (DevicePreferences) -> Unit) {
     sectionLabel("Player")
     item {
@@ -544,12 +544,12 @@ internal fun LazyListScope.playbackSettings(preferences: DevicePreferences, upda
     }
     sectionLabel("Audio and subtitles")
     item {
-        TvSettingChoice("Preferred audio language", preferences.preferredAudioLanguage, playbackLanguages.map { it to it }, preferences.preferredAudioLanguage) {
+        TvSettingChoice("Preferred audio language", languagePreferenceLabel(preferences.preferredAudioLanguage), languagePreferenceOptions, preferences.preferredAudioLanguage) {
             update(preferences.copy(preferredAudioLanguage = it))
         }
     }
     item {
-        TvSettingChoice("Preferred subtitle language", preferences.preferredSubtitleLanguage, playbackLanguages.map { it to it }, preferences.preferredSubtitleLanguage) {
+        TvSettingChoice("Preferred subtitle language", languagePreferenceLabel(preferences.preferredSubtitleLanguage), languagePreferenceOptions, preferences.preferredSubtitleLanguage) {
             update(preferences.copy(preferredSubtitleLanguage = it))
         }
     }
