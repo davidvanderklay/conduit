@@ -1,0 +1,27 @@
+name: Feature request
+description: Propose a focused improvement to Conduit.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check existing issues and the roadmap first. Use Discussions for early ideas.
+        Conduit focuses on film and television; proposing a feature does not guarantee implementation.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: Describe a concrete workflow and the affected clients.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the smallest useful improvement and how you would know it works.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Current workaround or alternatives

@@ -117,6 +117,17 @@ For an emulator connected to a development server on the host, use
 `http://10.0.2.2:3000` as the server URL. The app accepts HTTP for local
 development addresses and requires HTTPS for non-local servers.
 
+If the emulator cannot reach the host through `10.0.2.2`, forward the local API
+port over adb and use `http://localhost:3000` in the app:
+
+```sh
+adb -s emulator-5554 reverse tcp:3000 tcp:3000
+```
+
+Replace the serial with the device from `adb devices` and both ports with your
+API port if different. Each emulator needs its own forwarding rule. Remove it
+when finished with `adb -s emulator-5554 reverse --remove tcp:3000`.
+
 The focused Android checks are:
 
 ```sh

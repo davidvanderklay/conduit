@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Questions and ideas
+    url: https://github.com/davidvanderklay/conduit/discussions
+    about: Ask setup questions, discuss features, or share device testing results.
+  - name: Report a security vulnerability privately
+    url: https://github.com/davidvanderklay/conduit/security/advisories/new
+    about: Do not include vulnerability details or credentials in public issues.

@@ -1,0 +1,59 @@
+name: Bug report
+description: Report a reproducible problem with Conduit.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For setup questions, use Discussions. For vulnerabilities, follow SECURITY.md.
+        Remove passwords, cookies, tokens, configured add-on/source URLs, recovery codes, and personal data from all attachments.
+  - type: dropdown
+    id: client
+    attributes:
+      label: Affected component
+      options:
+        - Web
+        - Desktop
+        - Android phone or tablet
+        - Android TV or Google TV
+        - iOS
+        - Server or deployment
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: Include the client and server versions, Stable/Nightly track, or commit for a source build.
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: OS, browser, and device
+      description: Include OS version, browser version for web, and device model. For desktop playback, include GPU/driver if relevant.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Include the starting state and whether the problem happens every time.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected and actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: playback
+    attributes:
+      label: Playback details
+      description: For playback bugs, include the engine, container, video/audio codecs, subtitle type, and whether another client plays the same source. Use a public reproduction sample only if you have permission to share it; never paste private source URLs.
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Redacted logs, screenshots, or recording
+      description: Include relevant errors. Check attachments for credentials and personal information before uploading.
