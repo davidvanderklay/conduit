@@ -135,7 +135,7 @@ android {
         versionName = providers.environmentVariable("CONDUIT_VERSION_NAME").orNull ?: "0.1.0-spike"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {
-            abiFilters += setOf("arm64-v8a", "x86_64")
+            abiFilters += setOf("arm64-v8a", "armeabi-v7a", "x86_64")
         }
     }
     buildTypes.getByName("release") {

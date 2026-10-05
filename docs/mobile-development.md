@@ -102,7 +102,7 @@ Install Android Studio, JDK 17, SDK Platform 36, Build Tools 36, NDK
 
 ```sh
 cargo install cargo-ndk --version 3.5.4 --locked
-rustup target add aarch64-linux-android x86_64-linux-android
+rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
 ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358" \
   apps/mobile/scripts/build-rust-android.sh
 cd apps/mobile
@@ -110,8 +110,9 @@ cd apps/mobile
 adb shell am start -n media.conduit.mobile/.MainActivity
 ```
 
-Android supports API 26 and newer. The debug build includes ARM64 and x86_64
-native libraries. Keep SDK paths in `local.properties`; do not commit them.
+Android supports API 26 and newer. The debug build includes ARM64, 32-bit
+ARM, and x86_64 native libraries. Keep SDK paths in `local.properties`; do not
+commit them.
 
 For an emulator connected to a development server on the host, use
 `http://10.0.2.2:3000` as the server URL. The app accepts HTTP for local
@@ -271,8 +272,8 @@ server version before shipping the first TV-capable Android release.
 
 Each component workflow publishes its artifact with its own GitHub release:
 
-- `conduit-<version>-android-universal.apk`, a signed APK containing ARM64
-  and x86_64 native libraries, plus a SHA-256 checksum;
+- `conduit-<version>-android-universal.apk`, a signed APK containing ARM64,
+  32-bit ARM, and x86_64 native libraries, plus a SHA-256 checksum;
 - `conduit-<version>-ios-unsigned.ipa`, an arm64 device IPA, plus a SHA-256
   checksum.
 

@@ -14,6 +14,7 @@ command -v cargo-ndk >/dev/null || {
 # default; setting it here keeps older NDKs producing compatible libraries.
 page_size_flags="-C link-arg=-Wl,-z,max-page-size=16384"
 export CARGO_TARGET_AARCH64_LINUX_ANDROID_RUSTFLAGS="$page_size_flags"
+export CARGO_TARGET_ARMV7_LINUX_ANDROIDEABI_RUSTFLAGS="$page_size_flags"
 export CARGO_TARGET_X86_64_LINUX_ANDROID_RUSTFLAGS="$page_size_flags"
 
 mkdir -p "$out"
@@ -21,6 +22,7 @@ cargo ndk \
   --manifest-path "$repo_root/packages/mobile-bridge/Cargo.toml" \
   --platform 26 \
   --target arm64-v8a \
+  --target armeabi-v7a \
   --target x86_64 \
   --output-dir "$out" \
   build --release

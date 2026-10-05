@@ -10,7 +10,7 @@ export function verifyAndroidRelease(badging, { version, buildNumber, tv }) {
     ["version name", `versionName='${version}'`],
     ["build number", `versionCode='${buildNumber}'`],
     ["phone launcher", "\nlaunchable-activity: name='media.conduit.mobile.MainActivity'"],
-    ["universal native libraries", "native-code: 'arm64-v8a' 'x86_64'"],
+    ["universal native libraries", "native-code: 'arm64-v8a' 'armeabi-v7a' 'x86_64'"],
   ]
   if (tv) {
     required.push(

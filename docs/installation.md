@@ -104,7 +104,7 @@ sha256sum -c conduit-<version>-android-universal.apk.sha256
 Replace `<version>` with the downloaded version in both filenames. Transfer the
 APK to your device, allow installation from your chosen file manager or browser
 when Android prompts, and open the APK. Android 8.0 / API 26 or newer is required.
-The APK includes ARM64 and x86_64 libraries; ARM32-only devices are unsupported.
+The APK includes ARM64, 32-bit ARM (armeabi-v7a), and x86_64 libraries.
 Google Play distribution is not available yet.
 
 Install later APKs over the existing app to retain its data. Android updates

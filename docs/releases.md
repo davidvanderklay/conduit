@@ -192,11 +192,11 @@ shasum -a 256 -c conduit-0.2.0-ios-unsigned.ipa.sha256
 
 ## Android
 
-The release APK contains both ARM64 and x86_64 native libraries. One APK is
-therefore sufficient for physical Android devices and the development
-emulator. Tagged builds use the tag as `versionName`, use the offset Actions
-run number described above as `versionCode`, and publish both the APK and
-its SHA-256 checksum. Android releases use the application ID
+The release APK contains ARM64, 32-bit ARM (armeabi-v7a), and x86_64 native
+libraries. One APK is therefore sufficient for physical Android devices and
+the development emulator. Tagged builds use the tag as `versionName`, use the
+offset Actions run number described above as `versionCode`, and publish both
+the APK and its SHA-256 checksum. Android releases use the application ID
 `media.conduit.mobile`.
 
 Release builds must use the same signing key forever so users can install
