@@ -8,11 +8,11 @@ launchable-activity: name='media.conduit.mobile.MainActivity'
 leanback-launchable-activity: name='media.conduit.mobile.MainActivity'
 uses-feature-not-required: name='android.hardware.touchscreen'
 uses-feature-not-required: name='android.software.leanback'
-native-code: 'arm64-v8a' 'x86_64'
+native-code: 'arm64-v8a' 'armeabi-v7a' 'x86_64'
 `
 const release = { version: "0.2.0-alpha.1", buildNumber: "1000001", tv: true }
 
-test("one Android APK retains both phone and TV launchers and both native ABIs", () => {
+test("one Android APK retains both phone and TV launchers and every native ABI", () => {
   verifyAndroidRelease(metadata, release)
   assert.throws(
     () => verifyAndroidRelease(metadata, { ...release, version: "0.2.0" }),
