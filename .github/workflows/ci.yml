@@ -65,3 +65,17 @@ jobs:
         run: apps/desktop/scripts/setup-windows.ps1
       - name: Check Windows-specific Rust
         run: cargo check -p conduit-electron-native
+
+  documentation:
+    name: Documentation build and Pages preservation
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-docs.txt
+      - run: python -m pip install -r requirements-docs.txt
+      - run: python -m mkdocs build --strict
+      - run: python -m unittest discover -s scripts -p test_pages_site.py

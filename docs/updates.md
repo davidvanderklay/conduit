@@ -1,8 +1,12 @@
 # Updates
 
-Conduit keeps desktop, server and web versions independent. Each component has a
-Stable track and a Nightly track. Android phones and TV share the Android release
-stream. Mobile installation remains managed by its store or sideloading method.
+Conduit keeps desktop, server, and web versions independent. Each has a Stable
+track and a Nightly track. Android phones and TV share the Android release
+stream; Android and iOS are not part of the scheduled Nightly workflow. Mobile
+updates use sideloading; store distribution is not available yet.
+
+See [Installation](installation.md) to choose an initial installer, and
+[Docker release tracks](deployment.md#stable-and-nightly) for image selection.
 
 ## Using the app
 
@@ -91,7 +95,7 @@ After a component release succeeds, a reusable workflow commits only that
 component's metadata to the `update-feeds` branch. Clients read public HTTPS feeds
 at `raw.githubusercontent.com/davidvanderklay/conduit/update-feeds/COMPONENT/TRACK`.
 No access token ships in the app. Each component serializes its releases. Bounded retries preserve concurrent
-feed changes from other components, reject older candidates, and keeps payloads in immutable GitHub releases.
+feed changes from other components, reject older candidates, and keep payloads in immutable GitHub releases.
 
 Stable metadata never contains prereleases. The Nightly feed accepts Nightly
 builds and a stable release that supersedes its current candidate by SemVer. When

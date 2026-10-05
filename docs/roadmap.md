@@ -27,12 +27,17 @@ The mobile client remains a native product surface rather than a wrapped web
 page. Playback, lifecycle, orientation, and secure storage use platform-native
 adapters behind shared Compose presentation.
 
-## Next: TV experiences
+## Current: experimental Android TV
 
-tvOS is a planned target after the mobile foundations. Broader TV work may
-include Android TV and other practical living-room platforms.
+The Android APK now includes a very experimental Android TV and Google TV
+interface with remote navigation, phone sign-in, profile selection, browsing,
+playback, and watch-party QR handoff. See [TV setup](installation.md#android-tv-and-google-tv).
+Physical-device validation for hardware decoding, HDR, audio passthrough, and
+real remotes is still needed.
 
-Key requirements:
+## Next: tvOS and TV hardening
+
+tvOS remains a planned target. TV hardening priorities include:
 
 - Remote/focus-driven navigation
 - Large-screen layouts and accessibility

@@ -33,3 +33,10 @@ flatpak/appdir/
 .flatpak-builder/
 flatpak-build/
 flatpak-repo/
+
+# Documentation builds and combined Pages artifacts
+site/
+pages-site/
+flatpak-site/
+.venv-docs/
+__pycache__/

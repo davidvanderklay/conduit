@@ -327,11 +327,6 @@ jobs:
           name: conduit-linux-flatpak
           path: target/release/bundle/conduit.flatpak
           if-no-files-found: error
-      - name: Upload GitHub Pages artifact
-        if: github.event_name == 'push'
-        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
-        with:
-          path: flatpak-site
 
   macos:
     needs: [prepare, production-config]
@@ -525,18 +520,11 @@ jobs:
             hdiutil verify "$downloaded_dmg"
           done
 
-  publish-flatpak-repository:
-    name: Publish Flatpak repository
+  publish-pages:
+    name: Publish documentation and Flatpak
     if: github.event_name == 'push'
     needs: [linux-flatpak]
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Deploy repository atomically
-        id: deployment
-        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
+    uses: ./.github/workflows/pages.yml
 
   update-feed:
     if: github.event_name == 'push'
