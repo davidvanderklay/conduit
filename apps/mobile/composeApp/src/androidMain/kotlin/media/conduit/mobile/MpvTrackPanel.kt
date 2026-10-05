@@ -160,7 +160,7 @@ private fun BoxScope.MpvSubtitlePanel(
                 .thenBy { it.label.lowercase() },
         )
     }
-    val preferredKey = remember(preferredLanguage) { mpvSubtitleLanguageKey(preferredLanguage, preferredLanguage) }
+    val preferredKey = remember(preferredLanguage) { devicePreferredLanguageCode(preferredLanguage) ?: "und" }
     val languageGroups = remember(orderedTracks, preferredKey) {
         orderedTracks
             .groupBy { mpvSubtitleLanguageKey(it.language, it.label) }
@@ -325,38 +325,8 @@ private fun MpvTrack.mpvVariantName(): String {
     }
 }
 
-private fun mpvSubtitleLanguageKey(language: String?, label: String): String {
-    val aliases = mapOf(
-        "eng" to "en", "english" to "en", "spa" to "es", "spanish" to "es", "español" to "es",
-        "fra" to "fr", "fre" to "fr", "french" to "fr", "deu" to "de", "ger" to "de", "german" to "de",
-        "jpn" to "ja", "japanese" to "ja", "kor" to "ko", "korean" to "ko", "zho" to "zh", "chi" to "zh", "chinese" to "zh",
-        "rus" to "ru", "russian" to "ru", "ara" to "ar", "arabic" to "ar", "hin" to "hi", "hindi" to "hi",
-        "ind" to "id", "indonesian" to "id", "vie" to "vi", "vietnamese" to "vi",
-    )
-    fun normalize(value: String): String {
-        val normalized = value.trim().lowercase().replace('_', '-').substringBefore('-')
-        return aliases[normalized] ?: normalized.takeIf { it.length == 2 }.orEmpty()
-    }
-    return normalize(language.orEmpty()).ifBlank {
-        normalize(label.substringBefore('·').substringBefore('(').substringBefore('[')).ifBlank { "und" }
-    }
-}
+private fun mpvSubtitleLanguageKey(language: String?, label: String): String =
+    trackLanguageCode(language, label) ?: "und"
 
-private fun mpvLanguageName(key: String): String = when (key) {
-    "en" -> "English"
-    "es" -> "Spanish"
-    "fr" -> "French"
-    "de" -> "German"
-    "it" -> "Italian"
-    "pt" -> "Portuguese"
-    "nl" -> "Dutch"
-    "ja" -> "Japanese"
-    "ko" -> "Korean"
-    "zh" -> "Chinese"
-    "ru" -> "Russian"
-    "ar" -> "Arabic"
-    "hi" -> "Hindi"
-    "id" -> "Indonesian"
-    "vi" -> "Vietnamese"
-    else -> key.takeUnless { it == "und" }?.uppercase() ?: "Unknown language"
-}
+private fun mpvLanguageName(key: String): String =
+    languageName(key) ?: key.takeUnless { it == "und" }?.uppercase() ?: "Unknown language"

@@ -390,5 +390,22 @@
       "kind": "completed",
       "videoIndex": 1
     }
+  },
+  {
+    "name": "three-letter language tags resolve to the stored preference code",
+    "action": {
+      "type": "languageCode",
+      "language": "swe"
+    },
+    "expected": "sv"
+  },
+  {
+    "name": "an untagged track takes its language from the label",
+    "action": {
+      "type": "languageCode",
+      "language": "und",
+      "label": "Türkçe (Forced)"
+    },
+    "expected": "tr"
   }
 ]

@@ -157,4 +157,21 @@ class DevicePreferencesTest {
             repository.load().subtitleStyle,
         )
     }
+
+    @Test
+    fun languagePreferencesMigrateFromDisplayNamesToCodes() {
+        val store = MemorySettingsStore()
+        val repository = DevicePreferencesRepository(store)
+        assertEquals("auto", repository.load().preferredAudioLanguage)
+        assertEquals("en", repository.load().preferredSubtitleLanguage)
+
+        store.put("preferences.v1.audio-language", "Japanese")
+        store.put("preferences.v1.subtitle-language", "System default")
+        assertEquals("ja", repository.load().preferredAudioLanguage)
+        assertEquals("auto", repository.load().preferredSubtitleLanguage)
+
+        repository.save(repository.load().copy(preferredSubtitleLanguage = "sv"))
+        assertEquals("ja", store.get("preferences.v1.audio-language"))
+        assertEquals("sv", repository.load().preferredSubtitleLanguage)
+    }
 }

@@ -397,8 +397,8 @@ final class ConduitMPVPlayerViewController: UIViewController {
     private var firstFramePresentationBaseline: UInt64 = 0
     private var pendingRetry: DispatchWorkItem?
     private var activeHeaders: [String: String] = [:]
-    private var preferredAudioLanguage = "System default"
-    private var preferredSubtitleLanguage = "English"
+    private var preferredAudioLanguage = ""
+    private var preferredSubtitleLanguage = "en"
     private var preferredSubtitleApplied = false
     private var subtitleSizePercent = 100
     private var subtitleOffsetPercent = 0
@@ -2199,12 +2199,11 @@ final class ConduitMPVPlayerViewController: UIViewController {
     /// external/add-on track only when the file has no matching embedded one.
     private func applyPreferredSubtitleSelection() {
         guard mpv != nil, hasLoadedFile, !preferredSubtitleApplied else { return }
-        let preferred = Self.languageCode(for: preferredSubtitleLanguage)
+        let preferred = preferredSubtitleLanguage
         guard !preferred.isEmpty else { return }
 
         let matching = subtitleTracks.filter {
-            Self.languageCode(for: $0.language) == preferred
-                || Self.languageCode(for: $0.title) == preferred
+            PlaybackLanguagesKt.trackLanguageCode(language: $0.language, label: $0.title) == preferred
         }
         guard let track = matching.first(where: { !$0.external })
             ?? matching.first(where: { $0.external })
@@ -2215,21 +2214,6 @@ final class ConduitMPVPlayerViewController: UIViewController {
             var id = Int64(track.id)
             checkError(mpv_set_property(mpv, "sid", MPV_FORMAT_INT64, &id))
         }
-    }
-
-    private static func languageCode(for value: String) -> String {
-        let normalized = value
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-            .replacingOccurrences(of: "_", with: "-")
-        let base = normalized.split(separator: "-").first.map(String.init) ?? normalized
-        return [
-            "english": "en", "eng": "en", "spanish": "es", "español": "es", "spa": "es",
-            "french": "fr", "fra": "fr", "fre": "fr", "german": "de", "deu": "de", "ger": "de",
-            "italian": "it", "ita": "it", "portuguese": "pt", "por": "pt", "japanese": "ja", "jpn": "ja",
-            "korean": "ko", "kor": "ko", "chinese": "zh", "zho": "zh", "chi": "zh", "arabic": "ar", "ara": "ar",
-            "indonesian": "id", "ind": "id", "russian": "ru", "rus": "ru", "hindi": "hi", "hin": "hi",
-        ][base] ?? (base.count == 2 ? base : "")
     }
 
     private func command(_ name: String, args: [String?] = [], checkForErrors: Bool = true) {
@@ -2289,19 +2273,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
 
     private func applyPreferredAudioLanguage() {
         guard mpv != nil else { return }
-        let normalized = preferredAudioLanguage.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let alang: String
-        switch normalized {
-        case "english": alang = "en"
-        case "spanish": alang = "es"
-        case "french": alang = "fr"
-        case "german": alang = "de"
-        case "japanese": alang = "ja"
-        case "korean": alang = "ko"
-        case "system default", "": alang = Locale.current.languageCode ?? "auto"
-        default: alang = normalized
-        }
-        setStringProperty("alang", alang)
+        setStringProperty("alang", preferredAudioLanguage.isEmpty ? "auto" : preferredAudioLanguage)
     }
 
     private func applyRequestHeaders(_ headers: [String: String]) {

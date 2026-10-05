@@ -29,6 +29,7 @@ interface IosPlayerBridge {
     fun seekBy(offsetMs: Long)
     fun setPlaybackSpeed(speed: Float)
     fun setMuted(muted: Boolean)
+    /** Preferred languages arrive as resolved codes; blank means no preference. */
     fun setPreferredAudioLanguage(language: String)
     fun setPreferredSubtitleLanguage(language: String)
     /** [offsetPercent] raises subtitles from the bottom by that share of the picture height. */

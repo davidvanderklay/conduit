@@ -233,7 +233,7 @@ actual fun NativePlayer(
     var autoAudioSelection by remember(player) { mutableStateOf<String?>(null) }
     var resizeMode by remember(player) { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
     var showRemainingTime by remember(player) { mutableStateOf(false) }
-    val preferredAudioCode = remember(preferredAudioLanguage) { audioLanguageCode(preferredAudioLanguage) }
+    val preferredAudioCode = remember(preferredAudioLanguage) { devicePreferredLanguageCode(preferredAudioLanguage) }
     var playerReleased by remember(player) { mutableStateOf(false) }
     var lastDiagnosticPlaybackState by remember(player, activeEngine) { mutableStateOf<String?>(null) }
     val currentNowPlayingControls by rememberUpdatedState(
@@ -356,7 +356,7 @@ actual fun NativePlayer(
                         .flatMap { group -> (0 until group.length).map { index -> group to index } }
                         .filter { (group, index) ->
                             group.isTrackSupported(index) &&
-                                sameSubtitleLanguage(group.getTrackFormat(index).language, language)
+                                sameLanguage(group.getTrackFormat(index).language, language)
                         }
                 } ?: emptyList()
                 val labelMatches = selectedSubtitleLabel?.let { label ->
@@ -1013,30 +1013,12 @@ actual fun NativePlayer(
     }
 }
 
-private fun audioLanguageCode(preference: String): String? = when (preference) {
-    "System default" -> java.util.Locale.getDefault().language.takeIf(String::isNotBlank)
-    "English" -> "en"
-    "Spanish" -> "es"
-    "French" -> "fr"
-    "German" -> "de"
-    "Japanese" -> "ja"
-    "Korean" -> "ko"
-    else -> null
-}
-
-private fun sameSubtitleLanguage(first: String?, second: String?): Boolean {
-    val normalize = { language: String? ->
-        language
-            ?.replace('_', '-')
-            ?.substringBefore('-')
-            ?.lowercase()
-            ?.takeIf(String::isNotBlank)
-    }
-    return normalize(first) != null && normalize(first) == normalize(second)
-}
+/** Language a stored preference asks for on this device. */
+internal fun devicePreferredLanguageCode(preference: String): String? =
+    preferredLanguageCode(preference, java.util.Locale.getDefault().language)
 
 private fun audioTrackScore(format: androidx.media3.common.Format, preferredLanguage: String?): Int {
-    val language = format.language?.let { java.util.Locale.forLanguageTag(it.replace('_', '-')).language }
+    val language = trackLanguageCode(format.language)
     val label = format.label.orEmpty().lowercase()
     val commentary = format.roleFlags and C.ROLE_FLAG_COMMENTARY != 0 || "commentary" in label || "description" in label
     return (if (preferredLanguage != null && language == preferredLanguage) 1_000 else 0) +
@@ -1051,20 +1033,7 @@ private fun androidAudioLanguageName(format: androidx.media3.common.Format): Str
             .displayLanguage
             .replaceFirstChar(Char::uppercase)
     }
-    val label = format.label?.substringBefore('(')?.substringBefore('[')?.trim()?.lowercase()
-    val code = when (label) {
-        "english" -> "en"
-        "spanish", "español" -> "es"
-        "german", "deutsch" -> "de"
-        "french", "français" -> "fr"
-        "hungarian", "magyar" -> "hu"
-        "italian", "italiano" -> "it"
-        "portuguese", "português" -> "pt"
-        "japanese", "日本語" -> "ja"
-        "korean", "한국어" -> "ko"
-        "chinese", "中文" -> "zh"
-        else -> null
-    }
+    val code = trackLanguageCode(null, format.label)
     return code?.let { java.util.Locale.forLanguageTag(it).displayLanguage.replaceFirstChar(Char::uppercase) }
         ?: "Unknown language"
 }

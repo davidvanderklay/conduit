@@ -1,6 +1,7 @@
 mod addon;
 mod domain;
 mod error;
+pub mod language;
 pub mod media;
 pub mod playback;
 mod resource;
