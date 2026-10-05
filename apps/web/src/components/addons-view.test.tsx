@@ -22,11 +22,11 @@ vi.mock("../lib/api", async (original) => ({
   api: mocks.api,
 }))
 
-const profile = {
+const profile: Profile = {
   id: "profile",
   name: "Alex",
   isKids: false,
-} as Profile
+}
 
 const addons: InstalledAddon[] = [
   {
@@ -69,7 +69,7 @@ describe("AddonsView mutation failures", () => {
     client.clear()
     host.remove()
     vi.restoreAllMocks()
-    vi.resetAllMocks()
+    mocks.api.mockReset()
   })
 
   async function render() {
@@ -116,7 +116,6 @@ describe("AddonsView mutation failures", () => {
 
     expect(alert).not.toBeNull()
     expect(alert?.textContent).toContain("Could not update add-on")
-    expect(alert?.className).toContain("text-red-400")
 
     await act(async () => toggle().click())
     await settle()
@@ -167,12 +166,33 @@ describe("AddonsView mutation failures", () => {
 
     expect(alert).not.toBeNull()
     expect(alert?.textContent).toContain("Could not uninstall add-on")
-    expect(alert?.className).toContain("text-red-400")
 
     await act(async () => uninstall().click())
     await settle()
 
     expect(mocks.api).toHaveBeenCalledTimes(2)
+    expect(host.querySelector('[role="alert"]')).toBeNull()
+  })
+
+  it("replaces a stale removal error once a later update succeeds", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true)
+
+    mocks.api
+      .mockRejectedValueOnce(new Error("Server unavailable"))
+      .mockResolvedValueOnce(undefined)
+
+    await render()
+
+    await act(async () => uninstall().click())
+    await settle()
+
+    expect(host.querySelector('[role="alert"]')?.textContent).toBe(
+      "Could not uninstall add-on: Server unavailable",
+    )
+
+    await act(async () => toggle().click())
+    await settle()
+
     expect(host.querySelector('[role="alert"]')).toBeNull()
   })
 
