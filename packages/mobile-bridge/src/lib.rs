@@ -15,6 +15,9 @@ pub struct ConduitEngine {
     generation: u64,
     closed: bool,
     cancelled: HashSet<String>,
+    p2p_request_id: Option<String>,
+    #[cfg(feature = "p2p")]
+    p2p: Option<conduit_p2p::Engine>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -24,6 +27,28 @@ pub struct ConduitEngine {
     rename_all_fields = "camelCase"
 )]
 enum Action {
+    P2pCapabilities {
+        protocol_version: u32,
+    },
+    StartP2p {
+        protocol_version: u32,
+        request_id: String,
+        source: serde_json::Value,
+        cache_directory: String,
+    },
+    P2pStatus {
+        protocol_version: u32,
+        request_id: String,
+    },
+    PauseP2p {
+        protocol_version: u32,
+        request_id: String,
+        paused: bool,
+    },
+    StopP2p {
+        protocol_version: u32,
+        request_id: String,
+    },
     ResolveStreams {
         protocol_version: u32,
         request_id: String,
@@ -45,7 +70,20 @@ enum Action {
 impl Action {
     fn protocol_version(&self) -> u32 {
         match self {
-            Self::ResolveStreams {
+            Self::P2pCapabilities { protocol_version }
+            | Self::StartP2p {
+                protocol_version, ..
+            }
+            | Self::P2pStatus {
+                protocol_version, ..
+            }
+            | Self::PauseP2p {
+                protocol_version, ..
+            }
+            | Self::StopP2p {
+                protocol_version, ..
+            }
+            | Self::ResolveStreams {
                 protocol_version, ..
             }
             | Self::Cancel {
@@ -63,6 +101,17 @@ impl Action {
     rename_all_fields = "camelCase"
 )]
 enum State {
+    P2pCapabilities {
+        protocol_version: u32,
+        available: bool,
+    },
+    #[cfg(feature = "p2p")]
+    P2pSession {
+        protocol_version: u32,
+        request_id: String,
+        generation: u64,
+        status: serde_json::Value,
+    },
     Resolved {
         protocol_version: u32,
         request_id: String,
@@ -119,6 +168,57 @@ impl ConduitEngine {
         }
 
         match action {
+            Action::P2pCapabilities { .. } => State::P2pCapabilities {
+                protocol_version: PROTOCOL_VERSION,
+                available: cfg!(feature = "p2p"),
+            },
+            Action::StartP2p {
+                request_id,
+                source,
+                cache_directory,
+                ..
+            } => {
+                if let Err(message) = validate_request_id(&request_id) {
+                    return error(None, "invalid_request_id", message, true);
+                }
+                self.start_p2p(request_id, source, cache_directory)
+            }
+            Action::P2pStatus { request_id, .. } => self.p2p_state(request_id),
+            Action::PauseP2p {
+                request_id, paused, ..
+            } => {
+                if self.p2p_request_id.as_deref() != Some(&request_id) {
+                    return error(
+                        Some(request_id),
+                        "p2p_session_missing",
+                        "P2P session is unavailable",
+                        true,
+                    );
+                }
+                #[cfg(feature = "p2p")]
+                if let Some(engine) = &self.p2p {
+                    engine.set_paused(paused);
+                }
+                #[cfg(not(feature = "p2p"))]
+                let _ = paused;
+                self.p2p_state(request_id)
+            }
+            Action::StopP2p { request_id, .. } => {
+                if self.p2p_request_id.as_deref() != Some(&request_id) {
+                    return error(
+                        Some(request_id),
+                        "p2p_session_missing",
+                        "P2P session is unavailable",
+                        true,
+                    );
+                }
+                self.stop_p2p();
+                State::Cancelled {
+                    protocol_version: PROTOCOL_VERSION,
+                    request_id,
+                    generation: self.generation,
+                }
+            }
             Action::ResolveStreams {
                 request_id,
                 manifest_url,
@@ -204,6 +304,9 @@ impl ConduitEngine {
                         true,
                     );
                 }
+                if self.p2p_request_id.as_deref() == Some(&request_id) {
+                    self.stop_p2p();
+                }
                 self.generation += 1;
                 self.cancelled.insert(request_id.clone());
                 State::Cancelled {
@@ -213,12 +316,98 @@ impl ConduitEngine {
                 }
             }
             Action::Close { .. } => {
+                self.stop_p2p();
                 self.closed = true;
                 State::Closed {
                     protocol_version: PROTOCOL_VERSION,
                 }
             }
         }
+    }
+}
+
+impl ConduitEngine {
+    fn stop_p2p(&mut self) {
+        #[cfg(feature = "p2p")]
+        {
+            self.p2p.take();
+        }
+        self.p2p_request_id = None;
+    }
+    fn start_p2p(
+        &mut self,
+        request_id: String,
+        source: serde_json::Value,
+        cache_directory: String,
+    ) -> State {
+        #[cfg(feature = "p2p")]
+        {
+            if self.cancelled.remove(&request_id) {
+                return State::Cancelled {
+                    protocol_version: PROTOCOL_VERSION,
+                    request_id,
+                    generation: self.generation,
+                };
+            }
+            let source = match serde_json::from_value(source) {
+                Ok(source) => source,
+                Err(_) => {
+                    return error(
+                        Some(request_id),
+                        "invalid_p2p_source",
+                        "Invalid torrent source",
+                        true,
+                    )
+                }
+            };
+            self.stop_p2p();
+            match conduit_p2p::Engine::start(conduit_p2p::StartRequest {
+                source,
+                cache_directory: cache_directory.into(),
+            }) {
+                Ok(engine) => {
+                    self.generation += 1;
+                    self.p2p = Some(engine);
+                    self.p2p_request_id = Some(request_id.clone());
+                    self.p2p_state(request_id)
+                }
+                Err(_) => error(
+                    Some(request_id),
+                    "p2p_start_failed",
+                    "Unable to start torrent session",
+                    true,
+                ),
+            }
+        }
+        #[cfg(not(feature = "p2p"))]
+        {
+            let _ = (source, cache_directory);
+            error(
+                Some(request_id),
+                "p2p_unavailable",
+                "P2P is unavailable in this build",
+                true,
+            )
+        }
+    }
+    fn p2p_state(&self, request_id: String) -> State {
+        #[cfg(feature = "p2p")]
+        if self.p2p_request_id.as_deref() == Some(&request_id) {
+            if let Some(engine) = &self.p2p {
+                return State::P2pSession {
+                    protocol_version: PROTOCOL_VERSION,
+                    request_id,
+                    generation: self.generation,
+                    status: serde_json::to_value(engine.status()).expect("P2P status"),
+                };
+            }
+        }
+        error(
+            Some(request_id),
+            "p2p_session_missing",
+            "P2P session is unavailable",
+            true,
+        )
     }
 }
 
@@ -363,6 +552,18 @@ mod android {
     use jni::objects::{JClass, JString};
     use jni::sys::{jlong, jstring};
     use jni::EnvUnowned;
+
+    #[cfg(all(target_os = "android", feature = "p2p"))]
+    #[no_mangle]
+    pub extern "system" fn Java_media_conduit_mobile_RustBridge_initializeP2pTls<'local>(
+        mut unowned_env: EnvUnowned<'local>,
+        _class: JClass<'local>,
+        context: jni::objects::JObject<'local>,
+    ) {
+        unowned_env
+            .with_env(|env| rustls_platform_verifier::android::init_with_env(env, context))
+            .resolve::<jni::errors::ThrowRuntimeExAndDefault>();
+    }
 
     #[no_mangle]
     pub extern "system" fn Java_media_conduit_mobile_RustBridge_create<'local>(
@@ -573,5 +774,27 @@ mod tests {
         )
         .unwrap();
         assert_eq!(value["code"], "too_many_cancellations");
+    }
+}
+
+#[cfg(test)]
+mod p2p_contract_tests {
+    use super::*;
+    #[test]
+    fn compiled_capability_matches_the_loaded_bridge() {
+        let mut engine = ConduitEngine::default();
+        let state = engine.dispatch(r#"{"type":"p2pCapabilities","protocolVersion":2}"#);
+        let json = serde_json::to_value(state).unwrap();
+        assert_eq!(json["available"], cfg!(feature = "p2p"));
+    }
+    #[cfg(not(feature = "p2p"))]
+    #[test]
+    fn excluded_engine_rejects_torrent_start_without_creating_storage() {
+        let mut engine = ConduitEngine::default();
+        let state = engine.dispatch(r#"{"type":"startP2p","protocolVersion":2,"requestId":"x","source":{"infoHash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"cacheDirectory":"/invalid/never/create"}"#);
+        assert_eq!(
+            serde_json::to_value(state).unwrap()["code"],
+            "p2p_unavailable"
+        );
     }
 }

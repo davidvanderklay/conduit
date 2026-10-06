@@ -33,6 +33,7 @@ data class PlaybackIdentity(
 data class PlaybackRequest(
     val identity: PlaybackIdentity,
     val url: String,
+    val p2pRequestId: String? = null,
     val requestHeaders: Map<String, String> = emptyMap(),
     val subtitles: List<SubtitleItem> = emptyList(),
     val subtitlesResolved: Boolean = false,
@@ -147,6 +148,8 @@ class PlaybackSessionController(
 
     var partyGuest by mutableStateOf(false)
 
+    internal val p2p = P2pSessionController()
+
     private var callbacks: PlaybackSessionCallbacks? = null
     private var queuedNext: PlaybackQueueItem? = null
     private var commandSequence = 0L
@@ -176,6 +179,9 @@ class PlaybackSessionController(
             "start session=${if (sameStream) state.sessionId else "new"} video=${request.identity.videoId} startMs=${request.startPositionMs} reload=${request.reloadKey} sameStream=$sameStream",
         )
         if (current != null && !sameStream) persist()
+        if (current?.p2pRequestId != null && current.p2pRequestId != request.p2pRequestId) {
+            scope.launch { p2p.release(current.p2pRequestId) }
+        }
         if (!sameStream) queuedNext = null
         this.callbacks = callbacks
         state = if (sameStream) {
@@ -271,7 +277,15 @@ class PlaybackSessionController(
     }
 
     fun close(saveProgress: Boolean = true) {
-        if (state.request == null) return
+        val closingP2pId = p2p.activeRequestId
+        if (closingP2pId != null) scope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) { p2p.release(closingP2pId) }
+        }
+        if (state.request == null) {
+            state = PlaybackSessionState()
+            activeAttemptId = null
+            return
+        }
         if (saveProgress) persist()
         val closed = callbacks?.closed
         state = PlaybackSessionState()

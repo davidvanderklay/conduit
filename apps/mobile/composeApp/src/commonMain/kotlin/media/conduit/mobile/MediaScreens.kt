@@ -1,5 +1,8 @@
 package media.conduit.mobile
 
+import kotlinx.coroutines.CancellationException
+import kotlinx.serialization.json.JsonPrimitive
+
 import conduit_mobile.composeapp.generated.resources.*
 import media.conduit.mobile.foundation.LocalReducedMotion
 import org.jetbrains.compose.resources.stringResource
@@ -746,6 +749,8 @@ internal fun MediaDetailsScreen(
     var streamsError by remember(item.id) { mutableStateOf<String?>(null) }
     var selectedStreamAddonId by remember(item.id) { mutableStateOf(preferences.lastStreamAddonId) }
     var playing by remember(item.id) { mutableStateOf<StreamItem?>(null) }
+    val p2pEnvironment = rememberP2pEnvironment()
+    var torrentFiles by remember(item.id) { mutableStateOf<Pair<StreamItem, List<P2pMediaFile>>?>(null) }
     var playbackAttemptId by remember(item.id) { mutableStateOf(playbackSession.currentAttemptId) }
     var streamVideoId by remember(item.id) { mutableStateOf<String?>(null) }
     var resumePosition by remember(item.id) { mutableStateOf(0L) }
@@ -1411,7 +1416,7 @@ internal fun MediaDetailsScreen(
 
     fun selectPlayerStream(source: StreamSource) {
         val picker = playerStreamPicker ?: return
-        if (source.stream.url == null) return
+        if (!media.conduit.mobile.account.isPlayableStream(source.stream)) return
         playbackAttemptId = playbackSession.state.transition?.attemptId
         DiagnosticLogStore.info(
             "playback/source",
@@ -1644,13 +1649,15 @@ internal fun MediaDetailsScreen(
         )
     }
     LaunchedEffect(
-        selectedStream?.url,
+        selectedStream,
         requestIdentity,
         playerContentTitle,
         nextVideo?.id,
         playbackReloadKey,
     ) {
-        val streamUrl = selectedStream?.url ?: return@LaunchedEffect
+        val sourceStream = selectedStream ?: return@LaunchedEffect
+        val torrent = sourceStream.url?.startsWith("magnet:", ignoreCase = true) == true ||
+            (sourceStream.infoHash != null && !media.conduit.mobile.account.isPlayableStream(sourceStream.copy(infoHash = null)))
         if (playbackAttemptId != null && !playbackSession.isCurrentAttempt(playbackAttemptId)) return@LaunchedEffect
         val identity = requestIdentity ?: return@LaunchedEffect
         val callbacks = sessionCallbacks ?: return@LaunchedEffect
@@ -1658,7 +1665,8 @@ internal fun MediaDetailsScreen(
         val currentRequest = playbackSession.state.request?.takeIf { it.identity == identity }
         // Reopening the same mounted player must keep its original start argument.
         // Changing that argument would make the iOS bridge load the file again.
-        if (currentRequest?.url == streamUrl && currentRequest.reloadKey == playbackReloadKey) {
+        if (currentRequest != null && currentRequest.reloadKey == playbackReloadKey &&
+            (if (torrent) currentRequest.source == currentPlaybackSource() else currentRequest.url == sourceStream.url)) {
             resumePosition = currentRequest.startPositionMs
         }
         val retainedPosition = resumePosition.takeIf { currentRequest != null || resolvedResumeAttempt == attemptKey }
@@ -1691,10 +1699,39 @@ internal fun MediaDetailsScreen(
         if (playbackAttemptId != null && !playbackSession.isCurrentAttempt(playbackAttemptId)) return@LaunchedEffect
         resumePosition = position
         resolvedResumeAttempt = attemptKey
+        val prior = playbackSession.state.request
+        val prepared = if (torrent && prior != null && prior.source == currentPlaybackSource() && prior.reloadKey == playbackReloadKey) {
+            prior.p2pRequestId?.let { PreparedP2p(prior.url, it) }
+        } else if (torrent) {
+            try {
+                playbackSession.p2p.prepare(sourceStream, p2pEnvironment)
+            } catch (cause: CancellationException) {
+                throw cause
+            } catch (cause: P2pFileSelectionRequired) {
+                torrentFiles = sourceStream to cause.files
+                openingPlayback = false
+                playing = null
+                playbackSession.cancelTransition()
+                return@LaunchedEffect
+            } catch (cause: Throwable) {
+                streamsError = cause.message ?: "Unable to stream this torrent"
+                openingPlayback = false
+                playing = null
+                streamPageOpen = true
+                playbackSession.cancelTransition()
+                return@LaunchedEffect
+            }
+        } else null
+        val streamUrl = prepared?.url ?: sourceStream.url ?: return@LaunchedEffect
+        if (playbackAttemptId != null && !playbackSession.isCurrentAttempt(playbackAttemptId)) {
+            prepared?.let { playbackSession.p2p.release(it.requestId) }
+            return@LaunchedEffect
+        }
         val request = PlaybackRequest(
             identity = identity,
             url = streamUrl,
-            requestHeaders = selectedStream.behaviorHints?.proxyHeaders?.request.orEmpty()
+            p2pRequestId = prepared?.requestId,
+            requestHeaders = sourceStream.behaviorHints?.proxyHeaders?.request.orEmpty().takeUnless { torrent }.orEmpty()
                 .mapNotNull { (key, value) -> value.jsonPrimitive.contentOrNull?.let { key to it } }
                 .toMap(),
             subtitles = externalSubtitles,
@@ -1768,7 +1805,7 @@ internal fun MediaDetailsScreen(
 
     /** Starts playback of a source chosen on the stream selection page. */
     fun selectStreamFromPage(source: StreamSource) {
-        if (source.stream.url != null) {
+        if (media.conduit.mobile.account.isPlayableStream(source.stream)) {
             val videoId = selectedVideo?.id ?: streamVideoId ?: item.id
             val switchingCurrentSource = playbackSession.state.request?.identity ==
                 profile?.let { PlaybackIdentity(it.id, item.type, item.id, videoId) }
@@ -1807,6 +1844,26 @@ internal fun MediaDetailsScreen(
             resumePosition = retainedPosition
             playbackReloadKey += 1L
         }
+    }
+    torrentFiles?.let { (source, files) ->
+        AlertDialog(
+            onDismissRequest = { torrentFiles = null },
+            title = { Text("Select a torrent file") },
+            text = {
+                LazyColumn(Modifier.heightIn(max = 360.dp)) {
+                    items(files) { file ->
+                        TextButton(onClick = {
+                            torrentFiles = null
+                            playing = source.copy(fileIdx = JsonPrimitive(file.index))
+                            openingPlayback = true
+                            playbackReloadKey += 1L
+                        }) { Text(file.name, color = Color.White) }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { torrentFiles = null }) { Text("Cancel") } },
+            containerColor = Color.Black,
+        )
     }
     val ownsPlayback = requestIdentity != null && playbackSession.state.request?.identity == requestIdentity
     val interactiveBackAvailable = !waitingForSavedPlayback &&
@@ -2999,7 +3056,7 @@ private fun StreamSourceCard(
         border = BorderStroke(1.dp, Color.White.copy(alpha = .06f)),
         modifier = modifier
             .fillMaxWidth()
-            .clickable(enabled = source.stream.url != null) { onSelect(source) },
+            .clickable(enabled = media.conduit.mobile.account.isPlayableStream(source.stream)) { onSelect(source) },
     ) {
         Column(
             modifier = Modifier.padding(14.dp),
@@ -3016,8 +3073,8 @@ private fun StreamSourceCard(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Icon(
-                    if (source.stream.url != null) Icons.Rounded.PlayArrow else Icons.Rounded.Link,
-                    contentDescription = if (source.stream.url != null) "Play stream" else "Open stream link",
+                    if (media.conduit.mobile.account.isPlayableStream(source.stream)) Icons.Rounded.PlayArrow else Icons.Rounded.Link,
+                    contentDescription = if (media.conduit.mobile.account.isPlayableStream(source.stream)) "Play stream" else "Open stream link",
                     tint = MaterialTheme.colorScheme.onSurface,
                 )
             }

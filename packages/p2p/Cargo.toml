@@ -1,0 +1,24 @@
+[package]
+name = "conduit-p2p"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Optional native torrent sessions for Conduit"
+
+[dependencies]
+anyhow = "1"
+async-stream = "0.3"
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio"] }
+futures-core = "0.3"
+fs2 = "0.4"
+librqbit = { version = "=9.0.1", default-features = false, features = ["rust-tls", "disable-upload"] }
+rand = "0.9"
+serde = { version = "1", features = ["derive"] }
+tempfile = "3"
+tokio = { version = "1", features = ["rt-multi-thread", "net", "sync", "time", "io-util", "macros", "signal"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+url = "2"
+
+[dev-dependencies]
+reqwest = { version = "0.12", default-features = false }
+serde_json = "1"

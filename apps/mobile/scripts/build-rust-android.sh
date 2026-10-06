@@ -2,7 +2,9 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
-out="$repo_root/apps/mobile/composeApp/src/androidMain/jniLibs"
+source "$repo_root/apps/mobile/scripts/p2p-build.sh"
+out="$repo_root/apps/mobile/native/android/$conduit_p2p_mode"
+export CARGO_TARGET_DIR="$repo_root/target/mobile/$conduit_p2p_mode"
 
 command -v cargo >/dev/null
 command -v cargo-ndk >/dev/null || {
@@ -25,4 +27,4 @@ cargo ndk \
   --target armeabi-v7a \
   --target x86_64 \
   --output-dir "$out" \
-  build --release
+  build --release --locked --no-default-features "${conduit_p2p_features[@]}"

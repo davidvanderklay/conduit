@@ -55,7 +55,6 @@ The following are deliberately outside the current mobile release scope:
 - media downloads or durable offline playback;
 - casting and remote-control integrations;
 - PiP validation across the physical-device matrix;
-- P2P playback;
 - third-party integrations such as Trakt, debrid providers, Jellyfin, or Plex;
 - push notifications and background catalog refresh; and
 - store distribution, automated store submission, and production signing for
@@ -370,3 +369,55 @@ web address advertised by `/v1/auth/config`. Sign in on that device, select
 the same profile, and open profile data in Settings. Older servers without
 `webUrl` still show these instructions. TV users can also choose this route
 when their installed file picker is difficult to use with a remote.
+
+## Optional P2P builds
+
+P2P is excluded by default. To include the native torrent engine, use the same
+flag for the Rust build and Gradle invocation:
+
+```sh
+CONDUIT_P2P=1 apps/mobile/scripts/build-rust-android.sh
+cd apps/mobile
+CONDUIT_P2P=1 ./gradlew :composeApp:assembleDebug
+```
+
+The iOS Rust build script accepts the same flag. `CONDUIT_P2P=0` selects an
+engine-free native library and disabled Kotlin sources. Artifacts and host JNI
+libraries live in separate `direct` and `p2p` directories. Never copy libraries
+between modes. `CONDUIT_STORE_BUILD=1` rejects `CONDUIT_P2P=1` in both scripts
+and Gradle. Store builds remain direct-playback builds; exclusion alone does
+not establish store policy compliance.
+
+Enabled builds accept add-on info hashes, magnets, file indices, and tracker
+hints. They resolve one torrent, use its largest file when it is supported video, or
+present file selection when necessary, and feed a token-protected loopback URL to the
+existing native player. Add-on HTTP headers are not forwarded to that endpoint.
+Direct URLs retain the existing playback path. Web and desktop remain HTTP-only.
+
+Transfers require an unmetered connection and normal power/thermal conditions.
+The engine disables uploads, inbound listening, LAN discovery, and UPnP. It
+limits peers to 32, download speed to 8 MiB/s, and concurrent HTTP readers to
+four. Active readers use librqbit's bounded 32 MiB lookahead; container probes
+and seek requests may hold separate read windows.
+
+Storage is temporary. The admission check reserves all torrent files, including
+neighbors of the selected file, rounded to 4 KiB plus 16 MiB for metadata and
+filesystem overhead. The reservation must fit within 4 GiB and leave 256 MiB
+free on the filesystem. This deliberately rejects large torrents rather than
+providing a rolling cache. Actual allocated disk use and free space are checked
+every 500 ms. Other processes can still consume space concurrently. Closing,
+switching, cancellation, or network/power denial stops the engine and deletes
+its session directory. The next engine start sweeps abandoned directories
+under an exclusive cache lock.
+
+For a local, owned-video integration fixture:
+
+```sh
+CONDUIT_FIXTURE_HOST=10.0.2.2 cargo run -p conduit-p2p --example local-swarm -- /path/to/video.mp4
+```
+
+The example prints an emulator-accessible source URL. Supply it as the
+`p2pFixture` instrumentation argument to `media.conduit.mobile.P2pPlaybackTest`.
+That test exercises both Android players, seeks, pause/resume, policy shutdown,
+and cache cleanup. Android and iOS CI compile both build modes. iOS playback
+still needs verification on macOS and physical devices.

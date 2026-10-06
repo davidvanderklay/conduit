@@ -6,6 +6,8 @@ on:
       - "apps/mobile/**"
       - "packages/mobile-bridge/**"
       - "packages/core/**"
+      - "packages/p2p/**"
+      - "vendor/librqbit-dualstack-sockets/**"
       - "Cargo.toml"
       - "Cargo.lock"
       - ".github/workflows/mobile-ios.yml"
@@ -15,6 +17,8 @@ on:
       - "apps/mobile/**"
       - "packages/mobile-bridge/**"
       - "packages/core/**"
+      - "packages/p2p/**"
+      - "vendor/librqbit-dualstack-sockets/**"
       - "Cargo.toml"
       - "Cargo.lock"
       - ".github/workflows/mobile-ios.yml"
@@ -28,7 +32,13 @@ concurrency:
 
 jobs:
   test:
-    name: Test iOS simulator build
+    name: Test iOS simulator build (P2P ${{ matrix.p2p }})
+    strategy:
+      fail-fast: false
+      matrix:
+        p2p: ["0", "1"]
+    env:
+      CONDUIT_P2P: ${{ matrix.p2p }}
     runs-on: macos-15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

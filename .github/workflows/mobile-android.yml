@@ -7,6 +7,8 @@ on:
       - "apps/desktop/icon.svg"
       - "packages/mobile-bridge/**"
       - "packages/core/**"
+      - "packages/p2p/**"
+      - "vendor/librqbit-dualstack-sockets/**"
       - "Cargo.toml"
       - "Cargo.lock"
       - ".github/workflows/mobile-android.yml"
@@ -17,6 +19,8 @@ on:
       - "apps/desktop/icon.svg"
       - "packages/mobile-bridge/**"
       - "packages/core/**"
+      - "packages/p2p/**"
+      - "vendor/librqbit-dualstack-sockets/**"
       - "Cargo.toml"
       - "Cargo.lock"
       - ".github/workflows/mobile-android.yml"
@@ -30,7 +34,13 @@ concurrency:
 
 jobs:
   test:
-    name: Android debug validation
+    name: Android debug validation (P2P ${{ matrix.p2p }})
+    strategy:
+      fail-fast: false
+      matrix:
+        p2p: ["0", "1"]
+    env:
+      CONDUIT_P2P: ${{ matrix.p2p }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

@@ -2,6 +2,11 @@
 members = [
   "packages/core",
   "packages/mobile-bridge",
+  "packages/p2p",
   "apps/desktop/electron-native",
 ]
 resolver = "2"
+exclude = ["vendor/librqbit-dualstack-sockets"]
+
+[patch.crates-io]
+librqbit-dualstack-sockets = { path = "vendor/librqbit-dualstack-sockets" }

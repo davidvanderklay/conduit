@@ -250,8 +250,68 @@ final class ConduitProfileFilesBridge: NSObject, IosProfileFilesBridge, UIDocume
     }
 }
 
+#if CONDUIT_P2P
+final class ConduitP2pEnvironment: NSObject, IosP2pEnvironmentBridge {
+    private let monitor = NWPathMonitor()
+    private let lock = NSLock()
+    private var unmetered = false
+    private var foreground = true
+    private var observers: [NSObjectProtocol] = []
+
+    override init() {
+        super.init()
+        foreground = UIApplication.shared.applicationState != .background
+        for (name, active) in [(UIApplication.didEnterBackgroundNotification, false),
+                               (UIApplication.willEnterForegroundNotification, true)] {
+            observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                guard let self else { return }
+                self.lock.lock()
+                self.foreground = active
+                self.lock.unlock()
+            })
+        }
+        monitor.pathUpdateHandler = { [weak self] path in
+            guard let self else { return }
+            self.lock.lock()
+            self.unmetered = path.status == .satisfied && !path.isExpensive && !path.isConstrained
+            self.lock.unlock()
+        }
+        monitor.start(queue: DispatchQueue(label: "conduit.p2p.policy"))
+    }
+
+    deinit {
+        monitor.cancel()
+        observers.forEach { NotificationCenter.default.removeObserver($0) }
+    }
+
+    func cacheDirectory() -> String {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("p2p", isDirectory: true).path
+    }
+
+    func appActive() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return foreground
+    }
+
+    func transfersAllowed() -> Bool {
+        lock.lock()
+        let allowed = unmetered
+        lock.unlock()
+        let process = ProcessInfo.processInfo
+        return allowed && !process.isLowPowerModeEnabled &&
+            process.thermalState != .serious && process.thermalState != .critical
+    }
+}
+
+#endif
+
 enum ConduitPlatformRegistration {
     static func register() {
+        #if CONDUIT_P2P
+        IosP2pEnvironmentFactory.shared.register(value: ConduitP2pEnvironment())
+        #endif
         IosPlatformBridgeFactory.shared.registerAppEvents(bridge: ConduitAppEventsBridge())
         IosPlatformBridgeFactory.shared.register(
             secureStore: ConduitKeychainStore(),

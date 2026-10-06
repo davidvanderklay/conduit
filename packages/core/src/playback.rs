@@ -23,6 +23,8 @@ pub struct Stream {
     #[serde(default)]
     pub info_hash: Option<String>,
     #[serde(default)]
+    pub sources: Vec<String>,
+    #[serde(default)]
     pub file_idx: Option<Value>,
     #[serde(default)]
     pub name: Option<String>,
@@ -94,8 +96,16 @@ pub fn select_saved_stream(
     streams: &[StreamCandidate],
     source: Option<&PlaybackSource>,
 ) -> Option<usize> {
+    select_saved_stream_with_p2p(streams, source, false)
+}
+
+pub fn select_saved_stream_with_p2p(
+    streams: &[StreamCandidate],
+    source: Option<&PlaybackSource>,
+    p2p_available: bool,
+) -> Option<usize> {
     let saved = source?;
-    let candidates = playable_candidates(streams);
+    let candidates = playable_candidates(streams, p2p_available);
     let exact = candidates
         .iter()
         .copied()
@@ -152,8 +162,16 @@ pub fn select_single_stream(
     streams: &[StreamCandidate],
     excluded: Option<&Stream>,
 ) -> Option<usize> {
+    select_single_stream_with_p2p(streams, excluded, false)
+}
+
+pub fn select_single_stream_with_p2p(
+    streams: &[StreamCandidate],
+    excluded: Option<&Stream>,
+    p2p_available: bool,
+) -> Option<usize> {
     let excluded_key = excluded.map(stream_source_key);
-    let candidates = playable_candidates(streams)
+    let candidates = playable_candidates(streams, p2p_available)
         .into_iter()
         .filter(|&index| {
             excluded_key
@@ -172,12 +190,21 @@ pub fn rank_streams(
     previous: Option<&PlaybackSource>,
     saved: Option<&PlaybackSource>,
 ) -> Vec<usize> {
+    rank_streams_with_p2p(streams, previous, saved, false)
+}
+
+pub fn rank_streams_with_p2p(
+    streams: &[StreamCandidate],
+    previous: Option<&PlaybackSource>,
+    saved: Option<&PlaybackSource>,
+    p2p_available: bool,
+) -> Vec<usize> {
     let target_resolution = previous.and_then(playback_source_resolution);
     let previous_group = previous
         .and_then(|source| source.binge_group.as_deref())
         .map(str::trim)
         .filter(|value| !value.is_empty());
-    let mut candidates = playable_candidates(streams);
+    let mut candidates = playable_candidates(streams, p2p_available);
     candidates.sort_by(|&left, &right| {
         let left_stream = &streams[left];
         let right_stream = &streams[right];
@@ -220,6 +247,19 @@ pub fn is_playable_stream_url(value: Option<&str>) -> bool {
         .unwrap_or(false)
 }
 
+/// Native hosts supply their compiled capability. HTTP-only clients keep the
+/// default false and never treat a torrent descriptor as a playable URL.
+pub fn is_playable_stream(stream: &Stream, p2p_available: bool) -> bool {
+    is_playable_stream_url(stream.url.as_deref())
+        || (p2p_available
+            && (stream.info_hash.as_ref().is_some_and(|hash| {
+                hash.len() == 40 && hash.bytes().all(|b| b.is_ascii_hexdigit())
+            }) || stream
+                .url
+                .as_deref()
+                .is_some_and(|url| url::Url::parse(url).is_ok_and(|u| u.scheme() == "magnet"))))
+}
+
 pub fn stream_source_key(stream: &Stream) -> String {
     if let Some(info_hash) = &stream.info_hash {
         return format!(
@@ -244,12 +284,12 @@ pub fn stream_source_key(stream: &Stream) -> String {
     )
 }
 
-fn playable_candidates(streams: &[StreamCandidate]) -> Vec<usize> {
+fn playable_candidates(streams: &[StreamCandidate], p2p_available: bool) -> Vec<usize> {
     streams
         .iter()
         .enumerate()
         .filter_map(|(index, candidate)| {
-            is_playable_stream_url(candidate.stream.url.as_deref()).then_some(index)
+            is_playable_stream(&candidate.stream, p2p_available).then_some(index)
         })
         .collect()
 }
@@ -469,6 +509,7 @@ mod tests {
                 url: Some(url.into()),
                 external_url: None,
                 info_hash: None,
+                sources: Vec::new(),
                 file_idx: None,
                 name: None,
                 title: None,
@@ -588,5 +629,30 @@ mod tests {
             rank_streams(&streams, Some(&previous), Some(&saved)),
             vec![3, 2, 1, 0]
         );
+    }
+}
+
+#[cfg(test)]
+mod p2p_capability_tests {
+    use super::*;
+    #[test]
+    fn torrent_ranking_requires_an_explicit_native_capability() {
+        let stream: Stream = serde_json::from_value(serde_json::json!({"infoHash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","sources":["tracker:https://example.com/announce"],"fileIdx":1})).unwrap();
+        let sources = vec![StreamCandidate {
+            addon_id: "local".into(),
+            addon_name: "Local".into(),
+            stream,
+        }];
+        assert!(rank_streams(&sources, None, None).is_empty());
+        assert_eq!(rank_streams_with_p2p(&sources, None, None, true), vec![0]);
+        assert_eq!(select_single_stream_with_p2p(&sources, None, true), Some(0));
+        let saved = playback_source("local".into(), &sources[0].stream);
+        assert_eq!(
+            select_saved_stream_with_p2p(&sources, Some(&saved), true),
+            Some(0)
+        );
+        assert!(!is_playable_stream_url(Some(
+            "magnet:?xt=urn:btih:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        )));
     }
 }
