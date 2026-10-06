@@ -122,6 +122,7 @@ actual fun NativePlayer(
     startPositionMs: Long,
     requestHeaders: Map<String, String>,
     subtitles: List<SubtitleItem>,
+    subtitlesResolved: Boolean,
     contentLogo: String?,
     contentTitle: String?,
     contentSubtitle: String?,
@@ -134,6 +135,7 @@ actual fun NativePlayer(
     holdToSpeed: Boolean,
     preferredAudioLanguage: String,
     preferredSubtitleLanguage: String,
+    secondarySubtitleLanguage: String?,
     subtitleStyle: SubtitleStyle,
     onSubtitleStyleChanged: (SubtitleStyle) -> Unit,
     androidPlaybackEngine: AndroidPlaybackEngine,
@@ -229,6 +231,7 @@ actual fun NativePlayer(
     var selectedSubtitleLanguage by remember(loadId, url, requestHeaders) { mutableStateOf<String?>(null) }
     var selectedSubtitleLabel by remember(loadId, url, requestHeaders) { mutableStateOf<String?>(null) }
     var subtitlesEnabled by remember(loadId, url, requestHeaders) { mutableStateOf(true) }
+    var manualSubtitleSelection by remember(loadId, url, requestHeaders) { mutableStateOf(false) }
     var lastTrackChangeAt by remember(player) { mutableLongStateOf(0L) }
     var autoAudioSelection by remember(player) { mutableStateOf<String?>(null) }
     var resizeMode by remember(player) { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
@@ -386,7 +389,7 @@ actual fun NativePlayer(
                         .clearOverridesOfType(C.TRACK_TYPE_TEXT)
                         .addOverride(TrackSelectionOverride(requestedText.first.mediaTrackGroup, requestedText.second))
                         .build()
-                } else {
+                } else if (manualSubtitleSelection) {
                     selectedText
                         ?.let { (group, index) -> group.getTrackFormat(index) }
                         ?.let { format ->
@@ -444,20 +447,12 @@ actual fun NativePlayer(
                     ".mpd" in lower || "format=mpd" in lower -> setMimeType(MimeTypes.APPLICATION_MPD)
                     ".ism" in lower || ".isml" in lower -> setMimeType(MimeTypes.APPLICATION_SS)
                 }
-                setSubtitleConfigurations(subtitles.map { subtitle ->
-                    val lower = subtitle.url.substringBefore('?').lowercase()
-                    val mime = when { lower.endsWith(".vtt") -> MimeTypes.TEXT_VTT; lower.endsWith(".ass") || lower.endsWith(".ssa") -> MimeTypes.TEXT_SSA; lower.endsWith(".ttml") || lower.endsWith(".xml") -> MimeTypes.APPLICATION_TTML; else -> MimeTypes.APPLICATION_SUBRIP }
-                    val language = subtitle.lang?.let { java.util.Locale.forLanguageTag(it.replace('_', '-')).displayLanguage } ?: "Subtitle"
-                    MediaItem.SubtitleConfiguration.Builder(Uri.parse(subtitle.url))
-                        .setId(subtitleSelectionKey(subtitle))
-                        .setMimeType(mime)
-                        .setLanguage(subtitle.lang)
-                        .setLabel("$language · ${subtitle.addonName ?: "Add-on"}")
-                        .build()
-                })
+                setSubtitleConfigurations(media3SubtitleConfigurations(subtitles))
             }.build()
             player.setMediaItem(item)
             preferredAudioCode?.let { code -> player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().setPreferredAudioLanguages(code).build() }
+            player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build()
             player.setPlaybackSpeed(fallbackPlaybackSpeed)
             player.prepare()
             player.playWhenReady = false
@@ -526,16 +521,57 @@ actual fun NativePlayer(
                 preferredAudioLanguage = preferredAudioLanguage,
                 preferredSubtitleLanguage = preferredSubtitleLanguage,
                 playbackSpeed = fallbackPlaybackSpeed,
-                selectedSubtitleId = selectedSubtitleId,
-                selectedSubtitleLanguage = selectedSubtitleLanguage,
-                selectedSubtitleLabel = selectedSubtitleLabel,
+                selectedSubtitleId = selectedSubtitleId.takeIf { manualSubtitleSelection },
+                selectedSubtitleLanguage = selectedSubtitleLanguage.takeIf { manualSubtitleSelection },
+                selectedSubtitleLabel = selectedSubtitleLabel.takeIf { manualSubtitleSelection },
                 subtitlesEnabled = subtitlesEnabled,
+                secondarySubtitleLanguage = secondarySubtitleLanguage,
+                subtitlesResolved = subtitlesResolved,
             )
         }
     }
-    LaunchedEffect(mpvView, subtitles, activeEngine) {
+    LaunchedEffect(mpvView, subtitles, subtitlesResolved, activeEngine, preferredSubtitleLanguage, secondarySubtitleLanguage) {
         if (activeEngine == NativePlaybackEngine.Libmpv) {
             mpvView?.updateExternalSubtitles(subtitles)
+            mpvView?.updateSubtitlePreferences(preferredSubtitleLanguage, secondarySubtitleLanguage, subtitlesResolved)
+        }
+    }
+    LaunchedEffect(player, subtitles, activeEngine) {
+        if (activeEngine != NativePlaybackEngine.Media3) return@LaunchedEffect
+        val item = player.currentMediaItem ?: return@LaunchedEffect
+        val configurations = media3SubtitleConfigurations(subtitles)
+        if (item.localConfiguration?.subtitleConfigurations != configurations) {
+            player.replaceMediaItem(0, item.buildUpon().setSubtitleConfigurations(configurations).build())
+        }
+    }
+    LaunchedEffect(player, activeEngine, tracksRevision, initialLoadComplete, subtitles, subtitlesResolved, preferredSubtitleLanguage, secondarySubtitleLanguage, manualSubtitleSelection) {
+        if (activeEngine != NativePlaybackEngine.Media3 || manualSubtitleSelection || !initialLoadComplete) return@LaunchedEffect
+        val tracks = player.currentTracks.groups.filter { it.type == C.TRACK_TYPE_TEXT }
+            .flatMap { group -> (0 until group.length).filter(group::isTrackSupported).map { index -> group to index } }
+        val candidates = tracks.map { (group, index) ->
+            val format = group.getTrackFormat(index)
+            SubtitleCandidate(format.id ?: "embedded:${group.mediaTrackGroup.id}:$index", format.language, format.label,
+                embedded = subtitles.none { subtitleSelectionKey(it) == format.id })
+        } + subtitles.map { SubtitleCandidate(subtitleSelectionKey(it), it.lang, it.addonName, embedded = false) }
+        when (val decision = preferredSubtitle(candidates, preferredSubtitleLanguage, secondarySubtitleLanguage,
+            java.util.Locale.getDefault().language, embeddedReady = true, addonsReady = subtitlesResolved)) {
+            SubtitleDecision.Wait -> Unit
+            SubtitleDecision.Off -> {
+                if (C.TRACK_TYPE_TEXT !in player.trackSelectionParameters.disabledTrackTypes) {
+                    player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+                        .clearOverridesOfType(C.TRACK_TYPE_TEXT).setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build()
+                }
+            }
+            is SubtitleDecision.Select -> {
+                val chosen = tracks.firstOrNull { (group, index) ->
+                    val format = group.getTrackFormat(index)
+                    (format.id ?: "embedded:${group.mediaTrackGroup.id}:$index") == decision.track
+                } ?: return@LaunchedEffect
+                if (chosen.first.isTrackSelected(chosen.second) && tracks.count { it.first.isTrackSelected(it.second) } == 1) return@LaunchedEffect
+                player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+                    .clearOverridesOfType(C.TRACK_TYPE_TEXT).setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                    .addOverride(TrackSelectionOverride(chosen.first.mediaTrackGroup, chosen.second)).build()
+            }
         }
     }
     LaunchedEffect(activeEngine, active, mpvView, firstFrameRendered) {
@@ -977,6 +1013,7 @@ actual fun NativePlayer(
                         subtitleStyle = subtitleStyle,
                         onSubtitleStyleChanged = onSubtitleStyleChanged,
                         onSubtitleSelectionChanged = { id, language, label, enabled ->
+                            manualSubtitleSelection = true
                             selectedSubtitleId = id
                             selectedSubtitleLanguage = language
                             selectedSubtitleLabel = label
@@ -994,6 +1031,7 @@ actual fun NativePlayer(
                     onSubtitleStyleChanged = onSubtitleStyleChanged,
                     onBeforeSelection = { trackFallback = player.trackSelectionParameters; lastTrackChangeAt = SystemClock.elapsedRealtime() },
                     onSubtitleSelectionChanged = { id, language, enabled ->
+                        manualSubtitleSelection = true
                         selectedSubtitleId = id
                         selectedSubtitleLanguage = language
                         selectedSubtitleLabel = null
@@ -1011,6 +1049,20 @@ actual fun NativePlayer(
             modifier = Modifier.matchParentSize(),
         )
     }
+}
+
+private fun media3SubtitleConfigurations(subtitles: List<SubtitleItem>) = subtitles.map { subtitle ->
+    val lower = subtitle.url.substringBefore('?').lowercase()
+    val mime = when {
+        lower.endsWith(".vtt") -> MimeTypes.TEXT_VTT
+        lower.endsWith(".ass") || lower.endsWith(".ssa") -> MimeTypes.TEXT_SSA
+        lower.endsWith(".ttml") || lower.endsWith(".xml") -> MimeTypes.APPLICATION_TTML
+        else -> MimeTypes.APPLICATION_SUBRIP
+    }
+    val language = subtitle.lang?.let { java.util.Locale.forLanguageTag(it.replace('_', '-')).displayLanguage } ?: "Subtitle"
+    MediaItem.SubtitleConfiguration.Builder(Uri.parse(subtitle.url))
+        .setId(subtitleSelectionKey(subtitle)).setMimeType(mime).setLanguage(subtitle.lang)
+        .setLabel("$language · ${subtitle.addonName ?: "Add-on"}").build()
 }
 
 /** Language a stored preference asks for on this device. */

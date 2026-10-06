@@ -50,6 +50,7 @@ data class DevicePreferences(
     /** Language code, or [SystemLanguagePreference]. */
     val preferredAudioLanguage: String = SystemLanguagePreference,
     val preferredSubtitleLanguage: String = "en",
+    val secondarySubtitleLanguage: String? = null,
     val subtitleStyle: SubtitleStyle = SubtitleStyle(),
     val touchGestures: Boolean = true,
     val holdToSpeed: Boolean = true,
@@ -86,6 +87,7 @@ class DevicePreferencesRepository(private val store: SettingsStore) {
         reduceAnimations = bool("reduce-animations", false),
         preferredAudioLanguage = storedLanguagePreference(store.get(prefix + "audio-language"), SystemLanguagePreference),
         preferredSubtitleLanguage = storedLanguagePreference(store.get(prefix + "subtitle-language"), "en"),
+        secondarySubtitleLanguage = store.get(prefix + "secondary-subtitle-language")?.takeIf(String::isNotBlank)?.let { storedLanguagePreference(it, "en") },
         subtitleStyle = SubtitleStyle(
             sizePercent = number("subtitle-size", 100).coerceIn(SubtitleStyle.SizeRange),
             offsetPercent = number("subtitle-offset", 0).coerceIn(SubtitleStyle.OffsetRange),
@@ -124,6 +126,7 @@ class DevicePreferencesRepository(private val store: SettingsStore) {
         store.put(prefix + "reduce-animations", value.reduceAnimations.toString())
         store.put(prefix + "audio-language", value.preferredAudioLanguage)
         store.put(prefix + "subtitle-language", value.preferredSubtitleLanguage)
+        store.put(prefix + "secondary-subtitle-language", value.secondarySubtitleLanguage.orEmpty())
         store.put(prefix + "subtitle-size", value.subtitleStyle.sizePercent.toString())
         store.put(prefix + "subtitle-offset", value.subtitleStyle.offsetPercent.toString())
         store.put(prefix + "subtitle-outline", value.subtitleStyle.outline.toString())

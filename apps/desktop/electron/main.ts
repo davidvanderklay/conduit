@@ -910,6 +910,11 @@ async function invoke(command: string, args: Record<string, unknown> = {}): Prom
     mainWindow?.webContents.send("conduit:player-overlay-close")
     return null
   }
+  if (command === "player_overlay_subtitle") {
+    if (args.id !== "no" && typeof args.id !== "number") throw new Error("Invalid subtitle track")
+    mainWindow?.webContents.send("conduit:player-overlay-subtitle")
+    return nativePlayer?.request("player_command", { command: ["set", "sid", args.id] })
+  }
   if (command === "player_overlay_next") {
     mainWindow?.webContents.send("conduit:player-overlay-next")
     return null
@@ -1100,17 +1105,25 @@ function registerIpcHandlers() {
     return invoke(command, args)
   })
   ipcMain.handle("conduit:updates", async (event, command: unknown, args: unknown) => {
-    if (!isTrustedIpcSender(event) || !mainWindow || event.sender.id !== mainWindow.webContents.id) throw new Error("Untrusted renderer")
+    if (!isTrustedIpcSender(event) || !mainWindow || event.sender.id !== mainWindow.webContents.id)
+      throw new Error("Untrusted renderer")
     if (!desktopUpdates) throw new Error("Updater unavailable")
-    const values = args && typeof args === "object" ? args as Record<string, unknown> : {}
+    const values = args && typeof args === "object" ? (args as Record<string, unknown>) : {}
     switch (command) {
-      case "status": return desktopUpdates.getStatus()
-      case "check": return desktopUpdates.check()
-      case "configure": return desktopUpdates.configure(values.track, values.enabled)
-      case "download": return desktopUpdates.download(values.serverApiLevel)
-      case "cancel": return desktopUpdates.cancel()
-      case "install": return desktopUpdates.install(values.serverApiLevel)
-      default: throw new Error("Unknown updater command")
+      case "status":
+        return desktopUpdates.getStatus()
+      case "check":
+        return desktopUpdates.check()
+      case "configure":
+        return desktopUpdates.configure(values.track, values.enabled)
+      case "download":
+        return desktopUpdates.download(values.serverApiLevel)
+      case "cancel":
+        return desktopUpdates.cancel()
+      case "install":
+        return desktopUpdates.install(values.serverApiLevel)
+      default:
+        throw new Error("Unknown updater command")
     }
   })
   ipcMain.handle("conduit:choose-save-path", async (event, suggestedName: string) => {

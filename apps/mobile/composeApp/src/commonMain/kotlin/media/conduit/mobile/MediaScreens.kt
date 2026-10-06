@@ -1687,6 +1687,7 @@ internal fun MediaDetailsScreen(
                 .mapNotNull { (key, value) -> value.jsonPrimitive.contentOrNull?.let { key to it } }
                 .toMap(),
             subtitles = externalSubtitles,
+            subtitlesResolved = externalSubtitlesLoaded,
             title = playerContentTitle,
             mediaName = if (selectedVideo != null) {
                 "${meta?.name ?: item.name}  ·  ${selectedVideo?.displayTitle}"
@@ -1721,8 +1722,7 @@ internal fun MediaDetailsScreen(
         openingPlayback = false
     }
     LaunchedEffect(requestIdentity, externalSubtitlesLoaded, externalSubtitles) {
-        if (!externalSubtitlesLoaded || externalSubtitles.isEmpty()) return@LaunchedEffect
-        requestIdentity?.let { playbackSession.updateSubtitles(it, externalSubtitles) }
+        requestIdentity?.let { playbackSession.updateSubtitles(it, externalSubtitles, externalSubtitlesLoaded) }
     }
     SideEffect {
         if (requestIdentity != null && sessionCallbacks != null) {
@@ -3754,7 +3754,9 @@ internal fun PlaybackSettingsScreen(platform: PlatformInfo, preferences: DeviceP
         }
         SettingsGroup("AUDIO & SUBTITLES") {
             SettingsAction("Preferred audio language", languagePreferenceLabel(preferences.preferredAudioLanguage)) { picker = "audio" }
-            HorizontalDivider(color = Color.White.copy(.06f)); SettingsAction("Preferred subtitle language", languagePreferenceLabel(preferences.preferredSubtitleLanguage)) { picker = "subtitle" }
+            HorizontalDivider(color = Color.White.copy(.06f)); SettingsAction("Primary subtitle language", languagePreferenceLabel(preferences.preferredSubtitleLanguage)) { picker = "subtitle" }
+            HorizontalDivider(color = Color.White.copy(.06f))
+            SettingsAction("Secondary subtitle language", preferences.secondarySubtitleLanguage?.let(::languagePreferenceLabel) ?: "None") { picker = "secondary-subtitle" }
             HorizontalDivider(color = Color.White.copy(.06f))
             SubtitleStyleControls(
                 style = preferences.subtitleStyle,
@@ -3800,20 +3802,33 @@ internal fun PlaybackSettingsScreen(platform: PlatformInfo, preferences: DeviceP
         },
         confirmButton = {},
     )
-    picker?.let { target ->
-        val selected = if (target == "audio") preferences.preferredAudioLanguage else preferences.preferredSubtitleLanguage
+    picker?.let { activePicker ->
+        val title = when (activePicker) {
+            "audio" -> "Preferred audio language"
+            "subtitle" -> "Primary subtitle language"
+            else -> "Secondary subtitle language"
+        }
+        val selected = when (activePicker) {
+            "audio" -> preferences.preferredAudioLanguage
+            "subtitle" -> preferences.preferredSubtitleLanguage
+            else -> preferences.secondarySubtitleLanguage ?: "None"
+        }
         AlertDialog(
             onDismissRequest = { picker = null },
-            title = { Text(if (target == "audio") "Preferred audio language" else "Preferred subtitle language") },
+            title = { Text(title) },
             text = {
-                // A short list that opens on the current choice instead of filling the screen.
-                val selectedIndex = languagePreferenceOptions.indexOfFirst { it.first == selected }.coerceAtLeast(0)
+                val options = if (activePicker == "secondary-subtitle") listOf("None" to "None") + languagePreferenceOptions else languagePreferenceOptions
+                val selectedIndex = options.indexOfFirst { it.first == selected }.coerceAtLeast(0)
                 LazyColumn(Modifier.heightIn(max = 320.dp), state = rememberLazyListState(selectedIndex)) {
-                    items(languagePreferenceOptions.size) { index ->
-                        val (language, label) = languagePreferenceOptions[index]
+                    items(options.size) { index ->
+                        val (language, label) = options[index]
                         Row(
                             Modifier.fillMaxWidth().clickable {
-                                update(if (target == "audio") preferences.copy(preferredAudioLanguage = language) else preferences.copy(preferredSubtitleLanguage = language))
+                                update(when (activePicker) {
+                                    "audio" -> preferences.copy(preferredAudioLanguage = language)
+                                    "subtitle" -> preferences.copy(preferredSubtitleLanguage = language)
+                                    else -> preferences.copy(secondarySubtitleLanguage = language.takeUnless { it == "None" })
+                                })
                                 picker = null
                             }.padding(vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically,

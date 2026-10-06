@@ -35,6 +35,7 @@ data class PlaybackRequest(
     val url: String,
     val requestHeaders: Map<String, String> = emptyMap(),
     val subtitles: List<SubtitleItem> = emptyList(),
+    val subtitlesResolved: Boolean = false,
     val title: String,
     val mediaName: String,
     val mediaAliases: List<String> = emptyList(),
@@ -219,10 +220,10 @@ class PlaybackSessionController(
         }
     }
 
-    fun updateSubtitles(identity: PlaybackIdentity, subtitles: List<SubtitleItem>) {
+    fun updateSubtitles(identity: PlaybackIdentity, subtitles: List<SubtitleItem>, resolved: Boolean = true) {
         val request = state.request ?: return
-        if (request.identity != identity || request.subtitles == subtitles) return
-        state = state.copy(request = request.copy(subtitles = subtitles))
+        if (request.identity != identity || (request.subtitles == subtitles && request.subtitlesResolved == resolved)) return
+        state = state.copy(request = request.copy(subtitles = subtitles, subtitlesResolved = resolved))
     }
 
     fun minimize(notifyOwner: Boolean = true) {

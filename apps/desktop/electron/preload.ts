@@ -17,7 +17,10 @@ ipcRenderer.on("conduit:fullscreen-changed", (_event, fullscreen: boolean) => {
 })
 
 contextBridge.exposeInMainWorld("__CONDUIT_ELECTRON__", {
-  updates(command: "status" | "check" | "configure" | "download" | "cancel" | "install", args?: unknown) {
+  updates(
+    command: "status" | "check" | "configure" | "download" | "cancel" | "install",
+    args?: unknown,
+  ) {
     return ipcRenderer.invoke("conduit:updates", command, args)
   },
   invoke(command: string, args?: unknown) {
@@ -34,6 +37,11 @@ contextBridge.exposeInMainWorld("__CONDUIT_ELECTRON__", {
     const handler = () => listener()
     ipcRenderer.on("conduit:player-overlay-close", handler)
     return () => ipcRenderer.removeListener("conduit:player-overlay-close", handler)
+  },
+  onPlayerOverlaySubtitle(listener: () => void) {
+    const handler = () => listener()
+    ipcRenderer.on("conduit:player-overlay-subtitle", handler)
+    return () => ipcRenderer.removeListener("conduit:player-overlay-subtitle", handler)
   },
   onPlayerOverlayNext(listener: () => void) {
     const handler = () => listener()
