@@ -1,8 +1,8 @@
-version: 0.1.5-nightly.20261004.4
+version: 0.1.5-nightly.20261006.2
 files:
-  - url: https://github.com/davidvanderklay/conduit/releases/download/desktop/v0.1.5-nightly.20261004.4/conduit-0.1.5-nightly.20261004.4-windows-x64.exe
-    sha512: 6Sr6ZaEWYk8bgg6DLcSuDnhLcDAL1ytKE/Xfuo8JXTh+wfftPlIX9FDeTu5vAjSn47LiTmVeBS01cJ+JsEm3BQ==
-    size: 145034418
-path: https://github.com/davidvanderklay/conduit/releases/download/desktop/v0.1.5-nightly.20261004.4/conduit-0.1.5-nightly.20261004.4-windows-x64.exe
-sha512: 6Sr6ZaEWYk8bgg6DLcSuDnhLcDAL1ytKE/Xfuo8JXTh+wfftPlIX9FDeTu5vAjSn47LiTmVeBS01cJ+JsEm3BQ==
-releaseDate: 2026-10-04T20:11:15Z
+  - url: https://github.com/davidvanderklay/conduit/releases/download/desktop/v0.1.5-nightly.20261006.2/conduit-0.1.5-nightly.20261006.2-windows-x64.exe
+    sha512: k72MtBNt5ypq8/K48OttcSmwoFr9SfD3JNsBnzayY3lee53FVywQL1Qs3khre5m/HVvuQZqWk/uPRfEWGNY3Rw==
+    size: 145042108
+path: https://github.com/davidvanderklay/conduit/releases/download/desktop/v0.1.5-nightly.20261006.2/conduit-0.1.5-nightly.20261006.2-windows-x64.exe
+sha512: k72MtBNt5ypq8/K48OttcSmwoFr9SfD3JNsBnzayY3lee53FVywQL1Qs3khre5m/HVvuQZqWk/uPRfEWGNY3Rw==
+releaseDate: 2026-10-06T08:26:11Z
