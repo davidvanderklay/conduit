@@ -3,9 +3,7 @@ import AuthenticationServices
 import AVFoundation
 import CryptoKit
 import Foundation
-#if CONDUIT_P2P
 import Network
-#endif
 import Security
 import UIKit
 import UniformTypeIdentifiers
