@@ -8,6 +8,7 @@ on:
       - "packages/mobile-bridge/**"
       - "packages/core/**"
       - "packages/p2p/**"
+      - "vendor/librqbit-dualstack-sockets/**"
       - "Cargo.toml"
       - "Cargo.lock"
       - ".github/workflows/mobile-android.yml"
@@ -19,6 +20,7 @@ on:
       - "packages/mobile-bridge/**"
       - "packages/core/**"
       - "packages/p2p/**"
+      - "vendor/librqbit-dualstack-sockets/**"
       - "Cargo.toml"
       - "Cargo.lock"
       - ".github/workflows/mobile-android.yml"
@@ -34,6 +36,7 @@ jobs:
   test:
     name: Android debug validation (P2P ${{ matrix.p2p }})
     strategy:
+      fail-fast: false
       matrix:
         p2p: ["0", "1"]
     env:
