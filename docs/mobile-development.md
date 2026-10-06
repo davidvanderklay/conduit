@@ -372,8 +372,9 @@ when their installed file picker is difficult to use with a remote.
 
 ## Optional P2P builds
 
-P2P is excluded by default. To include the native torrent engine, use the same
-flag for the Rust build and Gradle invocation:
+GitHub Android APK and iOS IPA releases include P2P. Local builds exclude it
+unless enabled explicitly. To include the native torrent engine locally, use
+the same flag for the Rust build and Gradle invocation:
 
 ```sh
 CONDUIT_P2P=1 apps/mobile/scripts/build-rust-android.sh
@@ -385,7 +386,8 @@ The iOS Rust build script accepts the same flag. `CONDUIT_P2P=0` selects an
 engine-free native library and disabled Kotlin sources. Artifacts and host JNI
 libraries live in separate `direct` and `p2p` directories. Never copy libraries
 between modes. `CONDUIT_STORE_BUILD=1` rejects `CONDUIT_P2P=1` in both scripts
-and Gradle. Store builds remain direct-playback builds; exclusion alone does
+and Gradle. App Store and Play Store builds must set `CONDUIT_STORE_BUILD=1`
+and `CONDUIT_P2P=0`. Store builds remain direct-playback builds; exclusion alone does
 not establish store policy compliance.
 
 Enabled builds accept add-on info hashes, magnets, file indices, and tracker
