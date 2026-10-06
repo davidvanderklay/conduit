@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Sourced by native build scripts. Unset means the engine is absent.
+# An explicit empty feature argument also works with macOS Bash 3 and set -u.
 case "${CONDUIT_P2P:-0}" in
-  0) conduit_p2p_mode=direct; conduit_p2p_features=() ;;
+  0) conduit_p2p_mode=direct; conduit_p2p_features=(--features "") ;;
   1) conduit_p2p_mode=p2p; conduit_p2p_features=(--features p2p) ;;
   *) echo 'CONDUIT_P2P must be 0 or 1' >&2; exit 1 ;;
 esac
