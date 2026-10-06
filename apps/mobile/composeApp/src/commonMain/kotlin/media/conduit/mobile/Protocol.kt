@@ -21,6 +21,31 @@ sealed interface EngineAction {
     val protocolVersion: Int
 
     @Serializable
+    @SerialName("p2pCapabilities")
+    data class P2pCapabilities(override val protocolVersion: Int = ProtocolVersion) : EngineAction
+
+    @Serializable
+    @SerialName("startP2p")
+    data class StartP2p(
+        override val protocolVersion: Int = ProtocolVersion,
+        val requestId: String,
+        val source: P2pSource,
+        val cacheDirectory: String,
+    ) : EngineAction
+
+    @Serializable
+    @SerialName("p2pStatus")
+    data class P2pStatus(override val protocolVersion: Int = ProtocolVersion, val requestId: String) : EngineAction
+
+    @Serializable
+    @SerialName("pauseP2p")
+    data class PauseP2p(override val protocolVersion: Int = ProtocolVersion, val requestId: String, val paused: Boolean) : EngineAction
+
+    @Serializable
+    @SerialName("stopP2p")
+    data class StopP2p(override val protocolVersion: Int = ProtocolVersion, val requestId: String) : EngineAction
+
+    @Serializable
     @SerialName("resolveStreams")
     data class ResolveStreams(
         override val protocolVersion: Int = ProtocolVersion,
@@ -47,6 +72,19 @@ sealed interface EngineAction {
 @Serializable
 sealed interface EngineState {
     val protocolVersion: Int
+
+    @Serializable
+    @SerialName("p2pCapabilities")
+    data class P2pCapabilities(override val protocolVersion: Int, val available: Boolean) : EngineState
+
+    @Serializable
+    @SerialName("p2pSession")
+    data class P2pSession(
+        override val protocolVersion: Int,
+        val requestId: String,
+        val generation: Long,
+        val status: P2pStatus,
+    ) : EngineState
 
     @Serializable
     @SerialName("resolved")

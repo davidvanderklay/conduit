@@ -5,6 +5,7 @@ internal object RustBridge {
         System.loadLibrary("conduit_mobile")
     }
 
+    external fun initializeP2pTls(context: android.content.Context)
     external fun create(): Long
     external fun dispatch(handle: Long, action: String): String
     external fun evaluate(action: String): String

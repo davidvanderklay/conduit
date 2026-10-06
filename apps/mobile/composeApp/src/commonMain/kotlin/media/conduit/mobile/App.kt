@@ -1,5 +1,8 @@
 package media.conduit.mobile
 
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.selection.selectable
@@ -849,6 +852,19 @@ private fun AppShell(
     val appScope = rememberCoroutineScope()
     val playbackSession = remember(appScope) { PlaybackSessionController(appScope) }
     DisposableEffect(playbackSession) { onDispose { playbackSession.close(saveProgress = false) } }
+    val p2pEnvironment = rememberP2pEnvironment()
+    LaunchedEffect(playbackSession.state.request?.p2pRequestId) {
+        if (playbackSession.state.request?.p2pRequestId == null) return@LaunchedEffect
+        while (kotlinx.coroutines.currentCoroutineContext().isActive) {
+            val playback = playbackSession.state.playback
+            playbackSession.p2p.update(
+                paused = (!playback.loading && !playback.buffering && !playback.playing) ||
+                    (!p2pEnvironment.appActive() && !playback.playing),
+                allowed = p2pEnvironment.transfersAllowed(),
+            )
+            delay(500)
+        }
+    }
     val onSignOut: () -> Unit = {
         playbackSession.close(saveProgress = false)
         appScope.coroutineContext[kotlinx.coroutines.Job]?.cancel()

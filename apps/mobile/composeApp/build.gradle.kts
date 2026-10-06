@@ -17,6 +17,17 @@ plugins {
     id("app.cash.sqldelight")
 }
 
+val conduitP2p = providers.environmentVariable("CONDUIT_P2P").orElse("0").get().also {
+    require(it == "0" || it == "1") { "CONDUIT_P2P must be 0 or 1" }
+}
+val conduitStoreBuild = providers.environmentVariable("CONDUIT_STORE_BUILD").orElse("0").get().also {
+    require(it == "0" || it == "1") { "CONDUIT_STORE_BUILD must be 0 or 1" }
+}
+require(conduitStoreBuild != "1" || conduitP2p == "0") { "Store builds must exclude P2P" }
+val conduitP2pMode = if (conduitP2p == "1") "p2p" else "direct"
+val conduitP2pSources = if (conduitP2p == "1") "src/p2pEnabled/kotlin" else "src/p2pDisabled/kotlin"
+val rustHostDirectory = rootProject.file("../../target/mobile/$conduitP2pMode/host")
+
 kotlin {
     androidTarget {
         @OptIn(ExperimentalKotlinGradlePluginApi::class)
@@ -24,7 +35,7 @@ kotlin {
     }
     listOf(iosArm64(), iosSimulatorArm64(), iosX64()).forEach { target ->
         val mobileBridge = rootProject.projectDir.resolve(
-            "native/ios/${target.name}/libconduit_mobile.a",
+            "native/ios/$conduitP2pMode/${target.name}/libconduit_mobile.a",
         )
         target.binaries.framework {
             baseName = "ComposeApp"
@@ -47,6 +58,14 @@ kotlin {
     }
 
     sourceSets {
+        androidMain { kotlin.srcDir(conduitP2pSources) }
+        iosMain { kotlin.srcDir(conduitP2pSources) }
+        if (conduitP2p == "1") {
+            androidMain { kotlin.srcDir("src/androidP2p/kotlin") }
+            androidMain.dependencies { implementation("org.rustls:rustls-platform-verifier:0.2.0") }
+        } else {
+            androidMain { kotlin.srcDir("src/androidDirect/kotlin") }
+        }
         commonMain.dependencies {
             implementation(compose.runtime)
             implementation(compose.foundation)
@@ -129,7 +148,7 @@ android {
         null
     }
     defaultConfig {
-        applicationId = "media.conduit.mobile"
+        applicationId = providers.environmentVariable("CONDUIT_APPLICATION_ID").orElse("media.conduit.mobile").get()
         minSdk = 26
         targetSdk = 36
         versionCode = providers.environmentVariable("CONDUIT_VERSION_CODE").orNull?.toIntOrNull() ?: 1
@@ -146,15 +165,18 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+    sourceSets.getByName("main").jniLibs.setSrcDirs(listOf(rootProject.file("native/android/$conduitP2pMode")))
     packaging.resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
 }
 
 val buildHostRustBridge by tasks.registering(Exec::class) {
     workingDir(rootProject.projectDir.resolve("../.."))
-    commandLine("cargo", "build", "-p", "conduit-mobile", "--features", "host-jni")
+    environment("CARGO_TARGET_DIR", rustHostDirectory.absolutePath)
+    val features = if (conduitP2p == "1") "host-jni,p2p" else "host-jni"
+    commandLine("cargo", "build", "--locked", "-p", "conduit-mobile", "--no-default-features", "--features", features)
 }
 
 tasks.withType<Test>().configureEach {
     dependsOn(buildHostRustBridge)
-    jvmArgs("-Djava.library.path=${rootProject.projectDir.resolve("../../target/debug").absolutePath}")
+    jvmArgs("-Djava.library.path=${rustHostDirectory.resolve("debug").absolutePath}")
 }

@@ -6,8 +6,7 @@ use crate::media::{
     Video,
 };
 use crate::playback::{
-    is_playable_stream_url, playback_source, rank_streams, select_saved_stream,
-    select_single_stream, PlaybackSource, Stream, StreamCandidate,
+    is_playable_stream_url, playback_source, PlaybackSource, Stream, StreamCandidate,
 };
 use crate::{AddonManifest, ExtraArg, ResourceRequest};
 use serde::{Deserialize, Serialize};
@@ -42,18 +41,29 @@ enum DomainAction {
     IsPlayableStreamUrl {
         value: Option<String>,
     },
+    IsPlayableStream {
+        stream: Stream,
+        #[serde(default)]
+        p2p_available: bool,
+    },
     SelectSavedStream {
         streams: Vec<StreamCandidate>,
         source: Option<PlaybackSource>,
+        #[serde(default)]
+        p2p_available: bool,
     },
     SelectSingleStream {
         streams: Vec<StreamCandidate>,
         excluded: Option<Stream>,
+        #[serde(default)]
+        p2p_available: bool,
     },
     RankStreams {
         streams: Vec<StreamCandidate>,
         previous: Option<PlaybackSource>,
         saved: Option<PlaybackSource>,
+        #[serde(default)]
+        p2p_available: bool,
     },
     EpisodeWatchState {
         progress: Option<Progress>,
@@ -161,17 +171,39 @@ pub fn evaluate_json(json: &str) -> String {
         DomainAction::IsPlayableStreamUrl { value } => {
             value_response(is_playable_stream_url(value.as_deref()))
         }
-        DomainAction::SelectSavedStream { streams, source } => {
-            value_response(select_saved_stream(&streams, source.as_ref()))
-        }
-        DomainAction::SelectSingleStream { streams, excluded } => {
-            value_response(select_single_stream(&streams, excluded.as_ref()))
-        }
+        DomainAction::IsPlayableStream {
+            stream,
+            p2p_available,
+        } => value_response(crate::playback::is_playable_stream(&stream, p2p_available)),
+        DomainAction::SelectSavedStream {
+            streams,
+            source,
+            p2p_available,
+        } => value_response(crate::playback::select_saved_stream_with_p2p(
+            &streams,
+            source.as_ref(),
+            p2p_available,
+        )),
+        DomainAction::SelectSingleStream {
+            streams,
+            excluded,
+            p2p_available,
+        } => value_response(crate::playback::select_single_stream_with_p2p(
+            &streams,
+            excluded.as_ref(),
+            p2p_available,
+        )),
         DomainAction::RankStreams {
             streams,
             previous,
             saved,
-        } => value_response(rank_streams(&streams, previous.as_ref(), saved.as_ref())),
+            p2p_available,
+        } => value_response(crate::playback::rank_streams_with_p2p(
+            &streams,
+            previous.as_ref(),
+            saved.as_ref(),
+            p2p_available,
+        )),
         DomainAction::EpisodeWatchState { progress } => {
             value_response(episode_watch_state(progress.as_ref()))
         }

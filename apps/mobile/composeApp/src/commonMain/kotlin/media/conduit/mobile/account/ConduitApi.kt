@@ -416,6 +416,7 @@ data class StreamItem(
     val url: String? = null,
     val externalUrl: String? = null,
     val infoHash: String? = null,
+    val sources: List<String> = emptyList(),
     val fileIdx: JsonElement? = null,
     val name: String? = null,
     val title: String? = null,
@@ -433,11 +434,18 @@ fun playbackSourceForStream(addonId: String, stream: StreamItem): PlaybackSource
         put("stream", addonJson.encodeToJsonElement(stream))
     }))
 
+fun isPlayableStream(stream: StreamItem): Boolean = coreValue(buildJsonObject {
+    put("type", "isPlayableStream")
+    put("p2pAvailable", media.conduit.mobile.p2pAvailable)
+    put("stream", addonJson.encodeToJsonElement(stream))
+}).jsonPrimitive.boolean
+
 fun selectSavedStream(
     streams: List<StreamSource>,
     source: PlaybackSource?,
 ): StreamSource? = coreValue(buildJsonObject {
     put("type", "selectSavedStream")
+    put("p2pAvailable", media.conduit.mobile.p2pAvailable)
     put("streams", addonJson.encodeToJsonElement(streams))
     put("source", addonJson.encodeToJsonElement(source))
 }).let { value -> if (value is JsonNull) null else streams.getOrNull(value.jsonPrimitive.int) }
@@ -447,17 +455,19 @@ fun selectSingleAutoStream(
     excludedStream: StreamSource? = null,
 ): StreamSource? = coreValue(buildJsonObject {
     put("type", "selectSingleStream")
+    put("p2pAvailable", media.conduit.mobile.p2pAvailable)
     put("streams", addonJson.encodeToJsonElement(streams))
     put("excluded", addonJson.encodeToJsonElement(excludedStream?.stream))
 }).let { value -> if (value is JsonNull) null else streams.getOrNull(value.jsonPrimitive.int) }
 
-/** Ranks direct streams for an automatic transition without changing provider order on ties. */
+/** Ranks supported streams for an automatic transition without changing provider order on ties. */
 fun rankAutomaticStreams(
     streams: List<StreamSource>,
     previousSource: PlaybackSource? = null,
     savedSource: PlaybackSource? = null,
 ): List<StreamSource> = coreValue(buildJsonObject {
     put("type", "rankStreams")
+    put("p2pAvailable", media.conduit.mobile.p2pAvailable)
     put("streams", addonJson.encodeToJsonElement(streams))
     put("previous", addonJson.encodeToJsonElement(previousSource))
     put("saved", addonJson.encodeToJsonElement(savedSource))

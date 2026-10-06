@@ -402,7 +402,7 @@ internal fun TvStreamsPanel(model: TvStreamsModel, title: String, onBack: () -> 
 @Composable
 internal fun TvStreamCard(source: StreamSource, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val copy = remember(source) { source.stream.streamCardCopy() }
-    val playable = source.stream.url != null
+    val playable = media.conduit.mobile.account.isPlayableStream(source.stream)
     TvFocusable(
         onClick = onClick,
         enabled = playable,
