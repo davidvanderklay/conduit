@@ -1,7 +1,9 @@
 Captured October 5, 2026 for the contribution-readiness README proposals.
 
-web-home.png: web development server from this checkout, connected to the
-isolated local API on port 3309. Captured with the T3 collaborative preview.
+web-home.png: recaptured October 6, 2026 because the first capture was blurry.
+Web development server from this checkout, connected to an isolated local API
+on port 3309. Captured with headless Chromium at a 1440x900 viewport and 2x
+device scale (2880x1800 pixels), with Inter installed.
 
 android-home.png: installed media.conduit.mobile development build,
 0.1.0-spike, on Pixel_10, Android 17. Captured through agent-device.
