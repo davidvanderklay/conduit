@@ -35,6 +35,16 @@ The mobile client currently supports:
 - an encrypted cached profile snapshot for limited offline access to the
   synchronized library, history, and profile state.
 
+After one successful online launch, a matching session with a known future
+expiry can restore an encrypted account/profile shell and cached library and
+history without waiting for the server. Older installs need an online launch
+to create that shell. Library and Watch history show a stationary offline or
+sync-error row with the last successful synchronization time and a Retry action.
+A confirmed 401 or local session expiry requires sign-in again. Signing out
+cancels pending screen work and clears the account shell, profile snapshots,
+queue edits, and local progress for that account before attempting remote
+session revocation.
+
 Offline snapshots do not contain media files and do not provide offline
 playback. Catalog, metadata, stream, and subtitle requests still go directly
 from the device to the installed add-on or media source. The Conduit server
@@ -286,6 +296,38 @@ store-ready submission.
 To build without publishing a tag, run **Android release** or **iOS release**
 manually. For local IPA packaging, use
 the commands in [Releases](releases.md#ios).
+
+### Mobile hardening checks
+
+Foreground and connectivity events share a coalesced refresh queue. Periodic
+profile and continue-watching refreshes stop when the application is inactive;
+failed profile refreshes back off to at most sixteen minutes. Authentication
+failures preserve queued progress edits without consuming retry attempts.
+The app's Reduce animations preference and the operating system motion setting
+both disable optional shared transitions. Screen readers keep player controls
+from automatically hiding. Shared loading indicators are stationary.
+
+New offline-state labels and library/history labels use Compose resources.
+English remains the only translation. Other screens still contain inline
+English strings and need migration before a translated release.
+
+The Android workflow runs the encrypted cold-start/cache UI test on an emulator.
+For a focused local run, use a dedicated emulator with no server listening on
+its loopback port 18745:
+
+```sh
+cd apps/mobile
+./gradlew :composeApp:connectedDebugAndroidTest \
+  -Pandroid.testInstrumentationRunnerArguments.class=media.conduit.mobile.OfflineExperienceTest
+```
+
+The test writes synthetic account/profile fixtures to the test app's stores and
+verifies Library, Watch history, Retry, and activity recreation. Capture screenshots
+separately through the Device panel. Use an isolated emulator rather than an
+installation containing real data.
+Physical-device battery, codecs, interruption handling, PiP, and repeated-player
+memory checks are still required before calling the hardening milestone complete.
+iOS native changes require the existing macOS simulator workflow and device pass.
 
 ### Previous-session diagnostics
 

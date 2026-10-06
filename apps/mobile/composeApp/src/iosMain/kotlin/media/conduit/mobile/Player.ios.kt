@@ -1,5 +1,7 @@
 package media.conduit.mobile
 
+import media.conduit.mobile.foundation.LocalScreenReader
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
@@ -161,6 +163,7 @@ actual fun NativePlayer(
         return
     }
 
+    val screenReader = LocalScreenReader.current
     var controlsVisible by remember(bridge, loadId) { mutableStateOf(true) }
     val seekFeedback = remember(bridge, loadId) { DoubleTapSeekFeedback() }
     var dragging by remember(bridge, loadId) { mutableStateOf(false) }
@@ -348,12 +351,13 @@ actual fun NativePlayer(
         )
     }
 
+    LaunchedEffect(screenReader) { if (screenReader) controlsVisible = true }
     LaunchedEffect(presentation) {
         controlsVisible = presentation != PlaybackPresentation.Mini
     }
 
-    LaunchedEffect(controlsVisible, playing, speedMenuOpen, presentation) {
-        if (presentation == PlaybackPresentation.FullScreen && controlsVisible && playing && !speedMenuOpen) {
+    LaunchedEffect(controlsVisible, playing, speedMenuOpen, presentation, screenReader) {
+        if (!screenReader && presentation == PlaybackPresentation.FullScreen && controlsVisible && playing && !speedMenuOpen) {
             delay(4_000)
             controlsVisible = false
         }

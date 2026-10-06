@@ -53,6 +53,7 @@ kotlin {
             implementation(compose.material3)
             implementation(compose.materialIconsExtended)
             implementation(compose.ui)
+            implementation(compose.components.resources)
             implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1")
             implementation("io.ktor:ktor-client-core:3.5.1")
             implementation("io.ktor:ktor-client-websockets:3.5.1")

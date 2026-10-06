@@ -13,6 +13,7 @@ sealed interface AccountStatus {
     data class SignedIn(
         val session: StoredSession,
         val bootstrap: BootstrapResponse,
+        val cached: Boolean = false,
     ) : AccountStatus
     data class RecoveryCodes(
         val codes: List<String>,
@@ -28,6 +29,21 @@ class AccountRepository(
     private val api: ConduitApi,
     private val vault: SessionVault,
 ) {
+    fun cachedAccount(serverBaseUrl: String): AccountStatus.SignedIn? = vault.cachedAccount(serverBaseUrl)
+
+    private suspend fun saveSignedIn(session: StoredSession, bootstrap: BootstrapResponse): AccountStatus.SignedIn {
+        val expiry = session.expiresAt ?: try {
+            api.sessionExpiry(session.serverBaseUrl, session.token)
+        } catch (cause: Exception) {
+            if (cause is CancellationException) throw cause
+            null
+        }
+        val stored = session.copy(expiresAt = expiry)
+        vault.save(stored)
+        vault.saveBootstrap(stored, bootstrap)
+        return AccountStatus.SignedIn(stored, bootstrap)
+    }
+
     fun hasStoredSession(serverBaseUrl: String): Boolean = vault.loadFor(serverBaseUrl) != null
 
     suspend fun discoverAuthentication(endpoint: ServerEndpoint): AuthenticationConfiguration =
@@ -62,7 +78,7 @@ class AccountRepository(
         val session = StoredSession(endpoint.baseUrl, exchanged.token, exchanged.expiresAt)
         vault.save(session)
         LifecycleDiagnostics.event("tv-pairing.session.saved")
-        return AccountStatus.SignedIn(session, api.bootstrap(endpoint.baseUrl, session.token))
+        return saveSignedIn(session, api.bootstrap(endpoint.baseUrl, session.token))
     }
 
     fun hasPendingOAuth(serverBaseUrl: String): Boolean = vault.pendingOAuth(serverBaseUrl) != null
@@ -103,7 +119,7 @@ class AccountRepository(
             vault.save(session)
             vault.clearPendingOAuth()
             LifecycleDiagnostics.event("oauth.session.saved")
-            AccountStatus.SignedIn(session, LifecycleDiagnostics.timed("oauth.bootstrap") {
+            saveSignedIn(session, LifecycleDiagnostics.timed("oauth.bootstrap") {
                 api.bootstrap(endpoint.baseUrl, session.token)
             })
         } catch (cause: Exception) {
@@ -127,7 +143,7 @@ class AccountRepository(
         } catch (cause: Exception) {
             if (cause is CancellationException) throw cause
             LifecycleDiagnostics.event("auth.restore.failed", "phase=validate")
-            return AccountStatus.Error(cause.message ?: "Unable to reach this server")
+            return cachedAccount(endpoint.baseUrl) ?: AccountStatus.Error("Unable to reach this server")
         }
         val session = vault.loadFor(endpoint.baseUrl)
         if (session == null) {
@@ -139,7 +155,7 @@ class AccountRepository(
                 api.bootstrap(endpoint.baseUrl, session.token)
             }
             LifecycleDiagnostics.event("auth.restore.signed-in")
-            AccountStatus.SignedIn(session, bootstrap)
+            saveSignedIn(session, bootstrap)
         } catch (cause: Exception) {
             if (cause is CancellationException) throw cause
             if ((cause as? ServerRequestException)?.statusCode == 401) {
@@ -148,7 +164,7 @@ class AccountRepository(
                 AccountStatus.SignedOut(authentication, "Your session expired. Sign in again.")
             } else {
                 LifecycleDiagnostics.event("auth.restore.failed", "phase=bootstrap")
-                AccountStatus.Error(cause.message ?: "Unable to synchronize your account")
+                cachedAccount(endpoint.baseUrl) ?: AccountStatus.Error("Unable to synchronize your account")
             }
         }
     }
@@ -165,7 +181,7 @@ class AccountRepository(
         val bootstrap = api.bootstrap(endpoint.baseUrl, session.token)
         vault.save(session)
         LifecycleDiagnostics.event("auth.sign-in.succeeded")
-        AccountStatus.SignedIn(session, bootstrap)
+        saveSignedIn(session, bootstrap)
     } catch (cause: Exception) {
         if (cause is CancellationException) throw cause
         LifecycleDiagnostics.event("auth.sign-in.failed")
@@ -187,7 +203,7 @@ class AccountRepository(
         val bootstrap = api.bootstrap(endpoint.baseUrl, session.token)
         vault.save(session)
         LifecycleDiagnostics.event("auth.register.succeeded")
-        val signedIn = AccountStatus.SignedIn(session, bootstrap)
+        val signedIn = saveSignedIn(session, bootstrap)
         runCatching { api.generateRecoveryCodes(endpoint.baseUrl, session.token) }
             .getOrNull()
             ?.let { AccountStatus.RecoveryCodes(it, signedIn) }
@@ -210,13 +226,24 @@ class AccountRepository(
         api.recoverAccount(endpoint.baseUrl, email, code, password)
         AccountStatus.SignedOut(authentication, "Password reset. You can sign in now.")
     } catch (cause: Exception) {
-        AccountStatus.SignedOut(authentication, cause.message ?: "Recovery failed")
+        if (cause is CancellationException) throw cause
+        AccountStatus.SignedOut(authentication, "Recovery failed")
     }
 
     suspend fun signOut(endpoint: ServerEndpoint, session: StoredSession): AccountStatus {
-        runCatching { api.signOut(endpoint.baseUrl, session.token) }
         vault.clear()
-        return restore(endpoint)
+        try {
+            api.signOut(endpoint.baseUrl, session.token)
+        } catch (cause: Exception) {
+            if (cause is CancellationException) throw cause
+        }
+        val authentication = try {
+            discoverAuthentication(endpoint)
+        } catch (cause: Exception) {
+            if (cause is CancellationException) throw cause
+            AuthenticationConfiguration(false, false, OidcConfiguration(false))
+        }
+        return AccountStatus.SignedOut(authentication)
     }
 
     suspend fun createHousehold(
@@ -231,8 +258,9 @@ class AccountRepository(
             householdName,
             profileName,
         )
-        signedIn.copy(bootstrap = api.bootstrap(endpoint.baseUrl, signedIn.session.token))
+        saveSignedIn(signedIn.session, api.bootstrap(endpoint.baseUrl, signedIn.session.token))
     } catch (cause: Exception) {
-        AccountStatus.Error(cause.message ?: "Unable to create your household")
+        if (cause is CancellationException) throw cause
+        AccountStatus.Error("Unable to create your household")
     }
 }

@@ -159,12 +159,13 @@ internal data class DiagnosticLogEntry(
     val formatted: String get() = "$timestamp [${level.label}] [$category] $message"
 }
 
-private fun sanitizeDiagnosticMessage(value: String): String = value
+internal fun sanitizeDiagnosticMessage(value: String): String = value
     .replace(Regex("https?://\\S+", RegexOption.IGNORE_CASE), "[url]")
     .replace(Regex("(?im)(authorization|cookie)\\s*[:=]\\s*[^\\r\\n]*"), "$1=[redacted]")
     .replace(
-        Regex("""(?i)("?(?:access_token|refresh_token|api[_-]?key|token|password|secret)"?\s*[:=]\s*)("[^"]*"|'[^']*'|\S+)"""),
+        Regex("""(?i)("?(?:access_token|refresh_token|api[_-]?key|token|password|secret|verifier|code|recovery[_-]?code)"?\s*[:=]\s*)("[^"]*"|'[^']*'|\S+)"""),
         "$1[redacted]",
     )
+    .replace(Regex("(?i)(?:conduit|stremio)://\\S+"), "[url]")
     .replace(Regex("\\s+"), " ")
     .trim()

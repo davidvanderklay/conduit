@@ -23,7 +23,16 @@ interface IosProfileFilesBridge {
     fun save(name: String, contents: String, completion: (Boolean, String?) -> Unit)
 }
 
+interface IosAppEventsBridge {
+    fun startConnectivity(onRecovered: () -> Unit): String
+    fun stopConnectivity(subscription: String)
+}
+
 object IosPlatformBridgeFactory {
+    private var appEvents: IosAppEventsBridge? = null
+    fun registerAppEvents(bridge: IosAppEventsBridge) { appEvents = bridge }
+    fun appEvents(): IosAppEventsBridge? = appEvents
+
     private var profileFiles: IosProfileFilesBridge? = null
     private var secureStore: IosSecureStoreBridge? = null
     private var oauthBridge: IosOAuthBridge? = null

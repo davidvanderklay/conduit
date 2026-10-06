@@ -105,3 +105,6 @@ DELETE FROM progress_outbox_operation WHERE scope_key = ? AND operation_id = ?;
 
 clearScope:
 DELETE FROM progress_sync_scope WHERE scope_key = ?;
+
+clearOperations:
+DELETE FROM progress_outbox_operation WHERE scope_key = ?;

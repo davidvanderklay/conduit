@@ -1,6 +1,6 @@
 package media.conduit.mobile.foundation
 
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberUpdatedState
 import kotlinx.coroutines.delay
@@ -48,22 +48,23 @@ expect fun rememberPlatformServices(): PlatformServices
 expect fun rememberAppLifecycleEvents(
     onForeground: () -> Unit,
     onConnectivityRecovered: () -> Unit,
+    onActiveChanged: (Boolean) -> Unit = {},
 )
 
-/**
- * Refreshes playback state when the app becomes active and periodically while
- * visible, covering connectivity recovery on platforms without a network callback.
- */
+/** Recovery hints and fallback polling run only while the application is active. */
 @Composable
-fun rememberAppRecoveryTriggers(onRecovery: () -> Unit) {
+fun rememberAppRecoveryTriggers(retryDelayMs: Long = 30_000, onRecovery: () -> Unit) {
     val latestRecovery = rememberUpdatedState(onRecovery)
+    var active by remember { mutableStateOf(false) }
     rememberAppLifecycleEvents(
         onForeground = { latestRecovery.value() },
-        onConnectivityRecovered = { latestRecovery.value() },
+        onConnectivityRecovered = { if (active) latestRecovery.value() },
+        onActiveChanged = { active = it },
     )
-    LaunchedEffect(Unit) {
+    LaunchedEffect(active, retryDelayMs) {
+        if (!active) return@LaunchedEffect
         while (isActive) {
-            delay(30_000)
+            delay(retryDelayMs)
             latestRecovery.value()
         }
     }

@@ -1,5 +1,9 @@
 package media.conduit.mobile
 
+import conduit_mobile.composeapp.generated.resources.*
+import media.conduit.mobile.foundation.LocalReducedMotion
+import org.jetbrains.compose.resources.stringResource
+
 import androidx.compose.foundation.background
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.*
@@ -108,6 +112,8 @@ internal fun MobileLibraryScreen(
     onSelectVideo: (CatalogItem, String?) -> Unit,
     gridState: androidx.compose.foundation.lazy.grid.LazyGridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState(),
     modifier: Modifier = Modifier,
+    syncState: ProfileSyncState = ProfileSyncState(),
+    onRetry: () -> Unit = {},
 ) {
     var filter by remember { mutableStateOf("all") }
     var sort by remember { mutableStateOf(LibrarySort.LastWatched) }
@@ -141,15 +147,15 @@ internal fun MobileLibraryScreen(
     val gridColumns = mediaGridColumns(windowWidthDp)
 
     Column(modifier.statusBarsPadding()) {
-        Spacer(Modifier.height(68.dp))
+        Spacer(Modifier.height(mainTopBarHeight(LocalDensity.current.fontScale) + 16.dp))
         Column(Modifier.padding(horizontal = 10.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Library", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                Text(stringResource(Res.string.library_title), style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                 IconButton(onClick = onOpenHistory) {
-                    Icon(Icons.Rounded.History, "Open watch history")
+                    Icon(Icons.Rounded.History, stringResource(Res.string.history_open))
                 }
                 IconButton(onClick = onOpenCalendar) {
-                    Icon(Icons.Rounded.CalendarMonth, "Open release calendar")
+                    Icon(Icons.Rounded.CalendarMonth, stringResource(Res.string.calendar_open))
                 }
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -169,13 +175,14 @@ internal fun MobileLibraryScreen(
                 )
             }
         }
+        SyncStatusRow(syncState, onRetry)
         if (snapshot == null) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(stringResource(Res.string.sync_loading)) }
         } else if (loadingStatus) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { StaticLoadingIndicator() }
         } else if (items.isEmpty()) {
             Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
-                Text("Nothing saved here yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(stringResource(Res.string.library_empty), color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         } else {
             LazyVerticalGrid(
@@ -291,7 +298,7 @@ internal fun MobileContinueWatchingScreen(
             }
         }
         if (snapshot == null) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { StaticLoadingIndicator() }
         } else if (items.isEmpty()) {
             Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
                 Text("Nothing to continue watching yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -463,7 +470,7 @@ internal fun SearchDiscoverScreen(
     }
 
     Column(modifier.fillMaxSize().statusBarsPadding()) {
-        Spacer(Modifier.height(68.dp))
+        Spacer(Modifier.height(mainTopBarHeight(LocalDensity.current.fontScale) + 16.dp))
         if (query.isBlank()) {
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp),
@@ -500,7 +507,7 @@ internal fun SearchDiscoverScreen(
                 )
             }
             when {
-                discoverLoading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+                discoverLoading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { StaticLoadingIndicator() }
                 selected == null -> EmptyBrowseState("No discover catalogs available.")
                 discoverError != null -> EmptyBrowseState(discoverError!!)
                 discoverItems.isEmpty() -> EmptyBrowseState("This catalog returned no titles.")
@@ -539,7 +546,7 @@ internal fun SearchDiscoverScreen(
                                     .onFailure { hasMore = false }
                                 loadingMore = false
                             }
-                            Box(Modifier.fillMaxWidth().height(64.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(Modifier.size(22.dp)) }
+                            Box(Modifier.fillMaxWidth().height(64.dp), contentAlignment = Alignment.Center) { StaticLoadingIndicator(Modifier.size(22.dp)) }
                         }
                     }
                 }
@@ -550,7 +557,7 @@ internal fun SearchDiscoverScreen(
                 contentPadding = PaddingValues(top = 8.dp, bottom = 112.dp),
                 verticalArrangement = Arrangement.spacedBy(18.dp),
             ) {
-                if (searchLoading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
+                if (searchLoading) item { StaticLoadingIndicator(Modifier.padding(8.dp)) }
                 if (!searchLoading && results.isEmpty()) item { EmptyBrowseState("No results for “$query”.") }
                 results.forEach { catalog ->
                     item(key = "search-heading-${catalog.key}-$query") {
@@ -635,6 +642,7 @@ private class HeroOverscrollConnection(
     private val maxPullPx: Float,
     private val pull: MutableFloatState,
     private val pullResistance: Float = HeroMotion.pullResistance,
+    private val reducedMotion: Boolean = false,
 ) : NestedScrollConnection {
     override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
         if (available.y >= 0f || pull.floatValue <= 0f) return Offset.Zero
@@ -648,7 +656,7 @@ private class HeroOverscrollConnection(
         available: Offset,
         source: NestedScrollSource,
     ): Offset {
-        if (source != NestedScrollSource.UserInput || available.y <= 0f || !atTop()) return Offset.Zero
+        if (reducedMotion || source != NestedScrollSource.UserInput || available.y <= 0f || !atTop()) return Offset.Zero
         val pullDelta = min(available.y * pullResistance, maxPullPx - pull.floatValue)
         if (pullDelta <= 0f) return Offset(0f, available.y)
         pull.floatValue += pullDelta
@@ -657,7 +665,8 @@ private class HeroOverscrollConnection(
 
     override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
         val start = pull.floatValue
-        if (start > 0f) {
+        if (reducedMotion) pull.floatValue = 0f
+        else if (start > 0f) {
             animate(
                 initialValue = start,
                 targetValue = 0f,
@@ -774,9 +783,10 @@ internal fun MediaDetailsScreen(
         item,
     )
     val detailsListState = rememberLazyListState()
+    val reducedMotion = LocalReducedMotion.current
     val heroPull = remember { mutableFloatStateOf(0f) }
     val maxHeroPullPx = with(LocalDensity.current) { HeroMotion.maxPull.toPx() }
-    val heroPullConnection = remember(detailsListState, maxHeroPullPx) {
+    val heroPullConnection = remember(detailsListState, maxHeroPullPx, reducedMotion) {
         HeroOverscrollConnection(
             atTop = {
                 detailsListState.firstVisibleItemIndex == 0 &&
@@ -784,6 +794,7 @@ internal fun MediaDetailsScreen(
             },
             maxPullPx = maxHeroPullPx,
             pull = heroPull,
+            reducedMotion = reducedMotion,
         )
     }
     val detailsSeasonListState = rememberLazyListState()
@@ -2151,7 +2162,7 @@ internal fun MediaDetailsScreen(
         }
         item {
             Column(Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                if (details == null && error == null) CircularProgressIndicator()
+                if (details == null && error == null) StaticLoadingIndicator()
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 Button(
                     onClick = {
@@ -2242,7 +2253,7 @@ internal fun MediaDetailsScreen(
             }
             item(key = "season-chips") {
                 Column {
-                    LaunchedEffect(selectedSeason, seasons) { seasons.indexOf(selectedSeason).takeIf { it >= 0 }?.let { detailsSeasonListState.animateScrollToItem(it) } }
+                    LaunchedEffect(selectedSeason, seasons) { seasons.indexOf(selectedSeason).takeIf { it >= 0 }?.let { if (reducedMotion) detailsSeasonListState.scrollToItem(it) else detailsSeasonListState.animateScrollToItem(it) } }
                     LazyRow(state = detailsSeasonListState, contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         items(seasons) { season ->
                             WatchableSeasonChip(
@@ -2494,7 +2505,7 @@ internal fun PlayerOpeningOverlay(
 @Composable
 internal fun PlayerBufferingOverlay(modifier: Modifier = Modifier) {
     Box(modifier, contentAlignment = Alignment.Center) {
-        CircularProgressIndicator(
+        StaticLoadingIndicator(
             modifier = Modifier.size(32.dp),
             color = Color.White,
             trackColor = Color.White.copy(.24f),
@@ -2525,6 +2536,7 @@ internal fun PlayerEpisodeDrawer(
     var actionTarget by remember(current?.id, videos) { mutableStateOf<MediaActionTarget?>(null) }
     val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
     val activeSeason = season.takeIf(seasons::contains) ?: seasons.firstOrNull() ?: 1
+    val reducedMotion = LocalReducedMotion.current
     val seasonListState = rememberLazyListState()
     val episodeListState = rememberLazyListState()
     var episodeAutoPositioned by remember(current?.id, videos) { mutableStateOf(false) }
@@ -2536,7 +2548,7 @@ internal fun PlayerEpisodeDrawer(
         }
     }
     LaunchedEffect(activeSeason, seasons) {
-        seasons.indexOf(activeSeason).takeIf { it >= 0 }?.let { seasonListState.animateScrollToItem(it) }
+        seasons.indexOf(activeSeason).takeIf { it >= 0 }?.let { if (reducedMotion) seasonListState.scrollToItem(it) else seasonListState.animateScrollToItem(it) }
     }
     LaunchedEffect(current?.id, activeSeason, videos) {
         if (episodeManualInteraction) return@LaunchedEffect
@@ -2627,8 +2639,8 @@ internal fun PlayerEpisodeDrawer(
                 Row(Modifier.weight(1f)) {
                 AnimatedVisibility(
                     visible = queueItems.isNotEmpty(),
-                    enter = slideInHorizontally { -it / 4 } + fadeIn(),
-                    exit = slideOutHorizontally { -it / 4 } + fadeOut(),
+                    enter = if (reducedMotion) androidx.compose.animation.EnterTransition.None else slideInHorizontally { -it / 4 } + fadeIn(),
+                    exit = if (reducedMotion) androidx.compose.animation.ExitTransition.None else slideOutHorizontally { -it / 4 } + fadeOut(),
                     modifier = Modifier.fillMaxHeight(),
                 ) {
                     Column(
@@ -3195,7 +3207,7 @@ internal fun PlayerStreamDrawer(
                                     horizontalAlignment = Alignment.CenterHorizontally,
                                     verticalArrangement = Arrangement.spacedBy(14.dp),
                                 ) {
-                                    CircularProgressIndicator()
+                                    StaticLoadingIndicator()
                                     Text("Finding streams…", color = Color.White.copy(alpha = .72f))
                                 }
                             }
@@ -3249,15 +3261,17 @@ private fun StreamSelectionScreen(
     onSelect: (StreamSource) -> Unit,
 ) {
     val listState = rememberLazyListState()
+    val reducedMotion = LocalReducedMotion.current
     val heroPull = remember { mutableFloatStateOf(0f) }
     val maxHeroPullPx = with(LocalDensity.current) { HeroMotion.maxPull.toPx() }
-    val heroPullConnection = remember(listState, maxHeroPullPx) {
+    val heroPullConnection = remember(listState, maxHeroPullPx, reducedMotion) {
         HeroOverscrollConnection(
             atTop = {
                 listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0
             },
             maxPullPx = maxHeroPullPx,
             pull = heroPull,
+            reducedMotion = reducedMotion,
         )
     }
     val heroPullDp = with(LocalDensity.current) { heroPull.floatValue.toDp() }
@@ -3340,7 +3354,7 @@ private fun StreamSelectionScreen(
             }
         }
         when {
-            loading -> item(key = "loading") { Box(Modifier.fillParentMaxHeight(.65f).fillMaxWidth().background(Color.Black.copy(alpha = .62f)), contentAlignment = Alignment.Center) { Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) { CircularProgressIndicator(); Text("Finding streams…", color = Color.White.copy(alpha = .72f)) } } }
+            loading -> item(key = "loading") { Box(Modifier.fillParentMaxHeight(.65f).fillMaxWidth().background(Color.Black.copy(alpha = .62f)), contentAlignment = Alignment.Center) { Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) { StaticLoadingIndicator(); Text("Finding streams…", color = Color.White.copy(alpha = .72f)) } } }
             streams.isEmpty() -> item(key = if (error != null) "error" else "empty") {
                 Box(Modifier.fillParentMaxHeight(.65f).fillMaxWidth().padding(28.dp), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -3478,7 +3492,7 @@ internal fun ProfileSettingsScreen(
                 onBack = { route = ProfileRoute.Settings },
                 onImported = { onProfilesChanged(profile.id); onProfileDataChanged() }, modifier = modifier)
         } ?: Unit
-        ProfileRoute.History -> return WatchHistoryScreen(profileSync.snapshot, closeHistory, onSelectMedia, onProfileMutation, modifier)
+        ProfileRoute.History -> return WatchHistoryScreen(profileSync.snapshot, closeHistory, onSelectMedia, onProfileMutation, modifier, profileSync, onProfileDataChanged)
         ProfileRoute.Account -> return AccountSettingsScreen(state, account, api, onSignOut, { route = ProfileRoute.Settings }, modifier)
         ProfileRoute.Appearance -> return AppearanceSettingsScreen(platform, preferences, onPreferencesChanged, { route = ProfileRoute.Settings }, modifier)
         ProfileRoute.Content -> return ContentSettingsScreen({ route = ProfileRoute.Settings }, { route = ProfileRoute.Addons }, modifier)
@@ -4080,15 +4094,18 @@ private fun WatchHistoryScreen(
     onSelect: (CatalogItem, String?) -> Unit,
     onMutation: suspend (ProfileMutation) -> Result<Unit>,
     modifier: Modifier,
+    syncState: ProfileSyncState,
+    onRetry: () -> Unit,
 ) {
     var actionTarget by remember { mutableStateOf<MediaActionTarget?>(null) }
     val history = progressHistoryForDisplay(snapshot?.history.orEmpty())
     Column(modifier.fillMaxSize()) {
-        ProfileHeader("Watch history", onBack)
+        ProfileHeader(stringResource(Res.string.history_title), onBack)
+        SyncStatusRow(syncState, onRetry)
         when {
-            snapshot == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+            snapshot == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { StaticLoadingIndicator() }
             history.isEmpty() -> Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
-                Text("Nothing watched yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(stringResource(Res.string.history_empty), color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             else -> LazyVerticalGrid(
                 columns = GridCells.Adaptive(170.dp),
@@ -4242,7 +4259,7 @@ private fun ProfileEditorScreen(profile: ProfileSummary?, active: ProfileSummary
         } } }
         item { Card(Modifier.padding(horizontal = 10.dp).fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) { Text("Avatar", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold); Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { FilterChip(selected = avatarMode == "color", onClick = { avatarMode = "color" }, label = { Text("Profile color") }); FilterChip(selected = avatarMode == "image", onClick = { avatarMode = "image" }, label = { Text("Custom image") }) }; if (avatarMode == "color") { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) { colors.forEach { option -> Surface(shape = CircleShape, color = profileColor(option), border = if (color.equals(option, ignoreCase = true)) BorderStroke(3.dp, Color.White) else null, modifier = Modifier.size(32.dp).clickable { color = option }) {} } }; CustomProfileColorPicker(color = color, onColorChange = { color = it }) } else { Text("Enter an HTTP or HTTPS image link.", color = MaterialTheme.colorScheme.onSurfaceVariant); OutlinedTextField(url, { url = it }, placeholder = { Text("https://example.com/avatar.png") }, singleLine = true, modifier = Modifier.fillMaxWidth()) } } } }
         error?.let { item { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 18.dp)) } }
-        item { Button(onClick = { scope.launch { saving = true; error = null; runCatching { val endpoint = requireNotNull(state.endpoint); val cleanUrl = url.trim().ifBlank { null }.takeIf { avatarMode == "image" }; val cleanColor = color.takeIf { avatarMode == "color" }; require(cleanUrl == null || cleanUrl.startsWith("https://") || cleanUrl.startsWith("http://")) { "Avatar URL must begin with http:// or https://" }; require(avatarMode != "image" || cleanUrl != null) { "Enter a custom image URL" }; require(name.isNotBlank()) { "Enter a profile name" }; if (profile == null) { val household = account.bootstrap.households.first(); api.createProfile(endpoint.baseUrl, account.session.token, household.id, name, kids, usesPrimaryAddons, cleanColor, cleanUrl) } else api.updateProfile(endpoint.baseUrl, account.session.token, profile.id, name, kids, usesPrimaryAddons, cleanColor, cleanUrl) }.onSuccess { onSaved(it.id); onBack() }.onFailure { error = it.message ?: "Unable to save profile" }; saving = false } }, enabled = !saving, modifier = Modifier.padding(horizontal = 10.dp).fillMaxWidth().height(54.dp)) { if (saving) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp) else Text(if (profile == null) "Create profile" else "Save changes") } }
+        item { Button(onClick = { scope.launch { saving = true; error = null; runCatching { val endpoint = requireNotNull(state.endpoint); val cleanUrl = url.trim().ifBlank { null }.takeIf { avatarMode == "image" }; val cleanColor = color.takeIf { avatarMode == "color" }; require(cleanUrl == null || cleanUrl.startsWith("https://") || cleanUrl.startsWith("http://")) { "Avatar URL must begin with http:// or https://" }; require(avatarMode != "image" || cleanUrl != null) { "Enter a custom image URL" }; require(name.isNotBlank()) { "Enter a profile name" }; if (profile == null) { val household = account.bootstrap.households.first(); api.createProfile(endpoint.baseUrl, account.session.token, household.id, name, kids, usesPrimaryAddons, cleanColor, cleanUrl) } else api.updateProfile(endpoint.baseUrl, account.session.token, profile.id, name, kids, usesPrimaryAddons, cleanColor, cleanUrl) }.onSuccess { onSaved(it.id); onBack() }.onFailure { error = it.message ?: "Unable to save profile" }; saving = false } }, enabled = !saving, modifier = Modifier.padding(horizontal = 10.dp).fillMaxWidth().height(54.dp)) { if (saving) StaticLoadingIndicator(Modifier.size(20.dp), strokeWidth = 2.dp) else Text(if (profile == null) "Create profile" else "Save changes") } }
         }
     }
 }
@@ -4466,7 +4483,7 @@ private fun AddonManagerScreen(
                 }
             }
         }
-        if (busy) item { LinearProgressIndicator(Modifier.padding(horizontal = 10.dp).fillMaxWidth()) }
+        if (busy) item { StaticLoadingIndicator(Modifier.padding(horizontal = 10.dp)) }
         }
     }
 }

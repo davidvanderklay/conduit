@@ -2204,7 +2204,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
 #if DEBUG
                 let rawLog = UnsafeMutablePointer<mpv_event_log_message>(OpaquePointer(data)).pointee
                 let prefix = rawLog.prefix.map(String.init(cString:)) ?? "mpv"
-                print("[Conduit MPV][\(prefix)][\(levelString)] \(text)")
+                print("[Conduit MPV][\(prefix)][\(levelString)] \(IosDiagnosticLogKt.redactIosDiagnosticMessage(value: text))")
 #endif
                 if levelString == "error" || levelString == "fatal" {
                     self.recordDiagnostic(text)
@@ -2406,7 +2406,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
     private func debugLog(_ message: String) {
         emitDiagnostic(level: "debug", category: "ios/mpv", message: message)
 #if DEBUG
-        print("[Conduit MPV][diagnostic] \(message)")
+        print("[Conduit MPV][diagnostic] \(IosDiagnosticLogKt.redactIosDiagnosticMessage(value: message))")
 #endif
     }
 

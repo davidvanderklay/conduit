@@ -130,12 +130,14 @@ internal fun rememberVisibleContinueWatching(
     }
     var now by remember { mutableStateOf(Clock.System.now()) }
     var recovery by remember { mutableIntStateOf(0) }
+    var appActive by remember { mutableStateOf(false) }
     rememberAppLifecycleEvents(
         onForeground = { recovery++ },
         onConnectivityRecovered = { recovery++ },
+        onActiveChanged = { appActive = it },
     )
-    LaunchedEffect(candidates, metadataCache, active, offline, recovery) {
-        if (!active) return@LaunchedEffect
+    LaunchedEffect(candidates, metadataCache, active, appActive, offline, recovery) {
+        if (!active || !appActive) return@LaunchedEffect
         while (true) {
             now = Clock.System.now()
             if (!offline) coroutineScope {

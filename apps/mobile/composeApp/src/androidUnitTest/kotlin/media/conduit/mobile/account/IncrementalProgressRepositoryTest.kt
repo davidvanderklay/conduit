@@ -22,6 +22,37 @@ import kotlin.test.assertTrue
 
 class IncrementalProgressRepositoryTest {
     @Test
+    fun authFailureKeepsQueuedEditsAndReportsAuthenticationRequired() = runTest {
+        val database = database()
+        val api = ConduitApi(HttpClient(MockEngine { respond("private token=secret", HttpStatusCode.Unauthorized) }) { install(ContentNegotiation) { json() } })
+        val repository = IncrementalProgressRepository(api, database)
+        val operationId = repository.enqueue(Server, Account, Profile, upsert())
+        val result = repository.synchronizeResult(Server, "token", Account, Profile)
+        assertEquals(401, (result.failure as ServerRequestException).statusCode)
+        val diagnostic = repository.diagnostics(Server, Account, Profile).single()
+        assertEquals(operationId, diagnostic.operationId)
+        assertEquals(0L, diagnostic.attemptCount)
+        assertTrue(!diagnostic.failed)
+        assertTrue(result.items.isNotEmpty())
+        repository.clear(Server, Account, Profile)
+        assertTrue(repository.diagnostics(Server, Account, Profile).isEmpty())
+    }
+
+    @Test
+    fun transientDeltaFailureIsReportedAlongsideTheLocalProjection() = runTest {
+        val database = database()
+        val scope = scopeKey(Server, Account, Profile)
+        database.progressQueries.upsertScope(scope, generation = 1, cursor = 0, initialized = 1)
+        val repository = IncrementalProgressRepository(ConduitApi(HttpClient(MockEngine {
+            throw kotlinx.io.IOException("offline")
+        })), database)
+        repository.enqueue(Server, Account, Profile, upsert())
+        val result = repository.synchronizeResult(Server, "token", Account, Profile)
+        assertTrue(result.failure != null)
+        assertTrue(result.items.isNotEmpty())
+    }
+
+    @Test
     fun retryAfterRepositoryRestartUsesTheSameOperationId() = runTest {
         val database = database()
         val requestBodies = mutableListOf<String>()

@@ -7,6 +7,9 @@ import androidx.compose.runtime.rememberUpdatedState
 import platform.Foundation.NSUserDefaults
 import platform.Foundation.NSNotificationCenter
 import platform.UIKit.UIApplicationDidBecomeActiveNotification
+import platform.UIKit.UIApplicationWillResignActiveNotification
+import platform.UIKit.UIApplication
+import platform.UIKit.UIApplicationState.UIApplicationStateActive
 import platform.UIKit.UIDevice
 import platform.UIKit.UIUserInterfaceIdiomPad
 
@@ -56,14 +59,27 @@ actual fun rememberPlatformServices(): PlatformServices = remember {
 actual fun rememberAppLifecycleEvents(
     onForeground: () -> Unit,
     onConnectivityRecovered: () -> Unit,
+    onActiveChanged: (Boolean) -> Unit,
 ) {
     val latestForeground = rememberUpdatedState(onForeground)
+    val latestActive = rememberUpdatedState(onActiveChanged)
+    val latestConnectivity = rememberUpdatedState(onConnectivityRecovered)
     DisposableEffect(Unit) {
+        val events = IosPlatformBridgeFactory.appEvents()
+        val subscription = events?.startConnectivity { if (UIApplication.sharedApplication.applicationState == UIApplicationStateActive) latestConnectivity.value() }
+        latestActive.value(UIApplication.sharedApplication.applicationState == UIApplicationStateActive)
+        val inactiveObserver = NSNotificationCenter.defaultCenter.addObserverForName(
+            name = UIApplicationWillResignActiveNotification, `object` = null, queue = null,
+        ) { _ -> latestActive.value(false) }
         val observer = NSNotificationCenter.defaultCenter.addObserverForName(
             name = UIApplicationDidBecomeActiveNotification,
             `object` = null,
             queue = null,
-        ) { _ -> latestForeground.value() }
-        onDispose { NSNotificationCenter.defaultCenter.removeObserver(observer) }
+        ) { _ -> latestActive.value(true); latestForeground.value() }
+        onDispose {
+            subscription?.let { events?.stopConnectivity(it) }
+            NSNotificationCenter.defaultCenter.removeObserver(observer)
+            NSNotificationCenter.defaultCenter.removeObserver(inactiveObserver)
+        }
     }
 }

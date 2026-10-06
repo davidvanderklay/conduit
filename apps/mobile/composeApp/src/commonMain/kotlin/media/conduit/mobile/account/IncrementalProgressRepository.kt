@@ -18,6 +18,8 @@ private const val MaxProgressAttempts = 8L
 private const val RetryBaseMs = 5_000L
 private const val RetryCapMs = 60 * 60_000L
 
+data class ProgressSyncResult(val items: List<ProgressSummary>, val failure: Throwable? = null)
+
 data class ProgressSyncDiagnostic(
     val operationId: String,
     val type: String,
@@ -41,26 +43,41 @@ class IncrementalProgressRepository(
     private val mutex = Mutex()
     private val queries = database.progressQueries
 
-    suspend fun synchronize(baseUrl: String, token: String, accountId: String, profileId: String): List<ProgressSummary> = mutex.withLock {
+    suspend fun synchronize(baseUrl: String, token: String, accountId: String, profileId: String): List<ProgressSummary> =
+        synchronizeResult(baseUrl, token, accountId, profileId).items
+
+    suspend fun fullResync(baseUrl: String, token: String, accountId: String, profileId: String): List<ProgressSummary> =
+        synchronizeResult(baseUrl, token, accountId, profileId, fullResync = true).items
+
+    /** Keeps the local projection available while reporting failed network work to the shell. */
+    suspend fun synchronizeResult(baseUrl: String, token: String, accountId: String, profileId: String, fullResync: Boolean = false): ProgressSyncResult = mutex.withLock {
         val scope = scopeKey(baseUrl, accountId, profileId)
-        drain(scope, baseUrl, token, profileId)
-        val state = queries.selectScope(scope).executeAsOneOrNull()
-        runCatching {
-            if (state?.initialized != 1L) bootstrap(scope, baseUrl, token, profileId)
-            else consumeChanges(scope, baseUrl, token, profileId, state.generation, state.cursor)
-        }.recoverCatching { cause ->
+        val failure = try {
+            drain(scope, baseUrl, token, profileId)
+            val state = queries.selectScope(scope).executeAsOneOrNull()
+            try {
+                if (fullResync || state?.initialized != 1L) bootstrap(scope, baseUrl, token, profileId)
+                else consumeChanges(scope, baseUrl, token, profileId, state.generation, state.cursor)
+            } catch (cause: Exception) {
+                if (cause is CancellationException) throw cause
+                if ((cause as? ServerRequestException)?.statusCode == 409) bootstrap(scope, baseUrl, token, profileId)
+                else throw cause
+            }
+            null
+        } catch (cause: Exception) {
             if (cause is CancellationException) throw cause
-            if ((cause as? ServerRequestException)?.statusCode == 409) bootstrap(scope, baseUrl, token, profileId)
+            cause
         }
-        overlay(scope)
+        ProgressSyncResult(overlay(scope), failure)
     }
 
-    suspend fun fullResync(baseUrl: String, token: String, accountId: String, profileId: String): List<ProgressSummary> = mutex.withLock {
+    suspend fun clear(baseUrl: String, accountId: String, profileId: String) = mutex.withLock {
         val scope = scopeKey(baseUrl, accountId, profileId)
-        drain(scope, baseUrl, token, profileId)
-        runCatching { bootstrap(scope, baseUrl, token, profileId) }
-            .onFailure { if (it is CancellationException) throw it }
-        overlay(scope)
+        database.transaction {
+            queries.clearScope(scope)
+            queries.clearProjection(scope)
+            queries.clearOperations(scope)
+        }
     }
 
     @OptIn(ExperimentalUuidApi::class)
@@ -115,7 +132,7 @@ class IncrementalProgressRepository(
         val candidates = queries.selectDueOperations(scope, now, ProgressDrainBatchSize).executeAsList()
         for (candidate in candidates) {
             val operation = runCatching { json.decodeFromString<ProgressOperation>(candidate.payload) }.getOrElse { cause ->
-                queries.recordRetry(candidate.attempt_count + 1, Long.MAX_VALUE, "Invalid persisted operation: ${cause.message}", 1L, scope, candidate.operation_id)
+                queries.recordRetry(candidate.attempt_count + 1, Long.MAX_VALUE, "Invalid persisted operation", 1L, scope, candidate.operation_id)
                 continue
             }
             try {
@@ -124,10 +141,12 @@ class IncrementalProgressRepository(
             } catch (cause: Throwable) {
                 if (cause is CancellationException) throw cause
                 val attempts = candidate.attempt_count + 1
+                // Authentication failure must not consume retry attempts or discard edits.
+                if ((cause as? ServerRequestException)?.statusCode == 401) throw cause
                 val permanent = (cause as? ServerRequestException)?.statusCode?.let { it in 400..499 && it !in setOf(408, 429) } == true
                 val failed = permanent || attempts >= MaxProgressAttempts
                 val delay = min(RetryCapMs, RetryBaseMs * (1L shl min(16, attempts.toInt() - 1)))
-                queries.recordRetry(attempts, if (failed) Long.MAX_VALUE else now + delay, cause.message, if (failed) 1L else 0L, scope, candidate.operation_id)
+                queries.recordRetry(attempts, if (failed) Long.MAX_VALUE else now + maxOf(delay, (cause as? ServerRequestException)?.retryAfterMs ?: 0), sanitizeDiagnosticMessage(cause.message.orEmpty()), if (failed) 1L else 0L, scope, candidate.operation_id)
             }
         }
     }

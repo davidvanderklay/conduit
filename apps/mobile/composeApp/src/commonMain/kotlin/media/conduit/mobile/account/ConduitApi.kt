@@ -649,10 +649,12 @@ data class ValidatedServer(
 
 data class AuthenticatedSession(val token: String)
 
-class ServerRequestException(message: String, val statusCode: Int? = null) : Exception(message)
+class ServerRequestException(message: String, val statusCode: Int? = null, val retryAfterMs: Long? = null) : Exception(message)
+
+private data class MetadataCacheKey(val type: String, val id: String, val addons: List<InstalledAddonSummary>)
 
 class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
-    private val metadataCache = linkedMapOf<String, MetaItem>()
+    private val metadataCache = linkedMapOf<MetadataCacheKey, MetaItem>()
     suspend fun validate(baseUrl: String): ValidatedServer = try {
         validateServer(baseUrl)
     } catch (cause: ServerRequestException) {
@@ -696,6 +698,13 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
         return ValidatedServer(configResponse.body())
     }
 
+    suspend fun sessionExpiry(baseUrl: String, token: String): String? {
+        val response = client.get("$baseUrl/api/auth/get-session") { bearerAuth(token) }
+        if (!response.status.isSuccess()) return null
+        return response.body<JsonObject>()["session"]?.jsonObject
+            ?.get("expiresAt")?.jsonPrimitive?.contentOrNull
+    }
+
     suspend fun bootstrap(baseUrl: String, token: String): BootstrapResponse {
         val response = client.get("$baseUrl/v1/bootstrap") { bearerAuth(token) }
         if (!response.status.isSuccess()) {
@@ -721,7 +730,7 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
             setBody(ProgressOperationRequest(operationId, operation))
         }
         if (!response.status.isSuccess()) {
-            throw ServerRequestException(response.bodyAsText().ifBlank { "Progress operation returned HTTP ${response.status.value}" }, response.status.value)
+            throw ServerRequestException("Progress operation returned HTTP ${response.status.value}", response.status.value, response.headers["Retry-After"]?.toLongOrNull()?.coerceIn(0, 86400)?.times(1000))
         }
         return response.body()
     }
@@ -1303,7 +1312,7 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
         id: String,
         refresh: Boolean = false,
     ): MetaItem {
-        val key = "$type:$id"
+        val key = MetadataCacheKey(type, id, addons.filter { it.enabled })
         if (!refresh) metadataCache[key]?.let { return it }
         val candidates = addons.filter { it.enabled && it.supportsResource("meta", type, id) }
         if (candidates.isEmpty()) throw ServerRequestException("No installed add-on provides metadata for this title")

@@ -125,6 +125,23 @@ class ConduitApiTest {
     }
 
     @Test
+    fun metadataCacheDoesNotReuseAnotherProfilesConfiguredProvider() = runTest {
+        var requests = 0
+        val api = ConduitApi(HttpClient(MockEngine { request ->
+            requests++
+            val name = if (request.url.host == "first.example") "First provider" else "Second provider"
+            respond("""{"meta":{"id":"show","type":"series","name":"$name","videos":[]}}""",
+                HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "application/json"))
+        }) { install(ContentNegotiation) { json() } })
+        fun addon(host: String) = InstalledAddonSummary("a1", "fixture", "https://$host/manifest.json",
+            Json.parseToJsonElement("""{"id":"fixture","name":"Fixture","resources":["meta"],"types":["series"]}""").jsonObject, 0, true)
+        assertEquals("First provider", api.loadMeta(listOf(addon("first.example")), "series", "show").name)
+        assertEquals("First provider", api.loadMeta(listOf(addon("first.example")), "series", "show").name)
+        assertEquals("Second provider", api.loadMeta(listOf(addon("second.example")), "series", "show").name)
+        assertEquals(2, requests)
+    }
+
+    @Test
     fun metadataRefreshDiscoversNewEpisodesInsteadOfReturningTheCachedFinale() = runTest {
         var requests = 0
         val api = ConduitApi(mockClient { _, _ ->
@@ -266,7 +283,7 @@ class ConduitApiTest {
         var online = true
         val requestedProgressViews = mutableSetOf<String>()
         val engine = MockEngine { request ->
-            if (!online) return@MockEngine respond("offline", HttpStatusCode.ServiceUnavailable)
+            if (!online) throw kotlinx.io.IOException("offline")
             val body = when {
                 request.url.encodedPath.endsWith("/addons") ->
                     """{"addons":[{"id":"a1","manifestId":"fixture","manifestUrl":"https://secret.example/manifest.json?token=private","manifest":{"id":"fixture","name":"Fixture"},"position":0,"enabled":true}]}"""
