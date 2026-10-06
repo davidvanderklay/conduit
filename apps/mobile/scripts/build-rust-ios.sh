@@ -11,6 +11,9 @@ export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$repo_root/target}/mobile/$conduit_
   exit 1
 }
 
+# Keep rustc and native C dependencies on the minimum in iosApp/project.yml.
+export IPHONEOS_DEPLOYMENT_TARGET="${IPHONEOS_DEPLOYMENT_TARGET:-15.0}"
+
 rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
 cargo build --manifest-path "$repo_root/packages/mobile-bridge/Cargo.toml" \
   --release --locked --no-default-features "${conduit_p2p_features[@]}" --target aarch64-apple-ios
