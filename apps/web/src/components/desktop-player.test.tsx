@@ -693,6 +693,19 @@ describe("DesktopPlayer track menus", () => {
     expect(button("Off").className).not.toContain("bg-amber-400")
   })
 
+  it("keeps playing when the subtitle position changes", async () => {
+    // The Linux overlay window writes the preference; the next poll re-renders the player.
+    localStorage.setItem("conduit.device-preferences.v1", JSON.stringify({ subtitlePosition: 70 }))
+    desktop.nativePlayerSnapshot.mockResolvedValue({ ...snapshot, position: 11 })
+    await act(async () => {
+      vi.advanceTimersByTime(250)
+      await Promise.resolve()
+    })
+
+    expect(desktop.stopNativePlayer).not.toHaveBeenCalled()
+    expect(desktop.openNativePlayer).not.toHaveBeenCalled()
+  })
+
   it("does not show an add-on subtitle again after mpv exposes it as an external track", () => {
     const subtitles = [
       { key: "one", display: "English · AIOStreams" },
