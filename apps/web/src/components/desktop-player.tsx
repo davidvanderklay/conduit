@@ -424,8 +424,11 @@ export function DesktopPlayer({
         )
         if (initial.firstFrameReady) setPlaybackStarted(true)
         if (!preferredSubtitleApplied.current) await nativePlayerCommand(["set", "sid", "no"])
-        await nativePlayerCommand(["set", "sub-pos", preferences.subtitlePosition])
-        await nativePlayerCommand(["set", "sub-border-size", preferences.subtitleOutline ? 3 : 0])
+        // Read styling at open time rather than depending on it: a dependency would
+        // tear down and reopen the player whenever the position is adjusted mid-playback.
+        const { subtitlePosition, subtitleOutline } = readPreferences()
+        await nativePlayerCommand(["set", "sub-pos", subtitlePosition])
+        await nativePlayerCommand(["set", "sub-border-size", subtitleOutline ? 3 : 0])
         const resolved = await resolveAddonSubtitles(addons, type, videoId)
         if (!cancelled) {
           // Keep the add-on catalog available immediately. `sub-add` is a
@@ -481,8 +484,6 @@ export function DesktopPlayer({
     artwork?.poster,
     markAutoRecoveryStarted,
     mediaTitle,
-    preferences.subtitleOutline,
-    preferences.subtitlePosition,
     preferredAudioLanguage,
     reportAutoRecoveryFailure,
     type,
