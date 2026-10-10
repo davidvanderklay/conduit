@@ -3,6 +3,15 @@ import XCTest
 @testable import conduit
 
 final class ConduitPlaybackStartupTests: XCTestCase {
+    func testPreferredAudioMatchesLanguageNamedOnlyInTitle() {
+        let french = AudioSelectionCandidate(track: "fr", language: "fre", title: "French", selected: true)
+        let english = AudioSelectionCandidate(track: "en", language: "", title: "English 5.1", selected: false)
+        XCTAssertEqual(preferredAudio(candidates: [french, english], preferred: "en"), "en")
+        XCTAssertNil(preferredAudio(candidates: [french, english], preferred: "fr"))
+        XCTAssertNil(preferredAudio(candidates: [french, english], preferred: "ja"))
+        XCTAssertNil(preferredAudio(candidates: [french, english], preferred: ""))
+    }
+
     func testSubtitlePriorityWaitsForDelayedPrimaryAddon() {
         let secondary = SubtitleSelectionCandidate(track: "es", language: "spa", title: "Spanish", embedded: true)
         let primary = SubtitleSelectionCandidate(track: "en", language: "eng", title: "English", embedded: false)
