@@ -85,6 +85,25 @@ func preferredSubtitle<T>(
     return .off
 }
 
+struct AudioSelectionCandidate<T> {
+    let track: T
+    let language: String
+    let title: String
+    let selected: Bool
+}
+
+/// mpv's `alang` only reads a track's language tag. This also matches tracks
+/// that name their language in the title. Returns the track to switch to, or
+/// nil when the selected track already matches or no track does.
+func preferredAudio<T>(candidates: [AudioSelectionCandidate<T>], preferred: String) -> T? {
+    guard !preferred.isEmpty else { return nil }
+    let matching = candidates.filter {
+        PlaybackLanguagesKt.trackLanguageCode(language: $0.language, label: $0.title) == preferred
+    }
+    if matching.contains(where: { $0.selected }) { return nil }
+    return matching.first?.track
+}
+
 /// Compose can measure the replacement player before UIKit attaches its view
 /// to a window. That measured surface is enough to start the load.
 func playbackSurfaceSize(viewSize: CGSize, measuredSize: CGSize?) -> CGSize {
@@ -448,6 +467,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
     private var pendingRetry: DispatchWorkItem?
     private var activeHeaders: [String: String] = [:]
     private var preferredAudioLanguage = ""
+    private var preferredAudioApplied = false
     private var preferredSubtitleLanguage = "en"
     private var preferredSubtitleApplied = false
     private var secondarySubtitleLanguage: String?
@@ -996,6 +1016,8 @@ final class ConduitMPVPlayerViewController: UIViewController {
     func selectAudio(_ trackId: Int) {
         runOnMain { [weak self] in
             guard let self, self.mpv != nil else { return }
+            // Manual choices must win over the initial preferred-language pass.
+            self.preferredAudioApplied = true
             var id = Int64(trackId)
             checkError(mpv_set_property(self.mpv, "aid", MPV_FORMAT_INT64, &id))
         }
@@ -1360,6 +1382,13 @@ final class ConduitMPVPlayerViewController: UIViewController {
             // app can take the audio route without waiting for Conduit.
             pausePlayback()
         }
+        let session = AVAudioSession.sharedInstance()
+        emitDiagnostic(
+            level: "info",
+            category: "ios/background",
+            message: "background reason=\(reason) keepAudio=\(keepAudioPlaying) " +
+                "mixable=\(session.categoryOptions.contains(.mixWithOthers))"
+        )
         guard !videoTrackSuspendedForBackground else { return }
         setStringProperty("vid", "no")
         videoTrackSuspendedForBackground = true
@@ -1708,6 +1737,10 @@ final class ConduitMPVPlayerViewController: UIViewController {
         setOptionString(mpv, name: "hwdec-software-fallback", value: "yes")
 #endif
         setOptionString(mpv, name: "ao", value: Self.audioOutput)
+        // mpv's AudioUnit output reconfigures the shared session when it
+        // starts and adds `.mixWithOthers` unless audio is exclusive. A
+        // mixable session never gets lock screen controls.
+        setOptionString(mpv, name: "audio-exclusive", value: "yes")
         setOptionString(mpv, name: "audio-channels", value: "auto")
         setOptionString(mpv, name: "audio-fallback-to-null", value: "yes")
         // Default sync compensation duplicates/truncates audio fragments when
@@ -1829,6 +1862,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
         waitingForInitialVideoFrame = true
         loadedExternalSubtitleURLs.removeAll(keepingCapacity: true)
         preferredSubtitleApplied = false
+        preferredAudioApplied = false
         manualSubtitleSelection = false
         activeExternalSubtitleLoads = 0
         setStringProperty("sid", "no")
@@ -2257,7 +2291,20 @@ final class ConduitMPVPlayerViewController: UIViewController {
 
         audioTracks = audio
         subtitleTracks = subtitles
+        applyPreferredAudioSelection()
         applyPreferredSubtitleSelection()
+    }
+
+    /// Runs once per file, after mpv has made its own `alang` choice.
+    private func applyPreferredAudioSelection() {
+        guard mpv != nil, hasLoadedFile, !preferredAudioApplied, !audioTracks.isEmpty else { return }
+        preferredAudioApplied = true
+        let candidates = audioTracks.map {
+            AudioSelectionCandidate(track: $0, language: $0.language, title: $0.title, selected: $0.selected)
+        }
+        guard let track = preferredAudio(candidates: candidates, preferred: preferredAudioLanguage) else { return }
+        var id = Int64(track.id)
+        checkError(mpv_set_property(mpv, "aid", MPV_FORMAT_INT64, &id))
     }
 
     private func applyPreferredSubtitleSelection() {
