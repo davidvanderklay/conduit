@@ -8,18 +8,17 @@ import Security
 import UIKit
 import UniformTypeIdentifiers
 
-/// Keeps video playback from taking exclusive ownership of the device audio
-/// session. This matters on iPad, where another app can remain audible beside
-/// Conduit in a multitasking window.
+/// Playback owns the device audio session exclusively. iOS only shows lock
+/// screen and Control Center controls for a non-mixable session, so adding
+/// `.mixWithOthers` here silently hides the Now Playing item.
 enum ConduitAudioSession {
-    private static let mixingOptions: AVAudioSession.CategoryOptions = [.mixWithOthers]
     /// The default ~21ms IO buffer cannot absorb transient system stalls
     /// (PiP window composition, screenshot flashes) without audible
     /// underruns. 60ms of headroom is imperceptible for video playback.
     private static let ioBufferDuration: TimeInterval = 0.06
 
     static func configureForPlayback(_ session: AVAudioSession = AVAudioSession.sharedInstance()) throws {
-        try session.setCategory(.playback, mode: .moviePlayback, options: mixingOptions)
+        try session.setCategory(.playback, mode: .moviePlayback)
         try session.setPreferredIOBufferDuration(ioBufferDuration)
     }
 
