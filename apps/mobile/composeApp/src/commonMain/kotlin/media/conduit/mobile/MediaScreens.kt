@@ -39,6 +39,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.BiasAlignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
@@ -557,10 +558,16 @@ internal fun SearchDiscoverScreen(
         } else {
             LazyColumn(
                 state = listState,
+                modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(top = 8.dp, bottom = 112.dp),
                 verticalArrangement = Arrangement.spacedBy(18.dp),
             ) {
-                if (searchLoading) item { LoadingIndicator(Modifier.padding(8.dp)) }
+                if (searchLoading) item {
+                    // Center horizontally, about 30% down the search area.
+                    Box(Modifier.fillParentMaxSize(), contentAlignment = BiasAlignment(0f, -.4f)) {
+                        LoadingIndicator()
+                    }
+                }
                 if (!searchLoading && results.isEmpty()) item { EmptyBrowseState("No results for “$query”.") }
                 results.forEach { catalog ->
                     item(key = "search-heading-${catalog.key}-$query") {
