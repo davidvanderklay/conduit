@@ -11,6 +11,22 @@ import media.conduit.mobile.account.VideoItem
 
 class WatchStatusTest {
     @Test
+    fun posterStatusIgnoresOtherTitlesAndMediaTypes() {
+        val movie = CatalogItem("shared-id", "movie", "Movie")
+        val series = movie.copy(type = "series")
+        val history = listOf(
+            progress("other", "other", watched = true, type = "movie"),
+            progress("s1e1", "shared-id", watched = true),
+        )
+        assertEquals(PosterWatchState.Unwatched, posterWatchState(history, movie))
+        assertEquals(PosterWatchState.Complete, posterWatchState(history, series, listOf("s1e1")))
+        assertEquals(
+            PosterWatchState.Complete,
+            posterWatchState(history + progress("shared-id", "shared-id", watched = true, type = "movie"), movie),
+        )
+    }
+
+    @Test
     fun moviesUseBinaryCompletion() {
         val movie = CatalogItem("movie", "movie", "Movie")
         assertEquals(PosterWatchState.Unwatched, posterWatchState(emptyList(), movie))
