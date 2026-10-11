@@ -3413,7 +3413,20 @@ private fun StreamSelectionScreen(
             }
         }
         when {
-            loading -> item(key = "loading") { Box(Modifier.fillParentMaxHeight(.65f).fillMaxWidth().background(Color.Black.copy(alpha = .62f)), contentAlignment = Alignment.Center) { Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) { LoadingIndicator(); Text("Finding streams…", color = Color.White.copy(alpha = .72f)) } } }
+            loading -> item(key = "loading") {
+                Box(
+                    Modifier.height(200.dp).fillMaxWidth().background(Color.Black.copy(alpha = .62f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(14.dp),
+                    ) {
+                        LoadingIndicator()
+                        Text("Finding streams…", color = Color.White.copy(alpha = .72f))
+                    }
+                }
+            }
             streams.isEmpty() -> item(key = if (error != null) "error" else "empty") {
                 Box(Modifier.fillParentMaxHeight(.65f).fillMaxWidth().padding(28.dp), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
