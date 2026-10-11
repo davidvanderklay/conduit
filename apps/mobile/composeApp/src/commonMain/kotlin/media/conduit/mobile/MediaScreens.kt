@@ -39,6 +39,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.BiasAlignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
@@ -562,7 +563,8 @@ internal fun SearchDiscoverScreen(
                 verticalArrangement = Arrangement.spacedBy(18.dp),
             ) {
                 if (searchLoading) item {
-                    Box(Modifier.fillParentMaxSize(), contentAlignment = Alignment.Center) {
+                    // Center horizontally, about 30% down the search area.
+                    Box(Modifier.fillParentMaxSize(), contentAlignment = BiasAlignment(0f, -.4f)) {
                         LoadingIndicator()
                     }
                 }
