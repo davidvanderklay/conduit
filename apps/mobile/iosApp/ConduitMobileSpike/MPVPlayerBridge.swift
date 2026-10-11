@@ -479,7 +479,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
     private var subtitleOutline = true
     private var defaultSubtitleOutlineSize: Double?
     fileprivate var hasLoadedFile = false
-    private var shouldPlay = false
+    fileprivate var shouldPlay = false
     private var resumeAfterAudioInterruption = false
     fileprivate var videoTrackSuspendedForBackground = false
     private var videoSurfaceSize: CGSize = .zero
@@ -850,6 +850,9 @@ final class ConduitMPVPlayerViewController: UIViewController {
             // not become the de facto owner of the shared session.
             self.activateAudioSession()
             guard self.pendingLoad == nil, self.hasLoadedFile else { return }
+            if UIApplication.shared.applicationState != .background || self.pictureInPicture?.isActive == true {
+                self.restoreVideoTrackAfterBackgroundIfNeeded()
+            }
             if self.videoOutputRecoveryState.failed {
                 self.retryVideoOutputOnMain()
                 return
@@ -880,6 +883,9 @@ final class ConduitMPVPlayerViewController: UIViewController {
             self.bumpPlaybackStateGeneration()
             self.refreshPlaybackState()
             self.pictureInPicture?.playbackStateChanged()
+            if UIApplication.shared.applicationState == .background {
+                self.suspendVideoTrackForBackground(reason: "paused-in-background")
+            }
             if UIApplication.shared.applicationState == .background,
                self.pictureInPicture?.isActive != true {
                 self.deactivateAudioSession()
@@ -1361,23 +1367,24 @@ final class ConduitMPVPlayerViewController: UIViewController {
         attemptStartPendingLoad()
     }
 
-    /// Suspends MPV's video track once the app is truly backgrounded without
-    /// an accepted PiP transition. VideoToolbox keeps decoding otherwise and
-    /// can hold the decoder open indefinitely.
+    /// Releases the video decoder while backgrounded without playing PiP.
+    /// Audio may continue, and a paused PiP window keeps its captured frame.
     fileprivate func suspendVideoTrackForBackground(reason: String) {
         guard UIApplication.shared.applicationState == .background else {
             debugLog("ignoring video-track suspension while not background reason=\(reason)")
             return
         }
+        guard !videoTrackSuspendedForBackground else { return }
         let keepAudioPlaying = shouldKeepConduitBackgroundAudio(
             hasNowPlayingItem: nowPlayingController.isActive,
             shouldPlay: shouldPlay,
             isPlaying: isPlayerPlaying
         )
-        if keepAudioPlaying {
-            cancelVideoOutputWatchdog()
-            cancelVideoOutputRecovery(resetAttempts: true)
-        } else {
+        cancelVideoOutputWatchdog()
+        cancelVideoOutputRecovery(resetAttempts: true)
+        setStringProperty("vid", "no")
+        videoTrackSuspendedForBackground = true
+        if !keepAudioPlaying {
             // A paused background player must release its claim so another
             // app can take the audio route without waiting for Conduit.
             pausePlayback()
@@ -1389,20 +1396,14 @@ final class ConduitMPVPlayerViewController: UIViewController {
             message: "background reason=\(reason) keepAudio=\(keepAudioPlaying) " +
                 "mixable=\(session.categoryOptions.contains(.mixWithOthers))"
         )
-        guard !videoTrackSuspendedForBackground else { return }
-        setStringProperty("vid", "no")
-        videoTrackSuspendedForBackground = true
         debugLog("video track suspended for background reason=\(reason) keepAudio=\(keepAudioPlaying)")
     }
 
-    fileprivate func restoreVideoTrackAfterBackgroundIfNeeded(reloadDecoder: Bool = true) {
+    fileprivate func restoreVideoTrackAfterBackgroundIfNeeded() {
         guard videoTrackSuspendedForBackground, !destroyStarted else { return }
         videoTrackSuspendedForBackground = false
         setStringProperty("vid", "auto")
-        if reloadDecoder {
-            command("video-reload", checkForErrors: false)
-        }
-        debugLog("video track restored after background reloadDecoder=\(reloadDecoder)")
+        debugLog("video track restored after background")
     }
 
     private func handleAudioInterruption(_ notification: Notification) {
@@ -2457,7 +2458,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
 #endif
     }
 
-    private func emitDiagnostic(level: String, category: String, message: String) {
+    fileprivate func emitDiagnostic(level: String, category: String, message: String) {
         let sanitized = message
             .replacingOccurrences(of: "\n", with: " ")
             .replacingOccurrences(of: "\t", with: " ")
@@ -2921,7 +2922,7 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         debugLog("automatic PiP cancelled because the app returned to the foreground")
         controller?.stopPictureInPicture()
         cancelAutomaticEntry(stopPriming: true)
-        owner?.restoreVideoTrackAfterBackgroundIfNeeded(reloadDecoder: false)
+        owner?.restoreVideoTrackAfterBackgroundIfNeeded()
         if shouldResume { owner?.playPlayback() }
     }
 
@@ -2929,7 +2930,7 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         metalLayer.releasePendingDrawable()
         frameCapture?.setBackgrounded(true)
 
-        // Any in-flight start signal keeps the pipeline alive. Lifecycle
+        // A playing in-flight start keeps the pipeline alive. Lifecycle
         // delivery around a Home-swipe PiP transition is racy: the background
         // notification can land while AVKit is still working on a start whose
         // bookkeeping flags have partially unwound.
@@ -2938,12 +2939,16 @@ final class ConduitPictureInPictureCoordinator: NSObject,
             "enterBackground active=\(isActive) transitionBegan=\(transitionBegan) " +
                 "startRequested=\(startRequested) starting=\(starting) automaticArmed=\(automaticArmed)"
         )
-        if isActive || startInFlight {
+        if shouldKeepConduitBackgroundVideo(
+            shouldPlay: owner?.shouldPlay == true,
+            pictureInPictureActive: isActive,
+            pictureInPictureStarting: startInFlight
+        ) {
             debugLog("background with PiP pending/active; keeping primary pipeline alive")
             return
         }
         let wasPlaying = owner?.isPlayerPlaying == true
-        owner?.suspendVideoTrackForBackground(reason: "background-without-pip")
+        owner?.suspendVideoTrackForBackground(reason: "background-without-playing-pip")
         resumePlaybackAfterBackground = wasPlaying && owner?.isPlayerPlaying != true
     }
 
@@ -2955,8 +2960,8 @@ final class ConduitPictureInPictureCoordinator: NSObject,
         metalLayer.setRenderingSuspended(false, reason: "enter-foreground")
         frameCapture?.setBackgrounded(false)
 
-        if isActive || starting { return }
         owner?.restoreVideoTrackAfterBackgroundIfNeeded()
+        if isActive || starting { return }
         owner?.resumeVideoOutputWatchdogAfterPictureInPicture()
         if resumePlaybackAfterBackground {
             resumePlaybackAfterBackground = false
@@ -3402,8 +3407,9 @@ final class ConduitPictureInPictureCoordinator: NSObject,
     }
 
     private func debugLog(_ message: String) {
+        owner?.emitDiagnostic(level: "debug", category: "ios/pip", message: message)
         #if DEBUG
-        print("[Conduit PiP][diagnostic] \(message)")
+        print("[Conduit PiP][diagnostic] \(IosDiagnosticLogKt.redactIosDiagnosticMessage(value: message))")
         #endif
     }
 }
