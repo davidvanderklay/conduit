@@ -185,7 +185,6 @@ private fun AccountGate(
         if (restoreStarted) return@LaunchedEffect
         restoreStarted = true
         restoreJob = coroutineContext[kotlinx.coroutines.Job]
-        if (cachedAccount != null) dispatch(AppAction.Navigate(AppDestination.Library))
         lifecycleMutex.withLock {
             if (hasStoredSession) {
                 account = repository.restore(endpoint)
@@ -888,11 +887,10 @@ private fun AppShell(
     }
     var profileSync by remember(activeProfile?.id, account.session.token) {
         mutableStateOf(
+            // A cached account does not imply offline mode; let the first sync determine connectivity.
             ProfileSyncState(
                 snapshot = activeProfile?.let { syncRepository.cached(it.id) },
                 refreshing = activeProfile != null,
-                offline = account.cached,
-                issue = if (account.cached) SyncIssue.Network else null,
                 lastSyncedAt = activeProfile?.let { syncRepository.lastSyncedAt(it.id) },
             ),
         )
