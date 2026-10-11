@@ -2,6 +2,7 @@ package media.conduit.mobile
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.size
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -13,11 +14,12 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import conduit_mobile.composeapp.generated.resources.Res
 import conduit_mobile.composeapp.generated.resources.loading
+import media.conduit.mobile.foundation.LocalReducedMotion
 import org.jetbrains.compose.resources.stringResource
 
-/** Loading does not need a continuously repainting animation. */
+/** Animate while loading unless the user requests reduced motion. */
 @Composable
-internal fun StaticLoadingIndicator(
+internal fun LoadingIndicator(
     modifier: Modifier = Modifier,
     color: Color = MaterialTheme.colorScheme.primary,
     strokeWidth: Dp = 4.dp,
@@ -25,7 +27,18 @@ internal fun StaticLoadingIndicator(
     strokeCap: androidx.compose.ui.graphics.StrokeCap = androidx.compose.ui.graphics.StrokeCap.Round,
 ) {
     val label = stringResource(Res.string.loading)
-    Canvas(modifier.size(24.dp).semantics { contentDescription = label }) {
+    val indicatorModifier = modifier.size(24.dp).semantics { contentDescription = label }
+    if (!LocalReducedMotion.current) {
+        CircularProgressIndicator(
+            modifier = indicatorModifier,
+            color = color,
+            strokeWidth = strokeWidth,
+            trackColor = trackColor,
+            strokeCap = strokeCap,
+        )
+        return
+    }
+    Canvas(indicatorModifier) {
         val stroke = Stroke(strokeWidth.toPx(), cap = strokeCap)
         drawArc(trackColor, -90f, 360f, false, style = stroke)
         drawArc(color, -90f, 240f, false, style = stroke)

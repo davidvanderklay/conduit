@@ -2,6 +2,15 @@ import Foundation
 import MediaPlayer
 import UIKit
 
+/// A paused PiP window can retain its last frame without keeping VideoToolbox alive while locked.
+func shouldKeepConduitBackgroundVideo(
+    shouldPlay: Bool,
+    pictureInPictureActive: Bool,
+    pictureInPictureStarting: Bool
+) -> Bool {
+    shouldPlay && (pictureInPictureActive || pictureInPictureStarting)
+}
+
 func shouldKeepConduitBackgroundAudio(
     hasNowPlayingItem: Bool,
     shouldPlay: Bool,
