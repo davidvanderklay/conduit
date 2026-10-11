@@ -182,7 +182,7 @@ internal fun MobileLibraryScreen(
         if (snapshot == null) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(stringResource(Res.string.sync_loading)) }
         } else if (loadingStatus) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { StaticLoadingIndicator() }
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { LoadingIndicator() }
         } else if (items.isEmpty()) {
             Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
                 Text(stringResource(Res.string.library_empty), color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -301,7 +301,7 @@ internal fun MobileContinueWatchingScreen(
             }
         }
         if (snapshot == null) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { StaticLoadingIndicator() }
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { LoadingIndicator() }
         } else if (items.isEmpty()) {
             Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
                 Text("Nothing to continue watching yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -510,7 +510,7 @@ internal fun SearchDiscoverScreen(
                 )
             }
             when {
-                discoverLoading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { StaticLoadingIndicator() }
+                discoverLoading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { LoadingIndicator() }
                 selected == null -> EmptyBrowseState("No discover catalogs available.")
                 discoverError != null -> EmptyBrowseState(discoverError!!)
                 discoverItems.isEmpty() -> EmptyBrowseState("This catalog returned no titles.")
@@ -549,7 +549,7 @@ internal fun SearchDiscoverScreen(
                                     .onFailure { hasMore = false }
                                 loadingMore = false
                             }
-                            Box(Modifier.fillMaxWidth().height(64.dp), contentAlignment = Alignment.Center) { StaticLoadingIndicator(Modifier.size(22.dp)) }
+                            Box(Modifier.fillMaxWidth().height(64.dp), contentAlignment = Alignment.Center) { LoadingIndicator(Modifier.size(22.dp)) }
                         }
                     }
                 }
@@ -560,7 +560,7 @@ internal fun SearchDiscoverScreen(
                 contentPadding = PaddingValues(top = 8.dp, bottom = 112.dp),
                 verticalArrangement = Arrangement.spacedBy(18.dp),
             ) {
-                if (searchLoading) item { StaticLoadingIndicator(Modifier.padding(8.dp)) }
+                if (searchLoading) item { LoadingIndicator(Modifier.padding(8.dp)) }
                 if (!searchLoading && results.isEmpty()) item { EmptyBrowseState("No results for “$query”.") }
                 results.forEach { catalog ->
                     item(key = "search-heading-${catalog.key}-$query") {
@@ -1016,10 +1016,10 @@ internal fun MediaDetailsScreen(
             error = null,
         )
         updatePlayerStreamPicker(picker)
-        val requestJob = scope.launch(start = CoroutineStart.LAZY) {
+        val requestJob = playbackSession.launchStreamLookup {
             val result = loadStreamsForRequest(video.id, requestedAddons, autoResume = false)
-            if (requestVersion != playerStreamRequestVersion || !playbackSession.isCurrentAttempt(attemptId)) return@launch
-            val updatedPicker = playerStreamPicker ?: return@launch
+            if (requestVersion != playerStreamRequestVersion || !playbackSession.isCurrentAttempt(attemptId)) return@launchStreamLookup
+            val updatedPicker = playerStreamPicker ?: return@launchStreamLookup
             val nextPicker = result.fold(
                 onSuccess = { choices ->
                     updatedPicker.copy(
@@ -1764,7 +1764,9 @@ internal fun MediaDetailsScreen(
         )
         DiagnosticLogStore.info(
             "playback/request",
-            "video=${identity.videoId} startMs=${request.startPositionMs} reload=${request.reloadKey} source=${request.source?.addonId ?: "none"}",
+            "video=${identity.videoId} startMs=${request.startPositionMs} reload=${request.reloadKey} source=${request.source?.addonId ?: "none"} " +
+                "filename=${sourceStream.behaviorHints?.filename?.take(300)} fileIdx=${sourceStream.fileIdx} " +
+                "streamName=${sourceStream.name?.take(300)} streamTitle=${(sourceStream.title ?: sourceStream.description)?.take(600)}",
         )
         playbackSession.start(request, callbacks, playbackAttemptId)
         openingPlayback = false
@@ -2219,7 +2221,7 @@ internal fun MediaDetailsScreen(
         }
         item {
             Column(Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                if (details == null && error == null) StaticLoadingIndicator()
+                if (details == null && error == null) LoadingIndicator()
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 Button(
                     onClick = {
@@ -2562,7 +2564,7 @@ internal fun PlayerOpeningOverlay(
 @Composable
 internal fun PlayerBufferingOverlay(modifier: Modifier = Modifier) {
     Box(modifier, contentAlignment = Alignment.Center) {
-        StaticLoadingIndicator(
+        LoadingIndicator(
             modifier = Modifier.size(32.dp),
             color = Color.White,
             trackColor = Color.White.copy(.24f),
@@ -3264,7 +3266,7 @@ internal fun PlayerStreamDrawer(
                                     horizontalAlignment = Alignment.CenterHorizontally,
                                     verticalArrangement = Arrangement.spacedBy(14.dp),
                                 ) {
-                                    StaticLoadingIndicator()
+                                    LoadingIndicator()
                                     Text("Finding streams…", color = Color.White.copy(alpha = .72f))
                                 }
                             }
@@ -3411,7 +3413,7 @@ private fun StreamSelectionScreen(
             }
         }
         when {
-            loading -> item(key = "loading") { Box(Modifier.fillParentMaxHeight(.65f).fillMaxWidth().background(Color.Black.copy(alpha = .62f)), contentAlignment = Alignment.Center) { Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) { StaticLoadingIndicator(); Text("Finding streams…", color = Color.White.copy(alpha = .72f)) } } }
+            loading -> item(key = "loading") { Box(Modifier.fillParentMaxHeight(.65f).fillMaxWidth().background(Color.Black.copy(alpha = .62f)), contentAlignment = Alignment.Center) { Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) { LoadingIndicator(); Text("Finding streams…", color = Color.White.copy(alpha = .72f)) } } }
             streams.isEmpty() -> item(key = if (error != null) "error" else "empty") {
                 Box(Modifier.fillParentMaxHeight(.65f).fillMaxWidth().padding(28.dp), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -4160,7 +4162,7 @@ private fun WatchHistoryScreen(
         ProfileHeader(stringResource(Res.string.history_title), onBack)
         SyncStatusRow(syncState, onRetry)
         when {
-            snapshot == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { StaticLoadingIndicator() }
+            snapshot == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { LoadingIndicator() }
             history.isEmpty() -> Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
                 Text(stringResource(Res.string.history_empty), color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
@@ -4316,7 +4318,7 @@ private fun ProfileEditorScreen(profile: ProfileSummary?, active: ProfileSummary
         } } }
         item { Card(Modifier.padding(horizontal = 10.dp).fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) { Text("Avatar", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold); Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { FilterChip(selected = avatarMode == "color", onClick = { avatarMode = "color" }, label = { Text("Profile color") }); FilterChip(selected = avatarMode == "image", onClick = { avatarMode = "image" }, label = { Text("Custom image") }) }; if (avatarMode == "color") { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) { colors.forEach { option -> Surface(shape = CircleShape, color = profileColor(option), border = if (color.equals(option, ignoreCase = true)) BorderStroke(3.dp, Color.White) else null, modifier = Modifier.size(32.dp).clickable { color = option }) {} } }; CustomProfileColorPicker(color = color, onColorChange = { color = it }) } else { Text("Enter an HTTP or HTTPS image link.", color = MaterialTheme.colorScheme.onSurfaceVariant); OutlinedTextField(url, { url = it }, placeholder = { Text("https://example.com/avatar.png") }, singleLine = true, modifier = Modifier.fillMaxWidth()) } } } }
         error?.let { item { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 18.dp)) } }
-        item { Button(onClick = { scope.launch { saving = true; error = null; runCatching { val endpoint = requireNotNull(state.endpoint); val cleanUrl = url.trim().ifBlank { null }.takeIf { avatarMode == "image" }; val cleanColor = color.takeIf { avatarMode == "color" }; require(cleanUrl == null || cleanUrl.startsWith("https://") || cleanUrl.startsWith("http://")) { "Avatar URL must begin with http:// or https://" }; require(avatarMode != "image" || cleanUrl != null) { "Enter a custom image URL" }; require(name.isNotBlank()) { "Enter a profile name" }; if (profile == null) { val household = account.bootstrap.households.first(); api.createProfile(endpoint.baseUrl, account.session.token, household.id, name, kids, usesPrimaryAddons, cleanColor, cleanUrl) } else api.updateProfile(endpoint.baseUrl, account.session.token, profile.id, name, kids, usesPrimaryAddons, cleanColor, cleanUrl) }.onSuccess { onSaved(it.id); onBack() }.onFailure { error = it.message ?: "Unable to save profile" }; saving = false } }, enabled = !saving, modifier = Modifier.padding(horizontal = 10.dp).fillMaxWidth().height(54.dp)) { if (saving) StaticLoadingIndicator(Modifier.size(20.dp), strokeWidth = 2.dp) else Text(if (profile == null) "Create profile" else "Save changes") } }
+        item { Button(onClick = { scope.launch { saving = true; error = null; runCatching { val endpoint = requireNotNull(state.endpoint); val cleanUrl = url.trim().ifBlank { null }.takeIf { avatarMode == "image" }; val cleanColor = color.takeIf { avatarMode == "color" }; require(cleanUrl == null || cleanUrl.startsWith("https://") || cleanUrl.startsWith("http://")) { "Avatar URL must begin with http:// or https://" }; require(avatarMode != "image" || cleanUrl != null) { "Enter a custom image URL" }; require(name.isNotBlank()) { "Enter a profile name" }; if (profile == null) { val household = account.bootstrap.households.first(); api.createProfile(endpoint.baseUrl, account.session.token, household.id, name, kids, usesPrimaryAddons, cleanColor, cleanUrl) } else api.updateProfile(endpoint.baseUrl, account.session.token, profile.id, name, kids, usesPrimaryAddons, cleanColor, cleanUrl) }.onSuccess { onSaved(it.id); onBack() }.onFailure { error = it.message ?: "Unable to save profile" }; saving = false } }, enabled = !saving, modifier = Modifier.padding(horizontal = 10.dp).fillMaxWidth().height(54.dp)) { if (saving) LoadingIndicator(Modifier.size(20.dp), strokeWidth = 2.dp) else Text(if (profile == null) "Create profile" else "Save changes") } }
         }
     }
 }
@@ -4540,7 +4542,7 @@ private fun AddonManagerScreen(
                 }
             }
         }
-        if (busy) item { StaticLoadingIndicator(Modifier.padding(horizontal = 10.dp)) }
+        if (busy) item { LoadingIndicator(Modifier.padding(horizontal = 10.dp)) }
         }
     }
 }

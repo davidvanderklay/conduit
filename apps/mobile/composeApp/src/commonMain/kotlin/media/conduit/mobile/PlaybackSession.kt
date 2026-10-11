@@ -5,6 +5,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import media.conduit.mobile.account.CatalogItem
@@ -159,6 +160,18 @@ class PlaybackSessionController(
     private var activeAttemptId: Long? = null
     private val pendingPersistence = linkedMapOf<String, PendingPersistence>()
     private var persistenceJob: Job? = null
+    private var streamLookupJob: Job? = null
+
+    /** Sources remain usable after the details screen's composition and scope end. */
+    internal fun launchStreamLookup(block: suspend CoroutineScope.() -> Unit): Job {
+        cancelStreamLookup()
+        return scope.launch(start = CoroutineStart.LAZY, block = block).also { streamLookupJob = it }
+    }
+
+    private fun cancelStreamLookup() {
+        streamLookupJob?.cancel()
+        streamLookupJob = null
+    }
 
     val currentAttemptId: Long? get() = activeAttemptId
 
@@ -179,6 +192,7 @@ class PlaybackSessionController(
             "start session=${if (sameStream) state.sessionId else "new"} video=${request.identity.videoId} startMs=${request.startPositionMs} reload=${request.reloadKey} sameStream=$sameStream",
         )
         if (current != null && !sameStream) persist()
+        if (!sameStream) cancelStreamLookup()
         if (current?.p2pRequestId != null && current.p2pRequestId != request.p2pRequestId) {
             scope.launch { p2p.release(current.p2pRequestId) }
         }
@@ -235,6 +249,7 @@ class PlaybackSessionController(
     fun minimize(notifyOwner: Boolean = true) {
         if (state.request == null) return
         val hadStreamPicker = state.streamPicker != null
+        if (hadStreamPicker) cancelStreamLookup()
         persist()
         state = state.copy(
             presentation = PlaybackPresentation.Mini,
@@ -277,6 +292,7 @@ class PlaybackSessionController(
     }
 
     fun close(saveProgress: Boolean = true) {
+        cancelStreamLookup()
         val closingP2pId = p2p.activeRequestId
         if (closingP2pId != null) scope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
             kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) { p2p.release(closingP2pId) }
@@ -365,6 +381,7 @@ class PlaybackSessionController(
         }
         persist()
         activeAttemptId = ++attemptSequence
+        cancelStreamLookup()
         DiagnosticLogStore.info(
             "playback/transition",
             "begin attempt=$attemptSequence currentVideo=${state.request?.identity?.videoId} targetVideo=${identity?.videoId} title=$title",
@@ -420,6 +437,7 @@ class PlaybackSessionController(
     fun openQueue() {
         if (state.request == null) return
         val hadStreamPicker = state.streamPicker != null
+        if (hadStreamPicker) cancelStreamLookup()
         state = state.copy(episodePickerOpen = false, streamPicker = null, queueOpen = true)
         if (hadStreamPicker) callbacks?.closeStreamPicker?.invoke()
     }
@@ -464,12 +482,14 @@ class PlaybackSessionController(
     }
 
     fun closeStreamPicker() {
+        cancelStreamLookup()
         if (state.streamPicker == null) return
         state = state.copy(streamPicker = null)
         callbacks?.closeStreamPicker?.invoke()
     }
 
     fun backToEpisodes() {
+        cancelStreamLookup()
         if (state.streamPicker == null) return
         state = state.copy(
             streamPicker = null,

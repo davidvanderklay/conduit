@@ -525,7 +525,7 @@ private fun ConduitLoadingScreen(
 
 @Composable
 private fun ConduitLoadingIndicator(modifier: Modifier = Modifier) {
-    StaticLoadingIndicator(
+    LoadingIndicator(
         modifier = modifier.size(29.dp),
         color = Color(0xFFFBBF24),
         trackColor = Color.White.copy(alpha = .12f),
@@ -627,7 +627,7 @@ private fun SignInScreen(
             Text(if (recovering) "Enter one of the recovery codes you saved." else if (registering) "Create a private account for this conduit instance." else "Sign in to continue to your household.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
             if (authenticationLoading && !authenticationReady) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                    StaticLoadingIndicator(Modifier.size(17.dp), strokeWidth = 2.dp)
+                    LoadingIndicator(Modifier.size(17.dp), strokeWidth = 2.dp)
                     Text("Waking server…", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                 }
             }
@@ -699,7 +699,7 @@ private fun SignInScreen(
                 serverError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.End)) {
                     TextButton(onClick = { showServerDialog = false }, enabled = !serverPending) { Text("Cancel", color = Color.White.copy(.7f)) }
-                    Button(onClick = { onConnectServer(if (useDefault) DefaultServerEndpoint.baseUrl else customServer) }, enabled = !serverPending && (useDefault || customServer.isNotBlank())) { if (serverPending) { StaticLoadingIndicator(Modifier.size(18.dp), strokeWidth = 2.dp); Spacer(Modifier.width(8.dp)) }; Text(if (serverPending) "Checking…" else "Connect") }
+                    Button(onClick = { onConnectServer(if (useDefault) DefaultServerEndpoint.baseUrl else customServer) }, enabled = !serverPending && (useDefault || customServer.isNotBlank())) { if (serverPending) { LoadingIndicator(Modifier.size(18.dp), strokeWidth = 2.dp); Spacer(Modifier.width(8.dp)) }; Text(if (serverPending) "Checking…" else "Connect") }
                 }
               }
             }
@@ -806,7 +806,7 @@ private fun ServerSetup(state: AppState, dispatch: (AppAction) -> Unit) {
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     if (state.pendingEndpoint != null) {
-                        StaticLoadingIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                        LoadingIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                         Spacer(Modifier.width(8.dp))
                         Text("Checking server…")
                     } else {
