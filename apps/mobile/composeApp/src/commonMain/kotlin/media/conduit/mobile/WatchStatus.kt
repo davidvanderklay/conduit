@@ -52,9 +52,13 @@ internal fun posterWatchState(
     item: CatalogItem,
     episodeIds: List<String> = emptyList(),
 ): PosterWatchState {
+    // Poster composition runs while scrolling. Send only this title's history
+    // across the JSON bridge, rather than serializing the entire profile per card.
+    val mediaProgress = progress.filter { it.mediaType == item.type && it.mediaId == item.id }
+    if (mediaProgress.isEmpty()) return PosterWatchState.Unwatched
     return when (coreValue(buildJsonObject {
         put("type", "posterWatchState")
-        put("progress", ProtocolJson.encodeToJsonElement(progress))
+        put("progress", ProtocolJson.encodeToJsonElement(mediaProgress))
         put("mediaType", item.type)
         put("mediaId", item.id)
         put("episodeIds", ProtocolJson.encodeToJsonElement(episodeIds))
