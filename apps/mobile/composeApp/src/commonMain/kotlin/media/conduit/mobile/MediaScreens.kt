@@ -557,10 +557,15 @@ internal fun SearchDiscoverScreen(
         } else {
             LazyColumn(
                 state = listState,
+                modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(top = 8.dp, bottom = 112.dp),
                 verticalArrangement = Arrangement.spacedBy(18.dp),
             ) {
-                if (searchLoading) item { LoadingIndicator(Modifier.padding(8.dp)) }
+                if (searchLoading) item {
+                    Box(Modifier.fillParentMaxSize(), contentAlignment = Alignment.Center) {
+                        LoadingIndicator()
+                    }
+                }
                 if (!searchLoading && results.isEmpty()) item { EmptyBrowseState("No results for “$query”.") }
                 results.forEach { catalog ->
                     item(key = "search-heading-${catalog.key}-$query") {
