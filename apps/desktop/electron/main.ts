@@ -19,6 +19,7 @@ import { createRequire } from "node:module"
 import { pathToFileURL } from "node:url"
 import { DesktopUpdates } from "./updates"
 import { createPlaybackInhibitor } from "./playback-inhibition"
+import { installWindowsTitleBar } from "./windows-titlebar"
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -782,6 +783,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
       preload: path.join(__dirname, "preload.js"),
     },
   })
+  installWindowsTitleBar(window)
   // Remove the default File/Edit/View/Window menu bar on Linux/Windows
   window.removeMenu()
   Menu.setApplicationMenu(null)
