@@ -12,7 +12,7 @@ axum = { version = "0.8", default-features = false, features = ["http1", "tokio"
 futures-core = "0.3"
 fs2 = "0.4"
 librqbit = { version = "=9.0.1", default-features = false, features = ["rust-tls", "disable-upload"] }
-rand = "0.9"
+rand = "0.10"
 serde = { version = "1", features = ["derive"] }
 tempfile = "3"
 tokio = { version = "1", features = ["rt-multi-thread", "net", "sync", "time", "io-util", "macros", "signal"] }
