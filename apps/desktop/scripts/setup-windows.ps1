@@ -6,9 +6,10 @@ $DllPath = Join-Path $LibMpvDir "libmpv-2.dll"
 $DefPath = Join-Path $LibMpvDir "mpv.def"
 $ImportLibraryPath = Join-Path $LibMpvDir "mpv.lib"
 
-# Harbor publishes this known-good libmpv build for its Windows client.
+# Conduit mirrors this known-good libmpv build (originally Harbor's) as a
+# release asset so the pin cannot disappear with an upstream repository.
 # Override both values together when intentionally updating the runtime.
-$DefaultUrl = "https://github.com/harborstremio/harbor/releases/download/mpvdll/libmpv-2.dll"
+$DefaultUrl = "https://github.com/davidvanderklay/conduit/releases/download/deps/libmpv-2-e9c87d19/libmpv-2.dll"
 $DefaultSha256 = "E9C87D19055BC5A82771B2B48E9FBAE047BD5180603F5A1AAAE10C90CA690467"
 $DownloadUrl = if ($env:CONDUIT_LIBMPV_URL) { $env:CONDUIT_LIBMPV_URL } else { $DefaultUrl }
 $ExpectedSha256 = if ($env:CONDUIT_LIBMPV_SHA256) { $env:CONDUIT_LIBMPV_SHA256 } else { $DefaultSha256 }
