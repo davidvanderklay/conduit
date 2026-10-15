@@ -1043,9 +1043,7 @@ private fun AppShell(
         BoxWithConstraints(Modifier.fillMaxSize()) {
         // A rotated phone can be wider than 720dp while still having very little
         // vertical room. Treat only genuinely large windows as the expanded
-        // layout so rotation does not move the active screen to a new branch and
-        // discard transient state such as the selected playback stream. Large
-        // windows default to the bottom bar; the side rail returns only when
+        // layout so rotated phones keep the bottom bar. Large windows default to the bottom bar; the side rail returns only when
         // opted into via preferences, and small windows always fall back to it.
         val expanded = maxWidth >= 720.dp && maxHeight >= 600.dp && preferences.railOnTablets
         val snackbarHostState = remember { SnackbarHostState() }
@@ -1293,62 +1291,44 @@ private fun AppShell(
             },
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
         ) { padding ->
-            if (expanded) {
-                Row(Modifier.fillMaxSize().padding(padding)) {
-                    if (selectedMedia == null) {
-                        NavigationRail {
-                            Spacer(Modifier.height(16.dp))
-                            AppDestination.entries.filter(AppDestination::showInNavigation).forEach { destination ->
-                                NavigationRailItem(
-                                    selected = state.destination == destination ||
-                                        (state.destination == AppDestination.Calendar && destination == AppDestination.Library),
-                                    onClick = { navigateMain(destination) },
-                                    icon = { Icon(destination.icon, destination.label) },
-                                    label = { Text(destination.label) },
-                                )
-                            }
+            // Keep one tree for both layouts so crossing the rail breakpoint (for
+            // example entering iPad Split View) only toggles the rail instead of
+            // remounting the active screen and replaying its original playback intent.
+            Row(Modifier.fillMaxSize().padding(padding)) {
+                if (expanded && selectedMedia == null) {
+                    NavigationRail {
+                        Spacer(Modifier.height(16.dp))
+                        AppDestination.entries.filter(AppDestination::showInNavigation).forEach { destination ->
+                            NavigationRailItem(
+                                selected = state.destination == destination ||
+                                    (state.destination == AppDestination.Calendar && destination == AppDestination.Library),
+                                onClick = { navigateMain(destination) },
+                                icon = { Icon(destination.icon, destination.label) },
+                                label = { Text(destination.label) },
+                            )
                         }
                     }
-                    Box(Modifier.weight(1f)) {
-                        DestinationContent(
-                            state, platform, account, activeProfile, profileSync, api, selectedMedia,
-                            selectedVideoId, selectedMediaReturnsToOrigin, selectedMediaOpenMode,
-                            openMedia, openLibraryEntry, openContinueWatching, openContinueWatchingDetails, openQueuedItem,
-                            closeSelectedMedia, closeSelectedMediaInteractively, cancelSelectedMediaInteractiveClose, dispatch, onSignOut, onProfilesChanged,
-                            { profileFlowActive = it },
-                            refreshProfileData,
-                            progressOutbox,
-                            onPlaybackProgressChanged,
-                            ::mutateProfile,
-                            browseQuery, { browseQuery = it }, discoverSelection, { discoverSelection = it }, openBrowse,
-                            { openProfile(ProfileLaunchTarget.History, returnToLibrary = true) },
-                            preferences, onPreferencesChanged, shareText, homeListState, searchListState, discoverGridState, libraryGridState, continueWatchingGridState, settingsListState,
-                            homeCache,
-                            profileLaunchRequest,
-                            playbackSession,
-                            Modifier.fillMaxSize(),
-                        )
-                    }
                 }
-            } else {
-                DestinationContent(
-                    state, platform, account, activeProfile, profileSync, api, selectedMedia,
-                    selectedVideoId, selectedMediaReturnsToOrigin, selectedMediaOpenMode,
-                            openMedia, openLibraryEntry, openContinueWatching, openContinueWatchingDetails, openQueuedItem,
-                            closeSelectedMedia, closeSelectedMediaInteractively, cancelSelectedMediaInteractiveClose, dispatch, onSignOut, onProfilesChanged,
-                            { profileFlowActive = it },
-                            refreshProfileData,
-                            progressOutbox,
-                            onPlaybackProgressChanged,
-                    ::mutateProfile,
-                    browseQuery, { browseQuery = it }, discoverSelection, { discoverSelection = it }, openBrowse,
-                    { openProfile(ProfileLaunchTarget.History, returnToLibrary = true) },
-                    preferences, onPreferencesChanged, shareText, homeListState, searchListState, discoverGridState, libraryGridState, continueWatchingGridState, settingsListState,
-                    homeCache,
-                    profileLaunchRequest,
-                    playbackSession,
-                    Modifier.padding(padding),
-                )
+                Box(Modifier.weight(1f)) {
+                    DestinationContent(
+                        state, platform, account, activeProfile, profileSync, api, selectedMedia,
+                        selectedVideoId, selectedMediaReturnsToOrigin, selectedMediaOpenMode,
+                        openMedia, openLibraryEntry, openContinueWatching, openContinueWatchingDetails, openQueuedItem,
+                        closeSelectedMedia, closeSelectedMediaInteractively, cancelSelectedMediaInteractiveClose, dispatch, onSignOut, onProfilesChanged,
+                        { profileFlowActive = it },
+                        refreshProfileData,
+                        progressOutbox,
+                        onPlaybackProgressChanged,
+                        ::mutateProfile,
+                        browseQuery, { browseQuery = it }, discoverSelection, { discoverSelection = it }, openBrowse,
+                        { openProfile(ProfileLaunchTarget.History, returnToLibrary = true) },
+                        preferences, onPreferencesChanged, shareText, homeListState, searchListState, discoverGridState, libraryGridState, continueWatchingGridState, settingsListState,
+                        homeCache,
+                        profileLaunchRequest,
+                        playbackSession,
+                        Modifier.fillMaxSize(),
+                    )
+                }
             }
         }
         val initialLoading = activeProfile != null && selectedMedia == null &&
