@@ -92,3 +92,12 @@ jobs:
         run: |
           node scripts/publish-component-release.mjs
           bash scripts/upload-release-assets.sh "$RELEASE_TAG" artifacts/*
+
+  update-feed:
+    if: github.event_name == 'push'
+    needs: [prepare, publish]
+    uses: ./.github/workflows/publish-update-feed.yml
+    with:
+      component: ios
+      release_tag: ${{ needs.prepare.outputs.tag }}
+      revision: ${{ needs.prepare.outputs.revision }}

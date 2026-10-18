@@ -15,6 +15,25 @@ const release = (component, version) => ({
   published_at: "2026-10-04T00:00:00Z",
   assets: [],
 })
+for (const component of ["android", "ios"]) {
+  test(`${component} nightly publication records the revision without desktop metadata`, () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "conduit-mobile-feed-test-"))
+    try {
+      const candidate = release(component, "0.1.5-nightly.20261018.14")
+      writeFeeds(candidate, component, directory)
+      const summary = JSON.parse(
+        fs.readFileSync(path.join(directory, component, "nightly/updates.json"), "utf8"),
+      )
+      assert.equal(summary.component, component)
+      assert.equal(summary.commit, candidate.commit)
+      assert.equal(summary.version, candidate.version)
+      assert.equal(fs.existsSync(path.join(directory, component, "stable")), false)
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true })
+    }
+  })
+}
+
 test("component feeds stay isolated, never move backward, and stable can supersede nightly", () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "conduit-feed-test-"))
   try {
