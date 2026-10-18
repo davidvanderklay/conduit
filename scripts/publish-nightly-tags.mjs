@@ -4,6 +4,24 @@ import { valid, gt, rcompare } from "semver"
 
 const git = (...args) => execFileSync("git", args, { encoding: "utf8" }).trim()
 const versions = JSON.parse(fs.readFileSync("releases/nightly-versions.json", "utf8"))
+const mobileInputs = [
+  "apps/mobile/composeApp/src/commonMain",
+  "apps/mobile/composeApp/src/p2pEnabled",
+  "apps/mobile/composeApp/src/p2pDisabled",
+  "apps/mobile/composeApp/build.gradle.kts",
+  "apps/mobile/build.gradle.kts",
+  "apps/mobile/settings.gradle.kts",
+  "apps/mobile/gradle.properties",
+  "apps/mobile/gradle",
+  "apps/mobile/gradlew",
+  "apps/mobile/gradlew.bat",
+  "apps/mobile/scripts/p2p-build.sh",
+  "packages/core",
+  "packages/mobile-bridge",
+  "packages/p2p",
+  "Cargo.toml",
+  "Cargo.lock",
+]
 const inputs = {
   server: [
     "apps/server",
@@ -15,6 +33,21 @@ const inputs = {
   ],
   web: ["apps/web", "packages/core", "packages/updates", "Dockerfile", "docker"],
   desktop: ["apps/desktop", "apps/web", "packages/core", "packages/updates", "flatpak"],
+  android: [
+    ...mobileInputs,
+    "apps/mobile/composeApp/src/androidMain",
+    "apps/mobile/composeApp/src/androidP2p",
+    "apps/desktop/icons/android",
+    "apps/mobile/scripts/build-rust-android.sh",
+  ],
+  ios: [
+    ...mobileInputs,
+    "apps/mobile/composeApp/src/iosMain",
+    "apps/mobile/composeApp/src/nativeInterop",
+    "apps/mobile/iosApp",
+    "apps/mobile/scripts/build-rust-ios.sh",
+    "apps/mobile/scripts/package-ios-ipa.sh",
+  ],
 }
 const date = new Date().toISOString().slice(0, 10).replaceAll("-", "")
 const run = process.env.GITHUB_RUN_NUMBER

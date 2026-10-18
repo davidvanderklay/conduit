@@ -111,11 +111,12 @@ Existing release assets cannot be replaced. A changed artifact requires a new
 version; manual packaging runs produce workflow artifacts without publishing.
 
 The scheduled Nightly workflow runs daily at 07:00 UTC and supports a manual run.
-It selects changed server, web and desktop components against their last published
+It selects changed server, web, desktop, Android and iOS components against their last published
 feed revision. Failed or unpublished tags do not count as a successful build.
 Each component's next planned version is in `releases/nightly-versions.json`.
 Advance its base after promoting that version to Stable. Skip unchanged components.
-Mobile nightly scheduling and mobile updater UI remain outside this first version.
+Mobile releases record their revision only after their APK or IPA and checksum
+finish uploading. Mobile updater UI remains outside this first version.
 
 ### Repository secrets
 
