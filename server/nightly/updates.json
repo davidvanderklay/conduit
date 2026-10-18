@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "component": "server",
   "track": "nightly",
-  "version": "0.1.5-nightly.20261018.14",
-  "commit": "1af984cb7763a225eb7d9afbae9e607b928b163a",
-  "publishedAt": "2026-10-18T23:09:48Z",
-  "notesUrl": "https://github.com/davidvanderklay/conduit/releases/tag/server%2Fv0.1.5-nightly.20261018.14",
+  "version": "0.1.5-nightly.20261018.15",
+  "commit": "75d1375bdfcae0560ee49713525ad12c0ea972c7",
+  "publishedAt": "2026-10-18T23:32:42Z",
+  "notesUrl": "https://github.com/davidvanderklay/conduit/releases/tag/server%2Fv0.1.5-nightly.20261018.15",
   "apiLevel": 1,
   "minimumApiLevel": 1
 }
