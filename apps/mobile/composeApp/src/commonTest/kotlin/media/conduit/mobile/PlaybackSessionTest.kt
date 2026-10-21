@@ -553,6 +553,20 @@ class PlaybackSessionTest {
         assertFalse(controller.state.episodePickerOpen)
         assertEquals(request, controller.state.request)
         assertEquals("episode-2", controller.state.streamPicker?.episode?.id)
+        assertNull(controller.state.transition, "Browsing episode sources must keep the current player mounted")
+        assertNull(controller.state.command, "Browsing sources must not pause playback")
+
+        controller.closeStreamPicker()
+        assertEquals(request, controller.state.request)
+        assertNull(controller.state.transition)
+
+        controller.openEpisodes()
+        controller.selectEpisode("episode-2")
+        controller.selectStream(
+            StreamSource("addon", "Addon", StreamItem(url = "https://example.test/episode-2.m3u8")),
+        )
+        assertEquals("episode-2", controller.state.transition?.identity?.videoId)
+        assertEquals(PlaybackCommand.Pause, controller.state.command?.command)
     }
 
     @Test

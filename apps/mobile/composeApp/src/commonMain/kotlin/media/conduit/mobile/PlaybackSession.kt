@@ -561,15 +561,6 @@ class PlaybackSessionController(
         if (partyGuest) return
         if (state.request == null) return
         closeEpisodes()
-        val request = state.request ?: return
-        val episode = request.episodes.firstOrNull { it.id == videoId }
-        beginTransition(
-            title = episode?.displayTitle ?: request.title,
-            mediaName = request.mediaName,
-            artwork = request.artwork,
-            logo = request.logo,
-            identity = request.identity.copy(videoId = videoId),
-        )
         callbacks?.selectEpisode?.invoke(videoId)
     }
 
