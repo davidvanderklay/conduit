@@ -24,7 +24,7 @@
     "test:updates": "pnpm --filter @conduit/updates build && vp test run packages/updates/src apps/server/src/updates.test.ts apps/server/src/route-modules/update-routes.test.ts apps/desktop/electron/updates.test.ts"
   },
   "devDependencies": {
-    "@voidzero-dev/vite-plus-core": "0.3.3",
+    "@voidzero-dev/vite-plus-core": "1.1.0",
     "@voidzero-dev/vite-plus-test": "0.1.24",
     "semver": "7.8.5",
     "vite-plus": "1.1.0",
