@@ -22,6 +22,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.filters.SdkSuppress
 import media.conduit.mobile.account.ConduitApi
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertEquals
 import org.junit.Assume.assumeTrue
 import org.junit.After
 import org.junit.Rule
@@ -91,6 +92,11 @@ class WatchPartySafeAreaTest {
         assumeTrue("Requires landscape with a display cutout", root.width > root.height && cutout != null && (cutout.safeInsetRight > 0 || cutout.safeInsetLeft > 0))
         val safeRight = root.width - cutout!!.safeInsetRight
         assertTrue("Close button $bounds overlaps the right display cutout ${cutout.safeInsetRight}", bounds.right <= safeRight)
+        val density = compose.activity.resources.displayMetrics.density
+        val panelLeft = root.width - minOf(root.width * .9f, 384 * density)
+        val heading = compose.onNodeWithText("Watch together", useUnmergedTree = true).fetchSemanticsNode().boundsInWindow
+        // The sidebar's inner edge is inside the screen, so it only needs its normal padding and icon gap.
+        assertEquals("Screen-edge insets should not indent the sidebar's inner edge", panelLeft + (24 + 22 + 12) * density, heading.left, density)
         val household = compose.onNodeWithText("Household").fetchSemanticsNode().boundsInWindow
         assertTrue("Party options overlap the cutout", household.left >= cutout.safeInsetLeft && household.right <= safeRight)
         val invite = compose.onNodeWithText("Paste invite link").fetchSemanticsNode().boundsInWindow
