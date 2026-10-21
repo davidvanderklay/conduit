@@ -85,7 +85,8 @@ internal fun BoxScope.WatchPartySheet(controller: WatchPartySessionController, a
                 shape = if (sidebar) RoundedCornerShape(topStart = 28.dp, bottomStart = 28.dp) else RoundedCornerShape(20.dp),
                 shadowElevation = 20.dp,
             ) {
-                Column(Modifier.fillMaxWidth().then(if (sidebar) Modifier.fillMaxHeight().statusBarsPadding().navigationBarsPadding() else Modifier).padding(horizontal = 24.dp, vertical = if (sidebar) 12.dp else 24.dp).focusRequester(panelFocus).focusTrap(enabled = tv != null)) {
+                // Keep controls clear of landscape notches even when the player's system bars are hidden.
+                Column(Modifier.fillMaxWidth().then(if (sidebar) Modifier.fillMaxHeight().safeDrawingPadding() else Modifier).padding(horizontal = 24.dp, vertical = if (sidebar) 12.dp else 24.dp).focusRequester(panelFocus).focusTrap(enabled = tv != null)) {
                     Row(Modifier.fillMaxWidth().padding(bottom = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Rounded.People, null, tint = partyAmber, modifier = Modifier.size(22.dp))
                         Spacer(Modifier.width(12.dp))
