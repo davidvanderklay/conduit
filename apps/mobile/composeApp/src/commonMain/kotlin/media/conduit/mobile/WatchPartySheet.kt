@@ -78,6 +78,7 @@ internal fun BoxScope.WatchPartySheet(controller: WatchPartySessionController, a
             val sidebar = inPlayer && maxWidth > maxHeight
             val panelWidth = (maxWidth * .9f).coerceAtMost(384.dp)
             val modalMaxHeight = (maxHeight - 48.dp).coerceAtLeast(240.dp)
+            val sidebarInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.End + WindowInsetsSides.Vertical)
             Surface(
                 modifier = if (sidebar) Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(panelWidth) else Modifier.align(Alignment.Center).width(panelWidth).heightIn(max = modalMaxHeight),
                 color = if (inPlayer) Color(0xF21A1A1D) else Color.Black,
@@ -85,8 +86,8 @@ internal fun BoxScope.WatchPartySheet(controller: WatchPartySessionController, a
                 shape = if (sidebar) RoundedCornerShape(topStart = 28.dp, bottomStart = 28.dp) else RoundedCornerShape(20.dp),
                 shadowElevation = 20.dp,
             ) {
-                // Keep controls clear of landscape notches even when the player's system bars are hidden.
-                Column(Modifier.fillMaxWidth().then(if (sidebar) Modifier.fillMaxHeight().safeDrawingPadding() else Modifier).padding(horizontal = 24.dp, vertical = if (sidebar) 12.dp else 24.dp).focusRequester(panelFocus).focusTrap(enabled = tv != null)) {
+                // The sidebar touches the outer screen edge; its inner edge only needs normal padding.
+                Column(Modifier.fillMaxWidth().then(if (sidebar) Modifier.fillMaxHeight().windowInsetsPadding(sidebarInsets) else Modifier).padding(horizontal = 24.dp, vertical = if (sidebar) 12.dp else 24.dp).focusRequester(panelFocus).focusTrap(enabled = tv != null)) {
                     Row(Modifier.fillMaxWidth().padding(bottom = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Rounded.People, null, tint = partyAmber, modifier = Modifier.size(22.dp))
                         Spacer(Modifier.width(12.dp))
