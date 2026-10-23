@@ -232,22 +232,21 @@ player takes ownership of both landscape orientations and restores portrait
 when playback closes. For a device build, select a development team in Xcode.
 No signing identity is committed to the repository.
 
-iOS playback mixes with other apps while protected data is available. When
-protected data locks, both the host audio session and mpv switch to exclusive
-playback so Conduit can show lock-screen controls. Unlocking restores mixing;
-it does not automatically resume another app that iOS paused. Control Center
-controls are unavailable while mixing. The lock signal requires a device
-passcode and may arrive about 10 seconds after locking, depending on the device's
-data protection settings. Devices without a passcode keep exclusive playback
-so lock-screen controls remain available.
+iOS Settings > Playback > Player includes **Play audio alongside other apps**.
+It is off by default and saved on this device. Off uses exclusive playback
+so Conduit can show lock-screen and Control Center controls. On mixes with
+other apps, including while locked, and disables those system controls.
+Changing the setting updates the active player without reloading the stream.
+Both the host audio session and mpv use the selected policy; locking and
+unlocking no longer change it.
 
-To check this handoff on a physical device, start audio in another app, play
-Conduit, and confirm both remain audible after switching apps or entering PiP.
-Lock the device and wait for data protection to engage. Confirm the other audio
-stops and Conduit's lock-screen play, pause, and seek controls work. Unlock and
-start the other audio again to confirm mixing returns. Repeat after pausing
-Conduit while locked, and with an audio-track change to exercise mpv output
-reinitialization.
+To check this on a physical device, enable the setting, start audio in another
+app, then play Conduit. Confirm both remain audible after switching apps,
+entering PiP, and locking the device. Disable it and confirm Conduit's
+lock-screen play, pause, and seek controls work. Repeat with an audio-track
+change to exercise mpv output reinitialization, and reopen the app to confirm
+the preference persists. Turning mixing back on does not automatically resume
+audio paused in another app.
 
 Exercise the same account, profile, add-on, catalog, playback, progress,
 subtitle, audio, and OAuth cases as Android. Also test background/foreground,

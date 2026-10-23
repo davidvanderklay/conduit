@@ -29,6 +29,7 @@ interface IosPlayerBridge {
     fun seekBy(offsetMs: Long)
     fun setPlaybackSpeed(speed: Float)
     fun setMuted(muted: Boolean)
+    fun setAudioMixingEnabled(enabled: Boolean)
     /** Preferred languages arrive as resolved codes; blank means no preference. */
     fun setPreferredAudioLanguage(language: String)
     fun setSubtitlePreferences(primary: String, secondary: String?, resolved: Boolean)

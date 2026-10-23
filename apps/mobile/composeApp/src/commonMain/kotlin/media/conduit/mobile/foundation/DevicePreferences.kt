@@ -65,6 +65,7 @@ data class DevicePreferences(
     val resumeBehavior: ResumeBehavior = ResumeBehavior.Ask,
     val readAheadSeconds: Int? = null,
     val hardwareDecoding: Boolean = true,
+    val mixAudioWithOtherApps: Boolean = false,
     val androidPlaybackEngine: AndroidPlaybackEngine = AndroidPlaybackEngine.Automatic,
     val rememberLastProfile: Boolean = true,
     val debugLogging: Boolean = false,
@@ -114,6 +115,7 @@ class DevicePreferencesRepository(private val store: SettingsStore) {
             ?: if (store.get(prefix + "amoled") != null) ResumeBehavior.Always else ResumeBehavior.Ask,
         readAheadSeconds = store.get(prefix + "read-ahead-seconds")?.toIntOrNull()?.coerceIn(10, 120),
         hardwareDecoding = bool("hardware-decoding", true),
+        mixAudioWithOtherApps = bool("mix-audio-with-other-apps", false),
         rememberLastProfile = bool("remember-profile", true),
         debugLogging = bool("debug-logging", false),
     )
@@ -144,6 +146,7 @@ class DevicePreferencesRepository(private val store: SettingsStore) {
         store.put(prefix + "resume-behavior", value.resumeBehavior.name)
         store.put(prefix + "read-ahead-seconds", value.readAheadSeconds?.toString().orEmpty())
         store.put(prefix + "hardware-decoding", value.hardwareDecoding.toString())
+        store.put(prefix + "mix-audio-with-other-apps", value.mixAudioWithOtherApps.toString())
         store.put(prefix + "remember-profile", value.rememberLastProfile.toString())
         store.put(prefix + "debug-logging", value.debugLogging.toString())
         return value

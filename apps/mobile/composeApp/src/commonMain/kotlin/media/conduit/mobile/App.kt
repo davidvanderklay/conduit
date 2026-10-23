@@ -2034,7 +2034,7 @@ private fun BoxScope.PlaybackSessionHost(
             androidPlaybackEngine = preferences.androidPlaybackEngine,
             playbackTuning = remember(session.sessionId) {
                 PlaybackTuning(preferences.readAheadSeconds, preferences.hardwareDecoding)
-            },
+            }.copy(mixAudioWithOtherApps = preferences.mixAudioWithOtherApps),
             onControlsVisibilityChanged = { if (tv == null) controlsVisible = it },
             onOverlayVisibilityChanged = { playerOverlayVisible = it },
             onTemporarySpeedChanged = { temporarySpeedActive = it },
