@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "component": "desktop",
   "track": "nightly",
-  "version": "0.1.5-nightly.20261012.1",
-  "commit": "6526393d51115860650c269065bacc1894ba84a7",
-  "publishedAt": "2026-10-12T08:58:44Z",
-  "notesUrl": "https://github.com/davidvanderklay/conduit/releases/tag/desktop%2Fv0.1.5-nightly.20261012.1",
+  "version": "0.1.5",
+  "commit": "52b6b5e43e8c03c9ab8bf66ca94fd4bb56285d9e",
+  "publishedAt": "2026-10-23T07:58:23Z",
+  "notesUrl": "https://github.com/davidvanderklay/conduit/releases/tag/desktop%2Fv0.1.5",
   "apiLevel": 1,
   "minimumApiLevel": 1
 }

@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "component": "desktop",
+  "track": "stable",
+  "version": "0.1.5",
+  "commit": "52b6b5e43e8c03c9ab8bf66ca94fd4bb56285d9e",
+  "publishedAt": "2026-10-23T07:58:23Z",
+  "notesUrl": "https://github.com/davidvanderklay/conduit/releases/tag/desktop%2Fv0.1.5",
+  "apiLevel": 1,
+  "minimumApiLevel": 1
+}

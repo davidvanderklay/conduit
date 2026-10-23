@@ -1,0 +1,8 @@
+version: 0.1.5
+files:
+  - url: https://github.com/davidvanderklay/conduit/releases/download/desktop/v0.1.5/conduit-0.1.5-windows-x64.exe
+    sha512: mrUW9xqUxem35RYjdR8E9hPpjrZLd9v0zPIl9seSZ+1NFcQwekRb18jEQmJnFPUZNJymfh6Ebt1IEjcAvSGFlA==
+    size: 145041757
+path: https://github.com/davidvanderklay/conduit/releases/download/desktop/v0.1.5/conduit-0.1.5-windows-x64.exe
+sha512: mrUW9xqUxem35RYjdR8E9hPpjrZLd9v0zPIl9seSZ+1NFcQwekRb18jEQmJnFPUZNJymfh6Ebt1IEjcAvSGFlA==
+releaseDate: 2026-10-23T07:58:23Z

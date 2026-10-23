@@ -1,0 +1,29 @@
+version: 0.1.5
+files:
+  - url: https://github.com/davidvanderklay/conduit/releases/download/desktop/v0.1.5/conduit-0.1.5-macos-x64.zip
+    sha512: 7T83wTPyv1gTE2d1XngxJisXb8wHPZOMHzV1wW5ohhjBfC+3rl16YO6rwwy2OTAOXs3OW9Ey6LTECIsPAaXmeQ==
+    size: 132994838
+  - url: https://github.com/davidvanderklay/conduit/releases/download/desktop/v0.1.5/conduit-0.1.5-macos-arm64.zip
+    sha512: BWJzpaEVD9+mdOGD0aUcVIAH/7Xix5LR0ClR5wjUmtOqfaD/6PQsSCEyVMQ9npWxUqq6YsmQglePwgFF351dhA==
+    size: 129265238
+  - url: https://github.com/davidvanderklay/conduit/releases/download/desktop/v0.1.5/conduit-0.1.5-macos-x64.dmg
+    sha512: qWBi6WimxNClyJ7Fc6V901fv75mqXaHc+TC4IKa3hvhawiTju4QvstTCjbFIH4YF3lT2QPLcQfmvuQDS2B8hiQ==
+    size: 132893370
+  - url: https://github.com/davidvanderklay/conduit/releases/download/desktop/v0.1.5/conduit-0.1.5-macos-arm64.dmg
+    sha512: VXg3BxZ0Vyp9j1ezWdXd59r48xNET32CvkWnDvZRktNO1EJJkiLMvpIkaKDV5DF2ZRyxc4L2dvjeGLx0JQFqlw==
+    size: 129188572
+  - url: https://github.com/davidvanderklay/conduit/releases/download/desktop/v0.1.5/conduit-0.1.5-macos-x64.zip
+    sha512: Aus19kN9dL49A8iN/RZr7DvgddqZ/AO5XJsWOAr0z765YIQR1uoS17F8TJgircFda8pkl4kZw2q2KW+OlNeXuA==
+    size: 133007051
+  - url: https://github.com/davidvanderklay/conduit/releases/download/desktop/v0.1.5/conduit-0.1.5-macos-arm64.zip
+    sha512: 562O7jDrG4zQr751LZvHfYt13AMOCc6suWq8opEWJuYCI90d0p05HLaCeaB1/5fHQSAH/F7zegoc8p6Y1CrRCg==
+    size: 129277451
+  - url: https://github.com/davidvanderklay/conduit/releases/download/desktop/v0.1.5/conduit-0.1.5-macos-x64.dmg
+    sha512: G223cXPcU+sPlogmOmnh4+NOqG2GtTNuy6ZpugSehvhJ1qf7wXQK8Kr6K/qfyoSEyfWbim61UVljfM6cZvUXvQ==
+    size: 132902884
+  - url: https://github.com/davidvanderklay/conduit/releases/download/desktop/v0.1.5/conduit-0.1.5-macos-arm64.dmg
+    sha512: ollCoD8uAjWeMJg/DmqdQxFgFYIewmXkaj5eLnlfEBG9qj1W+ITGKky3zQ4RaY4e9i/icxduu603c3IP84ttCw==
+    size: 129200752
+path: https://github.com/davidvanderklay/conduit/releases/download/desktop/v0.1.5/conduit-0.1.5-macos-x64.zip
+sha512: 7T83wTPyv1gTE2d1XngxJisXb8wHPZOMHzV1wW5ohhjBfC+3rl16YO6rwwy2OTAOXs3OW9Ey6LTECIsPAaXmeQ==
+releaseDate: 2026-10-23T07:58:23Z
