@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "component": "server",
+  "track": "stable",
+  "version": "0.1.5",
+  "commit": "4212a231ca0f8fe44166fbd4b20dc3d3d288c479",
+  "publishedAt": "2026-10-23T07:28:45Z",
+  "notesUrl": "https://github.com/davidvanderklay/conduit/releases/tag/server%2Fv0.1.5",
+  "apiLevel": 1,
+  "minimumApiLevel": 1
+}
