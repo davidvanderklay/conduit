@@ -8,23 +8,25 @@ import Security
 import UIKit
 import UniformTypeIdentifiers
 
-/// Playback owns the device audio session exclusively. iOS only shows lock
-/// screen and Control Center controls for a non-mixable session, so adding
-/// `.mixWithOthers` here silently hides the Now Playing item.
+/// Mix while unlocked, then claim Now Playing when protected data locks.
+/// iOS requires non-mixable audio for lock screen and Control Center controls.
 enum ConduitAudioSession {
     /// The default ~21ms IO buffer cannot absorb transient system stalls
     /// (PiP window composition, screenshot flashes) without audible
     /// underruns. 60ms of headroom is imperceptible for video playback.
     private static let ioBufferDuration: TimeInterval = 0.06
 
-    static func configureForPlayback(_ session: AVAudioSession = AVAudioSession.sharedInstance()) throws {
-        try session.setCategory(.playback, mode: .moviePlayback)
+    static func configureForPlayback(
+        _ session: AVAudioSession = AVAudioSession.sharedInstance(),
+        mixWithOthers: Bool
+    ) throws {
+        try session.setCategory(.playback, mode: .moviePlayback, options: mixWithOthers ? [.mixWithOthers] : [])
         try session.setPreferredIOBufferDuration(ioBufferDuration)
     }
 
-    static func activateForPlayback() throws {
+    static func activateForPlayback(mixWithOthers: Bool) throws {
         let session = AVAudioSession.sharedInstance()
-        try configureForPlayback(session)
+        try configureForPlayback(session, mixWithOthers: mixWithOthers)
         try session.setActive(true)
     }
 
