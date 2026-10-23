@@ -4,6 +4,7 @@ import ComposeApp
 import CoreText
 import Foundation
 import Libmpv
+import LocalAuthentication
 import UIKit
 
 fileprivate struct ConduitSubtitle {
@@ -515,6 +516,8 @@ final class ConduitMPVPlayerViewController: UIViewController {
     private var initialVideoOutputUptime: TimeInterval?
     private var destroyStarted = false
     private var audioSessionActivationRequested = false
+    private var audioMixingEnabled = UIApplication.shared.isProtectedDataAvailable &&
+        LAContext().canEvaluatePolicy(.deviceOwnerAuthentication, error: nil)
     private var resizeMode = 0
     private var automaticPipHomeSwipeCandidate = false
     private var automaticPipHomeSwipeEdge: AutomaticPipSwipeEdge?
@@ -571,6 +574,16 @@ final class ConduitMPVPlayerViewController: UIViewController {
         setupMpv()
         pictureInPicture = ConduitPictureInPictureCoordinator(owner: self, metalLayer: metalLayer)
         configureAudioSession()
+        lifecycleObservers.append(NotificationCenter.default.addObserver(
+            forName: UIApplication.protectedDataWillBecomeUnavailableNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in self?.updateAudioMixing(enabled: false) })
+        lifecycleObservers.append(NotificationCenter.default.addObserver(
+            forName: UIApplication.protectedDataDidBecomeAvailableNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in self?.updateAudioMixing(enabled: true) })
         lifecycleObservers.append(NotificationCenter.default.addObserver(
             forName: UIApplication.willResignActiveNotification,
             object: nil,
@@ -1738,10 +1751,9 @@ final class ConduitMPVPlayerViewController: UIViewController {
         setOptionString(mpv, name: "hwdec-software-fallback", value: "yes")
 #endif
         setOptionString(mpv, name: "ao", value: Self.audioOutput)
-        // mpv's AudioUnit output reconfigures the shared session when it
-        // starts and adds `.mixWithOthers` unless audio is exclusive. A
-        // mixable session never gets lock screen controls.
-        setOptionString(mpv, name: "audio-exclusive", value: "yes")
+        // AudioUnit also configures the shared session on every output init.
+        // Keep mpv's policy aligned with our lock/unlock policy.
+        setOptionString(mpv, name: "audio-exclusive", value: audioMixingEnabled ? "no" : "yes")
         setOptionString(mpv, name: "audio-channels", value: "auto")
         setOptionString(mpv, name: "audio-fallback-to-null", value: "yes")
         // Default sync compensation duplicates/truncates audio fragments when
@@ -2478,11 +2490,32 @@ final class ConduitMPVPlayerViewController: UIViewController {
         if Thread.isMainThread { action() } else { DispatchQueue.main.async(execute: action) }
     }
 
+    private func updateAudioMixing(enabled: Bool) {
+        // Without a passcode iOS never reports protected-data locking. Keep
+        // exclusive playback there so lock screen controls remain available.
+        let enabled = enabled && LAContext().canEvaluatePolicy(.deviceOwnerAuthentication, error: nil)
+        guard !destroyStarted, audioMixingEnabled != enabled else { return }
+        audioMixingEnabled = enabled
+        // Updating this option reinitializes mpv's audio output. Set it even
+        // while paused so the next output init uses the current policy.
+        setStringProperty("audio-exclusive", enabled ? "no" : "yes")
+        configureAudioSession()
+        if !audioSessionActivationRequested {
+            // AudioUnit reinitialization can activate even a paused output.
+            deactivateAudioSession()
+        }
+    }
+
     private func configureAudioSession() {
         let session = AVAudioSession.sharedInstance()
+        let mixWithOthers = audioMixingEnabled
         Self.audioSessionQueue.async {
             do {
-                try ConduitAudioSession.configureForPlayback(session)
+                try ConduitAudioSession.configureForPlayback(session, mixWithOthers: mixWithOthers)
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, !self.destroyStarted else { return }
+                    self.refreshPlaybackState()
+                }
                 #if DEBUG
                 print("[Conduit Audio][diagnostic] configured \(Self.audioSessionDescription(session))")
                 #endif
@@ -2496,9 +2529,10 @@ final class ConduitMPVPlayerViewController: UIViewController {
         guard !audioSessionActivationRequested else { return }
         audioSessionActivationRequested = true
         let session = AVAudioSession.sharedInstance()
+        let mixWithOthers = audioMixingEnabled
         Self.audioSessionQueue.async { [weak self] in
             do {
-                try ConduitAudioSession.activateForPlayback()
+                try ConduitAudioSession.activateForPlayback(mixWithOthers: mixWithOthers)
                 #if DEBUG
                 print("[Conduit Audio][diagnostic] activated \(Self.audioSessionDescription(session))")
                 #endif
