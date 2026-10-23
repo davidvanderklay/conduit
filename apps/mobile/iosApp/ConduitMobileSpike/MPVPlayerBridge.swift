@@ -4,7 +4,6 @@ import ComposeApp
 import CoreText
 import Foundation
 import Libmpv
-import LocalAuthentication
 import UIKit
 
 fileprivate struct ConduitSubtitle {
@@ -208,6 +207,9 @@ final class ConduitMPVPlayerBridge: NSObject, IosPlayerBridge {
     func seekBy(offsetMs: Int64) { playerViewController?.seekByMs(offsetMs) }
     func setPlaybackSpeed(speed: Float) { playerViewController?.setSpeed(speed) }
     func setMuted(muted: Bool) { playerViewController?.setMuted(muted) }
+    func setAudioMixingEnabled(enabled: Bool) {
+        ensurePlayerViewController().setAudioMixingEnabled(enabled: enabled)
+    }
     func setPreferredAudioLanguage(language: String) {
         ensurePlayerViewController().setPreferredAudioLanguage(language)
     }
@@ -516,8 +518,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
     private var initialVideoOutputUptime: TimeInterval?
     private var destroyStarted = false
     private var audioSessionActivationRequested = false
-    private var audioMixingEnabled = UIApplication.shared.isProtectedDataAvailable &&
-        LAContext().canEvaluatePolicy(.deviceOwnerAuthentication, error: nil)
+    private var audioMixingEnabled = false
     private var resizeMode = 0
     private var automaticPipHomeSwipeCandidate = false
     private var automaticPipHomeSwipeEdge: AutomaticPipSwipeEdge?
@@ -574,16 +575,6 @@ final class ConduitMPVPlayerViewController: UIViewController {
         setupMpv()
         pictureInPicture = ConduitPictureInPictureCoordinator(owner: self, metalLayer: metalLayer)
         configureAudioSession()
-        lifecycleObservers.append(NotificationCenter.default.addObserver(
-            forName: UIApplication.protectedDataWillBecomeUnavailableNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in self?.updateAudioMixing(enabled: false) })
-        lifecycleObservers.append(NotificationCenter.default.addObserver(
-            forName: UIApplication.protectedDataDidBecomeAvailableNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in self?.updateAudioMixing(enabled: true) })
         lifecycleObservers.append(NotificationCenter.default.addObserver(
             forName: UIApplication.willResignActiveNotification,
             object: nil,
@@ -1752,7 +1743,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
 #endif
         setOptionString(mpv, name: "ao", value: Self.audioOutput)
         // AudioUnit also configures the shared session on every output init.
-        // Keep mpv's policy aligned with our lock/unlock policy.
+        // Keep mpv's policy aligned with the saved audio mixing preference.
         setOptionString(mpv, name: "audio-exclusive", value: audioMixingEnabled ? "no" : "yes")
         setOptionString(mpv, name: "audio-channels", value: "auto")
         setOptionString(mpv, name: "audio-fallback-to-null", value: "yes")
@@ -2490,19 +2481,18 @@ final class ConduitMPVPlayerViewController: UIViewController {
         if Thread.isMainThread { action() } else { DispatchQueue.main.async(execute: action) }
     }
 
-    private func updateAudioMixing(enabled: Bool) {
-        // Without a passcode iOS never reports protected-data locking. Keep
-        // exclusive playback there so lock screen controls remain available.
-        let enabled = enabled && LAContext().canEvaluatePolicy(.deviceOwnerAuthentication, error: nil)
-        guard !destroyStarted, audioMixingEnabled != enabled else { return }
-        audioMixingEnabled = enabled
-        // Updating this option reinitializes mpv's audio output. Set it even
-        // while paused so the next output init uses the current policy.
-        setStringProperty("audio-exclusive", enabled ? "no" : "yes")
-        configureAudioSession()
-        if !audioSessionActivationRequested {
-            // AudioUnit reinitialization can activate even a paused output.
-            deactivateAudioSession()
+    func setAudioMixingEnabled(enabled: Bool) {
+        runOnMain { [weak self] in
+            guard let self, !self.destroyStarted, self.audioMixingEnabled != enabled else { return }
+            self.audioMixingEnabled = enabled
+            // Before view setup, setupMpv will apply this preference without
+            // first activating an exclusive session and interrupting other apps.
+            guard self.mpv != nil else { return }
+            self.setStringProperty("audio-exclusive", enabled ? "no" : "yes")
+            self.configureAudioSession()
+            if !self.audioSessionActivationRequested {
+                self.deactivateAudioSession()
+            }
         }
     }
 

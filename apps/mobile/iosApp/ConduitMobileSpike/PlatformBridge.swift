@@ -8,7 +8,7 @@ import Security
 import UIKit
 import UniformTypeIdentifiers
 
-/// Mix while unlocked, then claim Now Playing when protected data locks.
+/// Mixing is opt-in through the device playback preferences.
 /// iOS requires non-mixable audio for lock screen and Control Center controls.
 enum ConduitAudioSession {
     /// The default ~21ms IO buffer cannot absorb transient system stalls

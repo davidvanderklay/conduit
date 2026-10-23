@@ -207,6 +207,7 @@ actual fun NativePlayer(
             // Set preferences before mpv opens the asset so its initial
             // stream choice matches the app settings, not the first stream.
             bridge.setPreferredAudioLanguage(iosPreferredLanguageCode(preferredAudioLanguage))
+            bridge.setAudioMixingEnabled(playbackTuning.mixAudioWithOtherApps)
             bridge.setSubtitlePreferences(preferredSubtitleLanguage, secondarySubtitleLanguage, subtitlesResolved)
             bridge.loadFile(
                 url = it,
@@ -219,6 +220,10 @@ actual fun NativePlayer(
             )
             if (active) bridge.play() else bridge.pause()
         }
+    }
+
+    LaunchedEffect(bridge, playbackTuning.mixAudioWithOtherApps) {
+        bridge.setAudioMixingEnabled(playbackTuning.mixAudioWithOtherApps)
     }
 
     LaunchedEffect(bridge, encodedSubtitles, preferredSubtitleLanguage, secondarySubtitleLanguage, subtitlesResolved) {

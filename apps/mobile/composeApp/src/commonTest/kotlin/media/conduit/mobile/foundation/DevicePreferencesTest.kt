@@ -7,6 +7,19 @@ import kotlin.test.assertTrue
 
 class DevicePreferencesTest {
     @Test
+    fun audioMixingIsOptInAndPersistsOnThisDevice() {
+        val store = MemorySettingsStore()
+        val repository = DevicePreferencesRepository(store)
+        assertFalse(repository.load().mixAudioWithOtherApps)
+        store.put("preferences.v1.mix-audio-with-other-apps", "invalid")
+        assertFalse(repository.load().mixAudioWithOtherApps)
+        repository.save(repository.load().copy(mixAudioWithOtherApps = true))
+        assertTrue(DevicePreferencesRepository(store).load().mixAudioWithOtherApps)
+        repository.save(repository.load().copy(mixAudioWithOtherApps = false))
+        assertFalse(DevicePreferencesRepository(store).load().mixAudioWithOtherApps)
+    }
+
+    @Test
     fun secondarySubtitlePreferencePreservesLegacyPrimaryAndRoundTripsNone() {
         val store = MemorySettingsStore()
         store.put("preferences.v1.subtitle-language", "Japanese")

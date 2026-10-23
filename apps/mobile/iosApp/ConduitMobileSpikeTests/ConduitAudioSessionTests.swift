@@ -3,7 +3,7 @@ import XCTest
 @testable import conduit
 
 final class ConduitAudioSessionTests: XCTestCase {
-    func testLockUnlockCycleChangesMixingWithoutChangingPlaybackCategory() throws {
+    func testMixingPreferenceCanBeEnabledAndDisabled() throws {
         let session = AVAudioSession.sharedInstance()
         let previousCategory = session.category
         let previousMode = session.mode
@@ -14,8 +14,7 @@ final class ConduitAudioSessionTests: XCTestCase {
             try? session.setPreferredIOBufferDuration(previousBufferDuration)
         }
 
-        // Starting playback unlocked, locking, then unlocking without reopening the player.
-        for mixWithOthers in [true, false, true] {
+        for mixWithOthers in [false, true, false] {
             try ConduitAudioSession.configureForPlayback(session, mixWithOthers: mixWithOthers)
             XCTAssertEqual(session.category, .playback)
             XCTAssertEqual(session.mode, .moviePlayback)

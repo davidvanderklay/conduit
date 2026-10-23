@@ -3841,6 +3841,15 @@ internal fun PlaybackSettingsScreen(platform: PlatformInfo, preferences: DeviceP
                 HorizontalDivider(color = Color.White.copy(.06f))
                 SettingsAction("Skip button position", preferences.skipButtonPosition.label) { showSkipButtonPosition = true }
             }
+            if (platform.name.isIosPlatformName()) {
+                HorizontalDivider(color = Color.White.copy(.06f))
+                SettingsToggle(
+                    "Play audio alongside other apps",
+                    "Lock screen and Control Center controls are unavailable while enabled.",
+                    preferences.mixAudioWithOtherApps,
+                ) { update(preferences.copy(mixAudioWithOtherApps = it)) }
+                HorizontalDivider(color = Color.White.copy(.06f))
+            }
             SettingsToggle("Miniplayer on back", "Minimize playback instead of closing it when you press Back", preferences.miniplayerOnBack) { update(preferences.copy(miniplayerOnBack = it)) }
             SettingsToggle("Touch gestures", "Double-tap seeking and player gestures", preferences.touchGestures) { update(preferences.copy(touchGestures = it)) }
             SettingsToggle("Hold to speed", "Hold the player to temporarily speed up", preferences.holdToSpeed) { update(preferences.copy(holdToSpeed = it)) }

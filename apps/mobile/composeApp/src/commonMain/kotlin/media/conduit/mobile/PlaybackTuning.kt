@@ -1,9 +1,10 @@
 package media.conduit.mobile
 
-/** Captured for a playback session so changing settings does not reload an active stream. */
+/** Buffer and decoder settings are captured per session; audio mixing can update during playback. */
 data class PlaybackTuning(
     val readAheadSeconds: Int? = null,
     val hardwareDecoding: Boolean = true,
+    val mixAudioWithOtherApps: Boolean = false,
 ) {
     val boundedReadAheadSeconds: Int? get() = readAheadSeconds?.coerceIn(10, 120)
 }
