@@ -1028,6 +1028,7 @@ function AuthenticatedApp({
           onWatchPartyMediaChange={updateWatchPartyMedia}
           onWatchPartyMediaClose={clearWatchPartyMedia}
           onMetadataBrowse={(target) => {
+            if (scrollViewportRef.current) scrollViewportRef.current.scrollTop = 0
             if (target.kind === "genre") {
               setSearchInput("")
               setQuery("")
