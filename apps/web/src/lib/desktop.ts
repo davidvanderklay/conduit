@@ -83,6 +83,8 @@ export interface ElectronDesktopBridge {
   chooseSavePath(suggestedName: string): Promise<string | null>
   writeTextFile(path: string, contents: string): Promise<void>
   openExternal(url: string): Promise<void>
+  /** Absent in desktop builds that predate external player support. */
+  openInExternalPlayer?(url: string, title: string): Promise<void>
 }
 
 export type PlayerOverlayMedia = PlayerArtwork &

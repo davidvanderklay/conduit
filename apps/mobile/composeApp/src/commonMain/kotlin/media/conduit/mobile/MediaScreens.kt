@@ -757,6 +757,7 @@ internal fun MediaDetailsScreen(
     var selectedStreamAddonId by remember(item.id) { mutableStateOf(preferences.lastStreamAddonId) }
     var playing by remember(item.id) { mutableStateOf<StreamItem?>(null) }
     val p2pEnvironment = rememberP2pEnvironment()
+    val externalPlayer = rememberExternalPlayerLauncher()
     var torrentFiles by remember(item.id) { mutableStateOf<Pair<StreamItem, List<P2pMediaFile>>?>(null) }
     var playbackAttemptId by remember(item.id) { mutableStateOf(playbackSession.currentAttemptId) }
     var streamVideoId by remember(item.id) { mutableStateOf<String?>(null) }
@@ -1734,21 +1735,36 @@ internal fun MediaDetailsScreen(
             prepared?.let { playbackSession.p2p.release(it.requestId) }
             return@LaunchedEffect
         }
+        val requestHeaders = sourceStream.behaviorHints?.proxyHeaders?.request.orEmpty().takeUnless { torrent }.orEmpty()
+            .mapNotNull { (key, value) -> value.jsonPrimitive.contentOrNull?.let { key to it } }
+            .toMap()
+        val mediaName = if (selectedVideo != null) {
+            "${meta?.name ?: item.name}  ·  ${selectedVideo?.displayTitle}"
+        } else {
+            meta?.name ?: item.name
+        }
+        // Torrents need Conduit's P2P engine and watch parties need its player, so both stay in-app.
+        if (preferences.externalPlayer && externalPlayer != null && !torrent && watchParty?.party == null) {
+            val launched = externalPlayer(ExternalPlayerRequest(streamUrl, mediaName, requestHeaders, position))
+            playing = null
+            openingPlayback = false
+            autoResumeStage = AutoResumeStage.Inactive
+            playbackSession.cancelTransition()
+            if (!launched) {
+                streamsError = "No installed app can play this source"
+                streamPageOpen = true
+            }
+            return@LaunchedEffect
+        }
         val request = PlaybackRequest(
             identity = identity,
             url = streamUrl,
             p2pRequestId = prepared?.requestId,
-            requestHeaders = sourceStream.behaviorHints?.proxyHeaders?.request.orEmpty().takeUnless { torrent }.orEmpty()
-                .mapNotNull { (key, value) -> value.jsonPrimitive.contentOrNull?.let { key to it } }
-                .toMap(),
+            requestHeaders = requestHeaders,
             subtitles = externalSubtitles,
             subtitlesResolved = externalSubtitlesLoaded,
             title = playerContentTitle,
-            mediaName = if (selectedVideo != null) {
-                "${meta?.name ?: item.name}  ·  ${selectedVideo?.displayTitle}"
-            } else {
-                meta?.name ?: item.name
-            },
+            mediaName = mediaName,
             mediaAliases = meta?.progressAliases().orEmpty(),
             artwork = meta?.background ?: item.background ?: meta?.poster ?: item.poster,
             logo = meta?.logo,
@@ -3830,6 +3846,8 @@ internal fun PlaybackSettingsScreen(platform: PlatformInfo, preferences: DeviceP
     SettingsPage("Playback", onBack, modifier) {
         SettingsGroup("PLAYER") {
             if (android) {
+                SettingsToggle("Use external player", ExternalPlayerDescription, preferences.externalPlayer) { update(preferences.copy(externalPlayer = it)) }
+                HorizontalDivider(color = Color.White.copy(.06f))
                 SettingsAction("Android player engine", preferences.androidPlaybackEngine.description) { enginePicker = true }
                 HorizontalDivider(color = Color.White.copy(.06f))
             }
