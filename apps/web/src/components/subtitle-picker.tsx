@@ -1,6 +1,11 @@
 import { ChevronLeft, Minus, Plus } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import { groupSubtitles } from "../lib/subtitle-groups"
+import {
+  SUBTITLE_DELAY_STEPS_MS,
+  formatSubtitleDelay,
+  stepSubtitleDelay,
+} from "../lib/title-playback"
 
 export interface SubtitlePickerItem {
   key: string
@@ -19,6 +24,8 @@ export function SubtitlePicker({
   error,
   position,
   onPositionChange,
+  delayMs,
+  onDelayChange,
   onOff,
   onSelect,
 }: {
@@ -29,6 +36,8 @@ export function SubtitlePicker({
   error?: string
   position: number
   onPositionChange: (value: number) => void
+  delayMs: number
+  onDelayChange: (delayMs: number) => void
   onOff: () => void
   onSelect: (key: string) => void
 }) {
@@ -161,7 +170,56 @@ export function SubtitlePicker({
             <Plus size={16} />
           </button>
         </div>
+        <SubtitleDelayStepper delayMs={delayMs} onChange={onDelayChange} />
       </section>
     </div>
+  )
+}
+
+/**
+ * Subtitle delay with fine and coarse steps, remembered per title. Also used by
+ * the Electron overlay, so its buttons opt into the overlay's hit regions.
+ */
+export function SubtitleDelayStepper({
+  delayMs,
+  onChange,
+}: {
+  delayMs: number
+  onChange: (delayMs: number) => void
+}) {
+  const stepButton = (step: number) => (
+    <button
+      key={step}
+      className="pointer-events-auto grid h-10 w-8 shrink-0 place-items-center rounded-full text-xs tabular-nums text-zinc-300 hover:bg-zinc-800 hover:text-white"
+      data-overlay-interactive
+      onClick={() => onChange(stepSubtitleDelay(delayMs, step))}
+      aria-label={`Show subtitles ${step < 0 ? "earlier" : "later"} by ${Math.abs(step) / 1000} seconds`}
+    >
+      {step < 0 ? "−" : "+"}
+      {Math.abs(step) >= 1000 ? Math.abs(step) / 1000 : `.${Math.abs(step) / 100}`}
+    </button>
+  )
+  return (
+    <>
+      <div className="mt-4 flex items-center justify-between px-2">
+        <p className="text-xs text-zinc-500">Delay</p>
+        {delayMs !== 0 && (
+          <button
+            className="pointer-events-auto text-xs text-amber-400 hover:text-amber-300"
+            data-overlay-interactive
+            onClick={() => onChange(0)}
+          >
+            Reset
+          </button>
+        )}
+      </div>
+      <div className="mt-2 inline-flex items-center rounded-full bg-zinc-900">
+        {SUBTITLE_DELAY_STEPS_MS.filter((step) => step < 0).map(stepButton)}
+        <output className="w-12 whitespace-nowrap text-center text-xs tabular-nums">
+          {formatSubtitleDelay(delayMs)}
+        </output>
+        {SUBTITLE_DELAY_STEPS_MS.filter((step) => step > 0).map(stepButton)}
+      </div>
+    </>
   )
 }

@@ -158,6 +158,8 @@ internal class TvPlayerModel(
     val error: String?,
     /** Non-null while the up-next banner is due. */
     val upNext: PlaybackUpNext?,
+    /** The up-next prompt asks "Still watching?" and autoplay waits for an answer. */
+    val askStillWatching: Boolean,
     val onDismissUpNext: () -> Unit,
     val hasNext: Boolean,
     /** Non-null while a skippable intro, recap, or outro is playing. */

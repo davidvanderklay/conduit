@@ -248,7 +248,14 @@ internal fun BoxScope.TvPlayerOverlays(model: TvPlayerModel) {
                             Row(Modifier.padding(8.dp).width(300.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 AsyncImage(upNext.nextEpisodeArtwork, null, Modifier.width(84.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(9.dp)), contentScale = ContentScale.Crop)
                                 Column(Modifier.weight(1f)) {
-                                    TvSectionLabel(listOfNotNull(if (upNext.nextItemQueued) "Up next" else "Next episode", upNext.episodeLabel).joinToString(" · "))
+                                    TvSectionLabel(listOfNotNull(
+                                        when {
+                                            model.askStillWatching -> "Still watching?"
+                                            upNext.nextItemQueued -> "Up next"
+                                            else -> "Next episode"
+                                        },
+                                        upNext.episodeLabel,
+                                    ).joinToString(" · "))
                                     Text(upNext.nextEpisodeTitle.orEmpty(), color = Color.White, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
                                 }
                             }

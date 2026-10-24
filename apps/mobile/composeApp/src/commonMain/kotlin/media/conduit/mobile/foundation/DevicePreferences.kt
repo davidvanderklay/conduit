@@ -51,6 +51,8 @@ data class DevicePreferences(
     val preferredAudioLanguage: String = SystemLanguagePreference,
     val preferredSubtitleLanguage: String = "en",
     val secondarySubtitleLanguage: String? = null,
+    /** Automatic selection only picks forced tracks, such as signs and foreign dialogue. */
+    val forcedSubtitlesOnly: Boolean = false,
     val subtitleStyle: SubtitleStyle = SubtitleStyle(),
     val touchGestures: Boolean = true,
     val holdToSpeed: Boolean = true,
@@ -59,6 +61,8 @@ data class DevicePreferences(
     val lastStreamAddonId: String? = null,
     val miniplayerOnBack: Boolean = true,
     val autoplayNextEpisode: Boolean = false,
+    /** Asks before autoplaying after a few episodes in a row with no input. */
+    val askIfStillWatching: Boolean = false,
     val skipSegments: Boolean = true,
     val skipButtonPosition: SkipButtonPosition = SkipButtonPosition.Left,
     val p2pEnabled: Boolean = false,
@@ -91,6 +95,7 @@ class DevicePreferencesRepository(private val store: SettingsStore) {
         preferredAudioLanguage = storedLanguagePreference(store.get(prefix + "audio-language"), SystemLanguagePreference),
         preferredSubtitleLanguage = storedLanguagePreference(store.get(prefix + "subtitle-language"), "en"),
         secondarySubtitleLanguage = store.get(prefix + "secondary-subtitle-language")?.takeIf(String::isNotBlank)?.let { storedLanguagePreference(it, "en") },
+        forcedSubtitlesOnly = bool("forced-subtitles-only", false),
         subtitleStyle = SubtitleStyle(
             sizePercent = number("subtitle-size", 100).coerceIn(SubtitleStyle.SizeRange),
             offsetPercent = number("subtitle-offset", 0).coerceIn(SubtitleStyle.OffsetRange),
@@ -103,6 +108,7 @@ class DevicePreferencesRepository(private val store: SettingsStore) {
         lastStreamAddonId = store.get(prefix + "last-stream-addon-id")?.takeIf(String::isNotBlank),
         miniplayerOnBack = bool("miniplayer-on-back", true),
         autoplayNextEpisode = bool("autoplay-next", false),
+        askIfStillWatching = bool("ask-still-watching", false),
         skipSegments = bool("skip-segments", true),
         skipButtonPosition = store.get(prefix + "skip-button-position")
             ?.let { runCatching { SkipButtonPosition.valueOf(it) }.getOrNull() }
@@ -132,6 +138,7 @@ class DevicePreferencesRepository(private val store: SettingsStore) {
         store.put(prefix + "audio-language", value.preferredAudioLanguage)
         store.put(prefix + "subtitle-language", value.preferredSubtitleLanguage)
         store.put(prefix + "secondary-subtitle-language", value.secondarySubtitleLanguage.orEmpty())
+        store.put(prefix + "forced-subtitles-only", value.forcedSubtitlesOnly.toString())
         store.put(prefix + "subtitle-size", value.subtitleStyle.sizePercent.toString())
         store.put(prefix + "subtitle-offset", value.subtitleStyle.offsetPercent.toString())
         store.put(prefix + "subtitle-outline", value.subtitleStyle.outline.toString())
@@ -142,6 +149,7 @@ class DevicePreferencesRepository(private val store: SettingsStore) {
         store.put(prefix + "last-stream-addon-id", value.lastStreamAddonId.orEmpty())
         store.put(prefix + "miniplayer-on-back", value.miniplayerOnBack.toString())
         store.put(prefix + "autoplay-next", value.autoplayNextEpisode.toString())
+        store.put(prefix + "ask-still-watching", value.askIfStillWatching.toString())
         store.put(prefix + "skip-segments", value.skipSegments.toString())
         store.put(prefix + "skip-button-position", value.skipButtonPosition.name)
         store.put(prefix + "p2p", value.p2pEnabled.toString())

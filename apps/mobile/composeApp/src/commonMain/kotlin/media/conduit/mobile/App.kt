@@ -70,6 +70,8 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.focus.FocusRequester
@@ -349,6 +351,7 @@ private fun AccountGate(
                     api = api,
                     secureStore = services.secure,
                     progressDatabase = progressDatabase,
+                    titlePlayback = remember(services.settings) { TitlePlaybackRepository(services.settings) },
                     preferences = preferences,
                     onPreferencesChanged = onPreferencesChanged,
                     shareText = services.shareText,
@@ -830,6 +833,7 @@ private fun AppShell(
     api: ConduitApi,
     secureStore: SecureStore,
     progressDatabase: ProgressDatabase,
+    titlePlayback: TitlePlaybackRepository,
     preferences: DevicePreferences,
     onPreferencesChanged: (DevicePreferences) -> Unit,
     shareText: (String) -> Unit,
@@ -1431,6 +1435,7 @@ private fun AppShell(
             snapshot = profileSync.snapshot,
             onMutation = ::mutateProfile,
             skipSegmentsRepository = remember { SkipSegmentsRepository() },
+            titlePlayback = titlePlayback,
         )
         if (tv == null && queueManagerOpen && playbackSession.state.request == null) {
             PlaybackQueueDrawer(
@@ -1712,6 +1717,7 @@ private fun BoxScope.PlaybackSessionHost(
     snapshot: ProfileSnapshot?,
     onMutation: suspend (ProfileMutation) -> Result<Unit>,
     skipSegmentsRepository: SkipSegmentsRepository,
+    titlePlayback: TitlePlaybackRepository,
 ) {
     val scope = rememberCoroutineScope()
     val session = controller.state
@@ -1742,6 +1748,12 @@ private fun BoxScope.PlaybackSessionHost(
     var controlsVisible by remember(request.identity, request.url) { mutableStateOf(true) }
     var upNextDismissed by remember(request.identity.mediaId, request.identity.videoId) {
         mutableStateOf(false)
+    }
+    val askStillWatching = shouldAskStillWatching(preferences.askIfStillWatching, controller.autoplayStreak)
+    // Dismissing up next, or answering Stop to "Still watching?", skips autoplay for this episode.
+    val dismissUpNext = {
+        controller.noteViewerInput()
+        upNextDismissed = true
     }
     var playerOverlayVisible by remember(request.identity, request.url) { mutableStateOf(false) }
     var temporarySpeedActive by remember(request.identity, request.url) { mutableStateOf(false) }
@@ -1791,15 +1803,19 @@ private fun BoxScope.PlaybackSessionHost(
         upNext?.nextEpisodeTitle,
         preferences.autoplayNextEpisode,
         session.playback.ended,
+        askStillWatching,
+        upNextDismissed,
     ) {
         if (
             preferences.autoplayNextEpisode &&
                 upNext != null &&
-                session.playback.ended
+                session.playback.ended &&
+                !askStillWatching &&
+                !upNextDismissed
         ) {
             // Autoplay uses the same bounded source-resolution path as an
             // explicit Next action.
-            controller.playNext()
+            controller.autoplayNext()
         }
     }
     LaunchedEffect(
@@ -1976,8 +1992,17 @@ private fun BoxScope.PlaybackSessionHost(
         eligible = skipPromptEligible,
     )
     val skipPromptVisible = skipPrompt.isVisible(controlsVisible, skipPromptEligible)
+    // Read once per load so a pick during playback does not re-run automatic selection.
+    val titleChoices = remember(session.sessionId, request.identity) { titlePlayback.load(request.identity) }
+    val languages = preferences.languagesFor(titleChoices)
+    var subtitleDelayMs by remember(session.sessionId, request.identity) { mutableStateOf(titleChoices.subtitleDelayMs ?: 0L) }
 
-    Box(Modifier.fillMaxSize().onSizeChanged { containerSize = it }) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .onSizeChanged { containerSize = it }
+            .onPreviewKeyEvent { controller.noteViewerInput(); false },
+    ) {
         // Adaptive iOS hides the native bar, but the mini-player keeps its
         // corner position so scrolling does not make it jump vertically.
         val miniBottomPadding = if (bottomNavigationVisible) 116.dp else 12.dp
@@ -1996,6 +2021,12 @@ private fun BoxScope.PlaybackSessionHost(
             Modifier.fillMaxSize()
         } else {
             miniLayout.clip(RoundedCornerShape(10.dp))
+        }.pointerInput(controller) {
+            // Observes touches before the player's own gestures, without consuming them.
+            awaitEachGesture {
+                awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                controller.noteViewerInput()
+            }
         }
         // Keep one native player mounted while a replacement stream resolves.
         // Nuvio follows this lifecycle: the existing surface stays attached and
@@ -2026,9 +2057,16 @@ private fun BoxScope.PlaybackSessionHost(
             onSources = controller::openSources,
             touchGestures = preferences.touchGestures && playbackTransition == null && !controller.partyGuest,
             holdToSpeed = preferences.holdToSpeed && playbackTransition == null && !controller.partyGuest,
-            preferredAudioLanguage = preferences.preferredAudioLanguage,
-            preferredSubtitleLanguage = preferences.preferredSubtitleLanguage,
-            secondarySubtitleLanguage = preferences.secondarySubtitleLanguage,
+            preferredAudioLanguage = languages.audio,
+            preferredSubtitleLanguage = languages.subtitle,
+            secondarySubtitleLanguage = languages.secondarySubtitle,
+            onTrackChoice = { titlePlayback.remember(request.identity, it) },
+            forcedSubtitlesOnly = languages.forcedSubtitlesOnly,
+            subtitleDelayMs = subtitleDelayMs,
+            onSubtitleDelayChanged = {
+                subtitleDelayMs = it
+                titlePlayback.remember(request.identity, TitlePlaybackChoices(subtitleDelayMs = it))
+            },
             subtitleStyle = preferences.subtitleStyle,
             onSubtitleStyleChanged = { onPreferencesChanged(preferences.copy(subtitleStyle = it)) },
             androidPlaybackEngine = preferences.androidPlaybackEngine,
@@ -2076,7 +2114,8 @@ private fun BoxScope.PlaybackSessionHost(
                         !initialPlaybackLoad && !presentPlaybackError,
                     error = (session.playback.error ?: session.recoveryError).takeIf { presentPlaybackError },
                     upNext = upNext.takeIf { upNextVisible },
-                    onDismissUpNext = { upNextDismissed = true },
+                    askStillWatching = askStillWatching,
+                    onDismissUpNext = dismissUpNext,
                     hasNext = upNext != null && !controller.partyGuest,
                     skip = activeSkip.takeIf { skipPromptVisible },
                     engine = engineBridge,
@@ -2269,7 +2308,11 @@ private fun BoxScope.PlaybackSessionHost(
                             Column(Modifier.weight(1f)) {
                                 Text(
                                     listOfNotNull(
-                                        if (upNext.nextItemQueued) "UP NEXT" else "NEXT EPISODE",
+                                        when {
+                                            askStillWatching -> "STILL WATCHING?"
+                                            upNext.nextItemQueued -> "UP NEXT"
+                                            else -> "NEXT EPISODE"
+                                        },
                                         upNext.episodeLabel,
                                     ).joinToString(" · "),
                                     color = Color.White.copy(.6f),
@@ -2286,14 +2329,14 @@ private fun BoxScope.PlaybackSessionHost(
                                 )
                             }
                             FilledTonalIconButton(
-                                onClick = controller::playNext,
+                                onClick = { controller.noteViewerInput(); controller.playNext() },
                                 modifier = Modifier.size(36.dp),
                             ) {
-                                Icon(Icons.Rounded.PlayArrow, "Play next")
+                                Icon(Icons.Rounded.PlayArrow, if (askStillWatching) "Keep watching" else "Play next")
                             }
                         }
                         Surface(
-                            onClick = { upNextDismissed = true },
+                            onClick = dismissUpNext,
                             modifier = Modifier
                                 .align(Alignment.TopEnd)
                                 .padding(6.dp)
@@ -2305,7 +2348,7 @@ private fun BoxScope.PlaybackSessionHost(
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(
                                     Icons.Rounded.Close,
-                                    "Dismiss next episode",
+                                    if (askStillWatching) "Stop watching" else "Dismiss next episode",
                                     modifier = Modifier.size(16.dp),
                                 )
                             }

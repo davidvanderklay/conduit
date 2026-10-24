@@ -2,6 +2,7 @@ package media.conduit.mobile
 
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.CoroutineScope
@@ -149,6 +150,10 @@ class PlaybackSessionController(
 
     var partyGuest by mutableStateOf(false)
 
+    /** Episodes autoplay started since the viewer last touched the player or pressed a key. */
+    var autoplayStreak by mutableIntStateOf(0)
+        private set
+
     internal val p2p = P2pSessionController()
 
     private var callbacks: PlaybackSessionCallbacks? = null
@@ -292,6 +297,7 @@ class PlaybackSessionController(
     }
 
     fun close(saveProgress: Boolean = true) {
+        autoplayStreak = 0
         cancelStreamLookup()
         val closingP2pId = p2p.activeRequestId
         if (closingP2pId != null) scope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
@@ -339,6 +345,16 @@ class PlaybackSessionController(
         if (pendingPersistence.isNotEmpty() && persistenceJob?.isActive != true) {
             persistenceJob = scope.launch { drainPersistence() }
         }
+    }
+
+    /** The next episode started without the viewer, counted toward asking if they are still watching. */
+    fun autoplayNext() {
+        autoplayStreak += 1
+        playNext()
+    }
+
+    fun noteViewerInput() {
+        if (autoplayStreak != 0) autoplayStreak = 0
     }
 
     fun playNext() {
@@ -690,3 +706,10 @@ fun playbackAspectRatio(width: Int, height: Int): Float {
     val (safeWidth, safeHeight) = clampPipAspectRatio(width, height)
     return safeWidth.toFloat() / safeHeight.toFloat()
 }
+
+/** Autoplayed episodes after the one the viewer started, so the third episode in a row asks. */
+private const val AutoplayedEpisodesBeforeAsking = 2
+
+/** Whether the up-next prompt asks "Still watching?" and autoplay waits for an answer. */
+internal fun shouldAskStillWatching(enabled: Boolean, autoplayStreak: Int): Boolean =
+    enabled && autoplayStreak >= AutoplayedEpisodesBeforeAsking

@@ -49,6 +49,8 @@ describe("SubtitlePicker", () => {
           off={false}
           position={90}
           onPositionChange={() => undefined}
+          delayMs={0}
+          onDelayChange={() => undefined}
           onOff={onOff}
           onSelect={onSelect}
         />,

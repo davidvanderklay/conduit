@@ -3878,13 +3878,19 @@ internal fun PlaybackSettingsScreen(platform: PlatformInfo, preferences: DeviceP
             HorizontalDivider(color = Color.White.copy(.06f))
             SettingsAction("Secondary subtitle language", preferences.secondarySubtitleLanguage?.let(::languagePreferenceLabel) ?: "None") { picker = "secondary-subtitle" }
             HorizontalDivider(color = Color.White.copy(.06f))
+            SettingsToggle("Forced subtitles only", "Only show subtitles for dialogue in another language", preferences.forcedSubtitlesOnly) { update(preferences.copy(forcedSubtitlesOnly = it)) }
+            HorizontalDivider(color = Color.White.copy(.06f))
             SubtitleStyleControls(
                 style = preferences.subtitleStyle,
                 onChange = { update(preferences.copy(subtitleStyle = it)) },
                 modifier = Modifier.padding(vertical = 10.dp),
             )
         }
-        SettingsGroup("AUTOPLAY") { SettingsToggle("Automatically continue playback", "Start the next queued item or episode when playback ends", preferences.autoplayNextEpisode) { update(preferences.copy(autoplayNextEpisode = it)) } }
+        SettingsGroup("AUTOPLAY") {
+            SettingsToggle("Automatically continue playback", "Start the next queued item or episode when playback ends", preferences.autoplayNextEpisode) { update(preferences.copy(autoplayNextEpisode = it)) }
+            HorizontalDivider(color = Color.White.copy(.06f))
+            SettingsToggle("Ask if I'm still watching", "Stop after three episodes in a row with no input", preferences.askIfStillWatching) { update(preferences.copy(askIfStillWatching = it)) }
+        }
         SettingsGroup("P2P STREAMING") {
             SettingsToggle("Allow P2P sources", if (platform.p2pAvailable) "Master permission for peer-to-peer playback on this device" else "Not available in this build", preferences.p2pEnabled && platform.p2pAvailable, enabled = platform.p2pAvailable) { update(preferences.copy(p2pEnabled = it)) }
             if (!platform.p2pAvailable) Text("This distribution does not include a P2P engine. Builds that permit P2P can expose this switch without changing the rest of the playback settings.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(bottom = 12.dp))

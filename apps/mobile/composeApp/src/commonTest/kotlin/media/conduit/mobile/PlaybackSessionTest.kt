@@ -17,6 +17,18 @@ import media.conduit.mobile.account.VideoItem
 
 class PlaybackSessionTest {
     @Test
+    fun theThirdAutoplayedEpisodeInARowAsksUntilTheViewerInteracts() = runTest {
+        val controller = PlaybackSessionController(this)
+        controller.autoplayNext()
+        assertFalse(shouldAskStillWatching(true, controller.autoplayStreak))
+        controller.autoplayNext()
+        assertTrue(shouldAskStillWatching(true, controller.autoplayStreak))
+        assertFalse(shouldAskStillWatching(false, controller.autoplayStreak))
+        controller.noteViewerInput()
+        assertFalse(shouldAskStillWatching(true, controller.autoplayStreak))
+    }
+
+    @Test
     fun liveQueueAddsNextToAnActiveMovieWithoutRestartingIt() = runTest {
         val identity = PlaybackIdentity("profile", "movie", "movie", "movie")
         val request = PlaybackRequest(

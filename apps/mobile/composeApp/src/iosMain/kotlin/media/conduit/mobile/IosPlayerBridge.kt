@@ -32,7 +32,10 @@ interface IosPlayerBridge {
     fun setAudioMixingEnabled(enabled: Boolean)
     /** Preferred languages arrive as resolved codes; blank means no preference. */
     fun setPreferredAudioLanguage(language: String)
-    fun setSubtitlePreferences(primary: String, secondary: String?, resolved: Boolean)
+    /** With [forcedOnly], automatic selection only picks forced tracks. */
+    fun setSubtitlePreferences(primary: String, secondary: String?, resolved: Boolean, forcedOnly: Boolean)
+    /** Positive values show subtitles later. */
+    fun setSubtitleDelay(delayMs: Long)
     /** [offsetPercent] raises subtitles from the bottom by that share of the picture height. */
     fun setSubtitleStyle(sizePercent: Int, offsetPercent: Int, outline: Boolean)
     fun setResizeMode(mode: Int) // 0 = fit, 1 = fill, 2 = zoom

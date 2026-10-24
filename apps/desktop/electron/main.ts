@@ -958,6 +958,10 @@ async function invoke(command: string, args: Record<string, unknown> = {}): Prom
     mainWindow?.webContents.send("conduit:player-overlay-next")
     return null
   }
+  if (command === "player_overlay_dismiss_next") {
+    mainWindow?.webContents.send("conduit:player-overlay-dismiss-next")
+    return null
+  }
   if (command === "player_overlay_episode") {
     if (typeof args.videoId === "string") {
       mainWindow?.webContents.send("conduit:player-overlay-episode", args.videoId)

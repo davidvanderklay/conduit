@@ -48,6 +48,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.Player
@@ -55,7 +56,6 @@ import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.ui.PlayerView
@@ -138,6 +138,10 @@ actual fun NativePlayer(
     preferredAudioLanguage: String,
     preferredSubtitleLanguage: String,
     secondarySubtitleLanguage: String?,
+    onTrackChoice: (TitlePlaybackChoices) -> Unit,
+    forcedSubtitlesOnly: Boolean,
+    subtitleDelayMs: Long,
+    onSubtitleDelayChanged: (Long) -> Unit,
     subtitleStyle: SubtitleStyle,
     onSubtitleStyleChanged: (SubtitleStyle) -> Unit,
     androidPlaybackEngine: AndroidPlaybackEngine,
@@ -165,12 +169,13 @@ actual fun NativePlayer(
     val latestTemporarySpeedCallback by rememberUpdatedState(onTemporarySpeedChanged)
     val latestPipCallback by rememberUpdatedState(onSystemPipChanged)
     val latestPipAvailabilityCallback by rememberUpdatedState(onSystemPipAvailabilityChanged)
+    val subtitleDelayUs = remember { java.util.concurrent.atomic.AtomicLong(subtitleDelayMs * 1_000) }
     fun createMedia3Player(): ExoPlayer {
         val http = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
             .setUserAgent("conduit Mobile")
             .setDefaultRequestProperties(requestHeaders)
-        val renderers = DefaultRenderersFactory(context).setEnableDecoderFallback(true)
+        val renderers = SubtitleDelayRenderersFactory(context, subtitleDelayUs).setEnableDecoderFallback(true)
         return ExoPlayer.Builder(context, renderers)
             .apply {
                 playbackTuning.boundedReadAheadSeconds?.let { seconds ->
@@ -530,13 +535,28 @@ actual fun NativePlayer(
                 subtitlesEnabled = subtitlesEnabled,
                 secondarySubtitleLanguage = secondarySubtitleLanguage,
                 subtitlesResolved = subtitlesResolved,
+                forcedSubtitlesOnly = forcedSubtitlesOnly,
             )
         }
     }
-    LaunchedEffect(mpvView, subtitles, subtitlesResolved, activeEngine, preferredSubtitleLanguage, secondarySubtitleLanguage) {
+    LaunchedEffect(mpvView, subtitles, subtitlesResolved, activeEngine, preferredSubtitleLanguage, secondarySubtitleLanguage, forcedSubtitlesOnly) {
         if (activeEngine == NativePlaybackEngine.Libmpv) {
             mpvView?.updateExternalSubtitles(subtitles)
-            mpvView?.updateSubtitlePreferences(preferredSubtitleLanguage, secondarySubtitleLanguage, subtitlesResolved)
+            mpvView?.updateSubtitlePreferences(preferredSubtitleLanguage, secondarySubtitleLanguage, subtitlesResolved, forcedSubtitlesOnly)
+        }
+    }
+    LaunchedEffect(mpvView, activeEngine, subtitleDelayMs) {
+        if (activeEngine == NativePlaybackEngine.Libmpv) mpvView?.setSubtitleDelay(subtitleDelayMs)
+    }
+    LaunchedEffect(player, subtitleDelayMs) {
+        val delayUs = subtitleDelayMs * 1_000
+        if (subtitleDelayUs.getAndSet(delayUs) == delayUs) return@LaunchedEffect
+        // Let repeated presses settle before the seek that refreshes the shifted text renderer.
+        delay(400)
+        if (activeEngine == NativePlaybackEngine.Media3 && player.playbackState != Player.STATE_IDLE &&
+            C.TRACK_TYPE_TEXT !in player.trackSelectionParameters.disabledTrackTypes
+        ) {
+            player.seekTo(player.currentPosition)
         }
     }
     LaunchedEffect(player, subtitles, activeEngine) {
@@ -547,17 +567,19 @@ actual fun NativePlayer(
             player.replaceMediaItem(0, item.buildUpon().setSubtitleConfigurations(configurations).build())
         }
     }
-    LaunchedEffect(player, activeEngine, tracksRevision, initialLoadComplete, subtitles, subtitlesResolved, preferredSubtitleLanguage, secondarySubtitleLanguage, manualSubtitleSelection) {
+    LaunchedEffect(player, activeEngine, tracksRevision, initialLoadComplete, subtitles, subtitlesResolved, preferredSubtitleLanguage, secondarySubtitleLanguage, forcedSubtitlesOnly, manualSubtitleSelection) {
         if (activeEngine != NativePlaybackEngine.Media3 || manualSubtitleSelection || !initialLoadComplete) return@LaunchedEffect
         val tracks = player.currentTracks.groups.filter { it.type == C.TRACK_TYPE_TEXT }
             .flatMap { group -> (0 until group.length).filter(group::isTrackSupported).map { index -> group to index } }
         val candidates = tracks.map { (group, index) ->
             val format = group.getTrackFormat(index)
             SubtitleCandidate(format.id ?: "embedded:${group.mediaTrackGroup.id}:$index", format.language, format.label,
-                embedded = subtitles.none { subtitleSelectionKey(it) == format.id })
+                embedded = subtitles.none { subtitleSelectionKey(it) == format.id },
+                forced = format.selectionFlags and C.SELECTION_FLAG_FORCED != 0)
         } + subtitles.map { SubtitleCandidate(subtitleSelectionKey(it), it.lang, it.addonName, embedded = false) }
         when (val decision = preferredSubtitle(candidates, preferredSubtitleLanguage, secondarySubtitleLanguage,
-            java.util.Locale.getDefault().language, embeddedReady = true, addonsReady = subtitlesResolved)) {
+            java.util.Locale.getDefault().language, embeddedReady = true, addonsReady = subtitlesResolved,
+            forcedOnly = forcedSubtitlesOnly)) {
             SubtitleDecision.Wait -> Unit
             SubtitleDecision.Off -> {
                 if (C.TRACK_TYPE_TEXT !in player.trackSelectionParameters.disabledTrackTypes) {
@@ -1016,13 +1038,17 @@ actual fun NativePlayer(
                         preferredSubtitleLanguage = preferredSubtitleLanguage,
                         subtitleStyle = subtitleStyle,
                         onSubtitleStyleChanged = onSubtitleStyleChanged,
+                        subtitleDelayMs = subtitleDelayMs,
+                        onSubtitleDelayChanged = onSubtitleDelayChanged,
                         onSubtitleSelectionChanged = { id, language, label, enabled ->
                             manualSubtitleSelection = true
                             selectedSubtitleId = id
                             selectedSubtitleLanguage = language
                             selectedSubtitleLabel = label
                             subtitlesEnabled = enabled
+                            onTrackChoice(subtitleChoice(enabled, language, label))
                         },
+                        onAudioSelected = { track -> onTrackChoice(audioChoice(track.language, track.label)) },
                         onDismiss = { trackPanel = null },
                     )
                 }
@@ -1033,6 +1059,8 @@ actual fun NativePlayer(
                     type = type,
                     subtitleStyle = subtitleStyle,
                     onSubtitleStyleChanged = onSubtitleStyleChanged,
+                    subtitleDelayMs = subtitleDelayMs,
+                    onSubtitleDelayChanged = onSubtitleDelayChanged,
                     onBeforeSelection = { trackFallback = player.trackSelectionParameters; lastTrackChangeAt = SystemClock.elapsedRealtime() },
                     onSubtitleSelectionChanged = { id, language, enabled ->
                         manualSubtitleSelection = true
@@ -1040,7 +1068,9 @@ actual fun NativePlayer(
                         selectedSubtitleLanguage = language
                         selectedSubtitleLabel = null
                         subtitlesEnabled = enabled
+                        onTrackChoice(subtitleChoice(enabled, language, null))
                     },
+                    onAudioSelected = { format -> onTrackChoice(audioChoice(format.language, format.label)) },
                     onDismiss = { trackPanel = null },
                 )
             }
@@ -1158,8 +1188,11 @@ private fun BoxScope.PlayerTrackPanel(
     type: Int,
     subtitleStyle: SubtitleStyle,
     onSubtitleStyleChanged: (SubtitleStyle) -> Unit,
+    subtitleDelayMs: Long,
+    onSubtitleDelayChanged: (Long) -> Unit,
     onBeforeSelection: () -> Unit,
     onSubtitleSelectionChanged: (String?, String?, Boolean) -> Unit,
+    onAudioSelected: (Format) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val groups = player.currentTracks.groups.filter { it.type == type }
@@ -1171,12 +1204,13 @@ private fun BoxScope.PlayerTrackPanel(
     fun select(option: PlayerTrackOption, close: Boolean) {
         onBeforeSelection()
         if (type == C.TRACK_TYPE_TEXT) onSubtitleSelectionChanged(option.trackId, option.languageKey, true)
+        if (type == C.TRACK_TYPE_AUDIO) onAudioSelected(option.group.getTrackFormat(option.index))
         player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().setTrackTypeDisabled(type, false).clearOverridesOfType(type).addOverride(TrackSelectionOverride(option.group.mediaTrackGroup, option.index)).build()
         chosenLanguage = option.languageKey
         if (close) onDismiss() else subtitlePage = "overview"
     }
     if (type == C.TRACK_TYPE_TEXT) {
-        FullscreenSubtitlePanel(player, options, selectedOption, subtitleStyle, onSubtitleStyleChanged, onBeforeSelection, onSubtitleSelectionChanged, onDismiss)
+        FullscreenSubtitlePanel(player, options, selectedOption, subtitleStyle, onSubtitleStyleChanged, subtitleDelayMs, onSubtitleDelayChanged, onBeforeSelection, onSubtitleSelectionChanged, onDismiss)
         return
     }
     Surface(modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight().fillMaxWidth(.48f), color = Color(0xF21A1A1D), shape = RoundedCornerShape(topStart = 28.dp, bottomStart = 28.dp), shadowElevation = 18.dp) {
@@ -1236,6 +1270,8 @@ private fun BoxScope.FullscreenSubtitlePanel(
     selected: PlayerTrackOption?,
     subtitleStyle: SubtitleStyle,
     onSubtitleStyleChanged: (SubtitleStyle) -> Unit,
+    subtitleDelayMs: Long,
+    onSubtitleDelayChanged: (Long) -> Unit,
     onBeforeSelection: () -> Unit,
     onSubtitleSelectionChanged: (String?, String?, Boolean) -> Unit,
     onDismiss: () -> Unit,
@@ -1265,7 +1301,7 @@ private fun BoxScope.FullscreenSubtitlePanel(
             Row(Modifier.fillMaxWidth().weight(1f).padding(horizontal = 18.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(30.dp)) {
                 Column(Modifier.weight(1f)) { Text("Subtitle Languages", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold); Spacer(Modifier.height(18.dp)); LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) { item { PlayerTrackRow("Disabled", selectedTrackKey == null) { selectedTrackKey = null; onSubtitleSelectionChanged(null, null, false); player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().clearOverridesOfType(C.TRACK_TYPE_TEXT).setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build() } }; options.distinctBy(PlayerTrackOption::languageKey).forEach { option -> item(option.languageKey) { PlayerTrackRow(option.languageName, selectedTrackKey != null && language == option.languageKey, option.supported) { val best = options.firstOrNull { it.languageKey == option.languageKey && it.supported } ?: option; choose(best) } } } } }
                 Column(Modifier.weight(1f)) { Text("Subtitle Variants", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold); Spacer(Modifier.height(18.dp)); LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) { options.filter { it.languageKey == language }.forEach { option -> item(option.key) { PlayerTrackRow(option.variantName, option.key == selectedTrackKey, option.supported) { choose(option) } } } } }
-                Column(Modifier.weight(1f)) { Text("Subtitle Settings", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold); Spacer(Modifier.height(18.dp)); SubtitleStyleControls(subtitleStyle, onSubtitleStyleChanged, Modifier.verticalScroll(rememberScrollState()), contentColor = Color.White) }
+                Column(Modifier.weight(1f)) { Text("Subtitle Settings", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold); Spacer(Modifier.height(18.dp)); SubtitleStyleControls(subtitleStyle, onSubtitleStyleChanged, Modifier.verticalScroll(rememberScrollState()), contentColor = Color.White, delayMs = subtitleDelayMs, onDelayChange = onSubtitleDelayChanged) }
             }
           }
         }

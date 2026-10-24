@@ -60,6 +60,15 @@ import {
 } from "../lib/video-scale"
 import { groupSubtitles, type SubtitleLanguageGroup } from "../lib/subtitle-groups"
 import { readPreferences, writePreferences } from "../lib/preferences"
+import {
+  audioChoice,
+  readTitlePlayback,
+  rememberTitlePlayback,
+  subtitleChoice,
+  type TitlePlaybackChoices,
+} from "../lib/title-playback"
+import { SubtitleDelayStepper } from "./subtitle-picker"
+import { shouldAskStillWatching } from "../lib/still-watching"
 import { adjacentSeriesVideo } from "../lib/metadata"
 import {
   activeSkipSegment,
@@ -134,6 +143,25 @@ export function ElectronPlayerOverlay({
   const seekCommitTimer = useRef<number | undefined>(undefined)
   const audioAnchorRef = useRef<HTMLDivElement>(null)
   const subtitleAnchorRef = useRef<HTMLDivElement>(null)
+  // The overlay shares the main window's storage, so manual picks are remembered here.
+  const rememberChoice = (choice: TitlePlaybackChoices) => {
+    if (watchPartyContext) {
+      rememberTitlePlayback(watchPartyContext.profileId, watchPartyContext.media.mediaId, choice)
+    }
+  }
+  const [subtitleDelayMs, setSubtitleDelayMs] = useState(0)
+  // The main window applies the remembered delay when it opens each stream.
+  useEffect(() => {
+    if (!watchPartyContext) return
+    setSubtitleDelayMs(
+      readTitlePlayback(watchPartyContext.profileId, watchPartyContext.media.mediaId)
+        .subtitleDelayMs ?? 0,
+    )
+  }, [
+    watchPartyContext?.profileId,
+    watchPartyContext?.media.mediaId,
+    watchPartyContext?.media.videoId,
+  ])
 
   const showControls = useCallback(() => {
     setControlsVisible(true)
@@ -504,6 +532,7 @@ export function ElectronPlayerOverlay({
   }
 
   const subtitlesOff = () => {
+    rememberChoice(subtitleChoice("off"))
     setSelectedSubtitleCode(undefined)
     command(["set", "sid", "no"])
     setSnapshot((current) =>
@@ -583,6 +612,7 @@ export function ElectronPlayerOverlay({
           toggleSubtitleMenu()
           return
         }
+        rememberChoice(subtitleChoice({ language: track.lang, label: track.title }))
         selectSubtitleTrack(track, command, setSnapshot)
         flash(trackDisplayName(track, "Subtitles"))
         return
@@ -735,9 +765,15 @@ export function ElectronPlayerOverlay({
                 duration={snapshot.duration}
                 paused={snapshot.paused}
                 autoplay={preferences.autoplay}
+                askStillWatching={shouldAskStillWatching(preferences.askStillWatching)}
                 visible={upNextVisible}
                 contained
-                onDismiss={showControls}
+                onDismiss={() => {
+                  showControls()
+                  void window.__CONDUIT_ELECTRON__
+                    ?.invoke("player_overlay_dismiss_next")
+                    .catch(() => undefined)
+                }}
                 onWatchNow={nextEpisode}
               />
             </div>
@@ -934,6 +970,8 @@ export function ElectronPlayerOverlay({
                 anchor={audioAnchorRef}
                 tracks={audioTracks}
                 onSelect={(id) => {
+                  const track = audioTracks.find((candidate) => candidate.id === id)
+                  if (track) rememberChoice(audioChoice(track.lang, track.title))
                   command(["set", "aid", id])
                   setActiveTrackMenu(undefined)
                 }}
@@ -951,14 +989,25 @@ export function ElectronPlayerOverlay({
                   setSelectedSubtitleCode(code)
                   const group = subtitleGroups.find((candidate) => candidate.code === code)
                   const track = group && defaultSubtitleTrack(group)
-                  if (track) selectSubtitleTrack(track, command, setSnapshot)
+                  if (!track) return
+                  rememberChoice(subtitleChoice({ language: track.lang, label: track.title }))
+                  selectSubtitleTrack(track, command, setSnapshot)
                 }}
-                onSelectTrack={(track) => selectSubtitleTrack(track, command, setSnapshot)}
+                onSelectTrack={(track) => {
+                  rememberChoice(subtitleChoice({ language: track.lang, label: track.title }))
+                  selectSubtitleTrack(track, command, setSnapshot)
+                }}
                 onOff={subtitlesOff}
                 onSubtitlePosition={(value) => {
                   setSubtitlePosition(value)
                   writePreferences({ ...readPreferences(), subtitlePosition: value })
                   command(["set", "sub-pos", value])
+                }}
+                subtitleDelayMs={subtitleDelayMs}
+                onSubtitleDelay={(value) => {
+                  setSubtitleDelayMs(value)
+                  rememberChoice({ subtitleDelayMs: value })
+                  command(["set", "sub-delay", value / 1000])
                 }}
                 onClose={() => setActiveTrackMenu(undefined)}
               />
@@ -1157,10 +1206,12 @@ function SubtitleTrackMenu({
   selectedCode,
   selectedGroup,
   subtitlePosition,
+  subtitleDelayMs,
   onSelectLanguage,
   onSelectTrack,
   onOff,
   onSubtitlePosition,
+  onSubtitleDelay,
   onClose,
 }: {
   anchor: React.RefObject<HTMLElement | null>
@@ -1168,10 +1219,12 @@ function SubtitleTrackMenu({
   selectedCode?: string
   selectedGroup?: SubtitleLanguageGroup<NativeTrack>
   subtitlePosition: number
+  subtitleDelayMs: number
   onSelectLanguage: (code: string) => void
   onSelectTrack: (track: NativeTrack) => void
   onOff: () => void
   onSubtitlePosition: (value: number) => void
+  onSubtitleDelay: (delayMs: number) => void
   onClose: () => void
 }) {
   const active = groups.some((group) => group.tracks.some((track) => track.selected))
@@ -1277,6 +1330,7 @@ function SubtitleTrackMenu({
               <Plus size={16} />
             </button>
           </div>
+          <SubtitleDelayStepper delayMs={subtitleDelayMs} onChange={onSubtitleDelay} />
         </section>
       </div>
     </div>

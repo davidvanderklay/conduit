@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { act } from "react"
+import { StrictMode, act } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { Video } from "../lib/core"
@@ -68,6 +68,52 @@ describe("next episode prompt", () => {
     expect(watchNow).toHaveBeenCalledTimes(1)
     act(() => vi.advanceTimersByTime(5000))
     expect(watchNow).toHaveBeenCalledTimes(1)
+  })
+
+  it("counts one autoplayed episode per countdown, even under StrictMode", () => {
+    localStorage.clear()
+    const watchNow = vi.fn()
+    act(() => {
+      root.render(
+        <StrictMode>
+          <NextEpisodePrompt
+            upNext={episodeUpNext("Example", episode)}
+            position={80}
+            duration={100}
+            paused={false}
+            autoplay
+            onDismiss={vi.fn()}
+            onWatchNow={watchNow}
+          />
+        </StrictMode>,
+      )
+    })
+    act(() => vi.advanceTimersByTime(NEXT_EPISODE_COUNTDOWN * 1000))
+    expect(watchNow).toHaveBeenCalledTimes(1)
+    expect(localStorage.getItem("conduit.autoplay-streak.v1")).toBe("1")
+    localStorage.clear()
+  })
+
+  it("asks instead of counting down once the viewer may have stopped watching", () => {
+    const watchNow = vi.fn()
+    act(() => {
+      root.render(
+        <NextEpisodePrompt
+          upNext={episodeUpNext("Example", episode)}
+          position={80}
+          duration={100}
+          paused={false}
+          autoplay
+          askStillWatching
+          onDismiss={vi.fn()}
+          onWatchNow={watchNow}
+        />,
+      )
+    })
+    expect(host.textContent).toContain("Still watching?")
+    expect(host.textContent).toContain("Keep watching")
+    act(() => vi.advanceTimersByTime(NEXT_EPISODE_COUNTDOWN * 2000))
+    expect(watchNow).not.toHaveBeenCalled()
   })
 
   it("keeps Watch now available without a countdown when autoplay is disabled", () => {

@@ -26,6 +26,7 @@ export interface NativeTrack {
   bitrate?: number
   selected: boolean
   external: boolean
+  forced?: boolean
 }
 
 export interface NativePlayerSnapshot {
@@ -60,6 +61,7 @@ export interface ElectronDesktopBridge {
   onFullscreenChange(listener: (fullscreen: boolean) => void): () => void
   onPlayerOverlayClose(listener: () => void): () => void
   onPlayerOverlayNext(listener: () => void): () => void
+  onPlayerOverlayDismissNext?: (listener: () => void) => () => void
   onPlayerOverlaySubtitle?: (listener: () => void) => () => void
   onPlayerOverlayEpisode?: (listener: (videoId: string) => void) => () => void
   onPlayerOverlayWatchAction?: (
