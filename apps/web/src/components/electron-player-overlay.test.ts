@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { defaultSubtitleTrack, ElectronPlayerOverlay } from "./electron-player-overlay"
 import { listWatchParties, leaveWatchParty } from "../lib/watch-party-api"
+import type { NativePlayerSnapshot } from "../lib/desktop"
 import type { WatchPartySummary } from "../lib/watch-party"
 
 vi.mock("../lib/watch-party-api", () => ({
@@ -18,7 +19,7 @@ const desktop = vi.hoisted(() => ({
     return Promise.resolve(undefined as T)
   }),
   nativePlayerCommand: vi.fn(async () => undefined),
-  nativePlayerSnapshot: vi.fn(async () => ({
+  nativePlayerSnapshot: vi.fn(async (): Promise<NativePlayerSnapshot> => ({
     running: true,
     ended: false,
     paused: false,
@@ -454,5 +455,44 @@ describe("Electron episode drawer", () => {
     expect(
       host.querySelector('button[aria-label="Time remaining. Click to show end time."]'),
     ).not.toBeNull()
+  })
+
+  it("runs shortcuts the main window forwards to it", async () => {
+    vi.useFakeTimers()
+    let forward: (shortcut: unknown) => void = () => undefined
+    window.__CONDUIT_ELECTRON__!.onPlayerOverlayShortcut = (listener) => {
+      forward = listener
+      return () => undefined
+    }
+    desktop.nativePlayerSnapshot.mockResolvedValue({
+      running: true,
+      ended: false,
+      paused: false,
+      loading: false,
+      firstFrameReady: true,
+      position: 10,
+      duration: 100,
+      bufferedDuration: 30,
+      volume: 80,
+      playbackPath: "directPlay",
+      tracks: [{ id: 1, type: "audio", title: "Commentary", selected: true, external: false }],
+    })
+
+    await act(async () => {
+      root.render(createElement(ElectronPlayerOverlay, { initialMedia: { title: "Example" } }))
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    act(() => forward({ type: "volume", delta: 5 }))
+    expect(desktop.nativePlayerCommand).toHaveBeenLastCalledWith(["set", "volume", 85])
+    expect(host.querySelector('[aria-live="polite"]')?.textContent).toBe("Volume 85%")
+
+    act(() => forward({ type: "menu", menu: "audio" }))
+    expect(host.querySelector('[role="menu"]')?.textContent).toContain("Commentary")
+
+    desktop.nativePlayerCommand.mockClear()
+    act(() => forward({ type: "volume", delta: "loud" }))
+    expect(desktop.nativePlayerCommand).not.toHaveBeenCalled()
   })
 })

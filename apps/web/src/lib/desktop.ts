@@ -1,5 +1,6 @@
 import type { DesktopUpdateStatus } from "@conduit/updates"
 import type { PlayerArtwork, QueueItem, WatchProgress } from "./api"
+import type { PlayerShortcut } from "./player-shortcuts"
 import type { Video } from "./core"
 import type { PlayerUpNext, QueueMedia } from "./queue"
 import type { WatchPartyMedia, WatchPartySummary } from "./watch-party"
@@ -73,6 +74,7 @@ export interface ElectronDesktopBridge {
   ): () => void
   onPlayerOverlayWatchPartyLeft?(listener: (partyId: string) => void): () => void
   onPlayerOverlayTitle?(listener: (title: string) => void): () => void
+  onPlayerOverlayShortcut?(listener: (shortcut: unknown) => void): () => void
   setPlayerOverlayInteractiveRegions(
     regions: Array<{ left: number; top: number; right: number; bottom: number }>,
   ): void
@@ -120,6 +122,14 @@ export function isDesktop(): boolean {
   return window.__CONDUIT_ELECTRON__ !== undefined
 }
 
+/**
+ * Linux draws player controls in a separate, unfocusable overlay window above
+ * mpv, so the main window receives keys for controls it cannot show.
+ */
+export function usesPlayerOverlayWindow(): boolean {
+  return isDesktop() && navigator.userAgent.includes("Linux")
+}
+
 async function invoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
   const electron = window.__CONDUIT_ELECTRON__
   if (!electron) throw new Error("Desktop bridge is unavailable.")
@@ -148,6 +158,11 @@ export function openNativePlayer(
 
 export function updateNativePlayerOverlay(state: PlayerOverlayQueueState): Promise<void> {
   return invoke("player_overlay_update", { ...state })
+}
+
+/** Hands a keyboard shortcut to the Linux overlay window, which owns the visible controls. */
+export function forwardPlayerShortcut(shortcut: PlayerShortcut): Promise<void> {
+  return invoke("player_overlay_shortcut", shortcut)
 }
 
 export function nativePlayerSnapshot(): Promise<NativePlayerSnapshot> {

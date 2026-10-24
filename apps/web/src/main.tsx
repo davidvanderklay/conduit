@@ -5,7 +5,7 @@ import { createRootRoute, createRoute, createRouter, RouterProvider } from "@tan
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { App } from "./app"
 import { ElectronPlayerOverlay } from "./components/electron-player-overlay"
-import { isDesktop, type PlayerOverlayMedia } from "./lib/desktop"
+import { usesPlayerOverlayWindow, type PlayerOverlayMedia } from "./lib/desktop"
 import { initializeCore } from "./lib/core"
 import "./styles.css"
 
@@ -41,7 +41,7 @@ const queryClient = new QueryClient({
   },
 })
 
-if (isDesktop() && navigator.userAgent.includes("Linux")) {
+if (usesPlayerOverlayWindow()) {
   document.documentElement.classList.add("linux-desktop")
 }
 

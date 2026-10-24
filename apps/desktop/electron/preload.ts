@@ -150,6 +150,11 @@ contextBridge.exposeInMainWorld("__CONDUIT_ELECTRON__", {
     ipcRenderer.on("conduit:player-overlay-title", handler)
     return () => ipcRenderer.removeListener("conduit:player-overlay-title", handler)
   },
+  onPlayerOverlayShortcut(listener: (shortcut: unknown) => void) {
+    const handler = (_event: Electron.IpcRendererEvent, shortcut: unknown) => listener(shortcut)
+    ipcRenderer.on("conduit:player-overlay-shortcut", handler)
+    return () => ipcRenderer.removeListener("conduit:player-overlay-shortcut", handler)
+  },
   setPlayerOverlayInteractiveRegions(
     regions: Array<{ left: number; top: number; right: number; bottom: number }>,
   ) {
