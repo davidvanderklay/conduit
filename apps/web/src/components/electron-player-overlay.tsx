@@ -67,7 +67,13 @@ import {
   shouldShowUpNext,
   type SkipSegment,
 } from "../lib/skip-segments"
-import { subtitleVariantName } from "../lib/track-display"
+import { subtitleVariantName, trackDisplayName } from "../lib/track-display"
+import {
+  parsePlayerShortcut,
+  steppedSpeed,
+  steppedVolume,
+  type PlayerShortcut,
+} from "../lib/player-shortcuts"
 import {
   DesktopPlayerBufferingOverlay,
   DesktopPlayerOpeningOverlay,
@@ -83,6 +89,7 @@ import type { QueueItem } from "../lib/api"
 import { episodeUpNext } from "../lib/queue"
 import { QueueIcon, QueueNotice } from "./queue"
 import { SkipSegmentButton } from "./player-skip-prompt"
+import { PlayerFlash, usePlayerFlash } from "./player-flash"
 
 type TrackMenuName = "audio" | "subtitles"
 
@@ -119,6 +126,10 @@ export function ElectronPlayerOverlay({
   const holdSpeedTimer = useRef<number | undefined>(undefined)
   const holdSpeedActiveRef = useRef(false)
   const holdSpeedTriggered = useRef(false)
+  const holdSpeedRestore = useRef(1)
+  const mutedVolume = useRef(100)
+  const lastSubtitleId = useRef<number | undefined>(undefined)
+  const [flashMessage, flash] = usePlayerFlash()
   const seekDraft = useRef<number | undefined>(undefined)
   const seekCommitTimer = useRef<number | undefined>(undefined)
   const audioAnchorRef = useRef<HTMLDivElement>(null)
@@ -385,7 +396,7 @@ export function ElectronPlayerOverlay({
     if (!holdSpeedActiveRef.current) return
     holdSpeedActiveRef.current = false
     setHoldSpeedActive(false)
-    command(["set", "speed", 1])
+    command(["set", "speed", holdSpeedRestore.current])
   }, [command])
 
   const beginHoldSpeed = useCallback(
@@ -401,6 +412,7 @@ export function ElectronPlayerOverlay({
         return
       window.clearTimeout(holdSpeedTimer.current)
       holdSpeedTriggered.current = false
+      holdSpeedRestore.current = snapshot.rate ?? 1
       holdSpeedTimer.current = window.setTimeout(() => {
         holdSpeedTriggered.current = true
         holdSpeedActiveRef.current = true
@@ -482,6 +494,127 @@ export function ElectronPlayerOverlay({
     group.tracks.some((track) => track.selected),
   )
   const selectedSubtitleGroup = subtitleGroups.find((group) => group.code === selectedSubtitleCode)
+  const selectedSubtitle = subtitleTracks.find((track) => track.selected)
+
+  const toggleSubtitleMenu = () => {
+    setSelectedSubtitleCode(
+      selectedSubtitleCode ?? activeSubtitleGroup?.code ?? subtitleGroups[0]?.code,
+    )
+    setActiveTrackMenu((current) => (current === "subtitles" ? undefined : "subtitles"))
+  }
+
+  const subtitlesOff = () => {
+    setSelectedSubtitleCode(undefined)
+    command(["set", "sid", "no"])
+    setSnapshot((current) =>
+      current
+        ? {
+            ...current,
+            tracks: current.tracks.map((track) =>
+              track.type === "sub" ? { ...track, selected: false } : track,
+            ),
+          }
+        : current,
+    )
+  }
+
+  const setVolume = (volume: number) => {
+    command(["set", "volume", volume])
+    setSnapshot((current) => (current ? { ...current, volume } : current))
+  }
+
+  /** Unmuting restores the volume from before the mute. */
+  const toggleMute = () => {
+    if (!snapshot) return
+    if (snapshot.volume === 0) {
+      setVolume(mutedVolume.current)
+      return
+    }
+    mutedVolume.current = snapshot.volume
+    setVolume(0)
+  }
+
+  // The main window owns focus on Linux and forwards shortcuts here.
+  const runShortcut = (shortcut: PlayerShortcut) => {
+    if (!snapshot) return
+    showControls()
+    switch (shortcut.type) {
+      case "toggle-playback":
+        togglePlayback()
+        return
+      case "seek":
+        if (!transportAvailable) return
+        command(["seek", shortcut.seconds, "relative+exact"])
+        setSnapshot((current) =>
+          current
+            ? {
+                ...current,
+                position: Math.max(
+                  0,
+                  Math.min(current.duration || Infinity, current.position + shortcut.seconds),
+                ),
+              }
+            : current,
+        )
+        return
+      case "volume": {
+        const volume = steppedVolume(snapshot.volume, shortcut.delta)
+        setVolume(volume)
+        flash(`Volume ${volume}%`)
+        return
+      }
+      case "mute":
+        toggleMute()
+        flash(snapshot.volume === 0 ? "Unmuted" : "Muted")
+        return
+      case "fullscreen":
+        toggleFullscreen()
+        return
+      case "toggle-subtitles": {
+        if (selectedSubtitle) {
+          lastSubtitleId.current = selectedSubtitle.id
+          subtitlesOff()
+          flash("Subtitles off")
+          return
+        }
+        // Nothing to restore yet, so let the viewer pick.
+        const track = subtitleTracks.find((candidate) => candidate.id === lastSubtitleId.current)
+        if (!track) {
+          toggleSubtitleMenu()
+          return
+        }
+        selectSubtitleTrack(track, command, setSnapshot)
+        flash(trackDisplayName(track, "Subtitles"))
+        return
+      }
+      case "menu":
+        if (shortcut.menu === "subtitles") toggleSubtitleMenu()
+        else setActiveTrackMenu((current) => (current === "audio" ? undefined : "audio"))
+        return
+      case "speed": {
+        if (!transportAvailable) return
+        const rate = steppedSpeed(snapshot.rate ?? 1, shortcut.delta)
+        command(["set", "speed", rate])
+        setSnapshot((current) => (current ? { ...current, rate } : current))
+        flash(`${rate}×`)
+        return
+      }
+      case "next":
+        nextEpisode()
+        return
+    }
+  }
+  const latestRunShortcut = useRef(runShortcut)
+  latestRunShortcut.current = runShortcut
+
+  useEffect(
+    () =>
+      window.__CONDUIT_ELECTRON__?.onPlayerOverlayShortcut?.((value) => {
+        const shortcut = parsePlayerShortcut(value)
+        if (shortcut) latestRunShortcut.current(shortcut)
+      }),
+    [],
+  )
 
   const selectedScale = VIDEO_SCALE_OPTIONS.find((option) => option.value === scale)?.label ?? scale
   const loadingOverlayVisible = isDesktopInitialLoading(snapshot)
@@ -563,14 +696,7 @@ export function ElectronPlayerOverlay({
           className={`pointer-events-none absolute inset-x-0 top-0 h-48 bg-gradient-to-b from-black/85 via-black/55 to-transparent transition-opacity duration-300 ${chromeVisible ? "opacity-100" : "opacity-0"}`}
           aria-hidden="true"
         />
-        {holdSpeedActive && (
-          <div
-            className="pointer-events-none absolute inset-x-0 top-6 z-20 text-center text-xl font-semibold text-white drop-shadow-[0_2px_10px_rgba(0,0,0,0.95)]"
-            aria-live="polite"
-          >
-            » 2×
-          </div>
-        )}
+        <PlayerFlash message={holdSpeedActive ? "» 2×" : flashMessage} />
         {transportAvailable && snapshot && !episodeDrawerOpen && (
           <>
             {preferences.skipButtonPlacement === "left" && activeSkip && (
@@ -758,7 +884,7 @@ export function ElectronPlayerOverlay({
               <OverlayButton
                 large
                 label={snapshot?.volume === 0 ? "Unmute" : "Mute"}
-                onClick={() => command(["set", "volume", snapshot?.volume === 0 ? 100 : 0])}
+                onClick={toggleMute}
               >
                 {snapshot?.volume === 0 ? <VolumeX size={27} /> : <Volume2 size={27} />}
               </OverlayButton>
@@ -771,7 +897,7 @@ export function ElectronPlayerOverlay({
                 max={100}
                 value={snapshot?.volume ?? 100}
                 aria-label="Volume"
-                onChange={(event) => command(["set", "volume", Number(event.target.value)])}
+                onChange={(event) => setVolume(Number(event.target.value))}
               />
               <div className="flex-1" />
               <div ref={audioAnchorRef} data-track-menu-trigger>
@@ -796,14 +922,7 @@ export function ElectronPlayerOverlay({
                   empty="Subtitles"
                   allowOff
                   active={activeTrackMenu === "subtitles"}
-                  onClick={() => {
-                    setSelectedSubtitleCode(
-                      selectedSubtitleCode ?? activeSubtitleGroup?.code ?? subtitleGroups[0]?.code,
-                    )
-                    setActiveTrackMenu((current) =>
-                      current === "subtitles" ? undefined : "subtitles",
-                    )
-                  }}
+                  onClick={toggleSubtitleMenu}
                 />
               </div>
               <OverlayButton large label={"Video scale: " + selectedScale} onClick={changeScale}>
@@ -835,20 +954,7 @@ export function ElectronPlayerOverlay({
                   if (track) selectSubtitleTrack(track, command, setSnapshot)
                 }}
                 onSelectTrack={(track) => selectSubtitleTrack(track, command, setSnapshot)}
-                onOff={() => {
-                  setSelectedSubtitleCode(undefined)
-                  command(["set", "sid", "no"])
-                  setSnapshot((current) =>
-                    current
-                      ? {
-                          ...current,
-                          tracks: current.tracks.map((track) =>
-                            track.type === "sub" ? { ...track, selected: false } : track,
-                          ),
-                        }
-                      : current,
-                  )
-                }}
+                onOff={subtitlesOff}
                 onSubtitlePosition={(value) => {
                   setSubtitlePosition(value)
                   writePreferences({ ...readPreferences(), subtitlePosition: value })

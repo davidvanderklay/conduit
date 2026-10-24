@@ -24,6 +24,14 @@ import { playerHeading, type PlayerHeading } from "../lib/player-title"
 import { AUTO_SELECTION_STARTUP_TIMEOUT_MS } from "../lib/stream-selection"
 import { subtitlePositionForVideoScale, videoObjectFit, type VideoScale } from "../lib/video-scale"
 import { usePlaybackProgress } from "../lib/progress"
+import { usePlayerMediaSession } from "../lib/media-session"
+import {
+  playerShortcut,
+  steppedSpeed,
+  steppedVolume,
+  type PlayerShortcut,
+} from "../lib/player-shortcuts"
+import { PlayerFlash, usePlayerFlash } from "./player-flash"
 import { DesktopPlayer } from "./desktop-player"
 import {
   NextEpisodePrompt,
@@ -138,6 +146,7 @@ export function Player({
       profileId={profileId}
       playbackSource={playbackSource}
       progressMetadata={progressMetadata}
+      artwork={artwork}
       addons={addons}
       seriesContext={partySession?.role === "guest" ? undefined : seriesContext}
       upNext={partySession?.role === "guest" ? undefined : upNext}
@@ -164,6 +173,7 @@ function WebPlayer({
   accountId = profileId,
   playbackSource,
   progressMetadata,
+  artwork,
   addons,
   seriesContext,
   upNext,
@@ -186,6 +196,7 @@ function WebPlayer({
   profileId: string
   playbackSource?: PlaybackSource
   progressMetadata: ProgressMetadata
+  artwork?: PlayerArtwork
   addons: InstalledAddon[]
   seriesContext?: PlayerSeriesContext
   upNext?: PlayerUpNext
@@ -237,6 +248,8 @@ function WebPlayer({
   const nextTransitionRequested = useRef(false)
   const [playbackStarted, setPlaybackStarted] = useState(false)
   const applyingPartyUpdate = useRef(false)
+  const lastSubtitle = useRef<string | undefined>(undefined)
+  const [flashMessage, flash] = usePlayerFlash()
   const { progress, save: saveProgress } = usePlaybackProgress(
     profileId,
     videoId,
@@ -676,15 +689,33 @@ function WebPlayer({
     setSelectedAudio(choice.id)
   }
 
+  // Party guests follow the host, but may resume when the host is playing.
+  const play = () => {
+    if (partySession?.role === "guest" && !partySession.state?.playing) return
+    void videoRef.current?.play().catch(() => undefined)
+  }
+
+  const pause = () => {
+    if (partySession?.role !== "guest") videoRef.current?.pause()
+  }
+
   const togglePlayback = () => {
+    if (videoRef.current?.paused) play()
+    else pause()
+  }
+
+  const seekBy = (seconds: number) => {
     const video = videoRef.current
-    if (!video) return
-    if (partySession?.role === "guest") {
-      if (partySession.state?.playing) void video.play().catch(() => undefined)
-      return
-    }
-    if (video.paused) void video.play()
-    else video.pause()
+    if (!video || partySession?.role === "guest") return
+    const position = Math.max(0, Math.min(video.duration || Infinity, video.currentTime + seconds))
+    video.currentTime = position
+    if (partySession?.role === "host") partySession.publishCommand("seek", position)
+  }
+
+  const playNext = () => {
+    if (!onNextEpisode || nextTransitionRequested.current) return
+    nextTransitionRequested.current = true
+    void onNextEpisode()
   }
 
   const toggleFullscreen = () => {
@@ -710,6 +741,96 @@ function WebPlayer({
     writePreferences({ ...readPreferences(), subtitlePosition: value })
     if (selectedSubtitle !== "off") void chooseSubtitle(selectedSubtitle, value)
   }
+
+  const runShortcut = (shortcut: PlayerShortcut) => {
+    const video = videoRef.current
+    if (!video) return
+    switch (shortcut.type) {
+      case "toggle-playback":
+        togglePlayback()
+        return
+      case "seek":
+        if (partySession?.role === "guest") return
+        seekBy(shortcut.seconds)
+        flash(`${shortcut.seconds > 0 ? "+" : "-"}${Math.abs(shortcut.seconds)}s`)
+        return
+      case "volume": {
+        const volume = steppedVolume(video.muted ? 0 : video.volume * 100, shortcut.delta)
+        video.volume = volume / 100
+        video.muted = false
+        flash(`Volume ${volume}%`)
+        return
+      }
+      case "mute":
+        video.muted = !video.muted
+        flash(video.muted ? "Muted" : "Unmuted")
+        return
+      case "fullscreen":
+        toggleFullscreen()
+        return
+      case "toggle-subtitles": {
+        if (selectedSubtitle !== "off") {
+          lastSubtitle.current = selectedSubtitle
+          void chooseSubtitle("off")
+          flash("Subtitles off")
+          return
+        }
+        // Nothing to restore yet, so let the viewer pick.
+        const subtitle = subtitles.find((candidate) => candidate.key === lastSubtitle.current)
+        if (!subtitle) {
+          setShowSettings(true)
+          return
+        }
+        void chooseSubtitle(subtitle.key)
+        flash(subtitle.display)
+        return
+      }
+      case "menu":
+        // Audio and subtitles share one settings panel here.
+        setShowSettings((open) => !open)
+        return
+      case "speed": {
+        if (partySession?.role === "guest") return
+        video.playbackRate = steppedSpeed(video.playbackRate, shortcut.delta)
+        flash(`${video.playbackRate}×`)
+        return
+      }
+      case "next":
+        playNext()
+        return
+    }
+  }
+  const latestRunShortcut = useRef(runShortcut)
+  latestRunShortcut.current = runShortcut
+
+  useEffect(() => {
+    const handleKeyboard = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && showSettings) {
+        event.preventDefault()
+        setShowSettings(false)
+        return
+      }
+      const shortcut = playerShortcut(event)
+      if (!shortcut) return
+      event.preventDefault()
+      latestRunShortcut.current(shortcut)
+    }
+    window.addEventListener("keydown", handleKeyboard)
+    return () => window.removeEventListener("keydown", handleKeyboard)
+  }, [showSettings])
+
+  usePlayerMediaSession({
+    title: heading.primary,
+    artist: heading.secondary,
+    artwork: artwork?.poster,
+    playing,
+    controls: {
+      play,
+      pause,
+      seekBy,
+      next: onNextEpisode ? playNext : undefined,
+    },
+  })
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black p-0 sm:p-4">
@@ -890,6 +1011,7 @@ function WebPlayer({
             }}
           />
           <QueueNotice className="absolute left-6 top-16" />
+          <PlayerFlash message={flashMessage} />
           <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/95 via-black/60 to-transparent px-4 pb-4 pt-16 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
             <input
               className="web-player-seek mb-3 block w-full cursor-pointer"
@@ -921,14 +1043,7 @@ function WebPlayer({
                 {playing ? <Pause size={21} /> : <Play size={21} />}
               </Control>
               {onNextEpisode && (
-                <Control
-                  label={nextControlLabel(upNext)}
-                  onClick={() => {
-                    if (nextTransitionRequested.current) return
-                    nextTransitionRequested.current = true
-                    void onNextEpisode()
-                  }}
-                >
+                <Control label={nextControlLabel(upNext)} onClick={playNext}>
                   <SkipForward size={21} />
                 </Control>
               )}

@@ -12,6 +12,7 @@ import type { InstalledAddon, PlaybackSource, PlayerArtwork, ProgressMetadata } 
 import { addonsForResource } from "../lib/addons"
 import { audioTrackDisplay } from "../lib/audio-track-display"
 import {
+  forwardPlayerShortcut,
   nativePlayerCommand,
   nativeFullscreen,
   nativePlayerSnapshot,
@@ -23,6 +24,7 @@ import {
   setNativePlayerPlaying,
   stopNativePlayer,
   toggleNativeFullscreen,
+  usesPlayerOverlayWindow,
   type NativePlayerSnapshot,
   type NativeTrack,
 } from "../lib/desktop"
@@ -39,6 +41,13 @@ import {
 import { configuredTrackLanguage, matchesTrackLanguage } from "../lib/track-preference"
 import { mpvVideoScaleCommands, type VideoScale } from "../lib/video-scale"
 import { usePlaybackProgress } from "../lib/progress"
+import { usePlayerMediaSession } from "../lib/media-session"
+import {
+  playerShortcut,
+  steppedSpeed,
+  steppedVolume,
+  type PlayerShortcut,
+} from "../lib/player-shortcuts"
 import { AUTO_SELECTION_STARTUP_TIMEOUT_MS } from "../lib/stream-selection"
 import { Card } from "./ui/card"
 import {
@@ -53,6 +62,7 @@ import type { PlayerUpNext } from "../lib/queue"
 import type { QueueItem } from "../lib/api"
 import { QueueIcon, QueueNotice } from "./queue"
 import { SkipSegmentButton } from "./player-skip-prompt"
+import { PlayerFlash, usePlayerFlash } from "./player-flash"
 import { VideoScaleControl } from "./video-scale-control"
 import { preferredSubtitle, subtitleLookupResults } from "../lib/subtitle-selection"
 import { SubtitlePicker } from "./subtitle-picker"
@@ -184,6 +194,10 @@ export function DesktopPlayer({
   const holdSpeedTimer = useRef<number | undefined>(undefined)
   const holdSpeedActiveRef = useRef(false)
   const holdSpeedTriggered = useRef(false)
+  const holdSpeedRestore = useRef(1)
+  const mutedVolume = useRef(100)
+  const lastSubtitleId = useRef<number | undefined>(undefined)
+  const [flashMessage, flash] = usePlayerFlash()
   const closing = useRef(false)
   const currentUrl = useRef(url)
   currentUrl.current = url
@@ -298,7 +312,7 @@ export function DesktopPlayer({
     if (!holdSpeedActiveRef.current) return
     holdSpeedActiveRef.current = false
     setHoldSpeedActive(false)
-    void nativePlayerCommand(["set", "speed", 1]).catch(() => undefined)
+    void nativePlayerCommand(["set", "speed", holdSpeedRestore.current]).catch(() => undefined)
   }, [])
 
   const beginHoldSpeed = useCallback(
@@ -314,6 +328,7 @@ export function DesktopPlayer({
         return
       window.clearTimeout(holdSpeedTimer.current)
       holdSpeedTriggered.current = false
+      holdSpeedRestore.current = snapshot.rate ?? 1
       holdSpeedTimer.current = window.setTimeout(() => {
         holdSpeedTriggered.current = true
         holdSpeedActiveRef.current = true
@@ -840,14 +855,21 @@ export function DesktopPlayer({
     window.requestAnimationFrame(() => void refreshNativeSurface())
   }
 
-  const togglePlayback = useCallback(() => {
-    if (!snapshot || partySession?.role === "guest") return
-    void nativePlayerCommand(["cycle", "pause"])
-    if (partySession?.role === "host")
-      partySession.publishCommand(snapshot.paused ? "play" : "pause")
-    setSnapshot((current) => (current ? { ...current, paused: !current.paused } : current))
-    showControls()
-  }, [partySession, showControls, snapshot])
+  const setPaused = useCallback(
+    (paused: boolean) => {
+      if (!snapshot || partySession?.role === "guest") return
+      void nativePlayerCommand(["set", "pause", paused])
+      if (partySession?.role === "host") partySession.publishCommand(paused ? "pause" : "play")
+      setSnapshot((current) => (current ? { ...current, paused } : current))
+      showControls()
+    },
+    [partySession, showControls, snapshot],
+  )
+
+  const togglePlayback = useCallback(
+    () => setPaused(!snapshot?.paused),
+    [setPaused, snapshot?.paused],
+  )
 
   const closeTrackMenu = useCallback(() => {
     setActiveMenu(undefined)
@@ -932,39 +954,6 @@ export function DesktopPlayer({
     return () => document.removeEventListener("pointerdown", dismissOutside, true)
   }, [activeMenu, closeTrackMenu])
 
-  useEffect(() => {
-    const handleKeyboard = (event: KeyboardEvent) => {
-      const target = event.target
-      if (
-        target instanceof HTMLElement &&
-        (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName))
-      ) {
-        return
-      }
-
-      if (event.key === "Escape" && activeMenu) {
-        event.preventDefault()
-        closeTrackMenu()
-        return
-      }
-      if (activeMenu) return
-
-      if (event.key === "ArrowLeft") {
-        event.preventDefault()
-        seekRelative(-10)
-      } else if (event.key === "ArrowRight") {
-        event.preventDefault()
-        seekRelative(10)
-      } else if (event.key === " " || event.key.toLowerCase() === "k") {
-        event.preventDefault()
-        togglePlayback()
-      }
-    }
-
-    window.addEventListener("keydown", handleKeyboard)
-    return () => window.removeEventListener("keydown", handleKeyboard)
-  }, [activeMenu, closeTrackMenu, seekRelative, togglePlayback])
-
   const selectTrack = async (property: "aid" | "sid", track: NativeTrack) => {
     try {
       if (property === "sid") {
@@ -996,6 +985,146 @@ export function DesktopPlayer({
   const subtitleTracks = snapshot?.tracks.filter((track) => track.type === "sub") ?? []
   const selectedAudio = audioTracks.find((track) => track.selected)
   const selectedSubtitle = subtitleTracks.find((track) => track.selected)
+
+  const subtitlesOff = async () => {
+    preferredSubtitleApplied.current = true
+    subtitleSelectionGeneration.current += 1
+    try {
+      await nativePlayerCommand(["set", "sid", "no"])
+      setSelectedAddonSubtitle(undefined)
+      setSnapshot((current) =>
+        current
+          ? {
+              ...current,
+              tracks: current.tracks.map((track) =>
+                track.type === "sub" ? { ...track, selected: false } : track,
+              ),
+            }
+          : current,
+      )
+      redrawControls()
+    } catch (cause: unknown) {
+      setError(cause instanceof Error ? cause.message : String(cause))
+    }
+  }
+
+  const setVolume = (volume: number) => {
+    void nativePlayerCommand(["set", "volume", volume])
+    setSnapshot((current) => (current ? { ...current, volume } : current))
+  }
+
+  /** Unmuting restores the volume from before the mute. */
+  const toggleMute = () => {
+    if (!snapshot) return
+    if (snapshot.volume === 0) {
+      setVolume(mutedVolume.current)
+      return
+    }
+    mutedVolume.current = snapshot.volume
+    setVolume(0)
+  }
+
+  const playNext = () => {
+    if (!onNextEpisode || nextTransitionRequested.current) return
+    nextTransitionRequested.current = true
+    resetOverlay()
+    void onNextEpisode()
+  }
+
+  const toggleFullscreen = () => {
+    void toggleNativeFullscreen().then(setFullscreen)
+  }
+
+  const runShortcut = (shortcut: PlayerShortcut) => {
+    if (!snapshot) return
+    switch (shortcut.type) {
+      case "toggle-playback":
+        togglePlayback()
+        return
+      case "seek":
+        seekRelative(shortcut.seconds)
+        return
+      case "volume": {
+        const volume = steppedVolume(snapshot.volume, shortcut.delta)
+        setVolume(volume)
+        flash(`Volume ${volume}%`)
+        return
+      }
+      case "mute":
+        toggleMute()
+        flash(snapshot.volume === 0 ? "Unmuted" : "Muted")
+        return
+      case "fullscreen":
+        toggleFullscreen()
+        return
+      case "toggle-subtitles": {
+        if (selectedSubtitle) {
+          lastSubtitleId.current = selectedSubtitle.id
+          void subtitlesOff()
+          flash("Subtitles off")
+          return
+        }
+        // Nothing to restore yet, so let the viewer pick.
+        const track = subtitleTracks.find((candidate) => candidate.id === lastSubtitleId.current)
+        if (!track) {
+          toggleTrackMenu("subtitles")
+          return
+        }
+        void selectTrack("sid", track)
+        flash(trackName(track, "Subtitles"))
+        return
+      }
+      case "menu":
+        toggleTrackMenu(shortcut.menu)
+        return
+      case "speed": {
+        if (partySession?.role === "guest") return
+        const rate = steppedSpeed(snapshot.rate ?? 1, shortcut.delta)
+        void nativePlayerCommand(["set", "speed", rate])
+        setSnapshot((current) => (current ? { ...current, rate } : current))
+        flash(`${rate}×`)
+        return
+      }
+      case "next":
+        playNext()
+        return
+    }
+  }
+  const latestRunShortcut = useRef(runShortcut)
+  latestRunShortcut.current = runShortcut
+
+  useEffect(() => {
+    const handleKeyboard = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && activeMenu) {
+        event.preventDefault()
+        closeTrackMenu()
+        return
+      }
+      const shortcut = playerShortcut(event)
+      if (!shortcut || (activeMenu && shortcut.type !== "menu")) return
+      event.preventDefault()
+      if (usesPlayerOverlayWindow()) void forwardPlayerShortcut(shortcut).catch(() => undefined)
+      else latestRunShortcut.current(shortcut)
+    }
+
+    window.addEventListener("keydown", handleKeyboard)
+    return () => window.removeEventListener("keydown", handleKeyboard)
+  }, [activeMenu, closeTrackMenu])
+
+  usePlayerMediaSession({
+    title: heading.primary,
+    artist: heading.secondary,
+    artwork: artwork?.poster,
+    playing: Boolean(snapshot && !snapshot.paused && !snapshot.ended),
+    controls: {
+      play: () => setPaused(false),
+      pause: () => setPaused(true),
+      seekBy: seekRelative,
+      next: onNextEpisode ? playNext : undefined,
+    },
+    anchor: true,
+  })
+
   const menuContentSignature =
     activeMenu === "audio"
       ? audioTracks.map((track) => `${track.id}:${track.selected}`).join("|")
@@ -1100,14 +1229,7 @@ export function DesktopPlayer({
         }}
         aria-hidden="true"
       />
-      {holdSpeedActive && (
-        <div
-          className="pointer-events-none absolute inset-x-0 top-6 z-20 text-center text-xl font-semibold text-white drop-shadow-[0_2px_10px_rgba(0,0,0,0.95)]"
-          aria-live="polite"
-        >
-          » 2×
-        </div>
-      )}
+      <PlayerFlash message={holdSpeedActive ? "» 2×" : flashMessage} />
       <DesktopPlayerChromeTop
         expandedControls={expandedControls}
         visible={chromeVisible}
@@ -1147,9 +1269,7 @@ export function DesktopPlayer({
           </>
         }
         onBack={close}
-        onFullscreen={() => {
-          void toggleNativeFullscreen().then(setFullscreen)
-        }}
+        onFullscreen={toggleFullscreen}
       />
       {error ? (
         <div className="absolute inset-0 z-10 grid place-items-center p-5">
@@ -1322,27 +1442,7 @@ export function DesktopPlayer({
                   pendingAddonSubtitle.current.delete(subtitle.key)
                 }
               }}
-              onOff={async () => {
-                preferredSubtitleApplied.current = true
-                subtitleSelectionGeneration.current += 1
-                try {
-                  await nativePlayerCommand(["set", "sid", "no"])
-                  setSelectedAddonSubtitle(undefined)
-                  setSnapshot((current) =>
-                    current
-                      ? {
-                          ...current,
-                          tracks: current.tracks.map((track) =>
-                            track.type === "sub" ? { ...track, selected: false } : track,
-                          ),
-                        }
-                      : current,
-                  )
-                  redrawControls()
-                } catch (cause: unknown) {
-                  setError(cause instanceof Error ? cause.message : String(cause))
-                }
-              }}
+              onOff={() => void subtitlesOff()}
               onClose={closeTrackMenu}
             />
           )}
@@ -1434,12 +1534,7 @@ export function DesktopPlayer({
               <PlayerIcon
                 label={nextControlLabel(upNext)}
                 expanded={expandedControls}
-                onClick={() => {
-                  if (nextTransitionRequested.current) return
-                  nextTransitionRequested.current = true
-                  resetOverlay()
-                  void onNextEpisode()
-                }}
+                onClick={playNext}
               >
                 <SkipForward size={21} />
               </PlayerIcon>
@@ -1447,11 +1542,7 @@ export function DesktopPlayer({
             <PlayerIcon
               label={snapshot.volume === 0 ? "Unmute" : "Mute"}
               expanded={expandedControls}
-              onClick={() => {
-                const volume = snapshot.volume === 0 ? 100 : 0
-                void nativePlayerCommand(["set", "volume", volume])
-                setSnapshot((current) => (current ? { ...current, volume } : current))
-              }}
+              onClick={toggleMute}
             >
               {snapshot.volume === 0 ? <VolumeX size={21} /> : <Volume2 size={21} />}
             </PlayerIcon>
@@ -1467,11 +1558,7 @@ export function DesktopPlayer({
               max={100}
               value={snapshot.volume}
               aria-label="Volume"
-              onChange={(event) => {
-                const volume = Number(event.target.value)
-                void nativePlayerCommand(["set", "volume", volume])
-                setSnapshot((current) => (current ? { ...current, volume } : current))
-              }}
+              onChange={(event) => setVolume(Number(event.target.value))}
             />
             <div className="flex-1" />
 

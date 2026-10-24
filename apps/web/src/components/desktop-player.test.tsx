@@ -75,6 +75,8 @@ const desktop = vi.hoisted(() => ({
   setNativePlayerPlaying: vi.fn(async () => undefined),
   stopNativePlayer: vi.fn(async () => undefined),
   toggleNativeFullscreen: vi.fn(async () => false),
+  usesPlayerOverlayWindow: vi.fn(() => false),
+  forwardPlayerShortcut: vi.fn(async (_shortcut: unknown) => undefined),
 }))
 
 const progress = vi.hoisted(() => ({
@@ -949,6 +951,125 @@ describe("DesktopPlayer track menus", () => {
 
     expect(dedupeAddonSubtitles(subtitles)).toEqual([subtitles[0], subtitles[2]])
   })
+
+  it("drives mpv from Stremio-style shortcuts", () => {
+    press("ArrowUp")
+    expect(desktop.nativePlayerCommand).toHaveBeenLastCalledWith(["set", "volume", 85])
+    expect(document.querySelector('[aria-live="polite"]')?.textContent).toBe("Volume 85%")
+
+    press("]")
+    expect(desktop.nativePlayerCommand).toHaveBeenLastCalledWith(["set", "speed", 1.25])
+
+    press("ArrowLeft", { shiftKey: true })
+    expect(desktop.nativePlayerCommand).toHaveBeenLastCalledWith(["seek", -30, "relative+exact"])
+
+    press(" ")
+    expect(desktop.nativePlayerCommand).toHaveBeenLastCalledWith(["set", "pause", true])
+
+    press("a")
+    expect(document.querySelector('[role="menu"]')?.textContent).toContain("Commentary")
+  })
+
+  it("restores the previous volume when unmuting", () => {
+    press("m")
+    expect(desktop.nativePlayerCommand).toHaveBeenLastCalledWith(["set", "volume", 0])
+    press("m")
+    expect(desktop.nativePlayerCommand).toHaveBeenLastCalledWith(["set", "volume", 80])
+  })
+
+  it("toggles subtitles off and back to the last track", async () => {
+    const spanish = { ...snapshot.tracks[2]!, selected: true }
+    desktop.openNativePlayer.mockResolvedValueOnce({
+      ...snapshot,
+      tracks: [snapshot.tracks[0]!, spanish],
+    })
+    await act(async () => {
+      root.render(
+        <DesktopPlayer
+          url="https://example.com/subtitled.mkv"
+          type="movie"
+          videoId="tt456"
+          profileId="00000000-0000-4000-8000-000000000001"
+          progressMetadata={{ mediaType: "movie", mediaId: "tt456", name: "Subtitled" }}
+          addons={[]}
+          onClose={() => undefined}
+        />,
+      )
+      await Promise.resolve()
+    })
+    desktop.nativePlayerCommand.mockClear()
+
+    await act(async () => press("c"))
+    expect(desktop.nativePlayerCommand).toHaveBeenLastCalledWith(["set", "sid", "no"])
+
+    await act(async () => press("c"))
+    expect(desktop.nativePlayerCommand).toHaveBeenLastCalledWith(["set", "sid", spanish.id])
+  })
+
+  it("forwards shortcuts to the Linux overlay instead of the hidden controls", () => {
+    desktop.usesPlayerOverlayWindow.mockReturnValue(true)
+    press("s")
+
+    expect(desktop.forwardPlayerShortcut).toHaveBeenCalledWith({ type: "menu", menu: "subtitles" })
+    expect(desktop.nativePlayerCommand).not.toHaveBeenCalled()
+    expect(document.querySelector('[role="menu"]')).toBeNull()
+    desktop.usesPlayerOverlayWindow.mockReturnValue(false)
+  })
+
+  it("routes OS media keys to mpv through a silent media session anchor", async () => {
+    const handlers = new Map<string, MediaSessionActionHandler | null>()
+    Object.defineProperty(navigator, "mediaSession", {
+      configurable: true,
+      value: {
+        metadata: null,
+        playbackState: "none",
+        setActionHandler: (action: string, handler: MediaSessionActionHandler | null) =>
+          handlers.set(action, handler),
+      },
+    })
+    vi.stubGlobal(
+      "MediaMetadata",
+      class {
+        constructor(readonly init: MediaMetadataInit) {}
+      },
+    )
+    vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: () => "blob:silence" }))
+    const anchorPlay = vi
+      .spyOn(HTMLMediaElement.prototype, "play")
+      .mockImplementation(async () => undefined)
+    vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => undefined)
+    vi.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(() => undefined)
+    const next = vi.fn()
+
+    try {
+      await act(async () => {
+        root.render(
+          <DesktopPlayer
+            url="https://example.com/video.mp4"
+            type="movie"
+            videoId="tt123"
+            profileId="00000000-0000-4000-8000-000000000001"
+            progressMetadata={{ mediaType: "movie", mediaId: "tt123", name: "Test video" }}
+            addons={[]}
+            onNextEpisode={next}
+            onClose={() => undefined}
+          />,
+        )
+        await Promise.resolve()
+      })
+
+      expect(anchorPlay).toHaveBeenCalled()
+      act(() => handlers.get("pause")?.({ action: "pause" }))
+      expect(desktop.nativePlayerCommand).toHaveBeenLastCalledWith(["set", "pause", true])
+      act(() => handlers.get("seekforward")?.({ action: "seekforward" }))
+      expect(desktop.nativePlayerCommand).toHaveBeenLastCalledWith(["seek", 10, "relative+exact"])
+      act(() => handlers.get("nexttrack")?.({ action: "nexttrack" }))
+      expect(next).toHaveBeenCalledOnce()
+    } finally {
+      act(() => root.render(<></>))
+      delete (navigator as { mediaSession?: unknown }).mediaSession
+    }
+  })
 })
 
 describe("native playback completion", () => {
@@ -980,6 +1101,12 @@ function button(label: string): HTMLButtonElement {
     throw new Error(`Could not find button "${label}". Available: ${available.join(", ")}`)
   }
   return match
+}
+
+function press(key: string, init: KeyboardEventInit = {}): void {
+  act(() => {
+    window.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, ...init }))
+  })
 }
 
 function click(target: HTMLButtonElement): void {

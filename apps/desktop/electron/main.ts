@@ -963,6 +963,11 @@ async function invoke(command: string, args: Record<string, unknown> = {}): Prom
     playerOverlayWindow?.webContents.send("conduit:player-overlay-context", context)
     return null
   }
+  if (command === "player_overlay_shortcut") {
+    // The overlay is unfocusable, so the main window relays keys to the visible controls.
+    playerOverlayWindow?.webContents.send("conduit:player-overlay-shortcut", args)
+    return null
+  }
   if (command === "player_overlay_watch_party") {
     playerOverlayWindow?.webContents.send("conduit:player-overlay-watch-party")
     return null
