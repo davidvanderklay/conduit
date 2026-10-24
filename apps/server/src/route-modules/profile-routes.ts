@@ -323,7 +323,7 @@ export function registerProfileRoutes(app: FastifyInstance, context: RouteContex
       schema: {
         params: Type.Object({ profileId: Type.String({ format: "uuid" }) }),
         body: Type.Object({
-          mode: Type.Union([Type.Literal("merge"), Type.Literal("replace")]),
+          mode: Type.Union([Type.Literal("merge"), Type.Literal("replace"), Type.Literal("additive")]),
           data: Type.Unknown(),
         }),
       },
@@ -334,7 +334,11 @@ export function registerProfileRoutes(app: FastifyInstance, context: RouteContex
       if (!user) return
       const { profileId } = request.params as { profileId: string }
       if (!(await canAccessProfile(db, user.id, profileId))) return reply.forbidden()
-      const body = request.body as { mode: "merge" | "replace"; data: unknown }
+      // merge upserts archive entries, replace clears the profile first, and
+      // additive only fills gaps: existing titles and add-ons are kept, and
+      // progress is updated only where the archive entry is newer.
+      const body = request.body as { mode: "merge" | "replace" | "additive"; data: unknown }
+      const additive = body.mode === "additive"
       let data: PortableProfileData
       try {
         data = validatePortableData(body.data)
@@ -342,7 +346,8 @@ export function registerProfileRoutes(app: FastifyInstance, context: RouteContex
         return reply.badRequest(error instanceof Error ? error.message : "invalid import")
       }
 
-      await db.transaction(async (tx) => {
+      const added = await db.transaction(async (tx) => {
+        const added = { library: 0, progress: 0, addons: 0 }
         if (body.mode === "replace") {
           await tx.delete(addonInstallations).where(eq(addonInstallations.profileId, profileId))
           await tx.delete(watchProgress).where(eq(watchProgress.profileId, profileId))
@@ -351,14 +356,16 @@ export function registerProfileRoutes(app: FastifyInstance, context: RouteContex
             .where(eq(progressCanonicalTitles.profileId, profileId))
           await tx.delete(libraryItems).where(eq(libraryItems.profileId, profileId))
         }
-        await tx
-          .update(profiles)
-          .set({
-            name: data.profile.name.trim(),
-            isKids: data.profile.isKids,
-            updatedAt: new Date(),
-          })
-          .where(eq(profiles.id, profileId))
+        if (!additive) {
+          await tx
+            .update(profiles)
+            .set({
+              name: data.profile.name.trim(),
+              isKids: data.profile.isKids,
+              updatedAt: new Date(),
+            })
+            .where(eq(profiles.id, profileId))
+        }
         for (const item of data.library) {
           const values = {
             profileId,
@@ -373,13 +380,15 @@ export function registerProfileRoutes(app: FastifyInstance, context: RouteContex
             createdAt: new Date(item.createdAt),
             updatedAt: new Date(item.updatedAt),
           }
-          await tx
-            .insert(libraryItems)
-            .values(values)
-            .onConflictDoUpdate({
-              target: [libraryItems.profileId, libraryItems.mediaType, libraryItems.mediaId],
-              set: values,
-            })
+          const insert = tx.insert(libraryItems).values(values)
+          const written = await (additive
+            ? insert.onConflictDoNothing()
+            : insert.onConflictDoUpdate({
+                target: [libraryItems.profileId, libraryItems.mediaType, libraryItems.mediaId],
+                set: values,
+              })
+          ).returning({ mediaId: libraryItems.mediaId })
+          added.library += written.length
         }
         const importedCanonicalTitles = new Map<string, string>()
         for (const item of data.progress) {
@@ -440,16 +449,29 @@ export function registerProfileRoutes(app: FastifyInstance, context: RouteContex
             playbackSource: item.playbackSource,
             updatedAt: new Date(item.updatedAt),
           }
-          await tx
+          const written = await tx
             .insert(watchProgress)
             .values(values)
             .onConflictDoUpdate({
               target: [watchProgress.profileId, watchProgress.videoId],
               set: values,
+              ...(additive ? { setWhere: sql`${watchProgress.updatedAt} < excluded.updated_at` } : {}),
             })
+            .returning({ videoId: watchProgress.videoId })
+          added.progress += written.length
         }
+        const existingAddons = additive
+          ? await tx
+              .select({ manifestId: addonInstallations.manifestId, position: addonInstallations.position })
+              .from(addonInstallations)
+              .where(eq(addonInstallations.profileId, profileId))
+          : []
+        const installedManifestIds = new Set(existingAddons.map((addon) => addon.manifestId))
+        const nextPosition = Math.max(-1, ...existingAddons.map((addon) => addon.position)) + 1
         for (const addon of data.addons) {
           if (!addon.manifestUrl) continue
+          // A differently configured copy of an installed add-on would duplicate its results.
+          if (additive && installedManifestIds.has(addon.manifestId)) continue
           const url = normalizeManifestUrl(addon.manifestUrl)
           const values = {
             profileId,
@@ -457,17 +479,20 @@ export function registerProfileRoutes(app: FastifyInstance, context: RouteContex
             manifestUrlEncrypted: encryptSecret(url, config.addonEncryptionKey),
             manifestUrlHash: stableSecretHash(url, config.addonEncryptionKey),
             manifest: addon.manifest,
-            position: addon.position,
+            position: additive ? nextPosition + addon.position : addon.position,
             enabled: addon.enabled,
             updatedAt: new Date(),
           }
-          await tx
-            .insert(addonInstallations)
-            .values(values)
-            .onConflictDoUpdate({
-              target: [addonInstallations.profileId, addonInstallations.manifestUrlHash],
-              set: values,
-            })
+          const insert = tx.insert(addonInstallations).values(values)
+          const written = await (additive
+            ? insert.onConflictDoNothing()
+            : insert.onConflictDoUpdate({
+                target: [addonInstallations.profileId, addonInstallations.manifestUrlHash],
+                set: values,
+              })
+          ).returning({ id: addonInstallations.id })
+          added.addons += written.length
+          installedManifestIds.add(addon.manifestId)
         }
         await tx.delete(progressEvents).where(eq(progressEvents.profileId, profileId))
         await tx
@@ -480,8 +505,9 @@ export function registerProfileRoutes(app: FastifyInstance, context: RouteContex
             target: progressSyncState.profileId,
             set: { revision: 0, generation: sql`${progressSyncState.generation} + 1` },
           })
+        return added
       })
-      return { imported: previewPortableData(data), mode: body.mode }
+      return { imported: previewPortableData(data), mode: body.mode, added }
     },
   )
 }

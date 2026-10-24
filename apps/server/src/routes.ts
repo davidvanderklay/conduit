@@ -7,6 +7,7 @@ import { registerBootstrapRoutes } from "./route-modules/bootstrap-routes.js"
 import type { RouteContext } from "./route-modules/context.js"
 import { rehashAddonInstallationUrls } from "./route-modules/helpers.js"
 import { registerLibraryRoutes } from "./route-modules/library-routes.js"
+import { registerMigrationRoutes } from "./route-modules/migration-routes.js"
 import { registerProfileRoutes } from "./route-modules/profile-routes.js"
 import { registerQueueRoutes } from "./route-modules/queue-routes.js"
 import {
@@ -38,6 +39,7 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
   registerTvAuthRoutes(app, context)
   registerBootstrapRoutes(app, context)
   registerProfileRoutes(app, context)
+  registerMigrationRoutes(app, context)
   registerAddonRoutes(app, context)
   registerLibraryRoutes(app, context)
   registerProgressRoutes(app, context)

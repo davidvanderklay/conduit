@@ -38,7 +38,7 @@ Code, documentation, reproducible bug reports, and device testing are welcome.
 - Web and Electron desktop clients backed by one shared interface
 - Android and iOS clients with shared Compose UI and native playback
 - Very experimental Android TV and Google TV support with remote navigation
-- Portable profile import/export
+- Portable profile import/export and migration from Stremio or Nuvio
 - Local password accounts without an email-delivery dependency
 - Google OAuth or administrator-configured OpenID Connect
 - Recovery codes and machine-local administrator recovery
