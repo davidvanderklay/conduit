@@ -1,10 +1,11 @@
-import { describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
   isPlayableStreamUrl,
   playbackSourceForStream,
   rankAutomaticStreams,
   selectSavedStream,
   selectSingleAutoStream,
+  streamPlaybackUrl,
   type AutoSelectableStream,
 } from "./stream-selection"
 
@@ -20,6 +21,9 @@ const stream = (
 })
 
 describe("stream selection", () => {
+  beforeEach(() => vi.stubGlobal("window", {}))
+  afterEach(() => vi.unstubAllGlobals())
+
   it.each([
     [
       "https://video.example/play?file=My%20Movie.mkv",
@@ -160,5 +164,25 @@ describe("stream selection", () => {
     const fallback = stream("fallback", "Provider", { addonId: "addon-2" })
     expect(selectSingleAutoStream([saved, fallback], saved)?.key).toBe("fallback")
     expect(selectSingleAutoStream([saved, fallback])).toBeUndefined()
+  })
+
+  it("plays torrents as magnets only where the shell supports P2P", () => {
+    const torrent = stream("torrent", "Torrentio", {
+      url: undefined,
+      infoHash: "A".repeat(40),
+      fileIdx: 3,
+      sources: ["tracker:udp://tracker.example:1337/announce", "dht:" + "a".repeat(40)],
+    })
+    expect(streamPlaybackUrl(torrent)).toBeUndefined()
+    expect(selectSingleAutoStream([torrent])).toBeUndefined()
+
+    vi.stubGlobal("window", { __CONDUIT_ELECTRON__: { p2p: true } })
+    const magnet = new URL(streamPlaybackUrl(torrent)!)
+    expect(magnet.protocol).toBe("magnet:")
+    expect(magnet.searchParams.get("xt")).toBe(`urn:btih:${"A".repeat(40)}`)
+    expect(magnet.searchParams.get("so")).toBe("3")
+    expect(magnet.searchParams.getAll("tr")).toEqual(["udp://tracker.example:1337/announce"])
+    expect(selectSingleAutoStream([torrent])).toBe(torrent)
+    expect(streamPlaybackUrl(stream("direct", "Provider"))).toBe("https://example.com/direct.mp4")
   })
 })
