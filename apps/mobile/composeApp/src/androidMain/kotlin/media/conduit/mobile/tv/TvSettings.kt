@@ -57,6 +57,7 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonPrimitive
 import media.conduit.mobile.AndroidPlaybackEngine
+import media.conduit.mobile.ExternalPlayerDescription
 import media.conduit.mobile.PlatformBackHandler
 import media.conduit.mobile.SubtitleStyleControls
 import media.conduit.mobile.TvShellModel
@@ -510,6 +511,7 @@ private fun TvAddonManager(model: TvShellModel) {
 
 internal fun LazyListScope.playbackSettings(preferences: DevicePreferences, update: (DevicePreferences) -> Unit) {
     sectionLabel("Player")
+    item { TvSettingToggle("Use external player", ExternalPlayerDescription, preferences.externalPlayer) { update(preferences.copy(externalPlayer = it)) } }
     item {
         TvSettingChoice(
             "Player engine",

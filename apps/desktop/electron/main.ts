@@ -1157,6 +1157,17 @@ function registerIpcHandlers() {
     }
     await shell.openExternal(new URL(url).toString())
   })
+  // Hands a stream to whichever app the system opens playlists with, such as VLC or mpv.
+  ipcMain.handle("conduit:open-in-external-player", async (event, url: string, title: string) => {
+    if (!isTrustedIpcSender(event) || !isSafeExternalUrl(url) || typeof title !== "string") {
+      throw new Error("Only HTTP and HTTPS streams can be opened in an external player.")
+    }
+    const playlist = path.join(app.getPath("temp"), "conduit-external-player.m3u")
+    const name = title.replace(/\s+/g, " ").trim()
+    await fs.writeFile(playlist, `#EXTM3U\n#EXTINF:-1,${name}\n${new URL(url).toString()}\n`)
+    const error = await shell.openPath(playlist)
+    if (error) throw new Error(error)
+  })
 }
 
 async function closeResources() {

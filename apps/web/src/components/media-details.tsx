@@ -10,6 +10,7 @@ import {
   ExternalLink,
   Languages,
   LoaderCircle,
+  MonitorPlay,
   Pause,
   Play,
   RefreshCw,
@@ -61,12 +62,15 @@ import { useQueueControls } from "../lib/use-queue"
 import { applyProgressOperation, progressIdentity } from "../lib/progress"
 import {
   AUTO_SELECTION_STARTUP_TIMEOUT_MS,
+  isPlayableStreamUrl,
   playbackSourceForStream,
   rankAutomaticStreams,
   selectSavedStream,
   selectSingleAutoStream,
 } from "../lib/stream-selection"
 import { nativeFullscreen, onNativeFullscreenChange } from "../lib/desktop"
+import { openInExternalPlayer } from "../lib/external-player"
+import { nativeMediaTitle } from "../lib/player-title"
 import { mediaForWatchActions, setEpisodeWatched, setVideosWatched } from "../lib/watch-actions"
 import {
   episodeProgressPercent,
@@ -960,6 +964,22 @@ export function MediaDetails({
                 setStreamResolutionError(undefined)
                 setPlaying(stream)
               }}
+              onOpenExternally={(url) => {
+                setStreamResolutionError(undefined)
+                void openInExternalPlayer(
+                  url,
+                  nativeMediaTitle({
+                    mediaType: item.type,
+                    mediaId: item.id,
+                    name: meta.name,
+                    videoTitle: selectedVideo?.title,
+                    season: selectedVideo?.season,
+                    episode: selectedVideo?.episode,
+                  }),
+                ).catch(() =>
+                  setStreamResolutionError("No external player could open this source."),
+                )
+              }}
               onBackToSeries={
                 episodeMode && selectedVideo
                   ? () => {
@@ -1270,6 +1290,7 @@ function StreamRail({
   onSelectAddon,
   onRefresh,
   onPlay,
+  onOpenExternally,
   onBackToSeries,
   onBack,
 }: {
@@ -1283,6 +1304,7 @@ function StreamRail({
   onSelectAddon: (addonId?: string) => void
   onRefresh: () => void
   onPlay: (stream: ResolvedStream) => void
+  onOpenExternally: (url: string) => void
   onBackToSeries?: () => void
   onBack?: () => void
 }) {
@@ -1373,6 +1395,7 @@ function StreamRail({
           const title = stream.name ?? stream.title ?? stream.addonName
           const description =
             stream.description ?? stream.title ?? `Provided by ${stream.addonName}`
+          const directUrl = isPlayableStreamUrl(stream.url) ? stream.url : undefined
           return (
             <div
               className="rounded-xl border border-white/8 bg-white/[0.035] p-3.5 transition hover:border-white/20 hover:bg-white/[0.065]"
@@ -1389,9 +1412,22 @@ function StreamRail({
                   <p className="mt-1.5 text-[10px] font-medium text-zinc-600">{stream.addonName}</p>
                 </div>
                 {stream.url ? (
-                  <Button size="icon" aria-label={`Play ${title}`} onClick={() => onPlay(stream)}>
-                    <Play size={16} />
-                  </Button>
+                  <div className="flex shrink-0 gap-1.5">
+                    {directUrl && (
+                      <Button
+                        size="icon"
+                        variant="secondary"
+                        aria-label={`Open ${title} in external player`}
+                        title="Open in external player"
+                        onClick={() => onOpenExternally(directUrl)}
+                      >
+                        <MonitorPlay size={16} />
+                      </Button>
+                    )}
+                    <Button size="icon" aria-label={`Play ${title}`} onClick={() => onPlay(stream)}>
+                      <Play size={16} />
+                    </Button>
+                  </div>
                 ) : stream.externalUrl ? (
                   <Button
                     size="icon"

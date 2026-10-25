@@ -57,6 +57,20 @@ A web page cannot safely or silently install a loopback media service. Conduit
 also does not send unsupported sources through the hosted API, because doing so
 would change its privacy, bandwidth, abuse, and operating-cost model.
 
+## External players
+
+Direct HTTP and HTTPS sources can be played outside Conduit. On the web and
+desktop source lists, the external player button next to Play hands the source
+off as a one-entry M3U playlist. Browsers download the playlist; the desktop app
+opens it with the system's default playlist app, such as VLC or mpv.
+
+On Android and Android TV, **Use external player** under Playback settings sends
+every direct source to Android's app picker instead of Conduit's player, with
+the title, resume position, and add-on request headers as intent extras. P2P
+sources and watch parties still play in Conduit. iOS does not offer this.
+
+External players do not report progress back, so watch history is not updated.
+
 ## Future remote transcoding
 
 Remote transcoding remains useful for self-hosters who need browser or

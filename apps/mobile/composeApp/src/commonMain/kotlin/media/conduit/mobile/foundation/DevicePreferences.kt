@@ -67,6 +67,8 @@ data class DevicePreferences(
     val hardwareDecoding: Boolean = true,
     val mixAudioWithOtherApps: Boolean = false,
     val androidPlaybackEngine: AndroidPlaybackEngine = AndroidPlaybackEngine.Automatic,
+    /** Android hands direct HTTP sources to another installed player instead of playing them in Conduit. */
+    val externalPlayer: Boolean = false,
     val rememberLastProfile: Boolean = true,
     val debugLogging: Boolean = false,
 )
@@ -109,6 +111,7 @@ class DevicePreferencesRepository(private val store: SettingsStore) {
         androidPlaybackEngine = store.get(prefix + "android-playback-engine")
             ?.let { runCatching { AndroidPlaybackEngine.valueOf(it) }.getOrNull() }
             ?: AndroidPlaybackEngine.Automatic,
+        externalPlayer = bool("external-player", false),
         // Old installations resumed automatically. New installs can ask.
         resumeBehavior = store.get(prefix + "resume-behavior")
             ?.let { runCatching { ResumeBehavior.valueOf(it) }.getOrNull() }
@@ -143,6 +146,7 @@ class DevicePreferencesRepository(private val store: SettingsStore) {
         store.put(prefix + "skip-button-position", value.skipButtonPosition.name)
         store.put(prefix + "p2p", value.p2pEnabled.toString())
         store.put(prefix + "android-playback-engine", value.androidPlaybackEngine.name)
+        store.put(prefix + "external-player", value.externalPlayer.toString())
         store.put(prefix + "resume-behavior", value.resumeBehavior.name)
         store.put(prefix + "read-ahead-seconds", value.readAheadSeconds?.toString().orEmpty())
         store.put(prefix + "hardware-decoding", value.hardwareDecoding.toString())

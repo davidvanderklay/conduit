@@ -181,4 +181,7 @@ contextBridge.exposeInMainWorld("__CONDUIT_ELECTRON__", {
   openExternal(url: string) {
     return ipcRenderer.invoke("conduit:open-external", url) as Promise<void>
   },
+  openInExternalPlayer(url: string, title: string) {
+    return ipcRenderer.invoke("conduit:open-in-external-player", url, title) as Promise<void>
+  },
 })
