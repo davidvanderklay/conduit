@@ -5,6 +5,7 @@ pub mod language;
 pub mod media;
 pub mod playback;
 mod resource;
+pub mod subtitle_sync;
 
 pub use addon::{
     AddonDescriptor, AddonManifest, AddonResource, CatalogDescriptor, ManifestResource,

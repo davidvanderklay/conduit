@@ -32,6 +32,8 @@ fileprivate struct ConduitTrack {
     let sampleRate: Int
     let bitrate: Int64
     let external: Bool
+    /// The add-on subtitle URL of an external track, used by subtitle auto sync.
+    let externalFilename: String
     let forced: Bool
     let selected: Bool
 }
@@ -351,6 +353,10 @@ final class ConduitMPVPlayerBridge: NSObject, IosPlayerBridge {
         track(at: at, in: playerViewController?.subtitleTracks)?.external ?? false
     }
 
+    func getSubtitleTrackUrl(at: Int32) -> String {
+        track(at: at, in: playerViewController?.subtitleTracks)?.externalFilename ?? ""
+    }
+
     func isSubtitleTrackSelected(at: Int32) -> Bool {
         track(at: at, in: playerViewController?.subtitleTracks)?.selected ?? false
     }
@@ -375,6 +381,7 @@ final class ConduitMPVPlayerBridge: NSObject, IosPlayerBridge {
     func getIsEnded() -> Bool { playerViewController?.isPlayerEnded ?? false }
     func getDurationMs() -> Int64 { playerViewController?.durationMs ?? 0 }
     func getPositionMs() -> Int64 { playerViewController?.positionMs ?? 0 }
+    func getCurrentPositionMs() -> Int64 { playerViewController?.currentPositionMs() ?? 0 }
     func getVideoWidth() -> Int32 { Int32(playerViewController?.videoWidth ?? 0) }
     func getVideoHeight() -> Int32 { Int32(playerViewController?.videoHeight ?? 0) }
     func getPlaybackSpeed() -> Float { playerViewController?.currentSpeed ?? 1.0 }
@@ -2308,6 +2315,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
                 sampleRate: getInt("track-list/\(index)/demux-samplerate"),
                 bitrate: Int64(getInt("track-list/\(index)/demux-bitrate")),
                 external: getFlag("track-list/\(index)/external"),
+                externalFilename: getString("track-list/\(index)/external-filename") ?? "",
                 forced: getFlag("track-list/\(index)/forced"),
                 selected: type == "sub"
                     ? id == selectedSubtitleId
@@ -2381,6 +2389,12 @@ final class ConduitMPVPlayerViewController: UIViewController {
         }
         let status = mpv_command(mpv, &cargs)
         if checkForErrors { checkError(status) }
+    }
+
+    /// Reads `time-pos` now; `positionMs` only updates when playback state refreshes.
+    func currentPositionMs() -> Int64 {
+        guard mpv != nil else { return positionMs }
+        return Int64(max(getDouble("time-pos"), 0) * 1000)
     }
 
     private func getDouble(_ name: String) -> Double {

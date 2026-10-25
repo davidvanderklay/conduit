@@ -18,6 +18,7 @@ import {
   nativePlayerCommand,
   nativeFullscreen,
   nativePlayerSnapshot,
+  nativePlayerStreamRange,
   openNativePlayer,
   updateNativePlayerOverlay,
   redrawNativeSurface,
@@ -80,6 +81,8 @@ import { PlayerFlash, usePlayerFlash } from "./player-flash"
 import { VideoScaleControl } from "./video-scale-control"
 import { preferredSubtitle, subtitleLookupResults } from "../lib/subtitle-selection"
 import { SubtitlePicker } from "./subtitle-picker"
+import { SubtitleSyncByEar } from "./subtitle-sync-by-ear"
+import { autoSyncSubtitle, type SubtitleAutoSyncResult } from "../lib/subtitle-auto-sync"
 import { trackDisplayName } from "../lib/track-display"
 import {
   DesktopPlayerBufferingOverlay,
@@ -197,6 +200,7 @@ export function DesktopPlayer({
     rememberTitlePlayback(profileId, progressMetadata.mediaId, choice)
   const [subtitleDelayMs, setSubtitleDelayMs] = useState(titleChoices.subtitleDelayMs ?? 0)
   useEffect(() => setSubtitleDelayMs(titleChoices.subtitleDelayMs ?? 0), [titleChoices])
+  const [syncByEarOpen, setSyncByEarOpen] = useState(false)
   const [snapshot, setSnapshot] = useState<NativePlayerSnapshot>()
   const heading = playerHeading(progressMetadata)
   const mediaTitle = nativeMediaTitle(progressMetadata)
@@ -919,6 +923,14 @@ export function DesktopPlayer({
     setActiveMenu(undefined)
   }, [])
 
+  const changeSubtitleDelay = (value: number) => {
+    setSubtitleDelayMs(value)
+    rememberChoice({ subtitleDelayMs: value })
+    void nativePlayerCommand(["set", "sub-delay", value / 1000]).catch((cause: unknown) => {
+      setError(cause instanceof Error ? cause.message : String(cause))
+    })
+  }
+
   const toggleTrackMenu = useCallback((menu: TrackMenuName) => {
     setActiveMenu((current) => (current === menu ? undefined : menu))
   }, [])
@@ -1234,6 +1246,14 @@ export function DesktopPlayer({
     previousChromeVisible.current = chromeVisible
   }, [activeMenu, chromeVisible, menuContentSignature, redrawControls, resetOverlay])
 
+  const syncByEarRendered = useRef(false)
+  useLayoutEffect(() => {
+    if (syncByEarRendered.current === syncByEarOpen) return
+    syncByEarRendered.current = syncByEarOpen
+    resetOverlay()
+    redrawControls()
+  }, [syncByEarOpen, redrawControls, resetOverlay])
+
   useLayoutEffect(() => {
     if (previousEpisodeDrawerOpen.current === episodeDrawerOpen) return
     previousEpisodeDrawerOpen.current = episodeDrawerOpen
@@ -1403,6 +1423,14 @@ export function DesktopPlayer({
           </div>
         </>
       )}
+      {snapshot && !error && syncByEarOpen && (
+        <SubtitleSyncByEar
+          delayMs={subtitleDelayMs}
+          onDelayChange={changeSubtitleDelay}
+          positionMs={async () => (await nativePlayerSnapshot()).position * 1000}
+          onClose={() => setSyncByEarOpen(false)}
+        />
+      )}
       <PlayerEpisodeDrawer
         open={episodeDrawerOpen}
         handleVisible={chromeVisible}
@@ -1450,15 +1478,17 @@ export function DesktopPlayer({
                 })
               }}
               subtitleDelayMs={subtitleDelayMs}
-              onSubtitleDelay={(value) => {
-                setSubtitleDelayMs(value)
-                rememberChoice({ subtitleDelayMs: value })
-                void nativePlayerCommand(["set", "sub-delay", value / 1000]).catch(
-                  (cause: unknown) => {
-                    setError(cause instanceof Error ? cause.message : String(cause))
-                  },
-                )
+              onSubtitleDelay={changeSubtitleDelay}
+              onSyncByEar={() => {
+                closeTrackMenu()
+                setSyncByEarOpen(true)
               }}
+              onAutoSync={() =>
+                autoSyncSubtitle(
+                  nativePlayerStreamRange,
+                  subtitleTracks.find((track) => track.selected && track.external)?.externalFilename,
+                )
+              }
               allowOff
               onSelect={(track) => void selectTrack("sid", track)}
               onSelectAddon={async (subtitle) => {
@@ -1710,6 +1740,8 @@ function TrackMenu({
   onSubtitlePosition,
   subtitleDelayMs,
   onSubtitleDelay,
+  onSyncByEar,
+  onAutoSync,
   onSelect,
   onSelectAddon,
   onOff,
@@ -1727,6 +1759,8 @@ function TrackMenu({
   onSubtitlePosition?: (value: number) => void
   subtitleDelayMs?: number
   onSubtitleDelay?: (delayMs: number) => void
+  onSyncByEar?: () => void
+  onAutoSync?: () => Promise<SubtitleAutoSyncResult>
   onSelect: (track: NativeTrack) => void
   onSelectAddon?: (subtitle: ResolvedAddonSubtitle) => void
   onOff?: () => void
@@ -1797,6 +1831,8 @@ function TrackMenu({
           onPositionChange={(value) => onSubtitlePosition?.(value)}
           delayMs={subtitleDelayMs ?? 0}
           onDelayChange={(value) => onSubtitleDelay?.(value)}
+          onSyncByEar={onSyncByEar}
+          onAutoSync={onAutoSync}
           onOff={() => onOff?.()}
           onSelect={(key) => {
             if (key.startsWith("track:")) {

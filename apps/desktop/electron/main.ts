@@ -273,6 +273,8 @@ let mainWindow: BrowserWindow | undefined
 let playerOverlayWindow: BrowserWindow | undefined
 let playerOverlayMedia: PlayerOverlayMedia | undefined
 let nativePlayer: NativePlayerClient | undefined
+/** The stream the native player opened, the only URL subtitle auto sync may read. */
+let nativePlayerUrl: string | undefined
 let torrentSession: TorrentSession | undefined
 let torrentStopped: Promise<void> = Promise.resolve()
 let desktopUpdates: DesktopUpdates | undefined
@@ -1057,6 +1059,7 @@ async function invoke(command: string, args: Record<string, unknown> = {}): Prom
     // Detach first so snapshot polls racing with teardown cannot enqueue behind
     // player_stop and then observe the helper's expected stopped state.
     nativePlayer = undefined
+    nativePlayerUrl = undefined
     closePlayerOverlay()
     void stopTorrent()
     return client.request("player_stop", args)
@@ -1081,6 +1084,7 @@ async function invoke(command: string, args: Record<string, unknown> = {}): Prom
     try {
       nativePlayerArgs.url = await playableUrl(playerArgs.url, () => nativePlayer !== client)
       if (nativePlayer !== client) throw new Error("Playback was replaced.")
+      nativePlayerUrl = typeof nativePlayerArgs.url === "string" ? nativePlayerArgs.url : undefined
       const result = await client.request("player_open", nativePlayerArgs)
       if (nativePlayer !== client) return result
       // Linux's separate X11 surface needs a transparent controls window.
@@ -1109,16 +1113,51 @@ async function invoke(command: string, args: Record<string, unknown> = {}): Prom
       if (nativePlayer !== client) throw error
       playbackInhibitor.setPlaying(false)
       nativePlayer = undefined
+      nativePlayerUrl = undefined
       closePlayerOverlay()
       void stopTorrent()
       throw error
     }
   }
+  if (command === "player_stream_range") return readPlayerStreamRange(args)
   if (command.startsWith("player_")) {
     if (!nativePlayer) throw new Error("The native player has not been started.")
     return nativePlayer.request(command, args)
   }
   throw new Error(`Unknown Electron command: ${command}`)
+}
+
+/**
+ * Reads bytes of the playing stream for subtitle auto sync. The main process
+ * is not bound by CORS, so renderers can only read the stream the player opened.
+ */
+async function readPlayerStreamRange(args: Record<string, unknown>) {
+  const { offset, length } = args
+  if (
+    !nativePlayerUrl ||
+    !/^https?:/i.test(nativePlayerUrl) ||
+    typeof offset !== "number" ||
+    typeof length !== "number" ||
+    !Number.isSafeInteger(offset) ||
+    !Number.isSafeInteger(length) ||
+    offset < 0 ||
+    length <= 0 ||
+    length > 32 * 1024 * 1024
+  ) {
+    throw new Error("Invalid stream range.")
+  }
+  const response = await fetch(nativePlayerUrl, {
+    headers: { Range: `bytes=${offset}-${offset + length - 1}` },
+  })
+  if (response.status !== 206) {
+    await response.body?.cancel()
+    throw new Error("The video server does not support range requests.")
+  }
+  const total = Number(response.headers.get("content-range")?.split("/")[1])
+  return {
+    data: Buffer.from(await response.arrayBuffer()).toString("base64"),
+    size: Number.isFinite(total) ? total : undefined,
+  }
 }
 
 function registerIpcHandlers() {
@@ -1224,6 +1263,7 @@ async function closeResources() {
   closePlayerOverlay()
   nativePlayer?.close()
   nativePlayer = undefined
+  nativePlayerUrl = undefined
   void stopTorrent()
   playbackInhibitor.setPlaying(false)
   devWebServer?.kill()

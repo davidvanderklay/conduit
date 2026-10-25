@@ -37,6 +37,13 @@ fun heldSubtitleDelaySteps(heldMs: Long): Int = if (heldMs < 1_500) 1 else 5
 fun stepSubtitleDelay(delayMs: Long, stepMs: Long): Long =
     (kotlin.math.round((delayMs + stepMs) / 100.0).toLong() * 100).coerceIn(-SubtitleDelayLimitMs, SubtitleDelayLimitMs)
 
+/**
+ * The delay after a sync by ear: the subtitle appeared at playback position
+ * [sawMs] for a line heard at [heardMs], so it moves by the gap between them.
+ */
+fun syncByEarDelay(delayMs: Long, heardMs: Long, sawMs: Long): Long =
+    stepSubtitleDelay(delayMs, heardMs - sawMs)
+
 fun formatSubtitleDelay(delayMs: Long): String {
     val tenths = kotlin.math.abs(delayMs) / 100
     val seconds = "${tenths / 10}.${tenths % 10}s"

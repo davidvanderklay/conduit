@@ -8,6 +8,7 @@ use crate::media::{
 use crate::playback::{
     is_playable_stream_url, playback_source, PlaybackSource, Stream, StreamCandidate,
 };
+use crate::subtitle_sync::{align_subtitle, subtitle_starts, subtitle_timeline, ByteRange};
 use crate::{AddonManifest, ExtraArg, ResourceRequest};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -118,6 +119,15 @@ enum DomainAction {
         language: Option<String>,
         #[serde(default)]
         label: Option<String>,
+    },
+    SubtitleTimeline {
+        ranges: Vec<ByteRange>,
+        #[serde(default)]
+        size: Option<u64>,
+    },
+    AlignSubtitle {
+        reference: Vec<i64>,
+        subtitle: String,
     },
 }
 
@@ -262,6 +272,13 @@ pub fn evaluate_json(json: &str) -> String {
         DomainAction::LanguageCode { language, label } => {
             value_response(track_language_code(language.as_deref(), label.as_deref()))
         }
+        DomainAction::SubtitleTimeline { ranges, size } => subtitle_timeline(&ranges, size)
+            .map(value_response)
+            .unwrap_or_else(|error| error_response(error.code(), error)),
+        DomainAction::AlignSubtitle {
+            reference,
+            subtitle,
+        } => value_response(align_subtitle(&reference, &subtitle_starts(&subtitle))),
     };
     result
 }
@@ -309,6 +326,27 @@ mod tests {
         ))
         .unwrap();
         assert_eq!(response["value"], true);
+    }
+
+    #[test]
+    fn evaluates_subtitle_sync_steps() {
+        let need: Value = serde_json::from_str(&evaluate_json(
+            r#"{"type":"subtitleTimeline","ranges":[],"size":5000000}"#,
+        ))
+        .unwrap();
+        assert_eq!(need["value"]["kind"], "need");
+        assert_eq!(need["value"]["offset"], 0);
+        let unsupported: Value = serde_json::from_str(&evaluate_json(
+            r#"{"type":"subtitleTimeline","ranges":[{"offset":0,"data":"I0VYVE0zVQojRVhU"}],"size":12}"#,
+        ))
+        .unwrap();
+        assert_eq!(unsupported["error"]["code"], "unsupported_container");
+        let unmatched: Value = serde_json::from_str(&evaluate_json(
+            r#"{"type":"alignSubtitle","reference":[1000],"subtitle":"1\n00:00:01,000 --> 00:00:02,000\nHi"}"#,
+        ))
+        .unwrap();
+        assert_eq!(unmatched["ok"], true);
+        assert_eq!(unmatched["value"], Value::Null);
     }
 
     #[test]

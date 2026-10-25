@@ -2,6 +2,7 @@
 
 package media.conduit.mobile.tv
 
+import media.conduit.mobile.requestFocusWhenReady
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement

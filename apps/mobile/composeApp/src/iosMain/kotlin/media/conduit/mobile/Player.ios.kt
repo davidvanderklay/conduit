@@ -71,6 +71,7 @@ private data class IosTrack(
     val sampleRate: Int = 0,
     val bitrate: Long = 0,
     val external: Boolean = false,
+    val url: String = "",
     val selected: Boolean,
 )
 
@@ -180,6 +181,7 @@ actual fun NativePlayer(
     var resizeMode by remember(bridge, loadId) { mutableIntStateOf(0) }
     var showRemainingTime by remember(bridge, loadId) { mutableStateOf(false) }
     var trackPanel by remember(bridge, loadId) { mutableStateOf<Int?>(null) }
+    var syncByEarOpen by remember(bridge, loadId) { mutableStateOf(false) }
     LaunchedEffect(trackPanel) { onOverlayVisibilityChanged(trackPanel != null) }
     var speedMenuOpen by remember(bridge, loadId) { mutableStateOf(false) }
     var playbackReady by remember(bridge, loadId) { mutableStateOf(false) }
@@ -634,6 +636,12 @@ actual fun NativePlayer(
                     onSubtitleStyleChanged = onSubtitleStyleChanged,
                     subtitleDelayMs = subtitleDelayMs,
                     onSubtitleDelayChanged = onSubtitleDelayChanged,
+                    onSyncByEar = { trackPanel = null; syncByEarOpen = true },
+                    // Auto sync compares the selected add-on subtitle with the video's embedded subtitle timing.
+                    onAutoSync = {
+                        val selected = bridge.readSubtitleTracks().firstOrNull { it.selected && it.external }
+                        autoSyncSubtitle(url, requestHeaders, selected?.url)
+                    },
                     onSelect = { trackId ->
                         bridge.selectSubtitleTrack(trackId)
                         val track = subtitleTracks.firstOrNull { it.id == trackId }
@@ -658,6 +666,16 @@ actual fun NativePlayer(
                     onDismiss = { trackPanel = null },
                 )
             }
+        }
+
+        if (syncByEarOpen) {
+            SubtitleSyncByEarCard(
+                delayMs = subtitleDelayMs,
+                onDelayChange = onSubtitleDelayChanged,
+                positionMs = { bridge.getCurrentPositionMs().coerceAtLeast(0) },
+                onClose = { syncByEarOpen = false },
+                modifier = Modifier.align(Alignment.TopCenter).safeDrawingPadding().padding(top = 16.dp, start = 16.dp, end = 16.dp),
+            )
         }
 
         DoubleTapSeekOverlay(
@@ -691,6 +709,7 @@ private fun IosPlayerBridge.readSubtitleTracks(): List<IosTrack> =
             language = getSubtitleTrackLang(index),
             codec = getSubtitleTrackCodec(index),
             external = isSubtitleTrackExternal(index),
+            url = getSubtitleTrackUrl(index),
             selected = isSubtitleTrackSelected(index),
         )
     }
@@ -830,6 +849,8 @@ private fun BoxScope.IosSubtitlePanel(
     onSubtitleStyleChanged: (SubtitleStyle) -> Unit,
     subtitleDelayMs: Long,
     onSubtitleDelayChanged: (Long) -> Unit,
+    onSyncByEar: () -> Unit,
+    onAutoSync: suspend () -> SubtitleAutoSyncResult,
     onSelect: (Int) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -937,6 +958,8 @@ private fun BoxScope.IosSubtitlePanel(
                         contentColor = Color.White,
                         delayMs = subtitleDelayMs,
                         onDelayChange = onSubtitleDelayChanged,
+                        onSyncByEar = onSyncByEar,
+                        onAutoSync = onAutoSync,
                     )
                 }
             }

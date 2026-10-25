@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -15,6 +17,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.AutoFixHigh
+import androidx.compose.material.icons.rounded.Hearing
 import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -27,7 +31,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.setValue
 import kotlin.time.TimeSource
 import kotlinx.coroutines.delay
@@ -50,7 +56,9 @@ private val SubtitlePreviewHeight = 96.dp
  * Size, position, and outline controls shared by the Playback settings screen
  * and the in-player subtitle panels. The preview stands in for the video,
  * which the settings screen does not have and the phone panel covers. Players
- * pass [delayMs] to add the per-title delay control.
+ * pass [delayMs] to add the per-title delay control, [onSyncByEar] to offer
+ * [SubtitleSyncByEarCard] beside it, and [onAutoSync] to offer auto sync
+ * against embedded subtitles, whose delay this applies.
  */
 @Composable
 fun SubtitleStyleControls(
@@ -60,6 +68,8 @@ fun SubtitleStyleControls(
     contentColor: Color = MaterialTheme.colorScheme.onSurface,
     delayMs: Long? = null,
     onDelayChange: (Long) -> Unit = {},
+    onSyncByEar: (() -> Unit)? = null,
+    onAutoSync: (suspend () -> SubtitleAutoSyncResult)? = null,
 ) {
     Column(modifier) {
         SubtitleStylePreview(style)
@@ -99,11 +109,59 @@ fun SubtitleStyleControls(
                     modifier = Modifier.align(Alignment.End).focusRing(RoundedCornerShape(50), Color.White),
                 ) { Text("Reset delay", color = MaterialTheme.colorScheme.primary) }
             }
+            SubtitleSyncActions(onSyncByEar, onAutoSync, onDelayChange, contentColor)
         }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text("Outline", color = contentColor, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
             Switch(style.outline, { onChange(style.copy(outline = it)) }, modifier = Modifier.focusRing(RoundedCornerShape(50), Color.White))
         }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SubtitleSyncActions(
+    onSyncByEar: (() -> Unit)?,
+    onAutoSync: (suspend () -> SubtitleAutoSyncResult)?,
+    onDelayChange: (Long) -> Unit,
+    contentColor: Color,
+) {
+    if (onSyncByEar == null && onAutoSync == null) return
+    val scope = rememberCoroutineScope()
+    var running by remember { mutableStateOf(false) }
+    var result by remember { mutableStateOf<SubtitleAutoSyncResult?>(null) }
+    val latestDelayChange by rememberUpdatedState(onDelayChange)
+    @Composable
+    fun Action(icon: ImageVector, label: String, enabled: Boolean = true, onClick: () -> Unit) {
+        TextButton(onClick = onClick, enabled = enabled, modifier = Modifier.focusRing(RoundedCornerShape(50), Color.White)) {
+            Icon(icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+            Text(label, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 6.dp))
+        }
+    }
+    FlowRow {
+        onSyncByEar?.let { Action(Icons.Rounded.Hearing, "Sync by ear", onClick = it) }
+        onAutoSync?.let { autoSync ->
+            Action(Icons.Rounded.AutoFixHigh, if (running) "Syncing…" else "Auto sync", enabled = !running) {
+                running = true
+                scope.launch {
+                    val outcome = autoSync()
+                    if (outcome is SubtitleAutoSyncResult.Synced) latestDelayChange(outcome.delayMs)
+                    result = outcome
+                    running = false
+                }
+            }
+        }
+    }
+    result?.let { outcome ->
+        Text(
+            when (outcome) {
+                is SubtitleAutoSyncResult.Synced -> "Matched the embedded subtitles."
+                is SubtitleAutoSyncResult.Failed -> outcome.reason
+            },
+            color = contentColor.copy(alpha = .6f),
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.padding(horizontal = 12.dp),
+        )
     }
 }
 

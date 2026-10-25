@@ -36,6 +36,7 @@ import {
   type ElectronPlayerOverlayContext,
   nativePlayerCommand,
   nativePlayerSnapshot,
+  nativePlayerStreamRange,
   setNativePlayerCursorHidden,
   setNativePlayerPlaying,
   toggleNativeFullscreen,
@@ -68,6 +69,8 @@ import {
   type TitlePlaybackChoices,
 } from "../lib/title-playback"
 import { SubtitleDelayStepper } from "./subtitle-picker"
+import { SubtitleSyncByEar } from "./subtitle-sync-by-ear"
+import { autoSyncSubtitle, type SubtitleAutoSyncResult } from "../lib/subtitle-auto-sync"
 import { shouldAskStillWatching } from "../lib/still-watching"
 import { adjacentSeriesVideo } from "../lib/metadata"
 import {
@@ -150,6 +153,7 @@ export function ElectronPlayerOverlay({
     }
   }
   const [subtitleDelayMs, setSubtitleDelayMs] = useState(0)
+  const [syncByEarOpen, setSyncByEarOpen] = useState(false)
   // The main window applies the remembered delay when it opens each stream.
   useEffect(() => {
     if (!watchPartyContext) return
@@ -236,6 +240,7 @@ export function ElectronPlayerOverlay({
     controlsVisible,
     episodeDrawerOpen,
     selectedSubtitleCode,
+    syncByEarOpen,
     updateInteractiveRegions,
   ])
 
@@ -390,6 +395,12 @@ export function ElectronPlayerOverlay({
     },
     [watchPartyContext?.role],
   )
+
+  const changeSubtitleDelay = (value: number) => {
+    setSubtitleDelayMs(value)
+    rememberChoice({ subtitleDelayMs: value })
+    command(["set", "sub-delay", value / 1000])
+  }
 
   const commitSeek = useCallback(() => {
     window.clearTimeout(seekCommitTimer.current)
@@ -727,6 +738,14 @@ export function ElectronPlayerOverlay({
           aria-hidden="true"
         />
         <PlayerFlash message={holdSpeedActive ? "» 2×" : flashMessage} />
+        {syncByEarOpen && (
+          <SubtitleSyncByEar
+            delayMs={subtitleDelayMs}
+            onDelayChange={changeSubtitleDelay}
+            positionMs={async () => (await nativePlayerSnapshot()).position * 1000}
+            onClose={() => setSyncByEarOpen(false)}
+          />
+        )}
         {transportAvailable && snapshot && !episodeDrawerOpen && (
           <>
             {preferences.skipButtonPlacement === "left" && activeSkip && (
@@ -1004,11 +1023,18 @@ export function ElectronPlayerOverlay({
                   command(["set", "sub-pos", value])
                 }}
                 subtitleDelayMs={subtitleDelayMs}
-                onSubtitleDelay={(value) => {
-                  setSubtitleDelayMs(value)
-                  rememberChoice({ subtitleDelayMs: value })
-                  command(["set", "sub-delay", value / 1000])
+                onSubtitleDelay={changeSubtitleDelay}
+                onSyncByEar={() => {
+                  setActiveTrackMenu(undefined)
+                  setSyncByEarOpen(true)
                 }}
+                onAutoSync={() =>
+                  autoSyncSubtitle(
+                    nativePlayerStreamRange,
+                    subtitleTracks.find((track) => track.selected && track.external)
+                      ?.externalFilename,
+                  )
+                }
                 onClose={() => setActiveTrackMenu(undefined)}
               />
             )}
@@ -1212,6 +1238,8 @@ function SubtitleTrackMenu({
   onOff,
   onSubtitlePosition,
   onSubtitleDelay,
+  onSyncByEar,
+  onAutoSync,
   onClose,
 }: {
   anchor: React.RefObject<HTMLElement | null>
@@ -1225,6 +1253,8 @@ function SubtitleTrackMenu({
   onOff: () => void
   onSubtitlePosition: (value: number) => void
   onSubtitleDelay: (delayMs: number) => void
+  onSyncByEar: () => void
+  onAutoSync: () => Promise<SubtitleAutoSyncResult>
   onClose: () => void
 }) {
   const active = groups.some((group) => group.tracks.some((track) => track.selected))
@@ -1330,7 +1360,12 @@ function SubtitleTrackMenu({
               <Plus size={16} />
             </button>
           </div>
-          <SubtitleDelayStepper delayMs={subtitleDelayMs} onChange={onSubtitleDelay} />
+          <SubtitleDelayStepper
+            delayMs={subtitleDelayMs}
+            onChange={onSubtitleDelay}
+            onSyncByEar={onSyncByEar}
+            onAutoSync={onAutoSync}
+          />
         </section>
       </div>
     </div>

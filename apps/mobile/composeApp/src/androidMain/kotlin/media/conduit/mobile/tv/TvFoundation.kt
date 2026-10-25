@@ -327,14 +327,5 @@ internal fun Modifier.tvFocusTrap(enabled: Boolean = true): Modifier = focusTrap
 internal fun Modifier.tvFocusBlocked(blocked: Boolean): Modifier =
     focusProperties { onEnter = { if (blocked) cancelFocusChange() } }.focusGroup()
 
-/** Requests focus once the target is attached; lazy list items attach a frame or two late. */
-internal suspend fun FocusRequester.requestFocusWhenReady(attempts: Int = 30): Boolean {
-    repeat(attempts) {
-        if (runCatching { requestFocus() }.getOrDefault(false)) return true
-        androidx.compose.runtime.withFrameNanos { }
-    }
-    return false
-}
-
 /** True while the fullscreen player covers the app, so screens beneath know to yield focus. */
 internal val LocalTvPlayerOpen = androidx.compose.runtime.compositionLocalOf { false }

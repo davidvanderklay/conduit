@@ -10,6 +10,7 @@ import {
   rememberTitlePlayback,
   stepSubtitleDelay,
   subtitleChoice,
+  syncByEarDelay,
   titleLanguagePreferences,
 } from "./title-playback"
 
@@ -98,6 +99,14 @@ describe("title playback choices", () => {
     expect(stepSubtitleDelay(29_500, 1000)).toBe(30_000)
     expect([300, -1200, 0].map(formatSubtitleDelay)).toEqual(["+0.3s", "−1.2s", "0.0s"])
     expect([0, 1400, 1600].map(heldSubtitleDelayStep)).toEqual([100, 100, 500])
+  })
+
+  it("syncs by ear from the gap between hearing a line and seeing its subtitle", () => {
+    // Subtitle shown 1.2 s after the line is heard: show subtitles earlier.
+    expect(syncByEarDelay(0, 10_000, 11_230)).toBe(-1200)
+    // Subtitle shown before the line, on top of an existing delay.
+    expect(syncByEarDelay(-500, 20_800, 20_000)).toBe(300)
+    expect(syncByEarDelay(29_000, 5000, 1000)).toBe(30_000)
   })
 
   it("turns subtitles off when the title was watched without them", () => {

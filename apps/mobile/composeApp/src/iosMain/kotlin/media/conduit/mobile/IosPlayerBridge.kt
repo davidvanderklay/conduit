@@ -67,6 +67,8 @@ interface IosPlayerBridge {
     fun getSubtitleTrackLang(at: Int): String
     fun getSubtitleTrackCodec(at: Int): String
     fun isSubtitleTrackExternal(at: Int): Boolean
+    /** The add-on subtitle URL of an external track, or blank. */
+    fun getSubtitleTrackUrl(at: Int): String
     fun isSubtitleTrackSelected(at: Int): Boolean
     fun selectAudioTrack(trackId: Int)
     fun selectSubtitleTrack(trackId: Int)
@@ -79,6 +81,8 @@ interface IosPlayerBridge {
     fun getIsEnded(): Boolean
     fun getDurationMs(): Long
     fun getPositionMs(): Long
+    /** Reads the position from the player now, for timing finer than [getPositionMs]'s periodic refresh. */
+    fun getCurrentPositionMs(): Long
     fun getVideoWidth(): Int
     fun getVideoHeight(): Int
     fun getPlaybackSpeed(): Float

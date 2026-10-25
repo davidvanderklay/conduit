@@ -57,6 +57,8 @@ internal fun BoxScope.MpvTrackPanel(
     onSubtitleStyleChanged: (SubtitleStyle) -> Unit,
     subtitleDelayMs: Long,
     onSubtitleDelayChanged: (Long) -> Unit,
+    onSyncByEar: () -> Unit,
+    onAutoSync: suspend () -> SubtitleAutoSyncResult,
     onSubtitleSelectionChanged: (String?, String?, String?, Boolean) -> Unit,
     onAudioSelected: (MpvTrack) -> Unit,
     onDismiss: () -> Unit,
@@ -79,6 +81,8 @@ internal fun BoxScope.MpvTrackPanel(
             onSubtitleStyleChanged = onSubtitleStyleChanged,
             subtitleDelayMs = subtitleDelayMs,
             onSubtitleDelayChanged = onSubtitleDelayChanged,
+            onSyncByEar = onSyncByEar,
+            onAutoSync = onAutoSync,
             onSubtitleSelectionChanged = onSubtitleSelectionChanged,
             onDismiss = onDismiss,
         )
@@ -162,6 +166,8 @@ private fun BoxScope.MpvSubtitlePanel(
     onSubtitleStyleChanged: (SubtitleStyle) -> Unit,
     subtitleDelayMs: Long,
     onSubtitleDelayChanged: (Long) -> Unit,
+    onSyncByEar: () -> Unit,
+    onAutoSync: suspend () -> SubtitleAutoSyncResult,
     onSubtitleSelectionChanged: (String?, String?, String?, Boolean) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -289,6 +295,8 @@ private fun BoxScope.MpvSubtitlePanel(
                             contentColor = Color.White,
                             delayMs = subtitleDelayMs,
                             onDelayChange = onSubtitleDelayChanged,
+                            onSyncByEar = onSyncByEar,
+                            onAutoSync = onAutoSync,
                         )
                     }
                 }
