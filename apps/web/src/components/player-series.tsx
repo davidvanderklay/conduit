@@ -6,6 +6,7 @@ import type { PlayerUpNext, QueueControls, QueueMedia } from "../lib/queue"
 import type { WatchActionMedia } from "../lib/watch-actions"
 import { EpisodeSelector, type EpisodeSelectorShow } from "./episode-selector"
 import { QueueHeader, QueueList } from "./queue"
+import { noteAutoplayedEpisode } from "../lib/still-watching"
 
 export interface PlayerSeriesContext {
   name: string
@@ -205,6 +206,7 @@ export function NextEpisodePrompt({
   duration,
   paused,
   autoplay,
+  askStillWatching = false,
   onDismiss,
   onVisibilityChange,
   onWatchNow,
@@ -216,6 +218,8 @@ export function NextEpisodePrompt({
   duration: number
   paused: boolean
   autoplay: boolean
+  /** Asks "Still watching?" instead of counting down; see `shouldAskStillWatching`. */
+  askStillWatching?: boolean
   onDismiss: () => void
   onVisibilityChange?: (visible: boolean) => void
   onWatchNow: () => void
@@ -245,18 +249,22 @@ export function NextEpisodePrompt({
   }, [onVisibilityChange, visible])
 
   useEffect(() => {
-    if (!visible || !autoplay || paused || transitioned.current) return
+    if (!visible || !autoplay || askStillWatching || paused || transitioned.current) return
     const timer = window.setInterval(() => {
       setCountdown((current) => {
         if (current > 1) return current - 1
         window.clearInterval(timer)
-        transitioned.current = true
-        watchNow.current()
+        // Updaters can run twice in development, so the transition must stay idempotent.
+        if (!transitioned.current) {
+          transitioned.current = true
+          noteAutoplayedEpisode()
+          watchNow.current()
+        }
         return 0
       })
     }, 1000)
     return () => window.clearInterval(timer)
-  }, [autoplay, paused, visible])
+  }, [askStillWatching, autoplay, paused, visible])
 
   if (!visible || !upNext) return null
 
@@ -289,7 +297,7 @@ export function NextEpisodePrompt({
       )}
       <div className="p-4">
         <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-amber-300">
-          {upNext.heading}
+          {askStillWatching ? "Still watching?" : upNext.heading}
         </p>
         <p className="mt-1 line-clamp-2 font-display text-base font-semibold text-white">
           {upNext.title}
@@ -306,7 +314,7 @@ export function NextEpisodePrompt({
               onDismiss()
             }}
           >
-            Dismiss
+            {askStillWatching ? "Stop" : "Dismiss"}
           </button>
           <button
             type="button"
@@ -318,7 +326,9 @@ export function NextEpisodePrompt({
             }}
           >
             <Play className="fill-current" size={16} />
-            Watch now{autoplay ? ` · ${countdown}s` : ""}
+            {askStillWatching
+              ? "Keep watching"
+              : `Watch now${autoplay ? ` · ${countdown}s` : ""}`}
           </button>
         </div>
       </div>

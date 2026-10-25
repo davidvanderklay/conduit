@@ -106,7 +106,8 @@ const settingsEntries: SettingsEntry[] = [
     group: "General",
     title: "Playback",
     description: "Player, subtitles, and behavior",
-    keywords: "audio language autoplay volume resume stream source auto select",
+    keywords:
+      "audio language autoplay volume resume stream source auto select forced still watching",
     icon: PlayCircle,
   },
   {
@@ -716,6 +717,13 @@ function PlaybackSettings({ preferences, update }: PreferencePageProps) {
             checked={preferences.autoplay}
             onChange={(value) => update("autoplay", value)}
           />
+          <Divider />
+          <SettingToggle
+            label="Ask if I'm still watching"
+            description="Stop after three episodes in a row with no input."
+            checked={preferences.askStillWatching}
+            onChange={(value) => update("askStillWatching", value)}
+          />
         </SettingsGroup>
       </div>
       <SettingsGroup title="AUDIO & SUBTITLES">
@@ -754,6 +762,13 @@ function PlaybackSettings({ preferences, update }: PreferencePageProps) {
             onChange={(value) => update("secondarySubtitleLanguage", value || null)}
           />
         </SettingRow>
+        <Divider />
+        <SettingToggle
+          label="Forced subtitles only"
+          description="Only show subtitles for dialogue in another language."
+          checked={preferences.forcedSubtitlesOnly}
+          onChange={(value) => update("forcedSubtitlesOnly", value)}
+        />
         <Divider />
         <SettingToggle
           label="Subtitle outline"
@@ -1576,6 +1591,8 @@ function importedPreferences(
     "autoSelectSavedStreams",
     "skipSegments",
     "autoplay",
+    "askStillWatching",
+    "forcedSubtitlesOnly",
     "hardwareAcceleration",
     "reducedMotion",
     "amoledBlack",

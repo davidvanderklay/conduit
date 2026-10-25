@@ -115,6 +115,10 @@ actual fun NativePlayer(
     preferredAudioLanguage: String,
     preferredSubtitleLanguage: String,
     secondarySubtitleLanguage: String?,
+    onTrackChoice: (TitlePlaybackChoices) -> Unit,
+    forcedSubtitlesOnly: Boolean,
+    subtitleDelayMs: Long,
+    onSubtitleDelayChanged: (Long) -> Unit,
     subtitleStyle: SubtitleStyle,
     onSubtitleStyleChanged: (SubtitleStyle) -> Unit,
     androidPlaybackEngine: AndroidPlaybackEngine,
@@ -208,7 +212,8 @@ actual fun NativePlayer(
             // stream choice matches the app settings, not the first stream.
             bridge.setPreferredAudioLanguage(iosPreferredLanguageCode(preferredAudioLanguage))
             bridge.setAudioMixingEnabled(playbackTuning.mixAudioWithOtherApps)
-            bridge.setSubtitlePreferences(preferredSubtitleLanguage, secondarySubtitleLanguage, subtitlesResolved)
+            bridge.setSubtitlePreferences(preferredSubtitleLanguage, secondarySubtitleLanguage, subtitlesResolved, forcedSubtitlesOnly)
+            bridge.setSubtitleDelay(subtitleDelayMs)
             bridge.loadFile(
                 url = it,
                 loadId = loadId,
@@ -226,9 +231,13 @@ actual fun NativePlayer(
         bridge.setAudioMixingEnabled(playbackTuning.mixAudioWithOtherApps)
     }
 
-    LaunchedEffect(bridge, encodedSubtitles, preferredSubtitleLanguage, secondarySubtitleLanguage, subtitlesResolved) {
+    LaunchedEffect(bridge, encodedSubtitles, preferredSubtitleLanguage, secondarySubtitleLanguage, subtitlesResolved, forcedSubtitlesOnly) {
         bridge.updateExternalSubtitles(encodedSubtitles)
-        bridge.setSubtitlePreferences(preferredSubtitleLanguage, secondarySubtitleLanguage, subtitlesResolved)
+        bridge.setSubtitlePreferences(preferredSubtitleLanguage, secondarySubtitleLanguage, subtitlesResolved, forcedSubtitlesOnly)
+    }
+
+    LaunchedEffect(bridge, subtitleDelayMs) {
+        bridge.setSubtitleDelay(subtitleDelayMs)
     }
 
     LaunchedEffect(bridge, active) {
@@ -623,8 +632,12 @@ actual fun NativePlayer(
                     preferredLanguage = preferredSubtitleLanguage,
                     subtitleStyle = subtitleStyle,
                     onSubtitleStyleChanged = onSubtitleStyleChanged,
+                    subtitleDelayMs = subtitleDelayMs,
+                    onSubtitleDelayChanged = onSubtitleDelayChanged,
                     onSelect = { trackId ->
                         bridge.selectSubtitleTrack(trackId)
+                        val track = subtitleTracks.firstOrNull { it.id == trackId }
+                        onTrackChoice(subtitleChoice(track != null, track?.language, track?.label))
                         subtitleTracks = subtitleTracks.map { track ->
                             track.copy(selected = track.id == trackId)
                         }
@@ -639,6 +652,7 @@ actual fun NativePlayer(
                     allowOff = false,
                     onSelect = { trackId ->
                         bridge.selectAudioTrack(trackId)
+                        audioTracks.firstOrNull { it.id == trackId }?.let { onTrackChoice(audioChoice(it.language, it.label)) }
                         trackPanel = null
                     },
                     onDismiss = { trackPanel = null },
@@ -814,6 +828,8 @@ private fun BoxScope.IosSubtitlePanel(
     preferredLanguage: String,
     subtitleStyle: SubtitleStyle,
     onSubtitleStyleChanged: (SubtitleStyle) -> Unit,
+    subtitleDelayMs: Long,
+    onSubtitleDelayChanged: (Long) -> Unit,
     onSelect: (Int) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -919,6 +935,8 @@ private fun BoxScope.IosSubtitlePanel(
                         onChange = onSubtitleStyleChanged,
                         modifier = Modifier.verticalScroll(rememberScrollState()),
                         contentColor = Color.White,
+                        delayMs = subtitleDelayMs,
+                        onDelayChange = onSubtitleDelayChanged,
                     )
                 }
             }

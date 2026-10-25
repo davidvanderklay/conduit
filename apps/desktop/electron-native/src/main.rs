@@ -93,6 +93,8 @@ struct PlayerTrack {
     selected: bool,
     #[serde(default)]
     external: bool,
+    #[serde(default)]
+    forced: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Default)]

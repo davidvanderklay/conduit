@@ -54,6 +54,18 @@ final class ConduitPlaybackStartupTests: XCTestCase {
         guard case .off = none else { return XCTFail("None must disable fallback") }
     }
 
+    func testForcedOnlySkipsFullSubtitles() {
+        let full = SubtitleSelectionCandidate(track: "full", language: "eng", title: "English", embedded: true)
+        let flagged = SubtitleSelectionCandidate(track: "flagged", language: "eng", title: "English", embedded: true, forced: true)
+        let forced = preferredSubtitle(candidates: [full, flagged], primary: "English", secondary: nil,
+            systemLanguage: "en", embeddedReady: true, addonsReady: true, forcedOnly: true)
+        guard case .select(let track) = forced else { return XCTFail("The forced track should be selected") }
+        XCTAssertEqual(track, "flagged")
+        let none = preferredSubtitle(candidates: [full], primary: "English", secondary: nil,
+            systemLanguage: "en", embeddedReady: true, addonsReady: true, forcedOnly: true)
+        guard case .off = none else { return XCTFail("Full subtitles must not be selected in forced-only mode") }
+    }
+
     func testSubtitleSystemDefaultAndMetadataReadiness() {
         let candidates = [SubtitleSelectionCandidate(track: "es", language: "spa", title: "Spanish", embedded: true)]
         let waiting = preferredSubtitle(candidates: candidates, primary: "System default", secondary: nil,

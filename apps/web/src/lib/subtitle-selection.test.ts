@@ -76,6 +76,26 @@ describe("automatic subtitle priority", () => {
   it("matches titles when a language tag is missing", () => {
     expect(select([{ track: "en", title: "English SDH", embedded: true }])).toBe("en")
   })
+
+  it("only picks forced tracks in forced-only mode", () => {
+    const candidates: SubtitleCandidate<string>[] = [
+      embedded("full", "en"),
+      { track: "flagged", language: "en", embedded: true, forced: true },
+      { track: "signs", language: "en", title: "Signs & Songs", embedded: false },
+    ]
+    const forced = (tracks: SubtitleCandidate<string>[]) =>
+      preferredSubtitle({
+        candidates: tracks,
+        primary: "en",
+        secondary: null,
+        embeddedReady: true,
+        addonsReady: true,
+        forcedOnly: true,
+      })
+    expect(forced(candidates)).toBe("flagged")
+    expect(forced(candidates.filter((candidate) => candidate.track !== "flagged"))).toBe("signs")
+    expect(forced([embedded("full", "en"), embedded("no-signs", "en")])).toBeNull()
+  })
 })
 
 describe("bounded subtitle discovery", () => {

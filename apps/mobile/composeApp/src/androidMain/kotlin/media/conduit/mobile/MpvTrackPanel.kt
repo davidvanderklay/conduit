@@ -55,14 +55,21 @@ internal fun BoxScope.MpvTrackPanel(
     preferredSubtitleLanguage: String,
     subtitleStyle: SubtitleStyle,
     onSubtitleStyleChanged: (SubtitleStyle) -> Unit,
+    subtitleDelayMs: Long,
+    onSubtitleDelayChanged: (Long) -> Unit,
     onSubtitleSelectionChanged: (String?, String?, String?, Boolean) -> Unit,
+    onAudioSelected: (MpvTrack) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val tracks = remember(view, type, revision) {
         view.tracks(if (type == C.TRACK_TYPE_AUDIO) "audio" else "sub")
     }
     if (type == C.TRACK_TYPE_AUDIO) {
-        MpvAudioTrackPanel(tracks = tracks, onSelect = view::selectAudio, onDismiss = onDismiss)
+        MpvAudioTrackPanel(
+            tracks = tracks,
+            onSelect = { track -> view.selectAudio(track.id); onAudioSelected(track) },
+            onDismiss = onDismiss,
+        )
     } else {
         MpvSubtitlePanel(
             tracks = tracks,
@@ -70,6 +77,8 @@ internal fun BoxScope.MpvTrackPanel(
             view = view,
             subtitleStyle = subtitleStyle,
             onSubtitleStyleChanged = onSubtitleStyleChanged,
+            subtitleDelayMs = subtitleDelayMs,
+            onSubtitleDelayChanged = onSubtitleDelayChanged,
             onSubtitleSelectionChanged = onSubtitleSelectionChanged,
             onDismiss = onDismiss,
         )
@@ -79,7 +88,7 @@ internal fun BoxScope.MpvTrackPanel(
 @Composable
 private fun BoxScope.MpvAudioTrackPanel(
     tracks: List<MpvTrack>,
-    onSelect: (Int) -> Unit,
+    onSelect: (MpvTrack) -> Unit,
     onDismiss: () -> Unit,
 ) {
     Box(
@@ -110,7 +119,7 @@ private fun BoxScope.MpvAudioTrackPanel(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     items(tracks, key = { "audio:${it.id}" }) { track ->
-                        MpvAudioTrackRow(track = track, onClick = { onSelect(track.id); onDismiss() })
+                        MpvAudioTrackRow(track = track, onClick = { onSelect(track); onDismiss() })
                     }
                 }
             }
@@ -151,6 +160,8 @@ private fun BoxScope.MpvSubtitlePanel(
     view: ConduitMpvView,
     subtitleStyle: SubtitleStyle,
     onSubtitleStyleChanged: (SubtitleStyle) -> Unit,
+    subtitleDelayMs: Long,
+    onSubtitleDelayChanged: (Long) -> Unit,
     onSubtitleSelectionChanged: (String?, String?, String?, Boolean) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -276,6 +287,8 @@ private fun BoxScope.MpvSubtitlePanel(
                             onChange = onSubtitleStyleChanged,
                             modifier = Modifier.verticalScroll(rememberScrollState()),
                             contentColor = Color.White,
+                            delayMs = subtitleDelayMs,
+                            onDelayChange = onSubtitleDelayChanged,
                         )
                     }
                 }

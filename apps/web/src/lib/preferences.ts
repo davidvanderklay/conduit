@@ -6,6 +6,8 @@ export interface DevicePreferences {
   audioLanguage: string
   subtitleLanguage: string
   secondarySubtitleLanguage: string | null
+  /** Automatic selection only picks forced tracks, such as signs and foreign dialogue. */
+  forcedSubtitlesOnly: boolean
   subtitleSize: number
   subtitlePosition: number
   readAheadSeconds: number
@@ -14,6 +16,8 @@ export interface DevicePreferences {
   skipButtonPlacement: SkipButtonPlacement
   lastStreamAddonId?: string
   autoplay: boolean
+  /** Asks before autoplaying after a few episodes in a row with no input. */
+  askStillWatching: boolean
   volume: number
   hardwareAcceleration: boolean
   resumeBehavior: ResumeBehavior
@@ -31,6 +35,7 @@ export const defaultPreferences: DevicePreferences = {
   audioLanguage: "en",
   subtitleLanguage: "en",
   secondarySubtitleLanguage: null,
+  forcedSubtitlesOnly: false,
   subtitleSize: 100,
   subtitlePosition: 90,
   readAheadSeconds: 30,
@@ -38,6 +43,7 @@ export const defaultPreferences: DevicePreferences = {
   skipSegments: true,
   skipButtonPlacement: "left",
   autoplay: true,
+  askStillWatching: false,
   volume: 100,
   hardwareAcceleration: true,
   resumeBehavior: "ask",
