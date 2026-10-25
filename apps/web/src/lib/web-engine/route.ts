@@ -26,6 +26,7 @@ export interface ProbedAudio {
   /** The FFmpeg decoder that plays this track when the browser cannot decode it. */
   softwareCodec?: string
   channels: number
+  sampleRate: number
   language: string
   name: string | null
   primary: boolean
@@ -198,6 +199,7 @@ export async function probeInput(
         decodable: browserDecodable || softwareCodec !== undefined,
         softwareCodec,
         channels: await track.getNumberOfChannels(),
+        sampleRate: await track.getSampleRate(),
         language: await track.getLanguageCode(),
         name: await track.getName(),
         primary: track.id === primaryAudio?.id,

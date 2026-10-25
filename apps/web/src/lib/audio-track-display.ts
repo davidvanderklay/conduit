@@ -7,7 +7,13 @@ export interface AudioTrackDisplay {
   secondary: string
 }
 
-export function audioTrackDisplay(track: NativeTrack, fallback: string): AudioTrackDisplay {
+/** What a track list knows about an audio track; mpv fills it all, browsers and the web engine less. */
+export type AudioTrackInfo = Pick<
+  NativeTrack,
+  "title" | "lang" | "codec" | "audioChannels" | "channelCount" | "sampleRate" | "bitrate"
+>
+
+export function audioTrackDisplay(track: AudioTrackInfo, fallback: string): AudioTrackDisplay {
   const language = trackLanguageName(track.lang) ?? track.lang ?? "Unknown language"
   return coreValue<AudioTrackDisplay>({
     type: "audioTrackDisplay",

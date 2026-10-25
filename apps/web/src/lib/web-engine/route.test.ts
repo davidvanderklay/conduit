@@ -16,6 +16,7 @@ function audio(codecString: string, overrides: Partial<ProbedAudio> = {}): Probe
     codecString,
     decodable: true,
     channels: 6,
+    sampleRate: 48_000,
     language: "eng",
     name: null,
     primary: true,

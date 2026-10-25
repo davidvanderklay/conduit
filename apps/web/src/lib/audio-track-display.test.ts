@@ -6,8 +6,6 @@ describe("audio track display", () => {
     expect(
       audioTrackDisplay(
         {
-          id: 1,
-          type: "audio",
           title: "Dolby Digital",
           lang: "hu",
           codec: "ac3",
@@ -15,8 +13,6 @@ describe("audio track display", () => {
           channelCount: 6,
           sampleRate: 48_000,
           bitrate: 640_000,
-          selected: true,
-          external: false,
         },
         "Audio 1",
       ),
@@ -30,14 +26,10 @@ describe("audio track display", () => {
     expect(
       audioTrackDisplay(
         {
-          id: 2,
-          type: "audio",
           title: "English",
           lang: "en",
           codec: "truehd",
           channelCount: 8,
-          selected: false,
-          external: false,
         },
         "Audio 2",
       ),
@@ -51,13 +43,9 @@ describe("audio track display", () => {
     expect(
       audioTrackDisplay(
         {
-          id: 3,
-          type: "audio",
           title: "https://example.com/audio",
           lang: "en",
           channelCount: 2,
-          selected: false,
-          external: false,
         },
         "Audio 3",
       ),

@@ -11,6 +11,7 @@ import { Captions, Languages, Pause, Play, SkipForward, Volume2, VolumeX, X } fr
 import type { InstalledAddon, PlaybackSource, PlayerArtwork, ProgressMetadata } from "../lib/api"
 import { addonsForResource } from "../lib/addons"
 import { audioTrackDisplay } from "../lib/audio-track-display"
+import { AudioTrackRow } from "./audio-track-row"
 import {
   forwardPlayerShortcut,
   nativePlayerCommand,
@@ -1740,10 +1741,10 @@ function TrackMenu({
       ) : (
         <>
           {tracks.map((track) => (
-            <AudioTrackMenuRow
+            <AudioTrackRow
               key={track.id}
-              track={track}
-              fallback={`${title} ${track.id}`}
+              display={audioTrackDisplay(track, `${title} ${track.id}`)}
+              selected={track.selected}
               onSelect={() => onSelect(track)}
             />
           ))}
@@ -1774,33 +1775,6 @@ function TrackMenu({
       )}
     </div>,
     document.body,
-  )
-}
-
-function AudioTrackMenuRow({
-  track,
-  fallback,
-  onSelect,
-}: {
-  track: NativeTrack
-  fallback: string
-  onSelect: () => void
-}) {
-  const display = audioTrackDisplay(track, fallback)
-  return (
-    <button
-      className={`mb-1 block w-full rounded-lg px-3 py-2 text-left ${
-        track.selected ? "bg-amber-400 text-zinc-950" : "text-zinc-300 hover:bg-zinc-800"
-      }`}
-      onClick={onSelect}
-    >
-      <span className="block truncate text-sm font-medium" title={display.primary}>
-        {display.primary}
-      </span>
-      <span className={`text-xs ${track.selected ? "text-zinc-800" : "text-zinc-500"}`}>
-        {display.secondary}
-      </span>
-    </button>
   )
 }
 

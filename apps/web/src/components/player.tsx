@@ -2,15 +2,16 @@ import { useCallback, useEffect, useEffectEvent, useRef, useState } from "react"
 import {
   Captions,
   Expand,
+  Languages,
   LoaderCircle,
   Pause,
   PictureInPicture,
   Play,
-  Settings2,
   SkipForward,
   UsersRound,
   Volume2,
   VolumeX,
+  X,
 } from "lucide-react"
 import type Hls from "hls.js"
 import type { InstalledAddon, PlaybackSource, PlayerArtwork, ProgressMetadata } from "../lib/api"
@@ -60,6 +61,8 @@ import { QueueIcon, QueueNotice } from "./queue"
 import { VideoScaleControl } from "./video-scale-control"
 import { preferredSubtitle, subtitleLookupResults } from "../lib/subtitle-selection"
 import { SubtitlePicker } from "./subtitle-picker"
+import { AudioTrackRow } from "./audio-track-row"
+import { audioTrackDisplay, type AudioTrackDisplay } from "../lib/audio-track-display"
 import { partyPositionAt, type WatchPartySession, type WatchPartyMedia } from "../lib/watch-party"
 
 interface PlayerSubtitle extends Subtitle {
@@ -71,11 +74,12 @@ interface PlayerSubtitle extends Subtitle {
 
 interface AudioChoice {
   id: number
-  label: string
-  language?: string
+  display: AudioTrackDisplay
   kind: "hls" | "native" | "engine"
   disabled?: boolean
 }
+
+type TrackMenu = "audio" | "subtitles"
 
 /** How long the engine may spend reading a source's headers before `<video>` takes over. */
 const PROBE_TIMEOUT_MS = 10_000
@@ -254,7 +258,7 @@ function WebPlayer({
   const [bufferedEnd, setBufferedEnd] = useState(0)
   const [volume, setVolume] = useState(preferences.volume / 100)
   const [muted, setMuted] = useState(false)
-  const [showSettings, setShowSettings] = useState(false)
+  const [trackMenu, setTrackMenu] = useState<TrackMenu>()
   const [subtitles, setSubtitles] = useState<PlayerSubtitle[]>([])
   const [selectedSubtitle, setSelectedSubtitle] = useState("off")
   const [subtitleError, setSubtitleError] = useState<string>()
@@ -458,8 +462,10 @@ function WebPlayer({
     if (tracks.length) {
       const choices = tracks.map((track, index) => ({
         id: index,
-        label: track.label || languageName(track.language) || `Audio ${index + 1}`,
-        language: track.language,
+        display: audioTrackDisplay(
+          { title: track.label, lang: track.language || undefined },
+          `Audio ${index + 1}`,
+        ),
         kind: "native" as const,
       }))
       setAudioChoices(choices)
@@ -659,8 +665,10 @@ function WebPlayer({
             setAudioChoices(
               data.audioTracks.map((track, index) => ({
                 id: index,
-                label: track.name || languageName(track.lang) || `Audio ${index + 1}`,
-                language: track.lang,
+                display: audioTrackDisplay(
+                  { title: track.name, lang: track.lang, codec: track.audioCodec },
+                  `Audio ${index + 1}`,
+                ),
                 kind: "hls",
               })),
             )
@@ -692,15 +700,27 @@ function WebPlayer({
       if (cancelled || engine.error) return
       const selected = engine.selectedAudioTrack
       setAudioChoices(
-        engine.audioTracks.map((track, index) => ({
-          id: index,
-          label: `${track.name || (track.language !== "und" && languageName(track.language)) || `Audio ${index + 1}`}${
-            track.decodable ? "" : " (unsupported in browser)"
-          }`,
-          language: track.language,
-          kind: "engine",
-          disabled: !track.decodable,
-        })),
+        engine.audioTracks.map((track, index) => {
+          const display = audioTrackDisplay(
+            {
+              title: track.name ?? undefined,
+              lang: track.language === "und" ? undefined : track.language,
+              // Mediabunny leaves TrueHD and MLP without a codec; the FFmpeg decoder names them.
+              codec: track.codec ?? track.softwareCodec,
+              channelCount: track.channels,
+              sampleRate: track.sampleRate,
+            },
+            `Audio ${index + 1}`,
+          )
+          return {
+            id: index,
+            display: track.decodable
+              ? display
+              : { ...display, secondary: `${display.secondary} · Not supported in this browser` },
+            kind: "engine" as const,
+            disabled: !track.decodable,
+          }
+        }),
       )
       setSelectedAudio(selected && engine.audioTracks.indexOf(selected))
       // Embedded tracks come only from the Matroska reader, so selection waits for it briefly.
@@ -900,6 +920,11 @@ function WebPlayer({
     subtitles,
   ])
 
+  const selectedAudioChoice = audioChoices.find((choice) => choice.id === selectedAudio)
+
+  const toggleTrackMenu = (menu: TrackMenu) =>
+    setTrackMenu((open) => (open === menu ? undefined : menu))
+
   const chooseAudio = (choice: AudioChoice) => {
     const video = videoRef.current
     if (!video || choice.disabled) return
@@ -1005,7 +1030,7 @@ function WebPlayer({
         // Nothing to restore yet, so let the viewer pick.
         const subtitle = subtitles.find((candidate) => candidate.key === lastSubtitle.current)
         if (!subtitle) {
-          setShowSettings(true)
+          setTrackMenu("subtitles")
           return
         }
         void chooseSubtitle(subtitle.key)
@@ -1013,8 +1038,7 @@ function WebPlayer({
         return
       }
       case "menu":
-        // Audio and subtitles share one settings panel here.
-        setShowSettings((open) => !open)
+        toggleTrackMenu(shortcut.menu)
         return
       case "speed": {
         if (partySession?.role === "guest") return
@@ -1032,9 +1056,9 @@ function WebPlayer({
 
   useEffect(() => {
     const handleKeyboard = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && showSettings) {
+      if (event.key === "Escape" && trackMenu) {
         event.preventDefault()
-        setShowSettings(false)
+        setTrackMenu(undefined)
         return
       }
       const shortcut = playerShortcut(event)
@@ -1044,7 +1068,7 @@ function WebPlayer({
     }
     window.addEventListener("keydown", handleKeyboard)
     return () => window.removeEventListener("keydown", handleKeyboard)
-  }, [showSettings])
+  }, [trackMenu])
 
   usePlayerMediaSession({
     title: heading.primary,
@@ -1259,8 +1283,19 @@ function WebPlayer({
               <span className="hidden max-w-40 truncate text-xs text-zinc-400 md:block">
                 {selectedSubtitleLabel === "Off" ? "" : selectedSubtitleLabel}
               </span>
-              <Control label="Track settings" onClick={() => setShowSettings((value) => !value)}>
-                <Settings2 size={21} />
+              <Control
+                label={`Audio${selectedAudioChoice ? `: ${selectedAudioChoice.display.primary}` : ""}`}
+                active={trackMenu === "audio"}
+                onClick={() => toggleTrackMenu("audio")}
+              >
+                <Languages size={21} />
+              </Control>
+              <Control
+                label={`Subtitles: ${selectedSubtitleLabel}`}
+                active={trackMenu === "subtitles"}
+                onClick={() => toggleTrackMenu("subtitles")}
+              >
+                <Captions size={22} />
               </Control>
               {route === "native" && (
                 <Control
@@ -1278,44 +1313,53 @@ function WebPlayer({
             </div>
           </div>
 
-          {showSettings && (
-            <div className="absolute bottom-20 right-4 max-h-[70%] w-[46rem] max-w-[calc(100%-2rem)] overflow-y-auto overscroll-contain rounded-xl border border-zinc-700 bg-zinc-950/95 p-4 shadow-2xl">
-              <div className="mb-3 flex items-center gap-2">
-                <Captions size={16} />
-                <h3 className="font-display text-sm font-semibold">Subtitles</h3>
+          {trackMenu && (
+            <div
+              className="absolute bottom-20 right-4 max-h-[70%] w-[46rem] max-w-[calc(100%-2rem)] overflow-y-auto overscroll-contain rounded-xl border border-white/10 bg-zinc-950 p-2 shadow-2xl"
+              role="menu"
+            >
+              <div className="flex items-center justify-between px-2 pb-2 pt-1">
+                <h3 className="font-display text-sm font-semibold">
+                  {trackMenu === "audio" ? "Audio" : "Subtitles"}
+                </h3>
+                <button
+                  className="rounded-md p-1 text-zinc-500 hover:bg-zinc-800 hover:text-white"
+                  onClick={() => setTrackMenu(undefined)}
+                  aria-label={`Close ${trackMenu} menu`}
+                >
+                  <X size={15} />
+                </button>
               </div>
-              <SubtitlePicker
-                items={subtitleItems}
-                preferredLanguage={preferences.subtitleLanguage}
-                off={selectedSubtitle === "off"}
-                loading={subtitleLoading}
-                error={subtitleError}
-                position={subtitlePosition}
-                onPositionChange={changeSubtitlePosition}
-                onOff={() => void chooseSubtitle("off")}
-                onSelect={(key) => void chooseSubtitle(key)}
-              />
-              <TrackSection icon={<Volume2 size={16} />} title="Audio">
-                {audioChoices.length ? (
-                  audioChoices.map((choice) => (
-                    <TrackOption
-                      key={`${choice.kind}-${choice.id}`}
-                      active={selectedAudio === choice.id}
-                      disabled={choice.disabled}
-                      label={choice.label}
-                      onClick={() => chooseAudio(choice)}
-                    />
-                  ))
-                ) : (
-                  <div className="rounded-lg bg-zinc-900 px-3 py-2">
-                    <p className="text-sm text-zinc-300">Automatic</p>
-                    <p className="mt-1 text-xs leading-5 text-zinc-500">
-                      The browser is choosing the default audio track and does not expose track
-                      switching for this source. This does not mean the video has no audio.
-                    </p>
-                  </div>
-                )}
-              </TrackSection>
+              {trackMenu === "subtitles" ? (
+                <SubtitlePicker
+                  items={subtitleItems}
+                  preferredLanguage={preferences.subtitleLanguage}
+                  off={selectedSubtitle === "off"}
+                  loading={subtitleLoading}
+                  error={subtitleError}
+                  position={subtitlePosition}
+                  onPositionChange={changeSubtitlePosition}
+                  onOff={() => void chooseSubtitle("off")}
+                  onSelect={(key) => void chooseSubtitle(key)}
+                />
+              ) : audioChoices.length ? (
+                audioChoices.map((choice) => (
+                  <AudioTrackRow
+                    key={`${choice.kind}-${choice.id}`}
+                    display={choice.display}
+                    selected={selectedAudio === choice.id}
+                    disabled={choice.disabled}
+                    onSelect={() => chooseAudio(choice)}
+                  />
+                ))
+              ) : (
+                // The engine reads the container's track list, so an empty one means no audio.
+                <p className="px-3 py-2 text-sm text-zinc-500">
+                  {route === "engine"
+                    ? "No audio track."
+                    : "The browser picks the audio track for this source and does not offer switching."}
+                </p>
+              )}
             </div>
           )}
         </div>
@@ -1326,16 +1370,18 @@ function WebPlayer({
 
 function Control({
   label,
+  active,
   onClick,
   children,
 }: {
   label: string
+  active?: boolean
   onClick: () => void
   children: React.ReactNode
 }) {
   return (
     <button
-      className="rounded-lg p-1.5 text-zinc-200 hover:bg-white/15 hover:text-white"
+      className={`rounded-lg p-1.5 hover:bg-white/15 hover:text-white ${active ? "text-amber-300" : "text-zinc-200"}`}
       onClick={onClick}
       aria-label={label}
       title={label}
@@ -1365,50 +1411,6 @@ function PlayerHeadingText({ heading }: { heading: PlayerHeading }) {
       <p className="truncate font-display font-semibold">{heading.primary}</p>
       {heading.secondary && <p className="truncate text-xs text-zinc-400">{heading.secondary}</p>}
     </div>
-  )
-}
-
-function TrackSection({
-  icon,
-  title,
-  children,
-}: {
-  icon: React.ReactNode
-  title: string
-  children: React.ReactNode
-}) {
-  return (
-    <section className="mb-4 last:mb-0">
-      <h3 className="mb-1 flex items-center gap-2 px-2 text-sm font-medium">
-        {icon}
-        {title}
-      </h3>
-      {children}
-    </section>
-  )
-}
-
-function TrackOption({
-  active,
-  disabled,
-  label,
-  onClick,
-}: {
-  active: boolean
-  disabled?: boolean
-  label: string
-  onClick: () => void
-}) {
-  return (
-    <button
-      className={`block w-full rounded-lg px-2 py-2 text-left text-sm disabled:text-zinc-600 ${
-        active ? "bg-amber-400 text-zinc-950" : "text-zinc-300 enabled:hover:bg-zinc-800"
-      }`}
-      disabled={disabled}
-      onClick={onClick}
-    >
-      {label}
-    </button>
   )
 }
 
