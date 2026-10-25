@@ -1,4 +1,5 @@
 import audioWasm from "./ffmpeg-audio.wasm?url"
+import legacyWasm from "./ffmpeg-legacy.wasm?url"
 import videoWasm from "./ffmpeg-video.wasm?url"
 import type {
   DecodedAudio,
@@ -15,6 +16,8 @@ import type { VideoSamplePixelFormat } from "mediabunny"
 const MODULES: Record<FFmpegModuleKind, () => Promise<FFmpegModule>> = {
   audio: async () => (await import("./ffmpeg-audio.mjs")).default({ locateFile: () => audioWasm }),
   video: async () => (await import("./ffmpeg-video.mjs")).default({ locateFile: () => videoWasm }),
+  legacy: async () =>
+    (await import("./ffmpeg-legacy.mjs")).default({ locateFile: () => legacyWasm }),
 }
 
 let module: FFmpegModule | undefined
@@ -54,7 +57,13 @@ async function handle(request: DecoderRequest): Promise<DecodedOutput> {
     const extradata = request.extradata ?? new Uint8Array()
     const pointer = extradata.byteLength ? module._malloc(extradata.byteLength) : 0
     module.HEAPU8.set(extradata, pointer)
-    decoder = module._decoder_open(name, pointer, extradata.byteLength)
+    decoder = module._decoder_open(
+      name,
+      pointer,
+      extradata.byteLength,
+      request.width ?? 0,
+      request.height ?? 0,
+    )
     module._free(name)
     if (pointer) module._free(pointer)
     if (!decoder) throw new Error(`FFmpeg could not open the ${request.codec} decoder`)

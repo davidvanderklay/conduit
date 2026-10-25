@@ -1,11 +1,17 @@
-/** The exports of `ffmpeg-audio.mjs` and `ffmpeg-video.mjs`, built from `apps/web/wasm/ffmpeg_bridge.c`. */
+/** The exports of the `ffmpeg-*.mjs` modules, built from `apps/web/wasm/ffmpeg_bridge.c`. */
 export interface FFmpegModule {
   // No pthreads, so memory is never shared.
   HEAPU8: Uint8Array<ArrayBuffer>
   _malloc(size: number): number
   _free(pointer: number): void
   stringToNewUTF8(value: string): number
-  _decoder_open(name: number, extradata: number, extradataSize: number): number
+  _decoder_open(
+    name: number,
+    extradata: number,
+    extradataSize: number,
+    width: number,
+    height: number,
+  ): number
   _decoder_packet(decoder: number, size: number): number
   _decoder_send(decoder: number, timestamp: number, duration: number): number
   _decoder_drain(decoder: number): number

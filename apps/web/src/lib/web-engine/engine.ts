@@ -9,6 +9,7 @@ import {
   type VideoSample,
 } from "mediabunny"
 import { findDolbyVisionRpu } from "./dolby-vision"
+import { MatroskaFile } from "./matroska"
 import { downmixToStereo } from "./downmix"
 import type { PlaybackMedia, PlaybackMediaEvent } from "./media"
 import { createPresenter, type FramePresenter } from "./presenter"
@@ -18,9 +19,10 @@ import {
   probeInput,
   webGpuAvailable,
   type ProbedAudio,
+  type SoftwareVideoCodec,
   type SourceProbe,
 } from "./route"
-import { enableSoftwareHevc, softwareAudioBuffers } from "./software-decoders"
+import { enableSoftwareHevc, softwareAudioBuffers, softwareVideoSamples } from "./software-decoders"
 import { FFmpegDecoder } from "./wasm/ffmpeg-decoder"
 
 /** An opened source: its Mediabunny input plus what the probe learned about it. */
@@ -58,7 +60,14 @@ export async function openWebSource(url: string): Promise<WebSource> {
       videoConfig !== null &&
       (await videoTrack.getCodec()) === "hevc" &&
       (await routeHevc(videoTrack, videoConfig))
-    return { input, probe: await probeInput(input, dolbyVision), videoTrack }
+    // Mediabunny keeps Matroska codec private data to itself for codecs it does not map.
+    const videoPrivate =
+      videoTrack && videoConfig === null
+        ? (await (await MatroskaFile.open(url).catch(() => undefined))?.tracks())?.find(
+            (track) => track.number === videoTrack.id,
+          )?.codecPrivate
+        : undefined
+    return { input, probe: await probeInput(input, { dolbyVision, videoPrivate }), videoTrack }
   } catch (error) {
     input.dispose()
     throw error
@@ -117,6 +126,18 @@ async function isDolbyVisionProfile5(
   return Boolean(packet && findDolbyVisionRpu(packet.data, (record[21] & 3) + 1))
 }
 
+/** Decoded frames from a position on, from the browser's decoder or FFmpeg in a worker. */
+type VideoStream = (from: number) => AsyncIterable<VideoSample>
+
+function videoStream(
+  track: InputVideoTrack,
+  software: SoftwareVideoCodec | undefined,
+): VideoStream {
+  if (software) return (from) => softwareVideoSamples(track, software, from)
+  const sink = new VideoSampleSink(track)
+  return (from) => sink.samples(from)
+}
+
 /** Decoded audio from a position on, from the browser's decoders or FFmpeg in a worker. */
 type AudioStream = (from: number) => AsyncGenerator<{ buffer: AudioBuffer; timestamp: number }>
 
@@ -152,7 +173,7 @@ export class WebMediaEngine extends EventTarget implements PlaybackMedia {
   readonly #source: WebSource
   readonly #canvas: HTMLCanvasElement
   #presenter?: FramePresenter
-  #videoSink?: VideoSampleSink
+  #videoStream?: VideoStream
   #audio?: ProbedAudio
   #audioStream?: AudioStream
   #context?: AudioContext
@@ -210,7 +231,7 @@ export class WebMediaEngine extends EventTarget implements PlaybackMedia {
       const { input, videoTrack } = this.#source
       this.#presenter = await createPresenter(this.#canvas)
       if (videoTrack) {
-        this.#videoSink = new VideoSampleSink(videoTrack)
+        this.#videoStream = videoStream(videoTrack, this.#source.probe.video?.software)
         this.#width = await videoTrack.getDisplayWidth()
         this.#height = await videoTrack.getDisplayHeight()
       }
@@ -460,7 +481,7 @@ export class WebMediaEngine extends EventTarget implements PlaybackMedia {
     }
     const time = this.currentTime
     const frameEnd = this.#current ? this.#current.timestamp + this.#current.duration : 0
-    const videoDone = !this.#videoSink || (this.#videoEnded && this.#frames.length === 0)
+    const videoDone = !this.#videoStream || (this.#videoEnded && this.#frames.length === 0)
     const audioDone = !this.#audioStream || (this.#audioEnded && time >= this.#scheduledEnd - 0.01)
     if ((videoDone && audioDone && time >= frameEnd - 0.01) || time >= this.#duration) {
       this.#finish()
@@ -482,7 +503,7 @@ export class WebMediaEngine extends EventTarget implements PlaybackMedia {
 
   #readyToPlay(): boolean {
     const video =
-      !this.#videoSink || this.#videoEnded || this.#frames.length >= MAX_QUEUED_FRAMES - 1
+      !this.#videoStream || this.#videoEnded || this.#frames.length >= MAX_QUEUED_FRAMES - 1
     const audio =
       !this.#audioStream || this.#audioEnded || this.#bufferedAudio() >= START_AUDIO_SECONDS
     return video && audio
@@ -539,12 +560,12 @@ export class WebMediaEngine extends EventTarget implements PlaybackMedia {
     this.#videoEnded = false
     this.#needsPresent = true
     this.#frameDemand?.()
-    if (this.#videoSink) void this.#runVideo(this.#videoSink, generation, from)
+    if (this.#videoStream) void this.#runVideo(this.#videoStream, generation, from)
   }
 
-  async #runVideo(sink: VideoSampleSink, generation: number, from: number) {
+  async #runVideo(stream: VideoStream, generation: number, from: number) {
     try {
-      for await (const sample of sink.samples(from)) {
+      for await (const sample of stream(from)) {
         if (generation !== this.#videoGeneration) {
           sample.close()
           return

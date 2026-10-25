@@ -5,11 +5,13 @@ import {
   registerDecoder,
   type EncodedPacket,
   type InputAudioTrack,
+  type InputVideoTrack,
   type VideoCodec,
 } from "mediabunny"
 import { dolbyVisionMetadata } from "./dolby-vision"
 import { HdrPeakTracker, hdrPeaks } from "./hdr-metadata"
-import { FFmpegDecoder, type DecodedOutput } from "./wasm/ffmpeg-decoder"
+import type { SoftwareVideoCodec } from "./route"
+import { FFmpegDecoder, type DecodedOutput, type DecodedVideo } from "./wasm/ffmpeg-decoder"
 
 /** HEVC codec strings the browser cannot decode, which the WebAssembly decoder takes instead. */
 const softwareHevc = new Set<string>()
@@ -127,6 +129,54 @@ export async function* softwareAudioBuffers(
     }
     yield* buffers(await decoder.decode(batch))
     yield* buffers(await decoder.drain())
+  } finally {
+    decoder.release()
+  }
+}
+
+/**
+ * Decodes a video track Mediabunny does not map (MPEG-1/2, MPEG-4 Part 2,
+ * DivX 3, VC-1, WMV3) with FFmpeg in a worker, from the keyframe before `from`.
+ */
+export async function* softwareVideoSamples(
+  track: InputVideoTrack,
+  software: SoftwareVideoCodec,
+  from: number,
+): AsyncGenerator<VideoSample> {
+  const sink = new EncodedPacketSink(track)
+  const start = (await sink.getKeyPacket(from)) ?? (await sink.getFirstPacket())
+  if (!start) return
+  const [width, height, displayWidth, displayHeight] = await Promise.all([
+    track.getCodedWidth(),
+    track.getCodedHeight(),
+    track.getDisplayWidth(),
+    track.getDisplayHeight(),
+  ])
+  const decoder = await FFmpegDecoder.open("legacy", software.codec, software.extradata, {
+    width,
+    height,
+  })
+  // Keeps the container's display size, which carries anamorphic aspect ratios.
+  const sample = (frame: DecodedVideo) =>
+    new VideoSample(frame.data, {
+      format: frame.format,
+      codedWidth: frame.width,
+      codedHeight: frame.height,
+      displayWidth: frame.width === width ? displayWidth : frame.width,
+      displayHeight: frame.height === height ? displayHeight : frame.height,
+      timestamp: frame.timestamp,
+      duration: frame.duration,
+      colorSpace: frame.colorSpace as VideoColorSpaceInit,
+    })
+  function* due({ video }: DecodedOutput) {
+    for (const frame of video) {
+      // Frames before the seek target only prime the decoder.
+      if (frame.timestamp + frame.duration > from) yield sample(frame)
+    }
+  }
+  try {
+    for await (const packet of sink.packets(start)) yield* due(await decoder.decode([packet]))
+    yield* due(await decoder.drain())
   } finally {
     decoder.release()
   }

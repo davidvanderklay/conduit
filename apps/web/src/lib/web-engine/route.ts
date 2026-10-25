@@ -1,8 +1,16 @@
 import type { AudioCodec, Input, InputAudioTrack } from "mediabunny"
 
+/** An FFmpeg decoder for video Mediabunny leaves without a codec, with the setup bytes it needs. */
+export interface SoftwareVideoCodec {
+  codec: string
+  extradata?: Uint8Array
+}
+
 export interface ProbedVideo {
   codecString: string | null
   decodable: boolean
+  /** Set when FFmpeg in a worker decodes this track instead of the browser. */
+  software?: SoftwareVideoCodec
   hdr: boolean
   /** Dolby Vision profile 5, which only the engine's WebGPU path renders in the right colors. */
   dolbyVision: boolean
@@ -85,22 +93,86 @@ export function softwareAudioCodec(
   return undefined
 }
 
+const MATROSKA_VIDEO = new Map([
+  ["V_MPEG1", "mpeg1video"],
+  ["V_MPEG2", "mpeg2video"],
+  ["V_MPEG4/ISO/ASP", "mpeg4"],
+  ["V_MPEG4/ISO/SP", "mpeg4"],
+  ["V_MPEG4/ISO/AP", "mpeg4"],
+  ["V_MPEG4/MS/V3", "msmpeg4"],
+])
+const VFW_FOURCCS = new Map([
+  ["WVC1", "vc1"],
+  ["WMV3", "wmv3"],
+  ["XVID", "mpeg4"],
+  ["DIVX", "mpeg4"],
+  ["DX50", "mpeg4"],
+  ["FMP4", "mpeg4"],
+  ["MP4V", "mpeg4"],
+  ["DIV3", "msmpeg4"],
+  ["MP43", "msmpeg4"],
+])
+const TRANSPORT_STREAM_TYPES = new Map([
+  [0x01, "mpeg1video"],
+  [0x02, "mpeg2video"],
+  [0x10, "mpeg4"],
+  [0xea, "vc1"],
+])
+
+/**
+ * The FFmpeg decoder for a video codec Mediabunny does not map, from the
+ * container's codec ID: a Matroska CodecID (with codec private data), or an
+ * MPEG-TS stream type.
+ */
+export function softwareVideoCodec(
+  internalCodecId: unknown,
+  codecPrivate?: Uint8Array,
+): SoftwareVideoCodec | undefined {
+  if (typeof internalCodecId === "number") {
+    const codec = TRANSPORT_STREAM_TYPES.get(internalCodecId)
+    return codec ? { codec } : undefined
+  }
+  if (internalCodecId === "V_MS/VFW/FOURCC") {
+    // A BITMAPINFOHEADER: 40 bytes with the FourCC at 16, then the codec's setup data.
+    if (!codecPrivate || codecPrivate.byteLength < 40) return undefined
+    const codec = VFW_FOURCCS.get(
+      String.fromCharCode(...codecPrivate.subarray(16, 20)).toUpperCase(),
+    )
+    return codec ? { codec, extradata: codecPrivate.subarray(40) } : undefined
+  }
+  const codec =
+    typeof internalCodecId === "string" ? MATROSKA_VIDEO.get(internalCodecId) : undefined
+  return codec ? { codec, extradata: codecPrivate } : undefined
+}
+
 function nativeCodec(container: string, codecString: string | null, browser: BrowserPlayback) {
   return codecString != null && browser.canPlayType(`${container}; codecs="${codecString}"`)
 }
 
-/** Reads container, codec, and decoder support for every track without decoding media. */
-export async function probeInput(input: Input, dolbyVision = false): Promise<SourceProbe> {
+/**
+ * Reads container, codec, and decoder support for every track without decoding
+ * media. `videoPrivate` is the video track's Matroska codec private data, which
+ * Mediabunny keeps to itself for codecs it does not map.
+ */
+export async function probeInput(
+  input: Input,
+  { dolbyVision = false, videoPrivate }: { dolbyVision?: boolean; videoPrivate?: Uint8Array } = {},
+): Promise<SourceProbe> {
   const [format, videoTrack, primaryAudio, audioTracks] = await Promise.all([
     input.getFormat(),
     input.getPrimaryVideoTrack(),
     input.getPrimaryAudioTrack(),
     input.getAudioTracks(),
   ])
+  const software =
+    videoTrack && (await videoTrack.getCodec()) === null
+      ? softwareVideoCodec(await videoTrack.getInternalCodecId(), videoPrivate)
+      : undefined
   const video = videoTrack
     ? {
         codecString: await videoTrack.getCodecParameterString(),
-        decodable: await videoTrack.canDecode(),
+        decodable: software !== undefined || (await videoTrack.canDecode()),
+        software,
         hdr: await videoTrack.hasHighDynamicRange(),
         dolbyVision,
       }

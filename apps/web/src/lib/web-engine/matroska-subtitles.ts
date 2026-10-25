@@ -6,14 +6,17 @@
  * reading the whole file.
  */
 
-export interface MatroskaSubtitleTrack {
-  number: number
-  codec: string
-  language: string
-  name: string
-  default: boolean
-  forced: boolean
-}
+import {
+  ID,
+  MatroskaFile,
+  elements,
+  readRange,
+  readUint,
+  readVint,
+  type MatroskaTrack,
+} from "./matroska"
+
+export type MatroskaSubtitleTrack = MatroskaTrack
 
 export interface SubtitleCue {
   start: number
@@ -28,41 +31,8 @@ interface IndexedBlock {
   relative: number
 }
 
-const ID = {
-  segment: 0x18538067,
-  seekHead: 0x114d9b74,
-  seek: 0x4dbb,
-  seekId: 0x53ab,
-  seekPosition: 0x53ac,
-  info: 0x1549a966,
-  timestampScale: 0x2ad7b1,
-  tracks: 0x1654ae6b,
-  trackEntry: 0xae,
-  trackNumber: 0xd7,
-  trackType: 0x83,
-  codecId: 0x86,
-  language: 0x22b59c,
-  languageBcp47: 0x22b59d,
-  name: 0x536e,
-  flagDefault: 0x88,
-  flagForced: 0x55aa,
-  cues: 0x1c53bb6b,
-  cuePoint: 0xbb,
-  cueTime: 0xb3,
-  cueTrackPositions: 0xb7,
-  cueTrack: 0xf7,
-  cueClusterPosition: 0xf1,
-  cueRelativePosition: 0xf0,
-  cueDuration: 0xb2,
-  simpleBlock: 0xa3,
-  blockGroup: 0xa0,
-  block: 0xa1,
-  blockDuration: 0x9b,
-} as const
-
 const SUBTITLE_TRACK_TYPE = 17
 const TEXT_CODECS = new Set(["S_TEXT/UTF8", "S_TEXT/ASS", "S_TEXT/SSA", "S_TEXT/WEBVTT"])
-const HEADER_BYTES = 256 * 1024
 /** Bytes read per subtitle block; text blocks are a few hundred bytes. */
 const BLOCK_BYTES = 4096
 
@@ -95,46 +65,14 @@ export class MatroskaSubtitles {
    * text subtitles or does not index them.
    */
   static async open(url: string): Promise<MatroskaSubtitles | undefined> {
-    const head = await readRange(url, 0, HEADER_BYTES)
-    const segment = findElement(head, 0, head.byteLength, ID.segment)
-    if (!segment) return undefined
-    const segmentStart = segment.dataStart
-    const children = (start: number) => elements(head, start, head.byteLength)
-
-    // Top-level elements in the header, plus where the seek head says the rest live.
-    const positions = new Map<number, number>()
-    for (const element of children(segmentStart)) {
-      positions.set(element.id, element.start)
-      if (element.id !== ID.seekHead) continue
-      for (const seek of elements(head, element.dataStart, element.end)) {
-        if (seek.id !== ID.seek) continue
-        let id = 0
-        let position = 0
-        for (const field of elements(head, seek.dataStart, seek.end)) {
-          if (field.id === ID.seekId) id = readUint(head, field)
-          if (field.id === ID.seekPosition) position = readUint(head, field)
-        }
-        if (id && !positions.has(id)) positions.set(id, segmentStart + position)
-      }
-    }
-
-    const load = async (id: number) => {
-      const position = positions.get(id)
-      if (position === undefined) return undefined
-      const header = await readRange(url, position, position + 16)
-      const [element] = elements(header, 0, header.byteLength)
-      if (!element || element.id !== id) return undefined
-      const data = await readRange(url, position, position + element.declaredEnd)
-      return { data, element: { ...element, end: data.byteLength } }
-    }
-
-    const tracksElement = await load(ID.tracks)
-    if (!tracksElement) return undefined
-    const tracks = parseTracks(tracksElement.data, tracksElement.element.dataStart)
+    const file = await MatroskaFile.open(url)
+    if (!file) return undefined
+    const tracks = (await file.tracks()).filter(
+      (track) => track.type === SUBTITLE_TRACK_TYPE && TEXT_CODECS.has(track.codec),
+    )
     if (!tracks.length) return undefined
-    const info = await load(ID.info)
-    const secondsPerTick = (info ? timestampScale(info.data, info.element.dataStart) : 1e6) / 1e9
-    const cues = await load(ID.cues)
+    const secondsPerTick = await file.secondsPerTick()
+    const cues = await file.load(ID.cues)
     if (!cues) return undefined
     const blocks = parseCues(
       cues.data,
@@ -144,7 +82,7 @@ export class MatroskaSubtitles {
     )
     const indexed = tracks.filter((track) => blocks.get(track.number)?.length)
     return indexed.length
-      ? new MatroskaSubtitles(url, segmentStart, secondsPerTick, indexed, blocks)
+      ? new MatroskaSubtitles(url, file.segmentStart, secondsPerTick, indexed, blocks)
       : undefined
   }
 
@@ -227,50 +165,6 @@ export function cueText(codec: string, payload: string): string {
   return payload.replace(/\r\n?/g, "\n").trim()
 }
 
-function parseTracks(data: Uint8Array, start: number): MatroskaSubtitleTrack[] {
-  const tracks: MatroskaSubtitleTrack[] = []
-  for (const entry of elements(data, start, data.byteLength)) {
-    if (entry.id !== ID.trackEntry) continue
-    const track = {
-      number: 0,
-      type: 0,
-      codec: "",
-      language: "eng",
-      name: "",
-      default: true,
-      forced: false,
-    }
-    let bcp47 = ""
-    for (const field of elements(data, entry.dataStart, entry.end)) {
-      if (field.id === ID.trackNumber) track.number = readUint(data, field)
-      if (field.id === ID.trackType) track.type = readUint(data, field)
-      if (field.id === ID.codecId) track.codec = readString(data, field)
-      if (field.id === ID.language) track.language = readString(data, field)
-      if (field.id === ID.languageBcp47) bcp47 = readString(data, field)
-      if (field.id === ID.name) track.name = readString(data, field)
-      if (field.id === ID.flagDefault) track.default = readUint(data, field) === 1
-      if (field.id === ID.flagForced) track.forced = readUint(data, field) === 1
-    }
-    if (track.type !== SUBTITLE_TRACK_TYPE || !TEXT_CODECS.has(track.codec)) continue
-    tracks.push({
-      number: track.number,
-      codec: track.codec,
-      language: bcp47 || track.language,
-      name: track.name,
-      default: track.default,
-      forced: track.forced,
-    })
-  }
-  return tracks
-}
-
-function timestampScale(data: Uint8Array, start: number): number {
-  for (const field of elements(data, start, data.byteLength)) {
-    if (field.id === ID.timestampScale) return readUint(data, field)
-  }
-  return 1e6
-}
-
 function parseCues(
   data: Uint8Array,
   start: number,
@@ -301,84 +195,6 @@ function parseCues(
     }
   }
   return blocks
-}
-
-interface Element {
-  id: number
-  start: number
-  dataStart: number
-  /** End of the element's data, clipped to the bytes read. */
-  end: number
-  /** End of the element's data in the file, past the bytes read when it is truncated. */
-  declaredEnd: number
-}
-
-/** The EBML elements laid end to end in `[start, end)`, stopping at a truncated one. */
-function elements(data: Uint8Array, start: number, end: number): Element[] {
-  const found: Element[] = []
-  let offset = start
-  while (offset < end) {
-    const id = readVint(data, offset, true)
-    const size = id && readVint(data, offset + id.length)
-    if (!id || !size) break
-    const dataStart = offset + id.length + size.length
-    // An unknown size (all ones) runs to the end of the parent.
-    const elementEnd = size.unknown ? end : dataStart + size.value
-    found.push({
-      id: id.value,
-      start: offset,
-      dataStart,
-      end: Math.min(elementEnd, data.byteLength),
-      declaredEnd: elementEnd,
-    })
-    if (elementEnd > data.byteLength) break
-    offset = elementEnd
-  }
-  return found
-}
-
-function findElement(data: Uint8Array, start: number, end: number, id: number) {
-  return elements(data, start, end).find((element) => element.id === id)
-}
-
-/** An EBML variable-length integer; IDs keep their length marker bit. */
-function readVint(data: Uint8Array, offset: number, keepMarker = false) {
-  const first = data[offset]
-  if (first === undefined || first === 0) return undefined
-  const length = Math.clz32(first) - 23
-  if (offset + length > data.byteLength) return undefined
-  let value = keepMarker ? first : first & (0xff >> length)
-  let unknown = value === 0xff >> length
-  for (let index = 1; index < length; index += 1) {
-    value = value * 256 + data[offset + index]
-    unknown &&= data[offset + index] === 0xff
-  }
-  return { value, length, unknown: !keepMarker && unknown }
-}
-
-function readUint(data: Uint8Array, element: Element): number {
-  let value = 0
-  for (let index = element.dataStart; index < element.end; index += 1)
-    value = value * 256 + data[index]
-  return value
-}
-
-function readString(data: Uint8Array, element: Element): string {
-  return new TextDecoder().decode(data.subarray(element.dataStart, element.end)).replace(/\0+$/, "")
-}
-
-async function readRange(url: string, start: number, end: number): Promise<Uint8Array> {
-  const controller = new AbortController()
-  const response = await fetch(url, {
-    headers: { Range: `bytes=${start}-${end - 1}` },
-    signal: controller.signal,
-  })
-  if (response.status !== 206) {
-    // A server that ignores Range would send the whole file.
-    controller.abort()
-    throw new Error(`Range request returned HTTP ${response.status}`)
-  }
-  return new Uint8Array(await response.arrayBuffer())
 }
 
 /** Seconds of cues kept loaded ahead of the playhead while a track shows. */

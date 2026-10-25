@@ -1,7 +1,10 @@
 import type { VideoSamplePixelFormat } from "mediabunny"
 
-/** Which WebAssembly module a decoder needs. Audio is DTS, TrueHD, and MLP; video is HEVC. */
-export type FFmpegModuleKind = "audio" | "video"
+/**
+ * Which WebAssembly module a decoder needs: audio (DTS, TrueHD, MLP), video
+ * (HEVC), or legacy video (MPEG-1/2, MPEG-4 Part 2, DivX 3, VC-1, WMV3).
+ */
+export type FFmpegModuleKind = "audio" | "video" | "legacy"
 
 export interface PacketInput {
   data: Uint8Array
@@ -55,7 +58,14 @@ export interface DecodedOutput {
 }
 
 export type DecoderRequest =
-  | { type: "open"; kind: FFmpegModuleKind; codec: string; extradata?: Uint8Array }
+  | {
+      type: "open"
+      kind: FFmpegModuleKind
+      codec: string
+      extradata?: Uint8Array
+      width?: number
+      height?: number
+    }
   | { type: "decode"; packets: PacketInput[] }
   | { type: "drain" }
   | { type: "reset" }
@@ -94,11 +104,15 @@ export class FFmpegDecoder {
       this.#failAll(new Error(event.message || "Decoder worker failed"))
   }
 
-  /** Opens `codec` (an FFmpeg decoder name), reusing a released decoder with the same setup. */
+  /**
+   * Opens `codec` (an FFmpeg decoder name), reusing a released decoder with the
+   * same setup. `size` is the container's coded size, for streams that omit it.
+   */
   static async open(
     kind: FFmpegModuleKind,
     codec: string,
     extradata?: Uint8Array,
+    size?: { width: number; height: number },
   ): Promise<FFmpegDecoder> {
     const key = `${kind}:${codec}:${extradata?.join(",") ?? ""}`
     const released = idle.get(key)
@@ -109,7 +123,7 @@ export class FFmpegDecoder {
     const decoder = new FFmpegDecoder()
     decoder.#key = key
     try {
-      await decoder.#request({ type: "open", kind, codec, extradata: extradata?.slice() })
+      await decoder.#request({ type: "open", kind, codec, extradata: extradata?.slice(), ...size })
       return decoder
     } catch (error) {
       decoder.close()

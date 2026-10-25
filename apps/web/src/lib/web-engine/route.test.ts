@@ -4,6 +4,7 @@ import {
   choosePlaybackRoute,
   engineAudioTrack,
   softwareAudioCodec,
+  softwareVideoCodec,
   type ProbedAudio,
   type SourceProbe,
 } from "./route"
@@ -86,5 +87,31 @@ describe("softwareAudioCodec", () => {
   it("leaves codecs the browser or Mediabunny decode alone", () => {
     expect(softwareAudioCodec("ac3", "A_AC3")).toBeUndefined()
     expect(softwareAudioCodec(null, "A_REAL/COOK")).toBeUndefined()
+  })
+})
+
+describe("softwareVideoCodec", () => {
+  it("maps Matroska codec IDs and keeps their setup data", () => {
+    const vol = Uint8Array.of(0, 0, 1, 0xb0)
+    expect(softwareVideoCodec("V_MPEG2")).toEqual({ codec: "mpeg2video", extradata: undefined })
+    expect(softwareVideoCodec("V_MPEG4/ISO/ASP", vol)).toEqual({ codec: "mpeg4", extradata: vol })
+  })
+
+  it("reads the FourCC of a VFW header and passes on what follows it", () => {
+    const header = new Uint8Array(44)
+    header.set(
+      [..."WVC1"].map((letter) => letter.charCodeAt(0)),
+      16,
+    )
+    header.set([1, 2, 3, 4], 40)
+    expect(softwareVideoCodec("V_MS/VFW/FOURCC", header)).toEqual({
+      codec: "vc1",
+      extradata: Uint8Array.of(1, 2, 3, 4),
+    })
+  })
+
+  it("maps MPEG-TS stream types and ignores codecs it does not know", () => {
+    expect(softwareVideoCodec(0x02)).toEqual({ codec: "mpeg2video" })
+    expect(softwareVideoCodec("V_THEORA")).toBeUndefined()
   })
 })

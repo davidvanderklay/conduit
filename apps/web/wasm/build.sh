@@ -62,7 +62,8 @@ build() {
   chmod 644 "$output/$name.wasm"
 }
 
-# The audio decoders are portable C sized for download; HEVC is tuned for speed.
+# The audio decoders are portable C sized for download; the video decoders are tuned for speed.
 build ffmpeg-audio "--arch=x86_32 --disable-asm" -Oz 268435456 dca truehd mlp
 build ffmpeg-video "--arch=wasm" -O3 4294967296 hevc
+build ffmpeg-legacy "--arch=x86_32 --disable-asm" -O3 4294967296 mpeg1video mpeg2video mpeg4 msmpeg4v3 vc1 wmv3
 ls -l "$output"

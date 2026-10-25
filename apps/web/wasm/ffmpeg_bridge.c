@@ -3,7 +3,8 @@
  *
  * JavaScript opens a decoder for one codec, writes each packet into memory the
  * bridge allocates, and reads decoded frames back through the getters. The same
- * file builds the audio module (DTS, TrueHD, MLP) and the video module (HEVC).
+ * file builds the audio module (DTS, TrueHD, MLP), the video module (HEVC), and
+ * the legacy video module (MPEG-1/2, MPEG-4 Part 2, DivX 3, VC-1, WMV3).
  * Adapted from the decoder bridges of WebGPU Player (MIT):
  * https://github.com/alchemyyy/WebGPU-Player
  */
@@ -45,9 +46,13 @@ static void free_decoder(Decoder *decoder) {
     free(decoder);
 }
 
-/* Opens a decoder by FFmpeg name ("hevc", "dca", "truehd", "mlp"). Extradata may be empty. */
+/*
+ * Opens a decoder by FFmpeg name ("hevc", "dca", "vc1", ...). Extradata may be
+ * empty. The container's coded size helps codecs whose streams omit it, such as
+ * DivX 3 and WMV3; pass 0 when unknown.
+ */
 EMSCRIPTEN_KEEPALIVE
-Decoder *decoder_open(const char *name, const uint8_t *extradata, int extradata_size) {
+Decoder *decoder_open(const char *name, const uint8_t *extradata, int extradata_size, int width, int height) {
     if (extradata_size < 0 || extradata_size > MAXIMUM_EXTRADATA_SIZE) return NULL;
     const AVCodec *codec = avcodec_find_decoder_by_name(name);
     if (!codec) return NULL;
@@ -64,6 +69,8 @@ Decoder *decoder_open(const char *name, const uint8_t *extradata, int extradata_
     }
 
     decoder->context->pkt_timebase = (AVRational) { 1, 1000000 };
+    decoder->context->width = width;
+    decoder->context->height = height;
     decoder->context->thread_count = 1;
     // Crops to the conformance window exactly, even where the cropped planes start unaligned.
     decoder->context->flags |= AV_CODEC_FLAG_UNALIGNED;
