@@ -19,6 +19,7 @@ import { createRequire } from "node:module"
 import { pathToFileURL } from "node:url"
 import { DesktopUpdates } from "./updates"
 import { createPlaybackInhibitor } from "./playback-inhibition"
+import { TorrentSession, torrentSource } from "./torrent"
 import { installWindowsTitleBar } from "./windows-titlebar"
 
 protocol.registerSchemesAsPrivileged([
@@ -272,6 +273,8 @@ let mainWindow: BrowserWindow | undefined
 let playerOverlayWindow: BrowserWindow | undefined
 let playerOverlayMedia: PlayerOverlayMedia | undefined
 let nativePlayer: NativePlayerClient | undefined
+let torrentSession: TorrentSession | undefined
+let torrentStopped: Promise<void> = Promise.resolve()
 let desktopUpdates: DesktopUpdates | undefined
 let authServer: Server | undefined
 let devWebServer: ChildProcess | undefined
@@ -602,6 +605,40 @@ function nativePlayerPath(): string {
   return app.isPackaged
     ? path.join(process.resourcesPath, "native", "conduit-electron-native.node")
     : path.resolve(__dirname, "../../electron-native/dist/conduit-electron-native.node")
+}
+
+function torrentHelperPath(): string {
+  if (process.env.CONDUIT_P2P_HELPER) return process.env.CONDUIT_P2P_HELPER
+  const binary = process.platform === "win32" ? "conduit-p2p.exe" : "conduit-p2p"
+  if (app.isPackaged) return path.join(process.resourcesPath, "native", binary)
+  const build = process.env.NODE_ENV === "production" ? "release" : "debug"
+  return path.resolve(__dirname, `../../../../target/${build}/${binary}`)
+}
+
+/** Beside Chromium's disk cache. The helper deletes its pieces when a session ends. */
+function torrentCacheDirectory(): string {
+  return path.join(app.getPath("sessionData"), "p2p")
+}
+
+/** Waits for every stopped helper to exit, since sessions share one cache lock. */
+function stopTorrent(): Promise<void> {
+  const session = torrentSession
+  torrentSession = undefined
+  if (session) torrentStopped = Promise.all([torrentStopped, session.stop()]).then(() => undefined)
+  return torrentStopped
+}
+
+/** Magnet URLs are streamed by the P2P helper; everything else goes to mpv as-is. */
+async function playableUrl(url: unknown, superseded: () => boolean): Promise<unknown> {
+  await stopTorrent()
+  if (superseded()) throw new Error("Playback was replaced.")
+  if (typeof url !== "string" || !url.startsWith("magnet:")) return url
+  const session = new TorrentSession(torrentHelperPath(), {
+    source: torrentSource(url),
+    cacheDirectory: torrentCacheDirectory(),
+  })
+  torrentSession = session
+  return session.ready
 }
 
 function nativeWindowId(window: BrowserWindow): string {
@@ -1017,6 +1054,7 @@ async function invoke(command: string, args: Record<string, unknown> = {}): Prom
     // player_stop and then observe the helper's expected stopped state.
     nativePlayer = undefined
     closePlayerOverlay()
+    void stopTorrent()
     return client.request("player_stop", args)
   }
   if (command === "player_refresh_surface" || command === "player_redraw_surface") {
@@ -1037,6 +1075,8 @@ async function invoke(command: string, args: Record<string, unknown> = {}): Prom
     const nativePlayerArgs = { ...playerArgs }
     delete nativePlayerArgs.artwork
     try {
+      nativePlayerArgs.url = await playableUrl(playerArgs.url, () => nativePlayer !== client)
+      if (nativePlayer !== client) throw new Error("Playback was replaced.")
       const result = await client.request("player_open", nativePlayerArgs)
       if (nativePlayer !== client) return result
       // Linux's separate X11 surface needs a transparent controls window.
@@ -1060,10 +1100,13 @@ async function invoke(command: string, args: Record<string, unknown> = {}): Prom
       }
       return result
     } catch (error) {
-      playbackInhibitor.setPlaying(false)
-      if (nativePlayer === client) nativePlayer = undefined
       client.close()
+      // A newer open owns the player, overlay, and torrent session.
+      if (nativePlayer !== client) throw error
+      playbackInhibitor.setPlaying(false)
+      nativePlayer = undefined
       closePlayerOverlay()
+      void stopTorrent()
       throw error
     }
   }
@@ -1177,6 +1220,7 @@ async function closeResources() {
   closePlayerOverlay()
   nativePlayer?.close()
   nativePlayer = undefined
+  void stopTorrent()
   playbackInhibitor.setPlaying(false)
   devWebServer?.kill()
   devWebServer = undefined

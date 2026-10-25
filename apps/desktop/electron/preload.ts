@@ -17,6 +17,8 @@ ipcRenderer.on("conduit:fullscreen-changed", (_event, fullscreen: boolean) => {
 })
 
 contextBridge.exposeInMainWorld("__CONDUIT_ELECTRON__", {
+  // `player_open` streams magnet URLs through the bundled P2P helper.
+  p2p: true,
   updates(
     command: "status" | "check" | "configure" | "download" | "cancel" | "install",
     args?: unknown,

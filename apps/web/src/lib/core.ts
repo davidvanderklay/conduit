@@ -98,6 +98,7 @@ export interface Stream {
   externalUrl?: string
   infoHash?: string
   fileIdx?: number
+  sources?: string[]
   name?: string
   title?: string
   description?: string

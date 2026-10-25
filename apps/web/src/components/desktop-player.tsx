@@ -48,7 +48,10 @@ import {
   steppedVolume,
   type PlayerShortcut,
 } from "../lib/player-shortcuts"
-import { AUTO_SELECTION_STARTUP_TIMEOUT_MS } from "../lib/stream-selection"
+import {
+  AUTO_SELECTION_STARTUP_TIMEOUT_MS,
+  TORRENT_STARTUP_TIMEOUT_MS,
+} from "../lib/stream-selection"
 import { Card } from "./ui/card"
 import {
   NextEpisodePrompt,
@@ -292,11 +295,16 @@ export function DesktopPlayer({
     setPlaybackStarted(false)
   }, [url])
 
+  const torrent = url.startsWith("magnet:")
+
   useEffect(() => {
     if (!autoRecoveryAttempt) return
-    const timeout = window.setTimeout(reportAutoRecoveryFailure, AUTO_SELECTION_STARTUP_TIMEOUT_MS)
+    const timeout = window.setTimeout(
+      reportAutoRecoveryFailure,
+      torrent ? TORRENT_STARTUP_TIMEOUT_MS : AUTO_SELECTION_STARTUP_TIMEOUT_MS,
+    )
     return () => window.clearTimeout(timeout)
-  }, [autoRecoveryAttempt, reportAutoRecoveryFailure, url])
+  }, [autoRecoveryAttempt, reportAutoRecoveryFailure, torrent, url])
   latestSnapshot.current = snapshot
 
   const showControls = useCallback(() => {
@@ -398,7 +406,6 @@ export function DesktopPlayer({
     mediaDurationObserved.current = false
     lastNativeSnapshot.current = undefined
     lastPlayback.current = { position: 0, duration: 0 }
-    document.documentElement.classList.add("native-playback")
     void openNativePlayer(
       url,
       mediaTitle,
@@ -429,6 +436,9 @@ export function DesktopPlayer({
     )
       .then(async (initial) => {
         if (cancelled) return
+        // Only hand the window to the native surface once it exists. Opening can
+        // take a while (torrents), and Linux hides this copy during native playback.
+        document.documentElement.classList.add("native-playback")
         playerStarted = true
         subtitlePlaybackReady.current = true
         if (initial.duration > 0) mediaDurationObserved.current = true
@@ -1272,13 +1282,17 @@ export function DesktopPlayer({
         onFullscreen={toggleFullscreen}
       />
       {error ? (
-        <div className="absolute inset-0 z-10 grid place-items-center p-5">
+        <div className="absolute inset-0 z-0 grid place-items-center bg-black p-5">
           <Card className="w-full max-w-lg border-red-950 bg-zinc-950/95 p-6" data-native-overlay>
-            <p className="font-medium text-red-400">Could not start mpv</p>
-            <p className="mt-2 text-sm text-zinc-400">{error}</p>
-            <p className="mt-3 text-xs text-zinc-600">
-              Check the desktop logs for the libmpv initialization error.
+            <p className="font-medium text-red-400">
+              {torrent ? "Could not stream torrent" : "Could not start mpv"}
             </p>
+            <p className="mt-2 text-sm text-zinc-400">{error}</p>
+            {!torrent && (
+              <p className="mt-3 text-xs text-zinc-600">
+                Check the desktop logs for the libmpv initialization error.
+              </p>
+            )}
           </Card>
         </div>
       ) : loadingOverlayVisible ? (

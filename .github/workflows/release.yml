@@ -155,6 +155,7 @@ jobs:
       - name: Verify AppImage
         run: |
           test -x apps/desktop/dist/linux-unpacked/resources/native/conduit-electron-native
+          test -x apps/desktop/dist/linux-unpacked/resources/native/conduit-p2p
           ls -lh apps/desktop/dist/*.AppImage
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -307,6 +308,7 @@ jobs:
           flatpak remote-ls --user conduit-ci \
             | grep -F "media.conduit.desktop"
           test -x flatpak-build/files/bin/conduit-electron-native
+          test -x flatpak-build/files/bin/conduit-p2p
           test -f flatpak-build/files/lib/conduit/resources/app/electron/dist/main.js
           test -f flatpak-build/files/lib/conduit/resources/web/index.html
           test -s target/release/bundle/conduit.flatpak

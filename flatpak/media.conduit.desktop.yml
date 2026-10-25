@@ -198,6 +198,8 @@ modules:
       - pnpm --filter @conduit/desktop electron:main:build
       - cargo build --offline --release -p conduit-electron-native --features linux-helper
       - install -Dm755 target/release/conduit-electron-native /app/bin/conduit-electron-native
+      - cargo build --offline --release -p conduit-p2p --bin conduit-p2p
+      - install -Dm755 target/release/conduit-p2p /app/bin/conduit-p2p
       - mkdir -p /app/lib/conduit/resources/app/electron /app/lib/conduit/resources/web
       - unzip -q flatpak-node/cache/electron/electron-v*-linux-*.zip -d /app/lib/conduit
       - mv /app/lib/conduit/electron /app/lib/conduit/conduit
@@ -244,6 +246,7 @@ modules:
               export CONDUIT_ELECTRON_IN_PROCESS_GPU=1
             fi
           - export CONDUIT_ELECTRON_NATIVE_PLAYER=/app/bin/conduit-electron-native
+          - export CONDUIT_P2P_HELPER=/app/bin/conduit-p2p
           - export LD_LIBRARY_PATH="/app/lib64:/app/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
           # Flatpak is the outer application sandbox; Electron's setuid sandbox
           # cannot initialize inside it without a Zypak-enabled base app.

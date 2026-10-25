@@ -67,6 +67,7 @@ import {
   rankAutomaticStreams,
   selectSavedStream,
   selectSingleAutoStream,
+  streamPlaybackUrl,
 } from "../lib/stream-selection"
 import { nativeFullscreen, onNativeFullscreenChange } from "../lib/desktop"
 import { openInExternalPlayer } from "../lib/external-player"
@@ -504,7 +505,8 @@ export function MediaDetails({
     }
   }, [onClose, playing])
 
-  const activePartyMedia = playing?.url ? watchPartyMedia : undefined
+  const playingUrl = playing && streamPlaybackUrl(playing)
+  const activePartyMedia = playingUrl ? watchPartyMedia : undefined
 
   useEffect(() => {
     if (watchPartySession?.role !== "host") return
@@ -547,7 +549,7 @@ export function MediaDetails({
     )
       return
     partyStreamHandoffKey.current = key
-    const firstPlayableStream = streams.data.find((stream) => Boolean(stream.url))
+    const firstPlayableStream = streams.data.find((stream) => streamPlaybackUrl(stream))
     setStreamResolutionError(
       firstPlayableStream ? undefined : "No playable source found. Choose a source below.",
     )
@@ -995,10 +997,10 @@ export function MediaDetails({
         </main>
       </div>
 
-      {playing?.url && (
+      {playing && playingUrl && (
         <Player
           accountId={accountId}
-          url={playing.url}
+          url={playingUrl}
           type={item.type}
           videoId={activeVideoId!}
           profileId={profileId}
@@ -1078,7 +1080,7 @@ export function MediaDetails({
         />
       )}
       <WatchPartyDialog
-        presentation={playing?.url ? "sidebar" : "modal"}
+        presentation={playingUrl ? "sidebar" : "modal"}
         open={watchPartyOpen}
         onOpenChange={setWatchPartyOpen}
         profile={{ id: profileId, name: "", isKids: false }}
@@ -1411,7 +1413,7 @@ function StreamRail({
                   </p>
                   <p className="mt-1.5 text-[10px] font-medium text-zinc-600">{stream.addonName}</p>
                 </div>
-                {stream.url ? (
+                {streamPlaybackUrl(stream) ? (
                   <div className="flex shrink-0 gap-1.5">
                     {directUrl && (
                       <Button
