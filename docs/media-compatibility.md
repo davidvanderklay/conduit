@@ -49,8 +49,10 @@ ships the fallback to users. See `THIRD_PARTY_NOTICES.md` for provenance.
 ## Hosted web app
 
 The web player uses the browser's `<video>` element and hls.js when the browser
-can play a source. Before playing a direct file, it reads the container and
-track headers with HTTP range requests. When the browser cannot play the
+can play a source. Its own engine is experimental and off by default; turn on
+**Settings > Advanced settings > Advanced web player** to use it. With the engine on,
+before playing a direct file the player reads the container and track headers
+with HTTP range requests. When the browser cannot play the
 container or the primary codecs, or the video is HDR and WebGPU is available,
 it plays the source with its own engine instead:
 

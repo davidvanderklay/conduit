@@ -739,7 +739,7 @@ function WebPlayer({
       })
     }
 
-    if (isHls(url) || !webEngineSupported()) {
+    if (isHls(url) || !preferences.webEngine || !webEngineSupported()) {
       playNative()
     } else {
       void probeSource(url).then(async (opened) => {
@@ -812,6 +812,7 @@ function WebPlayer({
     preferences.autoplay,
     preferences.readAheadSeconds,
     preferences.volume,
+    preferences.webEngine,
     markAutoRecoveryStarted,
     reportAutoRecoveryFailure,
     url,
