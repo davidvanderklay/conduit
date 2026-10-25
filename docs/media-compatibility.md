@@ -57,13 +57,18 @@ it plays the source with its own engine instead:
 - Mediabunny demuxes MP4, Matroska/WebM, MPEG-TS, and other containers.
 - WebCodecs decodes H.264, HEVC, VP9, and AV1 where the browser supports them.
 - WebAssembly builds of FFmpeg decode what browsers cannot: AC-3 and E-AC-3,
-  DTS (including DTS-HD Master Audio), TrueHD, and MLP audio, and HEVC Main and
-  Main 10 video on browsers without an HEVC decoder. They run in a worker. The
-  HEVC decoder keeps up with 1080p on a desktop CPU but not 4K, and a seek
-  decodes from the previous keyframe, so it can take a few seconds.
+  DTS (including DTS-HD Master Audio), TrueHD, and MLP audio; MPEG-1 and
+  MPEG-2, MPEG-4 Part 2 (XviD, DivX), DivX 3, and VC-1/WMV3 video; and HEVC
+  Main and Main 10 video on browsers without an HEVC decoder. They run in a
+  worker. The HEVC decoder keeps up with 1080p on a desktop CPU but not 4K, and
+  a seek decodes from the previous keyframe, so it can take a few seconds.
+  Interlaced video is not deinterlaced.
 - WebGPU draws frames. PQ and HLG video is tone mapped to SDR with the BT.2390
-  curve and converted from BT.2020 to BT.709. Without WebGPU, frames are drawn
-  with Canvas 2D and the browser handles color.
+  curve and converted from BT.2020 to BT.709. The curve targets the source's
+  peak brightness, read from HDR10+ scene metadata, Dolby Vision profile 8 RPUs,
+  MaxCLL or mastering display SEI, or the Matroska Colour element, in that
+  order. Without WebGPU, frames are drawn with Canvas 2D and the browser
+  handles color.
 - Dolby Vision profile 5, whose base layer is in Dolby's IPT color space, gets
   the RPU's reshaping curves and matrices in WebGPU, following libplacebo, and
   is tone mapped with the scene's peak brightness. Profile 8 plays from its
@@ -79,10 +84,16 @@ it plays the source with its own engine instead:
   back to software decoding, which does not keep up.
 - Surround audio plays as is on outputs with enough channels, and otherwise is
   downmixed to stereo.
+- Embedded Matroska subtitles (SRT, ASS/SSA as plain text, WebVTT, and PGS
+  images) are read from the file with range requests on both routes, so the
+  browser does not need to understand the container.
+- If a decoder or the GPU fails mid-playback, the engine rebuilds it and
+  resumes from the current position, up to twice a minute.
 
 If an audio track still cannot be decoded, the engine plays another decodable
-track in the same language, or plays the video alone. VC-1 and MPEG-2 video
-are not supported yet.
+track in the same language, or plays the video alone. The engine ignores
+Dolby Vision profile 7's enhancement layer and profile 10 (AV1) RPUs, and plays
+at normal speed only.
 If either route fails before playback starts, the player tries the other one
 once.
 
