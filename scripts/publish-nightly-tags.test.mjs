@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url"
 
 const script = fileURLToPath(new URL("./publish-nightly-tags.mjs", import.meta.url))
 const nightlyVersions = fileURLToPath(new URL("../releases/nightly-versions.json", import.meta.url))
+const versions = JSON.parse(fs.readFileSync(nightlyVersions, "utf8"))
 
 for (const { name, changed, unpublished, expected } of [
   { name: "unchanged mobile releases", expected: [] },
@@ -91,7 +92,10 @@ console.log(Buffer.from(JSON.stringify({commit: process.env.TEST_PREVIOUS})).toS
       })
       const tags = git("--git-dir=remote.git", "tag", "--list").split("\n").filter(Boolean)
       assert.deepEqual(tags.map((tag) => tag.split("/")[0]).sort(), [...expected].sort())
-      for (const tag of tags) assert.match(tag, /\/v0\.1\.5-nightly\.\d{8}\.123$/)
+      for (const tag of tags) {
+        const [component, version] = tag.split("/v")
+        assert.match(version, new RegExp(`^${versions[component].replaceAll(".", "\\.")}-nightly\\.\\d{8}\\.123$`))
+      }
     } finally {
       fs.rmSync(directory, { recursive: true, force: true })
     }
