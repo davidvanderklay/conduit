@@ -48,10 +48,67 @@ ships the fallback to users. See `THIRD_PARTY_NOTICES.md` for provenance.
 
 ## Hosted web app
 
-The web player uses the browser media APIs and hls.js. Codec, container, audio,
-and CORS support therefore depend on the browser and device. When the browser
-rejects a source, Conduit gives a compatibility error and suggests choosing
-another stream or using the desktop app.
+The web player uses the browser's `<video>` element and hls.js when the browser
+can play a source. Its own engine is experimental and off by default; turn on
+**Settings > Advanced settings > Advanced web player** to use it. With the engine on,
+before playing a direct file the player reads the container and track headers
+with HTTP range requests. When the browser cannot play the
+container or the primary codecs, or the video is HDR and WebGPU is available,
+it plays the source with its own engine instead:
+
+- Mediabunny demuxes MP4, Matroska/WebM, MPEG-TS, and other containers.
+- WebCodecs decodes H.264, HEVC, VP9, and AV1 where the browser supports them.
+- WebAssembly builds of FFmpeg decode what browsers cannot: AC-3 and E-AC-3,
+  DTS (including DTS-HD Master Audio), TrueHD, and MLP audio; MPEG-1 and
+  MPEG-2, MPEG-4 Part 2 (XviD, DivX), DivX 3, and VC-1/WMV3 video; and HEVC
+  Main and Main 10 video on browsers without an HEVC decoder. They run in a
+  worker. The HEVC decoder keeps up with 1080p on a desktop CPU but not 4K, and
+  a seek decodes from the previous keyframe, so it can take a few seconds.
+  Interlaced video is not deinterlaced.
+- WebGPU draws frames. PQ and HLG video is tone mapped to SDR with the BT.2390
+  curve and converted from BT.2020 to BT.709. The curve targets the source's
+  peak brightness, read from HDR10+ scene metadata (HEVC SEI or AV1 metadata
+  OBUs), Dolby Vision profile 8 RPUs,
+  MaxCLL or mastering display SEI, or the Matroska Colour element, in that
+  order. Without WebGPU, frames are drawn with Canvas 2D and the browser
+  handles color.
+- Dolby Vision profile 5, whose base layer is in Dolby's IPT color space, gets
+  the RPU's reshaping curves and matrices in WebGPU, following libplacebo, and
+  is tone mapped with the scene's peak brightness. Profile 7, as Blu-ray remuxes
+  carry it, also gets its enhancement layer: FFmpeg decodes it in a worker and
+  WebGPU adds its residual before the RPU's matrices. Profile 8 plays from its
+  HDR10 or HLG base layer. AV1 profile 10 gets the same reshaping from the
+  RPUs in its metadata OBUs; HDR AV1 decodes in software so the engine reads
+  exact samples.
+- HDR and Dolby Vision HEVC up to 1080p decode in software, so the engine reads
+  exact samples. Larger frames use the browser's hardware decoder: the engine
+  rewrites the stream's color description so the browser hands WebGPU values it
+  can undo, and parses Dolby Vision RPUs separately. Browsers expose hardware
+  frames at 8 bits per channel, so this path can band slightly, tint grays a
+  little, and shift very saturated Dolby Vision colors.
+- Chrome on Linux only decodes video in hardware through VA-API. On NVIDIA GPUs
+  that needs `nvidia-vaapi-driver` and Chrome flags; without them, 4K HEVC falls
+  back to software decoding, which does not keep up.
+- Surround audio plays as is on outputs with enough channels. 7.1 is folded
+  to 5.1 on six-channel outputs, and anything else is downmixed to stereo.
+- Embedded Matroska subtitles (SRT, ASS/SSA as plain text, WebVTT, and PGS
+  images) are read from the file with range requests on both routes, so the
+  browser does not need to understand the container.
+- If a decoder or the GPU fails mid-playback, the engine rebuilds it and
+  resumes from the current position, up to twice a minute.
+
+If an audio track still cannot be decoded, the engine plays another decodable
+track in the same language, or plays the video alone. VP9 HDR10+
+metadata in Matroska BlockAdditions is not read. Playback speed changes keep the
+audio's pitch by time-stretching it (WSOLA).
+If either route fails before playback starts, the player tries the other one
+once.
+
+The engine needs a secure context (HTTPS or localhost) and a source host that
+allows cross-origin reads. Other sources play through `<video>` as before.
+Codec support therefore still depends on the browser and device. When neither
+route can play a source, Conduit gives a compatibility error and suggests
+choosing another stream or using the desktop app.
 
 A web page cannot safely or silently install a loopback media service. Conduit
 also does not send unsupported sources through the hosted API, because doing so

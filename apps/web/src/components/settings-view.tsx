@@ -139,7 +139,7 @@ const settingsEntries: SettingsEntry[] = [
     group: "Advanced",
     title: "Advanced settings",
     description: "Performance and diagnostics",
-    keywords: "cache hardware read ahead debug server",
+    keywords: "cache hardware read ahead debug server experimental webgpu hdr dolby vision",
     icon: SlidersHorizontal,
   },
 ]
@@ -921,6 +921,16 @@ function AdvancedSettings({
           onChange={(value) => update("readAheadSeconds", value)}
         />
       </SettingsGroup>
+      {!isDesktop() && (
+        <SettingsGroup title="EXPERIMENTAL">
+          <SettingToggle
+            label="Advanced web player"
+            description="Plays HDR, Dolby Vision, TrueHD, DTS, and other formats browsers can't play on their own. May be unstable."
+            checked={preferences.webEngine}
+            onChange={(value) => update("webEngine", value)}
+          />
+        </SettingsGroup>
+      )}
       <SettingsGroup title="CACHE">
         <InfoAction
           icon={Database}
@@ -1594,6 +1604,7 @@ function importedPreferences(
     "askStillWatching",
     "forcedSubtitlesOnly",
     "hardwareAcceleration",
+    "webEngine",
     "reducedMotion",
     "amoledBlack",
     "subtitleOutline",

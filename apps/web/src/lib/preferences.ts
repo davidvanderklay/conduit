@@ -20,6 +20,8 @@ export interface DevicePreferences {
   askStillWatching: boolean
   volume: number
   hardwareAcceleration: boolean
+  /** Experimental: play through the WebCodecs and WebGPU engine on the web instead of only `<video>`. */
+  webEngine: boolean
   resumeBehavior: ResumeBehavior
   theme: ThemePreference
   reducedMotion: boolean
@@ -46,6 +48,7 @@ export const defaultPreferences: DevicePreferences = {
   askStillWatching: false,
   volume: 100,
   hardwareAcceleration: true,
+  webEngine: false,
   resumeBehavior: "ask",
   theme: "dark",
   reducedMotion: false,

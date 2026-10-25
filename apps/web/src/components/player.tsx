@@ -1,16 +1,17 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react"
 import {
   Captions,
   Expand,
+  Languages,
   LoaderCircle,
   Pause,
   PictureInPicture,
   Play,
-  Settings2,
   SkipForward,
   UsersRound,
   Volume2,
   VolumeX,
+  X,
 } from "lucide-react"
 import type Hls from "hls.js"
 import type { InstalledAddon, PlaybackSource, PlayerArtwork, ProgressMetadata } from "../lib/api"
@@ -32,6 +33,20 @@ import {
   type PlayerShortcut,
 } from "../lib/player-shortcuts"
 import { PlayerFlash, usePlayerFlash } from "./player-flash"
+import type { WebMediaEngine, WebSource } from "../lib/web-engine/engine"
+import { MatroskaSubtitles, attachMatroskaSubtitles } from "../lib/web-engine/matroska-subtitles"
+import {
+  PLAYBACK_MEDIA_EVENTS,
+  type PlaybackMedia,
+  type PlaybackMediaEvent,
+} from "../lib/web-engine/media"
+import {
+  choosePlaybackRoute,
+  engineCanPlay,
+  webEngineSupported,
+  webGpuAvailable,
+  type PlaybackRoute,
+} from "../lib/web-engine/route"
 import { DesktopPlayer } from "./desktop-player"
 import {
   NextEpisodePrompt,
@@ -55,6 +70,8 @@ import {
   titleLanguagePreferences,
 } from "../lib/title-playback"
 import { SubtitlePicker } from "./subtitle-picker"
+import { AudioTrackRow } from "./audio-track-row"
+import { audioTrackDisplay, type AudioTrackDisplay } from "../lib/audio-track-display"
 import { partyPositionAt, type WatchPartySession, type WatchPartyMedia } from "../lib/watch-party"
 
 interface PlayerSubtitle extends Subtitle {
@@ -66,10 +83,18 @@ interface PlayerSubtitle extends Subtitle {
 
 interface AudioChoice {
   id: number
-  label: string
+  display: AudioTrackDisplay
+  /** The track's language and authored title, which per-title audio preferences match on. */
   language?: string
-  kind: "hls" | "native"
+  label?: string
+  kind: "hls" | "native" | "engine"
+  disabled?: boolean
 }
+
+type TrackMenu = "audio" | "subtitles"
+
+/** How long the engine may spend reading a source's headers before `<video>` takes over. */
+const PROBE_TIMEOUT_MS = 10_000
 
 export function Player({
   url,
@@ -234,6 +259,16 @@ function WebPlayer({
   const heading = playerHeading(progressMetadata)
   const shellRef = useRef<HTMLDivElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const imageSubtitlesRef = useRef<HTMLCanvasElement>(null)
+  // The element or engine currently playing. Playback controls go through it, while
+  // text tracks and hls.js stay on the `<video>` element.
+  const mediaRef = useRef<PlaybackMedia | null>(null)
+  const engineRef = useRef<WebMediaEngine | null>(null)
+  const [media, setMedia] = useState<PlaybackMedia>()
+  const [route, setRoute] = useState<PlaybackRoute>("native")
+  // Starts the other route once if the first one fails before playback begins.
+  const fallbackRef = useRef<(() => void) | undefined>(undefined)
   const hlsRef = useRef<Hls | null>(null)
   const subtitleObjectUrl = useRef<string | null>(null)
   const [playing, setPlaying] = useState(false)
@@ -244,7 +279,7 @@ function WebPlayer({
   const [bufferedEnd, setBufferedEnd] = useState(0)
   const [volume, setVolume] = useState(preferences.volume / 100)
   const [muted, setMuted] = useState(false)
-  const [showSettings, setShowSettings] = useState(false)
+  const [trackMenu, setTrackMenu] = useState<TrackMenu>()
   const [subtitles, setSubtitles] = useState<PlayerSubtitle[]>([])
   const [selectedSubtitle, setSelectedSubtitle] = useState("off")
   const [subtitleError, setSubtitleError] = useState<string>()
@@ -319,7 +354,7 @@ function WebPlayer({
 
   const currentSubtitlePosition = useCallback(
     (position: number) => {
-      const video = videoRef.current
+      const video = mediaRef.current
       const shell = shellRef.current
       if (!video || !shell) return position
       const bounds = shell.getBoundingClientRect()
@@ -364,7 +399,7 @@ function WebPlayer({
   }, [repositionVisibleSubtitles])
 
   const close = () => {
-    const video = videoRef.current
+    const video = mediaRef.current
     if (video && resumed.current) {
       void saveProgress(video.currentTime, video.duration, true).catch(() => undefined)
     }
@@ -373,7 +408,7 @@ function WebPlayer({
 
   useEffect(() => {
     if (!partySession) return
-    const video = videoRef.current
+    const video = media
     const applyRemoteState = (state: Parameters<typeof partyPositionAt>[0]) => {
       if (!video || partySession.role !== "guest") return
       if (video.readyState < 1) return
@@ -409,12 +444,12 @@ function WebPlayer({
       video?.removeEventListener("loadedmetadata", applyLatest)
       video?.removeEventListener("canplay", applyLatest)
     }
-  }, [onRemoteMedia, partySession])
+  }, [media, onRemoteMedia, partySession])
 
   useEffect(() => {
     if (!partySession || partySession.role !== "host") return
     const publish = () => {
-      const video = videoRef.current
+      const video = mediaRef.current
       if (!video || !Number.isFinite(video.duration)) return
       partySession.publishState({
         position: video.currentTime,
@@ -428,7 +463,7 @@ function WebPlayer({
   }, [partySession])
 
   useEffect(() => {
-    const video = videoRef.current
+    const video = mediaRef.current
     if (resumed.current || !video || !duration || !progress.isSuccess) return
     resumed.current = true
     if (partySession?.role === "guest" || !progress.data || progress.data.watched) return
@@ -477,8 +512,12 @@ function WebPlayer({
     if (tracks.length) {
       const choices = tracks.map((track, index) => ({
         id: index,
-        label: track.label || languageName(track.language) || `Audio ${index + 1}`,
+        display: audioTrackDisplay(
+          { title: track.label, lang: track.language || undefined },
+          `Audio ${index + 1}`,
+        ),
         language: track.language,
+        label: track.label,
         kind: "native" as const,
       }))
       setAudioChoices(choices)
@@ -554,15 +593,99 @@ function WebPlayer({
     }
   }, [addons, type, videoId])
 
+  const subtitleLine = useEffectEvent(() => currentSubtitlePosition(subtitlePosition))
+
+  const handleMediaEvent = useEffectEvent((type: PlaybackMediaEvent, target: PlaybackMedia) => {
+    switch (type) {
+      case "play":
+        setPlaying(true)
+        setPlaybackStarted(true)
+        markAutoRecoveryStarted()
+        if (partySession?.role === "host" && !applyingPartyUpdate.current)
+          partySession.publishCommand("play")
+        break
+      case "pause":
+        setPlaying(false)
+        if (partySession?.role === "host" && !applyingPartyUpdate.current)
+          partySession.publishCommand("pause")
+        if (resumed.current) void saveProgress(target.currentTime, target.duration, true)
+        break
+      case "playing":
+        fallbackRef.current = undefined
+        setWaiting(false)
+        setPlaybackStarted(true)
+        markAutoRecoveryStarted()
+        break
+      case "error": {
+        const fallback = fallbackRef.current
+        fallbackRef.current = undefined
+        if (fallback) {
+          fallback()
+          break
+        }
+        setWaiting(false)
+        reportAutoRecoveryFailure()
+        setPlaybackError(browserPlaybackError(target.error?.code))
+        break
+      }
+      case "waiting":
+        setWaiting(true)
+        break
+      case "timeupdate":
+        setCurrentTime(target.currentTime)
+        setBufferedEnd(playbackBufferState(target.buffered, target.currentTime).end)
+        syncSubtitleDelay()
+        if (resumed.current) void saveProgress(target.currentTime, target.duration)
+        break
+      case "progress":
+        setBufferedEnd(playbackBufferState(target.buffered, target.currentTime).end)
+        break
+      case "ended":
+        setPlaying(false)
+        if (!nextTransitionRequested.current) {
+          nextTransitionRequested.current = true
+          const allowAutoplay =
+            partySession?.role !== "guest" &&
+            !nextTransitionSuppressed.current &&
+            !shouldAskStillWatching(preferences.askStillWatching)
+          if (allowAutoplay) noteAutoplayedEpisode()
+          void Promise.resolve(onEnded?.(allowAutoplay)).catch(() => undefined)
+        }
+        void saveProgress(target.duration, target.duration, true).catch(() => undefined)
+        break
+      case "durationchange":
+        setDuration(target.duration || 0)
+        break
+      case "loadedmetadata":
+        if (target === videoRef.current) refreshNativeTracks()
+        repositionVisibleSubtitles()
+        break
+      case "volumechange":
+        setVolume(target.volume)
+        setMuted(target.muted)
+        break
+      case "canplay":
+        break
+    }
+  })
+
   useEffect(() => {
     const video = videoRef.current
-    if (!video) return
+    const canvas = canvasRef.current
+    if (!video || !canvas) return
     video.volume = preferences.volume / 100
     video.autoplay = preferences.autoplay
     let cancelled = false
     let hls: Hls | undefined
+    let source: WebSource | undefined
+    let engine: WebMediaEngine | undefined
+    let detach = () => {}
+    let detachSubtitles = () => {}
+    // Embedded Matroska subtitles found after probing, which engine playback waits on briefly.
+    let embeddedSubtitles: Promise<unknown> = Promise.resolve()
     setWaiting(true)
     setPlaybackError(undefined)
+    setAudioChoices([])
     manualSubtitleSelection.current = false
     preferredAudioApplied.current = false
     nextTransitionSuppressed.current = false
@@ -574,7 +697,25 @@ function WebPlayer({
     setSelectedSubtitle("off")
     setSubtitles((current) => current.filter((subtitle) => !subtitle.embedded))
 
-    if (isHls(url)) {
+    const attach = (target: PlaybackMedia) => {
+      detach()
+      const listeners = PLAYBACK_MEDIA_EVENTS.map((type) => {
+        const listener = () => handleMediaEvent(type, target)
+        target.addEventListener(type, listener)
+        return () => target.removeEventListener(type, listener)
+      })
+      detach = () => listeners.forEach((remove) => remove())
+      mediaRef.current = target
+      setMedia(target)
+    }
+
+    const playNative = () => {
+      setRoute("native")
+      attach(video)
+      if (!isHls(url)) {
+        video.src = url
+        return
+      }
       void import("hls.js").then(({ default: HlsPlayer }) => {
         if (cancelled) return
         if (HlsPlayer.isSupported()) {
@@ -588,8 +729,12 @@ function WebPlayer({
           hls.on(HlsPlayer.Events.AUDIO_TRACKS_UPDATED, (_, data) => {
             const choices = data.audioTracks.map((track, index) => ({
               id: index,
-              label: track.name || languageName(track.lang) || `Audio ${index + 1}`,
+              display: audioTrackDisplay(
+                { title: track.name, lang: track.lang, codec: track.audioCodec },
+                `Audio ${index + 1}`,
+              ),
               language: track.lang,
+              label: track.name,
               kind: "hls" as const,
             }))
             setAudioChoices(choices)
@@ -610,14 +755,127 @@ function WebPlayer({
           video.src = url
         }
       })
+    }
+
+    const playEngine = async (opened: WebSource) => {
+      const { WebMediaEngine } = await import("../lib/web-engine/engine")
+      if (cancelled) return
+      engine = new WebMediaEngine(opened, canvas, { volume: preferences.volume / 100 })
+      engineRef.current = engine
+      setRoute("engine")
+      attach(engine)
+      await engine.load({ autoplay: preferences.autoplay })
+      if (cancelled || engine.error) return
+      const choices = engine.audioTracks.map((track, index) => {
+        const display = audioTrackDisplay(
+          {
+            title: track.name ?? undefined,
+            lang: track.language === "und" ? undefined : track.language,
+            // Mediabunny leaves TrueHD and MLP without a codec; the FFmpeg decoder names them.
+            codec: track.codec ?? track.softwareCodec,
+            channelCount: track.channels,
+            sampleRate: track.sampleRate,
+          },
+          `Audio ${index + 1}`,
+        )
+        return {
+          id: index,
+          display: track.decodable
+            ? display
+            : { ...display, secondary: `${display.secondary} · Not supported in this browser` },
+          language: track.language,
+          label: track.name ?? undefined,
+          kind: "engine" as const,
+          disabled: !track.decodable,
+        }
+      })
+      setAudioChoices(choices)
+      const preferred = preferredAudioChoice(choices.filter((choice) => !choice.disabled))
+      if (preferred) engine.selectAudioTrack(engine.audioTracks[preferred.id])
+      const selected = engine.selectedAudioTrack
+      setSelectedAudio(selected && engine.audioTracks.indexOf(selected))
+      // Embedded tracks come only from the Matroska reader, so selection waits for it briefly.
+      await Promise.race([
+        embeddedSubtitles,
+        new Promise((resolve) => window.setTimeout(resolve, 3000)),
+      ])
+      if (cancelled) return
+      embeddedDiscoveryReady.current = true
+      setSubtitleMetadataReady(true)
+    }
+
+    const startEngine = (opened: WebSource) => {
+      void playEngine(opened).catch(() => {
+        if (!cancelled) playNative()
+      })
+    }
+
+    if (isHls(url) || !preferences.webEngine || !webEngineSupported()) {
+      playNative()
     } else {
-      video.src = url
+      void probeSource(url).then(async (opened) => {
+        if (cancelled) {
+          opened?.input.dispose()
+          return
+        }
+        if (!opened) {
+          playNative()
+          return
+        }
+        source = opened
+        if (/matroska|webm/.test(opened.probe.containerMimeType)) {
+          embeddedSubtitles = MatroskaSubtitles.open(url)
+            .then((subtitles) => {
+              if (cancelled || !subtitles) return
+              const imageCanvas = imageSubtitlesRef.current
+              if (!imageCanvas) return
+              detachSubtitles = attachMatroskaSubtitles(subtitles, video, {
+                currentTime: () => mediaRef.current?.currentTime ?? 0,
+                linePosition: subtitleLine,
+                imageCanvas,
+                surface: () => (canvas.hidden ? video : canvas),
+              })
+            })
+            .catch(() => undefined)
+        }
+        const webgpu = await webGpuAvailable()
+        if (cancelled) return
+        const route = choosePlaybackRoute(opened.probe, {
+          canPlayType: (mimeType) => video.canPlayType(mimeType) !== "",
+          webgpu,
+        })
+        if (route === "engine") {
+          fallbackRef.current = () => {
+            engine?.destroy()
+            engine = undefined
+            engineRef.current = null
+            playNative()
+          }
+          startEngine(opened)
+          return
+        }
+        if (engineCanPlay(opened.probe)) {
+          fallbackRef.current = () => {
+            video.removeAttribute("src")
+            video.load()
+            startEngine(opened)
+          }
+        }
+        playNative()
+      })
     }
 
     return () => {
       cancelled = true
+      detach()
+      fallbackRef.current = undefined
       hls?.destroy()
       hlsRef.current = null
+      if (engine) engine.destroy()
+      else source?.input.dispose()
+      detachSubtitles()
+      engineRef.current = null
+      mediaRef.current = null
       video.removeAttribute("src")
       video.load()
     }
@@ -625,6 +883,7 @@ function WebPlayer({
     preferences.autoplay,
     preferences.readAheadSeconds,
     preferences.volume,
+    preferences.webEngine,
     markAutoRecoveryStarted,
     preferredAudioChoice,
     reportAutoRecoveryFailure,
@@ -737,16 +996,24 @@ function WebPlayer({
     subtitles,
   ])
 
+  const selectedAudioChoice = audioChoices.find((choice) => choice.id === selectedAudio)
+
+  const toggleTrackMenu = (menu: TrackMenu) =>
+    setTrackMenu((open) => (open === menu ? undefined : menu))
+
   const chooseAudio = (choice: AudioChoice) => {
     const video = videoRef.current
-    if (!video) return
+    if (!video || choice.disabled) return
     preferredAudioApplied.current = true
     rememberTitlePlayback(
       profileId,
       progressMetadata.mediaId,
       audioChoice(choice.language, choice.label),
     )
-    if (choice.kind === "hls" && hlsRef.current) {
+    const engineTrack = engineRef.current?.audioTracks[choice.id]
+    if (choice.kind === "engine" && engineTrack) {
+      engineRef.current?.selectAudioTrack(engineTrack)
+    } else if (choice.kind === "hls" && hlsRef.current) {
       hlsRef.current.audioTrack = choice.id
     } else {
       getNativeAudioTracks(video).forEach((track, index) => {
@@ -759,20 +1026,20 @@ function WebPlayer({
   // Party guests follow the host, but may resume when the host is playing.
   const play = () => {
     if (partySession?.role === "guest" && !partySession.state?.playing) return
-    void videoRef.current?.play().catch(() => undefined)
+    void mediaRef.current?.play().catch(() => undefined)
   }
 
   const pause = () => {
-    if (partySession?.role !== "guest") videoRef.current?.pause()
+    if (partySession?.role !== "guest") mediaRef.current?.pause()
   }
 
   const togglePlayback = () => {
-    if (videoRef.current?.paused) play()
+    if (mediaRef.current?.paused) play()
     else pause()
   }
 
   const seekBy = (seconds: number) => {
-    const video = videoRef.current
+    const video = mediaRef.current
     if (!video || partySession?.role === "guest") return
     const position = Math.max(0, Math.min(video.duration || Infinity, video.currentTime + seconds))
     video.currentTime = position
@@ -810,7 +1077,9 @@ function WebPlayer({
       profileId,
       progressMetadata.mediaId,
       subtitleChoice(
-        subtitle ? { language: subtitle.lang ?? subtitle.language, label: subtitle.display } : "off",
+        subtitle
+          ? { language: subtitle.lang ?? subtitle.language, label: subtitle.display }
+          : "off",
       ),
     )
     void chooseSubtitle(key)
@@ -823,7 +1092,7 @@ function WebPlayer({
   }
 
   const runShortcut = (shortcut: PlayerShortcut) => {
-    const video = videoRef.current
+    const video = mediaRef.current
     if (!video) return
     switch (shortcut.type) {
       case "toggle-playback":
@@ -858,7 +1127,7 @@ function WebPlayer({
         // Nothing to restore yet, so let the viewer pick.
         const subtitle = subtitles.find((candidate) => candidate.key === lastSubtitle.current)
         if (!subtitle) {
-          setShowSettings(true)
+          setTrackMenu("subtitles")
           return
         }
         chooseSubtitleManually(subtitle.key)
@@ -866,8 +1135,7 @@ function WebPlayer({
         return
       }
       case "menu":
-        // Audio and subtitles share one settings panel here.
-        setShowSettings((open) => !open)
+        toggleTrackMenu(shortcut.menu)
         return
       case "speed": {
         if (partySession?.role === "guest") return
@@ -885,9 +1153,9 @@ function WebPlayer({
 
   useEffect(() => {
     const handleKeyboard = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && showSettings) {
+      if (event.key === "Escape" && trackMenu) {
         event.preventDefault()
-        setShowSettings(false)
+        setTrackMenu(undefined)
         return
       }
       const shortcut = playerShortcut(event)
@@ -897,7 +1165,7 @@ function WebPlayer({
     }
     window.addEventListener("keydown", handleKeyboard)
     return () => window.removeEventListener("keydown", handleKeyboard)
-  }, [showSettings])
+  }, [trackMenu])
 
   usePlayerMediaSession({
     title: heading.primary,
@@ -960,81 +1228,30 @@ function WebPlayer({
             ref={videoRef}
             className="h-full w-full"
             style={{ objectFit: videoObjectFit(videoScale) }}
+            hidden={route === "engine"}
             autoPlay
             playsInline
             onClick={togglePlayback}
-            onPlay={() => {
-              setPlaying(true)
-              setPlaybackStarted(true)
-              markAutoRecoveryStarted()
-              if (partySession?.role === "host" && !applyingPartyUpdate.current)
-                partySession.publishCommand("play")
-            }}
-            onPause={(event) => {
-              setPlaying(false)
-              if (partySession?.role === "host" && !applyingPartyUpdate.current)
-                partySession.publishCommand("pause")
-              if (resumed.current) {
-                void saveProgress(
-                  event.currentTarget.currentTime,
-                  event.currentTarget.duration,
-                  true,
-                )
-              }
-            }}
-            onPlaying={() => {
-              setWaiting(false)
-              setPlaybackStarted(true)
-              markAutoRecoveryStarted()
-            }}
-            onError={(event) => {
-              setWaiting(false)
-              reportAutoRecoveryFailure()
-              setPlaybackError(browserPlaybackError(event.currentTarget.error?.code))
-            }}
-            onWaiting={() => setWaiting(true)}
-            onTimeUpdate={(event) => {
-              const video = event.currentTarget
-              const nextBuffer = playbackBufferState(video.buffered, video.currentTime)
-              setCurrentTime(video.currentTime)
-              setBufferedEnd(nextBuffer.end)
-              syncSubtitleDelay()
-              if (resumed.current) {
-                void saveProgress(video.currentTime, video.duration)
-              }
-            }}
-            onProgress={(event) => {
-              const video = event.currentTarget
-              const nextBuffer = playbackBufferState(video.buffered, video.currentTime)
-              setBufferedEnd(nextBuffer.end)
-            }}
-            onEnded={(event) => {
-              setPlaying(false)
-              if (!nextTransitionRequested.current) {
-                nextTransitionRequested.current = true
-                const allowAutoplay =
-                  partySession?.role !== "guest" &&
-                  !nextTransitionSuppressed.current &&
-                  !shouldAskStillWatching(preferences.askStillWatching)
-                if (allowAutoplay) noteAutoplayedEpisode()
-                void Promise.resolve(onEnded?.(allowAutoplay)).catch(() => undefined)
-              }
-              void saveProgress(
-                event.currentTarget.duration,
-                event.currentTarget.duration,
-                true,
-              ).catch(() => undefined)
-            }}
-            onDurationChange={(event) => setDuration(event.currentTarget.duration || 0)}
-            onLoadedMetadata={() => {
-              refreshNativeTracks()
-              repositionVisibleSubtitles()
-            }}
-            onVolumeChange={(event) => {
-              setVolume(event.currentTarget.volume)
-              setMuted(event.currentTarget.muted)
-            }}
           />
+          <canvas
+            key={url}
+            ref={canvasRef}
+            className="h-full w-full"
+            style={{ objectFit: videoObjectFit(videoScale) }}
+            hidden={route !== "engine"}
+            onClick={togglePlayback}
+          />
+          <canvas
+            ref={imageSubtitlesRef}
+            className="pointer-events-none absolute inset-0 h-full w-full"
+          />
+          {route === "engine" && media && (
+            <EngineSubtitles
+              media={media}
+              videoRef={videoRef}
+              position={() => currentSubtitlePosition(subtitlePosition)}
+            />
+          )}
           {playbackError ? (
             <div className="absolute inset-0 grid place-items-center p-5">
               <div className="w-full max-w-lg rounded-xl border border-red-950 bg-zinc-950/95 p-6">
@@ -1119,7 +1336,7 @@ function WebPlayer({
               onChange={(event) => {
                 if (partySession?.role === "guest") return
                 const position = Number(event.target.value)
-                if (videoRef.current) videoRef.current.currentTime = position
+                if (mediaRef.current) mediaRef.current.currentTime = position
                 if (partySession?.role === "host") partySession.publishCommand("seek", position)
               }}
             />
@@ -1135,7 +1352,7 @@ function WebPlayer({
               <Control
                 label={muted ? "Unmute" : "Mute"}
                 onClick={() => {
-                  if (videoRef.current) videoRef.current.muted = !videoRef.current.muted
+                  if (mediaRef.current) mediaRef.current.muted = !mediaRef.current.muted
                 }}
               >
                 {muted || volume === 0 ? <VolumeX size={21} /> : <Volume2 size={21} />}
@@ -1149,9 +1366,9 @@ function WebPlayer({
                 value={muted ? 0 : volume}
                 aria-label="Volume"
                 onChange={(event) => {
-                  if (videoRef.current) {
-                    videoRef.current.volume = Number(event.target.value)
-                    videoRef.current.muted = false
+                  if (mediaRef.current) {
+                    mediaRef.current.volume = Number(event.target.value)
+                    mediaRef.current.muted = false
                   }
                 }}
               />
@@ -1164,15 +1381,28 @@ function WebPlayer({
               <span className="hidden max-w-40 truncate text-xs text-zinc-400 md:block">
                 {selectedSubtitleLabel === "Off" ? "" : selectedSubtitleLabel}
               </span>
-              <Control label="Track settings" onClick={() => setShowSettings((value) => !value)}>
-                <Settings2 size={21} />
+              <Control
+                label={`Audio${selectedAudioChoice ? `: ${selectedAudioChoice.display.primary}` : ""}`}
+                active={trackMenu === "audio"}
+                onClick={() => toggleTrackMenu("audio")}
+              >
+                <Languages size={21} />
               </Control>
               <Control
-                label="Picture in picture"
-                onClick={() => void videoRef.current?.requestPictureInPicture?.()}
+                label={`Subtitles: ${selectedSubtitleLabel}`}
+                active={trackMenu === "subtitles"}
+                onClick={() => toggleTrackMenu("subtitles")}
               >
-                <PictureInPicture size={21} />
+                <Captions size={22} />
               </Control>
+              {route === "native" && (
+                <Control
+                  label="Picture in picture"
+                  onClick={() => void videoRef.current?.requestPictureInPicture?.()}
+                >
+                  <PictureInPicture size={21} />
+                </Control>
+              )}
               <VideoScaleControl
                 value={videoScale}
                 indicatorPlacement="above"
@@ -1181,50 +1411,60 @@ function WebPlayer({
             </div>
           </div>
 
-          {showSettings && (
-            <div className="absolute bottom-20 right-4 max-h-[70%] w-[46rem] max-w-[calc(100%-2rem)] overflow-y-auto overscroll-contain rounded-xl border border-zinc-700 bg-zinc-950/95 p-4 shadow-2xl">
-              <div className="mb-3 flex items-center gap-2">
-                <Captions size={16} />
-                <h3 className="font-display text-sm font-semibold">Subtitles</h3>
+          {trackMenu && (
+            <div
+              className="absolute bottom-20 right-4 max-h-[70%] w-[46rem] max-w-[calc(100%-2rem)] overflow-y-auto overscroll-contain rounded-xl border border-white/10 bg-zinc-950 p-2 shadow-2xl"
+              role="menu"
+            >
+              <div className="flex items-center justify-between px-2 pb-2 pt-1">
+                <h3 className="font-display text-sm font-semibold">
+                  {trackMenu === "audio" ? "Audio" : "Subtitles"}
+                </h3>
+                <button
+                  className="rounded-md p-1 text-zinc-500 hover:bg-zinc-800 hover:text-white"
+                  onClick={() => setTrackMenu(undefined)}
+                  aria-label={`Close ${trackMenu} menu`}
+                >
+                  <X size={15} />
+                </button>
               </div>
-              <SubtitlePicker
-                items={subtitleItems}
-                preferredLanguage={preferences.subtitleLanguage}
-                off={selectedSubtitle === "off"}
-                loading={subtitleLoading}
-                error={subtitleError}
-                position={subtitlePosition}
-                onPositionChange={changeSubtitlePosition}
-                delayMs={subtitleDelayMs}
-                onDelayChange={(value) => {
-                  setSubtitleDelayMs(value)
-                  rememberTitlePlayback(profileId, progressMetadata.mediaId, {
-                    subtitleDelayMs: value,
-                  })
-                }}
-                onOff={() => chooseSubtitleManually("off")}
-                onSelect={chooseSubtitleManually}
-              />
-              <TrackSection icon={<Volume2 size={16} />} title="Audio">
-                {audioChoices.length ? (
-                  audioChoices.map((choice) => (
-                    <TrackOption
-                      key={`${choice.kind}-${choice.id}`}
-                      active={selectedAudio === choice.id}
-                      label={choice.label}
-                      onClick={() => chooseAudio(choice)}
-                    />
-                  ))
-                ) : (
-                  <div className="rounded-lg bg-zinc-900 px-3 py-2">
-                    <p className="text-sm text-zinc-300">Automatic</p>
-                    <p className="mt-1 text-xs leading-5 text-zinc-500">
-                      The browser is choosing the default audio track and does not expose track
-                      switching for this source. This does not mean the video has no audio.
-                    </p>
-                  </div>
-                )}
-              </TrackSection>
+              {trackMenu === "subtitles" ? (
+                <SubtitlePicker
+                  items={subtitleItems}
+                  preferredLanguage={preferences.subtitleLanguage}
+                  off={selectedSubtitle === "off"}
+                  loading={subtitleLoading}
+                  error={subtitleError}
+                  position={subtitlePosition}
+                  onPositionChange={changeSubtitlePosition}
+                  delayMs={subtitleDelayMs}
+                  onDelayChange={(value) => {
+                    setSubtitleDelayMs(value)
+                    rememberTitlePlayback(profileId, progressMetadata.mediaId, {
+                      subtitleDelayMs: value,
+                    })
+                  }}
+                  onOff={() => chooseSubtitleManually("off")}
+                  onSelect={chooseSubtitleManually}
+                />
+              ) : audioChoices.length ? (
+                audioChoices.map((choice) => (
+                  <AudioTrackRow
+                    key={`${choice.kind}-${choice.id}`}
+                    display={choice.display}
+                    selected={selectedAudio === choice.id}
+                    disabled={choice.disabled}
+                    onSelect={() => chooseAudio(choice)}
+                  />
+                ))
+              ) : (
+                // The engine reads the container's track list, so an empty one means no audio.
+                <p className="px-3 py-2 text-sm text-zinc-500">
+                  {route === "engine"
+                    ? "No audio track."
+                    : "The browser picks the audio track for this source and does not offer switching."}
+                </p>
+              )}
             </div>
           )}
         </div>
@@ -1235,16 +1475,18 @@ function WebPlayer({
 
 function Control({
   label,
+  active,
   onClick,
   children,
 }: {
   label: string
+  active?: boolean
   onClick: () => void
   children: React.ReactNode
 }) {
   return (
     <button
-      className="rounded-lg p-1.5 text-zinc-200 hover:bg-white/15 hover:text-white"
+      className={`rounded-lg p-1.5 hover:bg-white/15 hover:text-white ${active ? "text-amber-300" : "text-zinc-200"}`}
       onClick={onClick}
       aria-label={label}
       title={label}
@@ -1274,47 +1516,6 @@ function PlayerHeadingText({ heading }: { heading: PlayerHeading }) {
       <p className="truncate font-display font-semibold">{heading.primary}</p>
       {heading.secondary && <p className="truncate text-xs text-zinc-400">{heading.secondary}</p>}
     </div>
-  )
-}
-
-function TrackSection({
-  icon,
-  title,
-  children,
-}: {
-  icon: React.ReactNode
-  title: string
-  children: React.ReactNode
-}) {
-  return (
-    <section className="mb-4 last:mb-0">
-      <h3 className="mb-1 flex items-center gap-2 px-2 text-sm font-medium">
-        {icon}
-        {title}
-      </h3>
-      {children}
-    </section>
-  )
-}
-
-function TrackOption({
-  active,
-  label,
-  onClick,
-}: {
-  active: boolean
-  label: string
-  onClick: () => void
-}) {
-  return (
-    <button
-      className={`block w-full rounded-lg px-2 py-2 text-left text-sm ${
-        active ? "bg-amber-400 text-zinc-950" : "text-zinc-300 hover:bg-zinc-800"
-      }`}
-      onClick={onClick}
-    >
-      {label}
-    </button>
   )
 }
 
@@ -1397,6 +1598,75 @@ function formatTime(seconds: number): string {
   return hours
     ? `${hours}:${minutes.toString().padStart(2, "0")}:${remaining.toString().padStart(2, "0")}`
     : `${minutes}:${remaining.toString().padStart(2, "0")}`
+}
+
+/**
+ * Opens a source for the WebCodecs engine. Resolves undefined when the host
+ * blocks cross-origin reads or does not answer in time, so `<video>` plays it.
+ */
+async function probeSource(url: string): Promise<WebSource | undefined> {
+  const { openWebSource } = await import("../lib/web-engine/engine")
+  const opening = openWebSource(url)
+  const timeout = new Promise<undefined>((resolve) => window.setTimeout(resolve, PROBE_TIMEOUT_MS))
+  const source = await Promise.race([opening.catch(() => undefined), timeout])
+  if (!source)
+    void opening.then(
+      (late) => late.input.dispose(),
+      () => undefined,
+    )
+  return source
+}
+
+/**
+ * Draws the showing text track's cues over the engine's canvas. The browser
+ * only renders cues on a `<video>` that is playing, and the engine bypasses it.
+ */
+function EngineSubtitles({
+  media,
+  videoRef,
+  position,
+}: {
+  media: PlaybackMedia
+  videoRef: React.RefObject<HTMLVideoElement | null>
+  /** The cue line in percent from the top, adjusted for the current video scale. */
+  position: () => number
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+  const linePosition = useEffectEvent(position)
+  useEffect(() => {
+    let shown: TextTrackCue[] = []
+    const timer = window.setInterval(() => {
+      const element = ref.current
+      const video = videoRef.current
+      if (!element || !video) return
+      const line = linePosition()
+      // Anchors the box by the same fraction it sits at, so it never leaves the frame.
+      element.style.top = `${line}%`
+      element.style.transform = `translateY(-${line}%)`
+      const track = Array.from(video.textTracks).find((candidate) => candidate.mode === "showing")
+      const time = media.currentTime
+      const active = Array.from(track?.cues ?? []).filter(
+        (cue) => cue.startTime <= time && cue.endTime > time,
+      )
+      if (active.length === shown.length && active.every((cue, index) => cue === shown[index]))
+        return
+      shown = active
+      element.replaceChildren(
+        ...active.map((cue) => {
+          const row = document.createElement("div")
+          if (cue instanceof VTTCue) row.append(cue.getCueAsHTML())
+          return row
+        }),
+      )
+    }, 100)
+    return () => window.clearInterval(timer)
+  }, [media, videoRef])
+  return (
+    <div
+      ref={ref}
+      className="engine-subtitles pointer-events-none absolute inset-x-0 px-[5%] text-center leading-snug text-white"
+    />
+  )
 }
 
 function isHls(url: string): boolean {

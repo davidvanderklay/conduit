@@ -4,9 +4,16 @@ export default defineConfig({
   fmt: {
     semi: false,
     singleQuote: false,
+    // Emscripten output, rebuilt by apps/web/wasm/build.sh.
+    ignorePatterns: ["apps/web/src/lib/web-engine/wasm/*.mjs"],
   },
   lint: {
-    ignorePatterns: ["**/dist/**", "**/node_modules/**", "packages/core/pkg/**"],
+    ignorePatterns: [
+      "**/dist/**",
+      "**/node_modules/**",
+      "packages/core/pkg/**",
+      "apps/web/src/lib/web-engine/wasm/*.mjs",
+    ],
   },
   run: {
     tasks: {

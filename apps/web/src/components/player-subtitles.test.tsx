@@ -103,12 +103,13 @@ describe("browser subtitle selection", () => {
     })
     return video
   }
-  function click(label: string) {
+  function click(label: string | RegExp) {
+    const matches = (text: string | null | undefined) =>
+      typeof label === "string" ? text === label : label.test(text ?? "")
     const button = [...host.querySelectorAll("button")].find(
-      (button) =>
-        button.textContent?.trim() === label || button.getAttribute("aria-label") === label,
+      (button) => matches(button.textContent?.trim()) || matches(button.getAttribute("aria-label")),
     )
-    expect(button, label).toBeTruthy()
+    expect(button, String(label)).toBeTruthy()
     act(() => button!.click())
   }
   it("selects a primary embedded track", async () => {
@@ -135,7 +136,7 @@ describe("browser subtitle selection", () => {
     const lookup = deferred<core.Subtitle[]>()
     vi.spyOn(core, "loadSubtitles").mockReturnValue(lookup.promise)
     await render([nativeTracks[0]!], [addon])
-    click("Track settings")
+    click(/^Subtitles:/)
     click("Off")
     await act(async () => lookup.resolve([]))
     expect(nativeTracks[0]!.mode).toBe("disabled")
@@ -144,7 +145,7 @@ describe("browser subtitle selection", () => {
     const lookup = deferred<core.Subtitle[]>()
     vi.spyOn(core, "loadSubtitles").mockReturnValue(lookup.promise)
     await render([nativeTracks[0]!], [addon])
-    click("Track settings")
+    click(/^Subtitles:/)
     click("Spanish1")
     await act(async () =>
       lookup.resolve([{ id: "en", lang: "eng", url: "https://example.test/en.vtt" }]),
@@ -160,7 +161,7 @@ describe("browser subtitle selection", () => {
     vi.mocked(fetch).mockReturnValue(download.promise)
     const video = await render([nativeTracks[0]!], [addon])
     expect(fetch).toHaveBeenCalledWith("https://example.test/en.vtt")
-    click("Track settings")
+    click(/^Subtitles:/)
     click("Off")
     await act(async () =>
       download.resolve(new Response("WEBVTT\n\n00:00.000 --> 00:02.000\nHello")),
