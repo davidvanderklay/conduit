@@ -87,8 +87,8 @@ it plays the source with its own engine instead:
 - Chrome on Linux only decodes video in hardware through VA-API. On NVIDIA GPUs
   that needs `nvidia-vaapi-driver` and Chrome flags; without them, 4K HEVC falls
   back to software decoding, which does not keep up.
-- Surround audio plays as is on outputs with enough channels, and otherwise is
-  downmixed to stereo.
+- Surround audio plays as is on outputs with enough channels. 7.1 is folded
+  to 5.1 on six-channel outputs, and anything else is downmixed to stereo.
 - Embedded Matroska subtitles (SRT, ASS/SSA as plain text, WebVTT, and PGS
   images) are read from the file with range requests on both routes, so the
   browser does not need to understand the container.

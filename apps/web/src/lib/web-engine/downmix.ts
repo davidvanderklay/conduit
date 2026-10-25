@@ -68,3 +68,21 @@ function softClip(sample: number): number {
   const headroom = 1 - CLIP_KNEE
   return Math.sign(sample) * (CLIP_KNEE + headroom * Math.tanh((magnitude - CLIP_KNEE) / headroom))
 }
+
+/**
+ * Folds 7.1 (L R C LFE, back L R, side L R) to 5.1 (L R C LFE, surround L R) for
+ * outputs with six channels, mixing each side's back and side surrounds at -3 dB.
+ */
+export function downmix71To51(channels: readonly Float32Array[]): Float32Array<ArrayBuffer>[] {
+  const [left, right, center, lfe, backLeft, backRight, sideLeft, sideRight] = channels
+  const surround = (back: Float32Array, side: Float32Array) =>
+    Float32Array.from(back, (sample, frame) => softClip((sample + side[frame]) * MIX))
+  return [
+    Float32Array.from(left),
+    Float32Array.from(right),
+    Float32Array.from(center),
+    Float32Array.from(lfe),
+    surround(backLeft, sideLeft),
+    surround(backRight, sideRight),
+  ]
+}

@@ -12,7 +12,7 @@ import { enableAv1Metadata, hasAv1DolbyVisionRpu } from "./av1-metadata"
 import { findDolbyVisionRpu } from "./dolby-vision"
 import { hasEnhancementLayer } from "./dolby-vision-enhancement"
 import { MatroskaFile } from "./matroska"
-import { downmixToStereo } from "./downmix"
+import { downmix71To51, downmixToStereo } from "./downmix"
 import type { PlaybackMedia, PlaybackMediaEvent } from "./media"
 import { createPresenter, type FramePresenter } from "./presenter"
 import { enableRelabeledHevc, hdrTransfer } from "./relabeled-hevc"
@@ -456,9 +456,12 @@ export class WebMediaEngine extends EventTarget implements PlaybackMedia {
       this.#applyVolume()
     }
     const destination = this.#context.destination
-    // Surround output plays as is; anything the device cannot take is folded to stereo.
+    // Surround output plays as is, 7.1 folds to 5.1 on six channel devices, and anything
+    // else the device cannot take is folded to stereo.
+    const { channels } = track
+    const outputs = destination.maxChannelCount
     destination.channelCount =
-      track.channels > 2 && destination.maxChannelCount >= track.channels ? track.channels : 2
+      channels > 2 && outputs >= channels ? channels : channels === 8 && outputs >= 6 ? 6 : 2
   }
 
   #applyVolume() {
@@ -694,22 +697,24 @@ export class WebMediaEngine extends EventTarget implements PlaybackMedia {
     this.#sources.clear()
   }
 
-  /** Folds surround buffers to stereo when the output device cannot play every channel. */
+  /** Folds surround buffers to 5.1 or stereo when the output device cannot play every channel. */
   #prepareAudio(buffer: AudioBuffer): AudioBuffer {
     const outputChannels = this.#context?.destination.channelCount ?? 2
     if (buffer.numberOfChannels <= Math.max(2, outputChannels)) return buffer
     const channels = Array.from({ length: buffer.numberOfChannels }, (_, index) =>
       buffer.getChannelData(index),
     )
-    const stereo = downmixToStereo(channels)
-    if (!stereo) return buffer
+    const folded =
+      outputChannels === 6 && channels.length === 8
+        ? downmix71To51(channels)
+        : downmixToStereo(channels)
+    if (!folded) return buffer
     const output = new AudioBuffer({
-      numberOfChannels: 2,
+      numberOfChannels: folded.length,
       length: buffer.length,
       sampleRate: buffer.sampleRate,
     })
-    output.copyToChannel(stereo[0], 0)
-    output.copyToChannel(stereo[1], 1)
+    folded.forEach((samples, channel) => output.copyToChannel(samples, channel))
     return output
   }
 }

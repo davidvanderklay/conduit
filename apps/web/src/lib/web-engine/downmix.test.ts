@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { downmixToStereo } from "./downmix"
+import { downmix71To51, downmixToStereo } from "./downmix"
 
 /** One frame per channel, with only the named channel index sounding at full scale. */
 function solo(channels: number, index: number, level = 0.5): Float32Array[] {
@@ -38,5 +38,16 @@ describe("downmixToStereo", () => {
 
   it("leaves layouts it does not know to Web Audio", () => {
     expect(downmixToStereo(solo(10, 0))).toBeUndefined()
+  })
+})
+
+describe("downmix71To51", () => {
+  it("folds each side's back and side surrounds into its 5.1 surround", () => {
+    const channels = downmix71To51(solo(8, 4))
+    expect(channels).toHaveLength(6)
+    expect(channels[4][0]).toBeCloseTo(0.5 * Math.SQRT1_2)
+    expect(channels[5][0]).toBe(0)
+    expect(downmix71To51(solo(8, 7))[5][0]).toBeCloseTo(0.5 * Math.SQRT1_2)
+    expect(downmix71To51(solo(8, 2))[2][0]).toBe(0.5)
   })
 })
