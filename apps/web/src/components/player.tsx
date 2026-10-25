@@ -1,9 +1,7 @@
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react"
 import {
   Captions,
-  Expand,
   Languages,
-  LoaderCircle,
   Pause,
   PictureInPicture,
   Play,
@@ -48,6 +46,11 @@ import {
   type PlaybackRoute,
 } from "../lib/web-engine/route"
 import { DesktopPlayer } from "./desktop-player"
+import { DesktopPlayerChromeTop } from "./desktop-player-chrome"
+import {
+  DesktopPlayerBufferingOverlay,
+  DesktopPlayerOpeningOverlay,
+} from "./desktop-player-overlays"
 import {
   NextEpisodePrompt,
   PlayerEpisodeDrawer,
@@ -1052,6 +1055,13 @@ function WebPlayer({
     void onNextEpisode()
   }
 
+  const [fullscreen, setFullscreen] = useState(false)
+  useEffect(() => {
+    const syncFullscreen = () => setFullscreen(document.fullscreenElement !== null)
+    document.addEventListener("fullscreenchange", syncFullscreen)
+    return () => document.removeEventListener("fullscreenchange", syncFullscreen)
+  }, [])
+
   const toggleFullscreen = () => {
     if (!document.fullscreenElement) void shellRef.current?.requestFullscreen()
     else void document.exitFullscreen()
@@ -1181,294 +1191,278 @@ function WebPlayer({
   })
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black p-0 sm:p-4">
-      <div className="w-full max-w-7xl">
-        <div className="mb-3 flex min-h-11 items-center gap-3 px-4 sm:px-0">
-          <button
-            className="grid size-10 shrink-0 place-items-center rounded-lg text-zinc-300 hover:bg-zinc-800 hover:text-white"
-            onClick={close}
-            aria-label="Back to details"
-          >
-            <Play className="rotate-180 fill-current" size={22} />
-          </button>
-          <PlayerHeadingText heading={heading} />
-          <div className="ml-auto flex items-center gap-1">
-            {queue && (
-              <button
-                className="grid size-10 place-items-center rounded-full text-zinc-200 transition-colors hover:bg-white/15"
-                type="button"
-                aria-label="Queue"
-                title="Queue"
-                data-player-drawer-toggle
-                onClick={() => setEpisodeDrawerOpen((open) => (open ? false : "queue"))}
-              >
-                <QueueIcon count={queue.controls.items.length} />
-              </button>
-            )}
-            {onWatchParty && (
-              <PartyPlayerButton onClick={onWatchParty} active={partySession != null} />
-            )}
-            <button
-              className="grid size-10 place-items-center rounded-full bg-black/60 text-zinc-200 hover:bg-white/15"
-              type="button"
-              aria-label="Fullscreen"
-              title="Fullscreen"
-              onClick={toggleFullscreen}
-            >
-              <Expand size={21} />
-            </button>
+    <div
+      ref={shellRef}
+      className="group fixed inset-0 z-50 overflow-hidden bg-black"
+      onDoubleClick={toggleFullscreen}
+    >
+      <video
+        ref={videoRef}
+        className="h-full w-full"
+        style={{ objectFit: videoObjectFit(videoScale) }}
+        hidden={route === "engine"}
+        autoPlay
+        playsInline
+        onClick={togglePlayback}
+      />
+      <canvas
+        key={url}
+        ref={canvasRef}
+        className="h-full w-full"
+        style={{ objectFit: videoObjectFit(videoScale) }}
+        hidden={route !== "engine"}
+        onClick={togglePlayback}
+      />
+      <canvas
+        ref={imageSubtitlesRef}
+        className="pointer-events-none absolute inset-0 h-full w-full"
+      />
+      {route === "engine" && media && (
+        <EngineSubtitles
+          media={media}
+          videoRef={videoRef}
+          position={() => currentSubtitlePosition(subtitlePosition)}
+        />
+      )}
+      {playbackError ? (
+        <div className="absolute inset-0 grid place-items-center p-5">
+          <div className="w-full max-w-lg rounded-xl border border-red-950 bg-zinc-950/95 p-6">
+            <p className="font-medium text-red-400">Could not play this stream</p>
+            <p className="mt-2 text-sm leading-6 text-zinc-400">{playbackError}</p>
           </div>
         </div>
-        <div
-          ref={shellRef}
-          className="group relative aspect-video max-h-[85vh] w-full overflow-hidden bg-black"
-          onDoubleClick={toggleFullscreen}
-        >
-          <video
-            ref={videoRef}
-            className="h-full w-full"
-            style={{ objectFit: videoObjectFit(videoScale) }}
-            hidden={route === "engine"}
-            autoPlay
-            playsInline
-            onClick={togglePlayback}
-          />
-          <canvas
-            key={url}
-            ref={canvasRef}
-            className="h-full w-full"
-            style={{ objectFit: videoObjectFit(videoScale) }}
-            hidden={route !== "engine"}
-            onClick={togglePlayback}
-          />
-          <canvas
-            ref={imageSubtitlesRef}
-            className="pointer-events-none absolute inset-0 h-full w-full"
-          />
-          {route === "engine" && media && (
-            <EngineSubtitles
-              media={media}
-              videoRef={videoRef}
-              position={() => currentSubtitlePosition(subtitlePosition)}
-            />
-          )}
-          {playbackError ? (
-            <div className="absolute inset-0 grid place-items-center p-5">
-              <div className="w-full max-w-lg rounded-xl border border-red-950 bg-zinc-950/95 p-6">
-                <p className="font-medium text-red-400">Could not play this stream</p>
-                <p className="mt-2 text-sm leading-6 text-zinc-400">{playbackError}</p>
-              </div>
-            </div>
-          ) : (
-            waiting && (
-              <div
-                className="pointer-events-none absolute inset-0 grid place-items-center bg-black/65"
-                role="status"
-                aria-label="Video loading"
-              >
-                <div className="flex items-center gap-3 rounded-xl border border-white/15 bg-black/80 px-4 py-3 shadow-xl shadow-black/40">
-                  <LoaderCircle className="animate-spin text-amber-300" size={28} />
-                  <PlayerHeadingText heading={heading} />
-                </div>
-              </div>
-            )
-          )}
-          {!episodeDrawerOpen && partySession?.role !== "guest" && (
-            <NextEpisodePrompt
-              upNext={upNext}
-              position={currentTime}
-              duration={duration}
-              paused={!playing}
-              autoplay={preferences.autoplay}
-              askStillWatching={shouldAskStillWatching(preferences.askStillWatching)}
-              onDismiss={() => {
-                nextTransitionSuppressed.current = true
-              }}
-              onWatchNow={() => {
-                if (nextTransitionRequested.current) return
-                nextTransitionRequested.current = true
-                void saveProgress(duration, duration, true)
-                void onNextEpisode?.()
-              }}
-            />
-          )}
-          <PlayerEpisodeDrawer
-            open={episodeDrawerOpen}
-            context={seriesContext}
-            queue={
-              queue && {
-                ...queue,
-                onPlay: (item) => {
-                  if (nextTransitionRequested.current) return
-                  nextTransitionRequested.current = true
-                  queue.onPlay(item)
-                },
-              }
-            }
-            onOpenChange={setEpisodeDrawerOpen}
-            onSelect={(video) => {
+      ) : (
+        waiting &&
+        (playbackStarted ? (
+          <DesktopPlayerBufferingOverlay />
+        ) : (
+          <DesktopPlayerOpeningOverlay artwork={artwork} title={heading.primary} />
+        ))
+      )}
+      {!episodeDrawerOpen && partySession?.role !== "guest" && (
+        <NextEpisodePrompt
+          upNext={upNext}
+          position={currentTime}
+          duration={duration}
+          paused={!playing}
+          autoplay={preferences.autoplay}
+          askStillWatching={shouldAskStillWatching(preferences.askStillWatching)}
+          onDismiss={() => {
+            nextTransitionSuppressed.current = true
+          }}
+          onWatchNow={() => {
+            if (nextTransitionRequested.current) return
+            nextTransitionRequested.current = true
+            void saveProgress(duration, duration, true)
+            void onNextEpisode?.()
+          }}
+        />
+      )}
+      <PlayerEpisodeDrawer
+        open={episodeDrawerOpen}
+        context={seriesContext}
+        queue={
+          queue && {
+            ...queue,
+            onPlay: (item) => {
               if (nextTransitionRequested.current) return
               nextTransitionRequested.current = true
-              void onSelectEpisode?.(video)
+              queue.onPlay(item)
+            },
+          }
+        }
+        onOpenChange={setEpisodeDrawerOpen}
+        onSelect={(video) => {
+          if (nextTransitionRequested.current) return
+          nextTransitionRequested.current = true
+          void onSelectEpisode?.(video)
+        }}
+      />
+      <QueueNotice className="absolute left-6 top-16" />
+      <PlayerFlash message={flashMessage} />
+      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/95 via-black/60 to-transparent px-4 pb-4 pt-16 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
+        <input
+          className="web-player-seek mb-3 block w-full cursor-pointer"
+          style={
+            {
+              "--player-progress": `${
+                duration > 0 ? Math.min(100, (currentTime / duration) * 100) : 0
+              }%`,
+              "--player-buffered": `${
+                duration > 0 ? Math.min(100, (bufferedEnd / duration) * 100) : 0
+              }%`,
+            } as React.CSSProperties
+          }
+          type="range"
+          min={0}
+          max={duration || 0}
+          step={0.1}
+          value={Math.min(currentTime, duration || 0)}
+          aria-label="Seek"
+          onChange={(event) => {
+            if (partySession?.role === "guest") return
+            const position = Number(event.target.value)
+            if (mediaRef.current) mediaRef.current.currentTime = position
+            if (partySession?.role === "host") partySession.publishCommand("seek", position)
+          }}
+        />
+        <div className="flex items-center gap-3">
+          <Control label={playing ? "Pause" : "Play"} onClick={togglePlayback}>
+            {playing ? <Pause size={21} /> : <Play size={21} />}
+          </Control>
+          {onNextEpisode && (
+            <Control label={nextControlLabel(upNext)} onClick={playNext}>
+              <SkipForward size={21} />
+            </Control>
+          )}
+          <Control
+            label={muted ? "Unmute" : "Mute"}
+            onClick={() => {
+              if (mediaRef.current) mediaRef.current.muted = !mediaRef.current.muted
+            }}
+          >
+            {muted || volume === 0 ? <VolumeX size={21} /> : <Volume2 size={21} />}
+          </Control>
+          <input
+            className="hidden h-1 w-24 accent-amber-400 sm:block"
+            type="range"
+            min={0}
+            max={1}
+            step={0.05}
+            value={muted ? 0 : volume}
+            aria-label="Volume"
+            onChange={(event) => {
+              if (mediaRef.current) {
+                mediaRef.current.volume = Number(event.target.value)
+                mediaRef.current.muted = false
+              }
             }}
           />
-          <QueueNotice className="absolute left-6 top-16" />
-          <PlayerFlash message={flashMessage} />
-          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/95 via-black/60 to-transparent px-4 pb-4 pt-16 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
-            <input
-              className="web-player-seek mb-3 block w-full cursor-pointer"
-              style={
-                {
-                  "--player-progress": `${
-                    duration > 0 ? Math.min(100, (currentTime / duration) * 100) : 0
-                  }%`,
-                  "--player-buffered": `${
-                    duration > 0 ? Math.min(100, (bufferedEnd / duration) * 100) : 0
-                  }%`,
-                } as React.CSSProperties
-              }
-              type="range"
-              min={0}
-              max={duration || 0}
-              step={0.1}
-              value={Math.min(currentTime, duration || 0)}
-              aria-label="Seek"
-              onChange={(event) => {
-                if (partySession?.role === "guest") return
-                const position = Number(event.target.value)
-                if (mediaRef.current) mediaRef.current.currentTime = position
-                if (partySession?.role === "host") partySession.publishCommand("seek", position)
-              }}
-            />
-            <div className="flex items-center gap-3">
-              <Control label={playing ? "Pause" : "Play"} onClick={togglePlayback}>
-                {playing ? <Pause size={21} /> : <Play size={21} />}
-              </Control>
-              {onNextEpisode && (
-                <Control label={nextControlLabel(upNext)} onClick={playNext}>
-                  <SkipForward size={21} />
-                </Control>
-              )}
-              <Control
-                label={muted ? "Unmute" : "Mute"}
-                onClick={() => {
-                  if (mediaRef.current) mediaRef.current.muted = !mediaRef.current.muted
-                }}
-              >
-                {muted || volume === 0 ? <VolumeX size={21} /> : <Volume2 size={21} />}
-              </Control>
-              <input
-                className="hidden h-1 w-24 accent-amber-400 sm:block"
-                type="range"
-                min={0}
-                max={1}
-                step={0.05}
-                value={muted ? 0 : volume}
-                aria-label="Volume"
-                onChange={(event) => {
-                  if (mediaRef.current) {
-                    mediaRef.current.volume = Number(event.target.value)
-                    mediaRef.current.muted = false
-                  }
-                }}
-              />
-              <span className="text-xs tabular-nums text-zinc-300">
-                {duration > 0
-                  ? `${formatTime(currentTime)} / ${formatTime(duration)}`
-                  : "--:--:-- / --:--:--"}
-              </span>
-              <div className="flex-1" />
-              <span className="hidden max-w-40 truncate text-xs text-zinc-400 md:block">
-                {selectedSubtitleLabel === "Off" ? "" : selectedSubtitleLabel}
-              </span>
-              <Control
-                label={`Audio${selectedAudioChoice ? `: ${selectedAudioChoice.display.primary}` : ""}`}
-                active={trackMenu === "audio"}
-                onClick={() => toggleTrackMenu("audio")}
-              >
-                <Languages size={21} />
-              </Control>
-              <Control
-                label={`Subtitles: ${selectedSubtitleLabel}`}
-                active={trackMenu === "subtitles"}
-                onClick={() => toggleTrackMenu("subtitles")}
-              >
-                <Captions size={22} />
-              </Control>
-              {route === "native" && (
-                <Control
-                  label="Picture in picture"
-                  onClick={() => void videoRef.current?.requestPictureInPicture?.()}
-                >
-                  <PictureInPicture size={21} />
-                </Control>
-              )}
-              <VideoScaleControl
-                value={videoScale}
-                indicatorPlacement="above"
-                onChange={setVideoScale}
-              />
-            </div>
-          </div>
-
-          {trackMenu && (
-            <div
-              className="absolute bottom-20 right-4 max-h-[70%] w-[46rem] max-w-[calc(100%-2rem)] overflow-y-auto overscroll-contain rounded-xl border border-white/10 bg-zinc-950 p-2 shadow-2xl"
-              role="menu"
+          <span className="text-xs tabular-nums text-zinc-300">
+            {duration > 0
+              ? `${formatTime(currentTime)} / ${formatTime(duration)}`
+              : "--:--:-- / --:--:--"}
+          </span>
+          <div className="flex-1" />
+          <span className="hidden max-w-40 truncate text-xs text-zinc-400 md:block">
+            {selectedSubtitleLabel === "Off" ? "" : selectedSubtitleLabel}
+          </span>
+          <Control
+            label={`Audio${selectedAudioChoice ? `: ${selectedAudioChoice.display.primary}` : ""}`}
+            active={trackMenu === "audio"}
+            onClick={() => toggleTrackMenu("audio")}
+          >
+            <Languages size={21} />
+          </Control>
+          <Control
+            label={`Subtitles: ${selectedSubtitleLabel}`}
+            active={trackMenu === "subtitles"}
+            onClick={() => toggleTrackMenu("subtitles")}
+          >
+            <Captions size={22} />
+          </Control>
+          {route === "native" && (
+            <Control
+              label="Picture in picture"
+              onClick={() => void videoRef.current?.requestPictureInPicture?.()}
             >
-              <div className="flex items-center justify-between px-2 pb-2 pt-1">
-                <h3 className="font-display text-sm font-semibold">
-                  {trackMenu === "audio" ? "Audio" : "Subtitles"}
-                </h3>
-                <button
-                  className="rounded-md p-1 text-zinc-500 hover:bg-zinc-800 hover:text-white"
-                  onClick={() => setTrackMenu(undefined)}
-                  aria-label={`Close ${trackMenu} menu`}
-                >
-                  <X size={15} />
-                </button>
-              </div>
-              {trackMenu === "subtitles" ? (
-                <SubtitlePicker
-                  items={subtitleItems}
-                  preferredLanguage={preferences.subtitleLanguage}
-                  off={selectedSubtitle === "off"}
-                  loading={subtitleLoading}
-                  error={subtitleError}
-                  position={subtitlePosition}
-                  onPositionChange={changeSubtitlePosition}
-                  delayMs={subtitleDelayMs}
-                  onDelayChange={(value) => {
-                    setSubtitleDelayMs(value)
-                    rememberTitlePlayback(profileId, progressMetadata.mediaId, {
-                      subtitleDelayMs: value,
-                    })
-                  }}
-                  onOff={() => chooseSubtitleManually("off")}
-                  onSelect={chooseSubtitleManually}
-                />
-              ) : audioChoices.length ? (
-                audioChoices.map((choice) => (
-                  <AudioTrackRow
-                    key={`${choice.kind}-${choice.id}`}
-                    display={choice.display}
-                    selected={selectedAudio === choice.id}
-                    disabled={choice.disabled}
-                    onSelect={() => chooseAudio(choice)}
-                  />
-                ))
-              ) : (
-                // The engine reads the container's track list, so an empty one means no audio.
-                <p className="px-3 py-2 text-sm text-zinc-500">
-                  {route === "engine"
-                    ? "No audio track."
-                    : "The browser picks the audio track for this source and does not offer switching."}
-                </p>
-              )}
-            </div>
+              <PictureInPicture size={21} />
+            </Control>
           )}
+          <VideoScaleControl
+            value={videoScale}
+            indicatorPlacement="above"
+            onChange={setVideoScale}
+          />
         </div>
       </div>
+      {/* Shows with the bottom controls; not positioned, so the bar places itself against the shell. */}
+      <div className="opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
+        <DesktopPlayerChromeTop
+          expandedControls={false}
+          visible
+          fullscreen={fullscreen}
+          heading={<PlayerHeadingText heading={heading} />}
+          actions={
+            <>
+              {queue && (
+                <button
+                  className="grid size-10 place-items-center rounded-full text-zinc-200 transition-colors hover:bg-white/15"
+                  type="button"
+                  aria-label="Queue"
+                  title="Queue"
+                  data-player-drawer-toggle
+                  onClick={() => setEpisodeDrawerOpen((open) => (open ? false : "queue"))}
+                >
+                  <QueueIcon count={queue.controls.items.length} />
+                </button>
+              )}
+              {onWatchParty && (
+                <PartyPlayerButton onClick={onWatchParty} active={partySession != null} />
+              )}
+            </>
+          }
+          onBack={close}
+          onFullscreen={toggleFullscreen}
+        />
+      </div>
+
+      {trackMenu && (
+        <div
+          className="absolute bottom-20 right-4 max-h-[70%] w-[46rem] max-w-[calc(100%-2rem)] overflow-y-auto overscroll-contain rounded-xl border border-white/10 bg-zinc-950 p-2 shadow-2xl"
+          role="menu"
+        >
+          <div className="flex items-center justify-between px-2 pb-2 pt-1">
+            <h3 className="font-display text-sm font-semibold">
+              {trackMenu === "audio" ? "Audio" : "Subtitles"}
+            </h3>
+            <button
+              className="rounded-md p-1 text-zinc-500 hover:bg-zinc-800 hover:text-white"
+              onClick={() => setTrackMenu(undefined)}
+              aria-label={`Close ${trackMenu} menu`}
+            >
+              <X size={15} />
+            </button>
+          </div>
+          {trackMenu === "subtitles" ? (
+            <SubtitlePicker
+              items={subtitleItems}
+              preferredLanguage={preferences.subtitleLanguage}
+              off={selectedSubtitle === "off"}
+              loading={subtitleLoading}
+              error={subtitleError}
+              position={subtitlePosition}
+              onPositionChange={changeSubtitlePosition}
+              delayMs={subtitleDelayMs}
+              onDelayChange={(value) => {
+                setSubtitleDelayMs(value)
+                rememberTitlePlayback(profileId, progressMetadata.mediaId, {
+                  subtitleDelayMs: value,
+                })
+              }}
+              onOff={() => chooseSubtitleManually("off")}
+              onSelect={chooseSubtitleManually}
+            />
+          ) : audioChoices.length ? (
+            audioChoices.map((choice) => (
+              <AudioTrackRow
+                key={`${choice.kind}-${choice.id}`}
+                display={choice.display}
+                selected={selectedAudio === choice.id}
+                disabled={choice.disabled}
+                onSelect={() => chooseAudio(choice)}
+              />
+            ))
+          ) : (
+            // The engine reads the container's track list, so an empty one means no audio.
+            <p className="px-3 py-2 text-sm text-zinc-500">
+              {route === "engine"
+                ? "No audio track."
+                : "The browser picks the audio track for this source and does not offer switching."}
+            </p>
+          )}
+        </div>
+      )}
     </div>
   )
 }
