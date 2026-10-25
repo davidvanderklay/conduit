@@ -1,9 +1,10 @@
 import { ChevronLeft, Minus, Plus } from "lucide-react"
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { groupSubtitles } from "../lib/subtitle-groups"
 import {
-  SUBTITLE_DELAY_STEPS_MS,
+  SUBTITLE_DELAY_STEP_MS,
   formatSubtitleDelay,
+  heldSubtitleDelayStep,
   stepSubtitleDelay,
 } from "../lib/title-playback"
 
@@ -177,8 +178,9 @@ export function SubtitlePicker({
 }
 
 /**
- * Subtitle delay with fine and coarse steps, remembered per title. Also used by
- * the Electron overlay, so its buttons opt into the overlay's hit regions.
+ * Subtitle delay stepper, remembered per title. Matches the position stepper;
+ * holding a button repeats it. Also used by the Electron overlay, so its
+ * buttons opt into the overlay's hit regions.
  */
 export function SubtitleDelayStepper({
   delayMs,
@@ -187,39 +189,87 @@ export function SubtitleDelayStepper({
   delayMs: number
   onChange: (delayMs: number) => void
 }) {
-  const stepButton = (step: number) => (
-    <button
-      key={step}
-      className="pointer-events-auto grid h-10 w-8 shrink-0 place-items-center rounded-full text-xs tabular-nums text-zinc-300 hover:bg-zinc-800 hover:text-white"
-      data-overlay-interactive
-      onClick={() => onChange(stepSubtitleDelay(delayMs, step))}
-      aria-label={`Show subtitles ${step < 0 ? "earlier" : "later"} by ${Math.abs(step) / 1000} seconds`}
-    >
-      {step < 0 ? "−" : "+"}
-      {Math.abs(step) >= 1000 ? Math.abs(step) / 1000 : `.${Math.abs(step) / 100}`}
-    </button>
-  )
+  const latestDelay = useRef(delayMs)
+  latestDelay.current = delayMs
+  // Held repeats can outpace renders, so each step builds on the last one sent.
+  const step = (direction: number, stepMs = SUBTITLE_DELAY_STEP_MS) => {
+    latestDelay.current = stepSubtitleDelay(latestDelay.current, direction * stepMs)
+    onChange(latestDelay.current)
+  }
+  const earlier = useHoldRepeat((stepMs) => step(-1, stepMs))
+  const later = useHoldRepeat((stepMs) => step(1, stepMs))
+  const buttonClass =
+    "pointer-events-auto grid size-10 place-items-center rounded-full hover:bg-zinc-800"
   return (
     <>
       <div className="mt-4 flex items-center justify-between px-2">
         <p className="text-xs text-zinc-500">Delay</p>
         {delayMs !== 0 && (
           <button
-            className="pointer-events-auto text-xs text-amber-400 hover:text-amber-300"
+            className="pointer-events-auto text-zinc-400 hover:text-white"
             data-overlay-interactive
             onClick={() => onChange(0)}
           >
-            Reset
+            <span className="text-xs">Reset</span>
           </button>
         )}
       </div>
-      <div className="mt-2 inline-flex items-center rounded-full bg-zinc-900">
-        {SUBTITLE_DELAY_STEPS_MS.filter((step) => step < 0).map(stepButton)}
-        <output className="w-12 whitespace-nowrap text-center text-xs tabular-nums">
+      <div className="mt-2 flex items-center rounded-full bg-zinc-900">
+        <button
+          className={buttonClass}
+          data-overlay-interactive
+          {...earlier}
+          aria-label="Show subtitles earlier"
+        >
+          <Minus size={16} />
+        </button>
+        <output className="flex-1 text-center text-sm tabular-nums">
           {formatSubtitleDelay(delayMs)}
         </output>
-        {SUBTITLE_DELAY_STEPS_MS.filter((step) => step > 0).map(stepButton)}
+        <button
+          className={buttonClass}
+          data-overlay-interactive
+          {...later}
+          aria-label="Show subtitles later"
+        >
+          <Plus size={16} />
+        </button>
       </div>
     </>
   )
+}
+
+/** Steps once on press, then repeats while held. Keyboard activation steps once per click. */
+function useHoldRepeat(onStep: (stepMs: number) => void) {
+  const latestStep = useRef(onStep)
+  latestStep.current = onStep
+  const timer = useRef<number | undefined>(undefined)
+  const stop = () => {
+    window.clearTimeout(timer.current)
+    timer.current = undefined
+  }
+  useEffect(() => stop, [])
+  const start = () => {
+    stop()
+    const startedAt = performance.now()
+    latestStep.current(SUBTITLE_DELAY_STEP_MS)
+    const repeat = (wait: number) => {
+      timer.current = window.setTimeout(() => {
+        latestStep.current(heldSubtitleDelayStep(performance.now() - startedAt))
+        repeat(100)
+      }, wait)
+    }
+    repeat(400)
+  }
+  return {
+    onPointerDown: (event: { button: number }) => {
+      if (event.button === 0) start()
+    },
+    onPointerUp: stop,
+    onPointerLeave: stop,
+    onPointerCancel: stop,
+    onClick: (event: { detail: number }) => {
+      if (event.detail === 0) latestStep.current(SUBTITLE_DELAY_STEP_MS)
+    },
+  }
 }

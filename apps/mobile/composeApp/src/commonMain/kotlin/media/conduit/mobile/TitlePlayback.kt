@@ -26,9 +26,12 @@ data class TitlePlaybackChoices(
     val subtitleDelayMs: Long? = null,
 )
 
-/** Fine and coarse steps offered by the delay controls. */
-val SubtitleDelayStepsMs = listOf(-1_000L, -100L, 100L, 1_000L)
+/** One press of a delay control. */
+const val SubtitleDelayStepMs = 100L
 private const val SubtitleDelayLimitMs = 30_000L
+
+/** Steps per repeat while a delay control is held: larger after the first second and a half. */
+fun heldSubtitleDelaySteps(heldMs: Long): Int = if (heldMs < 1_500) 1 else 5
 
 /** The delay after one press of a delay control, kept within ±30 s. */
 fun stepSubtitleDelay(delayMs: Long, stepMs: Long): Long =
@@ -36,7 +39,7 @@ fun stepSubtitleDelay(delayMs: Long, stepMs: Long): Long =
 
 fun formatSubtitleDelay(delayMs: Long): String {
     val tenths = kotlin.math.abs(delayMs) / 100
-    val seconds = "${tenths / 10}.${tenths % 10} s"
+    val seconds = "${tenths / 10}.${tenths % 10}s"
     return when {
         delayMs > 0 -> "+$seconds"
         delayMs < 0 -> "−$seconds"

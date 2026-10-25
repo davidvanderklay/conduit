@@ -20,8 +20,8 @@ export interface TitlePlaybackChoices {
   subtitleDelayMs?: number
 }
 
-/** Fine and coarse steps offered by the delay controls. */
-export const SUBTITLE_DELAY_STEPS_MS = [-1000, -100, 100, 1000] as const
+/** One press of a delay control. */
+export const SUBTITLE_DELAY_STEP_MS = 100
 const SUBTITLE_DELAY_LIMIT_MS = 30_000
 
 const KEY = "conduit.title-playback.v1"
@@ -74,9 +74,14 @@ export function stepSubtitleDelay(delayMs: number, stepMs: number): number {
   return Math.max(-SUBTITLE_DELAY_LIMIT_MS, Math.min(SUBTITLE_DELAY_LIMIT_MS, next))
 }
 
+/** Holding a delay control repeats it, with larger steps after the first second and a half. */
+export function heldSubtitleDelayStep(heldMs: number): number {
+  return heldMs < 1500 ? SUBTITLE_DELAY_STEP_MS : SUBTITLE_DELAY_STEP_MS * 5
+}
+
 export function formatSubtitleDelay(delayMs: number): string {
   const seconds = (Math.abs(delayMs) / 1000).toFixed(1)
-  return delayMs > 0 ? `+${seconds} s` : delayMs < 0 ? `−${seconds} s` : `${seconds} s`
+  return delayMs > 0 ? `+${seconds}s` : delayMs < 0 ? `−${seconds}s` : `${seconds}s`
 }
 
 type TitleLanguagePreferences = Pick<

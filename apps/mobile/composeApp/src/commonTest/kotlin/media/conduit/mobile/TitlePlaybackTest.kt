@@ -54,7 +54,8 @@ class TitlePlaybackTest {
         assertEquals(1_300, repository.load(episodeTwo).subtitleDelayMs)
         assertEquals(900, stepSubtitleDelay(-100, 1_000))
         assertEquals(30_000, stepSubtitleDelay(29_500, 1_000))
-        assertEquals(listOf("+0.3 s", "−1.2 s", "0.0 s"), listOf(300L, -1_200L, 0L).map(::formatSubtitleDelay))
+        assertEquals(listOf("+0.3s", "−1.2s", "0.0s"), listOf(300L, -1_200L, 0L).map(::formatSubtitleDelay))
+        assertEquals(listOf(1, 1, 5), listOf(0L, 1_400L, 1_600L).map(::heldSubtitleDelaySteps))
     }
 
     @Test

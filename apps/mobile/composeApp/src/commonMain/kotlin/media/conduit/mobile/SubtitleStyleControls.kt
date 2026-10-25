@@ -3,7 +3,8 @@ package media.conduit.mobile
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -22,13 +23,20 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
+import kotlin.time.TimeSource
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -75,40 +83,27 @@ fun SubtitleStyleControls(
                 onChange(style.copy(offsetPercent = (style.offsetPercent + direction * SubtitleStyle.OffsetStep).coerceIn(SubtitleStyle.OffsetRange)))
             },
         )
-        delayMs?.let { SubtitleDelayControl(it, onDelayChange, contentColor) }
+        delayMs?.let { delay ->
+            SubtitleStepper(
+                label = "Delay",
+                value = formatSubtitleDelay(delay),
+                contentColor = contentColor,
+                canDecrease = stepSubtitleDelay(delay, -SubtitleDelayStepMs) != delay,
+                canIncrease = stepSubtitleDelay(delay, SubtitleDelayStepMs) != delay,
+                repeatOnHold = true,
+                onStep = { steps -> onDelayChange(stepSubtitleDelay(delay, steps * SubtitleDelayStepMs)) },
+            )
+            if (delay != 0L) {
+                TextButton(
+                    onClick = { onDelayChange(0) },
+                    modifier = Modifier.align(Alignment.End).focusRing(RoundedCornerShape(50), Color.White),
+                ) { Text("Reset delay", color = MaterialTheme.colorScheme.primary) }
+            }
+        }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text("Outline", color = contentColor, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
             Switch(style.outline, { onChange(style.copy(outline = it)) }, modifier = Modifier.focusRing(RoundedCornerShape(50), Color.White))
         }
-    }
-}
-
-/** Fine and coarse delay steps; a single press per step suits TV remotes. */
-@Composable
-private fun SubtitleDelayControl(delayMs: Long, onChange: (Long) -> Unit, contentColor: Color) {
-    Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text("Delay", color = contentColor, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
-        if (delayMs != 0L) {
-            TextButton(onClick = { onChange(0) }, modifier = Modifier.focusRing(RoundedCornerShape(50), Color.White)) {
-                Text("Reset", color = MaterialTheme.colorScheme.primary)
-            }
-        }
-    }
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        @Composable
-        fun step(stepMs: Long) {
-            val seconds = kotlin.math.abs(stepMs)
-            val label = (if (stepMs < 0) "−" else "+") + if (seconds >= 1_000) "${seconds / 1_000}" else ".${seconds / 100}"
-            TextButton(
-                onClick = { onChange(stepSubtitleDelay(delayMs, stepMs)) },
-                contentPadding = PaddingValues(0.dp),
-                modifier = Modifier.size(width = 44.dp, height = 40.dp).focusRing(RoundedCornerShape(50), Color.White)
-                    .semantics { contentDescription = "Show subtitles ${if (stepMs < 0) "earlier" else "later"} by ${seconds / 1_000.0} seconds" },
-            ) { Text(label, color = contentColor) }
-        }
-        SubtitleDelayStepsMs.filter { it < 0 }.forEach { step(it) }
-        Text(formatSubtitleDelay(delayMs), color = contentColor, textAlign = TextAlign.Center, modifier = Modifier.weight(1f))
-        SubtitleDelayStepsMs.filter { it > 0 }.forEach { step(it) }
     }
 }
 
@@ -136,7 +131,11 @@ private fun SubtitleStylePreview(style: SubtitleStyle) {
     }
 }
 
-/** A labelled value with minus and plus buttons; [onStep] receives -1 or 1. */
+/**
+ * A labelled value with minus and plus buttons. [onStep] receives the signed
+ * number of steps: one per press, and with [repeatOnHold] repeats while the
+ * button is held by touch or a remote's select key.
+ */
 @Composable
 private fun SubtitleStepper(
     label: String,
@@ -144,16 +143,51 @@ private fun SubtitleStepper(
     contentColor: Color,
     canDecrease: Boolean,
     canIncrease: Boolean,
+    repeatOnHold: Boolean = false,
     onStep: (Int) -> Unit,
 ) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(label, color = contentColor, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
-        IconButton(onClick = { onStep(-1) }, enabled = canDecrease, modifier = Modifier.size(40.dp).focusRing(CircleShape, Color.White)) {
-            Icon(Icons.Rounded.Remove, "Decrease $label", tint = contentColor.copy(alpha = if (canDecrease) 1f else .3f))
-        }
+        SubtitleStepButton(-1, "Decrease $label", Icons.Rounded.Remove, canDecrease, repeatOnHold, contentColor, onStep)
         Text(value, color = contentColor, textAlign = TextAlign.Center, modifier = Modifier.width(64.dp))
-        IconButton(onClick = { onStep(1) }, enabled = canIncrease, modifier = Modifier.size(40.dp).focusRing(CircleShape, Color.White)) {
-            Icon(Icons.Rounded.Add, "Increase $label", tint = contentColor.copy(alpha = if (canIncrease) 1f else .3f))
+        SubtitleStepButton(1, "Increase $label", Icons.Rounded.Add, canIncrease, repeatOnHold, contentColor, onStep)
+    }
+}
+
+@Composable
+private fun SubtitleStepButton(
+    direction: Int,
+    description: String,
+    icon: ImageVector,
+    enabled: Boolean,
+    repeatOnHold: Boolean,
+    contentColor: Color,
+    onStep: (Int) -> Unit,
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val latestStep by rememberUpdatedState(onStep)
+    // The click that ends a held repeat must not add one more step.
+    var repeated by remember { mutableStateOf(false) }
+    if (repeatOnHold) {
+        val pressed by interaction.collectIsPressedAsState()
+        LaunchedEffect(pressed) {
+            if (!pressed) return@LaunchedEffect
+            repeated = false
+            delay(400)
+            repeated = true
+            val started = TimeSource.Monotonic.markNow()
+            while (true) {
+                latestStep(direction * heldSubtitleDelaySteps(started.elapsedNow().inWholeMilliseconds))
+                delay(100)
+            }
         }
+    }
+    IconButton(
+        onClick = { if (repeated) repeated = false else latestStep(direction) },
+        enabled = enabled,
+        interactionSource = interaction,
+        modifier = Modifier.size(40.dp).focusRing(CircleShape, Color.White),
+    ) {
+        Icon(icon, description, tint = contentColor.copy(alpha = if (enabled) 1f else .3f))
     }
 }

@@ -5,6 +5,7 @@ import {
   SUBTITLES_OFF,
   audioChoice,
   formatSubtitleDelay,
+  heldSubtitleDelayStep,
   readTitlePlayback,
   rememberTitlePlayback,
   stepSubtitleDelay,
@@ -95,7 +96,8 @@ describe("title playback choices", () => {
     expect(stepSubtitleDelay(200, 100)).toBe(300)
     expect(stepSubtitleDelay(-100, 1000)).toBe(900)
     expect(stepSubtitleDelay(29_500, 1000)).toBe(30_000)
-    expect([300, -1200, 0].map(formatSubtitleDelay)).toEqual(["+0.3 s", "−1.2 s", "0.0 s"])
+    expect([300, -1200, 0].map(formatSubtitleDelay)).toEqual(["+0.3s", "−1.2s", "0.0s"])
+    expect([0, 1400, 1600].map(heldSubtitleDelayStep)).toEqual([100, 100, 500])
   })
 
   it("turns subtitles off when the title was watched without them", () => {
