@@ -1,5 +1,5 @@
 /**
- * Reads text subtitle tracks from a Matroska file over HTTP range requests.
+ * Reads text and PGS image subtitle tracks from a Matroska file over HTTP range requests.
  * Browsers expose none of them, and Mediabunny skips subtitle tracks. mkvmerge
  * indexes every subtitle block in the Cues element, with its offset inside the
  * cluster, so each cue costs one small request near the playhead instead of
@@ -13,10 +13,19 @@ import {
   readRange,
   readUint,
   readVint,
+  decompressBlock,
   type MatroskaTrack,
 } from "./matroska"
+import { PgsDecoder, type PgsComposition } from "./pgs"
 
 export type MatroskaSubtitleTrack = MatroskaTrack
+
+/** A PGS display set, shown from `start` until the next one (or for `duration` when set). */
+export interface ImageEvent {
+  start: number
+  duration: number
+  composition: PgsComposition
+}
 
 export interface SubtitleCue {
   start: number
@@ -33,10 +42,11 @@ interface IndexedBlock {
 
 const SUBTITLE_TRACK_TYPE = 17
 const TEXT_CODECS = new Set(["S_TEXT/UTF8", "S_TEXT/ASS", "S_TEXT/SSA", "S_TEXT/WEBVTT"])
+const IMAGE_CODEC = "S_HDMV/PGS"
 /** Bytes read per subtitle block; text blocks are a few hundred bytes. */
 const BLOCK_BYTES = 4096
 
-/** The text subtitle tracks of a Matroska file and their cues, loaded on demand. */
+/** The text and image subtitle tracks of a Matroska file and their cues, loaded on demand. */
 export class MatroskaSubtitles {
   readonly tracks: readonly MatroskaSubtitleTrack[]
   readonly #url: string
@@ -45,6 +55,7 @@ export class MatroskaSubtitles {
   readonly #blocks: ReadonlyMap<number, IndexedBlock[]>
   readonly #loaded = new Set<IndexedBlock>()
   readonly #clusterDataStarts = new Map<number, Promise<number>>()
+  readonly #pgsDecoders = new Map<number, PgsDecoder>()
 
   private constructor(
     url: string,
@@ -68,7 +79,9 @@ export class MatroskaSubtitles {
     const file = await MatroskaFile.open(url)
     if (!file) return undefined
     const tracks = (await file.tracks()).filter(
-      (track) => track.type === SUBTITLE_TRACK_TYPE && TEXT_CODECS.has(track.codec),
+      (track) =>
+        track.type === SUBTITLE_TRACK_TYPE &&
+        (TEXT_CODECS.has(track.codec) || track.codec === IMAGE_CODEC),
     )
     if (!tracks.length) return undefined
     const secondsPerTick = await file.secondsPerTick()
@@ -86,31 +99,67 @@ export class MatroskaSubtitles {
       : undefined
   }
 
-  /** Fetches the cues of a track that start between `from` and `to` seconds, skipping ones loaded before. */
+  /** Fetches the text cues of a track that start between `from` and `to` seconds, skipping ones loaded before. */
   async load(track: MatroskaSubtitleTrack, from: number, to: number): Promise<SubtitleCue[]> {
+    const blocks = await this.#loadBlocks(track, from, to)
+    const cues = await Promise.all(
+      blocks.map(async ({ time, duration, payload }) => {
+        const bytes = await decompressBlock(payload, track.compression)
+        const text = cueText(track.codec, new TextDecoder().decode(bytes))
+        return text ? { start: time, end: time + (duration || 4), text } : undefined
+      }),
+    )
+    return cues.filter((cue) => cue !== undefined)
+  }
+
+  /**
+   * Fetches and decodes the PGS display sets of an image track between `from` and
+   * `to` seconds. Each one shows until the next, or for its duration when set.
+   */
+  async loadImages(track: MatroskaSubtitleTrack, from: number, to: number): Promise<ImageEvent[]> {
+    let decoder = this.#pgsDecoders.get(track.number)
+    if (!decoder) {
+      decoder = new PgsDecoder()
+      this.#pgsDecoders.set(track.number, decoder)
+    }
+    const events: ImageEvent[] = []
+    for (const { time, duration, payload } of await this.#loadBlocks(track, from, to)) {
+      const composition = decoder.decode(await decompressBlock(payload, track.compression))
+      if (composition) events.push({ start: time, duration, composition })
+    }
+    return events
+  }
+
+  /** Reads the due blocks of a track in time order, skipping ones loaded before. */
+  async #loadBlocks(track: MatroskaSubtitleTrack, from: number, to: number) {
     const due = (this.#blocks.get(track.number) ?? []).filter(
       (block) =>
         block.time + block.duration >= from && block.time <= to && !this.#loaded.has(block),
     )
     due.forEach((block) => this.#loaded.add(block))
-    const cues = await Promise.all(
+    const read = await Promise.all(
       due.map(async (block) => {
         try {
-          return await this.#readCue(track, block)
+          return await this.#readBlock(block)
         } catch {
           this.#loaded.delete(block)
           return undefined
         }
       }),
     )
-    return cues.filter((cue): cue is SubtitleCue => cue !== undefined)
+    return read.filter((block) => block !== undefined)
   }
 
-  async #readCue(track: MatroskaSubtitleTrack, block: IndexedBlock) {
+  async #readBlock(block: IndexedBlock) {
     const dataStart = await this.#clusterDataStart(block.cluster)
     const start = dataStart + block.relative
-    const bytes = await readRange(this.#url, start, start + BLOCK_BYTES)
-    const [element] = elements(bytes, 0, bytes.byteLength)
+    let bytes = await readRange(this.#url, start, start + BLOCK_BYTES)
+    let [element] = elements(bytes, 0, bytes.byteLength)
+    // Image subtitles outgrow the first read; fetch the whole block.
+    if (element && element.declaredEnd > bytes.byteLength) {
+      bytes = await readRange(this.#url, start, start + element.declaredEnd)
+      ;[element] = elements(bytes, 0, bytes.byteLength)
+    }
     if (!element) return undefined
     let payload: Uint8Array | undefined
     let duration = block.duration
@@ -127,11 +176,7 @@ export class MatroskaSubtitles {
     // Block header: track number (EBML varint), 16-bit relative timestamp, flags.
     const trackNumber = readVint(payload, 0)
     if (!trackNumber) return undefined
-    const text = cueText(
-      track.codec,
-      new TextDecoder().decode(payload.subarray(trackNumber.length + 3)),
-    )
-    return text ? { start: block.time, end: block.time + (duration || 4), text } : undefined
+    return { time: block.time, duration, payload: payload.subarray(trackNumber.length + 3) }
   }
 
   #clusterDataStart(cluster: number): Promise<number> {
@@ -201,9 +246,10 @@ function parseCues(
 const LOAD_AHEAD_SECONDS = 30
 
 /**
- * Adds each track to the video as an empty `<track>`, so the player lists it
- * like an embedded track, and loads cues around the playhead while it shows.
- * Returns a function that removes the tracks.
+ * Adds each track to the video as an empty `<track>`, so the player lists and
+ * selects it like an embedded track, and loads cues around the playhead while
+ * it shows. Text cues go into the track; PGS images draw on `imageCanvas`, over
+ * the displayed video. Returns a function that removes the tracks.
  */
 export function attachMatroskaSubtitles(
   subtitles: MatroskaSubtitles,
@@ -212,11 +258,16 @@ export function attachMatroskaSubtitles(
     currentTime: () => number
     /** The cue line in percent from the top, for cues added while a track shows. */
     linePosition: () => number
+    /** A canvas covering the player, for image subtitles. */
+    imageCanvas: HTMLCanvasElement
+    /** The element showing the video, whose box and object-fit place image subtitles. */
+    surface: () => HTMLElement
   },
 ): () => void {
   const empty = URL.createObjectURL(new Blob(["WEBVTT\n\n"], { type: "text/vtt" }))
   const loading = new Set<MatroskaSubtitleTrack>()
-  const elements = subtitles.tracks.map((track) => {
+  const images = new Map<MatroskaSubtitleTrack, ImageEvent[]>()
+  const entries = subtitles.tracks.map((track) => {
     const element = document.createElement("track")
     element.kind = "subtitles"
     element.label = [track.name, track.forced ? "Forced" : ""].filter(Boolean).join(" · ")
@@ -225,27 +276,93 @@ export function attachMatroskaSubtitles(
     video.append(element)
     return { track, element }
   })
-  const timer = window.setInterval(() => {
+
+  const load = () => {
     const time = options.currentTime()
-    for (const { track, element } of elements) {
+    for (const { track, element } of entries) {
       if (element.track.mode === "disabled" || loading.has(track)) continue
       loading.add(track)
-      void subtitles
-        .load(track, time - 2, time + LOAD_AHEAD_SECONDS)
-        .then((cues) => {
-          for (const { start, end, text } of cues) {
-            const cue = new VTTCue(start, end, text)
-            cue.snapToLines = false
-            cue.line = options.linePosition()
-            element.track.addCue(cue)
-          }
-        })
-        .finally(() => loading.delete(track))
+      const from = time - 2
+      const to = time + LOAD_AHEAD_SECONDS
+      const loaded =
+        track.codec === IMAGE_CODEC
+          ? subtitles.loadImages(track, from, to).then((events) => {
+              const all = [...(images.get(track) ?? []), ...events]
+              images.set(
+                track,
+                all.sort((a, b) => a.start - b.start),
+              )
+            })
+          : subtitles.load(track, from, to).then((cues) => {
+              for (const { start, end, text } of cues) {
+                const cue = new VTTCue(start, end, text)
+                cue.snapToLines = false
+                cue.line = options.linePosition()
+                element.track.addCue(cue)
+              }
+            })
+      void loaded.finally(() => loading.delete(track))
     }
-  }, 1000)
+  }
+
+  let shown: ImageEvent | undefined
+  const draw = () => {
+    const showing = entries.find(
+      ({ track, element }) => track.codec === IMAGE_CODEC && element.track.mode === "showing",
+    )
+    const time = options.currentTime()
+    const events = (showing && images.get(showing.track)) ?? []
+    const event = events.filter((candidate) => candidate.start <= time).at(-1)
+    const current =
+      event && (!event.duration || time < event.start + event.duration) ? event : undefined
+    if (current === shown) return
+    shown = current
+    drawComposition(options.imageCanvas, options.surface(), current?.composition)
+  }
+
+  const loadTimer = window.setInterval(load, 1000)
+  const drawTimer = window.setInterval(draw, 100)
   return () => {
-    window.clearInterval(timer)
-    elements.forEach(({ element }) => element.remove())
+    window.clearInterval(loadTimer)
+    window.clearInterval(drawTimer)
+    drawComposition(options.imageCanvas, options.surface(), undefined)
+    entries.forEach(({ element }) => element.remove())
     URL.revokeObjectURL(empty)
+  }
+}
+
+/** Draws a PGS composition where its frame sits inside the surface, honoring object-fit. */
+function drawComposition(
+  canvas: HTMLCanvasElement,
+  surface: HTMLElement,
+  composition: PgsComposition | undefined,
+) {
+  const scale = window.devicePixelRatio || 1
+  canvas.width = Math.round(canvas.clientWidth * scale)
+  canvas.height = Math.round(canvas.clientHeight * scale)
+  const context = canvas.getContext("2d")
+  if (!context || !composition?.objects.length) return
+  const { videoWidth, videoHeight } = composition
+  const box = surface.getBoundingClientRect()
+  const canvasBox = canvas.getBoundingClientRect()
+  const fit = getComputedStyle(surface).objectFit
+  const contain = Math.min(box.width / videoWidth, box.height / videoHeight)
+  const cover = Math.max(box.width / videoWidth, box.height / videoHeight)
+  const scaleX = fit === "fill" ? box.width / videoWidth : fit === "cover" ? cover : contain
+  const scaleY = fit === "fill" ? box.height / videoHeight : fit === "cover" ? cover : contain
+  const left = box.left - canvasBox.left + (box.width - videoWidth * scaleX) / 2
+  const top = box.top - canvasBox.top + (box.height - videoHeight * scaleY) / 2
+  for (const { x, y, image } of composition.objects) {
+    const bitmap = document.createElement("canvas")
+    bitmap.width = image.width
+    bitmap.height = image.height
+    bitmap.getContext("2d")?.putImageData(image, 0, 0)
+    context.drawImage(
+      bitmap,
+      (left + x * scaleX) * scale,
+      (top + y * scaleY) * scale,
+      image.width * scaleX * scale,
+      image.height * scaleY * scale,
+    )
   }
 }

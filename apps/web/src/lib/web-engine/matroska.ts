@@ -23,6 +23,11 @@ export const ID = {
   name: 0x536e,
   flagDefault: 0x88,
   flagForced: 0x55aa,
+  contentEncodings: 0x6d80,
+  contentEncoding: 0x6240,
+  contentCompression: 0x5034,
+  contentCompAlgo: 0x4254,
+  contentCompSettings: 0x4255,
   video: 0xe0,
   colour: 0x55b0,
   maxCll: 0x55bc,
@@ -53,6 +58,29 @@ export interface MatroskaTrack {
   forced: boolean
   /** HDR peaks in nits from the video track's Colour element: [MaxCLL, mastering display peak]. */
   hdrPeaks?: [maxCll: number, mastering: number]
+  /** How the track's blocks are compressed, as mkvmerge does for image subtitles. */
+  compression?: BlockCompression
+}
+
+/** Matroska ContentCompression: zlib (algorithm 0), or header stripping (3) with the stripped bytes. */
+export interface BlockCompression {
+  algorithm: number
+  settings?: Uint8Array
+}
+
+/** Undoes a track's block compression. */
+export async function decompressBlock(
+  payload: Uint8Array,
+  compression: BlockCompression | undefined,
+): Promise<Uint8Array> {
+  if (!compression) return payload
+  if (compression.algorithm === 3)
+    return Uint8Array.from([...(compression.settings ?? []), ...payload])
+  if (compression.algorithm !== 0) throw new Error("Unsupported Matroska block compression")
+  const stream = new Blob([Uint8Array.from(payload)])
+    .stream()
+    .pipeThrough(new DecompressionStream("deflate"))
+  return new Uint8Array(await new Response(stream).arrayBuffer())
 }
 
 const HEADER_BYTES = 256 * 1024
@@ -134,6 +162,7 @@ export class MatroskaFile {
         if (field.id === ID.flagDefault) track.default = readUint(data, field) === 1
         if (field.id === ID.flagForced) track.forced = readUint(data, field) === 1
         if (field.id === ID.video) track.hdrPeaks = colourPeaks(data, field)
+        if (field.id === ID.contentEncodings) track.compression = blockCompression(data, field)
       }
       tracks.push({ ...track, language: bcp47 || track.language })
     }
@@ -150,6 +179,23 @@ export class MatroskaFile {
     }
     return 1e-3
   }
+}
+
+function blockCompression(data: Uint8Array, encodings: Element): BlockCompression | undefined {
+  for (const encoding of elements(data, encodings.dataStart, encodings.end)) {
+    if (encoding.id !== ID.contentEncoding) continue
+    for (const compression of elements(data, encoding.dataStart, encoding.end)) {
+      if (compression.id !== ID.contentCompression) continue
+      const result: BlockCompression = { algorithm: 0 }
+      for (const field of elements(data, compression.dataStart, compression.end)) {
+        if (field.id === ID.contentCompAlgo) result.algorithm = readUint(data, field)
+        if (field.id === ID.contentCompSettings)
+          result.settings = data.slice(field.dataStart, field.end)
+      }
+      return result
+    }
+  }
+  return undefined
 }
 
 /** MaxCLL and the mastering display peak from a Video element's Colour, 0 when absent. */

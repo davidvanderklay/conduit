@@ -235,6 +235,7 @@ function WebPlayer({
   const shellRef = useRef<HTMLDivElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const imageSubtitlesRef = useRef<HTMLCanvasElement>(null)
   // The element or engine currently playing. Playback controls go through it, while
   // text tracks and hls.js stay on the `<video>` element.
   const mediaRef = useRef<PlaybackMedia | null>(null)
@@ -735,9 +736,13 @@ function WebPlayer({
           embeddedSubtitles = MatroskaSubtitles.open(url)
             .then((subtitles) => {
               if (cancelled || !subtitles) return
+              const imageCanvas = imageSubtitlesRef.current
+              if (!imageCanvas) return
               detachSubtitles = attachMatroskaSubtitles(subtitles, video, {
                 currentTime: () => mediaRef.current?.currentTime ?? 0,
                 linePosition: subtitleLine,
+                imageCanvas,
+                surface: () => (canvas.hidden ? video : canvas),
               })
             })
             .catch(() => undefined)
@@ -1114,6 +1119,10 @@ function WebPlayer({
             style={{ objectFit: videoObjectFit(videoScale) }}
             hidden={route !== "engine"}
             onClick={togglePlayback}
+          />
+          <canvas
+            ref={imageSubtitlesRef}
+            className="pointer-events-none absolute inset-0 h-full w-full"
           />
           {route === "engine" && media && (
             <EngineSubtitles
