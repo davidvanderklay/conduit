@@ -60,14 +60,21 @@ export async function openWebSource(url: string): Promise<WebSource> {
       videoConfig !== null &&
       (await videoTrack.getCodec()) === "hevc" &&
       (await routeHevc(videoTrack, videoConfig))
-    // Mediabunny keeps Matroska codec private data to itself for codecs it does not map.
-    const videoPrivate =
-      videoTrack && videoConfig === null
+    // Matroska metadata Mediabunny keeps to itself: codec private data for codecs it
+    // does not map, and the HDR peaks in the track's Colour element.
+    const matroskaTrack =
+      videoTrack && (videoConfig === null || (await videoTrack.hasHighDynamicRange()))
         ? (await (await MatroskaFile.open(url).catch(() => undefined))?.tracks())?.find(
             (track) => track.number === videoTrack.id,
-          )?.codecPrivate
+          )
         : undefined
-    return { input, probe: await probeInput(input, { dolbyVision, videoPrivate }), videoTrack }
+    const [maxCll = 0, mastering = 0] = matroskaTrack?.hdrPeaks ?? []
+    const probe = await probeInput(input, {
+      dolbyVision,
+      videoPrivate: matroskaTrack?.codecPrivate,
+      hdrPeak: maxCll || mastering || undefined,
+    })
+    return { input, probe, videoTrack }
   } catch (error) {
     input.dispose()
     throw error
@@ -229,7 +236,7 @@ export class WebMediaEngine extends EventTarget implements PlaybackMedia {
   async load({ autoplay }: { autoplay: boolean }): Promise<void> {
     try {
       const { input, videoTrack } = this.#source
-      this.#presenter = await createPresenter(this.#canvas)
+      this.#presenter = await createPresenter(this.#canvas, this.#source.probe.video?.hdrPeak)
       if (videoTrack) {
         this.#videoStream = videoStream(videoTrack, this.#source.probe.video?.software)
         this.#width = await videoTrack.getDisplayWidth()

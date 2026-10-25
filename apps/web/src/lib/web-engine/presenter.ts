@@ -17,10 +17,17 @@ export interface FramePresenter {
   destroy(): void
 }
 
-/** WebGPU when the browser exposes an adapter, otherwise Canvas 2D without tone mapping. */
-export async function createPresenter(canvas: HTMLCanvasElement): Promise<FramePresenter> {
-  const gpu = await createGpuPresenter(canvas).catch(() => undefined)
-  if (gpu) return recoverable(canvas, gpu)
+/**
+ * WebGPU when the browser exposes an adapter, otherwise Canvas 2D without tone
+ * mapping. `hdrPeak` is the stream's peak from container metadata, used for
+ * frames whose own metadata does not say.
+ */
+export async function createPresenter(
+  canvas: HTMLCanvasElement,
+  hdrPeak = DEFAULT_SOURCE_PEAK,
+): Promise<FramePresenter> {
+  const gpu = await createGpuPresenter(canvas, hdrPeak).catch(() => undefined)
+  if (gpu) return recoverable(canvas, gpu, hdrPeak)
   const context = canvas.getContext("2d")
   if (!context) throw new Error("The browser could not create a video canvas.")
   return {
@@ -36,7 +43,11 @@ export async function createPresenter(canvas: HTMLCanvasElement): Promise<FrameP
 class GpuDeviceLostError extends Error {}
 
 /** Rebuilds the WebGPU presenter on the same canvas once if the GPU device is lost, as after a driver reset. */
-function recoverable(canvas: HTMLCanvasElement, initial: FramePresenter): FramePresenter {
+function recoverable(
+  canvas: HTMLCanvasElement,
+  initial: FramePresenter,
+  hdrPeak: number,
+): FramePresenter {
   let current = initial
   let recovered = false
   return {
@@ -48,7 +59,7 @@ function recoverable(canvas: HTMLCanvasElement, initial: FramePresenter): FrameP
         if (!(error instanceof GpuDeviceLostError) || recovered) throw error
         recovered = true
         current.destroy()
-        current = (await createGpuPresenter(canvas)) ?? current
+        current = (await createGpuPresenter(canvas, hdrPeak)) ?? current
         if (current === initial) throw error
         await current.present(sample)
       }
@@ -59,7 +70,10 @@ function recoverable(canvas: HTMLCanvasElement, initial: FramePresenter): FrameP
   }
 }
 
-async function createGpuPresenter(canvas: HTMLCanvasElement): Promise<FramePresenter | undefined> {
+async function createGpuPresenter(
+  canvas: HTMLCanvasElement,
+  hdrPeak: number,
+): Promise<FramePresenter | undefined> {
   const adapter = await navigator.gpu?.requestAdapter()
   if (!adapter) return undefined
   const device = await adapter.requestDevice()
@@ -225,7 +239,7 @@ async function createGpuPresenter(canvas: HTMLCanvasElement): Promise<FramePrese
       const relabeled = relabeledSamples.get(sample)
       const metadata = dolbyVisionMetadata.get(sample)
       if (relabeled?.kind === "hdr") {
-        const params = externalHdrParams(relabeled.transfer, hdrPeaks.get(sample))
+        const params = externalHdrParams(relabeled.transfer, hdrPeaks.get(sample) ?? hdrPeak)
         return drawRelabeled(sample, externalHdrPipeline, params)
       }
       if (relabeled && metadata) {
@@ -234,7 +248,7 @@ async function createGpuPresenter(canvas: HTMLCanvasElement): Promise<FramePrese
       }
       const layout = sample.format ? PLANAR_LAYOUTS.get(sample.format) : undefined
       if (layout && metadata) return drawPlanar(sample, layout, dolbyVisionParams(layout, metadata))
-      const hdr = layout && planarParams(sample, layout, true, hdrPeaks.get(sample))
+      const hdr = layout && planarParams(sample, layout, true, hdrPeaks.get(sample) ?? hdrPeak)
       if (layout && hdr) return drawPlanar(sample, layout, hdr)
       if (drawExternal(sample)) return
       const sdr = layout && planarParams(sample, layout, false)

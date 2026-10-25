@@ -5,7 +5,7 @@ import {
   type EncodedPacket,
   type VideoCodec,
 } from "mediabunny"
-import { dolbyVisionMetadata, findDolbyVisionRpu } from "./dolby-vision"
+import { dolbyVisionMetadata, dolbyVisionPeak, findDolbyVisionRpu } from "./dolby-vision"
 import { HdrPeakTracker, hdrPeaks } from "./hdr-metadata"
 import { nalUnits, rewriteHvccColor, rewritePacketColor, type ColorRewrite } from "./hevc-color"
 import { FFmpegDecoder } from "./wasm/ffmpeg-decoder"
@@ -41,6 +41,7 @@ const RELABEL: Record<Relabeled["kind"], ColorRewrite> = {
 }
 
 const HEVC_NAL_PREFIX_SEI = 39
+const HEVC_NAL_UNSPEC62 = 62
 
 interface Relabeling {
   relabeled: Relabeled
@@ -109,8 +110,12 @@ class RelabeledHevcDecoder extends CustomVideoDecoder {
     } else {
       let peak: number | undefined
       for (const { type, nal } of nalUnits(packet.data, lengthSize)) {
-        if (type === HEVC_NAL_PREFIX_SEI)
+        if (type === HEVC_NAL_PREFIX_SEI) {
           peak = this.#peakTracker.update(await parser.parseSei(nal))
+        }
+        // Profile 8 RPUs describe each scene like HDR10+, while the HDR10 base layer plays as is.
+        const metadata = type === HEVC_NAL_UNSPEC62 ? await parser.parseRpu(nal) : undefined
+        if (metadata) peak = this.#peakTracker.update([dolbyVisionPeak(metadata), 0, 0])
       }
       peak ??= this.#peakTracker.update([0, 0, 0])
       if (peak) this.#peaks.set(packet.microsecondTimestamp, peak)

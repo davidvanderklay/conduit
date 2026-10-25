@@ -14,6 +14,8 @@ export interface ProbedVideo {
   hdr: boolean
   /** Dolby Vision profile 5, which only the engine's WebGPU path renders in the right colors. */
   dolbyVision: boolean
+  /** HDR peak in nits from container metadata, for frames that carry none themselves. */
+  hdrPeak?: number
 }
 
 export interface ProbedAudio {
@@ -156,7 +158,11 @@ function nativeCodec(container: string, codecString: string | null, browser: Bro
  */
 export async function probeInput(
   input: Input,
-  { dolbyVision = false, videoPrivate }: { dolbyVision?: boolean; videoPrivate?: Uint8Array } = {},
+  {
+    dolbyVision = false,
+    videoPrivate,
+    hdrPeak,
+  }: { dolbyVision?: boolean; videoPrivate?: Uint8Array; hdrPeak?: number } = {},
 ): Promise<SourceProbe> {
   const [format, videoTrack, primaryAudio, audioTracks] = await Promise.all([
     input.getFormat(),
@@ -175,6 +181,7 @@ export async function probeInput(
         software,
         hdr: await videoTrack.hasHighDynamicRange(),
         dolbyVision,
+        hdrPeak,
       }
     : undefined
   const audio = await Promise.all(

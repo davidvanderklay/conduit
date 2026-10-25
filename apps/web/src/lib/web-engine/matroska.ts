@@ -23,6 +23,11 @@ export const ID = {
   name: 0x536e,
   flagDefault: 0x88,
   flagForced: 0x55aa,
+  video: 0xe0,
+  colour: 0x55b0,
+  maxCll: 0x55bc,
+  masteringMetadata: 0x55d0,
+  luminanceMax: 0x55d9,
   cues: 0x1c53bb6b,
   cuePoint: 0xbb,
   cueTime: 0xb3,
@@ -46,6 +51,8 @@ export interface MatroskaTrack {
   name: string
   default: boolean
   forced: boolean
+  /** HDR peaks in nits from the video track's Colour element: [MaxCLL, mastering display peak]. */
+  hdrPeaks?: [maxCll: number, mastering: number]
 }
 
 const HEADER_BYTES = 256 * 1024
@@ -126,6 +133,7 @@ export class MatroskaFile {
         if (field.id === ID.name) track.name = readString(data, field)
         if (field.id === ID.flagDefault) track.default = readUint(data, field) === 1
         if (field.id === ID.flagForced) track.forced = readUint(data, field) === 1
+        if (field.id === ID.video) track.hdrPeaks = colourPeaks(data, field)
       }
       tracks.push({ ...track, language: bcp47 || track.language })
     }
@@ -142,6 +150,31 @@ export class MatroskaFile {
     }
     return 1e-3
   }
+}
+
+/** MaxCLL and the mastering display peak from a Video element's Colour, 0 when absent. */
+function colourPeaks(data: Uint8Array, video: Element): [number, number] | undefined {
+  const colour = elements(data, video.dataStart, video.end).find((field) => field.id === ID.colour)
+  if (!colour) return undefined
+  let maxCll = 0
+  let mastering = 0
+  for (const field of elements(data, colour.dataStart, colour.end)) {
+    if (field.id === ID.maxCll) maxCll = readUint(data, field)
+    if (field.id !== ID.masteringMetadata) continue
+    for (const value of elements(data, field.dataStart, field.end)) {
+      if (value.id === ID.luminanceMax) mastering = readFloat(data, value)
+    }
+  }
+  return maxCll || mastering ? [maxCll, mastering] : undefined
+}
+
+function readFloat(data: Uint8Array, element: Element): number {
+  const view = new DataView(
+    data.buffer,
+    data.byteOffset + element.dataStart,
+    element.end - element.dataStart,
+  )
+  return view.byteLength === 4 ? view.getFloat32(0) : view.byteLength === 8 ? view.getFloat64(0) : 0
 }
 
 export interface Element {
