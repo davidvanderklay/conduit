@@ -190,6 +190,8 @@ export class WebMediaEngine extends EventTarget implements PlaybackMedia {
   #scheduledEnd = 0
   #audioEnded = false
 
+  readonly #recoveries: Record<"video" | "audio", number[]> = { video: [], audio: [] }
+
   #animationFrame = 0
   #monitorTimer = 0
   #lastTimeUpdate = 0
@@ -554,8 +556,21 @@ export class WebMediaEngine extends EventTarget implements PlaybackMedia {
       }
       if (generation === this.#videoGeneration) this.#videoEnded = true
     } catch (error) {
-      if (generation === this.#videoGeneration) this.#fail(error)
+      if (generation !== this.#videoGeneration) return
+      if (this.#mayRecover("video")) this.#startVideo(this.currentTime)
+      else this.#fail(error)
     }
+  }
+
+  /**
+   * Allows restarting a failed decode pipeline at the current position, as when
+   * the browser reclaims a hidden tab's hardware decoder, up to twice a minute.
+   */
+  #mayRecover(pipeline: "video" | "audio"): boolean {
+    const now = performance.now()
+    const recent = this.#recoveries[pipeline].filter((time) => now - time < 60_000)
+    this.#recoveries[pipeline] = [...recent, now]
+    return recent.length < 2
   }
 
   /** Resolves when the presenter takes a frame, or when a newer decode run replaces this one. */
@@ -593,7 +608,9 @@ export class WebMediaEngine extends EventTarget implements PlaybackMedia {
       }
       if (generation === this.#audioGeneration) this.#audioEnded = true
     } catch (error) {
-      if (generation === this.#audioGeneration) this.#fail(error)
+      if (generation !== this.#audioGeneration) return
+      if (!this.#mayRecover("audio")) this.#fail(error)
+      else if (!this.#paused) this.#startWaiting()
     }
   }
 

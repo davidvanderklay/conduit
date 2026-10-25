@@ -20,7 +20,7 @@ export interface FramePresenter {
 /** WebGPU when the browser exposes an adapter, otherwise Canvas 2D without tone mapping. */
 export async function createPresenter(canvas: HTMLCanvasElement): Promise<FramePresenter> {
   const gpu = await createGpuPresenter(canvas).catch(() => undefined)
-  if (gpu) return gpu
+  if (gpu) return recoverable(canvas, gpu)
   const context = canvas.getContext("2d")
   if (!context) throw new Error("The browser could not create a video canvas.")
   return {
@@ -30,6 +30,32 @@ export async function createPresenter(canvas: HTMLCanvasElement): Promise<FrameP
       sample.draw(context, 0, 0, canvas.width, canvas.height)
     },
     destroy() {},
+  }
+}
+
+class GpuDeviceLostError extends Error {}
+
+/** Rebuilds the WebGPU presenter on the same canvas once if the GPU device is lost, as after a driver reset. */
+function recoverable(canvas: HTMLCanvasElement, initial: FramePresenter): FramePresenter {
+  let current = initial
+  let recovered = false
+  return {
+    kind: "webgpu",
+    async present(sample) {
+      try {
+        await current.present(sample)
+      } catch (error) {
+        if (!(error instanceof GpuDeviceLostError) || recovered) throw error
+        recovered = true
+        current.destroy()
+        current = (await createGpuPresenter(canvas)) ?? current
+        if (current === initial) throw error
+        await current.present(sample)
+      }
+    },
+    destroy() {
+      current.destroy()
+    },
   }
 }
 
@@ -194,7 +220,7 @@ async function createGpuPresenter(canvas: HTMLCanvasElement): Promise<FramePrese
   return {
     kind: "webgpu",
     async present(sample) {
-      if (lost !== undefined) throw new Error(`The GPU device was lost: ${lost}`)
+      if (lost !== undefined) throw new GpuDeviceLostError(`The GPU device was lost: ${lost}`)
       resizeCanvas(canvas, sample)
       const relabeled = relabeledSamples.get(sample)
       const metadata = dolbyVisionMetadata.get(sample)
