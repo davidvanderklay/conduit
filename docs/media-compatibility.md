@@ -64,12 +64,19 @@ it plays the source with its own engine instead:
 - WebGPU draws frames. PQ and HLG video is tone mapped to SDR with the BT.2390
   curve and converted from BT.2020 to BT.709. Without WebGPU, frames are drawn
   with Canvas 2D and the browser handles color.
-- Dolby Vision profile 5, whose base layer is in Dolby's IPT color space, is
-  decoded by the HEVC WebAssembly decoder even when the browser has its own,
-  because reshaping needs the raw samples and the RPU metadata FFmpeg parses.
-  WebGPU then applies the RPU's reshaping curves and matrices, following
-  libplacebo, and tone maps with the scene's peak brightness. This keeps up
-  with 1080p but not 4K. Profile 8 plays from its HDR10 or HLG base layer.
+- Dolby Vision profile 5, whose base layer is in Dolby's IPT color space, gets
+  the RPU's reshaping curves and matrices in WebGPU, following libplacebo, and
+  is tone mapped with the scene's peak brightness. Profile 8 plays from its
+  HDR10 or HLG base layer.
+- HDR and Dolby Vision HEVC up to 1080p decode in software, so the engine reads
+  exact samples. Larger frames use the browser's hardware decoder: the engine
+  rewrites the stream's color description so the browser hands WebGPU values it
+  can undo, and parses Dolby Vision RPUs separately. Browsers expose hardware
+  frames at 8 bits per channel, so this path can band slightly, tint grays a
+  little, and shift very saturated Dolby Vision colors.
+- Chrome on Linux only decodes video in hardware through VA-API. On NVIDIA GPUs
+  that needs `nvidia-vaapi-driver` and Chrome flags; without them, 4K HEVC falls
+  back to software decoding, which does not keep up.
 - Surround audio plays as is on outputs with enough channels, and otherwise is
   downmixed to stereo.
 

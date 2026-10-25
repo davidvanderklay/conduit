@@ -1,6 +1,12 @@
 import type { VideoSample } from "mediabunny"
 import { DOLBY_VISION_FLOATS, dolbyVisionMetadata, dolbyVisionPeak } from "./dolby-vision"
-import { EXTERNAL_SHADER, PLANAR_SHADER } from "./shaders"
+import { relabeledSamples, type HdrTransfer } from "./relabeled-hevc"
+import {
+  EXTERNAL_DOLBY_VISION_SHADER,
+  EXTERNAL_HDR_SHADER,
+  EXTERNAL_SHADER,
+  PLANAR_SHADER,
+} from "./shaders"
 
 /** Draws decoded frames into the player's canvas at the frame's display size. */
 export interface FramePresenter {
@@ -56,6 +62,8 @@ async function createGpuPresenter(canvas: HTMLCanvasElement): Promise<FramePrese
   }
   const externalPipeline = pipeline(EXTERNAL_SHADER)
   const planarPipeline = pipeline(PLANAR_SHADER)
+  const externalHdrPipeline = pipeline(EXTERNAL_HDR_SHADER)
+  const externalDolbyVisionPipeline = pipeline(EXTERNAL_DOLBY_VISION_SHADER)
   const sampler = device.createSampler({ magFilter: "linear", minFilter: "linear" })
   const uniforms = device.createBuffer({
     size: 80,
@@ -107,6 +115,28 @@ async function createGpuPresenter(canvas: HTMLCanvasElement): Promise<FramePrese
     } catch {
       importExternal = false
       return false
+    } finally {
+      frame.close()
+    }
+  }
+
+  /** Draws a hardware frame whose color was relabeled, see relabeled-hevc.ts. */
+  const drawRelabeled = (
+    sample: VideoSample,
+    renderPipeline: GPURenderPipeline,
+    params: Float32Array,
+    metadata?: Float32Array<ArrayBuffer>,
+  ) => {
+    const frame = sample.toVideoFrame()
+    try {
+      device.queue.writeBuffer(uniforms, 0, params)
+      if (metadata) device.queue.writeBuffer(dolbyVision, 0, metadata)
+      draw(renderPipeline, [
+        { binding: 0, resource: { buffer: uniforms } },
+        { binding: 1, resource: sampler },
+        { binding: 2, resource: device.importExternalTexture({ source: frame }) },
+        ...(metadata ? [{ binding: 3, resource: { buffer: dolbyVision } }] : []),
+      ])
     } finally {
       frame.close()
     }
@@ -165,8 +195,16 @@ async function createGpuPresenter(canvas: HTMLCanvasElement): Promise<FramePrese
     async present(sample) {
       if (lost !== undefined) throw new Error(`The GPU device was lost: ${lost}`)
       resizeCanvas(canvas, sample)
-      const layout = sample.format ? PLANAR_LAYOUTS.get(sample.format) : undefined
+      const relabeled = relabeledSamples.get(sample)
       const metadata = dolbyVisionMetadata.get(sample)
+      if (relabeled?.kind === "hdr") {
+        return drawRelabeled(sample, externalHdrPipeline, externalHdrParams(relabeled.transfer))
+      }
+      if (relabeled && metadata) {
+        const params = relabeledDolbyVisionParams(sample, metadata)
+        return drawRelabeled(sample, externalDolbyVisionPipeline, params, metadata)
+      }
+      const layout = sample.format ? PLANAR_LAYOUTS.get(sample.format) : undefined
       if (layout && metadata) return drawPlanar(sample, layout, dolbyVisionParams(layout, metadata))
       const hdr = layout && planarParams(sample, layout, true)
       if (layout && hdr) return drawPlanar(sample, layout, hdr)
@@ -254,6 +292,54 @@ function planarParams(
   params[17] = DEFAULT_SOURCE_PEAK
   params[18] = SDR_WHITE
   words[19] = hdr && primaries !== "bt709" ? 1 : 0
+  return params
+}
+
+/** Shader parameters for a relabeled BT.2020 frame, whose external texture holds PQ or HLG R'G'B'. */
+function externalHdrParams(transfer: HdrTransfer): Float32Array {
+  const params = new Float32Array(20)
+  const words = new Uint32Array(params.buffer)
+  words[16] = HDR_TRANSFERS.get(transfer)!
+  params[17] = DEFAULT_SOURCE_PEAK
+  params[18] = SDR_WHITE
+  words[19] = 1
+  return params
+}
+
+/**
+ * Shader parameters for a relabeled Dolby Vision frame: the inverse of the
+ * BT.601 matrix the browser applied, and how it normalized the codes.
+ */
+function relabeledDolbyVisionParams(
+  sample: Pick<VideoSample, "colorSpace">,
+  metadata: Float32Array,
+): Float32Array {
+  const params = new Float32Array(20)
+  const [kr, kb] = LUMA_COEFFICIENTS.get("smpte170m")!
+  const kg = 1 - kr - kb
+  // Columns of the RGB to Y'CbCr matrix.
+  params.set([kr, -kr / (2 * (1 - kb)), 0.5, 0], 0)
+  params.set([kg, -kg / (2 * (1 - kb)), -kg / (2 * (1 - kr)), 0], 4)
+  params.set([kb, 0.5, -kb / (2 * (1 - kr)), 0], 8)
+  const codeMax = 2 ** metadata[0] - 1
+  const scale = 2 ** (metadata[0] - 8)
+  const center = 128 * scale
+  params.set(
+    sample.colorSpace.fullRange
+      ? [1, 1, 0, center / codeMax]
+      : [
+          (219 * scale) / codeMax,
+          (224 * scale) / codeMax,
+          (16 * scale) / codeMax,
+          center / codeMax,
+        ],
+    12,
+  )
+  const words = new Uint32Array(params.buffer)
+  words[16] = DOLBY_VISION_TRANSFER
+  params[17] = dolbyVisionPeak(metadata)
+  params[18] = SDR_WHITE
+  words[19] = 1
   return params
 }
 

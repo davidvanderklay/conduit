@@ -37,6 +37,7 @@ function reply(response: DecoderResponse) {
     response.type === "output"
       ? [
           ...response.output.audio.flatMap((audio) => audio.channels.map((plane) => plane.buffer)),
+          ...(response.output.dolbyVision ? [response.output.dolbyVision.buffer] : []),
           ...response.output.video.flatMap((video) => [
             video.data.buffer,
             ...(video.dolbyVision ? [video.dolbyVision.buffer] : []),
@@ -61,6 +62,20 @@ async function handle(request: DecoderRequest): Promise<DecodedOutput> {
   }
   if (!module || !decoder) throw new Error("Decoder is not open")
   const output: DecodedOutput = { audio: [], video: [] }
+  if (request.type === "rpu") {
+    const pointer = module._malloc(request.nal.byteLength)
+    module.HEAPU8.set(request.nal, pointer)
+    const metadata = module._rpu_parse(pointer, request.nal.byteLength)
+    module._free(pointer)
+    if (metadata) {
+      output.dolbyVision = new Float32Array(
+        module.HEAPU8.buffer,
+        metadata,
+        DOLBY_VISION_FLOATS,
+      ).slice()
+    }
+    return output
+  }
   if (request.type === "reset") {
     module._decoder_reset(decoder)
     return output

@@ -29,37 +29,13 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 `
 
 /**
- * Converts raw YUV planes to the canvas. SDR frames only need YUV to R'G'B'.
- * HDR frames go from PQ or HLG to linear light, through BT.2390 tone mapping
- * on max(RGB) and the BT.2020 to BT.709 gamut, and are then sRGB encoded.
- * Dolby Vision profile 5 frames are first reshaped and converted from IPT to
- * BT.2020 with their RPU metadata, following libplacebo.
+ * Dolby Vision reshaping and IPT conversion, following libplacebo, reading the
+ * metadata layout frame_dovi in apps/web/wasm/ffmpeg_bridge.c writes.
  */
-export const PLANAR_SHADER = /* wgsl */ `
-${FULLSCREEN_VERTEX}
-
-struct Params {
-  // Columns of the Y'CbCr to R'G'B' matrix.
-  matrix0: vec4f,
-  matrix1: vec4f,
-  matrix2: vec4f,
-  // y = (code - offset.x) * scale.x, c = (code - offset.y) * scale.y
-  scale: vec2f,
-  offset: vec2f,
-  // 0 = PQ, 1 = HLG, 2 = SDR, 3 = Dolby Vision
-  transfer: u32,
-  // Source peak and SDR white in nits.
-  sourcePeak: f32,
-  sdrWhite: f32,
-  convertGamut: u32,
-}
-
-@group(0) @binding(0) var<uniform> params: Params;
-@group(0) @binding(1) var lumaPlane: texture_2d<u32>;
-@group(0) @binding(2) var cbPlane: texture_2d<u32>;
-@group(0) @binding(3) var crPlane: texture_2d<u32>;
+function dolbyVisionFunctions(binding: number) {
+  return /* wgsl */ `
 // Dolby Vision metadata in the layout frame_dovi in apps/web/wasm/ffmpeg_bridge.c writes.
-@group(0) @binding(4) var<storage, read> dovi: array<f32>;
+@group(0) @binding(${binding}) var<storage, read> dovi: array<f32>;
 
 const DOVI_HEADER = 32u;
 const DOVI_COMPONENT = 226u;
@@ -105,18 +81,38 @@ fn doviReshape(signal: vec3f, component: u32) -> f32 {
   return clamp(result, dovi[base + 1u], dovi[base + pivots]);
 }
 
-fn loadPlane(plane: texture_2d<u32>, uv: vec2f) -> f32 {
-  // Bilinear filtering by hand, since integer textures cannot be sampled.
-  let size = vec2f(textureDimensions(plane));
-  let position = clamp(uv * size - 0.5, vec2f(0.0), size - 1.0);
-  let base = vec2i(floor(position));
-  let next = min(base + 1, vec2i(size) - 1);
-  let weight = fract(position);
-  let top = mix(f32(textureLoad(plane, base, 0).r), f32(textureLoad(plane, vec2i(next.x, base.y), 0).r), weight.x);
-  let bottom = mix(f32(textureLoad(plane, vec2i(base.x, next.y), 0).r), f32(textureLoad(plane, next, 0).r), weight.x);
-  return mix(top, bottom, weight.y);
+// Reshapes normalized base layer codes and converts IPT to linear BT.2020 nits.
+fn doviToNits(signal: vec3f) -> vec3f {
+  let reshaped = vec3f(doviReshape(signal, 0u), doviReshape(signal, 1u), doviReshape(signal, 2u));
+  let lms = pqToNits(doviMatrix(8u) * (reshaped - vec3f(dovi[4], dovi[5], dovi[6])));
+  return max(doviMatrix(17u) * lms, vec3f(0.0));
+}
+`
 }
 
+// Shader parameters shared by the planar and external HDR pipelines.
+const PARAMS = /* wgsl */ `
+struct Params {
+  // Columns of the Y'CbCr to R'G'B' matrix.
+  matrix0: vec4f,
+  matrix1: vec4f,
+  matrix2: vec4f,
+  // y = (code - offset.x) * scale.x, c = (code - offset.y) * scale.y
+  scale: vec2f,
+  offset: vec2f,
+  // 0 = PQ, 1 = HLG, 2 = SDR, 3 = Dolby Vision
+  transfer: u32,
+  // Source peak and SDR white in nits.
+  sourcePeak: f32,
+  sdrWhite: f32,
+  convertGamut: u32,
+}
+
+@group(0) @binding(0) var<uniform> params: Params;
+`
+
+// PQ and HLG decoding, BT.2390 tone mapping, and SDR output, used by both HDR pipelines.
+const HDR_FUNCTIONS = /* wgsl */ `
 const PQ_M1 = 0.1593017578125;
 const PQ_M2 = 78.84375;
 const PQ_C1 = 0.8359375;
@@ -169,25 +165,10 @@ fn srgbEncode(value: vec3f) -> vec3f {
   return select(1.055 * pow(c, vec3f(1.0 / 2.4)) - 0.055, c * 12.92, c <= vec3f(0.0031308));
 }
 
-@fragment
-fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
-  let y = (loadPlane(lumaPlane, input.uv) - params.offset.x) * params.scale.x;
-  let cb = (loadPlane(cbPlane, input.uv) - params.offset.y) * params.scale.y;
-  let cr = (loadPlane(crPlane, input.uv) - params.offset.y) * params.scale.y;
-  let yuvToRgb = mat3x3f(params.matrix0.xyz, params.matrix1.xyz, params.matrix2.xyz);
-  let encoded = yuvToRgb * vec3f(y, cb, cr);
-  if (params.transfer == 2u) {
-    return vec4f(clamp(encoded, vec3f(0.0), vec3f(1.0)), 1.0);
-  }
-  var nits = select(hlgToNits(encoded), pqToNits(encoded), params.transfer == 0u);
-  if (params.transfer == 3u) {
-    // Reshape, apply the RPU's YCbCr to nonlinear matrix, linearize PQ, then go to BT.2020.
-    let signal = clamp(vec3f(y, cb, cr), vec3f(0.0), vec3f(1.0));
-    let reshaped = vec3f(doviReshape(signal, 0u), doviReshape(signal, 1u), doviReshape(signal, 2u));
-    let lms = pqToNits(doviMatrix(8u) * (reshaped - vec3f(dovi[4], dovi[5], dovi[6])));
-    nits = max(doviMatrix(17u) * lms, vec3f(0.0));
-  }
 
+// Tone maps linear BT.2020 nits to SDR white, converts to BT.709, and sRGB encodes.
+fn presentNits(input: vec3f) -> vec4f {
+  var nits = input;
   let peak = max(max(nits.r, nits.g), nits.b);
   if (peak > 0.0 && params.sourcePeak > params.sdrWhite) {
     nits *= toneMap(peak) / peak;
@@ -207,5 +188,94 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
     }
   }
   return vec4f(srgbEncode(display), 1.0);
+}
+`
+
+/**
+ * Converts raw YUV planes to the canvas. SDR frames only need YUV to R'G'B'.
+ * HDR frames go from PQ or HLG to linear light, through BT.2390 tone mapping
+ * on max(RGB) and the BT.2020 to BT.709 gamut, and are then sRGB encoded.
+ * Dolby Vision profile 5 frames are first reshaped and converted from IPT to
+ * BT.2020 with their RPU metadata, following libplacebo.
+ */
+export const PLANAR_SHADER = /* wgsl */ `
+${FULLSCREEN_VERTEX}
+${PARAMS}
+@group(0) @binding(1) var lumaPlane: texture_2d<u32>;
+@group(0) @binding(2) var cbPlane: texture_2d<u32>;
+@group(0) @binding(3) var crPlane: texture_2d<u32>;
+${dolbyVisionFunctions(4)}
+fn loadPlane(plane: texture_2d<u32>, uv: vec2f) -> f32 {
+  // Bilinear filtering by hand, since integer textures cannot be sampled.
+  let size = vec2f(textureDimensions(plane));
+  let position = clamp(uv * size - 0.5, vec2f(0.0), size - 1.0);
+  let base = vec2i(floor(position));
+  let next = min(base + 1, vec2i(size) - 1);
+  let weight = fract(position);
+  let top = mix(f32(textureLoad(plane, base, 0).r), f32(textureLoad(plane, vec2i(next.x, base.y), 0).r), weight.x);
+  let bottom = mix(f32(textureLoad(plane, vec2i(base.x, next.y), 0).r), f32(textureLoad(plane, next, 0).r), weight.x);
+  return mix(top, bottom, weight.y);
+}
+
+${HDR_FUNCTIONS}
+@fragment
+fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
+  let y = (loadPlane(lumaPlane, input.uv) - params.offset.x) * params.scale.x;
+  let cb = (loadPlane(cbPlane, input.uv) - params.offset.y) * params.scale.y;
+  let cr = (loadPlane(crPlane, input.uv) - params.offset.y) * params.scale.y;
+  let yuvToRgb = mat3x3f(params.matrix0.xyz, params.matrix1.xyz, params.matrix2.xyz);
+  let encoded = yuvToRgb * vec3f(y, cb, cr);
+  if (params.transfer == 2u) {
+    return vec4f(clamp(encoded, vec3f(0.0), vec3f(1.0)), 1.0);
+  }
+  var nits = select(hlgToNits(encoded), pqToNits(encoded), params.transfer == 0u);
+  if (params.transfer == 3u) {
+    nits = doviToNits(clamp(vec3f(y, cb, cr), vec3f(0.0), vec3f(1.0)));
+  }
+
+  return presentNits(nits);
+}
+`
+
+/**
+ * Draws hardware-decoded HDR frames. hevc-color.ts relabels their transfer and
+ * primaries as sRGB, so the browser only applies the YCbCr matrix and hands
+ * over PQ or HLG encoded BT.2020 R'G'B', quantized to 8 bits per channel.
+ */
+export const EXTERNAL_HDR_SHADER = /* wgsl */ `
+${FULLSCREEN_VERTEX}
+${PARAMS}
+@group(0) @binding(1) var frameSampler: sampler;
+@group(0) @binding(2) var frame: texture_external;
+${HDR_FUNCTIONS}
+@fragment
+fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
+  var encoded = textureSampleBaseClampToEdge(frame, frameSampler, input.uv).rgb;
+  // Dither by up to half an 8-bit step so smooth gradients do not band after tone mapping.
+  let noise = fract(sin(dot(input.position.xy, vec2f(12.9898, 78.233))) * 43758.5453) - 0.5;
+  encoded = encoded + noise / 255.0;
+  return presentNits(select(hlgToNits(encoded), pqToNits(encoded), params.transfer == 0u));
+}
+`
+
+/**
+ * Draws hardware-decoded Dolby Vision profile 5 frames relabeled as BT.601.
+ * Inverts the browser's matrix (params.matrix holds RGB to YCbCr, params.scale
+ * and offset the code normalization) to recover the IPT codes, then reshapes them.
+ */
+export const EXTERNAL_DOLBY_VISION_SHADER = /* wgsl */ `
+${FULLSCREEN_VERTEX}
+${PARAMS}
+@group(0) @binding(1) var frameSampler: sampler;
+@group(0) @binding(2) var frame: texture_external;
+${HDR_FUNCTIONS}
+${dolbyVisionFunctions(3)}
+@fragment
+fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
+  let rgb = textureSampleBaseClampToEdge(frame, frameSampler, input.uv).rgb;
+  let rgbToYuv = mat3x3f(params.matrix0.xyz, params.matrix1.xyz, params.matrix2.xyz);
+  let yuv = rgbToYuv * rgb;
+  let signal = vec3f(yuv.x * params.scale.x + params.offset.x, yuv.yz * params.scale.y + params.offset.y);
+  return presentNits(doviToNits(clamp(signal, vec3f(0.0), vec3f(1.0))));
 }
 `

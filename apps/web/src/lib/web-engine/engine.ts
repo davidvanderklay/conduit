@@ -8,11 +8,18 @@ import {
   type InputVideoTrack,
   type VideoSample,
 } from "mediabunny"
-import { hasDolbyVisionRpu } from "./dolby-vision"
+import { findDolbyVisionRpu } from "./dolby-vision"
 import { downmixToStereo } from "./downmix"
 import type { PlaybackMedia, PlaybackMediaEvent } from "./media"
 import { createPresenter, type FramePresenter } from "./presenter"
-import { engineAudioTrack, probeInput, type ProbedAudio, type SourceProbe } from "./route"
+import { enableRelabeledHevc, hdrTransfer } from "./relabeled-hevc"
+import {
+  engineAudioTrack,
+  probeInput,
+  webGpuAvailable,
+  type ProbedAudio,
+  type SourceProbe,
+} from "./route"
 import { enableSoftwareHevc, softwareAudioBuffers } from "./software-decoders"
 import { FFmpegDecoder } from "./wasm/ffmpeg-decoder"
 
@@ -46,16 +53,48 @@ export async function openWebSource(url: string): Promise<WebSource> {
     }
     const videoTrack = await input.getPrimaryVideoTrack()
     const videoConfig = videoTrack && (await videoTrack.getDecoderConfig())
-    let dolbyVision = false
-    if (videoConfig && (await videoTrack.getCodec()) === "hevc") {
-      dolbyVision = await isDolbyVisionProfile5(videoTrack, videoConfig)
-      await enableSoftwareHevc(videoConfig, dolbyVision)
-    }
+    const dolbyVision =
+      videoTrack !== null &&
+      videoConfig !== null &&
+      (await videoTrack.getCodec()) === "hevc" &&
+      (await routeHevc(videoTrack, videoConfig))
     return { input, probe: await probeInput(input, dolbyVision), videoTrack }
   } catch (error) {
     input.dispose()
     throw error
   }
+}
+
+/** Software decoding keeps HDR and Dolby Vision exact, and keeps up, up to this many pixels. */
+const SOFTWARE_HEVC_PIXELS = 1920 * 1088
+
+/**
+ * Picks the decoder for an HEVC track and returns whether it is Dolby Vision
+ * profile 5. HDR and Dolby Vision decode in software up to 1080p, so the engine
+ * reads exact samples; larger frames take the browser's hardware decoder with
+ * relabeled color, at 8 bits per channel. Other HEVC uses the browser's decoder,
+ * or software when the browser has none.
+ */
+async function routeHevc(track: InputVideoTrack, config: VideoDecoderConfig): Promise<boolean> {
+  const dolbyVision = await isDolbyVisionProfile5(track, config)
+  const transfer = hdrTransfer((await track.getColorSpace()).transfer)
+  if (!dolbyVision && !transfer) {
+    await enableSoftwareHevc(config)
+    return false
+  }
+  const large =
+    (await track.getCodedWidth()) * (await track.getCodedHeight()) > SOFTWARE_HEVC_PIXELS
+  const webgpu = await webGpuAvailable()
+  const relabeled =
+    large &&
+    webgpu &&
+    (await enableRelabeledHevc(
+      config,
+      dolbyVision ? { kind: "dolby-vision" } : { kind: "hdr", transfer: transfer! },
+    ))
+  // Without WebGPU, HDR is left to the browser's own decoder and conversion.
+  if (!relabeled) await enableSoftwareHevc(config, dolbyVision || (webgpu && !large))
+  return dolbyVision
 }
 
 /**
@@ -75,7 +114,7 @@ async function isDolbyVisionProfile5(
     ? new Uint8Array(description.buffer, description.byteOffset, description.byteLength)
     : new Uint8Array(description)
   const packet = await new EncodedPacketSink(track).getFirstKeyPacket()
-  return Boolean(packet && hasDolbyVisionRpu(packet.data, (record[21] & 3) + 1))
+  return Boolean(packet && findDolbyVisionRpu(packet.data, (record[21] & 3) + 1))
 }
 
 /** Decoded audio from a position on, from the browser's decoders or FFmpeg in a worker. */

@@ -1,17 +1,17 @@
 import { describe, expect, it } from "vitest"
-import { DOLBY_VISION_FLOATS, dolbyVisionPeak, hasDolbyVisionRpu } from "./dolby-vision"
+import { DOLBY_VISION_FLOATS, dolbyVisionPeak, findDolbyVisionRpu } from "./dolby-vision"
 
 /** Length-prefixes NAL units the way hvcC-configured HEVC packets carry them. */
 function accessUnit(...nals: number[][]): Uint8Array {
   return Uint8Array.from(nals.flatMap((nal) => [0, 0, 0, nal.length, ...nal]))
 }
 
-describe("hasDolbyVisionRpu", () => {
+describe("findDolbyVisionRpu", () => {
   it("finds the RPU among the slices of an access unit", () => {
     const slice = [0x26, 0x01, 0xaf]
     const rpu = [62 << 1, 0x01, 0x19, 0x08]
-    expect(hasDolbyVisionRpu(accessUnit(slice, rpu))).toBe(true)
-    expect(hasDolbyVisionRpu(accessUnit(slice))).toBe(false)
+    expect(findDolbyVisionRpu(accessUnit(slice, rpu))).toEqual(Uint8Array.from(rpu))
+    expect(findDolbyVisionRpu(accessUnit(slice))).toBeUndefined()
   })
 })
 

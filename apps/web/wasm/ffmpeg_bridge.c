@@ -8,6 +8,8 @@
  * https://github.com/alchemyyy/WebGPU-Player
  */
 
+#include "config.h"
+
 #include <emscripten.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -21,6 +23,9 @@
 #include "libavutil/mem.h"
 #include "libavutil/pixdesc.h"
 #include "libavutil/samplefmt.h"
+#if CONFIG_DOVI_RPUDEC
+#include "libavcodec/dovi_rpu.h"
+#endif
 
 #define MAXIMUM_EXTRADATA_SIZE (1024 * 1024)
 
@@ -234,13 +239,7 @@ static const double DOVI_LMS_TO_RGB[9] = {
     0.01736321, -0.04725154, 1.03004253,
 };
 
-/* Returns the frame's Dolby Vision metadata in the layout above, or NULL when it has none. */
-EMSCRIPTEN_KEEPALIVE
-float *frame_dovi(Decoder *decoder) {
-    const AVFrameSideData *side_data =
-        av_frame_get_side_data(decoder->frame, AV_FRAME_DATA_DOVI_METADATA);
-    if (!side_data) return NULL;
-    const AVDOVIMetadata *dovi = (const AVDOVIMetadata *) side_data->data;
+static float *fill_dovi(const AVDOVIMetadata *dovi) {
     const AVDOVIRpuDataHeader *header = av_dovi_get_header(dovi);
     const AVDOVIDataMapping *mapping = av_dovi_get_mapping(dovi);
     const AVDOVIColorMetadata *color = av_dovi_get_color(dovi);
@@ -296,4 +295,49 @@ float *frame_dovi(Decoder *decoder) {
         }
     }
     return out;
+}
+
+/* Returns the frame's Dolby Vision metadata in the layout above, or NULL when it has none. */
+EMSCRIPTEN_KEEPALIVE
+float *frame_dovi(Decoder *decoder) {
+    const AVFrameSideData *side_data =
+        av_frame_get_side_data(decoder->frame, AV_FRAME_DATA_DOVI_METADATA);
+    return side_data ? fill_dovi((const AVDOVIMetadata *) side_data->data) : NULL;
+}
+
+#if CONFIG_DOVI_RPUDEC
+// RPUs may refer back to earlier ones, so one context parses a stream's RPUs in decode order.
+static DOVIContext rpu_context;
+#endif
+
+/*
+ * Parses a Dolby Vision RPU NAL unit (type 62, with its 2-byte header and
+ * emulation prevention) for streams a hardware decoder decodes, and returns
+ * its metadata in the layout above, or NULL when it does not parse.
+ */
+EMSCRIPTEN_KEEPALIVE
+float *rpu_parse(const uint8_t *nal, int size) {
+#if CONFIG_DOVI_RPUDEC
+    if (size <= 2) return NULL;
+    uint8_t *rbsp = av_malloc(size);
+    if (!rbsp) return NULL;
+    int length = 0;
+    for (int index = 2; index < size; index++) {
+        if (nal[index] == 3 && index >= 4 && nal[index - 1] == 0 && nal[index - 2] == 0) continue;
+        rbsp[length++] = nal[index];
+    }
+    AVDOVIMetadata *metadata = NULL;
+    float *out = NULL;
+    if (ff_dovi_rpu_parse(&rpu_context, rbsp, length, 0) >= 0
+        && ff_dovi_get_metadata(&rpu_context, &metadata) > 0) {
+        out = fill_dovi(metadata);
+    }
+    av_free(metadata);
+    av_free(rbsp);
+    return out;
+#else
+    (void) nal;
+    (void) size;
+    return NULL;
+#endif
 }

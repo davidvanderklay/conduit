@@ -46,6 +46,8 @@ export interface DecodedVideo {
 export interface DecodedOutput {
   audio: DecodedAudio[]
   video: DecodedVideo[]
+  /** Metadata of a parsed Dolby Vision RPU, see dolby-vision.ts. */
+  dolbyVision?: Float32Array<ArrayBuffer>
 }
 
 export type DecoderRequest =
@@ -53,6 +55,7 @@ export type DecoderRequest =
   | { type: "decode"; packets: PacketInput[] }
   | { type: "drain" }
   | { type: "reset" }
+  | { type: "rpu"; nal: Uint8Array }
 
 export type DecoderResponse =
   | { type: "output"; output: DecodedOutput }
@@ -121,6 +124,15 @@ export class FFmpegDecoder {
   /** Returns the frames still held for reordering. Call `reset` before decoding again. */
   drain(): Promise<DecodedOutput> {
     return this.#request({ type: "drain" })
+  }
+
+  /**
+   * Parses a Dolby Vision RPU NAL unit with FFmpeg, for streams the browser
+   * decodes in hardware. Open the decoder as `("video", "hevc")` first.
+   */
+  async parseRpu(nal: Uint8Array): Promise<Float32Array<ArrayBuffer> | undefined> {
+    const copy = nal.slice()
+    return (await this.#request({ type: "rpu", nal: copy }, [copy.buffer])).dolbyVision
   }
 
   /** Drops held frames so decoding can restart at a keyframe. */

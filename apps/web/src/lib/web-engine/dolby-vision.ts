@@ -12,19 +12,21 @@ export const dolbyVisionMetadata = new WeakMap<VideoSample, Float32Array<ArrayBu
 const HEVC_NAL_UNSPEC62 = 62
 
 /**
- * True when a length-prefixed HEVC access unit carries a Dolby Vision RPU,
+ * Returns the Dolby Vision RPU NAL unit of a length-prefixed HEVC access unit,
  * which Dolby Vision hides in NAL units of type 62.
  */
-export function hasDolbyVisionRpu(data: Uint8Array, lengthSize = 4): boolean {
+export function findDolbyVisionRpu(data: Uint8Array, lengthSize = 4): Uint8Array | undefined {
   let offset = 0
   while (offset + lengthSize < data.byteLength) {
     let length = 0
     for (let index = 0; index < lengthSize; index += 1) length = length * 256 + data[offset + index]
     const type = (data[offset + lengthSize] >> 1) & 0x3f
-    if (type === HEVC_NAL_UNSPEC62) return true
+    if (type === HEVC_NAL_UNSPEC62) {
+      return data.subarray(offset + lengthSize, offset + lengthSize + length)
+    }
     offset += lengthSize + length
   }
-  return false
+  return undefined
 }
 
 /** The peak luminance in nits that a frame's metadata declares, for tone mapping. */

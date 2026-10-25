@@ -30,6 +30,8 @@ export interface FFmpegModule {
   _frame_channel_mask(decoder: number): number
   /** Pointer to the frame's Dolby Vision metadata, or 0 when it has none. */
   _frame_dovi(decoder: number): number
+  /** Parses a Dolby Vision RPU NAL unit; returns a metadata pointer, or 0 when it does not parse. */
+  _rpu_parse(nal: number, size: number): number
 }
 
 export type FFmpegModuleFactory = (options?: {
