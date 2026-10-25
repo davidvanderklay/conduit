@@ -86,3 +86,12 @@ internal fun Modifier.dpadLeavesField(): Modifier = composed {
         true
     }
 }
+
+/** Requests focus once the target is attached; lazy list items attach a frame or two late. */
+internal suspend fun FocusRequester.requestFocusWhenReady(attempts: Int = 30): Boolean {
+    repeat(attempts) {
+        if (runCatching { requestFocus() }.getOrDefault(false)) return true
+        androidx.compose.runtime.withFrameNanos { }
+    }
+    return false
+}

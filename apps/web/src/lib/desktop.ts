@@ -26,6 +26,8 @@ export interface NativeTrack {
   bitrate?: number
   selected: boolean
   external: boolean
+  /** The add-on subtitle URL of an external subtitle track. */
+  externalFilename?: string
   forced?: boolean
 }
 
@@ -186,6 +188,14 @@ export function nativePlayerSnapshot(): Promise<NativePlayerSnapshot> {
 
 export function nativePlayerCommand(command: unknown[]): Promise<unknown> {
   return invoke("player_command", { command })
+}
+
+/** Reads bytes of the stream the native player opened, for subtitle auto sync. */
+export function nativePlayerStreamRange(
+  offset: number,
+  length: number,
+): Promise<{ data: string; size?: number }> {
+  return invoke("player_stream_range", { offset, length })
 }
 
 export function stopNativePlayer(): Promise<void> {

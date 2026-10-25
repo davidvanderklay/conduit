@@ -73,6 +73,8 @@ import {
   titleLanguagePreferences,
 } from "../lib/title-playback"
 import { SubtitlePicker } from "./subtitle-picker"
+import { SubtitleSyncByEar } from "./subtitle-sync-by-ear"
+import { autoSyncSubtitle, fetchVideoRange } from "../lib/subtitle-auto-sync"
 import { AudioTrackRow } from "./audio-track-row"
 import { audioTrackDisplay, type AudioTrackDisplay } from "../lib/audio-track-display"
 import { partyPositionAt, type WatchPartySession, type WatchPartyMedia } from "../lib/watch-party"
@@ -259,6 +261,11 @@ function WebPlayer({
   const [subtitleDelayMs, setSubtitleDelayMs] = useState(titleChoices.subtitleDelayMs ?? 0)
   const subtitleDelaySeconds = useRef(subtitleDelayMs / 1000)
   subtitleDelaySeconds.current = subtitleDelayMs / 1000
+  const [syncByEarOpen, setSyncByEarOpen] = useState(false)
+  const changeSubtitleDelay = (value: number) => {
+    setSubtitleDelayMs(value)
+    rememberTitlePlayback(profileId, progressMetadata.mediaId, { subtitleDelayMs: value })
+  }
   const heading = playerHeading(progressMetadata)
   const shellRef = useRef<HTMLDivElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -1434,12 +1441,18 @@ function WebPlayer({
               position={subtitlePosition}
               onPositionChange={changeSubtitlePosition}
               delayMs={subtitleDelayMs}
-              onDelayChange={(value) => {
-                setSubtitleDelayMs(value)
-                rememberTitlePlayback(profileId, progressMetadata.mediaId, {
-                  subtitleDelayMs: value,
-                })
+              onDelayChange={changeSubtitleDelay}
+              onSyncByEar={() => {
+                setTrackMenu(undefined)
+                setSyncByEarOpen(true)
               }}
+              onAutoSync={() =>
+                autoSyncSubtitle(
+                  fetchVideoRange(url),
+                  subtitles.find((subtitle) => subtitle.key === selectedSubtitle && !subtitle.embedded)
+                    ?.url,
+                )
+              }
               onOff={() => chooseSubtitleManually("off")}
               onSelect={chooseSubtitleManually}
             />
@@ -1462,6 +1475,14 @@ function WebPlayer({
             </p>
           )}
         </div>
+      )}
+      {syncByEarOpen && (
+        <SubtitleSyncByEar
+          delayMs={subtitleDelayMs}
+          onDelayChange={changeSubtitleDelay}
+          positionMs={() => (mediaRef.current?.currentTime ?? 0) * 1000}
+          onClose={() => setSyncByEarOpen(false)}
+        />
       )}
     </div>
   )

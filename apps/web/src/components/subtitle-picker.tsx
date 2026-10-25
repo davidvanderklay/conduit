@@ -1,6 +1,7 @@
-import { ChevronLeft, Minus, Plus } from "lucide-react"
+import { ChevronLeft, Ear, Minus, Plus, WandSparkles } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { groupSubtitles } from "../lib/subtitle-groups"
+import type { SubtitleAutoSyncResult } from "../lib/subtitle-auto-sync"
 import {
   SUBTITLE_DELAY_STEP_MS,
   formatSubtitleDelay,
@@ -27,6 +28,8 @@ export function SubtitlePicker({
   onPositionChange,
   delayMs,
   onDelayChange,
+  onSyncByEar,
+  onAutoSync,
   onOff,
   onSelect,
 }: {
@@ -39,6 +42,8 @@ export function SubtitlePicker({
   onPositionChange: (value: number) => void
   delayMs: number
   onDelayChange: (delayMs: number) => void
+  onSyncByEar?: () => void
+  onAutoSync?: () => Promise<SubtitleAutoSyncResult>
   onOff: () => void
   onSelect: (key: string) => void
 }) {
@@ -171,7 +176,12 @@ export function SubtitlePicker({
             <Plus size={16} />
           </button>
         </div>
-        <SubtitleDelayStepper delayMs={delayMs} onChange={onDelayChange} />
+        <SubtitleDelayStepper
+          delayMs={delayMs}
+          onChange={onDelayChange}
+          onSyncByEar={onSyncByEar}
+          onAutoSync={onAutoSync}
+        />
       </section>
     </div>
   )
@@ -180,15 +190,29 @@ export function SubtitlePicker({
 /**
  * Subtitle delay stepper, remembered per title. Matches the position stepper;
  * holding a button repeats it. Also used by the Electron overlay, so its
- * buttons opt into the overlay's hit regions.
+ * buttons opt into the overlay's hit regions. Players that show the sync by
+ * ear card pass `onSyncByEar` to offer it here, and players that can read the
+ * selected add-on subtitle pass `onAutoSync`, whose delay this applies.
  */
 export function SubtitleDelayStepper({
   delayMs,
   onChange,
+  onSyncByEar,
+  onAutoSync,
 }: {
   delayMs: number
   onChange: (delayMs: number) => void
+  onSyncByEar?: () => void
+  onAutoSync?: () => Promise<SubtitleAutoSyncResult>
 }) {
+  const [autoSync, setAutoSync] = useState<"running" | SubtitleAutoSyncResult>()
+  const runAutoSync = async () => {
+    if (!onAutoSync || autoSync === "running") return
+    setAutoSync("running")
+    const result = await onAutoSync()
+    if (result.synced) onChange(result.delayMs)
+    setAutoSync(result)
+  }
   const latestDelay = useRef(delayMs)
   latestDelay.current = delayMs
   // Held repeats can outpace renders, so each step builds on the last one sent.
@@ -235,9 +259,36 @@ export function SubtitleDelayStepper({
           <Plus size={16} />
         </button>
       </div>
+      <div className="mt-2 flex flex-wrap gap-2">
+        {onSyncByEar && (
+          <button className={syncButtonClass} data-overlay-interactive onClick={onSyncByEar}>
+            <Ear size={16} />
+            Sync by ear
+          </button>
+        )}
+        {onAutoSync && (
+          <button
+            className={syncButtonClass}
+            data-overlay-interactive
+            disabled={autoSync === "running"}
+            onClick={() => void runAutoSync()}
+          >
+            <WandSparkles size={16} />
+            {autoSync === "running" ? "Syncing…" : "Auto sync"}
+          </button>
+        )}
+      </div>
+      {autoSync && autoSync !== "running" && (
+        <p role="status" className="mt-2 px-2 text-xs text-zinc-400">
+          {autoSync.synced ? "Matched the embedded subtitles." : autoSync.reason}
+        </p>
+      )}
     </>
   )
 }
+
+const syncButtonClass =
+  "pointer-events-auto flex h-10 flex-1 items-center justify-center gap-2 whitespace-nowrap rounded-full bg-zinc-900 px-3 text-sm hover:bg-zinc-800 disabled:text-zinc-500"
 
 /** Steps once on press, then repeats while held. Keyboard activation steps once per click. */
 function useHoldRepeat(onStep: (stepMs: number) => void) {

@@ -69,7 +69,6 @@ import media.conduit.mobile.account.DiagnosticLogStore
 import media.conduit.mobile.account.SubtitleItem
 import media.conduit.mobile.foundation.SubtitleStyle
 import media.conduit.mobile.tv.isTelevision
-import media.conduit.mobile.tv.requestFocusWhenReady
 import media.conduit.mobile.tv.tvFocusTrap
 import androidx.activity.compose.BackHandler
 import androidx.compose.ui.focus.FocusRequester
@@ -230,6 +229,7 @@ actual fun NativePlayer(
     var dragging by remember(player) { mutableStateOf(false) }
     var draggedPosition by remember(player) { mutableFloatStateOf(0f) }
     var trackPanel by remember { mutableStateOf<Int?>(null) }
+    var syncByEarOpen by remember { mutableStateOf(false) }
     LaunchedEffect(trackPanel) { onOverlayVisibilityChanged(trackPanel != null) }
     // Android TV draws its own control bar in the session host and calls back through this bridge.
     val engineBridge = LocalPlayerEngineBridge.current
@@ -842,7 +842,7 @@ actual fun NativePlayer(
             engineBridge.cycleScale = { resizeMode = nextAndroidResizeMode(resizeMode) }
             engineBridge.speedLabel = "$playbackSpeed×"
             engineBridge.scaleLabel = androidResizeModeLabel(resizeMode)
-            engineBridge.panelOpen = trackPanel != null
+            engineBridge.panelOpen = trackPanel != null || syncByEarOpen
         }
         BackHandler(enabled = trackPanel != null) { trackPanel = null }
     }
@@ -1020,6 +1020,19 @@ actual fun NativePlayer(
                 if (portraitLayout && hasEpisodes) IconButton(onClick = onEpisodes, modifier = Modifier.align(Alignment.BottomEnd).padding(end = 14.dp, bottom = 8.dp).background(Color.Black.copy(.58f), CircleShape)) { Icon(Icons.Rounded.PlaylistPlay, "Episodes", tint = Color.White) }
             }
         }
+        // Auto sync compares the selected add-on subtitle with the video's embedded subtitle timing.
+        val autoSync: suspend () -> SubtitleAutoSyncResult = {
+            val selectedKey = if (activeEngine == NativePlaybackEngine.Libmpv) {
+                mpvView?.tracks("sub")?.firstOrNull(MpvTrack::selected)?.selectionKey
+            } else {
+                player.currentTracks.groups.filter { it.type == C.TRACK_TYPE_TEXT }.firstNotNullOfOrNull { group ->
+                    (0 until group.length).firstOrNull(group::isTrackSelected)?.let { group.getTrackFormat(it).id }
+                }
+            }
+            // Media3 prefixes side-loaded track IDs with their source index, such as "1:".
+            val subtitle = subtitles.firstOrNull { subtitleSelectionKey(it).let { key -> key == selectedKey || selectedKey?.endsWith(":$key") == true } }
+            autoSyncSubtitle(url, requestHeaders, subtitle?.url)
+        }
         trackPanel?.let { type ->
             val panelFocus = remember { FocusRequester() }
             val panelGroup = remember { FocusRequester() }
@@ -1040,6 +1053,8 @@ actual fun NativePlayer(
                         onSubtitleStyleChanged = onSubtitleStyleChanged,
                         subtitleDelayMs = subtitleDelayMs,
                         onSubtitleDelayChanged = onSubtitleDelayChanged,
+                        onSyncByEar = { trackPanel = null; syncByEarOpen = true },
+                        onAutoSync = autoSync,
                         onSubtitleSelectionChanged = { id, language, label, enabled ->
                             manualSubtitleSelection = true
                             selectedSubtitleId = id
@@ -1061,6 +1076,8 @@ actual fun NativePlayer(
                     onSubtitleStyleChanged = onSubtitleStyleChanged,
                     subtitleDelayMs = subtitleDelayMs,
                     onSubtitleDelayChanged = onSubtitleDelayChanged,
+                    onSyncByEar = { trackPanel = null; syncByEarOpen = true },
+                    onAutoSync = autoSync,
                     onBeforeSelection = { trackFallback = player.trackSelectionParameters; lastTrackChangeAt = SystemClock.elapsedRealtime() },
                     onSubtitleSelectionChanged = { id, language, enabled ->
                         manualSubtitleSelection = true
@@ -1076,6 +1093,20 @@ actual fun NativePlayer(
             }
             }
             }
+        }
+        if (syncByEarOpen) {
+            BackHandler { syncByEarOpen = false }
+            SubtitleSyncByEarCard(
+                delayMs = subtitleDelayMs,
+                onDelayChange = onSubtitleDelayChanged,
+                positionMs = {
+                    if (activeEngine == NativePlaybackEngine.Libmpv) mpvView?.currentPositionMs() ?: 0L
+                    else player.currentPosition.coerceAtLeast(0L)
+                },
+                onClose = { syncByEarOpen = false },
+                modifier = Modifier.align(Alignment.TopCenter).safeDrawingPadding().padding(top = 16.dp, start = 16.dp, end = 16.dp),
+                focusOnOpen = engineBridge != null,
+            )
         }
 
         DoubleTapSeekOverlay(
@@ -1190,6 +1221,8 @@ private fun BoxScope.PlayerTrackPanel(
     onSubtitleStyleChanged: (SubtitleStyle) -> Unit,
     subtitleDelayMs: Long,
     onSubtitleDelayChanged: (Long) -> Unit,
+    onSyncByEar: () -> Unit,
+    onAutoSync: suspend () -> SubtitleAutoSyncResult,
     onBeforeSelection: () -> Unit,
     onSubtitleSelectionChanged: (String?, String?, Boolean) -> Unit,
     onAudioSelected: (Format) -> Unit,
@@ -1210,7 +1243,7 @@ private fun BoxScope.PlayerTrackPanel(
         if (close) onDismiss() else subtitlePage = "overview"
     }
     if (type == C.TRACK_TYPE_TEXT) {
-        FullscreenSubtitlePanel(player, options, selectedOption, subtitleStyle, onSubtitleStyleChanged, subtitleDelayMs, onSubtitleDelayChanged, onBeforeSelection, onSubtitleSelectionChanged, onDismiss)
+        FullscreenSubtitlePanel(player, options, selectedOption, subtitleStyle, onSubtitleStyleChanged, subtitleDelayMs, onSubtitleDelayChanged, onSyncByEar, onAutoSync, onBeforeSelection, onSubtitleSelectionChanged, onDismiss)
         return
     }
     Surface(modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight().fillMaxWidth(.48f), color = Color(0xF21A1A1D), shape = RoundedCornerShape(topStart = 28.dp, bottomStart = 28.dp), shadowElevation = 18.dp) {
@@ -1272,6 +1305,8 @@ private fun BoxScope.FullscreenSubtitlePanel(
     onSubtitleStyleChanged: (SubtitleStyle) -> Unit,
     subtitleDelayMs: Long,
     onSubtitleDelayChanged: (Long) -> Unit,
+    onSyncByEar: () -> Unit,
+    onAutoSync: suspend () -> SubtitleAutoSyncResult,
     onBeforeSelection: () -> Unit,
     onSubtitleSelectionChanged: (String?, String?, Boolean) -> Unit,
     onDismiss: () -> Unit,
@@ -1301,7 +1336,7 @@ private fun BoxScope.FullscreenSubtitlePanel(
             Row(Modifier.fillMaxWidth().weight(1f).padding(horizontal = 18.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(30.dp)) {
                 Column(Modifier.weight(1f)) { Text("Subtitle Languages", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold); Spacer(Modifier.height(18.dp)); LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) { item { PlayerTrackRow("Disabled", selectedTrackKey == null) { selectedTrackKey = null; onSubtitleSelectionChanged(null, null, false); player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().clearOverridesOfType(C.TRACK_TYPE_TEXT).setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build() } }; options.distinctBy(PlayerTrackOption::languageKey).forEach { option -> item(option.languageKey) { PlayerTrackRow(option.languageName, selectedTrackKey != null && language == option.languageKey, option.supported) { val best = options.firstOrNull { it.languageKey == option.languageKey && it.supported } ?: option; choose(best) } } } } }
                 Column(Modifier.weight(1f)) { Text("Subtitle Variants", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold); Spacer(Modifier.height(18.dp)); LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) { options.filter { it.languageKey == language }.forEach { option -> item(option.key) { PlayerTrackRow(option.variantName, option.key == selectedTrackKey, option.supported) { choose(option) } } } } }
-                Column(Modifier.weight(1f)) { Text("Subtitle Settings", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold); Spacer(Modifier.height(18.dp)); SubtitleStyleControls(subtitleStyle, onSubtitleStyleChanged, Modifier.verticalScroll(rememberScrollState()), contentColor = Color.White, delayMs = subtitleDelayMs, onDelayChange = onSubtitleDelayChanged) }
+                Column(Modifier.weight(1f)) { Text("Subtitle Settings", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold); Spacer(Modifier.height(18.dp)); SubtitleStyleControls(subtitleStyle, onSubtitleStyleChanged, Modifier.verticalScroll(rememberScrollState()), contentColor = Color.White, delayMs = subtitleDelayMs, onDelayChange = onSubtitleDelayChanged, onSyncByEar = onSyncByEar, onAutoSync = onAutoSync) }
             }
           }
         }

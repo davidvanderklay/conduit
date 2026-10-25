@@ -13,6 +13,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import media.conduit.mobile.account.SubtitleItem
 import media.conduit.mobile.foundation.SubtitleStyle
 
@@ -106,7 +107,8 @@ internal class ConduitMpvView(
     private var lastSubtitleStyle: SubtitleStyle? = null
     private var defaultSubtitleOutlineSize: Double? = null
     private val nativeLock = Any()
-    private val nativeScope = CoroutineScope(SupervisorJob() + Dispatchers.IO.limitedParallelism(1))
+    private val nativeDispatcher = Dispatchers.IO.limitedParallelism(1)
+    private val nativeScope = CoroutineScope(SupervisorJob() + nativeDispatcher)
     private val subtitleScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     @Volatile private var destroyed = false
     private var surfaceReady = false
@@ -678,6 +680,14 @@ internal class ConduitMpvView(
         mpv.setPropertyString("sid", "no")
         trackCacheRefreshRequested = true
         applyPendingSubtitleSelectionNative()
+    }
+
+    /** Reads the position from mpv now, for timing finer than the refreshed snapshot. */
+    suspend fun currentPositionMs(): Long = withContext(nativeDispatcher) {
+        synchronized(nativeLock) {
+            if (destroyed || !mpv.isInitialized) cachedSnapshot.positionMs
+            else mpv.getPropertyDouble("time-pos").toMillis()
+        }
     }
 
     /** Returns the last background-refreshed state without touching JNI. */

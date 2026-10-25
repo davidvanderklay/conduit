@@ -59,6 +59,15 @@ class TitlePlaybackTest {
     }
 
     @Test
+    fun syncByEarShiftsTheDelayByTheGapBetweenHearingAndSeeing() {
+        // Subtitle shown 1.2 s after the line is heard: show subtitles earlier.
+        assertEquals(-1_200, syncByEarDelay(0, 10_000, 11_230))
+        // Subtitle shown before the line, on top of an existing delay.
+        assertEquals(300, syncByEarDelay(-500, 20_800, 20_000))
+        assertEquals(30_000, syncByEarDelay(29_000, 5_000, 1_000))
+    }
+
+    @Test
     fun forcedOnlyModeSkipsFullSubtitles() {
         val full = SubtitleCandidate("full", "en", embedded = true)
         val signs = SubtitleCandidate("signs", "en", "Signs & Songs", embedded = false)

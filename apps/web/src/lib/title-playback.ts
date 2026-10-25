@@ -74,6 +74,14 @@ export function stepSubtitleDelay(delayMs: number, stepMs: number): number {
   return Math.max(-SUBTITLE_DELAY_LIMIT_MS, Math.min(SUBTITLE_DELAY_LIMIT_MS, next))
 }
 
+/**
+ * The delay after a sync by ear: the subtitle appeared at playback position
+ * `sawMs` for a line heard at `heardMs`, so it moves by the gap between them.
+ */
+export function syncByEarDelay(delayMs: number, heardMs: number, sawMs: number): number {
+  return stepSubtitleDelay(delayMs, heardMs - sawMs)
+}
+
 /** Holding a delay control repeats it, with larger steps after the first second and a half. */
 export function heldSubtitleDelayStep(heldMs: number): number {
   return heldMs < 1500 ? SUBTITLE_DELAY_STEP_MS : SUBTITLE_DELAY_STEP_MS * 5

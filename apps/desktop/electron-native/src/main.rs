@@ -93,6 +93,12 @@ struct PlayerTrack {
     selected: bool,
     #[serde(default)]
     external: bool,
+    /// The add-on subtitle URL for external tracks, used by subtitle auto sync.
+    #[serde(
+        default,
+        rename(deserialize = "external-filename", serialize = "externalFilename")
+    )]
+    external_filename: Option<String>,
     #[serde(default)]
     forced: bool,
 }

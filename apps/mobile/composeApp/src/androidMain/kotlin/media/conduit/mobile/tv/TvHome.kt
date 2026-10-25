@@ -2,6 +2,7 @@
 
 package media.conduit.mobile.tv
 
+import media.conduit.mobile.requestFocusWhenReady
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
