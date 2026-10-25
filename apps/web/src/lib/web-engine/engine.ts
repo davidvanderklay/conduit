@@ -25,6 +25,7 @@ import {
   type SourceProbe,
 } from "./route"
 import { enableSoftwareHevc, softwareAudioBuffers, softwareVideoSamples } from "./software-decoders"
+import { TimeStretcher } from "./time-stretch"
 import { FFmpegDecoder } from "./wasm/ffmpeg-decoder"
 
 /** An opened source: its Mediabunny input plus what the probe learned about it. */
@@ -182,6 +183,8 @@ const START_AUDIO_SECONDS = 0.3
 /** Video this far behind the clock restarts at the nearest keyframe instead of catching up. */
 const VIDEO_RESYNC_SECONDS = 1.5
 const FRAME_EPSILON = 0.002
+const MIN_RATE = 0.25
+const MAX_RATE = 4
 const MEDIA_ERR_NETWORK = 2
 const MEDIA_ERR_DECODE = 3
 
@@ -217,8 +220,9 @@ export class WebMediaEngine extends EventTarget implements PlaybackMedia {
   #destroyed = false
   #volume = 1
   #muted = false
+  #rate = 1
 
-  // While running, media time = anchorMedia + (clock - anchorClock).
+  // While running, media time = anchorMedia + (clock - anchorClock) * rate.
   #running = false
   #position = 0
   #anchorMedia = 0
@@ -233,7 +237,8 @@ export class WebMediaEngine extends EventTarget implements PlaybackMedia {
   #frameDemand?: () => void
 
   #audioGeneration = 0
-  #pendingAudio: { buffer: AudioBuffer; timestamp: number }[] = []
+  /** Decoded audio waiting to be scheduled; stretched buffers cover `mediaDuration` of media. */
+  #pendingAudio: { buffer: AudioBuffer; timestamp: number; mediaDuration: number }[] = []
   #scheduledEnd = 0
   #audioEnded = false
 
@@ -280,7 +285,7 @@ export class WebMediaEngine extends EventTarget implements PlaybackMedia {
 
   get currentTime(): number {
     if (!this.#running) return this.#position
-    const time = this.#anchorMedia + Math.max(0, this.#clock() - this.#anchorClock)
+    const time = this.#anchorMedia + Math.max(0, this.#clock() - this.#anchorClock) * this.#rate
     return Number.isFinite(this.#duration) ? Math.min(time, this.#duration) : time
   }
 
@@ -330,12 +335,22 @@ export class WebMediaEngine extends EventTarget implements PlaybackMedia {
     return { length: 1, start: () => start, end: () => end }
   }
 
-  /** The engine keeps audio pitch intact by only playing at normal speed. */
   get playbackRate(): number {
-    return 1
+    return this.#rate
   }
 
-  set playbackRate(_rate: number) {}
+  /** Changes speed from the current position. Audio keeps its pitch, see time-stretch.ts. */
+  set playbackRate(rate: number) {
+    const next = Math.min(MAX_RATE, Math.max(MIN_RATE, rate))
+    // Watch parties reassign the rate on every sync, so an unchanged rate must not rebuffer.
+    if (!Number.isFinite(rate) || next === this.#rate) return
+    this.#position = this.currentTime
+    this.#running = false
+    this.#rate = next
+    // Audio already scheduled plays at the old speed, so refill it from here.
+    if (!this.#paused) this.#startWaiting()
+    this.#emit("ratechange")
+  }
 
   get volume(): number {
     return this.#volume
@@ -430,7 +445,7 @@ export class WebMediaEngine extends EventTarget implements PlaybackMedia {
     return this.#context.currentTime - (this.#context.outputLatency || 0)
   }
 
-  #emit(type: PlaybackMediaEvent | "loadeddata") {
+  #emit(type: PlaybackMediaEvent | "loadeddata" | "ratechange") {
     this.dispatchEvent(new Event(type))
   }
 
@@ -647,10 +662,33 @@ export class WebMediaEngine extends EventTarget implements PlaybackMedia {
   }
 
   async #runAudio(stream: AudioStream, generation: number, from: number) {
+    const rate = this.#rate
+    let stretcher: TimeStretcher | undefined
     try {
       for await (const { buffer, timestamp } of stream(from)) {
         if (generation !== this.#audioGeneration) return
-        this.#pendingAudio.push({ buffer: this.#prepareAudio(buffer), timestamp })
+        const prepared = this.#prepareAudio(buffer)
+        if (rate === 1) {
+          this.#pendingAudio.push({ buffer: prepared, timestamp, mediaDuration: prepared.duration })
+        } else {
+          stretcher ??= new TimeStretcher(rate, prepared.sampleRate)
+          const channels = Array.from({ length: prepared.numberOfChannels }, (_, index) =>
+            prepared.getChannelData(index),
+          )
+          const stretched = stretcher.push(channels, timestamp, prepared.sampleRate)
+          if (!stretched) continue
+          const output = new AudioBuffer({
+            numberOfChannels: stretched.channels.length,
+            length: stretched.channels[0].length,
+            sampleRate: prepared.sampleRate,
+          })
+          stretched.channels.forEach((samples, channel) => output.copyToChannel(samples, channel))
+          this.#pendingAudio.push({
+            buffer: output,
+            timestamp: stretched.timestamp,
+            mediaDuration: stretched.mediaDuration,
+          })
+        }
         this.#scheduleAudio()
         while (generation === this.#audioGeneration && this.#bufferedAudio() > AUDIO_LEAD_SECONDS) {
           await new Promise((resolve) => window.setTimeout(resolve, 100))
@@ -666,24 +704,29 @@ export class WebMediaEngine extends EventTarget implements PlaybackMedia {
 
   #bufferedAudio(): number {
     if (this.#running) return this.#scheduledEnd - this.currentTime
-    return this.#pendingAudio.reduce((total, { buffer }) => total + buffer.duration, 0)
+    return this.#pendingAudio.reduce((total, { mediaDuration }) => total + mediaDuration, 0)
   }
 
   #scheduleAudio() {
     const context = this.#context
     const gain = this.#gain
     if (!this.#running || !context || !gain) return
-    for (const { buffer, timestamp } of this.#pendingAudio) {
-      const start = this.#anchorClock + (timestamp - this.#anchorMedia)
+    for (const { buffer, timestamp, mediaDuration } of this.#pendingAudio) {
+      // Buffers were stretched for the current rate, so media time maps to clock time by it.
+      const start = this.#anchorClock + (timestamp - this.#anchorMedia) / this.#rate
       // Skip whatever lies before the anchor or has already passed.
-      const offset = Math.max(0, context.currentTime - start, this.#anchorMedia - timestamp)
+      const offset = Math.max(
+        0,
+        context.currentTime - start,
+        (this.#anchorMedia - timestamp) / this.#rate,
+      )
       if (offset >= buffer.duration) continue
       const node = new AudioBufferSourceNode(context, { buffer })
       node.connect(gain)
       node.onended = () => this.#sources.delete(node)
       node.start(start + offset, offset)
       this.#sources.add(node)
-      this.#scheduledEnd = Math.max(this.#scheduledEnd, timestamp + buffer.duration)
+      this.#scheduledEnd = Math.max(this.#scheduledEnd, timestamp + mediaDuration)
     }
     this.#pendingAudio = []
   }

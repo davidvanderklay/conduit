@@ -97,8 +97,8 @@ it plays the source with its own engine instead:
 
 If an audio track still cannot be decoded, the engine plays another decodable
 track in the same language, or plays the video alone. VP9 HDR10+
-metadata in Matroska BlockAdditions is not read, and the engine plays at normal
-speed only.
+metadata in Matroska BlockAdditions is not read. Playback speed changes keep the
+audio's pitch by time-stretching it (WSOLA).
 If either route fails before playback starts, the player tries the other one
 once.
 
