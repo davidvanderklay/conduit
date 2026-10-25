@@ -9,6 +9,7 @@ import {
   type VideoCodec,
 } from "mediabunny"
 import { dolbyVisionMetadata } from "./dolby-vision"
+import { EnhancementLayerDecoder } from "./dolby-vision-enhancement"
 import { HdrPeakTracker, hdrPeaks } from "./hdr-metadata"
 import type { SoftwareVideoCodec } from "./route"
 import { FFmpegDecoder, type DecodedOutput, type DecodedVideo } from "./wasm/ffmpeg-decoder"
@@ -19,6 +20,7 @@ const softwareHevc = new Set<string>()
 /** Decodes HEVC Main and Main 10 with FFmpeg in a worker when the browser has no HEVC decoder. */
 class SoftwareHevcDecoder extends CustomVideoDecoder {
   #decoder?: FFmpegDecoder
+  #enhancement?: EnhancementLayerDecoder
   readonly #peaks = new HdrPeakTracker()
   #closed = false
 
@@ -28,28 +30,38 @@ class SoftwareHevcDecoder extends CustomVideoDecoder {
 
   async init() {
     const { description } = this.config
-    this.#decoder = await FFmpegDecoder.open(
-      "video",
-      "hevc",
+    const record =
       description &&
-        (ArrayBuffer.isView(description)
-          ? new Uint8Array(description.buffer, description.byteOffset, description.byteLength)
-          : new Uint8Array(description)),
-    )
+      (ArrayBuffer.isView(description)
+        ? new Uint8Array(description.buffer, description.byteOffset, description.byteLength)
+        : new Uint8Array(description))
+    this.#decoder = await FFmpegDecoder.open("video", "hevc", record)
+    // hvcC keeps the NAL length size minus one in byte 21. Annex B streams have no hvcC, and no EL.
+    const lengthSize = record && record.byteLength > 21 ? (record[21] & 3) + 1 : undefined
+    this.#enhancement = new EnhancementLayerDecoder(lengthSize, (sample) => {
+      if (this.#closed) sample.close()
+      else this.onSample(sample)
+    })
   }
 
   async decode(packet: EncodedPacket) {
-    this.#emit(await this.#decoder!.decode([packet]))
+    const [output] = await Promise.all([
+      this.#decoder!.decode([packet]),
+      this.#enhancement!.decode(packet),
+    ])
+    this.#emit(output)
   }
 
   async flush() {
     this.#emit(await this.#decoder!.drain())
     await this.#decoder!.reset()
+    await this.#enhancement!.flush()
   }
 
   close() {
     this.#closed = true
     this.#decoder?.release()
+    this.#enhancement?.close()
   }
 
   #emit({ video }: DecodedOutput) {
@@ -68,14 +80,14 @@ class SoftwareHevcDecoder extends CustomVideoDecoder {
       if (frame.dolbyVision) dolbyVisionMetadata.set(sample, frame.dolbyVision)
       const peak = this.#peaks.update(frame.hdrPeaks)
       if (peak) hdrPeaks.set(sample, peak)
-      this.onSample(sample)
+      this.#enhancement!.push(sample)
     }
   }
 }
 
 /**
  * Routes an HEVC track to the WebAssembly decoder when the browser cannot decode
- * it, or always with `force`, for Dolby Vision profile 5, whose reshaping needs
+ * it, or always with `force`, for Dolby Vision that needs reshaping, which needs
  * raw samples and the RPU metadata only FFmpeg returns.
  */
 export async function enableSoftwareHevc(config: VideoDecoderConfig, force = false): Promise<void> {

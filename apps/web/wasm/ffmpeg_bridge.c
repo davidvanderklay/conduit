@@ -227,14 +227,18 @@ double frame_channel_mask(Decoder *decoder) {
  *   0      base layer bit depth
  *   1      source_max_pq / 4095
  *   2      level 1 max_pq / 4095, or -1 without a level 1 block
+ *   3      enhancement layer code maximum when it carries a residual (profile 7 FEL), else 0
  *   4..6   YCbCr offsets, rescaled from 2^bits to the (2^bits - 1) code range
  *   8..16  YCbCr to nonlinear RGB matrix, row-major, applied before PQ linearization
  *   17..25 linear signal to BT.2020 RGB: the BT.2020 HPE LMS to RGB matrix times the RPU's RGB to LMS
- *   32...  per component: pivot count, 9 normalized pivots, then 8 pieces of 27 floats:
+ *   32..43 per component, the enhancement residual's linear dead-zone dequantization on
+ *          normalized codes: offset, slope, threshold, and the residual's bound (vdr_in_max)
+ *   44...  per component: pivot count, 9 normalized pivots, then 8 pieces of 27 floats:
  *          method (0 polynomial, 1 MMR), 3 polynomial coefficients, MMR order, MMR constant,
  *          3 orders x 7 MMR coefficients
  */
-#define DOVI_HEADER 32
+#define DOVI_NLQ 32
+#define DOVI_HEADER 44
 #define DOVI_PIECE_STRIDE 27
 #define DOVI_COMPONENT_STRIDE (1 + 9 + AV_DOVI_MAX_PIECES * DOVI_PIECE_STRIDE)
 #define DOVI_SIZE (DOVI_HEADER + 3 * DOVI_COMPONENT_STRIDE)
@@ -263,6 +267,20 @@ static float *fill_dovi(const AVDOVIMetadata *dovi) {
     for (int i = 0; i < dovi->num_ext_blocks; i++) {
         const AVDOVIDmData *block = av_dovi_get_ext(dovi, i);
         if (block->level == 1) out[2] = block->l1.max_pq / 4095.0f;
+    }
+    if (mapping->nlq_method_idc == AV_DOVI_NLQ_LINEAR_DZ && !header->disable_residual_flag) {
+        // Rescales the residual from enhancement codes to the normalized signal, following
+        // ETSI GS CCM 001: sign(e - offset) * ((|e - offset| - 0.5) * slope + threshold).
+        const double el_max = (double) ((1 << header->el_bit_depth) - 1);
+        out[3] = el_max;
+        for (int c = 0; c < 3; c++) {
+            const AVDOVINLQParams *nlq = &mapping->nlq[c];
+            const double slope = nlq->linear_deadzone_slope * coefficient_scale;
+            out[DOVI_NLQ + c * 4] = nlq->nlq_offset / el_max;
+            out[DOVI_NLQ + c * 4 + 1] = slope * el_max;
+            out[DOVI_NLQ + c * 4 + 2] = nlq->linear_deadzone_threshold * coefficient_scale - 0.5 * slope;
+            out[DOVI_NLQ + c * 4 + 3] = nlq->vdr_in_max * coefficient_scale;
+        }
     }
     for (int i = 0; i < 3; i++) {
         out[4 + i] = av_q2d(color->ycc_to_rgb_offset[i]) * (code_max + 1) / code_max;

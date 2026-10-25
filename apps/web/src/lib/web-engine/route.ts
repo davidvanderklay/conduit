@@ -12,7 +12,7 @@ export interface ProbedVideo {
   /** Set when FFmpeg in a worker decodes this track instead of the browser. */
   software?: SoftwareVideoCodec
   hdr: boolean
-  /** Dolby Vision profile 5, which only the engine's WebGPU path renders in the right colors. */
+  /** Dolby Vision that needs reshaping (profile 5, or 7 with its enhancement layer), which only the engine's WebGPU path renders right. */
   dolbyVision: boolean
   /** HDR peak in nits from container metadata, for frames that carry none themselves. */
   hdrPeak?: number

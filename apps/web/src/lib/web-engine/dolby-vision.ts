@@ -5,7 +5,7 @@ import { nalUnits } from "./hevc-color"
  * Float count of the Dolby Vision metadata FFmpeg's decoder attaches to each
  * frame, in the layout `frame_dovi` in apps/web/wasm/ffmpeg_bridge.c writes.
  */
-export const DOLBY_VISION_FLOATS = 32 + 3 * (1 + 9 + 8 * 27)
+export const DOLBY_VISION_FLOATS = 44 + 3 * (1 + 9 + 8 * 27)
 
 /** Dolby Vision metadata of software-decoded samples, read by the presenter. */
 export const dolbyVisionMetadata = new WeakMap<VideoSample, Float32Array<ArrayBuffer>>()

@@ -9,6 +9,7 @@ import {
   type VideoSample,
 } from "mediabunny"
 import { findDolbyVisionRpu } from "./dolby-vision"
+import { hasEnhancementLayer } from "./dolby-vision-enhancement"
 import { MatroskaFile } from "./matroska"
 import { downmixToStereo } from "./downmix"
 import type { PlaybackMedia, PlaybackMediaEvent } from "./media"
@@ -85,14 +86,14 @@ export async function openWebSource(url: string): Promise<WebSource> {
 const SOFTWARE_HEVC_PIXELS = 1920 * 1088
 
 /**
- * Picks the decoder for an HEVC track and returns whether it is Dolby Vision
- * profile 5. HDR and Dolby Vision decode in software up to 1080p, so the engine
+ * Picks the decoder for an HEVC track and returns whether it needs Dolby Vision
+ * reshaping. HDR and Dolby Vision decode in software up to 1080p, so the engine
  * reads exact samples; larger frames take the browser's hardware decoder with
  * relabeled color, at 8 bits per channel. Other HEVC uses the browser's decoder,
  * or software when the browser has none.
  */
 async function routeHevc(track: InputVideoTrack, config: VideoDecoderConfig): Promise<boolean> {
-  const dolbyVision = await isDolbyVisionProfile5(track, config)
+  const dolbyVision = await needsDolbyVisionReshaping(track, config)
   const transfer = hdrTransfer((await track.getColorSpace()).transfer)
   if (!dolbyVision && !transfer) {
     await enableSoftwareHevc(config)
@@ -108,29 +109,30 @@ async function routeHevc(track: InputVideoTrack, config: VideoDecoderConfig): Pr
       config,
       dolbyVision ? { kind: "dolby-vision" } : { kind: "hdr", transfer: transfer! },
     ))
-  // Without WebGPU, HDR is left to the browser's own decoder and conversion.
-  if (!relabeled) await enableSoftwareHevc(config, dolbyVision || (webgpu && !large))
+  // Without WebGPU, which reshapes and tone maps, HDR and Dolby Vision are left to the browser.
+  if (!relabeled) await enableSoftwareHevc(config, webgpu && (dolbyVision || !large))
   return dolbyVision
 }
 
 /**
- * Profile 5 carries RPUs on a base layer that is not HDR10, unlike profile 8,
- * whose HDR10 base layer plays fine without them.
+ * Profile 5 carries RPUs on a base layer that is not HDR10, and profile 7 an
+ * enhancement layer whose residual completes its HDR10 base layer. Profile 8's
+ * HDR10 base layer plays fine without its RPUs.
  */
-async function isDolbyVisionProfile5(
+async function needsDolbyVisionReshaping(
   track: InputVideoTrack,
   config: VideoDecoderConfig,
 ): Promise<boolean> {
   const { description } = config
   // hvcC keeps the NAL length size minus one in byte 21; Annex B streams have no hvcC.
-  if (!description || description.byteLength <= 21 || (await track.hasHighDynamicRange())) {
-    return false
-  }
+  if (!description || description.byteLength <= 21) return false
   const record = ArrayBuffer.isView(description)
     ? new Uint8Array(description.buffer, description.byteOffset, description.byteLength)
     : new Uint8Array(description)
+  const lengthSize = (record[21] & 3) + 1
   const packet = await new EncodedPacketSink(track).getFirstKeyPacket()
-  return Boolean(packet && findDolbyVisionRpu(packet.data, (record[21] & 3) + 1))
+  if (!packet || !findDolbyVisionRpu(packet.data, lengthSize)) return false
+  return !(await track.hasHighDynamicRange()) || hasEnhancementLayer(packet.data, lengthSize)
 }
 
 /** Decoded frames from a position on, from the browser's decoder or FFmpeg in a worker. */

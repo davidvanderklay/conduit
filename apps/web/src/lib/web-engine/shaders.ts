@@ -28,16 +28,37 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 }
 `
 
+// Reads one channel of an integer plane at a texture coordinate.
+const LOAD_PLANE = /* wgsl */ `
+fn loadPlane(plane: texture_2d<u32>, uv: vec2f) -> f32 {
+  // Bilinear filtering by hand, since integer textures cannot be sampled.
+  let size = vec2f(textureDimensions(plane));
+  let position = clamp(uv * size - 0.5, vec2f(0.0), size - 1.0);
+  let base = vec2i(floor(position));
+  let next = min(base + 1, vec2i(size) - 1);
+  let weight = fract(position);
+  let top = mix(f32(textureLoad(plane, base, 0).r), f32(textureLoad(plane, vec2i(next.x, base.y), 0).r), weight.x);
+  let bottom = mix(f32(textureLoad(plane, vec2i(base.x, next.y), 0).r), f32(textureLoad(plane, next, 0).r), weight.x);
+  return mix(top, bottom, weight.y);
+}
+`
+
 /**
- * Dolby Vision reshaping and IPT conversion, following libplacebo, reading the
- * metadata layout frame_dovi in apps/web/wasm/ffmpeg_bridge.c writes.
+ * Dolby Vision reshaping, enhancement layer residuals, and conversion to BT.2020,
+ * following libplacebo, reading the metadata layout frame_dovi in
+ * apps/web/wasm/ffmpeg_bridge.c writes. The metadata buffer binds at `binding`
+ * and the enhancement layer's Y, Cb, and Cr planes at the next three bindings.
  */
 function dolbyVisionFunctions(binding: number) {
   return /* wgsl */ `
 // Dolby Vision metadata in the layout frame_dovi in apps/web/wasm/ffmpeg_bridge.c writes.
 @group(0) @binding(${binding}) var<storage, read> dovi: array<f32>;
+@group(0) @binding(${binding + 1}) var enhancementLuma: texture_2d<u32>;
+@group(0) @binding(${binding + 2}) var enhancementCb: texture_2d<u32>;
+@group(0) @binding(${binding + 3}) var enhancementCr: texture_2d<u32>;
 
-const DOVI_HEADER = 32u;
+const DOVI_NLQ = 32u;
+const DOVI_HEADER = 44u;
 const DOVI_COMPONENT = 226u;
 const DOVI_PIECE = 27u;
 
@@ -81,9 +102,30 @@ fn doviReshape(signal: vec3f, component: u32) -> f32 {
   return clamp(result, dovi[base + 1u], dovi[base + pivots]);
 }
 
-// Reshapes normalized base layer codes and converts IPT to linear BT.2020 nits.
-fn doviToNits(signal: vec3f) -> vec3f {
-  let reshaped = vec3f(doviReshape(signal, 0u), doviReshape(signal, 1u), doviReshape(signal, 2u));
+// Dequantizes the enhancement layer's residual with the RPU's linear dead zone.
+fn doviResidual(enhancement: vec3f) -> vec3f {
+  var residual = vec3f(0.0);
+  for (var component = 0u; component < 3u; component++) {
+    let nlq = DOVI_NLQ + component * 4u;
+    let centered = enhancement[component] - dovi[nlq];
+    let value = sign(centered) * (abs(centered) * dovi[nlq + 1u] + dovi[nlq + 2u]);
+    residual[component] = clamp(value, -dovi[nlq + 3u], dovi[nlq + 3u]);
+  }
+  return residual;
+}
+
+// Reshapes normalized base layer codes, adds the enhancement layer's residual when
+// the frame has one (profile 7 FEL), and converts the result to linear BT.2020 nits.
+fn doviToNits(signal: vec3f, uv: vec2f) -> vec3f {
+  var reshaped = vec3f(doviReshape(signal, 0u), doviReshape(signal, 1u), doviReshape(signal, 2u));
+  if (dovi[3] > 0.0) {
+    let enhancement = vec3f(
+      loadPlane(enhancementLuma, uv),
+      loadPlane(enhancementCb, uv),
+      loadPlane(enhancementCr, uv),
+    );
+    reshaped += doviResidual(enhancement / dovi[3]);
+  }
   let lms = pqToNits(doviMatrix(8u) * (reshaped - vec3f(dovi[4], dovi[5], dovi[6])));
   return max(doviMatrix(17u) * lms, vec3f(0.0));
 }
@@ -195,8 +237,8 @@ fn presentNits(input: vec3f) -> vec4f {
  * Converts raw YUV planes to the canvas. SDR frames only need YUV to R'G'B'.
  * HDR frames go from PQ or HLG to linear light, through BT.2390 tone mapping
  * on max(RGB) and the BT.2020 to BT.709 gamut, and are then sRGB encoded.
- * Dolby Vision profile 5 frames are first reshaped and converted from IPT to
- * BT.2020 with their RPU metadata, following libplacebo.
+ * Dolby Vision frames are first reshaped, given their enhancement layer's
+ * residual, and converted to BT.2020 with their RPU metadata.
  */
 export const PLANAR_SHADER = /* wgsl */ `
 ${FULLSCREEN_VERTEX}
@@ -204,19 +246,8 @@ ${PARAMS}
 @group(0) @binding(1) var lumaPlane: texture_2d<u32>;
 @group(0) @binding(2) var cbPlane: texture_2d<u32>;
 @group(0) @binding(3) var crPlane: texture_2d<u32>;
+${LOAD_PLANE}
 ${dolbyVisionFunctions(4)}
-fn loadPlane(plane: texture_2d<u32>, uv: vec2f) -> f32 {
-  // Bilinear filtering by hand, since integer textures cannot be sampled.
-  let size = vec2f(textureDimensions(plane));
-  let position = clamp(uv * size - 0.5, vec2f(0.0), size - 1.0);
-  let base = vec2i(floor(position));
-  let next = min(base + 1, vec2i(size) - 1);
-  let weight = fract(position);
-  let top = mix(f32(textureLoad(plane, base, 0).r), f32(textureLoad(plane, vec2i(next.x, base.y), 0).r), weight.x);
-  let bottom = mix(f32(textureLoad(plane, vec2i(base.x, next.y), 0).r), f32(textureLoad(plane, next, 0).r), weight.x);
-  return mix(top, bottom, weight.y);
-}
-
 ${HDR_FUNCTIONS}
 @fragment
 fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
@@ -230,7 +261,7 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
   }
   var nits = select(hlgToNits(encoded), pqToNits(encoded), params.transfer == 0u);
   if (params.transfer == 3u) {
-    nits = doviToNits(clamp(vec3f(y, cb, cr), vec3f(0.0), vec3f(1.0)));
+    nits = doviToNits(clamp(vec3f(y, cb, cr), vec3f(0.0), vec3f(1.0)), input.uv);
   }
 
   return presentNits(nits);
@@ -259,9 +290,9 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 `
 
 /**
- * Draws hardware-decoded Dolby Vision profile 5 frames relabeled as BT.601.
- * Inverts the browser's matrix (params.matrix holds RGB to YCbCr, params.scale
- * and offset the code normalization) to recover the IPT codes, then reshapes them.
+ * Draws hardware-decoded Dolby Vision frames relabeled as BT.601. Inverts the
+ * browser's matrix (params.matrix holds RGB to YCbCr, params.scale and offset
+ * the code normalization) to recover the base layer codes, then reshapes them.
  */
 export const EXTERNAL_DOLBY_VISION_SHADER = /* wgsl */ `
 ${FULLSCREEN_VERTEX}
@@ -269,6 +300,7 @@ ${PARAMS}
 @group(0) @binding(1) var frameSampler: sampler;
 @group(0) @binding(2) var frame: texture_external;
 ${HDR_FUNCTIONS}
+${LOAD_PLANE}
 ${dolbyVisionFunctions(3)}
 @fragment
 fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
@@ -276,6 +308,6 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
   let rgbToYuv = mat3x3f(params.matrix0.xyz, params.matrix1.xyz, params.matrix2.xyz);
   let yuv = rgbToYuv * rgb;
   let signal = vec3f(yuv.x * params.scale.x + params.offset.x, yuv.yz * params.scale.y + params.offset.y);
-  return presentNits(doviToNits(clamp(signal, vec3f(0.0), vec3f(1.0))));
+  return presentNits(doviToNits(clamp(signal, vec3f(0.0), vec3f(1.0)), input.uv));
 }
 `

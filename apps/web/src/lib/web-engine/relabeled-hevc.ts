@@ -6,6 +6,7 @@ import {
   type VideoCodec,
 } from "mediabunny"
 import { dolbyVisionMetadata, dolbyVisionPeak, findDolbyVisionRpu } from "./dolby-vision"
+import { EnhancementLayerDecoder } from "./dolby-vision-enhancement"
 import { HdrPeakTracker, hdrPeaks } from "./hdr-metadata"
 import { nalUnits, rewriteHvccColor, rewritePacketColor, type ColorRewrite } from "./hevc-color"
 import { FFmpegDecoder } from "./wasm/ffmpeg-decoder"
@@ -23,8 +24,9 @@ export function hdrTransfer(transfer: string | null | undefined): HdrTransfer | 
 }
 
 /**
- * What a relabeled stream really holds: HDR10 or HLG, or Dolby Vision profile 5,
- * whose IPT samples the presenter recovers and reshapes with each frame's RPU.
+ * What a relabeled stream really holds: HDR10 or HLG, or Dolby Vision whose base
+ * layer the presenter recovers and reshapes with each frame's RPU (profile 5, or
+ * profile 7 with its enhancement layer).
  */
 export type Relabeled = { kind: "hdr"; transfer: HdrTransfer } | { kind: "dolby-vision" }
 
@@ -63,6 +65,7 @@ class RelabeledHevcDecoder extends CustomVideoDecoder {
   #relabeling?: Relabeling
   /** Parses RPUs and SEI metadata, which the browser's decoder does not expose. */
   #parser?: FFmpegDecoder
+  #enhancement?: EnhancementLayerDecoder
   /** Parsed RPU metadata by packet timestamp, waiting for its frame. */
   readonly #rpus = new Map<number, Float32Array<ArrayBuffer>>()
   readonly #peakTracker = new HdrPeakTracker()
@@ -78,6 +81,10 @@ class RelabeledHevcDecoder extends CustomVideoDecoder {
     const relabeling = relabelings.get(this.config.codec)!
     this.#relabeling = relabeling
     this.#parser = await FFmpegDecoder.open("video", "hevc")
+    const enhancement = new EnhancementLayerDecoder(relabeling.lengthSize, (sample) =>
+      this.onSample(sample),
+    )
+    this.#enhancement = enhancement
     this.#decoder = new VideoDecoder({
       output: (frame) => {
         const metadata = this.#rpus.get(frame.timestamp)
@@ -92,7 +99,7 @@ class RelabeledHevcDecoder extends CustomVideoDecoder {
         relabeledSamples.set(sample, relabeling.relabeled)
         if (metadata) dolbyVisionMetadata.set(sample, metadata)
         if (peak) hdrPeaks.set(sample, peak)
-        this.onSample(sample)
+        enhancement.push(sample)
       },
       error: (error) => this.onError(error),
     })
@@ -128,6 +135,7 @@ class RelabeledHevcDecoder extends CustomVideoDecoder {
         data: rewritePacketColor(packet.data, lengthSize, RELABEL[relabeled.kind]),
       }),
     )
+    if (relabeled.kind === "dolby-vision") await this.#enhancement!.decode(packet)
     // A few chunks in flight keep the hardware busy without holding every decoded surface.
     while (decoder.decodeQueueSize > 4) {
       await new Promise((resolve) => decoder.addEventListener("dequeue", resolve, { once: true }))
@@ -136,6 +144,7 @@ class RelabeledHevcDecoder extends CustomVideoDecoder {
 
   async flush() {
     await this.#decoder!.flush()
+    await this.#enhancement!.flush()
   }
 
   close() {
@@ -143,6 +152,7 @@ class RelabeledHevcDecoder extends CustomVideoDecoder {
     this.#rpus.clear()
     this.#peaks.clear()
     this.#parser?.release()
+    this.#enhancement?.close()
     if (this.#decoder?.state !== "closed") this.#decoder?.close()
   }
 }

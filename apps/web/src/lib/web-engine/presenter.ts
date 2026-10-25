@@ -1,5 +1,6 @@
 import type { VideoSample } from "mediabunny"
 import { DOLBY_VISION_FLOATS, dolbyVisionMetadata, dolbyVisionPeak } from "./dolby-vision"
+import { enhancementLayers } from "./dolby-vision-enhancement"
 import { hdrPeaks } from "./hdr-metadata"
 import { relabeledSamples, type HdrTransfer } from "./relabeled-hevc"
 import {
@@ -115,7 +116,16 @@ async function createGpuPresenter(
     size: Math.ceil((DOLBY_VISION_FLOATS * 4) / 16) * 16,
     usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
   })
-  let planes: { key: string; textures: GPUTexture[] } | undefined
+  let planes: PlaneTextures | undefined
+  let enhancementPlanes: PlaneTextures | undefined
+  // Stand in for the enhancement layer of frames without one, so the bindings stay valid.
+  const noEnhancement = [0, 1, 2].map(() =>
+    device.createTexture({
+      size: [1, 1],
+      format: "r16uint",
+      usage: GPUTextureUsage.TEXTURE_BINDING,
+    }),
+  )
   // Some drivers (and SwiftShader) cannot import frames as external textures. Frames
   // in system memory then take the planar path instead.
   let importExternal = true
@@ -176,7 +186,9 @@ async function createGpuPresenter(
         { binding: 0, resource: { buffer: uniforms } },
         { binding: 1, resource: sampler },
         { binding: 2, resource: device.importExternalTexture({ source: frame }) },
-        ...(metadata ? [{ binding: 3, resource: { buffer: dolbyVision } }] : []),
+        ...(metadata
+          ? [{ binding: 3, resource: { buffer: dolbyVision } }, ...enhancementBindings(sample, 4)]
+          : []),
       ])
     } finally {
       frame.close()
@@ -188,36 +200,7 @@ async function createGpuPresenter(
     if (staging.byteLength < size) staging = new Uint8Array(size)
     const planeLayouts = await sample.copyTo(staging)
     const { width, height } = sample.visibleRect
-    const chromaWidth = Math.ceil(width / layout.chroma[0])
-    const chromaHeight = Math.ceil(height / layout.chroma[1])
-    const textureFormat: GPUTextureFormat = layout.bits > 8 ? "r16uint" : "r8uint"
-    const key = `${width}x${height}:${sample.format}`
-    if (planes?.key !== key) {
-      planes?.textures.forEach((texture) => texture.destroy())
-      planes = {
-        key,
-        textures: [
-          [width, height],
-          [chromaWidth, chromaHeight],
-          [chromaWidth, chromaHeight],
-        ].map(([planeWidth, planeHeight]) =>
-          device.createTexture({
-            size: [planeWidth, planeHeight],
-            format: textureFormat,
-            usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
-          }),
-        ),
-      }
-    }
-    planes.textures.forEach((texture, index) => {
-      const plane = planeLayouts[index]
-      device.queue.writeTexture(
-        { texture },
-        staging,
-        { offset: plane.offset, bytesPerRow: plane.stride, rowsPerImage: texture.height },
-        [texture.width, texture.height],
-      )
-    })
+    planes = uploadPlanes(planes, width, height, layout, staging, planeLayouts)
     device.queue.writeBuffer(uniforms, 0, params)
     const metadata = dolbyVisionMetadata.get(sample)
     if (metadata) device.queue.writeBuffer(dolbyVision, 0, metadata)
@@ -228,7 +211,86 @@ async function createGpuPresenter(
         resource: texture.createView(),
       })),
       { binding: 4, resource: { buffer: dolbyVision } },
+      ...enhancementBindings(sample, 5),
     ])
+  }
+
+  /** Writes planes into textures of their size, reusing `cached` when the size and depth match. */
+  const uploadPlanes = (
+    cached: PlaneTextures | undefined,
+    width: number,
+    height: number,
+    layout: PlanarLayout,
+    data: Uint8Array,
+    planeLayouts: readonly PlaneLayout[],
+  ): PlaneTextures => {
+    const chromaWidth = Math.ceil(width / layout.chroma[0])
+    const chromaHeight = Math.ceil(height / layout.chroma[1])
+    const key = `${width}x${height}:${layout.bits}:${layout.chroma.join("")}`
+    let current = cached
+    if (current?.key !== key) {
+      current?.textures.forEach((texture) => texture.destroy())
+      current = {
+        key,
+        textures: [
+          [width, height],
+          [chromaWidth, chromaHeight],
+          [chromaWidth, chromaHeight],
+        ].map(([planeWidth, planeHeight]) =>
+          device.createTexture({
+            size: [planeWidth, planeHeight],
+            format: layout.bits > 8 ? "r16uint" : "r8uint",
+            usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+          }),
+        ),
+      }
+    }
+    current.textures.forEach((texture, index) => {
+      const plane = planeLayouts[index]
+      device.queue.writeTexture(
+        { texture },
+        data,
+        { offset: plane.offset, bytesPerRow: plane.stride, rowsPerImage: texture.height },
+        [texture.width, texture.height],
+      )
+    })
+    return current
+  }
+
+  /**
+   * Binds a sample's Dolby Vision enhancement layer planes from `binding` on. Call
+   * after writing its metadata: frames without an EL get placeholders and have
+   * the residual switched off.
+   */
+  const enhancementBindings = (sample: VideoSample, binding: number): GPUBindGroupEntry[] => {
+    const frame = enhancementLayers.get(sample)
+    const layout = frame && PLANAR_LAYOUTS.get(frame.format)
+    let textures = noEnhancement
+    if (frame && layout) {
+      const bytes = layout.bits > 8 ? 2 : 1
+      const lumaSize = frame.width * frame.height * bytes
+      const chromaWidth = Math.ceil(frame.width / layout.chroma[0])
+      const chromaSize = chromaWidth * Math.ceil(frame.height / layout.chroma[1]) * bytes
+      enhancementPlanes = uploadPlanes(
+        enhancementPlanes,
+        frame.width,
+        frame.height,
+        layout,
+        frame.data,
+        [
+          { offset: 0, stride: frame.width * bytes },
+          { offset: lumaSize, stride: chromaWidth * bytes },
+          { offset: lumaSize + chromaSize, stride: chromaWidth * bytes },
+        ],
+      )
+      textures = enhancementPlanes.textures
+    } else {
+      device.queue.writeBuffer(dolbyVision, 12, NO_RESIDUAL)
+    }
+    return textures.map((texture, index) => ({
+      binding: binding + index,
+      resource: texture.createView(),
+    }))
   }
 
   return {
@@ -256,7 +318,13 @@ async function createGpuPresenter(
       await drawPlanar(sample, layout, sdr)
     },
     destroy() {
-      planes?.textures.forEach((texture) => texture.destroy())
+      for (const texture of [
+        ...(planes?.textures ?? []),
+        ...(enhancementPlanes?.textures ?? []),
+        ...noEnhancement,
+      ]) {
+        texture.destroy()
+      }
       uniforms.destroy()
       dolbyVision.destroy()
       context.unconfigure()
@@ -270,6 +338,14 @@ interface PlanarLayout {
   /** Horizontal and vertical chroma subsampling factors. */
   chroma: [number, number]
 }
+
+interface PlaneTextures {
+  key: string
+  textures: GPUTexture[]
+}
+
+/** Zero for metadata slot 3, the enhancement layer code maximum, which switches the residual off. */
+const NO_RESIDUAL = new Float32Array([0])
 
 // Keyed by string because Mediabunny's bundled WebCodecs types predate the 10 and 12 bit
 // formats and the BT.2020 enums that the DOM library and real frames use.

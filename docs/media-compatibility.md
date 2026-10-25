@@ -71,7 +71,9 @@ it plays the source with its own engine instead:
   handles color.
 - Dolby Vision profile 5, whose base layer is in Dolby's IPT color space, gets
   the RPU's reshaping curves and matrices in WebGPU, following libplacebo, and
-  is tone mapped with the scene's peak brightness. Profile 8 plays from its
+  is tone mapped with the scene's peak brightness. Profile 7, as Blu-ray remuxes
+  carry it, also gets its enhancement layer: FFmpeg decodes it in a worker and
+  WebGPU adds its residual before the RPU's matrices. Profile 8 plays from its
   HDR10 or HLG base layer.
 - HDR and Dolby Vision HEVC up to 1080p decode in software, so the engine reads
   exact samples. Larger frames use the browser's hardware decoder: the engine
@@ -92,8 +94,7 @@ it plays the source with its own engine instead:
 
 If an audio track still cannot be decoded, the engine plays another decodable
 track in the same language, or plays the video alone. The engine ignores
-Dolby Vision profile 7's enhancement layer and profile 10 (AV1) RPUs, and plays
-at normal speed only.
+Dolby Vision profile 10 (AV1) RPUs, and plays at normal speed only.
 If either route fails before playback starts, the player tries the other one
 once.
 
