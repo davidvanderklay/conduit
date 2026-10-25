@@ -338,21 +338,30 @@ static DOVIContext rpu_context;
 #endif
 
 /*
- * Parses a Dolby Vision RPU NAL unit (type 62, with its 2-byte header and
- * emulation prevention) for streams a hardware decoder decodes, and returns
- * its metadata in the layout above, or NULL when it does not parse.
+ * Parses a Dolby Vision RPU for streams the browser decodes, and returns its
+ * metadata in the layout above, or NULL when it does not parse. The RPU is an
+ * HEVC NAL unit (type 62, with its 2-byte header and emulation prevention), or
+ * with `av1` set, the EMDF container an AV1 ITU-T T.35 metadata OBU carries
+ * after its provider oriented code.
  */
 EMSCRIPTEN_KEEPALIVE
-float *rpu_parse(const uint8_t *nal, int size) {
+float *rpu_parse(const uint8_t *data, int size, int av1) {
 #if CONFIG_DOVI_RPUDEC
     if (size <= 2) return NULL;
     uint8_t *rbsp = av_malloc(size);
     if (!rbsp) return NULL;
     int length = 0;
-    for (int index = 2; index < size; index++) {
-        if (nal[index] == 3 && index >= 4 && nal[index - 1] == 0 && nal[index - 2] == 0) continue;
-        rbsp[length++] = nal[index];
+    if (av1) {
+        memcpy(rbsp, data, size);
+        length = size;
+    } else {
+        for (int index = 2; index < size; index++) {
+            if (data[index] == 3 && index >= 4 && data[index - 1] == 0 && data[index - 2] == 0) continue;
+            rbsp[length++] = data[index];
+        }
     }
+    // FFmpeg reads the EMDF container only for profile 10, and guesses HEVC profiles itself.
+    rpu_context.cfg.dv_profile = av1 ? 10 : 0;
     AVDOVIMetadata *metadata = NULL;
     float *out = NULL;
     if (ff_dovi_rpu_parse(&rpu_context, rbsp, length, 0) >= 0
@@ -363,8 +372,9 @@ float *rpu_parse(const uint8_t *nal, int size) {
     av_free(rbsp);
     return out;
 #else
-    (void) nal;
+    (void) data;
     (void) size;
+    (void) av1;
     return NULL;
 #endif
 }
@@ -395,6 +405,27 @@ double *frame_hdr_peaks(Decoder *decoder) {
     hdr_peaks[1] = light ? ((const AVContentLightMetadata *) light->data)->MaxCLL : 0;
     const AVMasteringDisplayMetadata *display = mastering ? (const AVMasteringDisplayMetadata *) mastering->data : NULL;
     hdr_peaks[2] = display && display->has_luminance ? av_q2d(display->max_luminance) : 0;
+    return hdr_peaks;
+}
+
+/* Reads an HDR10+ (ST 2094-40) ITU-T T.35 payload, from its country code on, into hdr_peaks[0]. */
+static void read_hdr10plus(const uint8_t *data, int size) {
+    // Country 0xB5, provider 0x003C, provider oriented code 0x0001, application 4.
+    if (size < 7 || data[0] != 0xb5 || data[1] != 0x00 || data[2] != 0x3c || data[3] != 0x00
+        || data[4] != 0x01 || data[5] != 0x04) {
+        return;
+    }
+    AVDynamicHDRPlus metadata = { 0 };
+    if (av_dynamic_hdr_plus_from_t35(&metadata, data + 6, size - 6) >= 0) {
+        hdr_peaks[0] = hdr10plus_peak(&metadata);
+    }
+}
+
+/* Reads an AV1 ITU-T T.35 metadata payload into hdr_peaks, for streams the browser decodes. */
+EMSCRIPTEN_KEEPALIVE
+double *t35_hdr_peaks(const uint8_t *data, int size) {
+    hdr_peaks[0] = hdr_peaks[1] = hdr_peaks[2] = 0;
+    read_hdr10plus(data, size);
     return hdr_peaks;
 }
 
@@ -429,13 +460,8 @@ double *sei_hdr_peaks(const uint8_t *nal, int size) {
             hdr_peaks[2] = ((uint32_t) data[16] << 24 | data[17] << 16 | data[18] << 8 | data[19]) / 10000.0;
         } else if (type == 144 && payload >= 4) {
             hdr_peaks[1] = data[0] << 8 | data[1];
-        } else if (type == 4 && payload >= 7 && data[0] == 0xb5 && data[1] == 0x00 && data[2] == 0x3c
-                   && data[3] == 0x00 && data[4] == 0x01 && data[5] == 0x04) {
-            // ST 2094-40 (HDR10+): country 0xB5, provider 0x003C, oriented code 0x0001, application 4.
-            AVDynamicHDRPlus metadata = { 0 };
-            if (av_dynamic_hdr_plus_from_t35(&metadata, data + 6, payload - 6) >= 0) {
-                hdr_peaks[0] = hdr10plus_peak(&metadata);
-            }
+        } else if (type == 4) {
+            read_hdr10plus(data, payload);
         }
         offset += payload;
     }

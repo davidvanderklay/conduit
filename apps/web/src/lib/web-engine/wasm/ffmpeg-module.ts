@@ -36,12 +36,17 @@ export interface FFmpegModule {
   _frame_channel_mask(decoder: number): number
   /** Pointer to the frame's Dolby Vision metadata, or 0 when it has none. */
   _frame_dovi(decoder: number): number
-  /** Parses a Dolby Vision RPU NAL unit; returns a metadata pointer, or 0 when it does not parse. */
-  _rpu_parse(nal: number, size: number): number
+  /**
+   * Parses a Dolby Vision RPU, an HEVC NAL unit or with `av1` set an AV1 T.35 EMDF
+   * container; returns a metadata pointer, or 0 when it does not parse.
+   */
+  _rpu_parse(data: number, size: number, av1: number): number
   /** Pointer to the frame's [HDR10+, MaxCLL, mastering] peaks in nits as doubles, 0 when absent. */
   _frame_hdr_peaks(decoder: number): number
   /** The same peaks read from an HEVC SEI NAL unit. */
   _sei_hdr_peaks(nal: number, size: number): number
+  /** The same peaks read from an AV1 ITU-T T.35 metadata payload. */
+  _t35_hdr_peaks(data: number, size: number): number
 }
 
 export type FFmpegModuleFactory = (options?: {

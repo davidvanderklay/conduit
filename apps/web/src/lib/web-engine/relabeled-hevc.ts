@@ -118,7 +118,7 @@ class RelabeledHevcDecoder extends CustomVideoDecoder {
       let peak: number | undefined
       for (const { type, nal } of nalUnits(packet.data, lengthSize)) {
         if (type === HEVC_NAL_PREFIX_SEI) {
-          peak = this.#peakTracker.update(await parser.parseSei(nal))
+          peak = this.#peakTracker.update(await parser.parseHdrMetadata("sei", nal))
         }
         // Profile 8 RPUs describe each scene like HDR10+, while the HDR10 base layer plays as is.
         const metadata = type === HEVC_NAL_UNSPEC62 ? await parser.parseRpu(nal) : undefined

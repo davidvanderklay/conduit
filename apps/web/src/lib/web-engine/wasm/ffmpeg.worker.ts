@@ -71,23 +71,20 @@ async function handle(request: DecoderRequest): Promise<DecodedOutput> {
   }
   if (!module || !decoder) throw new Error("Decoder is not open")
   const output: DecodedOutput = { audio: [], video: [] }
-  if (request.type === "sei") {
-    const pointer = module._malloc(request.nal.byteLength)
-    module.HEAPU8.set(request.nal, pointer)
+  if (request.type === "sei" || request.type === "t35") {
+    const pointer = module._malloc(request.data.byteLength)
+    module.HEAPU8.set(request.data, pointer)
+    const read = request.type === "sei" ? module._sei_hdr_peaks : module._t35_hdr_peaks
     output.hdrPeaks = Array.from(
-      new Float64Array(
-        module.HEAPU8.buffer,
-        module._sei_hdr_peaks(pointer, request.nal.byteLength),
-        3,
-      ),
+      new Float64Array(module.HEAPU8.buffer, read(pointer, request.data.byteLength), 3),
     )
     module._free(pointer)
     return output
   }
   if (request.type === "rpu") {
-    const pointer = module._malloc(request.nal.byteLength)
-    module.HEAPU8.set(request.nal, pointer)
-    const metadata = module._rpu_parse(pointer, request.nal.byteLength)
+    const pointer = module._malloc(request.data.byteLength)
+    module.HEAPU8.set(request.data, pointer)
+    const metadata = module._rpu_parse(pointer, request.data.byteLength, request.av1 ? 1 : 0)
     module._free(pointer)
     if (metadata) {
       output.dolbyVision = new Float32Array(

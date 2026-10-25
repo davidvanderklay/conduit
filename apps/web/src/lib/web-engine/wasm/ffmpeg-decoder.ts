@@ -69,8 +69,9 @@ export type DecoderRequest =
   | { type: "decode"; packets: PacketInput[] }
   | { type: "drain" }
   | { type: "reset" }
-  | { type: "rpu"; nal: Uint8Array }
-  | { type: "sei"; nal: Uint8Array }
+  | { type: "rpu"; data: Uint8Array; av1: boolean }
+  | { type: "sei"; data: Uint8Array }
+  | { type: "t35"; data: Uint8Array }
 
 export type DecoderResponse =
   | { type: "output"; output: DecodedOutput }
@@ -146,18 +147,22 @@ export class FFmpegDecoder {
   }
 
   /**
-   * Parses a Dolby Vision RPU NAL unit with FFmpeg, for streams the browser
-   * decodes in hardware. Open the decoder as `("video", "hevc")` first.
+   * Parses a Dolby Vision RPU with FFmpeg, for streams the browser decodes: an
+   * HEVC NAL unit, or with `av1` the EMDF container of an AV1 T.35 metadata OBU.
+   * Open the decoder as `("video", "hevc")` first.
    */
-  async parseRpu(nal: Uint8Array): Promise<Float32Array<ArrayBuffer> | undefined> {
-    const copy = nal.slice()
-    return (await this.#request({ type: "rpu", nal: copy }, [copy.buffer])).dolbyVision
+  async parseRpu(data: Uint8Array, av1 = false): Promise<Float32Array<ArrayBuffer> | undefined> {
+    const copy = data.slice()
+    return (await this.#request({ type: "rpu", data: copy, av1 }, [copy.buffer])).dolbyVision
   }
 
-  /** Reads the HDR metadata of an HEVC SEI NAL unit, for streams the browser decodes in hardware. */
-  async parseSei(nal: Uint8Array): Promise<number[]> {
-    const copy = nal.slice()
-    return (await this.#request({ type: "sei", nal: copy }, [copy.buffer])).hdrPeaks ?? [0, 0, 0]
+  /**
+   * Reads HDR peaks from an HEVC SEI NAL unit (`sei`) or an AV1 ITU-T T.35
+   * metadata payload (`t35`), for streams the browser decodes.
+   */
+  async parseHdrMetadata(type: "sei" | "t35", data: Uint8Array): Promise<number[]> {
+    const copy = data.slice()
+    return (await this.#request({ type, data: copy }, [copy.buffer])).hdrPeaks ?? [0, 0, 0]
   }
 
   /** Drops held frames so decoding can restart at a keyframe. */

@@ -8,6 +8,7 @@ import {
   type InputVideoTrack,
   type VideoSample,
 } from "mediabunny"
+import { enableAv1Metadata, hasAv1DolbyVisionRpu } from "./av1-metadata"
 import { findDolbyVisionRpu } from "./dolby-vision"
 import { hasEnhancementLayer } from "./dolby-vision-enhancement"
 import { MatroskaFile } from "./matroska"
@@ -56,11 +57,12 @@ export async function openWebSource(url: string): Promise<WebSource> {
     }
     const videoTrack = await input.getPrimaryVideoTrack()
     const videoConfig = videoTrack && (await videoTrack.getDecoderConfig())
+    const videoCodec = videoTrack && (await videoTrack.getCodec())
     const dolbyVision =
       videoTrack !== null &&
       videoConfig !== null &&
-      (await videoTrack.getCodec()) === "hevc" &&
-      (await routeHevc(videoTrack, videoConfig))
+      ((videoCodec === "hevc" && (await routeHevc(videoTrack, videoConfig))) ||
+        (videoCodec === "av1" && (await routeAv1(videoTrack, videoConfig))))
     // Matroska metadata Mediabunny keeps to itself: codec private data for codecs it
     // does not map, and the HDR peaks in the track's Colour element.
     const matroskaTrack =
@@ -133,6 +135,21 @@ async function needsDolbyVisionReshaping(
   const packet = await new EncodedPacketSink(track).getFirstKeyPacket()
   if (!packet || !findDolbyVisionRpu(packet.data, lengthSize)) return false
   return !(await track.hasHighDynamicRange()) || hasEnhancementLayer(packet.data, lengthSize)
+}
+
+/**
+ * Reads the Dolby Vision RPUs (profile 10) and HDR10+ metadata of HDR AV1 tracks,
+ * which the browser's decoder drops, when WebGPU can use them. Returns whether
+ * the track needs reshaping: profile 10 on a base layer that is not HDR10 or HLG.
+ */
+async function routeAv1(track: InputVideoTrack, config: VideoDecoderConfig): Promise<boolean> {
+  if (!(await webGpuAvailable())) return false
+  const packet = await new EncodedPacketSink(track).getFirstKeyPacket()
+  const dolbyVision = packet !== null && hasAv1DolbyVisionRpu(packet.data)
+  const hdr = await track.hasHighDynamicRange()
+  if (!dolbyVision && !hdr) return false
+  enableAv1Metadata(config)
+  return dolbyVision && !hdr
 }
 
 /** Decoded frames from a position on, from the browser's decoder or FFmpeg in a worker. */

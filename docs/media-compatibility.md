@@ -65,7 +65,8 @@ it plays the source with its own engine instead:
   Interlaced video is not deinterlaced.
 - WebGPU draws frames. PQ and HLG video is tone mapped to SDR with the BT.2390
   curve and converted from BT.2020 to BT.709. The curve targets the source's
-  peak brightness, read from HDR10+ scene metadata, Dolby Vision profile 8 RPUs,
+  peak brightness, read from HDR10+ scene metadata (HEVC SEI or AV1 metadata
+  OBUs), Dolby Vision profile 8 RPUs,
   MaxCLL or mastering display SEI, or the Matroska Colour element, in that
   order. Without WebGPU, frames are drawn with Canvas 2D and the browser
   handles color.
@@ -74,7 +75,9 @@ it plays the source with its own engine instead:
   is tone mapped with the scene's peak brightness. Profile 7, as Blu-ray remuxes
   carry it, also gets its enhancement layer: FFmpeg decodes it in a worker and
   WebGPU adds its residual before the RPU's matrices. Profile 8 plays from its
-  HDR10 or HLG base layer.
+  HDR10 or HLG base layer. AV1 profile 10 gets the same reshaping from the
+  RPUs in its metadata OBUs; HDR AV1 decodes in software so the engine reads
+  exact samples.
 - HDR and Dolby Vision HEVC up to 1080p decode in software, so the engine reads
   exact samples. Larger frames use the browser's hardware decoder: the engine
   rewrites the stream's color description so the browser hands WebGPU values it
@@ -93,8 +96,9 @@ it plays the source with its own engine instead:
   resumes from the current position, up to twice a minute.
 
 If an audio track still cannot be decoded, the engine plays another decodable
-track in the same language, or plays the video alone. The engine ignores
-Dolby Vision profile 10 (AV1) RPUs, and plays at normal speed only.
+track in the same language, or plays the video alone. VP9 HDR10+
+metadata in Matroska BlockAdditions is not read, and the engine plays at normal
+speed only.
 If either route fails before playback starts, the player tries the other one
 once.
 
