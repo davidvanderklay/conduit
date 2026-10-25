@@ -183,6 +183,12 @@ const START_AUDIO_SECONDS = 0.3
 /** Video this far behind the clock restarts at the nearest keyframe instead of catching up. */
 const VIDEO_RESYNC_SECONDS = 1.5
 const FRAME_EPSILON = 0.002
+/**
+ * Audio this close to where the previous buffer ended plays right after it.
+ * Container timestamps are rounded (Matroska to the millisecond), which would
+ * otherwise overlap and gap short frames like TrueHD's 0.83 ms ones into noise.
+ */
+const AUDIO_SNAP_SECONDS = 0.01
 const MIN_RATE = 0.25
 const MAX_RATE = 4
 const MEDIA_ERR_NETWORK = 2
@@ -664,10 +670,16 @@ export class WebMediaEngine extends EventTarget implements PlaybackMedia {
   async #runAudio(stream: AudioStream, generation: number, from: number) {
     const rate = this.#rate
     let stretcher: TimeStretcher | undefined
+    let expected: number | undefined
     try {
-      for await (const { buffer, timestamp } of stream(from)) {
+      for await (const decoded of stream(from)) {
         if (generation !== this.#audioGeneration) return
-        const prepared = this.#prepareAudio(buffer)
+        const prepared = this.#prepareAudio(decoded.buffer)
+        const timestamp =
+          expected !== undefined && Math.abs(decoded.timestamp - expected) < AUDIO_SNAP_SECONDS
+            ? expected
+            : decoded.timestamp
+        expected = timestamp + prepared.duration
         if (rate === 1) {
           this.#pendingAudio.push({ buffer: prepared, timestamp, mediaDuration: prepared.duration })
         } else {

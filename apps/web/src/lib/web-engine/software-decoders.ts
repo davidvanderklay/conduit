@@ -116,18 +116,31 @@ export async function* softwareAudioBuffers(
   if (!start) return
   const decoder = await FFmpegDecoder.open("audio", codec)
   let next = start.timestamp
+  // Joins a decode call's chunks into one buffer per layout: TrueHD decodes in 0.83 ms
+  // frames, and a Web Audio node for each would be over a thousand nodes a second.
   function* buffers({ audio }: DecodedOutput) {
-    for (const chunk of audio) {
-      const timestamp = chunk.timestamp ?? next
-      const length = chunk.channels[0]?.length ?? 0
-      next = timestamp + length / chunk.sampleRate
-      if (!length || next <= from) continue
+    const chunks = audio.filter((chunk) => (chunk.channels[0]?.length ?? 0) > 0)
+    while (chunks.length) {
+      const [first] = chunks
+      const count = chunks.findIndex(
+        (chunk) =>
+          chunk.channels.length !== first.channels.length || chunk.sampleRate !== first.sampleRate,
+      )
+      const run = chunks.splice(0, count === -1 ? chunks.length : count)
+      const timestamp = first.timestamp ?? next
+      const length = run.reduce((total, chunk) => total + chunk.channels[0].length, 0)
+      next = timestamp + length / first.sampleRate
+      if (next <= from) continue
       const buffer = new AudioBuffer({
-        numberOfChannels: chunk.channels.length,
+        numberOfChannels: first.channels.length,
         length,
-        sampleRate: chunk.sampleRate,
+        sampleRate: first.sampleRate,
       })
-      chunk.channels.forEach((plane, channel) => buffer.copyToChannel(plane, channel))
+      let offset = 0
+      for (const chunk of run) {
+        chunk.channels.forEach((plane, channel) => buffer.copyToChannel(plane, channel, offset))
+        offset += chunk.channels[0].length
+      }
       yield { buffer, timestamp }
     }
   }
