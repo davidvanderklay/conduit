@@ -1,0 +1,612 @@
+import {
+  ALL_FORMATS,
+  AudioBufferSink,
+  EncodedPacketSink,
+  Input,
+  UrlSource,
+  VideoSampleSink,
+  type InputVideoTrack,
+  type VideoSample,
+} from "mediabunny"
+import { hasDolbyVisionRpu } from "./dolby-vision"
+import { downmixToStereo } from "./downmix"
+import type { PlaybackMedia, PlaybackMediaEvent } from "./media"
+import { createPresenter, type FramePresenter } from "./presenter"
+import { engineAudioTrack, probeInput, type ProbedAudio, type SourceProbe } from "./route"
+import { enableSoftwareHevc, softwareAudioBuffers } from "./software-decoders"
+import { FFmpegDecoder } from "./wasm/ffmpeg-decoder"
+
+/** An opened source: its Mediabunny input plus what the probe learned about it. */
+export interface WebSource {
+  input: Input
+  probe: SourceProbe
+  videoTrack: InputVideoTrack | null
+}
+
+let ac3Decoder: Promise<void> | undefined
+
+/**
+ * Opens a URL with HTTP range requests and probes its tracks. Rejects when the
+ * host blocks cross-origin reads, so callers can fall back to `<video>`.
+ */
+export async function openWebSource(url: string): Promise<WebSource> {
+  // Mediabunny's default retries keep streaming through network blips and give up at
+  // once on suspected CORS errors, which is when `<video>` should take over.
+  const input = new Input({ source: new UrlSource(url), formats: ALL_FORMATS })
+  try {
+    const codecs = await Promise.all(
+      (await input.getAudioTracks()).map((track) => track.getCodec()),
+    )
+    if (codecs.some((codec) => codec === "ac3" || codec === "eac3")) {
+      // The WASM AC-3 decoder is ~1 MB, so it loads only for sources that need it.
+      ac3Decoder ??= import("@mediabunny/ac3").then(({ registerAc3Decoder }) =>
+        registerAc3Decoder(),
+      )
+      await ac3Decoder
+    }
+    const videoTrack = await input.getPrimaryVideoTrack()
+    const videoConfig = videoTrack && (await videoTrack.getDecoderConfig())
+    let dolbyVision = false
+    if (videoConfig && (await videoTrack.getCodec()) === "hevc") {
+      dolbyVision = await isDolbyVisionProfile5(videoTrack, videoConfig)
+      await enableSoftwareHevc(videoConfig, dolbyVision)
+    }
+    return { input, probe: await probeInput(input, dolbyVision), videoTrack }
+  } catch (error) {
+    input.dispose()
+    throw error
+  }
+}
+
+/**
+ * Profile 5 carries RPUs on a base layer that is not HDR10, unlike profile 8,
+ * whose HDR10 base layer plays fine without them.
+ */
+async function isDolbyVisionProfile5(
+  track: InputVideoTrack,
+  config: VideoDecoderConfig,
+): Promise<boolean> {
+  const { description } = config
+  // hvcC keeps the NAL length size minus one in byte 21; Annex B streams have no hvcC.
+  if (!description || description.byteLength <= 21 || (await track.hasHighDynamicRange())) {
+    return false
+  }
+  const record = ArrayBuffer.isView(description)
+    ? new Uint8Array(description.buffer, description.byteOffset, description.byteLength)
+    : new Uint8Array(description)
+  const packet = await new EncodedPacketSink(track).getFirstKeyPacket()
+  return Boolean(packet && hasDolbyVisionRpu(packet.data, (record[21] & 3) + 1))
+}
+
+/** Decoded audio from a position on, from the browser's decoders or FFmpeg in a worker. */
+type AudioStream = (from: number) => AsyncGenerator<{ buffer: AudioBuffer; timestamp: number }>
+
+function audioStream(track: ProbedAudio): AudioStream {
+  const { softwareCodec } = track
+  if (softwareCodec) return (from) => softwareAudioBuffers(track.track, softwareCodec, from)
+  const sink = new AudioBufferSink(track.track)
+  return (from) => sink.buffers(from)
+}
+
+const MAX_QUEUED_FRAMES = 3
+/** Decoded audio kept scheduled ahead of the clock. Covers 1 s timer throttling in hidden tabs. */
+const AUDIO_LEAD_SECONDS = 3
+/** Audio buffered before playback starts or resumes after a stall. */
+const START_AUDIO_SECONDS = 0.3
+/** Video this far behind the clock restarts at the nearest keyframe instead of catching up. */
+const VIDEO_RESYNC_SECONDS = 1.5
+const FRAME_EPSILON = 0.002
+const MEDIA_ERR_NETWORK = 2
+const MEDIA_ERR_DECODE = 3
+
+/**
+ * Plays a source with Mediabunny demuxing, WebCodecs (or WASM) decoding, a
+ * WebGPU or Canvas 2D presenter, and Web Audio output. It mirrors the parts of
+ * `HTMLVideoElement` the player uses, so the player can drive either one.
+ *
+ * Audio is the clock when there is an audio track. Video frames are pulled
+ * against it every animation frame, and playback waits whenever either
+ * stream runs dry.
+ */
+export class WebMediaEngine extends EventTarget implements PlaybackMedia {
+  readonly audioTracks: readonly ProbedAudio[]
+  readonly #source: WebSource
+  readonly #canvas: HTMLCanvasElement
+  #presenter?: FramePresenter
+  #videoSink?: VideoSampleSink
+  #audio?: ProbedAudio
+  #audioStream?: AudioStream
+  #context?: AudioContext
+  #gain?: GainNode
+  readonly #sources = new Set<AudioBufferSourceNode>()
+
+  #duration = Number.NaN
+  #width = 0
+  #height = 0
+  #readyState = 0
+  #error: { code: number; message: string } | null = null
+  #paused = true
+  #waiting = false
+  #ended = false
+  #destroyed = false
+  #volume = 1
+  #muted = false
+
+  // While running, media time = anchorMedia + (clock - anchorClock).
+  #running = false
+  #position = 0
+  #anchorMedia = 0
+  #anchorClock = 0
+
+  #videoGeneration = 0
+  #frames: VideoSample[] = []
+  #current?: VideoSample
+  #videoEnded = false
+  #needsPresent = true
+  #presenting = false
+  #frameDemand?: () => void
+
+  #audioGeneration = 0
+  #pendingAudio: { buffer: AudioBuffer; timestamp: number }[] = []
+  #scheduledEnd = 0
+  #audioEnded = false
+
+  #animationFrame = 0
+  #monitorTimer = 0
+  #lastTimeUpdate = 0
+
+  constructor(source: WebSource, canvas: HTMLCanvasElement, options: { volume: number }) {
+    super()
+    this.#source = source
+    this.#canvas = canvas
+    this.#volume = options.volume
+    this.audioTracks = source.probe.audio
+  }
+
+  /** Sets up decoding and output, shows the first frame, and optionally starts playback. */
+  async load({ autoplay }: { autoplay: boolean }): Promise<void> {
+    try {
+      const { input, videoTrack } = this.#source
+      this.#presenter = await createPresenter(this.#canvas)
+      if (videoTrack) {
+        this.#videoSink = new VideoSampleSink(videoTrack)
+        this.#width = await videoTrack.getDisplayWidth()
+        this.#height = await videoTrack.getDisplayHeight()
+      }
+      this.#duration = (await input.getDurationFromMetadata()) ?? (await input.computeDuration())
+      if (this.#destroyed) return
+      this.#selectAudio(engineAudioTrack(this.audioTracks))
+      this.#readyState = 1
+      this.#emit("durationchange")
+      this.#emit("loadedmetadata")
+      // Listeners may already have seeked or pressed play while metadata loaded.
+      this.#startVideo(this.#position)
+      this.#animationFrame = requestAnimationFrame(this.#tick)
+      this.#monitorTimer = window.setInterval(this.#monitor, 100)
+      if (!this.#paused) this.#startWaiting()
+      else if (autoplay) void this.play().catch(() => undefined)
+    } catch (error) {
+      this.#fail(error)
+    }
+  }
+
+  get currentTime(): number {
+    if (!this.#running) return this.#position
+    const time = this.#anchorMedia + Math.max(0, this.#clock() - this.#anchorClock)
+    return Number.isFinite(this.#duration) ? Math.min(time, this.#duration) : time
+  }
+
+  set currentTime(time: number) {
+    const end = Number.isFinite(this.#duration) ? this.#duration : time
+    this.#position = Math.max(0, Math.min(time, end))
+    this.#running = false
+    this.#ended = false
+    this.#startVideo(this.#position)
+    if (this.#paused) this.#stopAudio()
+    else this.#startWaiting()
+    this.#emit("timeupdate")
+  }
+
+  get duration(): number {
+    return this.#duration
+  }
+
+  get paused(): boolean {
+    return this.#paused
+  }
+
+  get readyState(): number {
+    return this.#readyState
+  }
+
+  get videoWidth(): number {
+    return this.#width
+  }
+
+  get videoHeight(): number {
+    return this.#height
+  }
+
+  get error() {
+    return this.#error
+  }
+
+  get buffered(): Pick<TimeRanges, "length" | "start" | "end"> {
+    const start = this.currentTime
+    const lastFrame = this.#frames.at(-1)
+    const end = Math.max(
+      start,
+      lastFrame ? lastFrame.timestamp + lastFrame.duration : 0,
+      this.#audioStream ? this.#scheduledEnd : 0,
+    )
+    return { length: 1, start: () => start, end: () => end }
+  }
+
+  /** The engine keeps audio pitch intact by only playing at normal speed. */
+  get playbackRate(): number {
+    return 1
+  }
+
+  set playbackRate(_rate: number) {}
+
+  get volume(): number {
+    return this.#volume
+  }
+
+  set volume(volume: number) {
+    this.#volume = Math.max(0, Math.min(1, volume))
+    this.#applyVolume()
+  }
+
+  get muted(): boolean {
+    return this.#muted
+  }
+
+  set muted(muted: boolean) {
+    this.#muted = muted
+    this.#applyVolume()
+  }
+
+  /** The audio track currently playing, if any track can be decoded. */
+  get selectedAudioTrack(): ProbedAudio | undefined {
+    return this.#audio
+  }
+
+  selectAudioTrack(track: ProbedAudio): void {
+    if (!track.decodable || track === this.#audio) return
+    this.#selectAudio(track)
+    if (!this.#paused) this.#startWaiting()
+  }
+
+  async play(): Promise<void> {
+    if (this.#error) throw new DOMException(this.#error.message, "NotSupportedError")
+    if (!this.#paused) return
+    if (this.#ended) {
+      this.#ended = false
+      this.#position = 0
+      this.#startVideo(0)
+    }
+    this.#paused = false
+    this.#emit("play")
+    if (!(await this.#resumeAudio())) {
+      this.#paused = true
+      this.#emit("pause")
+      throw new DOMException("The browser blocked audio until the page is used.", "NotAllowedError")
+    }
+    if (!this.#paused) this.#startWaiting()
+  }
+
+  pause(): void {
+    if (this.#paused) return
+    this.#position = this.currentTime
+    this.#running = false
+    this.#paused = true
+    this.#waiting = false
+    this.#stopAudio()
+    this.#emit("timeupdate")
+    this.#emit("pause")
+  }
+
+  destroy(): void {
+    if (this.#destroyed) return
+    this.#destroyed = true
+    cancelAnimationFrame(this.#animationFrame)
+    window.clearInterval(this.#monitorTimer)
+    this.#videoGeneration += 1
+    this.#frameDemand?.()
+    this.#stopAudio()
+    this.#frames.forEach((frame) => frame.close())
+    this.#frames = []
+    this.#current?.close()
+    this.#presenter?.destroy()
+    void this.#context?.close()
+    this.#source.input.dispose()
+    FFmpegDecoder.closeIdle()
+  }
+
+  /** Resolves false when autoplay policy keeps the audio context suspended, like a rejected `play()`. */
+  async #resumeAudio(): Promise<boolean> {
+    const context = this.#context
+    if (!context || !this.#audioStream) return true
+    const running = () => context.state === "running"
+    if (running()) return true
+    await Promise.race([
+      context.resume().catch(() => undefined),
+      new Promise((resolve) => window.setTimeout(resolve, 1000)),
+    ])
+    return running()
+  }
+
+  #clock(): number {
+    if (!this.#context || !this.#audioStream) return performance.now() / 1000
+    return this.#context.currentTime - (this.#context.outputLatency || 0)
+  }
+
+  #emit(type: PlaybackMediaEvent | "loadeddata") {
+    this.dispatchEvent(new Event(type))
+  }
+
+  #fail(error: unknown, code = error instanceof TypeError ? MEDIA_ERR_NETWORK : MEDIA_ERR_DECODE) {
+    if (this.#error || this.#destroyed) return
+    this.#error = { code, message: error instanceof Error ? error.message : String(error) }
+    this.#position = this.currentTime
+    this.#running = false
+    this.#paused = true
+    this.#waiting = false
+    this.#stopAudio()
+    this.#emit("error")
+  }
+
+  #selectAudio(track: ProbedAudio | undefined) {
+    this.#audio = track
+    this.#audioStream = track && audioStream(track)
+    if (!track) return
+    if (!this.#context) {
+      this.#context = new AudioContext({ latencyHint: "playback" })
+      this.#gain = this.#context.createGain()
+      this.#gain.connect(this.#context.destination)
+      this.#applyVolume()
+    }
+    const destination = this.#context.destination
+    // Surround output plays as is; anything the device cannot take is folded to stereo.
+    destination.channelCount =
+      track.channels > 2 && destination.maxChannelCount >= track.channels ? track.channels : 2
+  }
+
+  #applyVolume() {
+    if (this.#gain) this.#gain.gain.value = this.#muted ? 0 : this.#volume
+    this.#emit("volumechange")
+  }
+
+  /** Freezes the clock and refills audio from the current position before playing on. */
+  #startWaiting() {
+    this.#position = this.currentTime
+    this.#running = false
+    this.#waiting = true
+    this.#readyState = Math.min(this.#readyState, 2)
+    this.#startAudio(this.#position)
+    this.#emit("waiting")
+  }
+
+  #resume() {
+    this.#anchorMedia = this.#position
+    this.#anchorClock =
+      this.#context && this.#audioStream ? this.#context.currentTime + 0.05 : this.#clock()
+    this.#running = true
+    this.#waiting = false
+    this.#readyState = 4
+    this.#scheduleAudio()
+    this.#emit("playing")
+  }
+
+  #finish() {
+    this.#position = Number.isFinite(this.#duration) ? this.#duration : this.currentTime
+    this.#running = false
+    this.#paused = true
+    this.#ended = true
+    this.#stopAudio()
+    this.#emit("timeupdate")
+    this.#emit("pause")
+    this.#emit("ended")
+  }
+
+  /** Runs every 100 ms, also in hidden tabs: starts, stalls, ends, and time updates. */
+  #monitor = () => {
+    if (this.#paused || this.#destroyed) return
+    if (this.#waiting) {
+      if (this.#readyToPlay()) this.#resume()
+      return
+    }
+    const time = this.currentTime
+    const frameEnd = this.#current ? this.#current.timestamp + this.#current.duration : 0
+    const videoDone = !this.#videoSink || (this.#videoEnded && this.#frames.length === 0)
+    const audioDone = !this.#audioStream || (this.#audioEnded && time >= this.#scheduledEnd - 0.01)
+    if ((videoDone && audioDone && time >= frameEnd - 0.01) || time >= this.#duration) {
+      this.#finish()
+      return
+    }
+    const videoStarved = !videoDone && this.#frames.length === 0 && frameEnd < time - 0.05
+    const audioStarved =
+      !!this.#audioStream && !this.#audioEnded && time > this.#scheduledEnd - 0.05
+    if (videoStarved || audioStarved) {
+      this.#startWaiting()
+      return
+    }
+    if (performance.now() - this.#lastTimeUpdate >= 250) {
+      this.#lastTimeUpdate = performance.now()
+      this.#emit("timeupdate")
+      this.#emit("progress")
+    }
+  }
+
+  #readyToPlay(): boolean {
+    const video =
+      !this.#videoSink || this.#videoEnded || this.#frames.length >= MAX_QUEUED_FRAMES - 1
+    const audio =
+      !this.#audioStream || this.#audioEnded || this.#bufferedAudio() >= START_AUDIO_SECONDS
+    return video && audio
+  }
+
+  /** Presents the newest due frame on each animation frame. */
+  #tick = () => {
+    this.#animationFrame = requestAnimationFrame(this.#tick)
+    if (this.#presenting || !this.#presenter) return
+    const time = this.currentTime
+    let due: VideoSample | undefined
+    while (this.#frames.length > 0 && this.#frames[0].timestamp <= time + FRAME_EPSILON) {
+      due?.close()
+      due = this.#frames.shift()
+    }
+    if (!due && this.#needsPresent) due = this.#frames.shift()
+    if (!due) return
+    this.#frameDemand?.()
+    this.#needsPresent = false
+    if (this.#running && due.timestamp + due.duration < time - VIDEO_RESYNC_SECONDS) {
+      due.close()
+      this.#startVideo(time)
+      return
+    }
+    const frame = due
+    this.#presenting = true
+    this.#presenter.present(frame).then(
+      () => {
+        this.#presenting = false
+        if (this.#destroyed) {
+          frame.close()
+          return
+        }
+        this.#current?.close()
+        this.#current = frame
+        if (this.#readyState < 2) {
+          this.#readyState = this.#paused ? 4 : 2
+          this.#emit("loadeddata")
+          this.#emit("canplay")
+        }
+      },
+      (error: unknown) => {
+        this.#presenting = false
+        frame.close()
+        this.#fail(error)
+      },
+    )
+  }
+
+  #startVideo(from: number) {
+    const generation = ++this.#videoGeneration
+    this.#frames.forEach((frame) => frame.close())
+    this.#frames = []
+    this.#videoEnded = false
+    this.#needsPresent = true
+    this.#frameDemand?.()
+    if (this.#videoSink) void this.#runVideo(this.#videoSink, generation, from)
+  }
+
+  async #runVideo(sink: VideoSampleSink, generation: number, from: number) {
+    try {
+      for await (const sample of sink.samples(from)) {
+        if (generation !== this.#videoGeneration) {
+          sample.close()
+          return
+        }
+        this.#frames.push(sample)
+        while (generation === this.#videoGeneration && this.#frames.length >= MAX_QUEUED_FRAMES) {
+          await this.#nextFrameDemand()
+        }
+      }
+      if (generation === this.#videoGeneration) this.#videoEnded = true
+    } catch (error) {
+      if (generation === this.#videoGeneration) this.#fail(error)
+    }
+  }
+
+  /** Resolves when the presenter takes a frame, or when a newer decode run replaces this one. */
+  #nextFrameDemand(): Promise<void> {
+    this.#frameDemand?.()
+    return new Promise((resolve) => {
+      this.#frameDemand = resolve
+    })
+  }
+
+  #startAudio(from: number) {
+    const generation = ++this.#audioGeneration
+    this.#stopNodes()
+    this.#pendingAudio = []
+    this.#audioEnded = false
+    this.#scheduledEnd = from
+    if (this.#audioStream) void this.#runAudio(this.#audioStream, generation, from)
+  }
+
+  #stopAudio() {
+    this.#audioGeneration += 1
+    this.#stopNodes()
+    this.#pendingAudio = []
+  }
+
+  async #runAudio(stream: AudioStream, generation: number, from: number) {
+    try {
+      for await (const { buffer, timestamp } of stream(from)) {
+        if (generation !== this.#audioGeneration) return
+        this.#pendingAudio.push({ buffer: this.#prepareAudio(buffer), timestamp })
+        this.#scheduleAudio()
+        while (generation === this.#audioGeneration && this.#bufferedAudio() > AUDIO_LEAD_SECONDS) {
+          await new Promise((resolve) => window.setTimeout(resolve, 100))
+        }
+      }
+      if (generation === this.#audioGeneration) this.#audioEnded = true
+    } catch (error) {
+      if (generation === this.#audioGeneration) this.#fail(error)
+    }
+  }
+
+  #bufferedAudio(): number {
+    if (this.#running) return this.#scheduledEnd - this.currentTime
+    return this.#pendingAudio.reduce((total, { buffer }) => total + buffer.duration, 0)
+  }
+
+  #scheduleAudio() {
+    const context = this.#context
+    const gain = this.#gain
+    if (!this.#running || !context || !gain) return
+    for (const { buffer, timestamp } of this.#pendingAudio) {
+      const start = this.#anchorClock + (timestamp - this.#anchorMedia)
+      // Skip whatever lies before the anchor or has already passed.
+      const offset = Math.max(0, context.currentTime - start, this.#anchorMedia - timestamp)
+      if (offset >= buffer.duration) continue
+      const node = new AudioBufferSourceNode(context, { buffer })
+      node.connect(gain)
+      node.onended = () => this.#sources.delete(node)
+      node.start(start + offset, offset)
+      this.#sources.add(node)
+      this.#scheduledEnd = Math.max(this.#scheduledEnd, timestamp + buffer.duration)
+    }
+    this.#pendingAudio = []
+  }
+
+  #stopNodes() {
+    for (const node of this.#sources) {
+      node.onended = null
+      node.stop()
+      node.disconnect()
+    }
+    this.#sources.clear()
+  }
+
+  /** Folds surround buffers to stereo when the output device cannot play every channel. */
+  #prepareAudio(buffer: AudioBuffer): AudioBuffer {
+    const outputChannels = this.#context?.destination.channelCount ?? 2
+    if (buffer.numberOfChannels <= Math.max(2, outputChannels)) return buffer
+    const channels = Array.from({ length: buffer.numberOfChannels }, (_, index) =>
+      buffer.getChannelData(index),
+    )
+    const stereo = downmixToStereo(channels)
+    if (!stereo) return buffer
+    const output = new AudioBuffer({
+      numberOfChannels: 2,
+      length: buffer.length,
+      sampleRate: buffer.sampleRate,
+    })
+    output.copyToChannel(stereo[0], 0)
+    output.copyToChannel(stereo[1], 1)
+    return output
+  }
+}

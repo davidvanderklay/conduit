@@ -48,10 +48,42 @@ ships the fallback to users. See `THIRD_PARTY_NOTICES.md` for provenance.
 
 ## Hosted web app
 
-The web player uses the browser media APIs and hls.js. Codec, container, audio,
-and CORS support therefore depend on the browser and device. When the browser
-rejects a source, Conduit gives a compatibility error and suggests choosing
-another stream or using the desktop app.
+The web player uses the browser's `<video>` element and hls.js when the browser
+can play a source. Before playing a direct file, it reads the container and
+track headers with HTTP range requests. When the browser cannot play the
+container or the primary codecs, or the video is HDR and WebGPU is available,
+it plays the source with its own engine instead:
+
+- Mediabunny demuxes MP4, Matroska/WebM, MPEG-TS, and other containers.
+- WebCodecs decodes H.264, HEVC, VP9, and AV1 where the browser supports them.
+- WebAssembly builds of FFmpeg decode what browsers cannot: AC-3 and E-AC-3,
+  DTS (including DTS-HD Master Audio), TrueHD, and MLP audio, and HEVC Main and
+  Main 10 video on browsers without an HEVC decoder. They run in a worker. The
+  HEVC decoder keeps up with 1080p on a desktop CPU but not 4K, and a seek
+  decodes from the previous keyframe, so it can take a few seconds.
+- WebGPU draws frames. PQ and HLG video is tone mapped to SDR with the BT.2390
+  curve and converted from BT.2020 to BT.709. Without WebGPU, frames are drawn
+  with Canvas 2D and the browser handles color.
+- Dolby Vision profile 5, whose base layer is in Dolby's IPT color space, is
+  decoded by the HEVC WebAssembly decoder even when the browser has its own,
+  because reshaping needs the raw samples and the RPU metadata FFmpeg parses.
+  WebGPU then applies the RPU's reshaping curves and matrices, following
+  libplacebo, and tone maps with the scene's peak brightness. This keeps up
+  with 1080p but not 4K. Profile 8 plays from its HDR10 or HLG base layer.
+- Surround audio plays as is on outputs with enough channels, and otherwise is
+  downmixed to stereo.
+
+If an audio track still cannot be decoded, the engine plays another decodable
+track in the same language, or plays the video alone. VC-1 and MPEG-2 video
+are not supported yet.
+If either route fails before playback starts, the player tries the other one
+once.
+
+The engine needs a secure context (HTTPS or localhost) and a source host that
+allows cross-origin reads. Other sources play through `<video>` as before.
+Codec support therefore still depends on the browser and device. When neither
+route can play a source, Conduit gives a compatibility error and suggests
+choosing another stream or using the desktop app.
 
 A web page cannot safely or silently install a loopback media service. Conduit
 also does not send unsupported sources through the hosted API, because doing so

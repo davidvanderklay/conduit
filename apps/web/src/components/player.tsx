@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useEffectEvent, useRef, useState } from "react"
 import {
   Captions,
   Expand,
@@ -32,6 +32,19 @@ import {
   type PlayerShortcut,
 } from "../lib/player-shortcuts"
 import { PlayerFlash, usePlayerFlash } from "./player-flash"
+import type { WebMediaEngine, WebSource } from "../lib/web-engine/engine"
+import {
+  PLAYBACK_MEDIA_EVENTS,
+  type PlaybackMedia,
+  type PlaybackMediaEvent,
+} from "../lib/web-engine/media"
+import {
+  choosePlaybackRoute,
+  engineCanPlay,
+  webEngineSupported,
+  webGpuAvailable,
+  type PlaybackRoute,
+} from "../lib/web-engine/route"
 import { DesktopPlayer } from "./desktop-player"
 import {
   NextEpisodePrompt,
@@ -59,8 +72,12 @@ interface AudioChoice {
   id: number
   label: string
   language?: string
-  kind: "hls" | "native"
+  kind: "hls" | "native" | "engine"
+  disabled?: boolean
 }
+
+/** How long the engine may spend reading a source's headers before `<video>` takes over. */
+const PROBE_TIMEOUT_MS = 10_000
 
 export function Player({
   url,
@@ -216,6 +233,15 @@ function WebPlayer({
   const heading = playerHeading(progressMetadata)
   const shellRef = useRef<HTMLDivElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  // The element or engine currently playing. Playback controls go through it, while
+  // text tracks and hls.js stay on the `<video>` element.
+  const mediaRef = useRef<PlaybackMedia | null>(null)
+  const engineRef = useRef<WebMediaEngine | null>(null)
+  const [media, setMedia] = useState<PlaybackMedia>()
+  const [route, setRoute] = useState<PlaybackRoute>("native")
+  // Starts the other route once if the first one fails before playback begins.
+  const fallbackRef = useRef<(() => void) | undefined>(undefined)
   const hlsRef = useRef<Hls | null>(null)
   const subtitleObjectUrl = useRef<string | null>(null)
   const [playing, setPlaying] = useState(false)
@@ -298,7 +324,7 @@ function WebPlayer({
 
   const currentSubtitlePosition = useCallback(
     (position: number) => {
-      const video = videoRef.current
+      const video = mediaRef.current
       const shell = shellRef.current
       if (!video || !shell) return position
       const bounds = shell.getBoundingClientRect()
@@ -328,7 +354,7 @@ function WebPlayer({
   }, [repositionVisibleSubtitles])
 
   const close = () => {
-    const video = videoRef.current
+    const video = mediaRef.current
     if (video && resumed.current) {
       void saveProgress(video.currentTime, video.duration, true).catch(() => undefined)
     }
@@ -337,7 +363,7 @@ function WebPlayer({
 
   useEffect(() => {
     if (!partySession) return
-    const video = videoRef.current
+    const video = media
     const applyRemoteState = (state: Parameters<typeof partyPositionAt>[0]) => {
       if (!video || partySession.role !== "guest") return
       if (video.readyState < 1) return
@@ -373,12 +399,12 @@ function WebPlayer({
       video?.removeEventListener("loadedmetadata", applyLatest)
       video?.removeEventListener("canplay", applyLatest)
     }
-  }, [onRemoteMedia, partySession])
+  }, [media, onRemoteMedia, partySession])
 
   useEffect(() => {
     if (!partySession || partySession.role !== "host") return
     const publish = () => {
-      const video = videoRef.current
+      const video = mediaRef.current
       if (!video || !Number.isFinite(video.duration)) return
       partySession.publishState({
         position: video.currentTime,
@@ -392,7 +418,7 @@ function WebPlayer({
   }, [partySession])
 
   useEffect(() => {
-    const video = videoRef.current
+    const video = mediaRef.current
     if (resumed.current || !video || !duration || !progress.isSuccess) return
     resumed.current = true
     if (partySession?.role === "guest" || !progress.data || progress.data.watched) return
@@ -501,15 +527,90 @@ function WebPlayer({
     }
   }, [addons, type, videoId])
 
+  const handleMediaEvent = useEffectEvent((type: PlaybackMediaEvent, target: PlaybackMedia) => {
+    switch (type) {
+      case "play":
+        setPlaying(true)
+        setPlaybackStarted(true)
+        markAutoRecoveryStarted()
+        if (partySession?.role === "host" && !applyingPartyUpdate.current)
+          partySession.publishCommand("play")
+        break
+      case "pause":
+        setPlaying(false)
+        if (partySession?.role === "host" && !applyingPartyUpdate.current)
+          partySession.publishCommand("pause")
+        if (resumed.current) void saveProgress(target.currentTime, target.duration, true)
+        break
+      case "playing":
+        fallbackRef.current = undefined
+        setWaiting(false)
+        setPlaybackStarted(true)
+        markAutoRecoveryStarted()
+        break
+      case "error": {
+        const fallback = fallbackRef.current
+        fallbackRef.current = undefined
+        if (fallback) {
+          fallback()
+          break
+        }
+        setWaiting(false)
+        reportAutoRecoveryFailure()
+        setPlaybackError(browserPlaybackError(target.error?.code))
+        break
+      }
+      case "waiting":
+        setWaiting(true)
+        break
+      case "timeupdate":
+        setCurrentTime(target.currentTime)
+        setBufferedEnd(playbackBufferState(target.buffered, target.currentTime).end)
+        if (resumed.current) void saveProgress(target.currentTime, target.duration)
+        break
+      case "progress":
+        setBufferedEnd(playbackBufferState(target.buffered, target.currentTime).end)
+        break
+      case "ended":
+        setPlaying(false)
+        if (!nextTransitionRequested.current) {
+          nextTransitionRequested.current = true
+          void Promise.resolve(
+            onEnded?.(partySession?.role !== "guest" && !nextTransitionSuppressed.current),
+          ).catch(() => undefined)
+        }
+        void saveProgress(target.duration, target.duration, true).catch(() => undefined)
+        break
+      case "durationchange":
+        setDuration(target.duration || 0)
+        break
+      case "loadedmetadata":
+        if (target === videoRef.current) refreshNativeTracks()
+        repositionVisibleSubtitles()
+        break
+      case "volumechange":
+        setVolume(target.volume)
+        setMuted(target.muted)
+        break
+      case "canplay":
+        break
+    }
+  })
+
   useEffect(() => {
     const video = videoRef.current
-    if (!video) return
+    const canvas = canvasRef.current
+    if (!video || !canvas) return
     video.volume = preferences.volume / 100
     video.autoplay = preferences.autoplay
     let cancelled = false
     let hls: Hls | undefined
+    let source: WebSource | undefined
+    let engine: WebMediaEngine | undefined
+    let detach = () => {}
     setWaiting(true)
     setPlaybackError(undefined)
+    setAudioChoices([])
     manualSubtitleSelection.current = false
     lastAutomaticSubtitle.current = undefined
     embeddedDiscoveryReady.current = false
@@ -518,7 +619,25 @@ function WebPlayer({
     setSelectedSubtitle("off")
     setSubtitles((current) => current.filter((subtitle) => !subtitle.embedded))
 
-    if (isHls(url)) {
+    const attach = (target: PlaybackMedia) => {
+      detach()
+      const listeners = PLAYBACK_MEDIA_EVENTS.map((type) => {
+        const listener = () => handleMediaEvent(type, target)
+        target.addEventListener(type, listener)
+        return () => target.removeEventListener(type, listener)
+      })
+      detach = () => listeners.forEach((remove) => remove())
+      mediaRef.current = target
+      setMedia(target)
+    }
+
+    const playNative = () => {
+      setRoute("native")
+      attach(video)
+      if (!isHls(url)) {
+        video.src = url
+        return
+      }
       void import("hls.js").then(({ default: HlsPlayer }) => {
         if (cancelled) return
         if (HlsPlayer.isSupported()) {
@@ -553,14 +672,91 @@ function WebPlayer({
           video.src = url
         }
       })
+    }
+
+    const playEngine = async (opened: WebSource) => {
+      const { WebMediaEngine } = await import("../lib/web-engine/engine")
+      if (cancelled) return
+      engine = new WebMediaEngine(opened, canvas, { volume: preferences.volume / 100 })
+      engineRef.current = engine
+      setRoute("engine")
+      attach(engine)
+      await engine.load({ autoplay: preferences.autoplay })
+      if (cancelled || engine.error) return
+      const selected = engine.selectedAudioTrack
+      setAudioChoices(
+        engine.audioTracks.map((track, index) => ({
+          id: index,
+          label: `${track.name || (track.language !== "und" && languageName(track.language)) || `Audio ${index + 1}`}${
+            track.decodable ? "" : " (unsupported in browser)"
+          }`,
+          language: track.language,
+          kind: "engine",
+          disabled: !track.decodable,
+        })),
+      )
+      setSelectedAudio(selected && engine.audioTracks.indexOf(selected))
+      // The engine exposes no embedded subtitles, so subtitle selection can go ahead.
+      embeddedDiscoveryReady.current = true
+      setSubtitleMetadataReady(true)
+    }
+
+    const startEngine = (opened: WebSource) => {
+      void playEngine(opened).catch(() => {
+        if (!cancelled) playNative()
+      })
+    }
+
+    if (isHls(url) || !webEngineSupported()) {
+      playNative()
     } else {
-      video.src = url
+      void probeSource(url).then(async (opened) => {
+        if (cancelled) {
+          opened?.input.dispose()
+          return
+        }
+        if (!opened) {
+          playNative()
+          return
+        }
+        source = opened
+        const webgpu = await webGpuAvailable()
+        if (cancelled) return
+        const route = choosePlaybackRoute(opened.probe, {
+          canPlayType: (mimeType) => video.canPlayType(mimeType) !== "",
+          webgpu,
+        })
+        if (route === "engine") {
+          fallbackRef.current = () => {
+            engine?.destroy()
+            engine = undefined
+            engineRef.current = null
+            playNative()
+          }
+          startEngine(opened)
+          return
+        }
+        if (engineCanPlay(opened.probe)) {
+          fallbackRef.current = () => {
+            video.removeAttribute("src")
+            video.load()
+            startEngine(opened)
+          }
+        }
+        playNative()
+      })
     }
 
     return () => {
       cancelled = true
+      detach()
+      fallbackRef.current = undefined
       hls?.destroy()
       hlsRef.current = null
+      if (engine) engine.destroy()
+      else source?.input.dispose()
+      engineRef.current = null
+      mediaRef.current = null
       video.removeAttribute("src")
       video.load()
     }
@@ -678,8 +874,11 @@ function WebPlayer({
 
   const chooseAudio = (choice: AudioChoice) => {
     const video = videoRef.current
-    if (!video) return
-    if (choice.kind === "hls" && hlsRef.current) {
+    if (!video || choice.disabled) return
+    const engineTrack = engineRef.current?.audioTracks[choice.id]
+    if (choice.kind === "engine" && engineTrack) {
+      engineRef.current?.selectAudioTrack(engineTrack)
+    } else if (choice.kind === "hls" && hlsRef.current) {
       hlsRef.current.audioTrack = choice.id
     } else {
       getNativeAudioTracks(video).forEach((track, index) => {
@@ -692,20 +891,20 @@ function WebPlayer({
   // Party guests follow the host, but may resume when the host is playing.
   const play = () => {
     if (partySession?.role === "guest" && !partySession.state?.playing) return
-    void videoRef.current?.play().catch(() => undefined)
+    void mediaRef.current?.play().catch(() => undefined)
   }
 
   const pause = () => {
-    if (partySession?.role !== "guest") videoRef.current?.pause()
+    if (partySession?.role !== "guest") mediaRef.current?.pause()
   }
 
   const togglePlayback = () => {
-    if (videoRef.current?.paused) play()
+    if (mediaRef.current?.paused) play()
     else pause()
   }
 
   const seekBy = (seconds: number) => {
-    const video = videoRef.current
+    const video = mediaRef.current
     if (!video || partySession?.role === "guest") return
     const position = Math.max(0, Math.min(video.duration || Infinity, video.currentTime + seconds))
     video.currentTime = position
@@ -743,7 +942,7 @@ function WebPlayer({
   }
 
   const runShortcut = (shortcut: PlayerShortcut) => {
-    const video = videoRef.current
+    const video = mediaRef.current
     if (!video) return
     switch (shortcut.type) {
       case "toggle-playback":
@@ -880,77 +1079,26 @@ function WebPlayer({
             ref={videoRef}
             className="h-full w-full"
             style={{ objectFit: videoObjectFit(videoScale) }}
+            hidden={route === "engine"}
             autoPlay
             playsInline
             onClick={togglePlayback}
-            onPlay={() => {
-              setPlaying(true)
-              setPlaybackStarted(true)
-              markAutoRecoveryStarted()
-              if (partySession?.role === "host" && !applyingPartyUpdate.current)
-                partySession.publishCommand("play")
-            }}
-            onPause={(event) => {
-              setPlaying(false)
-              if (partySession?.role === "host" && !applyingPartyUpdate.current)
-                partySession.publishCommand("pause")
-              if (resumed.current) {
-                void saveProgress(
-                  event.currentTarget.currentTime,
-                  event.currentTarget.duration,
-                  true,
-                )
-              }
-            }}
-            onPlaying={() => {
-              setWaiting(false)
-              setPlaybackStarted(true)
-              markAutoRecoveryStarted()
-            }}
-            onError={(event) => {
-              setWaiting(false)
-              reportAutoRecoveryFailure()
-              setPlaybackError(browserPlaybackError(event.currentTarget.error?.code))
-            }}
-            onWaiting={() => setWaiting(true)}
-            onTimeUpdate={(event) => {
-              const video = event.currentTarget
-              const nextBuffer = playbackBufferState(video.buffered, video.currentTime)
-              setCurrentTime(video.currentTime)
-              setBufferedEnd(nextBuffer.end)
-              if (resumed.current) {
-                void saveProgress(video.currentTime, video.duration)
-              }
-            }}
-            onProgress={(event) => {
-              const video = event.currentTarget
-              const nextBuffer = playbackBufferState(video.buffered, video.currentTime)
-              setBufferedEnd(nextBuffer.end)
-            }}
-            onEnded={(event) => {
-              setPlaying(false)
-              if (!nextTransitionRequested.current) {
-                nextTransitionRequested.current = true
-                void Promise.resolve(
-                  onEnded?.(partySession?.role !== "guest" && !nextTransitionSuppressed.current),
-                ).catch(() => undefined)
-              }
-              void saveProgress(
-                event.currentTarget.duration,
-                event.currentTarget.duration,
-                true,
-              ).catch(() => undefined)
-            }}
-            onDurationChange={(event) => setDuration(event.currentTarget.duration || 0)}
-            onLoadedMetadata={() => {
-              refreshNativeTracks()
-              repositionVisibleSubtitles()
-            }}
-            onVolumeChange={(event) => {
-              setVolume(event.currentTarget.volume)
-              setMuted(event.currentTarget.muted)
-            }}
           />
+          <canvas
+            key={url}
+            ref={canvasRef}
+            className="h-full w-full"
+            style={{ objectFit: videoObjectFit(videoScale) }}
+            hidden={route !== "engine"}
+            onClick={togglePlayback}
+          />
+          {route === "engine" && media && (
+            <EngineSubtitles
+              media={media}
+              videoRef={videoRef}
+              position={() => currentSubtitlePosition(subtitlePosition)}
+            />
+          )}
           {playbackError ? (
             <div className="absolute inset-0 grid place-items-center p-5">
               <div className="w-full max-w-lg rounded-xl border border-red-950 bg-zinc-950/95 p-6">
@@ -1034,7 +1182,7 @@ function WebPlayer({
               onChange={(event) => {
                 if (partySession?.role === "guest") return
                 const position = Number(event.target.value)
-                if (videoRef.current) videoRef.current.currentTime = position
+                if (mediaRef.current) mediaRef.current.currentTime = position
                 if (partySession?.role === "host") partySession.publishCommand("seek", position)
               }}
             />
@@ -1050,7 +1198,7 @@ function WebPlayer({
               <Control
                 label={muted ? "Unmute" : "Mute"}
                 onClick={() => {
-                  if (videoRef.current) videoRef.current.muted = !videoRef.current.muted
+                  if (mediaRef.current) mediaRef.current.muted = !mediaRef.current.muted
                 }}
               >
                 {muted || volume === 0 ? <VolumeX size={21} /> : <Volume2 size={21} />}
@@ -1064,9 +1212,9 @@ function WebPlayer({
                 value={muted ? 0 : volume}
                 aria-label="Volume"
                 onChange={(event) => {
-                  if (videoRef.current) {
-                    videoRef.current.volume = Number(event.target.value)
-                    videoRef.current.muted = false
+                  if (mediaRef.current) {
+                    mediaRef.current.volume = Number(event.target.value)
+                    mediaRef.current.muted = false
                   }
                 }}
               />
@@ -1082,12 +1230,14 @@ function WebPlayer({
               <Control label="Track settings" onClick={() => setShowSettings((value) => !value)}>
                 <Settings2 size={21} />
               </Control>
-              <Control
-                label="Picture in picture"
-                onClick={() => void videoRef.current?.requestPictureInPicture?.()}
-              >
-                <PictureInPicture size={21} />
-              </Control>
+              {route === "native" && (
+                <Control
+                  label="Picture in picture"
+                  onClick={() => void videoRef.current?.requestPictureInPicture?.()}
+                >
+                  <PictureInPicture size={21} />
+                </Control>
+              )}
               <VideoScaleControl
                 value={videoScale}
                 indicatorPlacement="above"
@@ -1119,6 +1269,7 @@ function WebPlayer({
                     <TrackOption
                       key={`${choice.kind}-${choice.id}`}
                       active={selectedAudio === choice.id}
+                      disabled={choice.disabled}
                       label={choice.label}
                       onClick={() => chooseAudio(choice)}
                     />
@@ -1207,18 +1358,21 @@ function TrackSection({
 
 function TrackOption({
   active,
+  disabled,
   label,
   onClick,
 }: {
   active: boolean
+  disabled?: boolean
   label: string
   onClick: () => void
 }) {
   return (
     <button
-      className={`block w-full rounded-lg px-2 py-2 text-left text-sm ${
-        active ? "bg-amber-400 text-zinc-950" : "text-zinc-300 hover:bg-zinc-800"
+      className={`block w-full rounded-lg px-2 py-2 text-left text-sm disabled:text-zinc-600 ${
+        active ? "bg-amber-400 text-zinc-950" : "text-zinc-300 enabled:hover:bg-zinc-800"
       }`}
+      disabled={disabled}
       onClick={onClick}
     >
       {label}
@@ -1287,6 +1441,75 @@ function formatTime(seconds: number): string {
   return hours
     ? `${hours}:${minutes.toString().padStart(2, "0")}:${remaining.toString().padStart(2, "0")}`
     : `${minutes}:${remaining.toString().padStart(2, "0")}`
+}
+
+/**
+ * Opens a source for the WebCodecs engine. Resolves undefined when the host
+ * blocks cross-origin reads or does not answer in time, so `<video>` plays it.
+ */
+async function probeSource(url: string): Promise<WebSource | undefined> {
+  const { openWebSource } = await import("../lib/web-engine/engine")
+  const opening = openWebSource(url)
+  const timeout = new Promise<undefined>((resolve) => window.setTimeout(resolve, PROBE_TIMEOUT_MS))
+  const source = await Promise.race([opening.catch(() => undefined), timeout])
+  if (!source)
+    void opening.then(
+      (late) => late.input.dispose(),
+      () => undefined,
+    )
+  return source
+}
+
+/**
+ * Draws the showing text track's cues over the engine's canvas. The browser
+ * only renders cues on a `<video>` that is playing, and the engine bypasses it.
+ */
+function EngineSubtitles({
+  media,
+  videoRef,
+  position,
+}: {
+  media: PlaybackMedia
+  videoRef: React.RefObject<HTMLVideoElement | null>
+  /** The cue line in percent from the top, adjusted for the current video scale. */
+  position: () => number
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+  const linePosition = useEffectEvent(position)
+  useEffect(() => {
+    let shown: TextTrackCue[] = []
+    const timer = window.setInterval(() => {
+      const element = ref.current
+      const video = videoRef.current
+      if (!element || !video) return
+      const line = linePosition()
+      // Anchors the box by the same fraction it sits at, so it never leaves the frame.
+      element.style.top = `${line}%`
+      element.style.transform = `translateY(-${line}%)`
+      const track = Array.from(video.textTracks).find((candidate) => candidate.mode === "showing")
+      const time = media.currentTime
+      const active = Array.from(track?.cues ?? []).filter(
+        (cue) => cue.startTime <= time && cue.endTime > time,
+      )
+      if (active.length === shown.length && active.every((cue, index) => cue === shown[index]))
+        return
+      shown = active
+      element.replaceChildren(
+        ...active.map((cue) => {
+          const row = document.createElement("div")
+          if (cue instanceof VTTCue) row.append(cue.getCueAsHTML())
+          return row
+        }),
+      )
+    }, 100)
+    return () => window.clearInterval(timer)
+  }, [media, videoRef])
+  return (
+    <div
+      ref={ref}
+      className="engine-subtitles pointer-events-none absolute inset-x-0 px-[5%] text-center leading-snug text-white"
+    />
+  )
 }
 
 function isHls(url: string): boolean {
