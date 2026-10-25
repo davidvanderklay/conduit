@@ -26,6 +26,7 @@ export interface NativeTrack {
   bitrate?: number
   selected: boolean
   external: boolean
+  forced?: boolean
 }
 
 export interface NativePlayerSnapshot {
@@ -50,6 +51,8 @@ export interface NativePlayerSnapshot {
 }
 
 export interface ElectronDesktopBridge {
+  /** Set by shells whose native player accepts torrent (magnet) URLs. */
+  p2p?: boolean
   updates?: (
     command: "status" | "check" | "configure" | "download" | "cancel" | "install",
     args?: { track?: "stable" | "nightly"; enabled?: boolean; serverApiLevel?: number },
@@ -58,6 +61,7 @@ export interface ElectronDesktopBridge {
   onFullscreenChange(listener: (fullscreen: boolean) => void): () => void
   onPlayerOverlayClose(listener: () => void): () => void
   onPlayerOverlayNext(listener: () => void): () => void
+  onPlayerOverlayDismissNext?: (listener: () => void) => () => void
   onPlayerOverlaySubtitle?: (listener: () => void) => () => void
   onPlayerOverlayEpisode?: (listener: (videoId: string) => void) => () => void
   onPlayerOverlayWatchAction?: (
@@ -132,10 +136,19 @@ export function usesPlayerOverlayWindow(): boolean {
   return isDesktop() && navigator.userAgent.includes("Linux")
 }
 
+/** Whether torrent sources can play here. Browsers cannot stream torrents. */
+export function p2pAvailable(): boolean {
+  return window.__CONDUIT_ELECTRON__?.p2p === true
+}
+
 async function invoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
   const electron = window.__CONDUIT_ELECTRON__
   if (!electron) throw new Error("Desktop bridge is unavailable.")
-  return electron.invoke<T>(command, args)
+  return electron.invoke<T>(command, args).catch((error: unknown) => {
+    // Electron prefixes main-process errors with IPC details users do not need.
+    if (!(error instanceof Error)) throw error
+    throw new Error(error.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ""))
+  })
 }
 
 export function openNativePlayer(

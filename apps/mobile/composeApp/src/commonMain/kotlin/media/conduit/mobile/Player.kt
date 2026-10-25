@@ -166,6 +166,13 @@ expect fun NativePlayer(
     preferredAudioLanguage: String = SystemLanguagePreference,
     preferredSubtitleLanguage: String = "en",
     secondarySubtitleLanguage: String? = null,
+    /** Called when the viewer picks an audio or subtitle track, so the title can remember it. */
+    onTrackChoice: (TitlePlaybackChoices) -> Unit = {},
+    /** Only forced subtitle tracks are eligible for automatic selection. */
+    forcedSubtitlesOnly: Boolean = false,
+    /** Positive values show subtitles later. */
+    subtitleDelayMs: Long = 0,
+    onSubtitleDelayChanged: (Long) -> Unit = {},
     subtitleStyle: SubtitleStyle = SubtitleStyle(),
     onSubtitleStyleChanged: (SubtitleStyle) -> Unit = {},
     androidPlaybackEngine: AndroidPlaybackEngine = AndroidPlaybackEngine.Automatic,

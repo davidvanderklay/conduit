@@ -32,6 +32,7 @@ fileprivate struct ConduitTrack {
     let sampleRate: Int
     let bitrate: Int64
     let external: Bool
+    let forced: Bool
     let selected: Bool
 }
 
@@ -40,6 +41,8 @@ struct SubtitleSelectionCandidate<T> {
     let language: String
     let title: String
     let embedded: Bool
+    /** The container's forced flag. */
+    var forced: Bool = false
 }
 
 enum SubtitleSelectionDecision<T> {
@@ -53,15 +56,20 @@ func subtitleLanguageCode(_ value: String) -> String {
 }
 
 /// Wait for both sources before falling back. Prefer embedded tracks within the chosen language.
+/// With `forcedOnly`, only forced tracks are eligible.
 func preferredSubtitle<T>(
-    candidates: [SubtitleSelectionCandidate<T>],
+    candidates allCandidates: [SubtitleSelectionCandidate<T>],
     primary: String,
     secondary: String?,
     systemLanguage: String,
     embeddedReady: Bool,
-    addonsReady: Bool
+    addonsReady: Bool,
+    forcedOnly: Bool = false
 ) -> SubtitleSelectionDecision<T> {
     guard embeddedReady else { return .wait }
+    let candidates = forcedOnly
+        ? allCandidates.filter { SubtitleSelectionKt.isForcedSubtitle(forced: $0.forced, title: $0.title) }
+        : allCandidates
     let languages = [primary, secondary].compactMap { value -> String? in
         guard let value else { return nil }
         let code = subtitleLanguageCode(value == "System default" || value == "auto" ? systemLanguage : value)
@@ -213,8 +221,16 @@ final class ConduitMPVPlayerBridge: NSObject, IosPlayerBridge {
     func setPreferredAudioLanguage(language: String) {
         ensurePlayerViewController().setPreferredAudioLanguage(language)
     }
-    func setSubtitlePreferences(primary: String, secondary: String?, resolved: Bool) {
-        ensurePlayerViewController().setSubtitlePreferences(primary: primary, secondary: secondary, resolved: resolved)
+    func setSubtitlePreferences(primary: String, secondary: String?, resolved: Bool, forcedOnly: Bool) {
+        ensurePlayerViewController().setSubtitlePreferences(
+            primary: primary,
+            secondary: secondary,
+            resolved: resolved,
+            forcedOnly: forcedOnly
+        )
+    }
+    func setSubtitleDelay(delayMs: Int64) {
+        ensurePlayerViewController().setSubtitleDelay(delayMs)
     }
     func setSubtitleStyle(sizePercent: Int32, offsetPercent: Int32, outline: Bool) {
         ensurePlayerViewController().setSubtitleStyle(
@@ -474,6 +490,8 @@ final class ConduitMPVPlayerViewController: UIViewController {
     private var preferredSubtitleLanguage = "en"
     private var preferredSubtitleApplied = false
     private var secondarySubtitleLanguage: String?
+    private var forcedSubtitlesOnly = false
+    private var subtitleDelayMs: Int64 = 0
     private var subtitleLookupResolved = false
     private var manualSubtitleSelection = false
     private var activeExternalSubtitleLoads = 0
@@ -956,13 +974,22 @@ final class ConduitMPVPlayerViewController: UIViewController {
         }
     }
 
-    func setSubtitlePreferences(primary: String, secondary: String?, resolved: Bool) {
+    func setSubtitlePreferences(primary: String, secondary: String?, resolved: Bool, forcedOnly: Bool) {
         runOnMain { [weak self] in
             guard let self else { return }
             self.preferredSubtitleLanguage = primary
             self.secondarySubtitleLanguage = secondary
+            self.forcedSubtitlesOnly = forcedOnly
             self.subtitleLookupResolved = resolved
             self.applyPreferredSubtitleSelection()
+        }
+    }
+
+    func setSubtitleDelay(_ delayMs: Int64) {
+        runOnMain { [weak self] in
+            guard let self else { return }
+            self.subtitleDelayMs = delayMs
+            self.applySubtitleStyle()
         }
     }
 
@@ -2156,6 +2183,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
         defaultSubtitleOutlineSize = outlineSize
         setStringProperty("sub-scale", String(format: "%.2f", Double(subtitleSizePercent) / 100))
         setStringProperty("sub-outline-size", subtitleOutline ? String(format: "%.2f", outlineSize) : "0")
+        setStringProperty("sub-delay", String(format: "%.3f", Double(subtitleDelayMs) / 1000))
         updateSubtitlePosition()
     }
 
@@ -2280,6 +2308,7 @@ final class ConduitMPVPlayerViewController: UIViewController {
                 sampleRate: getInt("track-list/\(index)/demux-samplerate"),
                 bitrate: Int64(getInt("track-list/\(index)/demux-bitrate")),
                 external: getFlag("track-list/\(index)/external"),
+                forced: getFlag("track-list/\(index)/forced"),
                 selected: type == "sub"
                     ? id == selectedSubtitleId
                     : getFlag("track-list/\(index)/selected")
@@ -2314,12 +2343,15 @@ final class ConduitMPVPlayerViewController: UIViewController {
     private func applyPreferredSubtitleSelection() {
         guard mpv != nil, hasLoadedFile, !manualSubtitleSelection, !preferredSubtitleApplied else { return }
         let candidates = subtitleTracks.map {
-            SubtitleSelectionCandidate(track: $0, language: $0.language, title: $0.title, embedded: !$0.external)
+            SubtitleSelectionCandidate(
+                track: $0, language: $0.language, title: $0.title, embedded: !$0.external, forced: $0.forced
+            )
         }
         switch preferredSubtitle(
             candidates: candidates, primary: preferredSubtitleLanguage, secondary: secondarySubtitleLanguage,
             systemLanguage: Locale.preferredLanguages.first ?? "en", embeddedReady: true,
-            addonsReady: subtitleLookupResolved && pendingExternalSubtitles.isEmpty && activeExternalSubtitleLoads == 0
+            addonsReady: subtitleLookupResolved && pendingExternalSubtitles.isEmpty && activeExternalSubtitleLoads == 0,
+            forcedOnly: forcedSubtitlesOnly
         ) {
         case .wait: return
         case .off:

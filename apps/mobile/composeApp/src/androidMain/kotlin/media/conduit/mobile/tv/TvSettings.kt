@@ -529,6 +529,7 @@ internal fun LazyListScope.playbackSettings(preferences: DevicePreferences, upda
     item { TvSettingToggle("Automatically select streams", "Choose sources for Next and queued playback", preferences.autoSelectNextStreams) { update(preferences.copy(autoSelectNextStreams = it)) } }
     item { TvSettingToggle("Skip intro and credits", "Show skip buttons when timestamps are available", preferences.skipSegments) { update(preferences.copy(skipSegments = it)) } }
     item { TvSettingToggle("Automatically continue playback", "Start the next queued item or episode when playback ends", preferences.autoplayNextEpisode) { update(preferences.copy(autoplayNextEpisode = it)) } }
+    item { TvSettingToggle("Ask if I'm still watching", "Stop after three episodes in a row with no input", preferences.askIfStillWatching) { update(preferences.copy(askIfStillWatching = it)) } }
     sectionLabel("Playback tuning")
     item {
         val durations = ((10..120 step 10).toList() + listOfNotNull(preferences.readAheadSeconds)).distinct().sorted()
@@ -560,6 +561,7 @@ internal fun LazyListScope.playbackSettings(preferences: DevicePreferences, upda
             update(preferences.copy(secondarySubtitleLanguage = it.takeUnless { language -> language == "None" }))
         }
     }
+    item { TvSettingToggle("Forced subtitles only", "Only show subtitles for dialogue in another language", preferences.forcedSubtitlesOnly) { update(preferences.copy(forcedSubtitlesOnly = it)) } }
     item {
         SubtitleStyleControls(
             style = preferences.subtitleStyle,

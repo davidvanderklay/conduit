@@ -84,6 +84,7 @@ internal class ConduitMpvView(
     @Volatile private var currentPreferredAudio = SystemLanguagePreference
     @Volatile private var currentPreferredSubtitle = "en"
     @Volatile private var currentSecondarySubtitle: String? = null
+    @Volatile private var currentForcedSubtitlesOnly = false
     @Volatile private var subtitlesResolved = false
     @Volatile private var currentPlaybackSpeed = 1f
     @Volatile private var currentStartPositionMs = 0L
@@ -262,6 +263,7 @@ internal class ConduitMpvView(
         subtitlesEnabled: Boolean = currentSubtitlesEnabled,
         secondarySubtitleLanguage: String? = currentSecondarySubtitle,
         subtitlesResolved: Boolean = this.subtitlesResolved,
+        forcedSubtitlesOnly: Boolean = currentForcedSubtitlesOnly,
     ) {
         if (!mpv.isInitialized) {
             errorMessage = "libmpv could not be initialized on this device."
@@ -274,6 +276,7 @@ internal class ConduitMpvView(
         currentPreferredAudio = preferredAudioLanguage
         currentPreferredSubtitle = preferredSubtitleLanguage
         currentSecondarySubtitle = secondarySubtitleLanguage
+        currentForcedSubtitlesOnly = forcedSubtitlesOnly
         this.subtitlesResolved = subtitlesResolved
         currentPlaybackSpeed = playbackSpeed.coerceIn(0.25f, 4f)
         currentStartPositionMs = startPositionMs.coerceAtLeast(0L)
@@ -345,9 +348,10 @@ internal class ConduitMpvView(
         enqueueNative { loadPendingSourceNative() }
     }
 
-    fun updateSubtitlePreferences(primary: String, secondary: String?, resolved: Boolean) {
+    fun updateSubtitlePreferences(primary: String, secondary: String?, resolved: Boolean, forcedOnly: Boolean) {
         currentPreferredSubtitle = primary
         currentSecondarySubtitle = secondary
+        currentForcedSubtitlesOnly = forcedOnly
         subtitlesResolved = resolved
         trackCacheRefreshRequested = true
     }
@@ -444,6 +448,11 @@ internal class ConduitMpvView(
             mpv.setPropertyDouble("panscan", panscan)
             mpv.setPropertyString("video-aspect-override", "no")
         }
+    }
+
+    /** mpv keeps `sub-delay` across loads, so this only runs when the delay changes. */
+    fun setSubtitleDelay(delayMs: Long) {
+        enqueueNative { mpv.setPropertyDouble("sub-delay", delayMs / 1000.0) }
     }
 
     /** Applies the user's subtitle size, position, and outline to the running player. */
@@ -603,12 +612,13 @@ internal class ConduitMpvView(
         val tracks = cachedTracks["sub"].orEmpty()
         val candidates = tracks.mapNotNull { track ->
             track.selectionKey?.let { key -> SubtitleCandidate(key, track.language, track.label,
-                embedded = key.startsWith(EmbeddedSubtitleSelectionPrefix)) }
+                embedded = key.startsWith(EmbeddedSubtitleSelectionPrefix), forced = track.forced) }
         } + currentSubtitles.filter {
             externalSubtitleLoadQueued || subtitleSelectionKey(it) !in loadedExternalSubtitleKeys
         }.map { SubtitleCandidate(subtitleSelectionKey(it), it.lang, it.addonName, embedded = false) }
         return preferredSubtitle(candidates, currentPreferredSubtitle, currentSecondarySubtitle,
-            java.util.Locale.getDefault().language, embeddedReady = loaded, addonsReady = subtitlesResolved)
+            java.util.Locale.getDefault().language, embeddedReady = loaded, addonsReady = subtitlesResolved,
+            forcedOnly = currentForcedSubtitlesOnly)
     }
 
     private fun applyPreferredSubtitleSelectionNative() {

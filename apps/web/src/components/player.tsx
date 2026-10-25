@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useEffectEvent, useRef, useState } from "react"
+import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react"
 import {
   Captions,
   Expand,
@@ -60,6 +60,15 @@ import type { PlayerUpNext } from "../lib/queue"
 import { QueueIcon, QueueNotice } from "./queue"
 import { VideoScaleControl } from "./video-scale-control"
 import { preferredSubtitle, subtitleLookupResults } from "../lib/subtitle-selection"
+import { configuredTrackLanguage, matchesTrackLanguage } from "../lib/track-preference"
+import { noteAutoplayedEpisode, shouldAskStillWatching } from "../lib/still-watching"
+import {
+  audioChoice,
+  readTitlePlayback,
+  rememberTitlePlayback,
+  subtitleChoice,
+  titleLanguagePreferences,
+} from "../lib/title-playback"
 import { SubtitlePicker } from "./subtitle-picker"
 import { AudioTrackRow } from "./audio-track-row"
 import { audioTrackDisplay, type AudioTrackDisplay } from "../lib/audio-track-display"
@@ -75,6 +84,9 @@ interface PlayerSubtitle extends Subtitle {
 interface AudioChoice {
   id: number
   display: AudioTrackDisplay
+  /** The track's language and authored title, which per-title audio preferences match on. */
+  language?: string
+  label?: string
   kind: "hls" | "native" | "engine"
   disabled?: boolean
 }
@@ -235,6 +247,15 @@ function WebPlayer({
   onRemoteMedia?: (media?: WatchPartyMedia) => void
 }) {
   const preferences = readPreferences()
+  // Read once per stream so a pick during playback does not re-run automatic selection.
+  const titleChoices = useMemo(
+    () => readTitlePlayback(profileId, progressMetadata.mediaId),
+    [profileId, progressMetadata.mediaId, url],
+  )
+  const languages = titleLanguagePreferences(preferences, titleChoices)
+  const [subtitleDelayMs, setSubtitleDelayMs] = useState(titleChoices.subtitleDelayMs ?? 0)
+  const subtitleDelaySeconds = useRef(subtitleDelayMs / 1000)
+  subtitleDelaySeconds.current = subtitleDelayMs / 1000
   const heading = playerHeading(progressMetadata)
   const shellRef = useRef<HTMLDivElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -274,6 +295,9 @@ function WebPlayer({
   const [subtitlePosition, setSubtitlePosition] = useState(preferences.subtitlePosition)
   const [audioChoices, setAudioChoices] = useState<AudioChoice[]>([])
   const [selectedAudio, setSelectedAudio] = useState<number>()
+  const preferredAudioApplied = useRef(false)
+  const preferredAudioLanguage = useRef<string | undefined>(undefined)
+  preferredAudioLanguage.current = configuredTrackLanguage(languages.audioLanguage)
   const [videoScale, setVideoScale] = useState<VideoScale>("fit")
   const [episodeDrawerOpen, setEpisodeDrawerOpen] = useState<PlayerDrawerOpen>(false)
   const nextTransitionSuppressed = useRef(false)
@@ -352,6 +376,21 @@ function WebPlayer({
       .filter((track) => track.mode === "showing")
       .forEach((track) => applyTextTrackPosition(track, position))
   }, [currentSubtitlePosition, subtitlePosition])
+
+  useEffect(() => {
+    setSubtitleDelayMs(titleChoices.subtitleDelayMs ?? 0)
+  }, [titleChoices])
+
+  /** Re-applied on every time update because streamed tracks keep adding cues. */
+  const syncSubtitleDelay = useCallback(() => {
+    const video = videoRef.current
+    if (!video) return
+    Array.from(video.textTracks)
+      .filter((track) => track.mode === "showing")
+      .forEach((track) => applyCueDelay(track, subtitleDelaySeconds.current))
+  }, [])
+
+  useEffect(syncSubtitleDelay, [subtitleDelayMs, selectedSubtitle, syncSubtitleDelay])
 
   useEffect(() => {
     repositionVisibleSubtitles()
@@ -435,6 +474,17 @@ function WebPlayer({
     }
   }, [duration, progress.data, progress.isSuccess])
 
+  /** Picks the preferred audio track once per stream, as soon as a matching track is listed. */
+  const preferredAudioChoice = useCallback((choices: AudioChoice[]) => {
+    const language = preferredAudioLanguage.current
+    if (preferredAudioApplied.current || !language) return undefined
+    const match = choices.find((choice) =>
+      matchesTrackLanguage(language, choice.language, choice.label),
+    )
+    if (match) preferredAudioApplied.current = true
+    return match
+  }, [])
+
   const refreshNativeTracks = useCallback(() => {
     const video = videoRef.current
     if (!video) return
@@ -466,9 +516,17 @@ function WebPlayer({
           { title: track.label, lang: track.language || undefined },
           `Audio ${index + 1}`,
         ),
+        language: track.language,
+        label: track.label,
         kind: "native" as const,
       }))
       setAudioChoices(choices)
+      const preferred = preferredAudioChoice(choices)
+      if (preferred) {
+        tracks.forEach((track, index) => {
+          track.enabled = index === preferred.id
+        })
+      }
       setSelectedAudio(
         Math.max(
           0,
@@ -476,7 +534,7 @@ function WebPlayer({
         ),
       )
     }
-  }, [])
+  }, [preferredAudioChoice])
 
   useEffect(() => {
     const tracks = videoRef.current?.textTracks
@@ -576,6 +634,7 @@ function WebPlayer({
       case "timeupdate":
         setCurrentTime(target.currentTime)
         setBufferedEnd(playbackBufferState(target.buffered, target.currentTime).end)
+        syncSubtitleDelay()
         if (resumed.current) void saveProgress(target.currentTime, target.duration)
         break
       case "progress":
@@ -585,9 +644,12 @@ function WebPlayer({
         setPlaying(false)
         if (!nextTransitionRequested.current) {
           nextTransitionRequested.current = true
-          void Promise.resolve(
-            onEnded?.(partySession?.role !== "guest" && !nextTransitionSuppressed.current),
-          ).catch(() => undefined)
+          const allowAutoplay =
+            partySession?.role !== "guest" &&
+            !nextTransitionSuppressed.current &&
+            !shouldAskStillWatching(preferences.askStillWatching)
+          if (allowAutoplay) noteAutoplayedEpisode()
+          void Promise.resolve(onEnded?.(allowAutoplay)).catch(() => undefined)
         }
         void saveProgress(target.duration, target.duration, true).catch(() => undefined)
         break
@@ -625,6 +687,9 @@ function WebPlayer({
     setPlaybackError(undefined)
     setAudioChoices([])
     manualSubtitleSelection.current = false
+    preferredAudioApplied.current = false
+    nextTransitionSuppressed.current = false
+    nextTransitionRequested.current = false
     lastAutomaticSubtitle.current = undefined
     embeddedDiscoveryReady.current = false
     subtitleSelectionGeneration.current += 1
@@ -662,16 +727,19 @@ function WebPlayer({
           })
           hlsRef.current = hls
           hls.on(HlsPlayer.Events.AUDIO_TRACKS_UPDATED, (_, data) => {
-            setAudioChoices(
-              data.audioTracks.map((track, index) => ({
-                id: index,
-                display: audioTrackDisplay(
-                  { title: track.name, lang: track.lang, codec: track.audioCodec },
-                  `Audio ${index + 1}`,
-                ),
-                kind: "hls",
-              })),
-            )
+            const choices = data.audioTracks.map((track, index) => ({
+              id: index,
+              display: audioTrackDisplay(
+                { title: track.name, lang: track.lang, codec: track.audioCodec },
+                `Audio ${index + 1}`,
+              ),
+              language: track.lang,
+              label: track.name,
+              kind: "hls" as const,
+            }))
+            setAudioChoices(choices)
+            const preferred = preferredAudioChoice(choices)
+            if (preferred && hls) hls.audioTrack = preferred.id
             setSelectedAudio(hls?.audioTrack ?? 0)
           })
           hls.on(HlsPlayer.Events.AUDIO_TRACK_SWITCHED, (_, data) => setSelectedAudio(data.id))
@@ -698,30 +766,33 @@ function WebPlayer({
       attach(engine)
       await engine.load({ autoplay: preferences.autoplay })
       if (cancelled || engine.error) return
+      const choices = engine.audioTracks.map((track, index) => {
+        const display = audioTrackDisplay(
+          {
+            title: track.name ?? undefined,
+            lang: track.language === "und" ? undefined : track.language,
+            // Mediabunny leaves TrueHD and MLP without a codec; the FFmpeg decoder names them.
+            codec: track.codec ?? track.softwareCodec,
+            channelCount: track.channels,
+            sampleRate: track.sampleRate,
+          },
+          `Audio ${index + 1}`,
+        )
+        return {
+          id: index,
+          display: track.decodable
+            ? display
+            : { ...display, secondary: `${display.secondary} · Not supported in this browser` },
+          language: track.language,
+          label: track.name ?? undefined,
+          kind: "engine" as const,
+          disabled: !track.decodable,
+        }
+      })
+      setAudioChoices(choices)
+      const preferred = preferredAudioChoice(choices.filter((choice) => !choice.disabled))
+      if (preferred) engine.selectAudioTrack(engine.audioTracks[preferred.id])
       const selected = engine.selectedAudioTrack
-      setAudioChoices(
-        engine.audioTracks.map((track, index) => {
-          const display = audioTrackDisplay(
-            {
-              title: track.name ?? undefined,
-              lang: track.language === "und" ? undefined : track.language,
-              // Mediabunny leaves TrueHD and MLP without a codec; the FFmpeg decoder names them.
-              codec: track.codec ?? track.softwareCodec,
-              channelCount: track.channels,
-              sampleRate: track.sampleRate,
-            },
-            `Audio ${index + 1}`,
-          )
-          return {
-            id: index,
-            display: track.decodable
-              ? display
-              : { ...display, secondary: `${display.secondary} · Not supported in this browser` },
-            kind: "engine" as const,
-            disabled: !track.decodable,
-          }
-        }),
-      )
       setSelectedAudio(selected && engine.audioTracks.indexOf(selected))
       // Embedded tracks come only from the Matroska reader, so selection waits for it briefly.
       await Promise.race([
@@ -814,6 +885,7 @@ function WebPlayer({
     preferences.volume,
     preferences.webEngine,
     markAutoRecoveryStarted,
+    preferredAudioChoice,
     reportAutoRecoveryFailure,
     url,
   ])
@@ -880,6 +952,7 @@ function WebPlayer({
           if (generation !== subtitleSelectionGeneration.current) return
           applyTextTrackPosition(track.track, effectivePosition)
           track.track.mode = "showing"
+          syncSubtitleDelay()
         })
       } catch (error) {
         if (generation !== subtitleSelectionGeneration.current) return
@@ -891,7 +964,7 @@ function WebPlayer({
         )
       }
     },
-    [currentSubtitlePosition, subtitlePosition, subtitles],
+    [currentSubtitlePosition, subtitlePosition, subtitles, syncSubtitleDelay],
   )
 
   useEffect(() => {
@@ -903,18 +976,20 @@ function WebPlayer({
         title: track.display,
         embedded: Boolean(track.embedded),
       })),
-      primary: preferences.subtitleLanguage,
-      secondary: preferences.secondarySubtitleLanguage,
+      primary: languages.subtitleLanguage,
+      secondary: languages.secondarySubtitleLanguage,
       embeddedReady: embeddedDiscoveryReady.current && subtitleMetadataReady,
       addonsReady: addonLookupReady.current && !subtitleLoading,
+      forcedOnly: languages.forcedSubtitlesOnly,
     })
     if (selected === undefined || selected === lastAutomaticSubtitle.current) return
     lastAutomaticSubtitle.current = selected
     void chooseSubtitle(selected ?? "off", subtitlePosition, true)
   }, [
     chooseSubtitle,
-    preferences.subtitleLanguage,
-    preferences.secondarySubtitleLanguage,
+    languages.subtitleLanguage,
+    languages.secondarySubtitleLanguage,
+    languages.forcedSubtitlesOnly,
     subtitleMetadataReady,
     subtitleLoading,
     subtitlePosition,
@@ -929,6 +1004,12 @@ function WebPlayer({
   const chooseAudio = (choice: AudioChoice) => {
     const video = videoRef.current
     if (!video || choice.disabled) return
+    preferredAudioApplied.current = true
+    rememberTitlePlayback(
+      profileId,
+      progressMetadata.mediaId,
+      audioChoice(choice.language, choice.label),
+    )
     const engineTrack = engineRef.current?.audioTracks[choice.id]
     if (choice.kind === "engine" && engineTrack) {
       engineRef.current?.selectAudioTrack(engineTrack)
@@ -989,6 +1070,21 @@ function WebPlayer({
     active: selectedSubtitle === subtitle.key,
   }))
 
+  /** A manual pick, from the picker or a shortcut, that this title should remember. "off" turns subtitles off. */
+  const chooseSubtitleManually = (key: string) => {
+    const subtitle = subtitles.find((candidate) => candidate.key === key)
+    rememberTitlePlayback(
+      profileId,
+      progressMetadata.mediaId,
+      subtitleChoice(
+        subtitle
+          ? { language: subtitle.lang ?? subtitle.language, label: subtitle.display }
+          : "off",
+      ),
+    )
+    void chooseSubtitle(key)
+  }
+
   const changeSubtitlePosition = (value: number) => {
     setSubtitlePosition(value)
     writePreferences({ ...readPreferences(), subtitlePosition: value })
@@ -1024,7 +1120,7 @@ function WebPlayer({
       case "toggle-subtitles": {
         if (selectedSubtitle !== "off") {
           lastSubtitle.current = selectedSubtitle
-          void chooseSubtitle("off")
+          chooseSubtitleManually("off")
           flash("Subtitles off")
           return
         }
@@ -1034,7 +1130,7 @@ function WebPlayer({
           setTrackMenu("subtitles")
           return
         }
-        void chooseSubtitle(subtitle.key)
+        chooseSubtitleManually(subtitle.key)
         flash(subtitle.display)
         return
       }
@@ -1184,6 +1280,7 @@ function WebPlayer({
               duration={duration}
               paused={!playing}
               autoplay={preferences.autoplay}
+              askStillWatching={shouldAskStillWatching(preferences.askStillWatching)}
               onDismiss={() => {
                 nextTransitionSuppressed.current = true
               }}
@@ -1340,8 +1437,15 @@ function WebPlayer({
                   error={subtitleError}
                   position={subtitlePosition}
                   onPositionChange={changeSubtitlePosition}
-                  onOff={() => void chooseSubtitle("off")}
-                  onSelect={(key) => void chooseSubtitle(key)}
+                  delayMs={subtitleDelayMs}
+                  onDelayChange={(value) => {
+                    setSubtitleDelayMs(value)
+                    rememberTitlePlayback(profileId, progressMetadata.mediaId, {
+                      subtitleDelayMs: value,
+                    })
+                  }}
+                  onOff={() => chooseSubtitleManually("off")}
+                  onSelect={chooseSubtitleManually}
                 />
               ) : audioChoices.length ? (
                 audioChoices.map((choice) => (
@@ -1445,6 +1549,24 @@ function positionWebVtt(source: string, position: number): string {
     (_, timing: string, settings: string) =>
       `${timing}${/\bline:/.test(settings) ? settings : `${settings} line:${position}%`}`,
   )
+}
+
+const originalCueTimes = new WeakMap<TextTrackCue, { start: number; end: number }>()
+
+/** Shifts cues by the subtitle delay from their original timing, so repeated calls do not accumulate. */
+function applyCueDelay(track: TextTrack, delaySeconds: number): void {
+  for (const cue of Array.from(track.cues ?? [])) {
+    let original = originalCueTimes.get(cue)
+    if (!original) {
+      if (delaySeconds === 0) continue
+      original = { start: cue.startTime, end: cue.endTime }
+      originalCueTimes.set(cue, original)
+    }
+    const start = Math.max(0, original.start + delaySeconds)
+    if (cue.startTime === start) continue
+    cue.startTime = start
+    cue.endTime = Math.max(start, original.end + delaySeconds)
+  }
 }
 
 function applyTextTrackPosition(track: TextTrack, position: number): void {

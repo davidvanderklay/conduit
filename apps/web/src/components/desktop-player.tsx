@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
@@ -40,6 +41,15 @@ import {
   type SkipSegment,
 } from "../lib/skip-segments"
 import { configuredTrackLanguage, matchesTrackLanguage } from "../lib/track-preference"
+import { noteAutoplayedEpisode, shouldAskStillWatching } from "../lib/still-watching"
+import {
+  audioChoice,
+  readTitlePlayback,
+  rememberTitlePlayback,
+  subtitleChoice,
+  titleLanguagePreferences,
+  type TitlePlaybackChoices,
+} from "../lib/title-playback"
 import { mpvVideoScaleCommands, type VideoScale } from "../lib/video-scale"
 import { usePlaybackProgress } from "../lib/progress"
 import { usePlayerMediaSession } from "../lib/media-session"
@@ -49,7 +59,10 @@ import {
   steppedVolume,
   type PlayerShortcut,
 } from "../lib/player-shortcuts"
-import { AUTO_SELECTION_STARTUP_TIMEOUT_MS } from "../lib/stream-selection"
+import {
+  AUTO_SELECTION_STARTUP_TIMEOUT_MS,
+  TORRENT_STARTUP_TIMEOUT_MS,
+} from "../lib/stream-selection"
 import { Card } from "./ui/card"
 import {
   NextEpisodePrompt,
@@ -174,6 +187,16 @@ export function DesktopPlayer({
   onRemoteMedia?: (media?: WatchPartyMedia) => void
 }) {
   const preferences = readPreferences()
+  // Read once per stream so a pick during playback does not re-run automatic selection.
+  const titleChoices = useMemo(
+    () => readTitlePlayback(profileId, progressMetadata.mediaId),
+    [profileId, progressMetadata.mediaId, url],
+  )
+  const languages = titleLanguagePreferences(preferences, titleChoices)
+  const rememberChoice = (choice: TitlePlaybackChoices) =>
+    rememberTitlePlayback(profileId, progressMetadata.mediaId, choice)
+  const [subtitleDelayMs, setSubtitleDelayMs] = useState(titleChoices.subtitleDelayMs ?? 0)
+  useEffect(() => setSubtitleDelayMs(titleChoices.subtitleDelayMs ?? 0), [titleChoices])
   const [snapshot, setSnapshot] = useState<NativePlayerSnapshot>()
   const heading = playerHeading(progressMetadata)
   const mediaTitle = nativeMediaTitle(progressMetadata)
@@ -237,7 +260,7 @@ export function DesktopPlayer({
   onAutoRecoveryStartedRef.current = onAutoRecoveryStarted
   onAutoRecoveryFailedRef.current = onAutoRecoveryFailed
   const [playbackStarted, setPlaybackStarted] = useState(false)
-  const preferredAudioLanguage = configuredTrackLanguage(preferences.audioLanguage)
+  const preferredAudioLanguage = configuredTrackLanguage(languages.audioLanguage)
   const { progress, save: saveProgress } = usePlaybackProgress(
     profileId,
     videoId,
@@ -293,11 +316,16 @@ export function DesktopPlayer({
     setPlaybackStarted(false)
   }, [url])
 
+  const torrent = url.startsWith("magnet:")
+
   useEffect(() => {
     if (!autoRecoveryAttempt) return
-    const timeout = window.setTimeout(reportAutoRecoveryFailure, AUTO_SELECTION_STARTUP_TIMEOUT_MS)
+    const timeout = window.setTimeout(
+      reportAutoRecoveryFailure,
+      torrent ? TORRENT_STARTUP_TIMEOUT_MS : AUTO_SELECTION_STARTUP_TIMEOUT_MS,
+    )
     return () => window.clearTimeout(timeout)
-  }, [autoRecoveryAttempt, reportAutoRecoveryFailure, url])
+  }, [autoRecoveryAttempt, reportAutoRecoveryFailure, torrent, url])
   latestSnapshot.current = snapshot
 
   const showControls = useCallback(() => {
@@ -399,7 +427,6 @@ export function DesktopPlayer({
     mediaDurationObserved.current = false
     lastNativeSnapshot.current = undefined
     lastPlayback.current = { position: 0, duration: 0 }
-    document.documentElement.classList.add("native-playback")
     void openNativePlayer(
       url,
       mediaTitle,
@@ -430,6 +457,9 @@ export function DesktopPlayer({
     )
       .then(async (initial) => {
         if (cancelled) return
+        // Only hand the window to the native surface once it exists. Opening can
+        // take a while (torrents), and Linux hides this copy during native playback.
+        document.documentElement.classList.add("native-playback")
         playerStarted = true
         subtitlePlaybackReady.current = true
         if (initial.duration > 0) mediaDurationObserved.current = true
@@ -445,6 +475,7 @@ export function DesktopPlayer({
         const { subtitlePosition, subtitleOutline } = readPreferences()
         await nativePlayerCommand(["set", "sub-pos", subtitlePosition])
         await nativePlayerCommand(["set", "sub-border-size", subtitleOutline ? 3 : 0])
+        await nativePlayerCommand(["set", "sub-delay", (titleChoices.subtitleDelayMs ?? 0) / 1000])
         const resolved = await resolveAddonSubtitles(addons, type, videoId)
         if (!cancelled) {
           // Keep the add-on catalog available immediately. `sub-add` is a
@@ -502,6 +533,7 @@ export function DesktopPlayer({
     mediaTitle,
     preferredAudioLanguage,
     reportAutoRecoveryFailure,
+    titleChoices.subtitleDelayMs,
     type,
     url,
     videoId,
@@ -536,6 +568,10 @@ export function DesktopPlayer({
         setError(cause instanceof Error ? cause.message : String(cause))
       })
     })
+    const unsubscribeDismissNext =
+      electron.onPlayerOverlayDismissNext?.(() => {
+        nextTransitionSuppressed.current = true
+      }) ?? (() => undefined)
     const unsubscribeEpisode =
       electron.onPlayerOverlayEpisode?.((selectedVideoId) => {
         const selectedVideo = seriesContext?.videos.find((video) => video.id === selectedVideoId)
@@ -562,6 +598,7 @@ export function DesktopPlayer({
       unsubscribeSubtitle()
       unsubscribeClose()
       unsubscribeNext()
+      unsubscribeDismissNext()
       unsubscribeEpisode()
       unsubscribeWatchAction()
       unsubscribeQueuePlay()
@@ -630,6 +667,7 @@ export function DesktopPlayer({
             language: track.lang,
             title: track.title,
             embedded: true,
+            forced: track.forced,
           })),
         ...addonSubtitles.map((track) => ({
           track: { kind: "addon" as const, value: track },
@@ -638,10 +676,11 @@ export function DesktopPlayer({
           embedded: false,
         })),
       ],
-      primary: preferences.subtitleLanguage,
-      secondary: preferences.secondarySubtitleLanguage,
+      primary: languages.subtitleLanguage,
+      secondary: languages.secondarySubtitleLanguage,
       embeddedReady: true,
       addonsReady: addonLookupReady.current,
+      forcedOnly: languages.forcedSubtitlesOnly,
     })
     if (selected === undefined) return
     preferredSubtitleApplied.current = true
@@ -684,8 +723,9 @@ export function DesktopPlayer({
   }, [
     addonSubtitles,
     addonSubtitlesResolved,
-    preferences.subtitleLanguage,
-    preferences.secondarySubtitleLanguage,
+    languages.subtitleLanguage,
+    languages.secondarySubtitleLanguage,
+    languages.forcedSubtitlesOnly,
     snapshot,
   ])
 
@@ -792,9 +832,12 @@ export function DesktopPlayer({
     if (!nextTransitionRequested.current) {
       nextTransitionRequested.current = true
       resetOverlay()
-      void Promise.resolve(
-        onEnded?.(partySession?.role !== "guest" && !nextTransitionSuppressed.current),
-      ).catch((cause: unknown) => {
+      const allowAutoplay =
+        partySession?.role !== "guest" &&
+        !nextTransitionSuppressed.current &&
+        !shouldAskStillWatching(readPreferences().askStillWatching)
+      if (allowAutoplay) noteAutoplayedEpisode()
+      void Promise.resolve(onEnded?.(allowAutoplay)).catch((cause: unknown) => {
         setError(cause instanceof Error ? cause.message : String(cause))
       })
     }
@@ -956,6 +999,11 @@ export function DesktopPlayer({
   }, [activeMenu, closeTrackMenu])
 
   const selectTrack = async (property: "aid" | "sid", track: NativeTrack) => {
+    rememberChoice(
+      property === "aid"
+        ? audioChoice(track.lang, track.title)
+        : subtitleChoice({ language: track.lang, label: track.title }),
+    )
     try {
       if (property === "sid") {
         preferredSubtitleApplied.current = true
@@ -988,6 +1036,7 @@ export function DesktopPlayer({
   const selectedSubtitle = subtitleTracks.find((track) => track.selected)
 
   const subtitlesOff = async () => {
+    rememberChoice(subtitleChoice("off"))
     preferredSubtitleApplied.current = true
     subtitleSelectionGeneration.current += 1
     try {
@@ -1273,13 +1322,17 @@ export function DesktopPlayer({
         onFullscreen={toggleFullscreen}
       />
       {error ? (
-        <div className="absolute inset-0 z-10 grid place-items-center p-5">
+        <div className="absolute inset-0 z-0 grid place-items-center bg-black p-5">
           <Card className="w-full max-w-lg border-red-950 bg-zinc-950/95 p-6" data-native-overlay>
-            <p className="font-medium text-red-400">Could not start mpv</p>
-            <p className="mt-2 text-sm text-zinc-400">{error}</p>
-            <p className="mt-3 text-xs text-zinc-600">
-              Check the desktop logs for the libmpv initialization error.
+            <p className="font-medium text-red-400">
+              {torrent ? "Could not stream torrent" : "Could not start mpv"}
             </p>
+            <p className="mt-2 text-sm text-zinc-400">{error}</p>
+            {!torrent && (
+              <p className="mt-3 text-xs text-zinc-600">
+                Check the desktop logs for the libmpv initialization error.
+              </p>
+            )}
           </Card>
         </div>
       ) : loadingOverlayVisible ? (
@@ -1326,6 +1379,7 @@ export function DesktopPlayer({
               duration={snapshot.duration || lastPlayback.current.duration}
               paused={snapshot.paused}
               autoplay={preferences.autoplay}
+              askStillWatching={shouldAskStillWatching(preferences.askStillWatching)}
               visible={upNextVisible}
               contained
               onDismiss={() => {
@@ -1395,9 +1449,22 @@ export function DesktopPlayer({
                   setError(cause instanceof Error ? cause.message : String(cause))
                 })
               }}
+              subtitleDelayMs={subtitleDelayMs}
+              onSubtitleDelay={(value) => {
+                setSubtitleDelayMs(value)
+                rememberChoice({ subtitleDelayMs: value })
+                void nativePlayerCommand(["set", "sub-delay", value / 1000]).catch(
+                  (cause: unknown) => {
+                    setError(cause instanceof Error ? cause.message : String(cause))
+                  },
+                )
+              }}
               allowOff
               onSelect={(track) => void selectTrack("sid", track)}
               onSelectAddon={async (subtitle) => {
+                rememberChoice(
+                  subtitleChoice({ language: subtitle.language, label: subtitle.display }),
+                )
                 preferredSubtitleApplied.current = true
                 const generation = ++subtitleSelectionGeneration.current
                 if (pendingAddonSubtitle.current.has(subtitle.key)) return
@@ -1641,6 +1708,8 @@ function TrackMenu({
   preferredLanguage,
   subtitlePosition,
   onSubtitlePosition,
+  subtitleDelayMs,
+  onSubtitleDelay,
   onSelect,
   onSelectAddon,
   onOff,
@@ -1656,6 +1725,8 @@ function TrackMenu({
   preferredLanguage?: string
   subtitlePosition?: number
   onSubtitlePosition?: (value: number) => void
+  subtitleDelayMs?: number
+  onSubtitleDelay?: (delayMs: number) => void
   onSelect: (track: NativeTrack) => void
   onSelectAddon?: (subtitle: ResolvedAddonSubtitle) => void
   onOff?: () => void
@@ -1724,6 +1795,8 @@ function TrackMenu({
           off={!tracks.some((track) => track.selected) && !selectedAddonSubtitle}
           position={subtitlePosition ?? 90}
           onPositionChange={(value) => onSubtitlePosition?.(value)}
+          delayMs={subtitleDelayMs ?? 0}
+          onDelayChange={(value) => onSubtitleDelay?.(value)}
           onOff={() => onOff?.()}
           onSelect={(key) => {
             if (key.startsWith("track:")) {

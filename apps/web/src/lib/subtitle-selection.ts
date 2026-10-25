@@ -5,23 +5,38 @@ export interface SubtitleCandidate<T> {
   language?: string
   title?: string
   embedded: boolean
+  /** The container's forced flag, when the player exposes it. */
+  forced?: boolean
 }
 
-/** Undefined waits for discovery; null means no configured language is available. */
+/** Forced tracks carry the container flag or say so in their title, as signs-and-songs tracks do. */
+export function isForcedSubtitle(forced: boolean | undefined, title?: string): boolean {
+  return Boolean(forced) || /\bforced\b|\bsigns\s*(?:&|and)\s*songs\b/i.test(title ?? "")
+}
+
+/**
+ * Undefined waits for discovery; null means no configured language is available.
+ * With `forcedOnly`, only forced tracks are eligible.
+ */
 export function preferredSubtitle<T>({
-  candidates,
+  candidates: allCandidates,
   primary,
   secondary,
   embeddedReady,
   addonsReady,
+  forcedOnly = false,
 }: {
   candidates: SubtitleCandidate<T>[]
   primary: string
   secondary: string | null
   embeddedReady: boolean
   addonsReady: boolean
+  forcedOnly?: boolean
 }): T | null | undefined {
   if (!embeddedReady) return undefined
+  const candidates = forcedOnly
+    ? allCandidates.filter((candidate) => isForcedSubtitle(candidate.forced, candidate.title))
+    : allCandidates
   const languages = [
     ...new Set(
       [

@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 
-import { act } from "react"
+import { act, useState } from "react"
 import { createRoot } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { SubtitlePicker, type SubtitlePickerItem } from "./subtitle-picker"
+import { SubtitleDelayStepper, SubtitlePicker, type SubtitlePickerItem } from "./subtitle-picker"
 
 ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean })
   .IS_REACT_ACT_ENVIRONMENT = true
@@ -49,6 +49,8 @@ describe("SubtitlePicker", () => {
           off={false}
           position={90}
           onPositionChange={() => undefined}
+          delayMs={0}
+          onDelayChange={() => undefined}
           onOff={onOff}
           onSelect={onSelect}
         />,
@@ -75,5 +77,38 @@ describe("SubtitlePicker", () => {
     act(() => language?.click())
 
     expect(onSelect).toHaveBeenCalledWith("embedded")
+  })
+
+  it("steps the delay once per tap and repeats while held", () => {
+    vi.useFakeTimers()
+    const changes: number[] = []
+    function Delay() {
+      const [delayMs, setDelayMs] = useState(0)
+      return (
+        <SubtitleDelayStepper
+          delayMs={delayMs}
+          onChange={(value) => {
+            changes.push(value)
+            setDelayMs(value)
+          }}
+        />
+      )
+    }
+    act(() => root.render(<Delay />))
+    const later = host.querySelector<HTMLButtonElement>('[aria-label="Show subtitles later"]')!
+    const press = (type: string) =>
+      act(() => {
+        later.dispatchEvent(new PointerEvent(type, { bubbles: true, button: 0 }))
+      })
+    press("pointerdown")
+    press("pointerup")
+    expect(changes).toEqual([100])
+    press("pointerdown")
+    act(() => vi.advanceTimersByTime(600))
+    press("pointerup")
+    act(() => vi.advanceTimersByTime(1000))
+    expect(changes).toEqual([100, 200, 300, 400, 500])
+    expect(host.textContent).toContain("+0.5s")
+    vi.useRealTimers()
   })
 })

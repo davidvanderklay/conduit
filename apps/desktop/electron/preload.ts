@@ -17,6 +17,8 @@ ipcRenderer.on("conduit:fullscreen-changed", (_event, fullscreen: boolean) => {
 })
 
 contextBridge.exposeInMainWorld("__CONDUIT_ELECTRON__", {
+  // `player_open` streams magnet URLs through the bundled P2P helper.
+  p2p: true,
   updates(
     command: "status" | "check" | "configure" | "download" | "cancel" | "install",
     args?: unknown,
@@ -47,6 +49,11 @@ contextBridge.exposeInMainWorld("__CONDUIT_ELECTRON__", {
     const handler = () => listener()
     ipcRenderer.on("conduit:player-overlay-next", handler)
     return () => ipcRenderer.removeListener("conduit:player-overlay-next", handler)
+  },
+  onPlayerOverlayDismissNext(listener: () => void) {
+    const handler = () => listener()
+    ipcRenderer.on("conduit:player-overlay-dismiss-next", handler)
+    return () => ipcRenderer.removeListener("conduit:player-overlay-dismiss-next", handler)
   },
   onPlayerOverlayEpisode(listener: (videoId: string) => void) {
     const handler = (_event: Electron.IpcRendererEvent, videoId: string) => listener(videoId)

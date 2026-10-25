@@ -7,7 +7,10 @@ import { App } from "./app"
 import { ElectronPlayerOverlay } from "./components/electron-player-overlay"
 import { usesPlayerOverlayWindow, type PlayerOverlayMedia } from "./lib/desktop"
 import { initializeCore } from "./lib/core"
+import { trackViewerInput } from "./lib/still-watching"
 import "./styles.css"
+
+trackViewerInput()
 
 const rootRoute = createRootRoute()
 const indexRoute = createRoute({

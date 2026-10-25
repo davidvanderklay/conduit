@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import * as core from "../lib/core"
 import type { NativePlayerSnapshot } from "../lib/desktop"
+import { SUBTITLES_OFF, readTitlePlayback, rememberTitlePlayback } from "../lib/title-playback"
 import {
   DesktopPlayer,
   dedupeAddonSubtitles,
@@ -163,7 +164,7 @@ describe("DesktopPlayer track menus", () => {
     vi.clearAllMocks()
     desktop.nativePlayerSnapshot.mockResolvedValue(snapshot)
     desktop.openNativePlayer.mockResolvedValue(snapshot)
-    localStorage.removeItem("conduit.device-preferences.v1")
+    localStorage.clear()
     vi.restoreAllMocks()
   })
 
@@ -809,6 +810,44 @@ describe("DesktopPlayer track menus", () => {
     await act(async () => button("Off").click())
     desktop.nativePlayerCommand.mockClear()
     await act(async () => resolve([]))
+    expect(desktop.nativePlayerCommand).not.toHaveBeenCalledWith(["set", "sid", 3])
+    expect(readTitlePlayback("profile", "subtitle-priority")).toEqual({
+      subtitleLanguage: SUBTITLES_OFF,
+    })
+  })
+
+  it("selects a remembered subtitle language ahead of the global primary", async () => {
+    rememberTitlePlayback("profile", "subtitle-priority", { subtitleLanguage: "es" })
+    let resolve!: (subtitles: core.Subtitle[]) => void
+    await renderSubtitleCase(
+      new Promise((done) => {
+        resolve = done
+      }),
+    )
+    await act(async () =>
+      resolve([{ id: "english", lang: "en", url: "https://subs.example/en.vtt" }]),
+    )
+    expect(desktop.nativePlayerCommand).toHaveBeenCalledWith(["set", "sid", 3])
+    expect(desktop.nativePlayerCommand).not.toHaveBeenCalledWith(
+      expect.arrayContaining(["sub-add"]),
+    )
+  })
+
+  it("applies the remembered subtitle delay when the stream opens", async () => {
+    rememberTitlePlayback("profile", "subtitle-priority", { subtitleDelayMs: 1500 })
+    let resolve!: (subtitles: core.Subtitle[]) => void
+    await renderSubtitleCase(
+      new Promise((done) => {
+        resolve = done
+      }),
+    )
+    await act(async () => resolve([]))
+    expect(desktop.nativePlayerCommand).toHaveBeenCalledWith(["set", "sub-delay", 1.5])
+  })
+
+  it("keeps subtitles off for a title watched without them", async () => {
+    rememberTitlePlayback("profile", "subtitle-priority", { subtitleLanguage: SUBTITLES_OFF })
+    await renderSubtitleCase(Promise.resolve([]))
     expect(desktop.nativePlayerCommand).not.toHaveBeenCalledWith(["set", "sid", 3])
   })
 

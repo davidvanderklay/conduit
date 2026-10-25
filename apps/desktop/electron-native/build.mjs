@@ -21,6 +21,21 @@ const build = spawnSync(
 if (build.error) throw build.error
 if (build.status !== 0) process.exit(build.status ?? 1)
 
+// The torrent helper ships beside the player so `player_open` can stream magnets.
+const p2pBinary = process.platform === "win32" ? "conduit-p2p.exe" : "conduit-p2p"
+const p2pBuild = spawnSync(
+  "cargo",
+  ["build", "-p", "conduit-p2p", "--bin", "conduit-p2p", ...(release ? ["--release"] : [])],
+  { cwd: path.resolve(nativeRoot, "../../.."), stdio: "inherit" },
+)
+if (p2pBuild.error) throw p2pBuild.error
+if (p2pBuild.status !== 0) process.exit(p2pBuild.status ?? 1)
+await mkdir(path.join(nativeRoot, "dist"), { recursive: true })
+await copyFile(
+  path.resolve(nativeRoot, "../../..", "target", profile, p2pBinary),
+  path.join(nativeRoot, "dist", p2pBinary),
+)
+
 if (process.platform === "linux") {
   const source = path.resolve(nativeRoot, "../../..", "target", profile, "conduit-electron-native")
   const dist = path.join(nativeRoot, "dist")
