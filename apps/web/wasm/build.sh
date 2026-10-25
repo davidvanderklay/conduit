@@ -23,7 +23,7 @@ if [ ! -f "$archive" ]; then
 fi
 echo "$FFMPEG_SHA256  $archive" | sha256sum -c -
 
-exports='["_malloc","_free","_decoder_open","_decoder_packet","_decoder_send","_decoder_drain","_decoder_receive","_decoder_reset","_decoder_close","_frame_pixel_layout","_frame_sample_layout","_frame_data","_frame_linesize","_frame_timestamp","_frame_duration","_frame_width","_frame_height","_frame_color_primaries","_frame_color_transfer","_frame_color_matrix","_frame_full_range","_frame_samples","_frame_sample_rate","_frame_channels","_frame_channel_mask","_frame_dovi","_rpu_parse"]'
+exports='["_malloc","_free","_decoder_open","_decoder_packet","_decoder_send","_decoder_drain","_decoder_receive","_decoder_reset","_decoder_close","_frame_pixel_layout","_frame_sample_layout","_frame_data","_frame_linesize","_frame_timestamp","_frame_duration","_frame_width","_frame_height","_frame_color_primaries","_frame_color_transfer","_frame_color_matrix","_frame_full_range","_frame_samples","_frame_sample_rate","_frame_channels","_frame_channel_mask","_frame_dovi","_rpu_parse","_frame_hdr_peaks","_sei_hdr_peaks"]'
 
 # $1: module name, $2: FFmpeg arch flags, $3: optimization, $4: maximum memory, $5...: decoders
 build() {

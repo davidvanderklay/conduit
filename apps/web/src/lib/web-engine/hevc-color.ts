@@ -99,6 +99,21 @@ export function rewriteHvccColor(record: Uint8Array, color: ColorRewrite): Uint8
   return rewritten ? Uint8Array.from(output) : undefined
 }
 
+/** The NAL units of a length-prefixed HEVC access unit, with their types. */
+export function* nalUnits(
+  data: Uint8Array,
+  lengthSize: number,
+): Generator<{ type: number; nal: Uint8Array }> {
+  let offset = 0
+  while (offset + lengthSize < data.byteLength) {
+    let length = 0
+    for (let index = 0; index < lengthSize; index += 1) length = length * 256 + data[offset + index]
+    const nal = data.subarray(offset + lengthSize, offset + lengthSize + length)
+    yield { type: (nal[0] >> 1) & 0x3f, nal }
+    offset += lengthSize + length
+  }
+}
+
 /** Rewrites in-band SPS NAL units in a length-prefixed access unit, so they match the hvcC. */
 export function rewritePacketColor(
   data: Uint8Array,

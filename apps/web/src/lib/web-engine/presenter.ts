@@ -1,5 +1,6 @@
 import type { VideoSample } from "mediabunny"
 import { DOLBY_VISION_FLOATS, dolbyVisionMetadata, dolbyVisionPeak } from "./dolby-vision"
+import { hdrPeaks } from "./hdr-metadata"
 import { relabeledSamples, type HdrTransfer } from "./relabeled-hevc"
 import {
   EXTERNAL_DOLBY_VISION_SHADER,
@@ -198,7 +199,8 @@ async function createGpuPresenter(canvas: HTMLCanvasElement): Promise<FramePrese
       const relabeled = relabeledSamples.get(sample)
       const metadata = dolbyVisionMetadata.get(sample)
       if (relabeled?.kind === "hdr") {
-        return drawRelabeled(sample, externalHdrPipeline, externalHdrParams(relabeled.transfer))
+        const params = externalHdrParams(relabeled.transfer, hdrPeaks.get(sample))
+        return drawRelabeled(sample, externalHdrPipeline, params)
       }
       if (relabeled && metadata) {
         const params = relabeledDolbyVisionParams(sample, metadata)
@@ -206,7 +208,7 @@ async function createGpuPresenter(canvas: HTMLCanvasElement): Promise<FramePrese
       }
       const layout = sample.format ? PLANAR_LAYOUTS.get(sample.format) : undefined
       if (layout && metadata) return drawPlanar(sample, layout, dolbyVisionParams(layout, metadata))
-      const hdr = layout && planarParams(sample, layout, true)
+      const hdr = layout && planarParams(sample, layout, true, hdrPeaks.get(sample))
       if (layout && hdr) return drawPlanar(sample, layout, hdr)
       if (drawExternal(sample)) return
       const sdr = layout && planarParams(sample, layout, false)
@@ -259,7 +261,7 @@ const HDR_TRANSFERS = new Map<string, number>([
 const SDR_TRANSFER = 2
 const DOLBY_VISION_TRANSFER = 3
 
-/** Assumed peak when the container does not say; most HDR10 releases are mastered at 1000 nits. */
+/** Assumed peak when the stream does not say; most HDR10 releases are mastered at 1000 nits. */
 const DEFAULT_SOURCE_PEAK = 1000
 /** BT.2408 reference white, drawn as SDR white. */
 const SDR_WHITE = 203
@@ -272,6 +274,7 @@ function planarParams(
   sample: Pick<VideoSample, "colorSpace">,
   layout: PlanarLayout,
   hdr: boolean,
+  peak = DEFAULT_SOURCE_PEAK,
 ): Float32Array | undefined {
   const { transfer, matrix, primaries, fullRange } = sample.colorSpace
   const hdrTransfer = transfer ? HDR_TRANSFERS.get(transfer) : undefined
@@ -289,18 +292,18 @@ function planarParams(
   params.set(fullRange ? [0, 2 ** (layout.bits - 1)] : [16 * scale, 128 * scale], 14)
   const words = new Uint32Array(params.buffer)
   words[16] = transferId
-  params[17] = DEFAULT_SOURCE_PEAK
+  params[17] = peak
   params[18] = SDR_WHITE
   words[19] = hdr && primaries !== "bt709" ? 1 : 0
   return params
 }
 
 /** Shader parameters for a relabeled BT.2020 frame, whose external texture holds PQ or HLG R'G'B'. */
-function externalHdrParams(transfer: HdrTransfer): Float32Array {
+function externalHdrParams(transfer: HdrTransfer, peak = DEFAULT_SOURCE_PEAK): Float32Array {
   const params = new Float32Array(20)
   const words = new Uint32Array(params.buffer)
   words[16] = HDR_TRANSFERS.get(transfer)!
-  params[17] = DEFAULT_SOURCE_PEAK
+  params[17] = peak
   params[18] = SDR_WHITE
   words[19] = 1
   return params

@@ -19,6 +19,8 @@
 #include "libavutil/channel_layout.h"
 #include "libavutil/dovi_meta.h"
 #include "libavutil/error.h"
+#include "libavutil/hdr_dynamic_metadata.h"
+#include "libavutil/mastering_display_metadata.h"
 #include "libavutil/log.h"
 #include "libavutil/mem.h"
 #include "libavutil/pixdesc.h"
@@ -340,4 +342,78 @@ float *rpu_parse(const uint8_t *nal, int size) {
     (void) size;
     return NULL;
 #endif
+}
+
+/*
+ * HDR peak luminance in nits: HDR10+ scene peak, MaxCLL, and mastering display
+ * peak, each 0 when absent. frame_hdr_peaks and sei_hdr_peaks fill it.
+ */
+static double hdr_peaks[3];
+
+static double hdr10plus_peak(const AVDynamicHDRPlus *metadata) {
+    if (metadata->num_windows < 1) return 0;
+    double peak = 0;
+    for (int component = 0; component < 3; component++) {
+        double value = 10000 * av_q2d(metadata->params[0].maxscl[component]);
+        if (value > peak) peak = value;
+    }
+    return peak;
+}
+
+/* Reads a software-decoded frame's HDR metadata into hdr_peaks. */
+EMSCRIPTEN_KEEPALIVE
+double *frame_hdr_peaks(Decoder *decoder) {
+    const AVFrameSideData *dynamic = av_frame_get_side_data(decoder->frame, AV_FRAME_DATA_DYNAMIC_HDR_PLUS);
+    const AVFrameSideData *light = av_frame_get_side_data(decoder->frame, AV_FRAME_DATA_CONTENT_LIGHT_LEVEL);
+    const AVFrameSideData *mastering = av_frame_get_side_data(decoder->frame, AV_FRAME_DATA_MASTERING_DISPLAY_METADATA);
+    hdr_peaks[0] = dynamic ? hdr10plus_peak((const AVDynamicHDRPlus *) dynamic->data) : 0;
+    hdr_peaks[1] = light ? ((const AVContentLightMetadata *) light->data)->MaxCLL : 0;
+    const AVMasteringDisplayMetadata *display = mastering ? (const AVMasteringDisplayMetadata *) mastering->data : NULL;
+    hdr_peaks[2] = display && display->has_luminance ? av_q2d(display->max_luminance) : 0;
+    return hdr_peaks;
+}
+
+/*
+ * Reads the HDR metadata of an HEVC SEI NAL unit (type 39, with its 2-byte header
+ * and emulation prevention) into hdr_peaks, for streams decoded in hardware.
+ */
+EMSCRIPTEN_KEEPALIVE
+double *sei_hdr_peaks(const uint8_t *nal, int size) {
+    hdr_peaks[0] = hdr_peaks[1] = hdr_peaks[2] = 0;
+    uint8_t *rbsp = av_malloc(size > 2 ? size : 1);
+    if (!rbsp) return hdr_peaks;
+    int length = 0;
+    for (int index = 2; index < size; index++) {
+        if (nal[index] == 3 && index >= 4 && nal[index - 1] == 0 && nal[index - 2] == 0) continue;
+        rbsp[length++] = nal[index];
+    }
+    int offset = 0;
+    // Messages until the rbsp_trailing_bits byte.
+    while (offset + 2 <= length && rbsp[offset] != 0x80) {
+        int type = 0, payload = 0;
+        while (offset < length && rbsp[offset] == 0xff) type += rbsp[offset++];
+        if (offset >= length) break;
+        type += rbsp[offset++];
+        while (offset < length && rbsp[offset] == 0xff) payload += rbsp[offset++];
+        if (offset >= length) break;
+        payload += rbsp[offset++];
+        if (offset + payload > length) break;
+        const uint8_t *data = rbsp + offset;
+        if (type == 137 && payload >= 24) {
+            // Mastering display colour volume: primaries and white point, then max luminance in 0.0001 cd/m2.
+            hdr_peaks[2] = ((uint32_t) data[16] << 24 | data[17] << 16 | data[18] << 8 | data[19]) / 10000.0;
+        } else if (type == 144 && payload >= 4) {
+            hdr_peaks[1] = data[0] << 8 | data[1];
+        } else if (type == 4 && payload >= 7 && data[0] == 0xb5 && data[1] == 0x00 && data[2] == 0x3c
+                   && data[3] == 0x00 && data[4] == 0x01 && data[5] == 0x04) {
+            // ST 2094-40 (HDR10+): country 0xB5, provider 0x003C, oriented code 0x0001, application 4.
+            AVDynamicHDRPlus metadata = { 0 };
+            if (av_dynamic_hdr_plus_from_t35(&metadata, data + 6, payload - 6) >= 0) {
+                hdr_peaks[0] = hdr10plus_peak(&metadata);
+            }
+        }
+        offset += payload;
+    }
+    av_free(rbsp);
+    return hdr_peaks;
 }

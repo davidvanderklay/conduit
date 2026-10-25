@@ -1,4 +1,5 @@
 import type { VideoSample } from "mediabunny"
+import { nalUnits } from "./hevc-color"
 
 /**
  * Float count of the Dolby Vision metadata FFmpeg's decoder attaches to each
@@ -16,15 +17,8 @@ const HEVC_NAL_UNSPEC62 = 62
  * which Dolby Vision hides in NAL units of type 62.
  */
 export function findDolbyVisionRpu(data: Uint8Array, lengthSize = 4): Uint8Array | undefined {
-  let offset = 0
-  while (offset + lengthSize < data.byteLength) {
-    let length = 0
-    for (let index = 0; index < lengthSize; index += 1) length = length * 256 + data[offset + index]
-    const type = (data[offset + lengthSize] >> 1) & 0x3f
-    if (type === HEVC_NAL_UNSPEC62) {
-      return data.subarray(offset + lengthSize, offset + lengthSize + length)
-    }
-    offset += lengthSize + length
+  for (const { type, nal } of nalUnits(data, lengthSize)) {
+    if (type === HEVC_NAL_UNSPEC62) return nal
   }
   return undefined
 }

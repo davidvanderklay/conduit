@@ -6,7 +6,8 @@ import {
   type VideoCodec,
 } from "mediabunny"
 import { dolbyVisionMetadata, findDolbyVisionRpu } from "./dolby-vision"
-import { rewriteHvccColor, rewritePacketColor, type ColorRewrite } from "./hevc-color"
+import { HdrPeakTracker, hdrPeaks } from "./hdr-metadata"
+import { nalUnits, rewriteHvccColor, rewritePacketColor, type ColorRewrite } from "./hevc-color"
 import { FFmpegDecoder } from "./wasm/ffmpeg-decoder"
 
 export type HdrTransfer = "pq" | "hlg"
@@ -39,6 +40,8 @@ const RELABEL: Record<Relabeled["kind"], ColorRewrite> = {
   "dolby-vision": { primaries: 1, transfer: 13, matrix: 6 },
 }
 
+const HEVC_NAL_PREFIX_SEI = 39
+
 interface Relabeling {
   relabeled: Relabeled
   description: Uint8Array<ArrayBuffer>
@@ -57,9 +60,13 @@ const relabelings = new Map<string, Relabeling>()
 class RelabeledHevcDecoder extends CustomVideoDecoder {
   #decoder?: VideoDecoder
   #relabeling?: Relabeling
-  #rpuParser?: FFmpegDecoder
+  /** Parses RPUs and SEI metadata, which the browser's decoder does not expose. */
+  #parser?: FFmpegDecoder
   /** Parsed RPU metadata by packet timestamp, waiting for its frame. */
   readonly #rpus = new Map<number, Float32Array<ArrayBuffer>>()
+  readonly #peakTracker = new HdrPeakTracker()
+  /** HDR peaks by packet timestamp, waiting for their frames. */
+  readonly #peaks = new Map<number, number>()
   #closed = false
 
   static override supports(codec: VideoCodec, config: VideoDecoderConfig): boolean {
@@ -69,13 +76,13 @@ class RelabeledHevcDecoder extends CustomVideoDecoder {
   async init() {
     const relabeling = relabelings.get(this.config.codec)!
     this.#relabeling = relabeling
-    if (relabeling.relabeled.kind === "dolby-vision") {
-      this.#rpuParser = await FFmpegDecoder.open("video", "hevc")
-    }
+    this.#parser = await FFmpegDecoder.open("video", "hevc")
     this.#decoder = new VideoDecoder({
       output: (frame) => {
         const metadata = this.#rpus.get(frame.timestamp)
+        const peak = this.#peaks.get(frame.timestamp)
         this.#rpus.delete(frame.timestamp)
+        this.#peaks.delete(frame.timestamp)
         if (this.#closed) {
           frame.close()
           return
@@ -83,6 +90,7 @@ class RelabeledHevcDecoder extends CustomVideoDecoder {
         const sample = new VideoSample(frame)
         relabeledSamples.set(sample, relabeling.relabeled)
         if (metadata) dolbyVisionMetadata.set(sample, metadata)
+        if (peak) hdrPeaks.set(sample, peak)
         this.onSample(sample)
       },
       error: (error) => this.onError(error),
@@ -93,9 +101,20 @@ class RelabeledHevcDecoder extends CustomVideoDecoder {
   async decode(packet: EncodedPacket) {
     const decoder = this.#decoder!
     const { lengthSize, relabeled } = this.#relabeling!
-    const rpu = this.#rpuParser && findDolbyVisionRpu(packet.data, lengthSize)
-    const metadata = rpu && (await this.#rpuParser!.parseRpu(rpu))
-    if (metadata) this.#rpus.set(packet.microsecondTimestamp, metadata)
+    const parser = this.#parser!
+    if (relabeled.kind === "dolby-vision") {
+      const rpu = findDolbyVisionRpu(packet.data, lengthSize)
+      const metadata = rpu && (await parser.parseRpu(rpu))
+      if (metadata) this.#rpus.set(packet.microsecondTimestamp, metadata)
+    } else {
+      let peak: number | undefined
+      for (const { type, nal } of nalUnits(packet.data, lengthSize)) {
+        if (type === HEVC_NAL_PREFIX_SEI)
+          peak = this.#peakTracker.update(await parser.parseSei(nal))
+      }
+      peak ??= this.#peakTracker.update([0, 0, 0])
+      if (peak) this.#peaks.set(packet.microsecondTimestamp, peak)
+    }
     decoder.decode(
       new EncodedVideoChunk({
         type: packet.type,
@@ -117,7 +136,8 @@ class RelabeledHevcDecoder extends CustomVideoDecoder {
   close() {
     this.#closed = true
     this.#rpus.clear()
-    this.#rpuParser?.release()
+    this.#peaks.clear()
+    this.#parser?.release()
     if (this.#decoder?.state !== "closed") this.#decoder?.close()
   }
 }

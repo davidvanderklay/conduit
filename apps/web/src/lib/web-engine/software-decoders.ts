@@ -8,6 +8,7 @@ import {
   type VideoCodec,
 } from "mediabunny"
 import { dolbyVisionMetadata } from "./dolby-vision"
+import { HdrPeakTracker, hdrPeaks } from "./hdr-metadata"
 import { FFmpegDecoder, type DecodedOutput } from "./wasm/ffmpeg-decoder"
 
 /** HEVC codec strings the browser cannot decode, which the WebAssembly decoder takes instead. */
@@ -16,6 +17,7 @@ const softwareHevc = new Set<string>()
 /** Decodes HEVC Main and Main 10 with FFmpeg in a worker when the browser has no HEVC decoder. */
 class SoftwareHevcDecoder extends CustomVideoDecoder {
   #decoder?: FFmpegDecoder
+  readonly #peaks = new HdrPeakTracker()
   #closed = false
 
   static override supports(codec: VideoCodec, config: VideoDecoderConfig): boolean {
@@ -62,6 +64,8 @@ class SoftwareHevcDecoder extends CustomVideoDecoder {
         colorSpace: frame.colorSpace as VideoColorSpaceInit,
       })
       if (frame.dolbyVision) dolbyVisionMetadata.set(sample, frame.dolbyVision)
+      const peak = this.#peaks.update(frame.hdrPeaks)
+      if (peak) hdrPeaks.set(sample, peak)
       this.onSample(sample)
     }
   }

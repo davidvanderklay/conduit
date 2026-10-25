@@ -32,6 +32,10 @@ export interface FFmpegModule {
   _frame_dovi(decoder: number): number
   /** Parses a Dolby Vision RPU NAL unit; returns a metadata pointer, or 0 when it does not parse. */
   _rpu_parse(nal: number, size: number): number
+  /** Pointer to the frame's [HDR10+, MaxCLL, mastering] peaks in nits as doubles, 0 when absent. */
+  _frame_hdr_peaks(decoder: number): number
+  /** The same peaks read from an HEVC SEI NAL unit. */
+  _sei_hdr_peaks(nal: number, size: number): number
 }
 
 export type FFmpegModuleFactory = (options?: {

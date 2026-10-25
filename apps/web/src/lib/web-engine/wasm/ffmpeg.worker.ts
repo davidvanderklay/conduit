@@ -62,6 +62,19 @@ async function handle(request: DecoderRequest): Promise<DecodedOutput> {
   }
   if (!module || !decoder) throw new Error("Decoder is not open")
   const output: DecodedOutput = { audio: [], video: [] }
+  if (request.type === "sei") {
+    const pointer = module._malloc(request.nal.byteLength)
+    module.HEAPU8.set(request.nal, pointer)
+    output.hdrPeaks = Array.from(
+      new Float64Array(
+        module.HEAPU8.buffer,
+        module._sei_hdr_peaks(pointer, request.nal.byteLength),
+        3,
+      ),
+    )
+    module._free(pointer)
+    return output
+  }
   if (request.type === "rpu") {
     const pointer = module._malloc(request.nal.byteLength)
     module.HEAPU8.set(request.nal, pointer)
@@ -206,6 +219,9 @@ function readVideo(ffmpeg: FFmpegModule): DecodedVideo | undefined {
     dolbyVision: dolbyVision
       ? new Float32Array(ffmpeg.HEAPU8.buffer, dolbyVision, DOLBY_VISION_FLOATS).slice()
       : undefined,
+    hdrPeaks: Array.from(
+      new Float64Array(ffmpeg.HEAPU8.buffer, ffmpeg._frame_hdr_peaks(decoder), 3),
+    ),
   }
 }
 

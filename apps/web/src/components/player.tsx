@@ -33,6 +33,7 @@ import {
 } from "../lib/player-shortcuts"
 import { PlayerFlash, usePlayerFlash } from "./player-flash"
 import type { WebMediaEngine, WebSource } from "../lib/web-engine/engine"
+import { MatroskaSubtitles, attachMatroskaSubtitles } from "../lib/web-engine/matroska-subtitles"
 import {
   PLAYBACK_MEDIA_EVENTS,
   type PlaybackMedia,
@@ -527,6 +528,8 @@ function WebPlayer({
     }
   }, [addons, type, videoId])
 
+  const subtitleLine = useEffectEvent(() => currentSubtitlePosition(subtitlePosition))
+
   const handleMediaEvent = useEffectEvent((type: PlaybackMediaEvent, target: PlaybackMedia) => {
     switch (type) {
       case "play":
@@ -608,6 +611,9 @@ function WebPlayer({
     let source: WebSource | undefined
     let engine: WebMediaEngine | undefined
     let detach = () => {}
+    let detachSubtitles = () => {}
+    // Embedded Matroska subtitles found after probing, which engine playback waits on briefly.
+    let embeddedSubtitles: Promise<unknown> = Promise.resolve()
     setWaiting(true)
     setPlaybackError(undefined)
     setAudioChoices([])
@@ -696,7 +702,12 @@ function WebPlayer({
         })),
       )
       setSelectedAudio(selected && engine.audioTracks.indexOf(selected))
-      // The engine exposes no embedded subtitles, so subtitle selection can go ahead.
+      // Embedded tracks come only from the Matroska reader, so selection waits for it briefly.
+      await Promise.race([
+        embeddedSubtitles,
+        new Promise((resolve) => window.setTimeout(resolve, 3000)),
+      ])
+      if (cancelled) return
       embeddedDiscoveryReady.current = true
       setSubtitleMetadataReady(true)
     }
@@ -720,6 +731,17 @@ function WebPlayer({
           return
         }
         source = opened
+        if (/matroska|webm/.test(opened.probe.containerMimeType)) {
+          embeddedSubtitles = MatroskaSubtitles.open(url)
+            .then((subtitles) => {
+              if (cancelled || !subtitles) return
+              detachSubtitles = attachMatroskaSubtitles(subtitles, video, {
+                currentTime: () => mediaRef.current?.currentTime ?? 0,
+                linePosition: subtitleLine,
+              })
+            })
+            .catch(() => undefined)
+        }
         const webgpu = await webGpuAvailable()
         if (cancelled) return
         const route = choosePlaybackRoute(opened.probe, {
@@ -755,6 +777,7 @@ function WebPlayer({
       hlsRef.current = null
       if (engine) engine.destroy()
       else source?.input.dispose()
+      detachSubtitles()
       engineRef.current = null
       mediaRef.current = null
       video.removeAttribute("src")

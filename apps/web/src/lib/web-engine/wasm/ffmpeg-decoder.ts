@@ -41,6 +41,8 @@ export interface DecodedVideo {
   }
   /** Reshaping and color metadata from the frame's Dolby Vision RPU, see dolby-vision.ts. */
   dolbyVision?: Float32Array<ArrayBuffer>
+  /** [HDR10+, MaxCLL, mastering] peaks in nits, 0 when absent; see hdr-metadata.ts. */
+  hdrPeaks: number[]
 }
 
 export interface DecodedOutput {
@@ -48,6 +50,8 @@ export interface DecodedOutput {
   video: DecodedVideo[]
   /** Metadata of a parsed Dolby Vision RPU, see dolby-vision.ts. */
   dolbyVision?: Float32Array<ArrayBuffer>
+  /** HDR peaks of a parsed SEI NAL unit. */
+  hdrPeaks?: number[]
 }
 
 export type DecoderRequest =
@@ -56,6 +60,7 @@ export type DecoderRequest =
   | { type: "drain" }
   | { type: "reset" }
   | { type: "rpu"; nal: Uint8Array }
+  | { type: "sei"; nal: Uint8Array }
 
 export type DecoderResponse =
   | { type: "output"; output: DecodedOutput }
@@ -133,6 +138,12 @@ export class FFmpegDecoder {
   async parseRpu(nal: Uint8Array): Promise<Float32Array<ArrayBuffer> | undefined> {
     const copy = nal.slice()
     return (await this.#request({ type: "rpu", nal: copy }, [copy.buffer])).dolbyVision
+  }
+
+  /** Reads the HDR metadata of an HEVC SEI NAL unit, for streams the browser decodes in hardware. */
+  async parseSei(nal: Uint8Array): Promise<number[]> {
+    const copy = nal.slice()
+    return (await this.#request({ type: "sei", nal: copy }, [copy.buffer])).hdrPeaks ?? [0, 0, 0]
   }
 
   /** Drops held frames so decoding can restart at a keyframe. */
