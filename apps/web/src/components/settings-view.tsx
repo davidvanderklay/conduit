@@ -36,9 +36,10 @@ import { serverDisplayName as formatServerDisplayName } from "../lib/server"
 import { Button } from "./ui/button"
 import { Input } from "./ui/input"
 import type { AppSection } from "./app-sidebar"
+import { MigrateSettings } from "./migrate-settings"
 import { PROFILE_COLORS, ProfileAvatar, ProfileColorPicker } from "./profile-switcher"
 
-type SettingsPage =
+export type SettingsPage =
   | "profile"
   | "account"
   | "appearance"
@@ -121,7 +122,7 @@ const settingsEntries: SettingsEntry[] = [
     group: "General",
     title: "Your data",
     description: "Import, export, and portability",
-    keywords: "backup transfer json library history",
+    keywords: "backup transfer json library history migrate stremio nuvio",
     icon: Database,
   },
   {
@@ -155,6 +156,8 @@ export function SettingsView({
   onSelectProfile,
   onNavigate,
   onSignedOut,
+  initialPage = "profile",
+  onPageChange,
 }: {
   profile: Profile
   profiles: Profile[]
@@ -162,8 +165,14 @@ export function SettingsView({
   onSelectProfile: (profileId: string) => void
   onNavigate: (section: AppSection) => void
   onSignedOut: () => void
+  initialPage?: SettingsPage
+  onPageChange?: (page: SettingsPage) => void
 }) {
-  const [page, setPage] = useState<SettingsPage>("profile")
+  const [page, setPageState] = useState<SettingsPage>(initialPage)
+  const setPage = (next: SettingsPage) => {
+    setPageState(next)
+    onPageChange?.(next)
+  }
   const [query, setQuery] = useState("")
   const [preferences, setPreferences] = useState<DevicePreferences>(readPreferences)
   const [saved, setSaved] = useState(false)
@@ -1089,8 +1098,20 @@ function DataSettings({
       setBusy(false)
     }
   }
+  const exportProfile = async () => {
+    const save = await prepareJsonSave(`conduit-${safeFilename(profile.name)}.json`)
+    if (!save) return
+    const data = await api<Record<string, unknown>>(
+      `/v1/profiles/${profile.id}/export?includeSecrets=${includeSecrets}`,
+    )
+    data.preferences = preferences
+    await save(data)
+  }
   return (
     <div className="space-y-7">
+      <SettingsGroup title="MIGRATE" description="Bring a Stremio account or Nuvio profile into this profile.">
+        <MigrateSettings profile={profile} onBackup={exportProfile} />
+      </SettingsGroup>
       <SettingsGroup title="EXPORT" description="Move this profile between conduit servers.">
         <div className="p-5">
           <p className="text-sm leading-6 text-zinc-400">
@@ -1119,13 +1140,7 @@ function DataSettings({
               setBusy(true)
               setError("")
               try {
-                const save = await prepareJsonSave(`conduit-${safeFilename(profile.name)}.json`)
-                if (!save) return
-                const data = await api<Record<string, unknown>>(
-                  `/v1/profiles/${profile.id}/export?includeSecrets=${includeSecrets}`,
-                )
-                data.preferences = preferences
-                await save(data)
+                await exportProfile()
               } catch (cause) {
                 setError(cause instanceof Error ? cause.message : "Export failed")
               } finally {

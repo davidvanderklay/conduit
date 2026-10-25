@@ -32,7 +32,7 @@ import { MediaDetails, type MetadataBrowseTarget } from "./components/media-deta
 import { SearchView } from "./components/search-view"
 import { AppSidebar, type AppSection } from "./components/app-sidebar"
 import { AddonsView } from "./components/addons-view"
-import { SettingsView } from "./components/settings-view"
+import { SettingsView, type SettingsPage } from "./components/settings-view"
 import { LibraryView } from "./components/library-view"
 import { CalendarView } from "./components/calendar-view"
 import { PosterWatchStatus, PosterWatchStatusProvider } from "./components/poster-watch-status"
@@ -1226,6 +1226,7 @@ function ProfileApp({
   onMetadataBrowse: (target: MetadataBrowseTarget) => void
 }) {
   const [selection, setSelection] = useState<MediaSelection>()
+  const [settingsPage, setSettingsPage] = useState<SettingsPage>()
   const queue = useQueueControls(profile.id)
   // Home shows the party's media itself, unless a title is already open here
   // (a queued handoff), in which case this view keeps hosting the party.
@@ -1311,6 +1312,10 @@ function ProfileApp({
           onSelect={(item, progress) =>
             setSelection({ item, videoId: progress?.videoId, progress })
           }
+          onMigrate={() => {
+            setSettingsPage("data")
+            onNavigate("settings")
+          }}
         />
       )}
       {!searchInput && section === "continue" && (
@@ -1345,6 +1350,8 @@ function ProfileApp({
           onSelectProfile={onSelectProfile}
           onNavigate={onNavigate}
           onSignedOut={onSignedOut}
+          initialPage={settingsPage}
+          onPageChange={setSettingsPage}
         />
       )}
       {searchInput && (

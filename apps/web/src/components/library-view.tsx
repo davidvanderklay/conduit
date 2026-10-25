@@ -33,10 +33,12 @@ export function LibraryView({
   profileId,
   addons,
   onSelect,
+  onMigrate,
 }: {
   profileId: string
   addons: InstalledAddon[]
   onSelect: (item: CatalogItem, progress?: WatchProgress) => void
+  onMigrate?: () => void
 }) {
   const [filter, setFilter] = useState<Filter>("all")
   const [sort, setSort] = useState<LibrarySort>("last-watched")
@@ -186,6 +188,15 @@ export function LibraryView({
             <p className="mt-4 text-sm text-zinc-500">
               {library.data?.items.length ? "No titles match this filter." : "Nothing saved yet."}
             </p>
+            {!library.data?.items.length && onMigrate && (
+              <button
+                type="button"
+                className="mt-3 text-sm text-amber-400 hover:text-amber-300"
+                onClick={onMigrate}
+              >
+                Coming from Stremio or Nuvio?
+              </button>
+            )}
           </div>
         </Card>
       )}
