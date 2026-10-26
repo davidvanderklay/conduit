@@ -32,7 +32,7 @@ The core currently owns:
 - watch-state and playback-completion rules;
 - canonical Continue Watching grouping and next-episode decisions;
 - released-video filtering, strict release-day parsing, and library ordering;
-  and
+- home row order, custom titles, and visibility; and
 - audio codec, channel, sample-rate, and bitrate display normalization.
 
 Hosts still own HTTP execution, authentication, persistence, UI state,

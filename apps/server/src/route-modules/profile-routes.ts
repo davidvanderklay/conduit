@@ -4,6 +4,7 @@ import type { FastifyInstance } from "fastify"
 import { decryptSecret, encryptSecret, stableSecretHash } from "../crypto.js"
 import { defaultAddonInstallations } from "../default-addons.js"
 import {
+  type HomeRowSetting,
   addonInstallations,
   householdMembers,
   households,
@@ -27,6 +28,18 @@ import {
 import type { RouteContext } from "./context.js"
 import { canAccessProfile, normalizeManifestUrl, requireUser, toProgressItem } from "./helpers.js"
 import { CONTINUE_WATCHING_ENTRY_POSITION_MS } from "./progress-routes.js"
+
+const HomeRowsBody = Type.Array(
+  Type.Object(
+    {
+      key: Type.String({ minLength: 1, maxLength: 512 }),
+      enabled: Type.Boolean(),
+      title: Type.Optional(Type.String({ maxLength: 120 })),
+    },
+    { additionalProperties: false },
+  ),
+  { maxItems: 1000 },
+)
 
 export function registerProfileRoutes(app: FastifyInstance, context: RouteContext) {
   const { auth, config, db } = context
@@ -145,6 +158,7 @@ export function registerProfileRoutes(app: FastifyInstance, context: RouteContex
             usesPrimaryAddons: profiles.usesPrimaryAddons,
             avatarColor: profiles.avatarColor,
             avatarUrl: profiles.avatarUrl,
+            homeRows: profiles.homeRows,
           })
 
         if (body.usesPrimaryAddons) {
@@ -190,6 +204,7 @@ export function registerProfileRoutes(app: FastifyInstance, context: RouteContex
             avatarUrl: Type.Optional(
               Type.Union([Type.String({ maxLength: 2048, pattern: "^https?://" }), Type.Null()]),
             ),
+            homeRows: Type.Optional(HomeRowsBody),
           },
           { minProperties: 1 },
         ),
@@ -205,6 +220,7 @@ export function registerProfileRoutes(app: FastifyInstance, context: RouteContex
         usesPrimaryAddons?: boolean
         avatarColor?: string | null
         avatarUrl?: string | null
+        homeRows?: HomeRowSetting[]
       }
       if (!(await canAccessProfile(db, user.id, profileId))) return reply.forbidden()
 
@@ -218,6 +234,7 @@ export function registerProfileRoutes(app: FastifyInstance, context: RouteContex
             : {}),
           ...(body.avatarColor !== undefined ? { avatarColor: body.avatarColor } : {}),
           ...(body.avatarUrl !== undefined ? { avatarUrl: body.avatarUrl } : {}),
+          ...(body.homeRows !== undefined ? { homeRows: body.homeRows } : {}),
           updatedAt: new Date(),
         })
         .where(eq(profiles.id, profileId))
@@ -228,6 +245,7 @@ export function registerProfileRoutes(app: FastifyInstance, context: RouteContex
           usesPrimaryAddons: profiles.usesPrimaryAddons,
           avatarColor: profiles.avatarColor,
           avatarUrl: profiles.avatarUrl,
+          homeRows: profiles.homeRows,
         })
       return { profile }
     },

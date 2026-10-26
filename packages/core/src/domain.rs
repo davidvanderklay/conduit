@@ -1,3 +1,4 @@
+use crate::home::{arrange_home_rows, HomeCatalog, HomeRowSetting};
 use crate::language::{playback_languages, track_language_code};
 use crate::media::{
     audio_track_display, continue_watching, eligible_watch_videos, episode_progress,
@@ -94,6 +95,11 @@ enum DomainAction {
         videos: Vec<Video>,
         season: Option<i32>,
         now_ms: i64,
+    },
+    ArrangeHomeRows {
+        catalogs: Vec<HomeCatalog>,
+        #[serde(default)]
+        settings: Vec<HomeRowSetting>,
     },
     OrderLibrary {
         items: Vec<LibraryItem>,
@@ -252,6 +258,9 @@ pub fn evaluate_json(json: &str) -> String {
             season,
             now_ms,
         } => value_response(eligible_watch_videos(&videos, season, now_ms)),
+        DomainAction::ArrangeHomeRows { catalogs, settings } => {
+            value_response(arrange_home_rows(catalogs, &settings))
+        }
         DomainAction::OrderLibrary {
             items,
             progress,

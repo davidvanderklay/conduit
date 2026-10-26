@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react"
-import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
+  ArrowDown,
+  ArrowUp,
   BadgeInfo,
   Check,
   ChevronRight,
@@ -26,7 +28,14 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react"
-import { api, apiErrorMessage, type Profile } from "../lib/api"
+import {
+  api,
+  apiErrorMessage,
+  type Bootstrap,
+  type HomeRowSetting,
+  type InstalledAddon,
+  type Profile,
+} from "../lib/api"
 import { API_URL, authClient } from "../lib/auth"
 import { isDesktop, prepareNativeTextSave } from "../lib/desktop"
 import {
@@ -41,6 +50,7 @@ import {
   type IntegrationProviderId,
   type IntegrationStatus,
 } from "../lib/integrations"
+import { arrangeHomeRows, homeRowSettings, type HomeRow } from "../lib/home-rows"
 import { playbackLanguages } from "../lib/languages"
 import { readPreferences, writePreferences, type DevicePreferences } from "../lib/preferences"
 import { serverDisplayName as formatServerDisplayName } from "../lib/server"
@@ -109,7 +119,7 @@ const settingsEntries: SettingsEntry[] = [
     group: "General",
     title: "Content & discovery",
     description: "Add-ons, catalogs, and search",
-    keywords: "sources stremio home",
+    keywords: "sources stremio home rows catalogs order rename hide",
     icon: Puzzle,
   },
   {
@@ -164,6 +174,7 @@ function serverDisplayName(): string {
 export function SettingsView({
   profile,
   profiles,
+  addons,
   householdId,
   onSelectProfile,
   onNavigate,
@@ -173,6 +184,8 @@ export function SettingsView({
 }: {
   profile: Profile
   profiles: Profile[]
+  /** Undefined while the profile's add-ons load. */
+  addons: InstalledAddon[] | undefined
   householdId: string
   onSelectProfile: (profileId: string) => void
   onNavigate: (section: AppSection) => void
@@ -305,7 +318,13 @@ export function SettingsView({
             {page === "appearance" && (
               <AppearanceSettings preferences={preferences} update={update} />
             )}
-            {page === "content" && <ContentSettings onAddons={() => onNavigate("addons")} />}
+            {page === "content" && (
+              <ContentSettings
+                profile={profile}
+                addons={addons}
+                onAddons={() => onNavigate("addons")}
+              />
+            )}
             {page === "playback" && <PlaybackSettings preferences={preferences} update={update} />}
             {page === "integrations" && <IntegrationsSettings profile={profile} />}
             {page === "data" && (
@@ -812,7 +831,15 @@ function PlaybackSettings({ preferences, update }: PreferencePageProps) {
   )
 }
 
-function ContentSettings({ onAddons }: { onAddons: () => void }) {
+function ContentSettings({
+  profile,
+  addons,
+  onAddons,
+}: {
+  profile: Profile
+  addons: InstalledAddon[] | undefined
+  onAddons: () => void
+}) {
   return (
     <div className="grid gap-7 2xl:grid-cols-2">
       <SettingsGroup title="SOURCES">
@@ -832,15 +859,173 @@ function ContentSettings({ onAddons }: { onAddons: () => void }) {
           <ChevronRight className="text-zinc-600" size={17} />
         </button>
       </SettingsGroup>
-      <SettingsGroup title="DISCOVERY">
-        <InfoAction
-          icon={Search}
-          title="Catalog customization"
-          description="Catalog ordering and home customization are coming next."
-          muted
-        />
-      </SettingsGroup>
+      {addons && <HomeRowsSettings key={profile.id} profile={profile} addons={addons} />}
     </div>
+  )
+}
+
+/** Edits the profile's home catalog rows. Every change saves to the server right away. */
+function HomeRowsSettings({ profile, addons }: { profile: Profile; addons: InstalledAddon[] }) {
+  const queryClient = useQueryClient()
+  const [rows, setRows] = useState(() => arrangeHomeRows(addons, profile.homeRows))
+  // One scope runs saves in order, so the last edit is the one that sticks.
+  const mutationKey = ["home-rows", profile.id]
+  const save = useMutation({
+    mutationKey,
+    scope: { id: `home-rows:${profile.id}` },
+    mutationFn: (homeRows: HomeRowSetting[]) =>
+      api(`/v1/profiles/${profile.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ homeRows }),
+      }),
+    // Home and a reopened editor read the new rows before the save finishes.
+    onMutate: async (homeRows) => {
+      await queryClient.cancelQueries({ queryKey: ["bootstrap"] })
+      queryClient.setQueriesData<Bootstrap>({ queryKey: ["bootstrap"] }, (data) =>
+        data
+          ? {
+              ...data,
+              households: data.households.map((household) => ({
+                ...household,
+                profiles: household.profiles.map((candidate) =>
+                  candidate.id === profile.id ? { ...candidate, homeRows } : candidate,
+                ),
+              })),
+            }
+          : data,
+      )
+    },
+    // Refetching before the last queued save lands would bring back older rows.
+    onSettled: () =>
+      queryClient.isMutating({ mutationKey }) === 1
+        ? queryClient.invalidateQueries({ queryKey: ["bootstrap"] })
+        : undefined,
+  })
+  const saved = useRef(JSON.stringify(homeRowSettings(rows, profile.homeRows)))
+  const commit = (next: HomeRow[]) => {
+    setRows(next)
+    const settings = homeRowSettings(next, profile.homeRows)
+    // Leaving a title field unchanged should not save.
+    if (JSON.stringify(settings) === saved.current) return
+    saved.current = JSON.stringify(settings)
+    save.mutate(settings)
+  }
+  const change = (index: number, values: Partial<HomeRow>) =>
+    rows.map((row, current) => (current === index ? { ...row, ...values } : row))
+  const move = (index: number, offset: number) => {
+    const next = [...rows]
+    next.splice(index + offset, 0, ...next.splice(index, 1))
+    commit(next)
+  }
+  const shown = rows.filter((row) => row.enabled).length
+
+  return (
+    <SettingsGroup title="HOME ROWS">
+      <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3">
+        <p className="text-xs tabular-nums text-zinc-500">
+          {shown} of {rows.length} shown
+        </p>
+        <div className="flex gap-1">
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={shown === rows.length}
+            onClick={() => commit(rows.map((row) => ({ ...row, enabled: true })))}
+          >
+            Show all
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={shown === 0}
+            onClick={() => commit(rows.map((row) => ({ ...row, enabled: false })))}
+          >
+            Hide all
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              setRows(arrangeHomeRows(addons))
+              saved.current = "[]"
+              save.mutate([])
+            }}
+          >
+            Reset
+          </Button>
+        </div>
+      </div>
+      {save.error && (
+        <p role="alert" className="px-5 pb-3 text-sm text-red-400">
+          {apiErrorMessage(save.error, "Unable to save home rows")}
+        </p>
+      )}
+      {rows.length === 0 && (
+        <p className="px-5 pb-4 text-sm text-zinc-500">No enabled add-on offers home catalogs.</p>
+      )}
+      {rows.map((row, index) => (
+        <div key={row.key}>
+          <Divider />
+          <div className="flex items-center gap-3 px-5 py-2.5">
+            <div className="flex shrink-0">
+              <Button
+                size="icon"
+                variant="ghost"
+                className="size-8"
+                aria-label={`Move ${row.title} up`}
+                disabled={index === 0}
+                onClick={() => move(index, -1)}
+              >
+                <ArrowUp size={15} />
+              </Button>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="size-8"
+                aria-label={`Move ${row.title} down`}
+                disabled={index === rows.length - 1}
+                onClick={() => move(index, 1)}
+              >
+                <ArrowDown size={15} />
+              </Button>
+            </div>
+            <div className={`min-w-0 flex-1 ${row.enabled ? "" : "opacity-50"}`}>
+              <input
+                className="-mx-1.5 w-full rounded-md bg-transparent px-1.5 py-1 text-sm font-medium text-zinc-200 outline-none transition hover:bg-white/[.04] focus:bg-zinc-950 focus:ring-1 focus:ring-amber-400/60"
+                value={row.title}
+                placeholder={row.defaultTitle}
+                aria-label={`Rename ${row.defaultTitle}`}
+                maxLength={120}
+                onChange={(event) => setRows(change(index, { title: event.target.value }))}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") event.currentTarget.blur()
+                }}
+                onBlur={() =>
+                  commit(change(index, { title: row.title.trim() || row.defaultTitle }))
+                }
+              />
+              <p className="truncate text-xs text-zinc-500">
+                {row.title === row.defaultTitle
+                  ? row.addonName
+                  : `${row.addonName} · ${row.defaultTitle}`}
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={row.enabled}
+              aria-label={`Show ${row.title} on Home`}
+              className={`relative h-6 w-11 shrink-0 rounded-full transition ${row.enabled ? "bg-amber-400" : "bg-zinc-700"}`}
+              onClick={() => commit(change(index, { enabled: !row.enabled }))}
+            >
+              <span
+                className={`absolute top-1 size-4 rounded-full bg-white shadow transition-all ${row.enabled ? "left-6" : "left-1"}`}
+              />
+            </button>
+          </div>
+        </div>
+      ))}
+    </SettingsGroup>
   )
 }
 

@@ -46,6 +46,7 @@ export function registerBootstrapRoutes(app: FastifyInstance, context: RouteCont
             usesPrimaryAddons: profile.usesPrimaryAddons,
             avatarColor: profile.avatarColor,
             avatarUrl: profile.avatarUrl,
+            homeRows: profile.homeRows,
           })),
       })),
     }
