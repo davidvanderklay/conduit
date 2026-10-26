@@ -10,6 +10,7 @@ import {
   progressTitleDismissals,
   watchProgress,
 } from "../db/schema.js"
+import type { ProgressChange } from "../integrations/service.js"
 import type { PlaybackSource } from "../playback-source.js"
 import type { RouteContext } from "./context.js"
 import { canAccessProfile, requireUser, toProgressItem } from "./helpers.js"
@@ -84,10 +85,10 @@ type ProgressOperation =
       identity: ProgressIdentity
     }
 
-class AliasConflict extends Error {}
+export class AliasConflict extends Error {}
 
 export function registerProgressSyncRoutes(app: FastifyInstance, context: RouteContext) {
-  const { auth, db } = context
+  const { auth, db, integrations } = context
 
   app.post(
     "/v1/profiles/:profileId/progress/operations",
@@ -110,8 +111,9 @@ export function registerProgressSyncRoutes(app: FastifyInstance, context: RouteC
       }
       if (!(await canAccessProfile(db, user.id, profileId))) return reply.forbidden()
 
+      let upserted: Awaited<ReturnType<typeof applyOperation>>["upserted"]
       try {
-        return await db.transaction(async (tx) => {
+        const result = await db.transaction(async (tx) => {
           await tx.insert(progressSyncState).values({ profileId }).onConflictDoNothing()
           await tx
             .select()
@@ -181,7 +183,7 @@ export function registerProgressSyncRoutes(app: FastifyInstance, context: RouteC
             .update(progressSyncState)
             .set({ revision })
             .where(eq(progressSyncState.profileId, profileId))
-          const payload = await applyOperation(
+          const applied = await applyOperation(
             tx,
             profileId,
             canonicalTitleId,
@@ -189,6 +191,8 @@ export function registerProgressSyncRoutes(app: FastifyInstance, context: RouteC
             revision,
             operation,
           )
+          const { payload } = applied
+          upserted = applied.upserted
           const result = {
             accepted: true,
             generation: state.generation,
@@ -210,6 +214,8 @@ export function registerProgressSyncRoutes(app: FastifyInstance, context: RouteC
             .values({ profileId, operationId, revision, generation: state.generation, result })
           return result
         })
+        if (upserted) integrations?.onProgress(profileId, upserted)
+        return result
       } catch (error) {
         if (error instanceof AliasConflict) return reply.conflict(error.message)
         throw error
@@ -330,9 +336,9 @@ export function registerProgressSyncRoutes(app: FastifyInstance, context: RouteC
   )
 }
 
-type ProgressTransaction = Parameters<Parameters<RouteContext["db"]["transaction"]>[0]>[0]
+export type ProgressTransaction = Parameters<Parameters<RouteContext["db"]["transaction"]>[0]>[0]
 
-async function resolveCanonicalTitle(
+export async function resolveCanonicalTitle(
   tx: ProgressTransaction,
   profileId: string,
   identity: ProgressIdentity,
@@ -424,7 +430,9 @@ async function resolveCanonicalTitle(
   return canonicalTitleId
 }
 
-function canonicalEpisodeKey(identity: ProgressIdentity): string {
+export function canonicalEpisodeKey(
+  identity: Pick<ProgressIdentity, "season" | "episode">,
+): string {
   return identity.season === undefined && identity.episode === undefined
     ? "movie"
     : `s${identity.season ?? 0}:e${identity.episode ?? 0}`
@@ -437,7 +445,11 @@ async function applyOperation(
   episodeKey: string,
   revision: number,
   operation: ProgressOperation,
-): Promise<Record<string, unknown>> {
+): Promise<{
+  payload: Record<string, unknown>
+  /** Set for upserts so integrations can tell playback from watched toggles. */
+  upserted?: ProgressChange
+}> {
   const identity = {
     canonicalTitleId,
     canonicalEpisodeKey: episodeKey,
@@ -512,7 +524,10 @@ async function applyOperation(
           .returning()
       : await tx.insert(watchProgress).values(values).returning()
     if (!row) throw new Error("Progress row was not persisted")
-    return { kind: "upsert", item: syncProgressItem(row) }
+    return {
+      payload: { kind: "upsert", item: syncProgressItem(row) },
+      upserted: { previous: existing, current: row },
+    }
   }
   if (operation.type === "dismissTitle" || operation.type === "restoreTitle") {
     const dismissed = operation.type === "dismissTitle"
@@ -533,10 +548,12 @@ async function applyOperation(
         ),
       )
     return {
-      kind: operation.type,
-      canonicalTitleId,
-      mediaType: operation.identity.mediaType,
-      aliases: [operation.identity.mediaId, ...(operation.identity.aliases ?? [])],
+      payload: {
+        kind: operation.type,
+        canonicalTitleId,
+        mediaType: operation.identity.mediaType,
+        aliases: [operation.identity.mediaId, ...(operation.identity.aliases ?? [])],
+      },
     }
   }
   if (operation.type === "deleteEpisode") {
@@ -549,7 +566,7 @@ async function applyOperation(
           eq(watchProgress.canonicalEpisodeKey, episodeKey),
         ),
       )
-    return { kind: "deleteEpisode", ...identity }
+    return { payload: { kind: "deleteEpisode", ...identity } }
   }
   await tx
     .delete(watchProgress)
@@ -559,7 +576,9 @@ async function applyOperation(
         eq(watchProgress.canonicalTitleId, canonicalTitleId),
       ),
     )
-  return { kind: "deleteTitle", canonicalTitleId, mediaType: operation.identity.mediaType }
+  return {
+    payload: { kind: "deleteTitle", canonicalTitleId, mediaType: operation.identity.mediaType },
+  }
 }
 
 function syncProgressItem(row: typeof watchProgress.$inferSelect) {

@@ -7,6 +7,7 @@ import { DESKTOP_ORIGINS, type Config } from "./config.js"
 import { canCreateFirstAccount, hasValidBootstrapToken } from "./bootstrap.js"
 import type { Database } from "./db/index.js"
 import { users } from "./db/schema.js"
+import { createIntegrationSync } from "./integrations/service.js"
 import { loadRuntimeAuthSettings } from "./instance-auth.js"
 import { registerRoutes } from "./routes.js"
 
@@ -84,6 +85,11 @@ export async function buildApp(config: Config, db: Database) {
     return reply.send(Buffer.from(await response.arrayBuffer()))
   })
 
-  await registerRoutes(app, { auth, authSettings, config, db })
+  const integrations = createIntegrationSync(db, config, app.log)
+  // Background pulls only run in a listening server, not in injected tests.
+  app.addHook("onListen", async () => integrations.start())
+  app.addHook("onClose", async () => integrations.stop())
+
+  await registerRoutes(app, { auth, authSettings, config, db, integrations })
   return app
 }

@@ -6,6 +6,7 @@ import { registerTvAuthRoutes } from "./route-modules/tv-auth-routes.js"
 import { registerBootstrapRoutes } from "./route-modules/bootstrap-routes.js"
 import type { RouteContext } from "./route-modules/context.js"
 import { rehashAddonInstallationUrls } from "./route-modules/helpers.js"
+import { registerIntegrationRoutes } from "./route-modules/integration-routes.js"
 import { registerLibraryRoutes } from "./route-modules/library-routes.js"
 import { registerMigrationRoutes } from "./route-modules/migration-routes.js"
 import { registerProfileRoutes } from "./route-modules/profile-routes.js"
@@ -46,6 +47,7 @@ export async function registerRoutes(app: FastifyInstance, context: RouteContext
   registerProgressSyncRoutes(app, context)
   registerPlaybackRoutes(app)
   registerQueueRoutes(app, context)
+  registerIntegrationRoutes(app, context)
   registerWatchPartyRoutes(app, context)
 }
 

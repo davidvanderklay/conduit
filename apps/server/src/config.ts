@@ -13,6 +13,12 @@ export interface Config {
   bootstrapMode: BootstrapMode
   bootstrapToken?: string
   trustProxy: boolean
+  /** Trakt app client id. Needed before profiles can connect Trakt. */
+  traktClientId?: string
+  /** Only apps registered before Trakt stopped issuing secrets have one. */
+  traktClientSecret?: string
+  /** Simkl AUTH V2 client id. Needed before profiles can connect Simkl. */
+  simklClientId?: string
 }
 
 export const DESKTOP_ORIGINS = [
@@ -31,6 +37,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const bootstrapMode = parseBootstrapMode(env.CONDUIT_BOOTSTRAP_MODE)
   const bootstrapToken = env.CONDUIT_BOOTSTRAP_TOKEN?.trim()
   const trustProxy = parseBoolean(env.TRUST_PROXY ?? "false", "TRUST_PROXY")
+  const traktClientId = env.TRAKT_CLIENT_ID?.trim() || undefined
+  const traktClientSecret = env.TRAKT_CLIENT_SECRET?.trim() || undefined
+  const simklClientId = env.SIMKL_CLIENT_ID?.trim() || undefined
 
   if (bootstrapMode === "setup-token" && !bootstrapToken) {
     throw new Error("CONDUIT_BOOTSTRAP_TOKEN is required when CONDUIT_BOOTSTRAP_MODE is setup-token")
@@ -50,6 +59,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     bootstrapMode,
     bootstrapToken,
     trustProxy,
+    traktClientId,
+    traktClientSecret,
+    simklClientId,
   }
 }
 
