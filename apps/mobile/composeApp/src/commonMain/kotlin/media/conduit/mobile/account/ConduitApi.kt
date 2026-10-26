@@ -70,6 +70,7 @@ data class ProfileSummary(
     val usesPrimaryAddons: Boolean = false,
     val avatarColor: String? = null,
     val avatarUrl: String? = null,
+    val homeRows: List<HomeRowSetting> = emptyList(),
 )
 
 @Serializable
@@ -883,6 +884,21 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
         return response.body<ProfileResponse>().profile
     }
 
+    suspend fun updateHomeRows(baseUrl: String, token: String, profileId: String, homeRows: List<HomeRowSetting>): ProfileSummary {
+        val response = client.patch("$baseUrl/v1/profiles/$profileId") {
+            bearerAuth(token); contentType(ContentType.Application.Json)
+            setBody(buildJsonObject {
+                put("homeRows", JsonArray(homeRows.map { row ->
+                    buildJsonObject {
+                        put("key", row.key); put("enabled", row.enabled); row.title?.let { put("title", it) }
+                    }
+                }))
+            })
+        }
+        if (!response.status.isSuccess()) throw ServerRequestException("Home rows update returned HTTP ${response.status.value}", response.status.value)
+        return response.body<ProfileResponse>().profile
+    }
+
     suspend fun profileTransferWebUrl(baseUrl: String): String? {
         val response = client.get("$baseUrl/v1/auth/config")
         if (!response.status.isSuccess()) throw profileTransferError(response)
@@ -1265,46 +1281,30 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
         if (!response.status.isSuccess()) throw ServerRequestException("Unable to update party media", response.status.value)
     }
 
-    suspend fun loadHomeCatalogs(addons: List<InstalledAddonSummary>): HomeCatalogResult = coroutineScope {
-        val requests = addons
+    /** Loads the profile's visible home rows in its saved order. Hidden rows are not requested. */
+    suspend fun loadHomeCatalogs(
+        addons: List<InstalledAddonSummary>,
+        settings: List<HomeRowSetting> = emptyList(),
+    ): HomeCatalogResult = coroutineScope {
+        val requests = arrangeHomeRows(addons, settings)
             .filter { it.enabled }
-            .flatMap { addon ->
-                addon.manifest["catalogs"]?.jsonArray.orEmpty()
-                    .mapNotNull { it as? JsonObject }
-                    .filter { catalog ->
-                        catalog["extra"]?.jsonArray.orEmpty().none { extra ->
-                            (extra as? JsonObject)?.get("isRequired")?.jsonPrimitive?.booleanOrNull == true
-                        }
-                    }
-                    .mapNotNull { catalog ->
-                        val id = catalog["id"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
-                        val type = catalog["type"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
-                        val addonName = addon.manifest["name"]?.jsonPrimitive?.contentOrNull ?: addon.manifestId
-                        val title = formatCatalogTitle(
-                            catalog["name"]?.jsonPrimitive?.contentOrNull ?: "$addonName · $id",
-                            type,
-                        )
-                        Triple(addon, Pair(type, id), title)
-                    }
-            }
-            .map { (addon, resource, title) ->
+            .map { row ->
                 async {
                     runCatching {
-                        val (type, id) = resource
-                        val manifestUrl = addon.manifestUrl.substringBefore('?').substringBefore('#')
+                        val manifestUrl = row.manifestUrl.substringBefore('?').substringBefore('#')
                         val base = manifestUrl.substringBeforeLast('/', manifestUrl).trimEnd('/')
-                        val url = "$base/catalog/${type.encodeURLPathPart()}/${id.encodeURLPathPart()}.json"
+                        val url = "$base/catalog/${row.type.encodeURLPathPart()}/${row.catalogId.encodeURLPathPart()}.json"
                         val response = client.get(url)
                         if (!response.status.isSuccess()) {
-                            throw ServerRequestException("$title returned HTTP ${response.status.value}")
+                            throw ServerRequestException("${row.title} returned HTTP ${response.status.value}")
                         }
                         HomeCatalog(
-                            key = "${addon.id}:$type:$id",
-                            title = title,
+                            key = row.key,
+                            title = row.title,
                             items = response.decodeAddonBody<CatalogResponse>().metas,
-                            addonId = addon.id,
-                            type = type,
-                            catalogId = id,
+                            addonId = row.addonId,
+                            type = row.type,
+                            catalogId = row.catalogId,
                         )
                     }
                 }

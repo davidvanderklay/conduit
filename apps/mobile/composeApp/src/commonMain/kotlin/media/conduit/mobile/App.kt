@@ -1625,7 +1625,7 @@ private fun DestinationContent(
             val tabModifier = if (active) Modifier.fillMaxSize() else Modifier.size(0.dp).clearAndSetSemantics {}
             when (destination) {
                 AppDestination.Home -> HomeScreen(
-                    profileSync, api, onSelectMedia, onSelectContinueWatching, onSelectContinueWatchingDetails, onProfileMutation,
+                    profileSync, api, activeProfile?.homeRows.orEmpty(), onSelectMedia, onSelectContinueWatching, onSelectContinueWatchingDetails, onProfileMutation,
                     onOpenContinueWatching = { dispatch(AppAction.Navigate(AppDestination.ContinueWatching)) },
                     onOpenDiscover = { onBrowse(MobileBrowseTarget.Discover(it)) },
                     listState = homeListState, cache = homeCache, modifier = tabModifier, active = active,

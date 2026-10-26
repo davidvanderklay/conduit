@@ -189,6 +189,13 @@ export const householdMembers = pgTable(
   ],
 )
 
+/** A profile's saved choice for one home catalog row. Array order is display order. */
+export interface HomeRowSetting {
+  key: string
+  enabled: boolean
+  title?: string
+}
+
 export const profiles = pgTable(
   "profile",
   {
@@ -201,6 +208,7 @@ export const profiles = pgTable(
     usesPrimaryAddons: boolean("uses_primary_addons").notNull().default(false),
     avatarColor: text("avatar_color"),
     avatarUrl: text("avatar_url"),
+    homeRows: jsonb("home_rows").$type<HomeRowSetting[]>().notNull().default([]),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

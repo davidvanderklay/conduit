@@ -12,11 +12,11 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import kotlinx.coroutines.CancellationException
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.launch
 import media.conduit.mobile.account.*
 
 internal class HomeScreenCache {
@@ -29,6 +29,7 @@ internal class HomeScreenCache {
 internal fun HomeScreen(
     sync: ProfileSyncState,
     api: ConduitApi,
+    homeRows: List<HomeRowSetting>,
     onSelect: (CatalogItem, String?) -> Unit,
     onSelectContinueWatching: (CatalogItem, String?) -> Unit,
     onSelectContinueWatchingDetails: (CatalogItem) -> Unit,
@@ -40,25 +41,27 @@ internal fun HomeScreen(
     modifier: Modifier = Modifier,
     active: Boolean = true,
 ) {
-    val scope = rememberCoroutineScope()
     var result by cache.result
     var loading by cache.loading
     var catalogError by cache.catalogError
     var actionTarget by remember { mutableStateOf<MediaActionTarget?>(null) }
     val metadataCache = rememberWatchMetadataCache(api, sync.snapshot?.addons.orEmpty())
 
-    fun load() {
-        val addons = sync.snapshot?.addons ?: return
+    var reloads by remember { mutableIntStateOf(0) }
+    // A key change cancels the previous load, so an older, slower load never replaces newer rows.
+    LaunchedEffect(sync.snapshot?.profileId, sync.snapshot?.addons, homeRows, reloads) {
+        val addons = sync.snapshot?.addons ?: return@LaunchedEffect
         loading = true
         catalogError = null
-        scope.launch {
-            runCatching { api.loadHomeCatalogs(addons) }
-                .onSuccess { result = it }
-                .onFailure { catalogError = it.message ?: "Unable to load catalogs" }
-            loading = false
+        try {
+            result = api.loadHomeCatalogs(addons, homeRows)
+        } catch (cause: CancellationException) {
+            throw cause
+        } catch (cause: Exception) {
+            catalogError = cause.message ?: "Unable to load catalogs"
         }
+        loading = false
     }
-    LaunchedEffect(sync.snapshot?.profileId, sync.snapshot?.addons) { load() }
 
     val continueWatching = rememberVisibleContinueWatching(sync.snapshot, metadataCache, active, sync.offline)
     LazyColumn(
@@ -130,7 +133,7 @@ internal fun HomeScreen(
                 ElevatedCard(colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(message, color = MaterialTheme.colorScheme.onErrorContainer)
-                        TextButton(onClick = ::load) { Text("Try again") }
+                        TextButton(onClick = { reloads++ }) { Text("Try again") }
                     }
                 }
             }

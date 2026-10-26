@@ -32,12 +32,13 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import kotlinx.coroutines.CancellationException
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
@@ -48,7 +49,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import media.conduit.mobile.ContinueWatchingCard
 import media.conduit.mobile.ContinueWatchingKind
 import media.conduit.mobile.MediaActionContext
@@ -76,7 +76,6 @@ internal data class TvHeroItem(val item: CatalogItem, val eyebrow: String? = nul
 internal fun TvHome(model: TvShellModel, memory: TvFocusMemory, active: Boolean) {
     val sync = model.sync
     val cache = model.homeCache
-    val scope = rememberCoroutineScope()
     var result by cache.result
     var loading by cache.loading
     var catalogError by cache.catalogError
@@ -93,18 +92,22 @@ internal fun TvHome(model: TvShellModel, memory: TvFocusMemory, active: Boolean)
         }
     }
 
-    fun load() {
-        val addons = sync.snapshot?.addons ?: return
+    val homeRows = model.activeProfile?.homeRows.orEmpty()
+    var reloads by remember { mutableIntStateOf(0) }
+    // A key change cancels the previous load, so an older, slower load never replaces newer rows.
+    LaunchedEffect(sync.snapshot?.profileId, sync.snapshot?.addons, homeRows, reloads) {
+        val addons = sync.snapshot?.addons ?: return@LaunchedEffect
         loading = true
         catalogError = null
-        scope.launch {
-            runCatching { model.api.loadHomeCatalogs(addons) }
-                .onSuccess { result = it }
-                .onFailure { catalogError = it.message ?: "Unable to load catalogs" }
-            loading = false
+        try {
+            result = model.api.loadHomeCatalogs(addons, homeRows)
+        } catch (cause: CancellationException) {
+            throw cause
+        } catch (cause: Exception) {
+            catalogError = cause.message ?: "Unable to load catalogs"
         }
+        loading = false
     }
-    LaunchedEffect(sync.snapshot?.profileId, sync.snapshot?.addons) { load() }
 
     val continueWatching = rememberVisibleContinueWatching(sync.snapshot, metadataCache, active, sync.offline)
     val catalogs = result?.catalogs.orEmpty().filter { it.items.isNotEmpty() }
@@ -160,7 +163,7 @@ internal fun TvHome(model: TvShellModel, memory: TvFocusMemory, active: Boolean)
                     item(key = "error") {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                             Text(message, color = MaterialTheme.colorScheme.error)
-                            TvButton("Try again", onClick = ::load)
+                            TvButton("Try again", onClick = { reloads++ })
                         }
                     }
                 }

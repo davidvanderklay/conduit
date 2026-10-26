@@ -28,7 +28,7 @@ const profileId = "00000000-0000-4000-8000-000000000011"
 const householdId = "00000000-0000-4000-8000-000000000012"
 const addonEncryptionKey = randomBytes(32)
 
-describe("additive profile import", () => {
+describe("profile routes", () => {
   let container: StartedPostgreSqlContainer
   let database: ReturnType<typeof createDatabase>
   let app: FastifyInstance
@@ -54,7 +54,7 @@ describe("additive profile import", () => {
     await container?.stop()
   })
 
-  it("fills gaps without overwriting newer local data", async () => {
+  it("additive import fills gaps without overwriting newer local data", async () => {
     const { db } = database
     await db
       .insert(libraryItems)
@@ -126,6 +126,22 @@ describe("additive profile import", () => {
       ["org.subs", 5],
       ["torrentio", 3],
     ])
+  })
+
+  it("saves only known home row fields", async () => {
+    const homeRows = [
+      { key: "cinemeta:series:top", enabled: false, title: "Shows" },
+      { key: "cinemeta:movie:top", enabled: true },
+    ]
+    const response = await app.inject({
+      method: "PATCH",
+      url: `/v1/profiles/${profileId}`,
+      payload: { homeRows: homeRows.map((row) => ({ ...row, poster: "https://example.com" })) },
+    })
+    expect(response.statusCode).toBe(200)
+    expect(response.json().profile.homeRows).toEqual(homeRows)
+    const [profile] = await database.db.select().from(profiles).where(eq(profiles.id, profileId))
+    expect(profile?.homeRows).toEqual(homeRows)
   })
 })
 

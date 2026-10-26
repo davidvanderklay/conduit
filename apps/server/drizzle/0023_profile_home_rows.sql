@@ -1,0 +1,1 @@
+ALTER TABLE "profile" ADD COLUMN "home_rows" jsonb DEFAULT '[]'::jsonb NOT NULL;

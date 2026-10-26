@@ -2,7 +2,7 @@ import { API_LEVEL } from "@conduit/updates"
 import { useUpdates } from "./lib/updates"
 import { UpdatesView } from "./components/updates-view"
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { ArrowLeft, Check, Film, Globe2, Search, Server, Shield, X } from "lucide-react"
 import {
   api,
@@ -23,7 +23,7 @@ import {
 import { loadCatalog, type CatalogItem } from "./lib/core"
 import { readLastProfileId, rememberLastProfileId } from "./lib/profile-preference"
 import { posterCoverClass, posterTitleClass } from "./lib/poster-layout"
-import { formatCatalogTitle } from "./lib/catalog-title"
+import { arrangeHomeRows, type HomeRow } from "./lib/home-rows"
 import { ProfileSwitcher } from "./components/profile-switcher"
 import { Button } from "./components/ui/button"
 import { Card } from "./components/ui/card"
@@ -1346,6 +1346,7 @@ function ProfileApp({
         <SettingsView
           profile={profile}
           profiles={profiles}
+          addons={addons.data?.addons}
           householdId={householdId}
           onSelectProfile={onSelectProfile}
           onNavigate={onNavigate}
@@ -1404,19 +1405,10 @@ function catalogItemFromPartyMedia(media: WatchPartyMedia): CatalogItem {
   }
 }
 
-interface HomeCatalog {
-  key: string
-  addonId: string
-  type: string
-  catalogId: string
-  title: string
-  items: CatalogItem[]
-}
-
 type HomeFeedItem =
   | { key: "continue"; kind: "continue"; items: WatchProgress[] }
   | { key: "error"; kind: "error"; errors: string[] }
-  | { key: string; kind: "catalog"; catalog: HomeCatalog }
+  | { key: string; kind: "catalog"; row: HomeRow; items: CatalogItem[] }
 
 function MediaHome({
   accountId,
@@ -1461,32 +1453,28 @@ function MediaHome({
   }, [partyMedia])
   const continueWatching = useProgressList(profile.id, "continue", 50)
   const watchedProgress = useProgressList(profile.id, "status", 1000)
+  const rows = useMemo(
+    () => arrangeHomeRows(addons, profile.homeRows).filter((row) => row.enabled),
+    [addons, profile.homeRows],
+  )
+  // Keyed by source, not order or title, so rearranging rows reuses the loaded catalogs.
+  // Showing or hiding a row keeps the current shelves up while the set reloads.
   const catalogs = useQuery({
-    queryKey: ["catalogs", profile.id, addons.map((addon) => [addon.id, addon.enabled])],
-    enabled: addons.length > 0,
+    queryKey: ["catalogs", profile.id, rows.map((row) => `${row.addonId}:${row.key}`).sort()],
+    enabled: rows.length > 0,
+    placeholderData: keepPreviousData,
     queryFn: async () => {
       const results = await Promise.allSettled(
-        addons
-          .filter((addon) => addon.enabled)
-          .flatMap((addon) =>
-            addon.manifest.catalogs
-              .filter((catalog) => !(catalog.extra ?? []).some((extra) => extra.isRequired))
-              .map(async (catalog) => ({
-                key: `${addon.id}:${catalog.type}:${catalog.id}`,
-                addonId: addon.id,
-                type: catalog.type,
-                catalogId: catalog.id,
-                title: formatCatalogTitle(
-                  catalog.name ?? `${addon.manifest.name} · ${catalog.id}`,
-                  catalog.type,
-                ),
-                items: await loadCatalog(addon.manifestUrl, catalog.type, catalog.id),
-              })),
-          ),
+        rows.map(async (row) => ({
+          key: row.key,
+          items: await loadCatalog(row.manifestUrl, row.type, row.catalogId),
+        })),
       )
       return {
-        catalogs: results.flatMap((result) =>
-          result.status === "fulfilled" ? [result.value] : [],
+        items: new Map(
+          results.flatMap((result) =>
+            result.status === "fulfilled" ? [[result.value.key, result.value.items] as const] : [],
+          ),
         ),
         errors: results.flatMap((result) =>
           result.status === "rejected"
@@ -1500,16 +1488,13 @@ function MediaHome({
     ...(continueWatching.data?.length
       ? [{ key: "continue" as const, kind: "continue" as const, items: continueWatching.data }]
       : []),
-    ...(catalogs.data?.errors.length
+    ...(rows.length > 0 && catalogs.data?.errors.length
       ? [{ key: "error" as const, kind: "error" as const, errors: catalogs.data.errors }]
       : []),
-    ...(catalogs.data?.catalogs
-      .filter((catalog) => catalog.items.length > 0)
-      .map((catalog) => ({
-        key: catalog.key,
-        kind: "catalog" as const,
-        catalog,
-      })) ?? []),
+    ...rows.flatMap((row) => {
+      const items = catalogs.data?.items.get(row.key)
+      return items?.length ? [{ key: row.key, kind: "catalog" as const, row, items }] : []
+    }),
   ]
 
   return (
@@ -1545,14 +1530,13 @@ function MediaHome({
               </Card>
             )
           }
-          const catalog = feedItem.catalog
+          const { row } = feedItem
           return (
             <CatalogShelf
               profileId={profile.id}
               addons={addons}
-              title={catalog.title}
-              type={catalog.type}
-              items={catalog.items}
+              title={row.title}
+              items={feedItem.items}
               onSelect={(item) => {
                 setReturnHomeFromStreamSelection(false)
                 setSelectedVideoId(undefined)
@@ -1562,9 +1546,9 @@ function MediaHome({
               }}
               onSeeMore={() =>
                 onDiscover({
-                  addonId: catalog.addonId,
-                  type: catalog.type,
-                  catalogId: catalog.catalogId,
+                  addonId: row.addonId,
+                  type: row.type,
+                  catalogId: row.catalogId,
                 })
               }
             />
@@ -1644,7 +1628,6 @@ function useShelfColumns() {
 function CatalogShelf({
   profileId,
   title,
-  type,
   items,
   addons,
   onSelect,
@@ -1652,7 +1635,6 @@ function CatalogShelf({
 }: {
   profileId: string
   title: string
-  type: string
   items: CatalogItem[]
   addons: InstalledAddon[]
   onSelect: (item: CatalogItem) => void
@@ -1665,7 +1647,7 @@ function CatalogShelf({
   return (
     <section ref={ref}>
       <div className="mb-4 flex items-center justify-between gap-4">
-        <h2 className="font-display text-xl font-semibold">{formatCatalogTitle(title, type)}</h2>
+        <h2 className="font-display text-xl font-semibold">{title}</h2>
         {hasMore && (
           <button
             className="text-xs font-semibold text-zinc-500 transition hover:text-amber-300"

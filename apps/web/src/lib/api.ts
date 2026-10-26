@@ -10,6 +10,14 @@ export interface Profile {
   usesPrimaryAddons?: boolean
   avatarColor?: string | null
   avatarUrl?: string | null
+  homeRows?: HomeRowSetting[]
+}
+
+/** A profile's saved choice for one home catalog row. Array order is display order. */
+export interface HomeRowSetting {
+  key: string
+  enabled: boolean
+  title?: string
 }
 
 export interface Household {

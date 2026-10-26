@@ -407,5 +407,32 @@
       "label": "Türkçe (Forced)"
     },
     "expected": "tr"
+  },
+  {
+    "name": "home rows follow saved order and keep host fields",
+    "action": {
+      "type": "arrangeHomeRows",
+      "catalogs": [
+        { "key": "cinemeta:movie:top", "title": "Popular - Movie", "addonId": "a1" },
+        { "key": "cinemeta:series:top", "title": "Popular - Series", "addonId": "a1" }
+      ],
+      "settings": [{ "key": "cinemeta:series:top", "enabled": false, "title": "Shows" }]
+    },
+    "expected": [
+      {
+        "key": "cinemeta:series:top",
+        "title": "Shows",
+        "defaultTitle": "Popular - Series",
+        "enabled": false,
+        "addonId": "a1"
+      },
+      {
+        "key": "cinemeta:movie:top",
+        "title": "Popular - Movie",
+        "defaultTitle": "Popular - Movie",
+        "enabled": true,
+        "addonId": "a1"
+      }
+    ]
   }
 ]

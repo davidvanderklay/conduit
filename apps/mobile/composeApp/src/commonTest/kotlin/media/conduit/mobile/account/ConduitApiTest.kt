@@ -361,6 +361,43 @@ class ConduitApiTest {
     }
 
     @Test
+    fun homeCatalogsFollowProfileOrderTitlesAndVisibility() = runTest {
+        val requested = mutableListOf<String>()
+        val engine = MockEngine { request ->
+            requested += request.url.encodedPath
+            respond(
+                """{"metas":[{"id":"tt1","type":"movie","name":"A Movie"}]}""",
+                HttpStatusCode.OK,
+                headersOf(HttpHeaders.ContentType, "application/json"),
+            )
+        }
+        val api = ConduitApi(HttpClient(engine) { install(ContentNegotiation) { json() } })
+        val addon = InstalledAddonSummary(
+            id = "a1",
+            manifestId = "fixture",
+            manifestUrl = "https://addon.example/manifest.json",
+            manifest = kotlinx.serialization.json.Json.parseToJsonElement(
+                """{"name":"Fixture","catalogs":[{"id":"popular","type":"movie","name":"Popular"},{"id":"popular","type":"series","name":"Popular"},{"id":"featured","type":"movie","name":"Featured"}]}""",
+            ).jsonObject,
+            position = 0,
+            enabled = true,
+        )
+
+        val result = api.loadHomeCatalogs(
+            listOf(addon, addon.copy(id = "a2")),
+            listOf(
+                HomeRowSetting("fixture:series:popular", enabled = true, title = "Shows"),
+                HomeRowSetting("fixture:movie:featured", enabled = false),
+            ),
+        )
+
+        // The hidden row and the second install's copies are never requested.
+        assertEquals(listOf("/catalog/movie/popular.json", "/catalog/series/popular.json"), requested.sorted())
+        assertEquals(listOf("Shows", "Popular - Movie"), result.catalogs.map { it.title })
+        assertEquals("a1", result.catalogs.first().addonId)
+    }
+
+    @Test
     fun discoverCatalogsExposeFiltersAndCatalogRequestsEncodeExtras() = runTest {
         var requestedPath = ""
         val engine = MockEngine { request ->
