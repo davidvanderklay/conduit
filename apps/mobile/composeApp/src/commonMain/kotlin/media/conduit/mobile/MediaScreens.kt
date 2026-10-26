@@ -3548,6 +3548,7 @@ internal fun ProfileSettingsScreen(
             ProfileRoute.Create -> route = ProfileRoute.Switcher
             is ProfileRoute.Edit -> route = ProfileRoute.Overview
             ProfileRoute.Diagnostics -> route = ProfileRoute.Advanced
+            ProfileRoute.HomeRows -> route = ProfileRoute.Content
             ProfileRoute.Data,
             ProfileRoute.Addons,
             ProfileRoute.Account,
@@ -3590,7 +3591,8 @@ internal fun ProfileSettingsScreen(
         ProfileRoute.History -> return WatchHistoryScreen(profileSync.snapshot, closeHistory, onSelectMedia, onProfileMutation, modifier, profileSync, onProfileDataChanged)
         ProfileRoute.Account -> return AccountSettingsScreen(state, account, api, onSignOut, { route = ProfileRoute.Settings }, modifier)
         ProfileRoute.Appearance -> return AppearanceSettingsScreen(platform, preferences, onPreferencesChanged, { route = ProfileRoute.Settings }, modifier)
-        ProfileRoute.Content -> return ContentSettingsScreen({ route = ProfileRoute.Settings }, { route = ProfileRoute.Addons }, modifier)
+        ProfileRoute.Content -> return ContentSettingsScreen({ route = ProfileRoute.Settings }, { route = ProfileRoute.Addons }, { route = ProfileRoute.HomeRows }, modifier)
+        ProfileRoute.HomeRows -> return HomeRowsSettingsScreen(activeProfile, profileSync.snapshot?.addons.orEmpty(), api, state, account, { route = ProfileRoute.Content }, onProfilesChanged, modifier)
         ProfileRoute.Playback -> return PlaybackSettingsScreen(platform, preferences, onPreferencesChanged, { route = ProfileRoute.Settings }, modifier)
         ProfileRoute.Advanced -> return AdvancedSettingsScreen(platform, preferences, onPreferencesChanged, { route = ProfileRoute.Settings }, { route = ProfileRoute.Diagnostics }, modifier)
         ProfileRoute.Integrations -> return InformationalSettingsScreen("Integrations", "Connected services", listOf("Connect Trakt, Simkl, or MDBList from Settings > Integrations in the conduit web or desktop app. Playback on this device then scrobbles and syncs automatically.", "conduit uses your installed Stremio add-ons directly."), { route = ProfileRoute.Settings }, modifier)
@@ -3830,9 +3832,93 @@ private fun AppearanceSettingsScreen(platform: PlatformInfo, preferences: Device
 }
 
 @Composable
-private fun ContentSettingsScreen(onBack: () -> Unit, onAddons: () -> Unit, modifier: Modifier) = SettingsPage("Content & discovery", onBack, modifier) {
+private fun ContentSettingsScreen(onBack: () -> Unit, onAddons: () -> Unit, onHomeRows: () -> Unit, modifier: Modifier) = SettingsPage("Content & discovery", onBack, modifier) {
     SettingsGroup("SOURCES") { SettingsAction("Add-ons", "Install, order, and manage Stremio add-ons", onClick = onAddons) }
-    SettingsGroup("DISCOVERY") { ListItem(headlineContent = { Text("Catalog customization") }, supportingContent = { Text("Catalog ordering and home customization are coming next") }, colors = ListItemDefaults.colors(containerColor = Color.Transparent)) }
+    SettingsGroup("DISCOVERY") { SettingsAction("Home rows", "Order, rename, and hide catalogs on Home", onClick = onHomeRows) }
+}
+
+/** Edits the profile's home catalog rows locally; Save sends them to the server. */
+@Composable
+private fun HomeRowsSettingsScreen(
+    profile: ProfileSummary?,
+    addons: List<InstalledAddonSummary>,
+    api: ConduitApi,
+    state: AppState,
+    account: AccountStatus.SignedIn,
+    onBack: () -> Unit,
+    onProfilesChanged: (String?) -> Unit,
+    modifier: Modifier,
+) {
+    val scope = rememberCoroutineScope()
+    val saved = profile?.homeRows.orEmpty()
+    val savedRows = remember(addons, saved) { arrangeHomeRows(addons, saved) }
+    var rows by remember(profile?.id, addons) { mutableStateOf(savedRows) }
+    var renaming by remember { mutableStateOf<HomeRow?>(null) }
+    var saving by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    val dirty = homeRowSettings(rows, saved) != homeRowSettings(savedRows, saved)
+    fun move(index: Int, offset: Int) {
+        rows = rows.toMutableList().apply { add(index + offset, removeAt(index)) }
+    }
+    val shown = rows.count { it.enabled }
+
+    SettingsPage("Home rows", onBack, modifier) {
+        SettingsGroup("HOME ROWS") {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("$shown of ${rows.size} shown", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                TextButton(onClick = { rows = rows.map { it.copy(enabled = true) } }, enabled = shown < rows.size) { Text("Show all") }
+                TextButton(onClick = { rows = rows.map { it.copy(enabled = false) } }, enabled = shown > 0) { Text("Hide all") }
+                TextButton(onClick = { rows = arrangeHomeRows(addons) }) { Text("Reset") }
+            }
+            if (rows.isEmpty()) Text("No enabled add-on offers home catalogs.", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 12.dp))
+            rows.forEachIndexed { index, row ->
+                HorizontalDivider(color = Color.White.copy(.06f))
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = { move(index, -1) }, enabled = index > 0) { Icon(Icons.Rounded.ArrowUpward, "Move ${row.title} up") }
+                    IconButton(onClick = { move(index, 1) }, enabled = index < rows.lastIndex) { Icon(Icons.Rounded.ArrowDownward, "Move ${row.title} down") }
+                    Column(Modifier.weight(1f).clickable(onClickLabel = "Rename") { renaming = row }.padding(vertical = 10.dp)) {
+                        Text(row.title, fontWeight = FontWeight.Medium, color = if (row.enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(if (row.title == row.defaultTitle) row.addonName else "${row.addonName} · ${row.defaultTitle}", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    Switch(checked = row.enabled, onCheckedChange = { enabled -> rows = rows.map { if (it.key == row.key) it.copy(enabled = enabled) else it } })
+                }
+            }
+        }
+        error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        Button(
+            onClick = {
+                val endpoint = state.endpoint ?: return@Button
+                val profileId = profile?.id ?: return@Button
+                scope.launch {
+                    saving = true
+                    error = null
+                    runCatching { api.updateHomeRows(endpoint.baseUrl, account.session.token, profileId, homeRowSettings(rows, saved)) }
+                        .onSuccess { onProfilesChanged(null) }
+                        .onFailure { error = it.message ?: "Unable to save home rows" }
+                    saving = false
+                }
+            },
+            enabled = dirty && !saving,
+            modifier = Modifier.fillMaxWidth().height(54.dp),
+        ) { if (saving) LoadingIndicator(Modifier.size(20.dp), strokeWidth = 2.dp) else Text("Save") }
+    }
+    renaming?.let { target ->
+        var title by remember(target.key) { mutableStateOf(target.title) }
+        AlertDialog(
+            onDismissRequest = { renaming = null },
+            title = { Text("Rename row") },
+            text = {
+                OutlinedTextField(title, { title = it.take(120) }, singleLine = true, placeholder = { Text(target.defaultTitle) }, supportingText = { Text("Leave empty to use ${target.defaultTitle}") })
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    rows = rows.map { if (it.key == target.key) it.copy(title = title.trim().ifEmpty { target.defaultTitle }) else it }
+                    renaming = null
+                }) { Text("Done") }
+            },
+            dismissButton = { TextButton(onClick = { renaming = null }) { Text("Cancel") } },
+        )
+    }
 }
 
 @Composable
@@ -4196,6 +4282,7 @@ private sealed interface ProfileRoute {
     data object Licenses : ProfileRoute
     data object Data : ProfileRoute
     data object Diagnostics : ProfileRoute
+    data object HomeRows : ProfileRoute
     data class Edit(val profile: ProfileSummary) : ProfileRoute
 }
 

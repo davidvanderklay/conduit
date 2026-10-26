@@ -33,6 +33,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -66,7 +67,10 @@ import media.conduit.mobile.account.AuthenticationMethods
 import media.conduit.mobile.account.DiagnosticLevel
 import media.conduit.mobile.account.DiagnosticLogEntry
 import media.conduit.mobile.account.DiagnosticLogStore
+import media.conduit.mobile.account.HomeRow
 import media.conduit.mobile.account.InstalledAddonSummary
+import media.conduit.mobile.account.arrangeHomeRows
+import media.conduit.mobile.account.homeRowSettings
 import media.conduit.mobile.account.ProfileSummary
 import media.conduit.mobile.foundation.DevicePreferences
 import media.conduit.mobile.foundation.ResumeBehavior
@@ -80,6 +84,7 @@ import media.conduit.mobile.profileColor
 private enum class TvSettingsSection(val label: String) {
     Profiles("Profiles"),
     Addons("Add-ons"),
+    HomeRows("Home rows"),
     Data("Profile data"),
     Playback("Playback"),
     Appearance("Appearance"),
@@ -155,6 +160,7 @@ internal fun TvSettings(model: TvShellModel, memory: TvFocusMemory, active: Bool
                     }
                     TvSettingsSection.Data -> Unit
                     TvSettingsSection.Addons -> item { TvAddonManager(model) }
+                    TvSettingsSection.HomeRows -> item { TvHomeRows(model) }
                     TvSettingsSection.Playback -> playbackSettings(model.preferences, model.onPreferencesChanged)
                     TvSettingsSection.Appearance -> appearanceSettings(model)
                     TvSettingsSection.Account -> item { TvAccountSettings(model) }
@@ -505,6 +511,117 @@ private fun TvAddonManager(model: TvShellModel) {
             },
             onDismiss = { removeTarget = null },
         )
+    }
+}
+
+// --- Home rows ----------------------------------------------------------------
+
+/** Orders, renames, and hides the profile's home rows. Changes apply when saved. */
+@Composable
+private fun TvHomeRows(model: TvShellModel) {
+    val scope = rememberCoroutineScope()
+    val profile = model.activeProfile
+    val addons = model.sync.snapshot?.addons.orEmpty()
+    val saved = profile?.homeRows.orEmpty()
+    val savedRows = remember(addons, saved) { arrangeHomeRows(addons, saved) }
+    var rows by remember(profile?.id, addons) { mutableStateOf(savedRows) }
+    var renaming by remember { mutableStateOf<HomeRow?>(null) }
+    var saving by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    val dirty = homeRowSettings(rows, saved) != homeRowSettings(savedRows, saved)
+    val shown = rows.count { it.enabled }
+    // Arrows stay in place at the ends so focus never lands on a removed button.
+    fun move(index: Int, offset: Int) {
+        if (index + offset !in rows.indices) return
+        rows = rows.toMutableList().apply { add(index + offset, removeAt(index)) }
+    }
+    fun save() {
+        val endpoint = model.state.endpoint ?: return
+        val profileId = profile?.id ?: return
+        scope.launch {
+            saving = true
+            error = null
+            runCatching { model.api.updateHomeRows(endpoint.baseUrl, model.account.session.token, profileId, homeRowSettings(rows, saved)) }
+                .onSuccess { model.onProfilesChanged(null) }
+                .onFailure { error = it.message ?: "Unable to save home rows" }
+            saving = false
+        }
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        TvSectionLabel("Home rows · $shown of ${rows.size} shown", Modifier.padding(start = 14.dp, top = 12.dp))
+        // Disabled buttons drop focus to the section list, which switches sections and discards edits.
+        Row(Modifier.padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            TvButton(if (saving) "Saving…" else if (dirty) "Save" else "Saved", onClick = { if (dirty && !saving) save() }, primary = dirty)
+            TvButton("Show all", onClick = { rows = rows.map { it.copy(enabled = true) } })
+            TvButton("Hide all", onClick = { rows = rows.map { it.copy(enabled = false) } })
+            TvButton("Reset", onClick = { rows = arrangeHomeRows(addons) })
+        }
+        error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 14.dp)) }
+        if (rows.isEmpty()) Text("No enabled add-on offers home catalogs.", color = TvColors.Muted, modifier = Modifier.padding(14.dp))
+        rows.forEachIndexed { index, row ->
+            // Keyed so focus follows a row when it moves.
+            key(row.key) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TvFocusable(
+                        onClick = { rows = rows.map { if (it.key == row.key) it.copy(enabled = !it.enabled) else it } },
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text(row.title, color = if (row.enabled) Color.White else TvColors.Dim, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(
+                                    if (row.title == row.defaultTitle) row.addonName else "${row.addonName} · ${row.defaultTitle}",
+                                    color = TvColors.Muted,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            Text(if (row.enabled) "On" else "Off", color = if (row.enabled) TvColors.AmberSoft else TvColors.Dim, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                    TvIconButton(Icons.Rounded.ArrowUpward, "Move ${row.title} up", size = 38.dp, onClick = { move(index, -1) })
+                    TvIconButton(Icons.Rounded.ArrowDownward, "Move ${row.title} down", size = 38.dp, onClick = { move(index, 1) })
+                    TvIconButton(Icons.Rounded.Edit, "Rename ${row.title}", size = 38.dp, onClick = { renaming = row })
+                }
+            }
+        }
+    }
+    renaming?.let { target ->
+        TvRenameDialog(
+            target,
+            onDone = { title ->
+                rows = rows.map { if (it.key == target.key) it.copy(title = title.trim().ifEmpty { target.defaultTitle }) else it }
+                renaming = null
+            },
+            onDismiss = { renaming = null },
+        )
+    }
+}
+
+@Composable
+private fun TvRenameDialog(row: HomeRow, onDone: (String) -> Unit, onDismiss: () -> Unit) {
+    var title by remember(row.key) { mutableStateOf(row.title) }
+    val field = remember { FocusRequester() }
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        LaunchedEffect(Unit) { field.requestFocusWhenReady() }
+        Column(
+            Modifier.width(460.dp).background(Color(0xFF18181B), RoundedCornerShape(16.dp))
+                .border(1.dp, TvColors.Hairline, RoundedCornerShape(16.dp)).padding(22.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text("Rename row", color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+            TvTextField(
+                title, { title = it.take(120) }, "Row title", Modifier.fillMaxWidth().focusRequester(field),
+                placeholder = row.defaultTitle, imeAction = ImeAction.Done, onImeAction = { onDone(title) },
+            )
+            Text("Leave empty to use ${row.defaultTitle}.", color = TvColors.Muted, style = MaterialTheme.typography.bodySmall)
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                TvButton("Cancel", onClick = onDismiss)
+                TvButton("Done", onClick = { onDone(title) }, primary = true)
+            }
+        }
     }
 }
 

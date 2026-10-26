@@ -21,9 +21,10 @@ The mobile client currently supports:
   profiles, avatars, and shared primary add-ons;
 - synchronized profile state for installed add-ons, library items, watch
   status, history, and continue watching;
-- home catalogs, catalog discovery, genre filtering, catalog search, media
-  details, seasons, episodes, trailers when supplied by an add-on, stream
-  selection, and add-on subtitle discovery;
+- home catalogs with per-profile order, titles, and visibility, catalog
+  discovery, genre filtering, catalog search, media details, seasons,
+  episodes, trailers when supplied by an add-on, stream selection, and add-on
+  subtitle discovery;
 - native playback with resume position, progress synchronization, seeking,
   playback speed, audio and subtitle selection, subtitle presentation options,
   touch gestures, episode navigation, background audio, and lock-screen media
