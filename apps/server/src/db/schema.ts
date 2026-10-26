@@ -412,6 +412,34 @@ export const libraryItems = pgTable(
   ],
 )
 
+export type IntegrationProviderId = "trakt" | "simkl" | "mdblist"
+
+/** One connected tracking service per profile. Credentials are an encrypted JSON blob. */
+export const integrationConnections = pgTable(
+  "integration_connection",
+  {
+    profileId: uuid("profile_id")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "cascade" }),
+    provider: text("provider").$type<IntegrationProviderId>().notNull(),
+    accountName: text("account_name").notNull(),
+    credentialsEncrypted: text("credentials_encrypted").notNull(),
+    /** Provider activity marker from the last successful pull. */
+    syncCursor: text("sync_cursor"),
+    lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
+    lastError: text("last_error"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.profileId, table.provider] }),
+    check(
+      "integration_connection_provider_check",
+      sql`${table.provider} in ('trakt', 'simkl', 'mdblist')`,
+    ),
+  ],
+)
+
 export type WatchPartyMode = "private" | "shared"
 export type WatchPartyStatus = "active" | "ended"
 export type WatchPartyMemberRole = "host" | "guest"

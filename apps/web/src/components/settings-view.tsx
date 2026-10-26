@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent, type ReactNode } from "react"
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   BadgeInfo,
@@ -9,7 +9,6 @@ import {
   ExternalLink,
   Eye,
   Film,
-  Gauge,
   Heart,
   KeyRound,
   Link2,
@@ -27,9 +26,21 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react"
-import { api, type Profile } from "../lib/api"
+import { api, apiErrorMessage, type Profile } from "../lib/api"
 import { API_URL, authClient } from "../lib/auth"
 import { isDesktop, prepareNativeTextSave } from "../lib/desktop"
+import {
+  connectApiKey,
+  disconnectIntegration,
+  integrationsQueryKey,
+  pollDeviceSignIn,
+  startDeviceSignIn,
+  syncIntegration,
+  useIntegrations,
+  type DeviceSignIn,
+  type IntegrationProviderId,
+  type IntegrationStatus,
+} from "../lib/integrations"
 import { playbackLanguages } from "../lib/languages"
 import { readPreferences, writePreferences, type DevicePreferences } from "../lib/preferences"
 import { serverDisplayName as formatServerDisplayName } from "../lib/server"
@@ -115,7 +126,7 @@ const settingsEntries: SettingsEntry[] = [
     group: "General",
     title: "Integrations",
     description: "Connected media services",
-    keywords: "trakt debrid metadata",
+    keywords: "trakt simkl mdblist scrobble sync watchlist history",
     icon: Link2,
   },
   {
@@ -296,7 +307,7 @@ export function SettingsView({
             )}
             {page === "content" && <ContentSettings onAddons={() => onNavigate("addons")} />}
             {page === "playback" && <PlaybackSettings preferences={preferences} update={update} />}
-            {page === "integrations" && <IntegrationsSettings />}
+            {page === "integrations" && <IntegrationsSettings profile={profile} />}
             {page === "data" && (
               <DataSettings
                 profile={profile}
@@ -833,22 +844,238 @@ function ContentSettings({ onAddons }: { onAddons: () => void }) {
   )
 }
 
-function IntegrationsSettings() {
+function IntegrationsSettings({ profile }: { profile: Profile }) {
+  const integrations = useIntegrations(profile.id)
+  const queryClient = useQueryClient()
+  const syncedAt = integrations.data?.map((item) => item.connection?.lastSyncedAt).join()
+  // Pulled history, watchlists, and playback land in the profile's progress and library.
+  useEffect(() => {
+    if (!syncedAt) return
+    void queryClient.invalidateQueries({ queryKey: ["progress", profile.id] })
+    void queryClient.invalidateQueries({ queryKey: ["library", profile.id] })
+  }, [profile.id, queryClient, syncedAt])
+
   return (
-    <SettingsGroup title="CONNECTED SERVICES">
-      <InfoAction
-        icon={Link2}
-        title="Stremio add-ons"
-        description="conduit uses the add-ons installed for your active profile directly."
-      />
-      <Divider />
-      <InfoAction
-        icon={Gauge}
-        title="Trakt, debrid, and metadata services"
-        description="These will appear here once secure credential storage and synchronization are implemented."
-        muted
-      />
-    </SettingsGroup>
+    <div className="space-y-7">
+      <SettingsGroup title="TRACKING">
+        {integrations.isError && (
+          <p className="p-5 text-sm text-red-300">
+            {apiErrorMessage(integrations.error, "Unable to load integrations")}
+          </p>
+        )}
+        {integrations.data?.map((integration, index) => (
+          <div key={integration.id}>
+            {index > 0 && <Divider />}
+            <IntegrationRow profileId={profile.id} integration={integration} />
+          </div>
+        ))}
+      </SettingsGroup>
+      <SettingsGroup title="ADD-ONS">
+        <InfoAction
+          icon={Link2}
+          title="Stremio add-ons"
+          description="conduit uses the add-ons installed for your active profile directly."
+        />
+      </SettingsGroup>
+    </div>
+  )
+}
+
+const INTEGRATION_SETUP: Record<IntegrationProviderId, string> = {
+  trakt: "Set TRAKT_CLIENT_ID and TRAKT_CLIENT_SECRET on the server to enable Trakt.",
+  simkl: "Set SIMKL_CLIENT_ID on the server to enable Simkl.",
+  mdblist: "",
+}
+
+const syncedAtFormat = new Intl.DateTimeFormat(undefined, {
+  dateStyle: "medium",
+  timeStyle: "short",
+})
+
+function IntegrationRow({
+  profileId,
+  integration,
+}: {
+  profileId: string
+  integration: IntegrationStatus
+}) {
+  const queryClient = useQueryClient()
+  const [signIn, setSignIn] = useState<DeviceSignIn | null>(null)
+  const [apiKey, setApiKey] = useState<string | null>(null)
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState("")
+  const { id, connection } = integration
+  const refresh = () => queryClient.invalidateQueries({ queryKey: integrationsQueryKey(profileId) })
+
+  const run = async (action: () => Promise<unknown>, fallback: string) => {
+    setPending(true)
+    setError("")
+    try {
+      await action()
+      await refresh()
+    } catch (cause) {
+      setError(apiErrorMessage(cause, fallback))
+    } finally {
+      setPending(false)
+    }
+  }
+
+  // Poll at the interval the service asked for until the code is approved or expires.
+  useEffect(() => {
+    if (!signIn) return
+    let cancelled = false
+    let delay = signIn.interval * 1000
+    let timer = 0
+    const deadline = Date.now() + signIn.expiresIn * 1000
+    const finish = (message = "") => {
+      setSignIn(null)
+      setError(message)
+    }
+    const poll = async () => {
+      if (cancelled) return
+      if (Date.now() > deadline) return finish("The code expired. Connect again to get a new one.")
+      try {
+        const { status } = await pollDeviceSignIn(profileId, id, signIn.handle)
+        if (cancelled) return
+        if (status === "authorized") {
+          finish()
+          await queryClient.invalidateQueries({ queryKey: integrationsQueryKey(profileId) })
+          return
+        }
+        if (status === "expired") return finish("The code expired. Connect again to get a new one.")
+        if (status === "denied") return finish("Access was denied.")
+        if (status === "slow_down") delay += 5_000
+      } catch (cause) {
+        if (!cancelled) finish(apiErrorMessage(cause, "Sign-in failed"))
+        return
+      }
+      timer = window.setTimeout(poll, delay)
+    }
+    timer = window.setTimeout(poll, delay)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [id, profileId, queryClient, signIn])
+
+  const status = connection
+    ? connection.lastSyncedAt
+      ? `${connection.accountName} · synced ${syncedAtFormat.format(new Date(connection.lastSyncedAt))}`
+      : connection.lastError
+        ? connection.accountName
+        : `${connection.accountName} · syncing`
+    : integration.available
+      ? "Scrobbles playback and syncs history, watchlist, and Continue Watching."
+      : INTEGRATION_SETUP[id]
+
+  return (
+    <div className="p-5">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium text-zinc-200">{integration.name}</p>
+          <p className="mt-1 text-xs leading-5 text-zinc-500">{status}</p>
+          {(error || connection?.lastError) && (
+            <p className="mt-1 text-xs leading-5 text-red-300">{error || connection?.lastError}</p>
+          )}
+        </div>
+        <div className="flex shrink-0 gap-2">
+          {connection ? (
+            <>
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={pending}
+                onClick={() =>
+                  void run(async () => {
+                    queryClient.setQueryData(
+                      integrationsQueryKey(profileId),
+                      (await syncIntegration(profileId, id)).integrations,
+                    )
+                  }, "Sync failed")
+                }
+              >
+                Sync now
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={pending}
+                onClick={() =>
+                  void run(() => disconnectIntegration(profileId, id), "Unable to disconnect")
+                }
+              >
+                Disconnect
+              </Button>
+            </>
+          ) : signIn || apiKey !== null ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                setSignIn(null)
+                setApiKey(null)
+              }}
+            >
+              Cancel
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              disabled={!integration.available || pending}
+              onClick={() =>
+                integration.auth === "apiKey"
+                  ? setApiKey("")
+                  : void run(
+                      async () => setSignIn(await startDeviceSignIn(profileId, id)),
+                      "Unable to start sign-in",
+                    )
+              }
+            >
+              Connect
+            </Button>
+          )}
+        </div>
+      </div>
+      {signIn && (
+        <p className="mt-4 text-sm text-zinc-300">
+          Enter <span className="font-mono font-semibold text-white">{signIn.userCode}</span> at{" "}
+          <a
+            className="text-amber-300 underline-offset-4 hover:underline"
+            href={signIn.verificationUrl}
+            target="_blank"
+            rel="noreferrer"
+          >
+            {signIn.verificationUrl.replace(/^https?:\/\//, "")}
+          </a>
+        </p>
+      )}
+      {apiKey !== null && !connection && (
+        <form
+          className="mt-4 flex flex-col gap-2 sm:flex-row"
+          onSubmit={(event) => {
+            event.preventDefault()
+            void run(async () => {
+              await connectApiKey(profileId, id, apiKey.trim())
+              setApiKey(null)
+            }, "Unable to connect")
+          }}
+        >
+          <Input
+            className="sm:max-w-sm"
+            type="password"
+            autoComplete="off"
+            placeholder="API key from mdblist.com/preferences"
+            aria-label={`${integration.name} API key`}
+            value={apiKey}
+            onChange={(event) => setApiKey(event.target.value)}
+            required
+          />
+          <Button type="submit" size="sm" className="h-10" disabled={pending || !apiKey.trim()}>
+            Save
+          </Button>
+        </form>
+      )}
+    </div>
   )
 }
 

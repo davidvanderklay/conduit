@@ -115,6 +115,7 @@ export function registerLibraryRoutes(app: FastifyInstance, context: RouteContex
           set: { ...values, updatedAt: new Date() },
         })
         .returning()
+      context.integrations?.onListed(profileId, mediaType, mediaId, true)
 
       return { item: toLibraryItem(item!) }
     },
@@ -149,6 +150,7 @@ export function registerLibraryRoutes(app: FastifyInstance, context: RouteContex
             eq(libraryItems.mediaId, mediaId),
           ),
         )
+      context.integrations?.onListed(profileId, mediaType, mediaId, false)
       return reply.code(204).send()
     },
   )

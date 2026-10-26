@@ -7,7 +7,7 @@ import type { RouteContext } from "./context.js"
 import { canAccessProfile, requireUser, toProgressItem } from "./helpers.js"
 
 export function registerProgressRoutes(app: FastifyInstance, context: RouteContext) {
-  const { auth, db } = context
+  const { auth, db, integrations } = context
 
   app.get(
     "/v1/profiles/:profileId/progress",
@@ -152,6 +152,19 @@ export function registerProgressRoutes(app: FastifyInstance, context: RouteConte
       if (existing && isStaleCheckpoint(body, existing)) {
         return { item: toProgressItem(existing) }
       }
+      integrations?.onProgress(profileId, {
+        previous: existing,
+        current: {
+          videoId,
+          mediaType: body.mediaType,
+          mediaId: body.mediaId,
+          season: body.season ?? null,
+          episode: body.episode ?? null,
+          positionMs: watched ? body.durationMs || body.positionMs : body.positionMs,
+          durationMs: body.durationMs,
+          watched,
+        },
+      })
       const continueWatching = shouldKeepContinueWatching(
         existing?.continueWatching === true,
         watched,
@@ -312,6 +325,7 @@ export function registerProgressRoutes(app: FastifyInstance, context: RouteConte
         )
         .returning()
       if (!item) return reply.notFound()
+      if (watched !== undefined) integrations?.onWatched(profileId, item, watched)
       return { item: toProgressItem(item) }
     },
   )

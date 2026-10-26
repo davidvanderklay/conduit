@@ -137,6 +137,18 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   return response.status === 204 ? (undefined as T) : ((await response.json()) as T)
 }
 
+/** Pulls the server's `message` out of a failed `api` call. */
+export function apiErrorMessage(cause: unknown, fallback: string): string {
+  if (!(cause instanceof Error)) return fallback
+  try {
+    const payload = JSON.parse(cause.message) as { message?: unknown }
+    if (typeof payload.message === "string") return payload.message
+  } catch {
+    // Fall through to the original message for non-JSON errors.
+  }
+  return cause.message
+}
+
 export function requestHeaders(init: RequestInit): Headers {
   const headers = new Headers(init.headers)
   if (DESKTOP_SESSION_TOKEN && !headers.has("authorization")) {

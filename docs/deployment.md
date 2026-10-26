@@ -114,6 +114,9 @@ The deployment template exposes the settings most operators need:
 | `POSTGRES_PASSWORD`       | Database password. Keep it stable for `conduit-postgres`.                                  |
 | `BETTER_AUTH_SECRET`      | Session and recovery signing secret. Keep it stable.                                       |
 | `ADDON_ENCRYPTION_KEY`    | Exactly 64 hexadecimal characters. Keep it stable for encrypted add-ons and OAuth secrets. |
+| `TRAKT_CLIENT_ID`         | Optional. With `TRAKT_CLIENT_SECRET`, lets profiles connect Trakt. See [Integrations](integrations.md). |
+| `TRAKT_CLIENT_SECRET`     | Optional. Required with `TRAKT_CLIENT_ID`.                                                  |
+| `SIMKL_CLIENT_ID`         | Optional. Lets profiles connect Simkl.                                                      |
 
 `DATABASE_URL`, `BETTER_AUTH_URL`, and `WEB_ORIGIN` are derived inside the
 Compose file. Do not regenerate stable secrets on restart. Losing either

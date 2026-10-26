@@ -17,6 +17,15 @@ describe("configuration", () => {
     expect(() => loadConfig({ ...valid, DATABASE_URL: "" })).toThrow("DATABASE_URL is required")
   })
 
+  it("requires the Trakt client id and secret together", () => {
+    expect(() => loadConfig({ ...valid, TRAKT_CLIENT_ID: "id" })).toThrow(
+      "TRAKT_CLIENT_ID and TRAKT_CLIENT_SECRET must be set together",
+    )
+    expect(
+      loadConfig({ ...valid, TRAKT_CLIENT_ID: "", TRAKT_CLIENT_SECRET: "" }).traktClientId,
+    ).toBe(undefined)
+  })
+
   it("defaults to the compatible first-user bootstrap mode", () => {
     expect(loadConfig(valid).bootstrapMode).toBe("first-user")
   })

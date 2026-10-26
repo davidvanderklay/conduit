@@ -48,6 +48,7 @@ nav:
       - Accounts and recovery: authentication.md
       - Updates: updates.md
       - Watch parties: watch-parties.md
+      - Trakt, Simkl, and MDBList: integrations.md
       - Media compatibility: media-compatibility.md
       - Profile exports: portable-profile-format.md
   - Self-host:
