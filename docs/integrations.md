@@ -15,11 +15,28 @@ Credentials are encrypted with `ADDON_ENCRYPTION_KEY` and never returned to clie
 
 ## Server setup
 
-MDBList works without server configuration. Trakt and Simkl need an app registered by the server operator:
+MDBList works without server configuration. Trakt and Simkl only talk to registered apps, so whoever runs the server registers one app per service and gives conduit its client id. Every profile on the server signs in through that app with its own account. A service without its client id is listed as unavailable.
 
-| Service | Register at                                                                                                                                    | Settings                                 |
-| ------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
-| Trakt   | [trakt.tv/oauth/applications](https://trakt.tv/oauth/applications). Use `urn:ietf:wg:oauth:2.0:oob` as the redirect URI.                       | `TRAKT_CLIENT_ID`, `TRAKT_CLIENT_SECRET` |
-| Simkl   | [simkl.com/settings/developer](https://simkl.com/settings/developer/). Choose an AUTH V2 app; the "TV, devices & command line" type is enough. | `SIMKL_CLIENT_ID`                        |
+### Trakt
 
-A service without its settings is listed as unavailable. Apply migration `0022_integration_connections.sql` with the normal migration command.
+1. Open [trakt.tv/oauth/applications](https://trakt.tv/oauth/applications) and create an app.
+2. Name it anything. Choose **Production** so every Trakt account on your server can sign in; **Development** only admits accounts you add.
+3. Set the redirect URI to `urn:ietf:wg:oauth:2.0:oob`. Trakt warns that this URI is insecure but still saves it. conduit never redirects through it; it only repeats it when refreshing tokens. Leave allowed origins empty.
+4. Copy the client id into `TRAKT_CLIENT_ID`. Apps created before October 2026 also have a client secret; put it in `TRAKT_CLIENT_SECRET`. Newer apps have none, and the setting stays empty.
+
+### Simkl
+
+1. Open [simkl.com/settings/developer](https://simkl.com/settings/developer/) and create an AUTH V2 app. The "TV, devices & command line" type is enough.
+2. Copy the client id into `SIMKL_CLIENT_ID`. conduit does not use the Simkl secret.
+
+### Apply the settings
+
+Add the values to the server's `.env` (or the environment in `compose.yaml`), then restart the server:
+
+```sh
+TRAKT_CLIENT_ID=...
+TRAKT_CLIENT_SECRET=   # only for older Trakt apps
+SIMKL_CLIENT_ID=...
+```
+
+The client ids identify the app, not anyone's account. Each profile still signs in from **Settings > Integrations** and gets its own tokens. Upgrading applies migration `0022_integration_connections.sql` with the normal migration command.

@@ -13,8 +13,9 @@ export interface Config {
   bootstrapMode: BootstrapMode
   bootstrapToken?: string
   trustProxy: boolean
-  /** Trakt app credentials. Both are needed before profiles can connect Trakt. */
+  /** Trakt app client id. Needed before profiles can connect Trakt. */
   traktClientId?: string
+  /** Only apps registered before Trakt stopped issuing secrets have one. */
   traktClientSecret?: string
   /** Simkl AUTH V2 client id. Needed before profiles can connect Simkl. */
   simklClientId?: string
@@ -39,10 +40,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const traktClientId = env.TRAKT_CLIENT_ID?.trim() || undefined
   const traktClientSecret = env.TRAKT_CLIENT_SECRET?.trim() || undefined
   const simklClientId = env.SIMKL_CLIENT_ID?.trim() || undefined
-
-  if (Boolean(traktClientId) !== Boolean(traktClientSecret)) {
-    throw new Error("TRAKT_CLIENT_ID and TRAKT_CLIENT_SECRET must be set together")
-  }
 
   if (bootstrapMode === "setup-token" && !bootstrapToken) {
     throw new Error("CONDUIT_BOOTSTRAP_TOKEN is required when CONDUIT_BOOTSTRAP_MODE is setup-token")

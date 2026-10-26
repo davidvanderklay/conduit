@@ -882,7 +882,7 @@ function IntegrationsSettings({ profile }: { profile: Profile }) {
 }
 
 const INTEGRATION_SETUP: Record<IntegrationProviderId, string> = {
-  trakt: "Set TRAKT_CLIENT_ID and TRAKT_CLIENT_SECRET on the server to enable Trakt.",
+  trakt: "Set TRAKT_CLIENT_ID on the server to enable Trakt.",
   simkl: "Set SIMKL_CLIENT_ID on the server to enable Simkl.",
   mdblist: "",
 }

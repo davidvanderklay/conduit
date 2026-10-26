@@ -273,7 +273,8 @@ function parseWatchedShows(rows: WatchedShow[] | undefined): RemoteWatched[] {
 }
 
 export function createTrakt(
-  config: { clientId: string; clientSecret: string },
+  /** Trakt no longer issues secrets to new apps; older apps still send theirs. */
+  config: { clientId: string; clientSecret?: string },
   fetchImpl: Fetch = fetch,
 ): Provider {
   const base = "https://api.trakt.tv"

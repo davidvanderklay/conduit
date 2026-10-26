@@ -93,7 +93,7 @@ export function createIntegrationSync(
   return new IntegrationSync(db, config.addonEncryptionKey, {
     log,
     providers: {
-      ...(config.traktClientId && config.traktClientSecret
+      ...(config.traktClientId
         ? {
             trakt: createTrakt({
               clientId: config.traktClientId,
