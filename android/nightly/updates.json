@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "component": "android",
   "track": "nightly",
-  "version": "0.1.6-nightly.20261026.28",
-  "commit": "82b89fd17ebd75234406cdec4995385373d49b6f",
-  "publishedAt": "2026-10-26T13:57:39Z",
-  "notesUrl": "https://github.com/davidvanderklay/conduit/releases/tag/android%2Fv0.1.6-nightly.20261026.28",
+  "version": "0.1.6-nightly.20261028.30",
+  "commit": "359380784221ccfc664b71b694bd5bb0defd3fb6",
+  "publishedAt": "2026-10-28T13:50:46Z",
+  "notesUrl": "https://github.com/davidvanderklay/conduit/releases/tag/android%2Fv0.1.6-nightly.20261028.30",
   "apiLevel": 1,
   "minimumApiLevel": 1
 }
