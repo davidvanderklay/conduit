@@ -163,7 +163,6 @@ pnpm test:updates
 pnpm --filter @conduit/web test
 pnpm --filter @conduit/server test
 pnpm --filter @conduit/desktop electron:main:build
-pnpm check:flatpak
 ```
 
 Focused tests cover feed isolation, partial Mac publication, prerelease ordering,

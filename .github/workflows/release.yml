@@ -183,6 +183,14 @@ jobs:
             flatpak \
             flatpak-builder \
             ostree
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Generate Node sources
+        run: |
+          python -m pip install \
+            "git+https://github.com/flatpak/flatpak-builder-tools.git@74697c75b630d7330e77250fc13cb5ea688d9479#subdirectory=node"
+          flatpak-node-generator pnpm pnpm-lock.yaml -o flatpak/node-sources.json
       - name: Set desktop version
         shell: bash
         env:

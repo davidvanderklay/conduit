@@ -253,6 +253,9 @@ runtime. JavaScript and Rust dependencies are vendored from the lockfiles for
 an offline build, and libmpv is compiled as a native Flatpak module. The
 Flatpak does not contain or launch the AppImage.
 
+`flatpak/node-sources.json` is not committed. The release workflow generates it
+from `pnpm-lock.yaml` with a pinned `flatpak-node-generator` before building.
+
 ### Install and maintain
 
 Add the signed Conduit repository and install the application for the current

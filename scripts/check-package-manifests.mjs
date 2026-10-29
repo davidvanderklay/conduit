@@ -1,5 +1,6 @@
 import { readdir, readFile } from "node:fs/promises"
 import path from "node:path"
+import { parse } from "yaml"
 
 const root = process.cwd()
 const dependencyFields = [
@@ -27,6 +28,15 @@ async function findPackageManifests(directory) {
 const manifests = await findPackageManifests(root)
 const violations = []
 
+// Dependabot bumps vite-plus-core but not the `vite` aliases that point at it.
+const vitePlusCore = "@voidzero-dev/vite-plus-core"
+const rootManifest = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"))
+const viteAlias = `npm:${vitePlusCore}@${rootManifest.devDependencies[vitePlusCore]}`
+const workspace = parse(await readFile(path.join(root, "pnpm-workspace.yaml"), "utf8"))
+if (workspace.overrides?.vite !== viteAlias) {
+  violations.push(`pnpm-workspace.yaml: overrides.vite must be ${viteAlias}`)
+}
+
 for (const manifestPath of manifests) {
   const manifest = JSON.parse(await readFile(manifestPath, "utf8"))
   for (const field of dependencyFields) {
@@ -34,12 +44,15 @@ for (const manifestPath of manifests) {
       if (specifier === "latest" || specifier.endsWith("@latest")) {
         violations.push(`${path.relative(root, manifestPath)}: ${field}.${name} uses ${specifier}`)
       }
+      if (specifier.startsWith(`npm:${vitePlusCore}@`) && specifier !== viteAlias) {
+        violations.push(`${path.relative(root, manifestPath)}: ${field}.${name} must be ${viteAlias}`)
+      }
     }
   }
 }
 
 if (violations.length > 0) {
-  console.error("Package manifests must use intentional dependency versions:")
+  console.error("Package manifests must use intentional, aligned dependency versions:")
   for (const violation of violations) console.error(`- ${violation}`)
   process.exitCode = 1
 }
