@@ -30,14 +30,14 @@
     "@conduit/updates": "workspace:*"
   },
   "devDependencies": {
-    "@testcontainers/postgresql": "12.1.0",
-    "@types/node": "26.6.2",
+    "@testcontainers/postgresql": "12.2.1",
+    "@types/node": "26.6.5",
     "@types/pg": "8.23.1",
     "@types/ws": "8.18.2",
     "drizzle-kit": "0.31.11",
     "tsx": "4.23.15",
     "typescript": "7.0.2",
-    "vitest": "5.0.2"
+    "vitest": "5.0.5"
   },
   "files": [
     "dist",
