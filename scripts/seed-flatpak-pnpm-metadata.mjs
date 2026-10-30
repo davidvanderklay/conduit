@@ -1,22 +1,21 @@
 import fs from "node:fs"
 import path from "node:path"
 import { rcompare } from "semver"
+import { parse } from "yaml"
 
 // Legacy pnpm deploy resolves manifests even when the tarballs are already cached.
-// Build its offline registry metadata from installed manifests and pinned sources.
+// Build its offline registry metadata from installed manifests and the lockfile.
 const cache = process.env.XDG_CACHE_HOME
 if (!cache) throw new Error("XDG_CACHE_HOME is required")
-const sources = JSON.parse(fs.readFileSync("flatpak/node-sources.json", "utf8"))
-const tarballs = new Map(
-  sources
-    .filter((source) => source.url?.endsWith(".tgz"))
-    .map((source) => [
-      source["dest-filename"],
-      {
-        tarball: source.url,
-        integrity: `sha512-${Buffer.from(source.sha512, "hex").toString("base64")}`,
-      },
-    ]),
+const lockfile = parse(fs.readFileSync("pnpm-lock.yaml", "utf8"))
+const dists = new Map(
+  Object.entries(lockfile.packages).map(([key, { resolution }]) => {
+    const separator = key.lastIndexOf("@")
+    const name = key.slice(0, separator)
+    const version = key.slice(separator + 1)
+    const tarball = `https://registry.npmjs.org/${name}/-/${name.split("/").pop()}-${version}.tgz`
+    return [key, { tarball, integrity: resolution.integrity }]
+  }),
 )
 const packages = new Map()
 for (const filename of fs.globSync([
@@ -24,8 +23,8 @@ for (const filename of fs.globSync([
   "node_modules/.pnpm/*/node_modules/@*/*/package.json",
 ])) {
   const manifest = JSON.parse(fs.readFileSync(filename, "utf8"))
-  const dist = tarballs.get(`${manifest.name.replace("/", "__")}-${manifest.version}.tgz`)
-  if (!dist) continue
+  const dist = dists.get(`${manifest.name}@${manifest.version}`)
+  if (!dist?.integrity) continue
   const versions = packages.get(manifest.name) ?? {}
   versions[manifest.version] = { ...manifest, dist }
   packages.set(manifest.name, versions)

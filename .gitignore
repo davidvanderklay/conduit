@@ -40,3 +40,5 @@ pages-site/
 flatpak-site/
 .venv-docs/
 __pycache__/
+
+flatpak/node-sources.json
