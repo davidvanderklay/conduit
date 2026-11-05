@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "component": "web",
   "track": "nightly",
-  "version": "0.1.6-nightly.20261030.32",
-  "commit": "6e1b77edbbe60c54cb73ed05e439b46ee3403f38",
-  "publishedAt": "2026-10-30T13:50:58Z",
-  "notesUrl": "https://github.com/davidvanderklay/conduit/releases/tag/web%2Fv0.1.6-nightly.20261030.32",
+  "version": "0.1.6-nightly.20261105.38",
+  "commit": "503d8196df39b585f2f073bdd05b2043cf94376c",
+  "publishedAt": "2026-11-05T15:10:24Z",
+  "notesUrl": "https://github.com/davidvanderklay/conduit/releases/tag/web%2Fv0.1.6-nightly.20261105.38",
   "apiLevel": 1,
   "minimumApiLevel": 1
 }
