@@ -198,7 +198,10 @@ modules:
       - pnpm --filter @conduit/desktop electron:main:build
       - cargo build --offline --release -p conduit-electron-native --features linux-helper
       - install -Dm755 target/release/conduit-electron-native /app/bin/conduit-electron-native
-      - cargo build --offline --release -p conduit-p2p --bin conduit-p2p
+      # aws-lc-sys must build jitterentropy at -O0, and the SDK's -O2 in CFLAGS
+      # overrides its own guard. Drop only the optimization flags; the release
+      # profile still optimizes the rest of its C code.
+      - 'CFLAGS="$(printf "%s\n" "$CFLAGS" | sed -E "s/(^|[[:space:]])-O[^[:space:]]*//g")" cargo build --offline --release -p conduit-p2p --bin conduit-p2p'
       - install -Dm755 target/release/conduit-p2p /app/bin/conduit-p2p
       - mkdir -p /app/lib/conduit/resources/app/electron /app/lib/conduit/resources/web
       - unzip -q flatpak-node/cache/electron/electron-v*-linux-*.zip -d /app/lib/conduit
