@@ -42,3 +42,4 @@ flatpak-site/
 __pycache__/
 
 flatpak/node-sources.json
+flatpak/cargo-sources.json

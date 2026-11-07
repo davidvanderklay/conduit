@@ -253,8 +253,10 @@ runtime. JavaScript and Rust dependencies are vendored from the lockfiles for
 an offline build, and libmpv is compiled as a native Flatpak module. The
 Flatpak does not contain or launch the AppImage.
 
-`flatpak/node-sources.json` is not committed. The release workflow generates it
-from `pnpm-lock.yaml` with a pinned `flatpak-node-generator` before building.
+`flatpak/node-sources.json` and `flatpak/cargo-sources.json` are not committed.
+The release workflow generates them from `pnpm-lock.yaml` and `Cargo.lock` with
+pinned `flatpak-builder-tools` generators before building, so dependency updates
+cannot leave the offline build with stale sources.
 
 ### Install and maintain
 

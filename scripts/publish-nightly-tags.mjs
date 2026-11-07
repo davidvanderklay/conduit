@@ -32,7 +32,15 @@ const inputs = {
     "releases/container-pair.json",
   ],
   web: ["apps/web", "packages/core", "packages/updates", "Dockerfile", "docker"],
-  desktop: ["apps/desktop", "apps/web", "packages/core", "packages/updates", "flatpak"],
+  desktop: [
+    "apps/desktop",
+    "apps/web",
+    "packages/core",
+    "packages/updates",
+    "flatpak",
+    "Cargo.toml",
+    "Cargo.lock",
+  ],
   android: [
     ...mobileInputs,
     "apps/mobile/composeApp/src/androidMain",
