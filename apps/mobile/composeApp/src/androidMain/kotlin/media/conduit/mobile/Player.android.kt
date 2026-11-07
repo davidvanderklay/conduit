@@ -3,12 +3,10 @@ package media.conduit.mobile
 import media.conduit.mobile.foundation.LocalScreenReader
 
 import android.app.Activity
-import android.content.Context
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.os.SystemClock
 import android.util.Log
-import android.view.accessibility.CaptioningManager
 import android.widget.Toast
 import androidx.annotation.OptIn
 import androidx.compose.runtime.*
@@ -1174,30 +1172,26 @@ private fun PlayerTimePill(
 }
 
 /**
- * Media3 keeps the viewer's Android caption colors and font. Size and position
- * come from conduit, and the outline preference swaps in an outlined edge.
+ * Matches the mpv players on iOS, desktop, and Android: white text with no
+ * background box and an optional black outline. libass sizes mpv's 54 scaled
+ * pixels by the font's full line height, so its glyphs match Media3 text at 6%
+ * of the video height rather than 54/720. mpv's `sub-pos` 95 plus its default
+ * bottom margin lands at about 9% padding here. The inline player keeps text
+ * proportionally smaller.
  */
 @OptIn(UnstableApi::class)
 private fun SubtitleView.applySubtitleStyle(style: SubtitleStyle, fullScreen: Boolean) {
-    setFractionalTextSize((if (fullScreen) .0533f else .035f) * style.scale)
-    setBottomPaddingFraction(SubtitleView.DEFAULT_BOTTOM_PADDING_FRACTION + style.offsetPercent / 100f)
-    val captions = (context.getSystemService(Context.CAPTIONING_SERVICE) as? CaptioningManager)
-        ?.takeIf { it.isEnabled }
-        ?.let { CaptionStyleCompat.createFromCaptionStyle(it.userStyle) }
-        ?: CaptionStyleCompat.DEFAULT
+    setFractionalTextSize((if (fullScreen) .06f else .039f) * style.scale)
+    setBottomPaddingFraction(.09f + style.offsetPercent / 100f)
     setStyle(
-        if (style.outline) {
-            CaptionStyleCompat(
-                captions.foregroundColor,
-                captions.backgroundColor,
-                captions.windowColor,
-                CaptionStyleCompat.EDGE_TYPE_OUTLINE,
-                android.graphics.Color.BLACK,
-                captions.typeface,
-            )
-        } else {
-            captions
-        },
+        CaptionStyleCompat(
+            android.graphics.Color.WHITE,
+            android.graphics.Color.TRANSPARENT,
+            android.graphics.Color.TRANSPARENT,
+            if (style.outline) CaptionStyleCompat.EDGE_TYPE_OUTLINE else CaptionStyleCompat.EDGE_TYPE_NONE,
+            android.graphics.Color.BLACK,
+            null,
+        ),
     )
 }
 

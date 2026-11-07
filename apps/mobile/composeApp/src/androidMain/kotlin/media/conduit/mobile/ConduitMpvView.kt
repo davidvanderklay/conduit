@@ -141,14 +141,14 @@ internal class ConduitMpvView(
         playbackTuning.mpvBufferOptions().forEach { (name, value) -> mpv.setOptionString(name, value) }
         mpv.setOptionString("hwdec-software-fallback", "yes")
         // Match the iOS subtitle treatment: centered text, slightly above the
-        // bottom edge, with the same scaled-pixel baseline as Media3's full-
-        // screen subtitle size. These are global options so they also apply
+        // bottom edge, at iOS's 54 scaled-pixel size. Media3's text size is
+        // tuned to render the same. These are global options so they also apply
         // when external subtitles are added after the first video frame.
         // applySubtitleStyle layers the user's size and position on top.
         mpv.setOptionString("sub-pos", MpvDefaultSubtitlePosition.toString())
         mpv.setOptionString("sub-align-x", "center")
         mpv.setOptionString("sub-align-y", "bottom")
-        mpv.setOptionString("sub-font-size", "38")
+        mpv.setOptionString("sub-font-size", "54")
         mpv.setOptionString("msg-level", "all=warn")
         mpv.setOptionString("tls-verify", "yes")
         mpv.setOptionString("tls-ca-file", "${context.filesDir.path}/cacert.pem")
