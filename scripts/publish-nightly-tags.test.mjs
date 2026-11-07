@@ -38,6 +38,11 @@ for (const { name, changed, unpublished, expected } of [
     expected: ["android", "ios"],
   },
   {
+    name: "Rust lockfile changes",
+    changed: "Cargo.lock",
+    expected: ["android", "ios", "desktop"],
+  },
+  {
     name: "Android icon changes",
     changed: "apps/desktop/icons/android/values/ic_launcher_background.xml",
     expected: ["android", "desktop"],
