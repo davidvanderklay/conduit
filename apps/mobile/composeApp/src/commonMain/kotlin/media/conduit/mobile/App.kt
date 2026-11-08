@@ -1436,6 +1436,20 @@ private fun AppShell(
             onMutation = ::mutateProfile,
             skipSegmentsRepository = remember { SkipSegmentsRepository() },
             titlePlayback = titlePlayback,
+            onRestore = {
+                // Minimizing closes the details screen, which owns source, episode
+                // and next-episode actions. Reopen it under the player so they work.
+                val request = playbackSession.state.request
+                val media = request?.mediaItem
+                if (media != null && !playbackSession.hasLiveOwner) {
+                    selectedMedia = media
+                    selectedVideoId = request.identity.videoId
+                    selectedMediaReturnsToOrigin = false
+                    selectedMediaOpenMode = MediaOpenMode.Details
+                    selectedMediaBackRestore = null
+                }
+                playbackSession.restore()
+            },
         )
         if (tv == null && queueManagerOpen && playbackSession.state.request == null) {
             PlaybackQueueDrawer(
@@ -1718,6 +1732,7 @@ private fun BoxScope.PlaybackSessionHost(
     onMutation: suspend (ProfileMutation) -> Result<Unit>,
     skipSegmentsRepository: SkipSegmentsRepository,
     titlePlayback: TitlePlaybackRepository,
+    onRestore: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     val session = controller.state
@@ -2551,7 +2566,7 @@ private fun BoxScope.PlaybackSessionHost(
                             )
                         }
                     }
-                    .clickable(onClick = controller::restore),
+                    .clickable(onClick = onRestore),
             ) {
                 IconButton(
                     onClick = {

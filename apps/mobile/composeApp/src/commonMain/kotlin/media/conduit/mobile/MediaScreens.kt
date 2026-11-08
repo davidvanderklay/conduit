@@ -1797,11 +1797,15 @@ internal fun MediaDetailsScreen(
     LaunchedEffect(requestIdentity, externalSubtitlesLoaded, externalSubtitles) {
         requestIdentity?.let { playbackSession.updateSubtitles(it, externalSubtitles, externalSubtitlesLoaded) }
     }
+    val playbackOwner = remember { Any() }
     SideEffect {
         if (requestIdentity != null && sessionCallbacks != null) {
-            playbackSession.attach(requestIdentity, sessionCallbacks)
-            playbackSession.attachTransition(requestIdentity, sessionCallbacks)
+            playbackSession.attach(requestIdentity, sessionCallbacks, playbackOwner)
+            playbackSession.attachTransition(requestIdentity, sessionCallbacks, playbackOwner)
         }
+    }
+    DisposableEffect(playbackSession) {
+        onDispose { playbackSession.releaseOwner(playbackOwner) }
     }
     fun closeStreamSelection() {
         if (playbackSession.state.transition != null) playbackSession.close()

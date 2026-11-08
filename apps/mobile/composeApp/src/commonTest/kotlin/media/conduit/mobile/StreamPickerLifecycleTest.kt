@@ -68,4 +68,31 @@ class StreamPickerLifecycleTest {
 
         assertFalse(assertNotNull(controller.state.streamPicker).loading)
     }
+
+    @Test
+    fun ownerTracksTheComposedDetailsScreen() = runTest {
+        val controller = PlaybackSessionController(this)
+        val identity = PlaybackIdentity("profile", "series", "show", "show:1:1")
+        val callbacks = PlaybackSessionCallbacks(
+            persist = { _, _ -> }, playNext = {}, openEpisodes = {}, minimized = {}, closed = {},
+        )
+        controller.start(
+            PlaybackRequest(identity = identity, url = "https://example.test/episode.mkv", title = "Episode 1", mediaName = "Show"),
+            callbacks,
+        )
+        val closedScreen = Any()
+        val reopenedScreen = Any()
+        controller.attach(identity, callbacks, closedScreen)
+        assertTrue(controller.hasLiveOwner)
+
+        controller.releaseOwner(closedScreen)
+        assertFalse(controller.hasLiveOwner)
+
+        controller.attach(identity, callbacks, reopenedScreen)
+        controller.releaseOwner(closedScreen)
+        assertTrue(controller.hasLiveOwner, "a stale screen must not clear the reopened owner")
+
+        controller.close()
+        assertFalse(controller.hasLiveOwner)
+    }
 }

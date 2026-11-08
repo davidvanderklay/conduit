@@ -157,6 +157,17 @@ class PlaybackSessionController(
     internal val p2p = P2pSessionController()
 
     private var callbacks: PlaybackSessionCallbacks? = null
+
+    /**
+     * The details screen whose [callbacks] drive playback, while it is composed.
+     * Its callbacks keep saving progress after it closes, but source, episode and
+     * next-episode actions change that screen's state and need it on screen.
+     */
+    private var owner: Any? = null
+
+    /** False after the owning details screen leaves composition, e.g. once minimized. */
+    val hasLiveOwner: Boolean get() = owner != null
+
     private var queuedNext: PlaybackQueueItem? = null
     private var commandSequence = 0L
     private var sessionSequence = 0L
@@ -226,8 +237,15 @@ class PlaybackSessionController(
         if (!sameStream) checkpointSequence = 0L
     }
 
-    fun attach(identity: PlaybackIdentity, callbacks: PlaybackSessionCallbacks) {
-        if (state.request?.identity == identity) this.callbacks = callbacks
+    fun attach(identity: PlaybackIdentity, callbacks: PlaybackSessionCallbacks, owner: Any? = null) {
+        if (state.request?.identity != identity) return
+        this.callbacks = callbacks
+        if (owner != null) this.owner = owner
+    }
+
+    /** Called by a details screen leaving composition; only its own registration is cleared. */
+    fun releaseOwner(owner: Any) {
+        if (this.owner === owner) this.owner = null
     }
 
     fun updatePlayback(playback: PlaybackState) {
@@ -312,6 +330,7 @@ class PlaybackSessionController(
         val closed = callbacks?.closed
         state = PlaybackSessionState()
         callbacks = null
+        owner = null
         activeAttemptId = null
         queuedNext = null
         closed?.invoke()
@@ -431,8 +450,10 @@ class PlaybackSessionController(
         }
     }
 
-    fun attachTransition(identity: PlaybackIdentity, callbacks: PlaybackSessionCallbacks) {
-        if (state.transition?.identity == identity) this.callbacks = callbacks
+    fun attachTransition(identity: PlaybackIdentity, callbacks: PlaybackSessionCallbacks, owner: Any? = null) {
+        if (state.transition?.identity != identity) return
+        this.callbacks = callbacks
+        if (owner != null) this.owner = owner
     }
 
     fun cancelTransition() {
