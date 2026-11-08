@@ -562,7 +562,11 @@ actual fun NativePlayer(
         val item = player.currentMediaItem ?: return@LaunchedEffect
         val configurations = media3SubtitleConfigurations(subtitles)
         if (item.localConfiguration?.subtitleConfigurations != configurations) {
-            player.replaceMediaItem(0, item.buildUpon().setSubtitleConfigurations(configurations).build())
+            // replaceMediaItem keeps the existing source when the video URI is
+            // unchanged, which drops add-on subtitles that arrive after loading
+            // (e.g. right after a source switch). Setting the item rebuilds the
+            // source with them and keeps the playback position.
+            player.setMediaItem(item.buildUpon().setSubtitleConfigurations(configurations).build(), false)
         }
     }
     LaunchedEffect(player, activeEngine, tracksRevision, initialLoadComplete, subtitles, subtitlesResolved, preferredSubtitleLanguage, secondarySubtitleLanguage, forcedSubtitlesOnly, manualSubtitleSelection) {
