@@ -96,8 +96,10 @@ describe("tracking service sync", () => {
         throw new Error("offline")
       },
       writeSpacingMs: 0,
-      idleMs: 100,
-      batchMs: 50,
+      // Wide enough that slow CI runners can't fire a pause or close a batch
+      // between two requests the test sends back to back.
+      idleMs: 1_000,
+      batchMs: 500,
     })
     app = Fastify()
     await app.register(sensible)
@@ -148,6 +150,7 @@ describe("tracking service sync", () => {
     })
   }
 
+  const slow = { timeout: 5_000 }
   const episode = { type: "episode", imdb: "tt0903747", season: 1, episode: 2 } as const
 
   it("connects through the device flow without exposing the device code", async () => {
@@ -186,7 +189,7 @@ describe("tracking service sync", () => {
     await connect()
     await upsert("tt0903747:1:2", 10_000, false, 1)
     await upsert("tt0903747:1:2", 25_000, false, 2)
-    await vi.waitFor(() => expect(provider.scrobble).toHaveBeenCalledTimes(2))
+    await vi.waitFor(() => expect(provider.scrobble).toHaveBeenCalledTimes(2), slow)
     expect(provider.scrobble.mock.calls.map((call) => call.slice(1))).toEqual([
       ["start", episode, 10],
       ["pause", episode, 25],
@@ -194,7 +197,7 @@ describe("tracking service sync", () => {
 
     await upsert("tt0903747:1:2", 50_000, false, 3)
     await upsert("tt0903747:1:2", 100_000, true, 4)
-    await vi.waitFor(() => expect(provider.scrobble).toHaveBeenCalledTimes(4))
+    await vi.waitFor(() => expect(provider.scrobble).toHaveBeenCalledTimes(4), slow)
     expect(provider.scrobble.mock.calls.slice(2).map((call) => call[1])).toEqual(["start", "stop"])
     expect(provider.setWatched).not.toHaveBeenCalled()
   })
@@ -221,14 +224,14 @@ describe("tracking service sync", () => {
         },
       }),
     ])
-    await vi.waitFor(() => expect(provider.setWatched).toHaveBeenCalledTimes(1))
+    await vi.waitFor(() => expect(provider.setWatched).toHaveBeenCalledTimes(1), slow)
     expect(provider.setWatched.mock.calls[0]?.[1]).toEqual(
       expect.arrayContaining([episode, { type: "movie", imdb: "tt0372784" }]),
     )
 
     // Mobile unmarks with position zero; a rewatch checkpoint keeps scrobbling.
     await upsert("tt0903747:1:2", 0, false, 1, "manual:unwatch")
-    await vi.waitFor(() => expect(provider.setWatched).toHaveBeenCalledTimes(2))
+    await vi.waitFor(() => expect(provider.setWatched).toHaveBeenCalledTimes(2), slow)
     expect(provider.setWatched.mock.calls[1]?.slice(1)).toEqual([[episode], false])
     expect(provider.scrobble).not.toHaveBeenCalled()
   })
@@ -237,7 +240,7 @@ describe("tracking service sync", () => {
     await connect({ token: "old", refreshToken: "refresh", expiresAt: Date.now() + 60_000 })
     sync.onListed(profileId, "movie", "tt0372784", true)
     await sync.sync(profileId, "trakt")
-    await vi.waitFor(() => expect(provider.setListed).toHaveBeenCalledTimes(1))
+    await vi.waitFor(() => expect(provider.setListed).toHaveBeenCalledTimes(1), slow)
     expect(provider.device.refresh).toHaveBeenCalledTimes(1)
     expect(provider.setListed.mock.calls[0]?.[0].token).toBe("fresh")
     expect(provider.activity.mock.calls[0]?.[0].token).toBe("fresh")
