@@ -430,8 +430,10 @@ jobs:
             found=1
             leaks=0
             while IFS= read -r -d '' binary; do
-              file -b "$binary" | grep -q Mach-O || continue
-              if otool -l "$binary" | grep -E '^ +(name|path) (/opt/homebrew|/usr/local)/'; then
+              case "$(file -b "$binary")" in *Mach-O*) ;; *) continue ;; esac
+              # otool reads "Helper (GPU)" as archive(member) syntax; objdump does not.
+              headers="$(xcrun objdump --macho --private-headers "$binary")"
+              if grep -E '^ +(name|path) (/opt/homebrew|/usr/local)/' <<< "$headers"; then
                 echo "::error file=$binary::references a Homebrew path"
                 leaks=1
               fi
@@ -445,7 +447,7 @@ jobs:
               const native = require(process.argv[1])
               console.log(native.invoke(JSON.stringify({ id: 1, method: "player_snapshot" })))
             ' "$native"
-          done < <(find apps/desktop/dist -maxdepth 2 -type d -name 'conduit.app')
+          done < <(find "$PWD/apps/desktop/dist" -maxdepth 2 -type d -name 'conduit.app')
           test "$found" = 1
       - name: Verify notarized Mac application
         if: env.CSC_LINK != '' && env.APPLE_ID != '' && env.APPLE_APP_SPECIFIC_PASSWORD != '' && env.APPLE_TEAM_ID != ''
