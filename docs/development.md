@@ -275,7 +275,13 @@ Changes to `desktop_auth_request` require applying migration `0008` or later.
 
 For development outside Nix:
 
-- macOS: install libmpv, for example with `brew install mpv`
+- macOS (inside the Nix shell too): run
+  `pnpm --filter @conduit/desktop setup:macos`. It downloads
+  Conduit's pinned libmpv dylib set (IINA's mpv build) for the Mac's
+  architecture and verifies its SHA-256 digest. The native addon links it
+  through `@rpath`, and builds ship the set beside the addon, so Homebrew mpv
+  is not needed. Override `CONDUIT_LIBMPV_URL` and `CONDUIT_LIBMPV_SHA256`
+  together when deliberately testing a different build.
 - Linux: install libmpv development headers, EGL, DBus,
   and pkg-config development packages
 - Windows: install Git, Node.js LTS, pnpm (through Corepack), Rust's stable

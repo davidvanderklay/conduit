@@ -28,6 +28,7 @@ apps/mobile/native/
 apps/server/.local/
 apps/desktop/electron/dist/
 apps/desktop/dist/
+apps/desktop/libmpv/
 
 flatpak/appdir/
 .flatpak-builder/

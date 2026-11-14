@@ -13,6 +13,7 @@
     "electron:native:build": "node electron-native/build.mjs",
     "electron:native:build:release": "node electron-native/build.mjs --release",
     "electron:run": "node electron/run.mjs .",
+    "setup:macos": "bash scripts/setup-macos.sh",
     "setup:windows": "powershell -ExecutionPolicy Bypass -File scripts/setup-windows.ps1",
     "test": "cargo test -p conduit-electron-native",
     "dist": "pnpm build && pnpm electron:native:build:release && electron-builder --publish never",

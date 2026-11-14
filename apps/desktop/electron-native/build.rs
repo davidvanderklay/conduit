@@ -14,12 +14,21 @@ fn main() {
     }
     #[cfg(target_os = "macos")]
     {
-        // libmpv2-sys probes mpv via pkg-config but the final cdylib link
-        // still needs the search path on macOS where brew installs to
-        // /opt/homebrew (arm64) or /usr/local (intel). Ensure we probe here
-        // so -L flags are emitted for the top-level crate as well.
-        pkg_config::probe_library("mpv")
-            .expect("libmpv development files are required (brew install mpv)");
+        // Link the pinned dylib set from `pnpm setup:macos` instead of a
+        // system mpv. Its install names are @rpath/..., and install.mjs copies
+        // the set beside the addon, so the addon searches its own directory.
+        let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").expect("manifest directory");
+        let libmpv = std::path::Path::new(&manifest_dir).join("../libmpv");
+        assert!(
+            libmpv.join("libmpv.2.dylib").exists(),
+            "libmpv is missing; run `pnpm --filter @conduit/desktop setup:macos`"
+        );
+        println!("cargo:rustc-link-search=native={}", libmpv.display());
+        println!("cargo:rustc-link-arg-cdylib=-Wl,-rpath,@loader_path");
+        println!(
+            "cargo:rerun-if-changed={}",
+            libmpv.join("libmpv.2.dylib").display()
+        );
     }
     #[cfg(target_os = "linux")]
     {

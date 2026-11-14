@@ -387,8 +387,10 @@ jobs:
         with:
           tool: wasm-pack
       - name: Install macOS packaging dependencies
-        run: brew install mpv pkg-config
+        run: brew install pkg-config
       - run: pnpm install --frozen-lockfile
+      - name: Download pinned libmpv
+        run: pnpm --filter @conduit/desktop setup:macos
       - name: Set desktop version
         shell: bash
         env:
@@ -411,15 +413,60 @@ jobs:
           pnpm --filter @conduit/desktop dist:mac:${{ matrix.arch }} --config.forceCodeSigning=${{ env.CSC_LINK != '' }} --config.mac.notarize="$NOTARIZE" "${identity_args[@]}"
       - name: Verify Mac application signature
         run: |
-          application="$(find apps/desktop/dist -maxdepth 2 -type d -name 'conduit.app')"
-          test -n "$application"
-          codesign --verify --deep --strict "$application"
+          # electron-builder may emit one app per architecture; check each.
+          found=0
+          while IFS= read -r application; do
+            codesign --verify --deep --strict "$application"
+            found=1
+          done < <(find apps/desktop/dist -maxdepth 2 -type d -name 'conduit.app')
+          test "$found" = 1
+      - name: Verify bundled libmpv
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The app must load libmpv from its own bundle, never from Homebrew.
+          found=0
+          loaded=0
+          while IFS= read -r application; do
+            found=1
+            leaks=0
+            while IFS= read -r -d '' binary; do
+              case "$(file -b "$binary")" in *Mach-O*) ;; *) continue ;; esac
+              # otool reads "Helper (GPU)" as archive(member) syntax; objdump does not.
+              headers="$(xcrun objdump --macho --private-headers "$binary")"
+              if grep -E '^ +(name|path) (/opt/homebrew|/usr/local)/' <<< "$headers"; then
+                echo "::error file=$binary::references a Homebrew path"
+                leaks=1
+              fi
+            done < <(find "$application" -type f -print0)
+            test "$leaks" = 0
+            # electron-builder also packages the other arch with this runner's
+            # native build; that app is never uploaded, so only load ours.
+            if [ "$(lipo -archs "$application/Contents/MacOS/conduit")" != "$(uname -m)" ]; then
+              continue
+            fi
+            loaded=1
+            # Loading the addon makes dyld resolve the whole libmpv closure.
+            native="$application/Contents/Resources/native/conduit-electron-native.node"
+            otool -L "$native" | grep -F '@rpath/libmpv.2.dylib'
+            otool -l "$native" | grep -E '^ +path @loader_path '
+            ELECTRON_RUN_AS_NODE=1 "$application/Contents/MacOS/conduit" -e '
+              const native = require(process.argv[1])
+              console.log(native.invoke(JSON.stringify({ id: 1, method: "player_snapshot" })))
+            ' "$native"
+          done < <(find "$PWD/apps/desktop/dist" -maxdepth 2 -type d -name 'conduit.app')
+          test "$found" = 1
+          test "$loaded" = 1
       - name: Verify notarized Mac application
         if: env.CSC_LINK != '' && env.APPLE_ID != '' && env.APPLE_APP_SPECIFIC_PASSWORD != '' && env.APPLE_TEAM_ID != ''
         run: |
-          application="$(find apps/desktop/dist -maxdepth 2 -type d -name 'conduit.app')"
-          test -n "$application"
-          xcrun stapler validate "$application"
+          # electron-builder may emit one app per architecture; check each.
+          found=0
+          while IFS= read -r application; do
+            xcrun stapler validate "$application"
+            found=1
+          done < <(find apps/desktop/dist -maxdepth 2 -type d -name 'conduit.app')
+          test "$found" = 1
       - name: Preserve architecture-specific updater metadata
         run: |
           for metadata in apps/desktop/dist/*-mac.yml; do
