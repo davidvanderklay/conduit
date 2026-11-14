@@ -56,6 +56,10 @@ struct OpenParams {
     window_id: String,
     #[serde(default)]
     preferred_audio_language: Option<String>,
+    /// Where mpv keeps compiled GPU shaders. libmpv has no default cache
+    /// directory, so without this every open recompiles them.
+    #[serde(default)]
+    shader_cache_dir: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -124,6 +128,9 @@ struct PlayerSnapshot {
     video_codec: Option<String>,
     audio_codec: Option<String>,
     hardware_decoder: Option<String>,
+    /// Why mpv stopped playing the source, such as "loading failed" for an
+    /// unreachable URL or "unrecognized file format".
+    playback_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Default)]
@@ -178,6 +185,7 @@ impl Drop for VideoHost {
 struct Player {
     mpv: Option<Mpv>,
     audio_selection_explicit: bool,
+    playback_error: Option<String>,
     parent_window: Option<u64>,
     #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
     host_window: Option<VideoHost>,
@@ -276,6 +284,9 @@ impl Player {
             if let Some(language) = params.preferred_audio_language.as_deref() {
                 initializer.set_option("alang", language)?;
             }
+            if let Some(directory) = params.shader_cache_dir.as_deref() {
+                initializer.set_option("gpu-shader-cache-dir", directory)?;
+            }
             initializer.set_option("audio-channels", "auto-safe")?;
             initializer.set_option("video-timing-offset", "0")?;
             Ok(())
@@ -320,6 +331,7 @@ impl Player {
         let _ = render_macos::uninstall();
         self.mpv.take();
         self.audio_selection_explicit = false;
+        self.playback_error = None;
         self.host_window.take();
         self.parent_window = None;
     }
@@ -409,17 +421,17 @@ impl Player {
             audio_codec: non_empty_property(mpv, "audio-codec-name"),
             hardware_decoder: non_empty_property(mpv, "hwdec-current")
                 .filter(|decoder| decoder != "no"),
+            playback_error: self.playback_error.clone(),
         })
     }
 
     fn pump_events(&mut self) {
-        let Some(mpv) = self.mpv.as_mut() else {
+        let Some(mpv) = self.mpv.as_ref() else {
             return;
         };
-        while let Some(event) = mpv.wait_event(0.0) {
-            if let Err(error) = event {
-                eprintln!("Conduit Electron native player mpv event failed: {error}");
-            }
+        if let Some(error) = drain_events(mpv) {
+            eprintln!("Conduit Electron: mpv could not play the source: {error}");
+            self.playback_error = Some(error);
         }
     }
 }
@@ -546,6 +558,30 @@ fn main() {
     }
 }
 
+/// Drains queued mpv events and returns the reason the last file failed, if
+/// one did. `loadfile` only queues the file, so an unreachable or undecodable
+/// source shows up here rather than as a command error. This reads raw events
+/// because libmpv2 reports end-file errors like any other failed event.
+fn drain_events(mpv: &Mpv) -> Option<String> {
+    let mut playback_error = None;
+    loop {
+        let event = unsafe { &*libmpv2_sys::mpv_wait_event(mpv.ctx.as_ptr(), 0.0) };
+        match event.event_id {
+            libmpv2_sys::mpv_event_id_MPV_EVENT_NONE => return playback_error,
+            libmpv2_sys::mpv_event_id_MPV_EVENT_END_FILE => {
+                let end_file = unsafe { &*event.data.cast::<libmpv2_sys::mpv_event_end_file>() };
+                if end_file.reason == libmpv2_sys::mpv_end_file_reason_MPV_END_FILE_REASON_ERROR {
+                    let message = unsafe {
+                        std::ffi::CStr::from_ptr(libmpv2_sys::mpv_error_string(end_file.error))
+                    };
+                    playback_error = Some(message.to_string_lossy().into_owned());
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 fn non_empty_property(mpv: &Mpv, name: &str) -> Option<String> {
     mpv.get_property::<String>(name)
         .ok()
@@ -573,7 +609,9 @@ fn network_buffer_options(read_ahead_seconds: u32) -> Vec<(&'static str, String)
         ("network-timeout", "30".into()),
         (
             "stream-lavf-o",
-            "reconnect=1,reconnect_streamed=1,reconnect_delay_max=5".into(),
+            // `%23%` is mpv's length-prefixed quoting, so the status list's
+            // commas stay inside reconnect_on_http_error.
+            "reconnect=1,reconnect_streamed=1,reconnect_on_network_error=1,reconnect_on_http_error=%23%408,429,500,502,503,504,reconnect_delay_max=5".into(),
         ),
     ]
 }
@@ -1027,7 +1065,9 @@ fn linux_hwdec_order(nvidia_driver: bool) -> &'static str {
     if nvidia_driver {
         "nvdec-copy,vaapi-copy,vulkan-copy,drm-copy,auto-copy-safe"
     } else {
-        "vaapi-copy,vulkan-copy,drm-copy,auto-copy-safe"
+        // Zero-copy VA-API hands decoded frames straight to the EGL renderer.
+        // mpv moves on to vaapi-copy when that interop is unavailable.
+        "vaapi,vaapi-copy,vulkan-copy,drm-copy,auto-copy-safe"
     }
 }
 

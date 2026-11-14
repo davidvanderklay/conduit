@@ -1079,7 +1079,10 @@ async function invoke(command: string, args: Record<string, unknown> = {}): Prom
     nativePlayer?.close()
     const client = createNativePlayerClient(nativeWindowId(mainWindow))
     nativePlayer = client
-    const nativePlayerArgs = { ...playerArgs }
+    const nativePlayerArgs: Record<string, unknown> = {
+      ...playerArgs,
+      shaderCacheDir: path.join(app.getPath("userData"), "mpv-shader-cache"),
+    }
     delete nativePlayerArgs.artwork
     try {
       nativePlayerArgs.url = await playableUrl(playerArgs.url, () => nativePlayer !== client)

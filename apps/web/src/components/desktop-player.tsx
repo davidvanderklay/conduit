@@ -509,6 +509,9 @@ export function DesktopPlayer({
           const resolved = nativePlaybackEnded(previous, next) ? { ...next, ended: true } : next
           lastNativeSnapshot.current = resolved
           if (resolved.firstFrameReady) setPlaybackStarted(true)
+          // mpv reports sources it cannot open or decode only after loading
+          // them, so this is also what starts auto recovery for those sources.
+          if (resolved.playbackError && !resolved.ended) setError(resolved.playbackError)
           setSnapshot(
             seekActive.current && seekDraft.current !== undefined
               ? { ...resolved, position: seekDraft.current }
@@ -1345,10 +1348,16 @@ export function DesktopPlayer({
         <div className="absolute inset-0 z-0 grid place-items-center bg-black p-5">
           <Card className="w-full max-w-lg border-red-950 bg-zinc-950/95 p-6" data-native-overlay>
             <p className="font-medium text-red-400">
-              {torrent ? "Could not stream torrent" : "Could not start mpv"}
+              {torrent
+                ? "Could not stream torrent"
+                : snapshot?.playbackError
+                  ? "Could not play this source"
+                  : "Could not start mpv"}
             </p>
             <p className="mt-2 text-sm text-zinc-400">{error}</p>
-            {!torrent && (
+            {snapshot?.playbackError ? (
+              <p className="mt-3 text-xs text-zinc-600">Choose another source.</p>
+            ) : !torrent && (
               <p className="mt-3 text-xs text-zinc-600">
                 Check the desktop logs for the libmpv initialization error.
               </p>

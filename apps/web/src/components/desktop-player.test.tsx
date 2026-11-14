@@ -354,6 +354,44 @@ describe("DesktopPlayer track menus", () => {
     expect(document.querySelector('[aria-label="Video buffering"]')).not.toBeNull()
   })
 
+  it("shows sources mpv cannot play and hands them to auto recovery", async () => {
+    const onAutoRecoveryFailed = vi.fn()
+    desktop.openNativePlayer.mockResolvedValueOnce({ ...snapshot, firstFrameReady: false })
+    // A fresh player: the shared one already started playback, which ends auto recovery.
+    act(() => root.unmount())
+    root = createRoot(host)
+    await act(async () => {
+      root.render(
+        <DesktopPlayer
+          url="https://example.com/broken.mkv"
+          type="movie"
+          videoId="tt456"
+          profileId="00000000-0000-4000-8000-000000000001"
+          progressMetadata={{ mediaType: "movie", mediaId: "tt456", name: "Broken" }}
+          addons={[]}
+          autoRecoveryAttempt
+          onAutoRecoveryFailed={onAutoRecoveryFailed}
+          onClose={() => undefined}
+        />,
+      )
+      await Promise.resolve()
+    })
+    desktop.nativePlayerSnapshot.mockResolvedValue({
+      ...snapshot,
+      firstFrameReady: false,
+      playbackError: "unrecognized file format",
+    })
+
+    await act(async () => {
+      vi.advanceTimersByTime(250)
+      await Promise.resolve()
+    })
+
+    expect(document.body.textContent).toContain("Could not play this source")
+    expect(document.body.textContent).toContain("unrecognized file format")
+    expect(onAutoRecoveryFailed).toHaveBeenCalledOnce()
+  })
+
   it("uses the media artwork while the first frame is loading", async () => {
     desktop.openNativePlayer.mockResolvedValueOnce({
       ...snapshot,
