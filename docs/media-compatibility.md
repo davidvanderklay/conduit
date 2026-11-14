@@ -53,8 +53,10 @@ can play a source. Its own engine is experimental and off by default; turn on
 **Settings > Advanced settings > Advanced web player** to use it. With the engine on,
 before playing a direct file the player reads the container and track headers
 with HTTP range requests. When the browser cannot play the
-container or the primary codecs, or the video is HDR and WebGPU is available,
-it plays the source with its own engine instead:
+container or the primary codecs, or WebGPU is available and the video is Dolby
+Vision that needs reshaping or HDR on an SDR screen, it plays the source with
+its own engine instead. On an HDR screen, HDR the browser can play stays in
+`<video>`, which shows it as HDR rather than tone mapped to SDR. The engine:
 
 - Mediabunny demuxes MP4, Matroska/WebM, MPEG-TS, and other containers.
 - WebCodecs decodes H.264, HEVC, VP9, and AV1 where the browser supports them.
@@ -70,8 +72,9 @@ it plays the source with its own engine instead:
   peak brightness, read from HDR10+ scene metadata (HEVC SEI or AV1 metadata
   OBUs), Dolby Vision profile 8 RPUs,
   MaxCLL or mastering display SEI, or the Matroska Colour element, in that
-  order. Without WebGPU, frames are drawn with Canvas 2D and the browser
-  handles color.
+  order. Output is dithered to the 8-bit canvas, and frames shown smaller
+  than their size are drawn at the size they show at. Without WebGPU, frames
+  are drawn with Canvas 2D and the browser handles color.
 - Dolby Vision profile 5, whose base layer is in Dolby's IPT color space, gets
   the RPU's reshaping curves and matrices in WebGPU, following libplacebo, and
   is tone mapped with the scene's peak brightness. Profile 7, as Blu-ray remuxes

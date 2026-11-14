@@ -36,6 +36,7 @@ function probe(overrides: Partial<SourceProbe> = {}): SourceProbe {
 const chrome = {
   canPlayType: (type: string) => !type.includes("ac-3") && !type.includes("hvc1"),
   webgpu: true,
+  hdrDisplay: false,
 }
 
 describe("choosePlaybackRoute", () => {
@@ -53,6 +54,22 @@ describe("choosePlaybackRoute", () => {
     })
     expect(choosePlaybackRoute(hdr, chrome)).toBe("engine")
     expect(choosePlaybackRoute(hdr, { ...chrome, webgpu: false })).toBe("native")
+  })
+
+  it("leaves HDR the browser plays to the video element on an HDR screen", () => {
+    const hdr = probe({
+      video: { codecString: "vp09.02.10.10", decodable: true, hdr: true, dolbyVision: false },
+    })
+    expect(choosePlaybackRoute(hdr, { ...chrome, hdrDisplay: true })).toBe("native")
+    const hdrAc3 = { ...hdr, audio: [audio("ac-3")] }
+    expect(choosePlaybackRoute(hdrAc3, { ...chrome, hdrDisplay: true })).toBe("engine")
+  })
+
+  it("reshapes Dolby Vision in the engine even on an HDR screen", () => {
+    const dolbyVision = probe({
+      video: { codecString: "vp09.02.10.10", decodable: true, hdr: true, dolbyVision: true },
+    })
+    expect(choosePlaybackRoute(dolbyVision, { ...chrome, hdrDisplay: true })).toBe("engine")
   })
 
   it("lets the video element try video the engine cannot decode", () => {
