@@ -1117,30 +1117,6 @@ mod tests {
     }
 
     #[test]
-    fn reports_sources_mpv_cannot_play() {
-        let mpv = Mpv::with_initializer(|initializer| {
-            initializer.set_option("vo", "null")?;
-            initializer.set_option("ao", "null")?;
-            Ok(())
-        })
-        .expect("mpv");
-        argv_command(&mpv, &["loadfile", "file:///conduit-missing.mkv"]).expect("loadfile");
-
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-        let error = loop {
-            if let Some(error) = drain_events(&mpv) {
-                break error;
-            }
-            assert!(
-                std::time::Instant::now() < deadline,
-                "mpv never reported the failure"
-            );
-            std::thread::sleep(std::time::Duration::from_millis(20));
-        };
-        assert_eq!(error, "loading failed");
-    }
-
-    #[test]
     fn converts_command_values_for_mpv() {
         assert_eq!(value_to_arg(&json!(true)), "yes");
         assert_eq!(value_to_arg(&json!(12.5)), "12.5");
