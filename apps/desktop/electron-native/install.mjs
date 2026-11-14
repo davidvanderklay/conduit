@@ -1,4 +1,4 @@
-import { copyFile, mkdir } from "node:fs/promises"
+import { copyFile, mkdir, readdir } from "node:fs/promises"
 import path from "node:path"
 import process from "node:process"
 import { fileURLToPath } from "node:url"
@@ -23,4 +23,15 @@ if (process.platform === "win32") {
     path.join(nativeRoot, "../libmpv/libmpv-2.dll"),
     path.join(dist, "libmpv-2.dll"),
   )
+}
+
+// The addon loads @rpath/libmpv.2.dylib and its dependencies from its own
+// directory (LC_RPATH @loader_path), so ship the whole pinned set beside it.
+if (process.platform === "darwin") {
+  const libmpv = path.join(nativeRoot, "../libmpv")
+  for (const name of await readdir(libmpv)) {
+    if (name.endsWith(".dylib") && name !== "libmpv.dylib") {
+      await copyFile(path.join(libmpv, name), path.join(dist, name))
+    }
+  }
 }
