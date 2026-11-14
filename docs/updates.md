@@ -139,10 +139,10 @@ Flatpak publication and scheduled Nightly releases still require:
 When a signing certificate is configured, builds force signing and verify the
 signature. Invalid configured credentials fail the build instead of silently
 publishing unsigned artifacts. Without a certificate, Windows builds are unsigned
-and Mac builds use electron-builder's unsigned/ad-hoc signing defaults without
-notarization. Both tracks use the same signing identities when configured.
+and Mac builds are ad-hoc signed without notarization. Both tracks use the same
+signing identities when configured.
 
-Mac in-app installation requires Developer ID signing. Unsigned/ad-hoc-signed Mac
+Mac in-app installation requires Developer ID signing. Ad-hoc-signed Mac
 builds require manual updates, including a manual installation of the first
 Developer ID signed release. See electron-builder's
 [macOS updater requirement](https://www.electron.build/v26/docs/features/auto-update/).

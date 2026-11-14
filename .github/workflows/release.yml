@@ -400,16 +400,16 @@ jobs:
         env:
           NOTARIZE: ${{ env.CSC_LINK != '' && env.APPLE_ID != '' && env.APPLE_APP_SPECIFIC_PASSWORD != '' && env.APPLE_TEAM_ID != '' }}
         run: |
+          identity_args=()
           if [ -z "$CSC_LINK" ]; then
             unset CSC_LINK CSC_KEY_PASSWORD
+            # Without a Developer ID, ad-hoc sign the whole bundle. Otherwise
+            # only the linker signature remains and Gatekeeper reports the
+            # downloaded app as "damaged" instead of offering Open Anyway.
+            identity_args=(--config.mac.identity=-)
           fi
-          if [ "${{ matrix.arch }}" = "arm64" ]; then
-            pnpm --filter @conduit/desktop dist:mac:arm64 --config.forceCodeSigning=${{ env.CSC_LINK != '' }} --config.mac.notarize="$NOTARIZE"
-          else
-            pnpm --filter @conduit/desktop dist:mac:x64 --config.forceCodeSigning=${{ env.CSC_LINK != '' }} --config.mac.notarize="$NOTARIZE"
-          fi
-      - name: Verify signed Mac application
-        if: env.CSC_LINK != ''
+          pnpm --filter @conduit/desktop dist:mac:${{ matrix.arch }} --config.forceCodeSigning=${{ env.CSC_LINK != '' }} --config.mac.notarize="$NOTARIZE" "${identity_args[@]}"
+      - name: Verify Mac application signature
         run: |
           application="$(find apps/desktop/dist -maxdepth 2 -type d -name 'conduit.app')"
           test -n "$application"

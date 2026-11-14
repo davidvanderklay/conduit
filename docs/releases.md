@@ -234,9 +234,11 @@ accept. Do not commit the keystore or its encoded contents.
 
 Windows and macOS releases build without paid signing credentials. Configuring
 `WIN_CSC_LINK` or `MAC_CSC_LINK` enables signing and signature verification for that
-platform; invalid configured credentials fail the build. Mac notarization runs
+platform; invalid configured credentials fail the build. Without
+`MAC_CSC_LINK`, Mac builds are ad-hoc signed and users approve the first launch
+with **Open Anyway**. Mac notarization runs
 only when the signing certificate and all three Apple notarization secrets are
-configured. Mac builds publish ZIPs alongside DMGs, but unsigned or ad-hoc-signed
+configured. Mac builds publish ZIPs alongside DMGs, but ad-hoc-signed
 Mac installations require manual updates. Both update tracks use the same signing
 identities when configured. Install the first Developer ID signed Mac release
 manually before using in-app updates.
