@@ -239,6 +239,8 @@ export class WebMediaEngine extends EventTarget implements PlaybackMedia {
   #current?: VideoSample
   #videoEnded = false
   #needsPresent = true
+  /** Set when the canvas resized, so the shown frame draws again at the new size, as while paused. */
+  #needsRedraw = false
   #presenting = false
   #frameDemand?: () => void
 
@@ -266,7 +268,13 @@ export class WebMediaEngine extends EventTarget implements PlaybackMedia {
   async load({ autoplay }: { autoplay: boolean }): Promise<void> {
     try {
       const { input, videoTrack } = this.#source
-      this.#presenter = await createPresenter(this.#canvas, this.#source.probe.video?.hdrPeak)
+      this.#presenter = await createPresenter(
+        this.#canvas,
+        this.#source.probe.video?.hdrPeak,
+        () => {
+          this.#needsRedraw = true
+        },
+      )
       if (videoTrack) {
         this.#videoStream = videoStream(videoTrack, this.#source.probe.video?.software)
         this.#width = await videoTrack.getDisplayWidth()
@@ -570,9 +578,13 @@ export class WebMediaEngine extends EventTarget implements PlaybackMedia {
       due = this.#frames.shift()
     }
     if (!due && this.#needsPresent) due = this.#frames.shift()
-    if (!due) return
+    if (!due) {
+      if (this.#needsRedraw && this.#current) this.#redraw(this.#presenter, this.#current)
+      return
+    }
     this.#frameDemand?.()
     this.#needsPresent = false
+    this.#needsRedraw = false
     if (this.#running && due.timestamp + due.duration < time - VIDEO_RESYNC_SECONDS) {
       due.close()
       this.#startVideo(time)
@@ -598,6 +610,21 @@ export class WebMediaEngine extends EventTarget implements PlaybackMedia {
       (error: unknown) => {
         this.#presenting = false
         frame.close()
+        this.#fail(error)
+      },
+    )
+  }
+
+  /** Draws the shown frame again, which stays the current frame. */
+  #redraw(presenter: FramePresenter, frame: VideoSample) {
+    this.#needsRedraw = false
+    this.#presenting = true
+    presenter.present(frame).then(
+      () => {
+        this.#presenting = false
+      },
+      (error: unknown) => {
+        this.#presenting = false
         this.#fail(error)
       },
     )

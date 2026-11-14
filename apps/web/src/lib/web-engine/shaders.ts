@@ -202,14 +202,30 @@ fn toneMap(nits: f32) -> f32 {
   return pqToNitsScalar(min(e2, 1.0) * sourcePq);
 }
 
+// Noise in [-0.5, 0.5) that varies per pixel, from an integer hash of its position.
+fn ditherNoise(position: vec2f) -> f32 {
+  let pixel = vec2u(position);
+  var hash = (pixel.x * 0x8da6b343u) ^ (pixel.y * 0xd8163841u);
+  hash = (hash ^ (hash >> 16u)) * 0x7feb352du;
+  hash = (hash ^ (hash >> 15u)) * 0x846ca68bu;
+  hash ^= hash >> 16u;
+  return f32(hash) / 4294967296.0 - 0.5;
+}
+
+// Adds up to half an 8-bit step of noise, so gradients do not band on the 8-bit canvas.
+fn ditherOutput(color: vec3f, position: vec2f) -> vec4f {
+  return vec4f(color + ditherNoise(position) / 255.0, 1.0);
+}
+
 fn srgbEncode(value: vec3f) -> vec3f {
   let c = clamp(value, vec3f(0.0), vec3f(1.0));
   return select(1.055 * pow(c, vec3f(1.0 / 2.4)) - 0.055, c * 12.92, c <= vec3f(0.0031308));
 }
 
 
-// Tone maps linear BT.2020 nits to SDR white, converts to BT.709, and sRGB encodes.
-fn presentNits(input: vec3f) -> vec4f {
+// Tone maps linear BT.2020 nits to SDR white, converts to BT.709, sRGB encodes, and
+// dithers. \`position\` is the fragment's pixel position.
+fn presentNits(input: vec3f, position: vec2f) -> vec4f {
   var nits = input;
   let peak = max(max(nits.r, nits.g), nits.b);
   if (peak > 0.0 && params.sourcePeak > params.sdrWhite) {
@@ -229,7 +245,7 @@ fn presentNits(input: vec3f) -> vec4f {
       display = mix(vec3f(luminance), display, luminance / max(luminance - lowest, 1e-6));
     }
   }
-  return vec4f(srgbEncode(display), 1.0);
+  return ditherOutput(srgbEncode(display), position);
 }
 `
 
@@ -238,7 +254,8 @@ fn presentNits(input: vec3f) -> vec4f {
  * HDR frames go from PQ or HLG to linear light, through BT.2390 tone mapping
  * on max(RGB) and the BT.2020 to BT.709 gamut, and are then sRGB encoded.
  * Dolby Vision frames are first reshaped, given their enhancement layer's
- * residual, and converted to BT.2020 with their RPU metadata.
+ * residual, and converted to BT.2020 with their RPU metadata. Every frame is
+ * dithered to the 8-bit canvas.
  */
 export const PLANAR_SHADER = /* wgsl */ `
 ${FULLSCREEN_VERTEX}
@@ -257,14 +274,14 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
   let yuvToRgb = mat3x3f(params.matrix0.xyz, params.matrix1.xyz, params.matrix2.xyz);
   let encoded = yuvToRgb * vec3f(y, cb, cr);
   if (params.transfer == 2u) {
-    return vec4f(clamp(encoded, vec3f(0.0), vec3f(1.0)), 1.0);
+    return ditherOutput(clamp(encoded, vec3f(0.0), vec3f(1.0)), input.position.xy);
   }
   var nits = select(hlgToNits(encoded), pqToNits(encoded), params.transfer == 0u);
   if (params.transfer == 3u) {
     nits = doviToNits(clamp(vec3f(y, cb, cr), vec3f(0.0), vec3f(1.0)), input.uv);
   }
 
-  return presentNits(nits);
+  return presentNits(nits, input.position.xy);
 }
 `
 
@@ -282,10 +299,10 @@ ${HDR_FUNCTIONS}
 @fragment
 fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
   var encoded = textureSampleBaseClampToEdge(frame, frameSampler, input.uv).rgb;
-  // Dither by up to half an 8-bit step so smooth gradients do not band after tone mapping.
-  let noise = fract(sin(dot(input.position.xy, vec2f(12.9898, 78.233))) * 43758.5453) - 0.5;
-  encoded = encoded + noise / 255.0;
-  return presentNits(select(hlgToNits(encoded), pqToNits(encoded), params.transfer == 0u));
+  // Spread the input's 8-bit steps too, so tone mapping does not stretch them into bands.
+  encoded = encoded + ditherNoise(input.position.xy) / 255.0;
+  let nits = select(hlgToNits(encoded), pqToNits(encoded), params.transfer == 0u);
+  return presentNits(nits, input.position.xy);
 }
 `
 
@@ -308,6 +325,6 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
   let rgbToYuv = mat3x3f(params.matrix0.xyz, params.matrix1.xyz, params.matrix2.xyz);
   let yuv = rgbToYuv * rgb;
   let signal = vec3f(yuv.x * params.scale.x + params.offset.x, yuv.yz * params.scale.y + params.offset.y);
-  return presentNits(doviToNits(clamp(signal, vec3f(0.0), vec3f(1.0)), input.uv));
+  return presentNits(doviToNits(clamp(signal, vec3f(0.0), vec3f(1.0)), input.uv), input.position.xy);
 }
 `

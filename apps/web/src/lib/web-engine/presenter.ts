@@ -10,7 +10,7 @@ import {
   PLANAR_SHADER,
 } from "./shaders"
 
-/** Draws decoded frames into the player's canvas at the frame's display size. */
+/** Draws decoded frames into the player's canvas, at most at the frame's display size. */
 export interface FramePresenter {
   readonly kind: "webgpu" | "canvas"
   /** Resolves once the sample's pixels have been read, so the caller may close it. */
@@ -21,23 +21,90 @@ export interface FramePresenter {
 /**
  * WebGPU when the browser exposes an adapter, otherwise Canvas 2D without tone
  * mapping. `hdrPeak` is the stream's peak from container metadata, used for
- * frames whose own metadata does not say.
+ * frames whose own metadata does not say. `onResize` runs when the canvas's box
+ * or object-fit changes, so the caller can draw the shown frame again at its new size.
  */
 export async function createPresenter(
   canvas: HTMLCanvasElement,
   hdrPeak = DEFAULT_SOURCE_PEAK,
+  onResize: () => void = () => {},
 ): Promise<FramePresenter> {
-  const gpu = await createGpuPresenter(canvas, hdrPeak).catch(() => undefined)
-  if (gpu) return recoverable(canvas, gpu, hdrPeak)
+  const sizer = new CanvasSizer(canvas, onResize)
+  const gpu = await createGpuPresenter(canvas, sizer, hdrPeak).catch(() => undefined)
+  if (gpu) return recoverable(canvas, sizer, gpu, hdrPeak)
   const context = canvas.getContext("2d")
-  if (!context) throw new Error("The browser could not create a video canvas.")
+  if (!context) {
+    sizer.disconnect()
+    throw new Error("The browser could not create a video canvas.")
+  }
   return {
     kind: "canvas",
     async present(sample) {
-      resizeCanvas(canvas, sample)
+      sizer.fit(sample)
+      // Resizing resets the context, and the default quality aliases when scaling down.
+      context.imageSmoothingQuality = "high"
       sample.draw(context, 0, 0, canvas.width, canvas.height)
     },
-    destroy() {},
+    destroy() {
+      sizer.disconnect()
+    },
+  }
+}
+
+/**
+ * Sizes the canvas to the frame's size on screen, in device pixels, when that is
+ * smaller than the frame. The GPU then scales frames down, and shaders run once
+ * per shown pixel instead of once per source pixel. CSS object-fit still places
+ * the canvas and scales it up, as bilinearly as the shaders would.
+ */
+class CanvasSizer {
+  readonly #canvas: HTMLCanvasElement
+  readonly #observers: { disconnect(): void }[]
+  /** The canvas's box in device pixels, once observed. */
+  #box?: { width: number; height: number }
+  #objectFit = "contain"
+
+  constructor(canvas: HTMLCanvasElement, onChange: () => void) {
+    this.#canvas = canvas
+    const resize = new ResizeObserver(([entry]) => {
+      // Safari reports no device pixel box.
+      const [device] = entry.devicePixelContentBoxSize ?? []
+      const [css] = entry.contentBoxSize
+      const ratio = window.devicePixelRatio || 1
+      this.#box = device
+        ? { width: device.inlineSize, height: device.blockSize }
+        : { width: css.inlineSize * ratio, height: css.blockSize * ratio }
+      this.#objectFit = getComputedStyle(canvas).objectFit
+      onChange()
+    })
+    resize.observe(canvas)
+    // The player switches between fit, crop, and stretch through the inline style.
+    const style = new MutationObserver(() => {
+      this.#objectFit = getComputedStyle(canvas).objectFit
+      onChange()
+    })
+    style.observe(canvas, { attributes: true, attributeFilter: ["style"] })
+    this.#observers = [resize, style]
+  }
+
+  /** Resizes the canvas for the sample, as late as possible since resizing clears it. */
+  fit({ displayWidth, displayHeight }: Pick<VideoSample, "displayWidth" | "displayHeight">) {
+    let [scaleX, scaleY] = [1, 1]
+    // A hidden canvas has an empty box; it keeps the frame's size.
+    if (this.#box && this.#box.width > 0 && this.#box.height > 0) {
+      const x = this.#box.width / displayWidth
+      const y = this.#box.height / displayHeight
+      const uniform = this.#objectFit === "cover" ? Math.max(x, y) : Math.min(x, y)
+      ;[scaleX, scaleY] = this.#objectFit === "fill" ? [x, y] : [uniform, uniform]
+    }
+    const width = Math.max(1, Math.round(displayWidth * Math.min(1, scaleX)))
+    const height = Math.max(1, Math.round(displayHeight * Math.min(1, scaleY)))
+    if (this.#canvas.width !== width) this.#canvas.width = width
+    if (this.#canvas.height !== height) this.#canvas.height = height
+  }
+
+  disconnect() {
+    this.#observers.forEach((observer) => observer.disconnect())
   }
 }
 
@@ -46,6 +113,7 @@ class GpuDeviceLostError extends Error {}
 /** Rebuilds the WebGPU presenter on the same canvas once if the GPU device is lost, as after a driver reset. */
 function recoverable(
   canvas: HTMLCanvasElement,
+  sizer: CanvasSizer,
   initial: FramePresenter,
   hdrPeak: number,
 ): FramePresenter {
@@ -60,19 +128,21 @@ function recoverable(
         if (!(error instanceof GpuDeviceLostError) || recovered) throw error
         recovered = true
         current.destroy()
-        current = (await createGpuPresenter(canvas, hdrPeak)) ?? current
+        current = (await createGpuPresenter(canvas, sizer, hdrPeak)) ?? current
         if (current === initial) throw error
         await current.present(sample)
       }
     },
     destroy() {
       current.destroy()
+      sizer.disconnect()
     },
   }
 }
 
 async function createGpuPresenter(
   canvas: HTMLCanvasElement,
+  sizer: CanvasSizer,
   hdrPeak: number,
 ): Promise<FramePresenter | undefined> {
   const adapter = await navigator.gpu?.requestAdapter()
@@ -131,7 +201,12 @@ async function createGpuPresenter(
   let importExternal = true
   let staging = new Uint8Array(0)
 
-  const draw = (renderPipeline: GPURenderPipeline, entries: GPUBindGroupEntry[]) => {
+  const draw = (
+    sample: VideoSample,
+    renderPipeline: GPURenderPipeline,
+    entries: GPUBindGroupEntry[],
+  ) => {
+    sizer.fit(sample)
     const encoder = device.createCommandEncoder()
     const pass = encoder.beginRenderPass({
       colorAttachments: [
@@ -158,7 +233,7 @@ async function createGpuPresenter(
     if (!importExternal) return false
     const frame = sample.toVideoFrame()
     try {
-      draw(externalPipeline, [
+      draw(sample, externalPipeline, [
         { binding: 0, resource: sampler },
         { binding: 1, resource: device.importExternalTexture({ source: frame }) },
       ])
@@ -182,7 +257,7 @@ async function createGpuPresenter(
     try {
       device.queue.writeBuffer(uniforms, 0, params)
       if (metadata) device.queue.writeBuffer(dolbyVision, 0, metadata)
-      draw(renderPipeline, [
+      draw(sample, renderPipeline, [
         { binding: 0, resource: { buffer: uniforms } },
         { binding: 1, resource: sampler },
         { binding: 2, resource: device.importExternalTexture({ source: frame }) },
@@ -204,7 +279,7 @@ async function createGpuPresenter(
     device.queue.writeBuffer(uniforms, 0, params)
     const metadata = dolbyVisionMetadata.get(sample)
     if (metadata) device.queue.writeBuffer(dolbyVision, 0, metadata)
-    draw(planarPipeline, [
+    draw(sample, planarPipeline, [
       { binding: 0, resource: { buffer: uniforms } },
       ...planes.textures.map((texture, index) => ({
         binding: index + 1,
@@ -297,7 +372,6 @@ async function createGpuPresenter(
     kind: "webgpu",
     async present(sample) {
       if (lost !== undefined) throw new GpuDeviceLostError(`The GPU device was lost: ${lost}`)
-      resizeCanvas(canvas, sample)
       const relabeled = relabeledSamples.get(sample)
       const metadata = dolbyVisionMetadata.get(sample)
       if (relabeled?.kind === "hdr") {
@@ -473,9 +547,4 @@ function dolbyVisionParams(layout: PlanarLayout, metadata: Float32Array): Float3
   params[18] = SDR_WHITE
   words[19] = 1
   return params
-}
-
-function resizeCanvas(canvas: HTMLCanvasElement, sample: VideoSample) {
-  if (canvas.width !== sample.displayWidth) canvas.width = sample.displayWidth
-  if (canvas.height !== sample.displayHeight) canvas.height = sample.displayHeight
 }

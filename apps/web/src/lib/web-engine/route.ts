@@ -45,22 +45,28 @@ export interface BrowserPlayback {
   /** True when the `<video>` element reports it can play the full MIME type. */
   canPlayType(type: string): boolean
   webgpu: boolean
+  /** True when the screen shows HDR, `(dynamic-range: high)`. */
+  hdrDisplay: boolean
 }
 
 /**
  * Prefers the native `<video>` element and only routes to the WebCodecs engine
  * when the browser cannot play the container or the primary tracks' codecs,
- * or when the video is HDR and WebGPU can tone map it.
+ * when the video is Dolby Vision that needs reshaping, or when it is HDR on an
+ * SDR screen. WebGPU tone maps in the last two cases. On an HDR screen the
+ * browser shows HDR it can play as HDR, where the engine would tone map it to SDR.
  */
 export function choosePlaybackRoute(probe: SourceProbe, browser: BrowserPlayback): PlaybackRoute {
   if (!engineCanPlay(probe)) return "native"
-  if ((probe.video?.hdr || probe.video?.dolbyVision) && browser.webgpu) return "engine"
+  if (probe.video?.dolbyVision && browser.webgpu) return "engine"
   const primaryAudio = probe.audio.find((audio) => audio.primary) ?? probe.audio[0]
   const nativeVideo =
     !probe.video || nativeCodec(probe.containerMimeType, probe.video.codecString, browser)
   const nativeAudio =
     !primaryAudio || nativeCodec(probe.containerMimeType, primaryAudio.codecString, browser)
-  return nativeVideo && nativeAudio ? "native" : "engine"
+  const native = nativeVideo && nativeAudio
+  if (probe.video?.hdr && browser.webgpu && !(native && browser.hdrDisplay)) return "engine"
+  return native ? "native" : "engine"
 }
 
 /** The engine needs a decodable video track, or decodable audio for audio-only sources. */

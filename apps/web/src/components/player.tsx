@@ -853,6 +853,7 @@ function WebPlayer({
         const route = choosePlaybackRoute(opened.probe, {
           canPlayType: (mimeType) => video.canPlayType(mimeType) !== "",
           webgpu,
+          hdrDisplay: window.matchMedia("(dynamic-range: high)").matches,
         })
         if (route === "engine") {
           fallbackRef.current = () => {
