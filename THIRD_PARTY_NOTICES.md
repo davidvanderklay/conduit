@@ -48,6 +48,20 @@ source and build instructions, including the pinned Swift package revisions.
 The root repository MIT license does not relicense the GPL-covered Apple
 mobile application.
 
+## macOS desktop libmpv
+
+The macOS desktop app bundles IINA's prebuilt libmpv dylib set (mpv 0.42.0
+with FFmpeg and its codec, rendering, and support libraries) beside the native
+addon. Conduit mirrors the arm64 and x86_64 sets as pinned release assets:
+<https://github.com/davidvanderklay/conduit/releases/tag/deps/libmpv-macos-0.42.0-iina>.
+
+Upstream binaries: <https://iina.io/dylibs/arm64> and
+<https://iina.io/dylibs/x86_64>. Build scripts, versions, and patches:
+<https://github.com/iina/deps-buildscripts>.
+
+libmpv and the bundled FFmpeg are GPL-licensed. Review each bundled library's
+license and notices before shipping a macOS distribution.
+
 ## Noto Sans CJK SC
 
 The iOS player bundles `NotoSansCJKsc-Regular.otf` for CJK subtitle fallback.
