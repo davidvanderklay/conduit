@@ -391,6 +391,8 @@ impl Player {
     fn snapshot(&mut self) -> Result<PlayerSnapshot, NativeError> {
         self.pump_events();
         let mpv = self.mpv.as_ref().ok_or(NativeError::NotRunning)?;
+        #[cfg(target_os = "macos")]
+        render_macos::sync_output(mpv);
         let tracks = mpv
             .get_property::<String>("track-list")
             .ok()

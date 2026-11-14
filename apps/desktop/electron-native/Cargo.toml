@@ -35,13 +35,26 @@ x11 = { version = "2", features = ["xlib"] }
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", features = [
-  "NSOpenGL",
-  "NSOpenGLView",
   "NSResponder",
+  "NSScreen",
   "NSView",
   "NSWindow",
+  "objc2-core-foundation",
+  "objc2-quartz-core",
 ] }
-objc2-foundation = { version = "0.3", features = ["NSGeometry", "NSValue"] }
+objc2-core-foundation = { version = "0.3", features = ["CFCGTypes", "CFDate"] }
+objc2-core-graphics = { version = "0.3", features = ["CGColorSpace"] }
+objc2-core-video = { version = "0.3", features = ["CVBase"] }
+objc2-foundation = { version = "0.3", features = ["NSArray", "NSGeometry", "NSValue"] }
+objc2-open-gl = "0.3"
+objc2-quartz-core = { version = "0.3", features = [
+  "CALayer",
+  "CAOpenGLLayer",
+  "objc2-core-foundation",
+  "objc2-core-graphics",
+  "objc2-core-video",
+  "objc2-open-gl",
+] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.62", features = [
