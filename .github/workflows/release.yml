@@ -426,6 +426,7 @@ jobs:
           set -euo pipefail
           # The app must load libmpv from its own bundle, never from Homebrew.
           found=0
+          loaded=0
           while IFS= read -r application; do
             found=1
             leaks=0
@@ -439,6 +440,12 @@ jobs:
               fi
             done < <(find "$application" -type f -print0)
             test "$leaks" = 0
+            # electron-builder also packages the other arch with this runner's
+            # native build; that app is never uploaded, so only load ours.
+            if [ "$(lipo -archs "$application/Contents/MacOS/conduit")" != "$(uname -m)" ]; then
+              continue
+            fi
+            loaded=1
             # Loading the addon makes dyld resolve the whole libmpv closure.
             native="$application/Contents/Resources/native/conduit-electron-native.node"
             otool -L "$native" | grep -F '@rpath/libmpv.2.dylib'
@@ -449,6 +456,7 @@ jobs:
             ' "$native"
           done < <(find "$PWD/apps/desktop/dist" -maxdepth 2 -type d -name 'conduit.app')
           test "$found" = 1
+          test "$loaded" = 1
       - name: Verify notarized Mac application
         if: env.CSC_LINK != '' && env.APPLE_ID != '' && env.APPLE_APP_SPECIFIC_PASSWORD != '' && env.APPLE_TEAM_ID != ''
         run: |
