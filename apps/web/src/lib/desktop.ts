@@ -50,6 +50,8 @@ export interface NativePlayerSnapshot {
   videoCodec?: string
   audioCodec?: string
   hardwareDecoder?: string
+  /** Why mpv stopped playing the source, such as "loading failed". */
+  playbackError?: string
 }
 
 export interface ElectronDesktopBridge {

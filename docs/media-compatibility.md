@@ -15,7 +15,10 @@ EAC3 or multichannel audio.
 The player reports `Direct Play` because Conduit neither rewrites nor proxies
 the source. It also reports the detected video/audio codecs and whether libmpv
 selected a hardware decoder. The device hardware-acceleration preference is
-passed to libmpv; disabling it forces software decoding.
+passed to libmpv; disabling it forces software decoding. On Linux, Intel and
+AMD GPUs decode with zero-copy VA-API and fall back to copy-back VA-API, and
+NVIDIA GPUs use copy-back NVDEC. If libmpv cannot open or decode a source, the
+player shows mpv's reason, and automatic recovery tries another source.
 
 libmpv is built into the Linux Flatpak, bundled for Windows and macOS releases,
 or validated as a development dependency. See the release and development

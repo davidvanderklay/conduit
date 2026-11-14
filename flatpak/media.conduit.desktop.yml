@@ -127,6 +127,8 @@ modules:
       - -Degl-x11=enabled
       - -Dvaapi=enabled
       - -Dvaapi-drm=enabled
+      # Zero-copy vaapi under x11egl gets its VA display from the X11 connection.
+      - -Dvaapi-x11=enabled
       - -Dalsa=disabled
       - -Djavascript=disabled
       - -Dlibarchive=disabled
