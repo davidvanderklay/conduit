@@ -411,15 +411,23 @@ jobs:
           pnpm --filter @conduit/desktop dist:mac:${{ matrix.arch }} --config.forceCodeSigning=${{ env.CSC_LINK != '' }} --config.mac.notarize="$NOTARIZE" "${identity_args[@]}"
       - name: Verify Mac application signature
         run: |
-          application="$(find apps/desktop/dist -maxdepth 2 -type d -name 'conduit.app')"
-          test -n "$application"
-          codesign --verify --deep --strict "$application"
+          # electron-builder may emit one app per architecture; check each.
+          found=0
+          while IFS= read -r application; do
+            codesign --verify --deep --strict "$application"
+            found=1
+          done < <(find apps/desktop/dist -maxdepth 2 -type d -name 'conduit.app')
+          test "$found" = 1
       - name: Verify notarized Mac application
         if: env.CSC_LINK != '' && env.APPLE_ID != '' && env.APPLE_APP_SPECIFIC_PASSWORD != '' && env.APPLE_TEAM_ID != ''
         run: |
-          application="$(find apps/desktop/dist -maxdepth 2 -type d -name 'conduit.app')"
-          test -n "$application"
-          xcrun stapler validate "$application"
+          # electron-builder may emit one app per architecture; check each.
+          found=0
+          while IFS= read -r application; do
+            xcrun stapler validate "$application"
+            found=1
+          done < <(find apps/desktop/dist -maxdepth 2 -type d -name 'conduit.app')
+          test "$found" = 1
       - name: Preserve architecture-specific updater metadata
         run: |
           for metadata in apps/desktop/dist/*-mac.yml; do
