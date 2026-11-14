@@ -35,11 +35,15 @@ The packaged app's fallback server is `http://localhost:3000`; for the default
 Docker stack on the same machine, use `http://localhost:8321` instead. A remote
 client needs the server's reachable HTTPS URL.
 
+macOS builds are not notarized, so the first launch is blocked. Open
+**System Settings > Privacy & Security**, choose **Open Anyway** next to the
+Conduit message, and confirm. Later launches open normally.
+
 A fresh stable installation follows Stable; a fresh nightly installation
 follows Nightly. Open **Updates** to check releases or opt into Nightly.
 Returning to Stable waits for a newer stable version and does not downgrade
 silently. Windows and macOS download updates on request and apply them on
-restart. Unsigned or ad-hoc-signed macOS builds require manual replacement;
+restart. Ad-hoc-signed macOS builds require manual replacement;
 install the first Developer ID signed release manually before using in-app
 updates. See [Updates](updates.md) for signing and compatibility limits.
 
