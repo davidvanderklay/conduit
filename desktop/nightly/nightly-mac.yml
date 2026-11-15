@@ -1,29 +1,29 @@
-version: 0.1.6-nightly.20261114.49
+version: 0.1.6-nightly.20261115.50
 files:
-  - url: https://github.com/davidvanderklay/conduit/releases/download/desktop/v0.1.6-nightly.20261114.49/conduit-0.1.6-nightly.20261114.49-macos-x64.zip
-    sha512: gSKVCFCKsKxtcIhjgxG4K0PrQGGIXex932H4IA5yicd/AcXgDf9QkziQyQtaZ+nbBdpE2FeysuB1sg2NZn18Gg==
-    size: 155655583
-  - url: https://github.com/davidvanderklay/conduit/releases/download/desktop/v0.1.6-nightly.20261114.49/conduit-0.1.6-nightly.20261114.49-macos-arm64.zip
-    sha512: kGgOY428NMUEAc+RH9GZTRA3NID6smelNW63TXS77ilGWC2eLQTd3awZJqo0sm4oLccYT7+Y+v9tl0I3waY+IA==
-    size: 149929756
-  - url: https://github.com/davidvanderklay/conduit/releases/download/desktop/v0.1.6-nightly.20261114.49/conduit-0.1.6-nightly.20261114.49-macos-x64.dmg
-    sha512: UG6grAH9f8CRAyG6rcezBlnG+XsRjRz3NHf80KMu+BYr7/vXaY1TSCnfmTACxdZuYwTLdf/Y1MHE533x94V7gg==
-    size: 160214290
-  - url: https://github.com/davidvanderklay/conduit/releases/download/desktop/v0.1.6-nightly.20261114.49/conduit-0.1.6-nightly.20261114.49-macos-arm64.dmg
-    sha512: hBlgfREEUHBjEOnQQqIyxdDPKaac9pqIT9kVoJYR6+xuDGuC04dvsoER2Gb8uWrIZhZJAbq42PYUtA17vwUZFQ==
-    size: 154538744
-  - url: https://github.com/davidvanderklay/conduit/releases/download/desktop/v0.1.6-nightly.20261114.49/conduit-0.1.6-nightly.20261114.49-macos-x64.zip
-    sha512: VAqq4eU/ndy/35UqB05R+agZ1xiCqbKSZClxibdkyjoitUTRXG4ugSpwof8rj7f0v1onrwQvzc54dyjuF1aHFg==
-    size: 158836019
-  - url: https://github.com/davidvanderklay/conduit/releases/download/desktop/v0.1.6-nightly.20261114.49/conduit-0.1.6-nightly.20261114.49-macos-arm64.zip
-    sha512: IWXCTNViroN6gFh1SMY9IlgHI3a3I3gCvdXcrx8hU/CZzIGcqxUA4/5ScLvuCvM04iJPF3lnA3kMzyOoXR2cvQ==
-    size: 153110193
-  - url: https://github.com/davidvanderklay/conduit/releases/download/desktop/v0.1.6-nightly.20261114.49/conduit-0.1.6-nightly.20261114.49-macos-x64.dmg
-    sha512: Q0vc40i5vJkXicvhEM3ZAAYyNWpe2D4hNZRPtQqpo6jc18DdzCTSdPfL/R3a+sdxRS3/jcOs6kwv2MkoTINIqA==
-    size: 163580044
-  - url: https://github.com/davidvanderklay/conduit/releases/download/desktop/v0.1.6-nightly.20261114.49/conduit-0.1.6-nightly.20261114.49-macos-arm64.dmg
-    sha512: xcmvXvq8BGMyJGP63F1ARwoND1oHv6zZvVvinzHYRphtK5I3IrwYV1ZNyB7pecWTKlNOGm8ZF/5RTv6aKg7ySg==
-    size: 157845603
-path: https://github.com/davidvanderklay/conduit/releases/download/desktop/v0.1.6-nightly.20261114.49/conduit-0.1.6-nightly.20261114.49-macos-x64.zip
-sha512: gSKVCFCKsKxtcIhjgxG4K0PrQGGIXex932H4IA5yicd/AcXgDf9QkziQyQtaZ+nbBdpE2FeysuB1sg2NZn18Gg==
-releaseDate: 2026-11-14T21:57:02Z
+  - url: https://github.com/davidvanderklay/conduit/releases/download/desktop/v0.1.6-nightly.20261115.50/conduit-0.1.6-nightly.20261115.50-macos-x64.zip
+    sha512: 8o9tZPWHCf8wiNCBcuEOYJ6wumE3p5ZhCcTQ9wGFsVSIwNgtkv8pCxt3aaa5Xz8Slka9KcPTBHYdj325QO63MA==
+    size: 155664796
+  - url: https://github.com/davidvanderklay/conduit/releases/download/desktop/v0.1.6-nightly.20261115.50/conduit-0.1.6-nightly.20261115.50-macos-arm64.zip
+    sha512: 5CJzHqWlbSdTNRJBMhRt3YX4VT76yRVV3v9qp/9lq3VmOcUvB//DeS/1nsdIe91p3lrnDbt3q6gZQUhQAYraXg==
+    size: 149938970
+  - url: https://github.com/davidvanderklay/conduit/releases/download/desktop/v0.1.6-nightly.20261115.50/conduit-0.1.6-nightly.20261115.50-macos-x64.dmg
+    sha512: ciRgWZjKIvHgTl/wsOj9b0Wmc9rkbWQKSkujz0XTFoWOuALRnVY4GmVnpEU873qeG4hVlNEc+i4Ye6LjRhM/rg==
+    size: 160231397
+  - url: https://github.com/davidvanderklay/conduit/releases/download/desktop/v0.1.6-nightly.20261115.50/conduit-0.1.6-nightly.20261115.50-macos-arm64.dmg
+    sha512: RPT8TP4EKFBR3QxSBtoSCjxRpVwg3SyapJq7Od1Qu+uF4dIHn3JlxBz08hb1LET7PkGFH5GmoEueSmkWs52eMw==
+    size: 154541979
+  - url: https://github.com/davidvanderklay/conduit/releases/download/desktop/v0.1.6-nightly.20261115.50/conduit-0.1.6-nightly.20261115.50-macos-x64.zip
+    sha512: ehgYkm+1lj/EUE17gAlswBtJlAa7vZXwzE/OIhQmic/6px4wr2Gma+2XfKqRESwPK88/D+u02TUlH1WSuGvSDw==
+    size: 158842874
+  - url: https://github.com/davidvanderklay/conduit/releases/download/desktop/v0.1.6-nightly.20261115.50/conduit-0.1.6-nightly.20261115.50-macos-arm64.zip
+    sha512: 2LR7/y8hlzuIsZphkZcf7LYiFN1M51b8zsAB5WwXcSkF1FLf8V4Pku+wvRWa5r4Y6IUUoOM1oOOI6nN9QFPgDQ==
+    size: 153117047
+  - url: https://github.com/davidvanderklay/conduit/releases/download/desktop/v0.1.6-nightly.20261115.50/conduit-0.1.6-nightly.20261115.50-macos-x64.dmg
+    sha512: 2D/y6bJpfCFKNZEGRyI8Jyw67qbItZPwtonsu8GUerWuzdT01qCINwbvSfWsv2QEoT6xBRsdEW9bKQWOcfP1sg==
+    size: 163593326
+  - url: https://github.com/davidvanderklay/conduit/releases/download/desktop/v0.1.6-nightly.20261115.50/conduit-0.1.6-nightly.20261115.50-macos-arm64.dmg
+    sha512: tN/6XHv2yVzgN0wQjudBrI8tmk6c5UYu/ecCdLOPZjBkvsfafQsHYXs7vxxzRyrD/M9jyGNhxtBY18qoZEEa/Q==
+    size: 157851804
+path: https://github.com/davidvanderklay/conduit/releases/download/desktop/v0.1.6-nightly.20261115.50/conduit-0.1.6-nightly.20261115.50-macos-x64.zip
+sha512: 8o9tZPWHCf8wiNCBcuEOYJ6wumE3p5ZhCcTQ9wGFsVSIwNgtkv8pCxt3aaa5Xz8Slka9KcPTBHYdj325QO63MA==
+releaseDate: 2026-11-15T14:53:41Z
