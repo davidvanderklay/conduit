@@ -101,14 +101,16 @@ internal fun TidyEllipsisText(
     color: androidx.compose.ui.graphics.Color,
     modifier: androidx.compose.ui.Modifier = androidx.compose.ui.Modifier,
 ) {
-    var display by remember(text, maxLines) { mutableStateOf(text) }
+    // The cut depends on the width, so it starts over whenever the width changes. Otherwise a title first
+    // measured in a narrow cell (while a grid settles) keeps that early cut at its final width.
+    androidx.compose.foundation.layout.BoxWithConstraints(modifier) {
+    var display by remember(text, maxLines, constraints.maxWidth) { mutableStateOf(text) }
     Text(
         display,
         style = style,
         color = color,
         maxLines = maxLines,
         overflow = TextOverflow.Clip,
-        modifier = modifier,
         onTextLayout = { layout ->
             if (!layout.hasVisualOverflow) return@Text
             val current = display.removeSuffix("…")
@@ -116,8 +118,14 @@ internal fun TidyEllipsisText(
             var cut = current.substring(0, end)
             // Keep a word only if the cut fell on whitespace; otherwise it is partial. After the first pass, drop a word.
             val cutOnBoundary = display == text && end < current.length && current[end].isWhitespace()
-            if (!cutOnBoundary && ' ' in cut.trimEnd()) cut = cut.trimEnd().substringBeforeLast(' ')
+            // A single long word has no word to drop, so it loses a character instead ("MobL…", never "M…").
+            if (!cutOnBoundary) cut = when {
+                ' ' in cut.trimEnd() -> cut.trimEnd().substringBeforeLast(' ')
+                display != text -> cut.dropLast(1)
+                else -> cut
+            }
             display = cut.trimEnd(' ', ',', ';', ':', '.', '-') + "…"
         },
     )
+    }
 }

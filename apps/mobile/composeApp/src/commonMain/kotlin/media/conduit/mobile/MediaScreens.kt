@@ -2286,12 +2286,12 @@ internal fun MediaDetailsScreen(
                     // Keep the artwork bright and fade into the page only behind the title and meta. A short
                     // static scrim at the very top keeps the status bar and back button legible on bright art.
                     val heroBackground = MaterialTheme.colorScheme.background
-                    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Black.copy(.5f), .28f to Color.Transparent, .62f to Color.Transparent, .85f to heroBackground.copy(alpha = .5f), 1f to heroBackground)))
+                    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Black.copy(.5f), .28f to Color.Transparent, .66f to Color.Transparent, .87f to heroBackground.copy(alpha = .5f), 1f to heroBackground)))
                 }
                 // Logo (or title) and facts share one bottom-aligned column, so their gap is fixed rather than
                 // set by the logo's box. Centered under a logo, as in Infuse and Plex.
                 Column(
-                    Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(start = PageGutter, end = PageGutter, bottom = 16.dp),
+                    Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(start = PageGutter, end = PageGutter, bottom = 8.dp),
                     horizontalAlignment = if (titleLogo != null) Alignment.CenterHorizontally else Alignment.Start,
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
@@ -3574,11 +3574,11 @@ private fun StreamSelectionScreen(
                             contentScale = ContentScale.Crop,
                         )
                         val streamBackground = MaterialTheme.colorScheme.background
-                        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Black.copy(.5f), .28f to Color.Transparent, .62f to Color.Transparent, .85f to streamBackground.copy(alpha = .5f), 1f to streamBackground)))
+                        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Black.copy(.5f), .28f to Color.Transparent, .66f to Color.Transparent, .87f to streamBackground.copy(alpha = .5f), 1f to streamBackground)))
                     }
                     if (heroWithLogo) Column(
                         // Same box, padding, and logo/facts/genres stack as details, so the title doesn't move between pages.
-                        Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(start = PageGutter, end = PageGutter, bottom = 16.dp),
+                        Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(start = PageGutter, end = PageGutter, bottom = 8.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
@@ -3990,7 +3990,7 @@ internal fun ProfileSettingsScreen(
                                     Icon(entry.icon, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(22.dp))
                                     Spacer(Modifier.width(16.dp))
                                     Text(entry.title, style = SettingsTitleStyle, modifier = Modifier.weight(1f))
-                                    Icon(Icons.Rounded.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .7f), modifier = Modifier.size(20.dp))
+                                    Icon(Icons.Rounded.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .7f), modifier = Modifier.size(20.dp).offset(x = 7.dp))
                                 }
                             }
                         }
@@ -4113,7 +4113,8 @@ private fun SettingsToggle(title: String, description: String, checked: Boolean,
 private fun SettingsAction(title: String, description: String, destructive: Boolean = false, onClick: () -> Unit) {
     Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable(onClick = onClick).padding(vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) { Text(title, style = SettingsTitleStyle, color = if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface); Text(description, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
-        Icon(Icons.Rounded.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        // The glyph has about 8dp of empty space on its right; shift it so its stroke ends on the same edge as switches and values.
+        Icon(Icons.Rounded.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.offset(x = 8.dp))
     }
 }
 

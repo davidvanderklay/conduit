@@ -512,7 +512,7 @@ private fun OnboardingLink(lead: String, action: String) {
     Text(
         buildAnnotatedString {
             withStyle(SpanStyle(color = MaterialTheme.colorScheme.onSurfaceVariant)) { append("$lead ") }
-            withStyle(SpanStyle(color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)) { append(action) }
+            withStyle(SpanStyle(color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline)) { append(action) }
         },
         style = MaterialTheme.typography.bodyMedium,
         textAlign = TextAlign.Center,
@@ -726,7 +726,7 @@ private fun SignInScreen(
                     pending = true
                     if (recovering) onRecover(email, recoveryCode, password) else if (registering) onRegister(email, password) else onSignIn(email, password)
                 },
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = Color(0xFF141414), disabledContainerColor = MaterialTheme.colorScheme.onSurface.copy(alpha = .1f), disabledContentColor = Color(0xFF909095)),
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = Color(0xFF141414), disabledContainerColor = MaterialTheme.colorScheme.onSurface.copy(alpha = .14f), disabledContentColor = Color(0xFF909095)),
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.fillMaxWidth().padding(top = 4.dp).height(56.dp),
             ) {
