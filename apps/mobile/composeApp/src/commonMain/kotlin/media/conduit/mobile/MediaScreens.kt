@@ -492,8 +492,8 @@ internal fun SearchDiscoverScreen(
                 horizontalArrangement = Arrangement.spacedBy(20.dp),
             ) {
                 CompactFilterMenu(
-                    value = typeLabel(type),
-                    options = types.map { it to typeLabel(it) },
+                    value = typePluralLabel(type),
+                    options = types.map { it to typePluralLabel(it) },
                     onSelect = { onSelectionChange(DiscoverSelection(type = it)) },
                 )
                 CompactFilterMenu(
@@ -670,6 +670,9 @@ internal fun compactRuntime(runtime: String): String {
     }
 }
 
+/** Plural media type for pickers and group titles, e.g. "Movies". */
+internal fun typePluralLabel(type: String): String = if (type.equals("movie", ignoreCase = true)) "Movies" else typeLabel(type)
+
 internal fun typeLabel(type: String): String = when (type.lowercase()) {
     "movie" -> "Movie"
     "series" -> "Series"
@@ -771,13 +774,15 @@ private fun CommaSeparatedLinks(
     modifier: Modifier = Modifier,
     color: Color = MaterialTheme.colorScheme.onSurface,
     separator: String = ",",
+    style: androidx.compose.ui.text.TextStyle = CreditTextStyle,
+    horizontalArrangement: Arrangement.Horizontal = Arrangement.Start,
 ) {
-    FlowRow(modifier) {
+    FlowRow(modifier, horizontalArrangement = horizontalArrangement) {
         values.forEachIndexed { index, value ->
             Text(
                 if (index < values.lastIndex) "$value$separator" else value,
                 color = color,
-                style = CreditTextStyle,
+                style = style,
                 modifier = Modifier.clip(RoundedCornerShape(4.dp)).clickable { onClick(value) }.padding(vertical = 3.dp).padding(end = 3.dp),
             )
         }
@@ -2183,7 +2188,7 @@ internal fun MediaDetailsScreen(
                     if (streamEpisodesOpen) streamEpisodesOpen = false else closeStreamPage()
                 },
                 modifier = Modifier.align(Alignment.TopStart),
-                background = Color.Black.copy(alpha = .45f),
+                background = Color.Black.copy(alpha = .55f),
                 tint = Color.White,
                 safeArea = true,
             )
@@ -2288,7 +2293,7 @@ internal fun MediaDetailsScreen(
                 ) {
                 if (titleLogo != null) {
                     AsyncImage(
-                        model = titleLogo,
+                        model = rememberLogoRequest(titleLogo),
                         contentDescription = details.name,
                         contentScale = ContentScale.Fit,
                         alignment = Alignment.BottomCenter,
@@ -2313,10 +2318,15 @@ internal fun MediaDetailsScreen(
                     rating = details?.imdbRating?.trim()?.takeIf(String::isNotBlank),
                     onRatingClick = imdbId?.let { id -> { uriHandler.openUri("https://www.imdb.com/title/$id/") } },
                 )
-                if (!details?.videos.isNullOrEmpty()) {
-                    details?.genres?.map(String::trim)?.filter(String::isNotBlank)?.distinct()?.takeIf { it.isNotEmpty() }?.let { genres ->
-                        Text(genres.joinToString(", "), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp))
-                    }
+                // Genres live in one place for every title: a quiet, tappable line under the facts.
+                details?.genres?.map(String::trim)?.filter(String::isNotBlank)?.distinct()?.takeIf { it.isNotEmpty() }?.let { genres ->
+                    CommaSeparatedLinks(
+                        genres,
+                        onClick = { genre -> onBrowse(MobileBrowseTarget.Discover(DiscoverSelection(type = details.type, genre = genre))) },
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                        horizontalArrangement = if (titleLogo != null) Arrangement.Center else Arrangement.Start,
+                    )
                 }
                 }
                 }
@@ -2400,26 +2410,6 @@ internal fun MediaDetailsScreen(
                 // One label/value table for genres, credits, and country, with even row spacing.
                 val hasEpisodes = !details?.videos.isNullOrEmpty()
                 Column {
-                    details?.genres
-                        ?.map(String::trim)
-                        ?.filter(String::isNotBlank)
-                        ?.distinct()
-                        ?.takeIf { it.isNotEmpty() && !hasEpisodes }
-                        ?.let { genres ->
-                            Row {
-                                Text(
-                                    "Genres",
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    style = CreditTextStyle,
-                                    modifier = Modifier.width(84.dp).padding(vertical = 3.dp),
-                                )
-                                CommaSeparatedLinks(
-                                    genres,
-                                    onClick = { genre -> onBrowse(MobileBrowseTarget.Discover(DiscoverSelection(type = details.type, genre = genre))) },
-                                    modifier = Modifier.weight(1f),
-                                )
-                            }
-                        }
                     // Series keep credits below the episode list so seasons stay within the first screen.
                     if (!hasEpisodes) CreditRows(details, onBrowse)
                 }
@@ -2533,7 +2523,8 @@ internal fun MediaDetailsScreen(
                                 overflow = TextOverflow.Ellipsis,
                             )
                             // Title and synopsis read together; the air date trails as a footnote.
-                            (video.overview ?: video.description)?.trim()?.takeIf(String::isNotBlank)?.let {
+                            // Add-ons sometimes pre-truncate with "..."; drop it so Compose's ellipsis sits against the last word.
+                            (video.overview ?: video.description)?.trim()?.removeSuffix("...")?.removeSuffix("…")?.trimEnd()?.takeIf(String::isNotBlank)?.let {
                                 Text(
                                     it,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -2639,7 +2630,7 @@ internal fun MediaDetailsScreen(
                     }
                 }
                 val fadeColor = MaterialTheme.colorScheme.background
-                Box(Modifier.fillMaxWidth().height(12.dp).background(Brush.verticalGradient(listOf(fadeColor, Color.Transparent))))
+                Box(Modifier.fillMaxWidth().height(20.dp).background(Brush.verticalGradient(0f to fadeColor, .4f to fadeColor, 1f to Color.Transparent)))
             }
         } else {
             MobileBackButton(
@@ -3565,7 +3556,7 @@ private fun StreamSelectionScreen(
     ) {
         artwork?.let { image ->
             item(key = "artwork") {
-                Box(Modifier.fillMaxWidth().height(200.dp + heroPullDp).clipToBounds()) {
+                Box(Modifier.fillMaxWidth().height(250.dp + heroPullDp).clipToBounds()) {
                     AsyncImage(
                         image,
                         null,
@@ -3596,7 +3587,7 @@ private fun StreamSelectionScreen(
                         if (centered) {
                             var logoAnalysis by remember(logo) { mutableStateOf<LogoAnalysis?>(null) }
                             AsyncImage(
-                                model = logo,
+                                model = rememberLogoRequest(logo),
                                 contentDescription = title,
                                 contentScale = ContentScale.Fit,
                                 alignment = Alignment.BottomCenter,
@@ -5014,10 +5005,10 @@ private fun AddonManagerScreen(
                     run {
                         Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 12.dp, bottom = 12.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                // A real logo gets a tile; without one, a bare glyph avoids decorative chrome.
-                                Surface(shape = RoundedCornerShape(12.dp), color = if (logo.isNullOrBlank()) Color.Transparent else Color.White.copy(.06f), modifier = Modifier.size(40.dp)) {
-                                    // Wide wordmark logos are unreadable in a square tile, so they fall back to the add-on glyph.
-                                    var logoFits by remember(logo) { mutableStateOf(!logo.isNullOrBlank()) }
+                                // Wide wordmark logos are unreadable in a square tile, so they fall back to the add-on glyph.
+                                var logoFits by remember(logo) { mutableStateOf(!logo.isNullOrBlank()) }
+                                // A logo that fits gets a tile; the glyph fallback stays bare to avoid decorative chrome.
+                                Surface(shape = RoundedCornerShape(12.dp), color = if (logoFits) Color.White.copy(.06f) else Color.Transparent, modifier = Modifier.size(40.dp)) {
                                     if (logoFits) AsyncImage(logo, "$name logo", Modifier.fillMaxSize(), contentScale = ContentScale.Crop, onSuccess = { state ->
                                         val size = state.painter.intrinsicSize
                                         if (size.width > 0f && size.height > 0f && size.width / size.height > 1.6f) logoFits = false

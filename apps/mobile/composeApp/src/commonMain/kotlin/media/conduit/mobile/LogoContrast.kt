@@ -1,12 +1,18 @@
 package media.conduit.mobile
 
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.layout
-import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.unit.Dp
 import coil3.compose.AsyncImagePainter
+import coil3.compose.LocalPlatformContext
+import coil3.request.ImageRequest
+import coil3.size.Size
 import kotlin.math.roundToInt
 
 /**
@@ -65,28 +71,35 @@ internal fun analyzeLogoPixels(
 }
 
 /**
- * Sizes a title logo: [widthFraction] of the available width, at most [maxHeight] tall, locked to the
- * image's aspect ratio once known, with transparent margins cropped out of layout. Because the box
- * always matches the image, cropping the side margins lets wide-padded logos grow without cutting
- * any lettering, and spacing follows the visible lettering.
+ * Sizes a title logo so its visible lettering (transparent margins cropped on every side) fits within
+ * [widthFraction] of the available width and [maxHeight], keeping the image's aspect ratio. The image is
+ * measured at exactly the size that places its lettering in that box and clipped to it, so a logo can
+ * never draw into neighbouring content. Until the image is analyzed, it falls back to a plain box.
  */
-internal fun Modifier.logoBox(analysis: LogoAnalysis?, widthFraction: Float, maxHeight: Dp): Modifier =
-    trimLogoInsets(analysis)
-        .fillMaxWidth(widthFraction)
-        .heightIn(max = maxHeight)
-        .then(if (analysis != null && analysis.aspect > 0f) Modifier.aspectRatio(analysis.aspect) else Modifier)
+internal fun Modifier.logoBox(analysis: LogoAnalysis?, widthFraction: Float, maxHeight: Dp): Modifier {
+    if (analysis == null || analysis.aspect <= 0f) return fillMaxWidth(widthFraction).heightIn(max = maxHeight)
+    val horizontalShare = (1f - analysis.leftInset - analysis.rightInset).coerceIn(.2f, 1f)
+    val verticalShare = (1f - analysis.topInset - analysis.bottomInset).coerceIn(.2f, 1f)
+    val visibleAspect = analysis.aspect * horizontalShare / verticalShare
+    return clipToBounds().layout { measurable, constraints ->
+        val maxVisibleWidth = constraints.maxWidth * widthFraction
+        val visibleWidth = minOf(maxVisibleWidth, maxHeight.toPx() * visibleAspect)
+        val visibleHeight = visibleWidth / visibleAspect
+        val imageWidth = (visibleWidth / horizontalShare).roundToInt()
+        val imageHeight = (visibleHeight / verticalShare).roundToInt()
+        val placeable = measurable.measure(Constraints.fixed(imageWidth, imageHeight))
+        layout(visibleWidth.roundToInt(), visibleHeight.roundToInt()) {
+            placeable.place(-(imageWidth * analysis.leftInset).roundToInt(), -(imageHeight * analysis.topInset).roundToInt())
+        }
+    }
+}
 
-/** Crops a logo's transparent margins out of layout; see [logoBox], which keeps the box aspect-locked. */
-internal fun Modifier.trimLogoInsets(analysis: LogoAnalysis?) = if (analysis == null) this else layout { measurable, constraints ->
-    val horizontalShare = if (analysis.aspect > 0f) (1f - analysis.leftInset - analysis.rightInset).coerceIn(.2f, 1f) else 1f
-    val measureConstraints = if (constraints.hasBoundedWidth && horizontalShare < 1f) {
-        constraints.copy(minWidth = 0, maxWidth = (constraints.maxWidth / horizontalShare).roundToInt())
-    } else constraints
-    val placeable = measurable.measure(measureConstraints)
-    val left = if (horizontalShare < 1f) (placeable.width * analysis.leftInset).roundToInt() else 0
-    val right = if (horizontalShare < 1f) (placeable.width * analysis.rightInset).roundToInt() else 0
-    val top = (placeable.height * analysis.topInset).roundToInt()
-    val bottom = (placeable.height * analysis.bottomInset).roundToInt()
-    val width = (placeable.width - left - right).coerceAtLeast(0)
-    layout(width, (placeable.height - top - bottom).coerceAtLeast(0)) { placeable.place(-left, -top) }
+/**
+ * Title logos are small images that get cropped and scaled by [logoBox], so decode them at full
+ * resolution rather than at the pre-crop box size, which would leave the visible lettering soft.
+ */
+@Composable
+internal fun rememberLogoRequest(url: String?): ImageRequest? {
+    val context = LocalPlatformContext.current
+    return remember(url, context) { url?.let { ImageRequest.Builder(context).data(it).size(Size.ORIGINAL).build() } }
 }

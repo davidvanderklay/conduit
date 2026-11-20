@@ -295,11 +295,11 @@ private fun FeatureCard(item: CatalogItem, onClick: () -> Unit, onActions: () ->
             )
             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Transparent, .4f to Color.Transparent, 1f to Color.Black.copy(alpha = .65f))))
             // Title logo and year sit together on the art, so the card needs no caption underneath.
-            Column(Modifier.align(Alignment.BottomStart).padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(Modifier.align(Alignment.BottomStart).padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (!item.logo.isNullOrBlank()) {
                     var logoAnalysis by remember(item.logo) { mutableStateOf<LogoAnalysis?>(null) }
                     coil3.compose.AsyncImage(
-                        model = item.logo,
+                        model = rememberLogoRequest(item.logo),
                         contentDescription = null,
                         contentScale = androidx.compose.ui.layout.ContentScale.Fit,
                         colorFilter = if (logoAnalysis?.dark == true) androidx.compose.ui.graphics.ColorFilter.tint(Color.White) else null,

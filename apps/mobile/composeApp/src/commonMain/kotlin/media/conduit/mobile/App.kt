@@ -440,7 +440,7 @@ private fun RecoveryCodesScreen(codes: List<String>, onSaved: () -> Unit) {
         ) {
             OnboardingBrand(Modifier.padding(bottom = 12.dp))
             Text("Save your recovery codes", style = OnboardingTitleStyle)
-            Text("Each code works once. Store them outside this device before continuing.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium.copy(lineBreak = LineBreak.Heading))
+            Text("Each code works once. Store them outside this device before continuing.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium.copy(lineBreak = LineBreak.Heading), modifier = Modifier.widthIn(max = OnboardingCopyWidth))
             Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
                 Column(Modifier.padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp)) {
                     codes.forEach { code ->
@@ -473,7 +473,7 @@ private fun HouseholdSetup(onCreate: (String, String) -> Unit) {
         ) {
             OnboardingBrand(Modifier.padding(bottom = 12.dp))
             Text("Create your household", style = OnboardingTitleStyle)
-            Text("Profiles, add-ons, and watch state sync through your conduit server.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium.copy(lineBreak = LineBreak.Heading), modifier = Modifier.padding(bottom = 12.dp))
+            Text("Profiles, add-ons, and watch state sync through your conduit server.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium.copy(lineBreak = LineBreak.Heading), modifier = Modifier.padding(bottom = 12.dp).widthIn(max = OnboardingCopyWidth))
             TextField(
                 household, { household = it }, label = { Text("Household name") },
                 singleLine = true, shape = RoundedCornerShape(12.dp), colors = conduitFilledFieldColors(), modifier = Modifier.fillMaxWidth(),
@@ -497,6 +497,9 @@ private fun HouseholdSetup(onCreate: (String, String) -> Unit) {
 
 private val OnboardingHeaderHeight = 48.dp
 
+/** One measure for every onboarding subtitle, so the four steps wrap alike. */
+private val OnboardingCopyWidth = 440.dp
+
 @Composable
 private fun OnboardingLink(lead: String, action: String) {
     Text(
@@ -517,12 +520,13 @@ private fun OnboardingBrand(modifier: Modifier = Modifier) {
         ConduitMark(
             Modifier.layout { measurable, constraints ->
                 val placeable = measurable.measure(constraints)
-                val inset = 7.dp.roundToPx()
+                val inset = 5.dp.roundToPx()
                 layout(placeable.width - inset, placeable.height) { placeable.place(-inset, 0) }
-            }.size(36.dp),
+            }.size(26.dp),
             tile = false,
         )
-        Text("conduit", color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        // Secondary to the page title below it.
+        Text("conduit", color = Color.White, style = MaterialTheme.typography.titleMedium.copy(fontSize = 20.sp), fontWeight = FontWeight.SemiBold)
     }
 }
 
@@ -674,7 +678,7 @@ private fun SignInScreen(
             Box(Modifier.fillMaxWidth()) {
                 Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp), horizontalAlignment = Alignment.Start) {
             Text(if (recovering) "Recover your account" else if (registering) if (authentication.needsOwner) "Set up conduit" else "Create your account" else "Welcome back", color = Color.White, style = OnboardingTitleStyle)
-            Text(if (recovering) "Enter one of the recovery codes you saved." else if (registering) "Create a private account for this conduit instance." else "Sign in to continue to your household.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium.copy(lineBreak = LineBreak.Heading), modifier = Modifier.padding(bottom = 12.dp))
+            Text(if (recovering) "Enter one of the recovery codes you saved." else if (registering) "Create a private account for this conduit instance." else "Sign in to continue to your household.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium.copy(lineBreak = LineBreak.Heading), modifier = Modifier.padding(bottom = 12.dp).widthIn(max = OnboardingCopyWidth))
             if (authenticationLoading && !authenticationReady) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                     LoadingIndicator(Modifier.size(17.dp), strokeWidth = 2.dp)
@@ -715,9 +719,7 @@ private fun SignInScreen(
                     pending = true
                     if (recovering) onRecover(email, recoveryCode, password) else if (registering) onRegister(email, password) else onSignIn(email, password)
                 },
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = Color(0xFF141414), disabledContainerColor = Color.Transparent, disabledContentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = .38f)),
-                // Disabled, the action is an outline so it can't be mistaken for another filled field.
-                border = if (canSubmit) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = Color(0xFF141414), disabledContainerColor = MaterialTheme.colorScheme.onSurface.copy(alpha = .1f), disabledContentColor = Color(0xFF909095)),
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.fillMaxWidth().padding(top = 4.dp).height(50.dp),
             ) {
@@ -1495,8 +1497,11 @@ private fun AppShell(
                 val artworkScreen = state.destination in setOf(AppDestination.Home, AppDestination.Search, AppDestination.Library)
                 Box(
                     Modifier.align(Alignment.BottomCenter).fillMaxWidth()
-                        .background(Brush.verticalGradient(0f to Color.Transparent, .4f to background.copy(alpha = .85f), .58f to background))
-                        .navigationBarsPadding().height(if (!artworkScreen) 100.dp else if (compact) 96.dp else 136.dp),
+                        .background(
+                            if (artworkScreen) Brush.verticalGradient(0f to Color.Transparent, .4f to background.copy(alpha = .85f), .58f to background)
+                            else Brush.verticalGradient(0f to Color.Transparent, .55f to background.copy(alpha = .9f), .7f to background),
+                        )
+                        .navigationBarsPadding().height(if (!artworkScreen) 96.dp else if (compact) 96.dp else 136.dp),
                 )
             }
             PlatformBottomNavigation(
@@ -2947,7 +2952,7 @@ private fun MainTopBar(
                     onDismissRequest = { profileMenuOpen = false },
                     offset = androidx.compose.ui.unit.DpOffset(x = (-8).dp, y = 8.dp),
                     modifier = Modifier
-                        .width(248.dp)
+                        .width(232.dp)
                         .heightIn(max = 480.dp),
                     shape = RoundedCornerShape(12.dp),
                     containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
