@@ -2286,7 +2286,7 @@ internal fun MediaDetailsScreen(
                     // Keep the artwork bright and fade into the page only behind the title and meta. A short
                     // static scrim at the very top keeps the status bar and back button legible on bright art.
                     val heroBackground = MaterialTheme.colorScheme.background
-                    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Black.copy(.5f), .28f to Color.Transparent, .66f to Color.Transparent, .87f to heroBackground.copy(alpha = .5f), 1f to heroBackground)))
+                    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Black.copy(.6f), .18f to Color.Black.copy(.35f), .32f to Color.Transparent, .66f to Color.Transparent, .87f to heroBackground.copy(alpha = .5f), 1f to heroBackground)))
                 }
                 // Logo (or title) and facts share one bottom-aligned column, so their gap is fixed rather than
                 // set by the logo's box. Centered under a logo, as in Infuse and Plex.
@@ -2329,6 +2329,8 @@ internal fun MediaDetailsScreen(
                         onClick = { genre -> onBrowse(MobileBrowseTarget.Discover(DiscoverSelection(type = details.type, genre = genre))) },
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                        // Middots, like the facts line above.
+                        separator = " ·",
                         horizontalArrangement = if (titleLogo != null) Arrangement.Center else Arrangement.Start,
                     )
                 }
@@ -2529,8 +2531,8 @@ internal fun MediaDetailsScreen(
                                 TidyEllipsisText(
                                     it,
                                     maxLines = 2,
-                                    color = Color(0xFFB4B4BC),
-                                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 17.sp),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 18.sp),
                                     modifier = Modifier.padding(top = 4.dp),
                                 )
                             }
@@ -3574,7 +3576,7 @@ private fun StreamSelectionScreen(
                             contentScale = ContentScale.Crop,
                         )
                         val streamBackground = MaterialTheme.colorScheme.background
-                        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Black.copy(.5f), .28f to Color.Transparent, .66f to Color.Transparent, .87f to streamBackground.copy(alpha = .5f), 1f to streamBackground)))
+                        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Black.copy(.6f), .18f to Color.Black.copy(.35f), .32f to Color.Transparent, .66f to Color.Transparent, .87f to streamBackground.copy(alpha = .5f), 1f to streamBackground)))
                     }
                     if (heroWithLogo) Column(
                         // Same box, padding, and logo/facts/genres stack as details, so the title doesn't move between pages.
@@ -3596,7 +3598,7 @@ private fun StreamSelectionScreen(
                             if (facts.isNotEmpty() || rating != null) TitleFactsRow(facts, rating, onRatingClick = null)
                             // Matches the details genres line, which pads each link by 3dp vertically.
                             if (genres.isNotEmpty()) Text(
-                                genres.joinToString(", "),
+                                genres.joinToString(" · "),
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
                                 textAlign = TextAlign.Center,
@@ -4075,8 +4077,8 @@ internal fun conduitSwitchColors() = SwitchDefaults.colors(
     checkedBorderColor = Color.Transparent,
     // Off reads as "off", not "disabled": a quiet outlined track with a mid-gray thumb.
     uncheckedTrackColor = Color(0xFF27272A),
-    uncheckedBorderColor = Color(0xFF3F3F46),
-    uncheckedThumbColor = Color(0xFFA1A1AA),
+    uncheckedBorderColor = Color(0xFF4A4A52),
+    uncheckedThumbColor = Color(0xFF9A9AA2),
 )
 
 /**

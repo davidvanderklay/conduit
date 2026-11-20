@@ -21,8 +21,10 @@ import androidx.compose.ui.unit.sp
 /** Tertiary text such as add-on facts, genres, and episode dates: opaque, clearly a step below onSurfaceVariant. */
 internal val TertiaryText = androidx.compose.ui.graphics.Color(0xFF85858F)
 
-/** Hairline drawn over artwork edges so dark posters and backdrops keep their shape on a black page. */
-internal val ArtworkEdge = Color.White.copy(alpha = .06f)
+/** Hairline over artwork edges so dark posters keep their shape: 6% on AMOLED black, a fainter 4% on the zinc page. */
+internal val ArtworkEdge: Color
+    @Composable @ReadOnlyComposable
+    get() = Color.White.copy(alpha = if (MaterialTheme.colorScheme.background == Color.Black) .06f else .04f)
 
 /** Horizontal page gutter shared by phone screens. */
 internal val PageGutter = 16.dp

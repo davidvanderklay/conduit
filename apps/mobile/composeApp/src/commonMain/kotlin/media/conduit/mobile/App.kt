@@ -438,7 +438,7 @@ private fun RecoveryCodesScreen(codes: List<String>, onSaved: () -> Unit) {
             Modifier.safeDrawingPadding().verticalScroll(rememberScrollState()).widthIn(max = 560.dp).fillMaxWidth().padding(horizontal = PageGutter, vertical = 28.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            OnboardingBrand(Modifier.padding(bottom = 12.dp))
+            OnboardingBrand(Modifier.padding(bottom = 4.dp))
             Text("Save your recovery codes", style = OnboardingTitleStyle)
             Text("Each code works once. Keep them off this device.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.widthIn(max = OnboardingCopyWidth))
             Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
@@ -474,7 +474,7 @@ private fun HouseholdSetup(onCreate: (String, String) -> Unit) {
             Modifier.safeDrawingPadding().widthIn(max = 560.dp).fillMaxWidth().padding(horizontal = PageGutter, vertical = 28.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            OnboardingBrand(Modifier.padding(bottom = 12.dp))
+            OnboardingBrand(Modifier.padding(bottom = 4.dp))
             Text("Create your household", style = OnboardingTitleStyle)
             Text("Profiles, add-ons, and progress sync to this server.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(bottom = 12.dp).widthIn(max = OnboardingCopyWidth))
             TextField(
@@ -533,7 +533,7 @@ private fun OnboardingBrand(modifier: Modifier = Modifier) {
             tile = false,
         )
         // Secondary to the page title below it.
-        Text("conduit", color = Color.White, style = MaterialTheme.typography.titleMedium.copy(fontSize = 20.sp), fontWeight = FontWeight.SemiBold)
+        Text("conduit", color = Color.White, style = MaterialTheme.typography.titleMedium.copy(fontSize = 18.sp), fontWeight = FontWeight.SemiBold)
     }
 }
 
@@ -664,7 +664,7 @@ private fun SignInScreen(
     // Top-aligned like the household and recovery steps, so the flow doesn't jump between screens.
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background), contentAlignment = Alignment.TopCenter) {
         Column(Modifier.safeDrawingPadding().imePadding().verticalScroll(rememberScrollState()).widthIn(max = 460.dp).fillMaxWidth().padding(horizontal = PageGutter, vertical = 28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Row(Modifier.fillMaxWidth().padding(bottom = 24.dp).height(OnboardingHeaderHeight), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().padding(bottom = 16.dp).height(OnboardingHeaderHeight), verticalAlignment = Alignment.CenterVertically) {
                 OnboardingBrand()
                 Spacer(Modifier.weight(1f))
                 Surface(onClick = { showServerDialog = true }, shape = RoundedCornerShape(12.dp), color = Color.Transparent, contentColor = Color.White, modifier = Modifier.offset(x = 6.dp)) {
@@ -2900,7 +2900,8 @@ private fun MainTopBar(
     // AppShell draws a static fade behind this row, so the controls stay flat.
     val searchColor = MaterialTheme.colorScheme.surfaceContainer
     Row(
-        modifier.statusBarsPadding().fillMaxWidth().padding(start = 8.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
+        // The mark's glyph and the avatar both land on the 16dp page gutter, with matching gaps around the search pill.
+        modifier.statusBarsPadding().fillMaxWidth().padding(start = 4.dp, end = 10.dp, top = 6.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -2909,7 +2910,11 @@ private fun MainTopBar(
                 color = Color.Transparent,
                 contentColor = Color.White,
                 shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.size(48.dp),
+                // The glyph is inset in its square, so 6dp of its right side is trimmed from layout.
+                modifier = Modifier.layout { measurable, constraints ->
+                    val placeable = measurable.measure(constraints)
+                    layout(placeable.width - 6.dp.roundToPx(), placeable.height) { placeable.place(0, 0) }
+                }.size(48.dp),
             ) {
                 Box(Modifier.padding(4.dp), contentAlignment = Alignment.Center) {
                     ConduitMark(Modifier.fillMaxSize(), tile = false)
