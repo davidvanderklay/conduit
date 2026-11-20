@@ -2286,7 +2286,7 @@ internal fun MediaDetailsScreen(
                     // Keep the artwork bright and fade into the page only behind the title and meta. A short
                     // static scrim at the very top keeps the status bar and back button legible on bright art.
                     val heroBackground = MaterialTheme.colorScheme.background
-                    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Black.copy(.6f), .18f to Color.Black.copy(.35f), .32f to Color.Transparent, .66f to Color.Transparent, .87f to heroBackground.copy(alpha = .5f), 1f to heroBackground)))
+                    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Black.copy(.6f), .18f to Color.Black.copy(.35f), .32f to Color.Transparent, .70f to Color.Transparent, .89f to heroBackground.copy(alpha = .5f), 1f to heroBackground)))
                 }
                 // Logo (or title) and facts share one bottom-aligned column, so their gap is fixed rather than
                 // set by the logo's box. Centered under a logo, as in Infuse and Plex.
@@ -2350,7 +2350,7 @@ internal fun MediaDetailsScreen(
                             resumeExplicitly = playbackStartPosition(progressForVideoId(playTarget.video?.id ?: item.id)) > 0L,
                         )
                     },
-                    modifier = Modifier.fillMaxWidth().height(50.dp),
+                    modifier = Modifier.fillMaxWidth().height(PrimaryButtonHeight),
                     shape = RoundedCornerShape(12.dp),
                 ) {
                     Icon(Icons.Rounded.PlayArrow, null); Spacer(Modifier.width(8.dp)); Text(playTarget.label, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
@@ -2374,7 +2374,8 @@ internal fun MediaDetailsScreen(
                     if (actionItem.type == "movie") {
                         val watched = movieProgress?.watched == true
                         DetailAction(
-                            label = "Watched",
+                            // Like "Library"/"Saved": the inactive label names the action, the active one the state.
+                            label = if (watched) "Watched" else "Mark watched",
                             icon = if (watched) Icons.Rounded.CheckCircle else Icons.Rounded.CheckCircleOutline,
                             actionDescription = if (watched) "Mark as unwatched" else "Mark as watched",
                             active = watched,
@@ -2526,22 +2527,22 @@ internal fun MediaDetailsScreen(
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
-                            // Title and synopsis read together; the air date trails as a footnote.
+                            // Title, then the air date as its metadata line, then the synopsis: three distinct levels.
+                            video.released?.let { released ->
+                                Text(
+                                    episodeReleaseDateLabel(released) ?: released,
+                                    color = TertiaryText,
+                                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 16.sp),
+                                    modifier = Modifier.padding(top = 2.dp),
+                                )
+                            }
                             (video.overview ?: video.description)?.let(::tidyTruncatedText)?.takeIf(String::isNotBlank)?.let {
                                 TidyEllipsisText(
                                     it,
                                     maxLines = 2,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 18.sp),
-                                    modifier = Modifier.padding(top = 4.dp),
-                                )
-                            }
-                            video.released?.let { released ->
-                                Text(
-                                    episodeReleaseDateLabel(released) ?: released,
-                                    color = TertiaryText,
-                                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 16.sp),
-                                    modifier = Modifier.padding(top = 4.dp),
+                                    modifier = Modifier.padding(top = 6.dp),
                                 )
                             }
                         }
@@ -3576,7 +3577,7 @@ private fun StreamSelectionScreen(
                             contentScale = ContentScale.Crop,
                         )
                         val streamBackground = MaterialTheme.colorScheme.background
-                        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Black.copy(.6f), .18f to Color.Black.copy(.35f), .32f to Color.Transparent, .66f to Color.Transparent, .87f to streamBackground.copy(alpha = .5f), 1f to streamBackground)))
+                        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Black.copy(.6f), .18f to Color.Black.copy(.35f), .32f to Color.Transparent, .70f to Color.Transparent, .89f to streamBackground.copy(alpha = .5f), 1f to streamBackground)))
                     }
                     if (heroWithLogo) Column(
                         // Same box, padding, and logo/facts/genres stack as details, so the title doesn't move between pages.
@@ -3726,10 +3727,10 @@ private fun StreamSelectionScreen(
                     )
                     // Retry, or go fix the cause: streams come from add-ons.
                     Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Button(onClick = onManageAddons, modifier = Modifier.height(50.dp), shape = RoundedCornerShape(12.dp)) {
+                        Button(onClick = onManageAddons, modifier = Modifier.height(PrimaryButtonHeight), shape = RoundedCornerShape(12.dp)) {
                             Text("Manage add-ons", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
                         }
-                        TextButton(onClick = onRetry, modifier = Modifier.height(50.dp)) {
+                        TextButton(onClick = onRetry, modifier = Modifier.height(PrimaryButtonHeight)) {
                             Text("Try again", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface)
                         }
                     }
@@ -4273,7 +4274,7 @@ private fun HomeRowsSettingsScreen(
                 }
             },
             enabled = dirty && !saving,
-            modifier = Modifier.fillMaxWidth().height(54.dp),
+            modifier = Modifier.fillMaxWidth().height(PrimaryButtonHeight),
         ) { if (saving) LoadingIndicator(Modifier.size(20.dp), strokeWidth = 2.dp) else Text("Save") }
     }
     renaming?.let { target ->
@@ -4822,7 +4823,7 @@ private fun ProfileEditorScreen(profile: ProfileSummary?, active: ProfileSummary
         } } }
         item { Card(Modifier.padding(horizontal = 10.dp).fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) { Text("Avatar", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold); Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { FilterChip(selected = avatarMode == "color", onClick = { avatarMode = "color" }, label = { Text("Profile color") }); FilterChip(selected = avatarMode == "image", onClick = { avatarMode = "image" }, label = { Text("Custom image") }) }; if (avatarMode == "color") { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) { colors.forEach { option -> Surface(shape = CircleShape, color = profileColor(option), border = if (color.equals(option, ignoreCase = true)) BorderStroke(3.dp, Color.White) else null, modifier = Modifier.size(32.dp).clickable { color = option }) {} } }; CustomProfileColorPicker(color = color, onColorChange = { color = it }) } else { Text("Enter an HTTP or HTTPS image link.", color = MaterialTheme.colorScheme.onSurfaceVariant); OutlinedTextField(url, { url = it }, placeholder = { Text("https://example.com/avatar.png") }, singleLine = true, modifier = Modifier.fillMaxWidth()) } } } }
         error?.let { item { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 18.dp)) } }
-        item { Button(onClick = { scope.launch { saving = true; error = null; runCatching { val endpoint = requireNotNull(state.endpoint); val cleanUrl = url.trim().ifBlank { null }.takeIf { avatarMode == "image" }; val cleanColor = color.takeIf { avatarMode == "color" }; require(cleanUrl == null || cleanUrl.startsWith("https://") || cleanUrl.startsWith("http://")) { "Avatar URL must begin with http:// or https://" }; require(avatarMode != "image" || cleanUrl != null) { "Enter a custom image URL" }; require(name.isNotBlank()) { "Enter a profile name" }; if (profile == null) { val household = account.bootstrap.households.first(); api.createProfile(endpoint.baseUrl, account.session.token, household.id, name, kids, usesPrimaryAddons, cleanColor, cleanUrl) } else api.updateProfile(endpoint.baseUrl, account.session.token, profile.id, name, kids, usesPrimaryAddons, cleanColor, cleanUrl) }.onSuccess { onSaved(it.id); onBack() }.onFailure { error = it.message ?: "Unable to save profile" }; saving = false } }, enabled = !saving, modifier = Modifier.padding(horizontal = 10.dp).fillMaxWidth().height(54.dp)) { if (saving) LoadingIndicator(Modifier.size(20.dp), strokeWidth = 2.dp) else Text(if (profile == null) "Create profile" else "Save changes") } }
+        item { Button(onClick = { scope.launch { saving = true; error = null; runCatching { val endpoint = requireNotNull(state.endpoint); val cleanUrl = url.trim().ifBlank { null }.takeIf { avatarMode == "image" }; val cleanColor = color.takeIf { avatarMode == "color" }; require(cleanUrl == null || cleanUrl.startsWith("https://") || cleanUrl.startsWith("http://")) { "Avatar URL must begin with http:// or https://" }; require(avatarMode != "image" || cleanUrl != null) { "Enter a custom image URL" }; require(name.isNotBlank()) { "Enter a profile name" }; if (profile == null) { val household = account.bootstrap.households.first(); api.createProfile(endpoint.baseUrl, account.session.token, household.id, name, kids, usesPrimaryAddons, cleanColor, cleanUrl) } else api.updateProfile(endpoint.baseUrl, account.session.token, profile.id, name, kids, usesPrimaryAddons, cleanColor, cleanUrl) }.onSuccess { onSaved(it.id); onBack() }.onFailure { error = it.message ?: "Unable to save profile" }; saving = false } }, enabled = !saving, modifier = Modifier.padding(horizontal = 10.dp).fillMaxWidth().height(PrimaryButtonHeight)) { if (saving) LoadingIndicator(Modifier.size(20.dp), strokeWidth = 2.dp) else Text(if (profile == null) "Create profile" else "Save changes") } }
         }
     }
 }

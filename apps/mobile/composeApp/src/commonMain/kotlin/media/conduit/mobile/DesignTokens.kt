@@ -26,6 +26,9 @@ internal val ArtworkEdge: Color
     @Composable @ReadOnlyComposable
     get() = Color.White.copy(alpha = if (MaterialTheme.colorScheme.background == Color.Black) .06f else .04f)
 
+/** Height of every full-size button: Play, onboarding, recovery, retry, and save. */
+internal val PrimaryButtonHeight = 52.dp
+
 /** Horizontal page gutter shared by phone screens. */
 internal val PageGutter = 16.dp
 

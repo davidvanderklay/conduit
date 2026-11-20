@@ -455,8 +455,8 @@ private fun RecoveryCodesScreen(codes: List<String>, onSaved: () -> Unit) {
                 }
             }
             // Copy first, then confirm: the amber action ends the step.
-            FilledTonalButton(onClick = { clipboard.setText(AnnotatedString(codes.joinToString("\n"))) }, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(12.dp), colors = ButtonDefaults.filledTonalButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh, contentColor = MaterialTheme.colorScheme.onSurface)) { Icon(Icons.Rounded.ContentCopy, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Copy all codes") }
-            Button(onClick = onSaved, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(12.dp)) {
+            FilledTonalButton(onClick = { clipboard.setText(AnnotatedString(codes.joinToString("\n"))) }, modifier = Modifier.fillMaxWidth().height(PrimaryButtonHeight), shape = RoundedCornerShape(12.dp), colors = ButtonDefaults.filledTonalButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh, contentColor = MaterialTheme.colorScheme.onSurface)) { Icon(Icons.Rounded.ContentCopy, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Copy all codes") }
+            Button(onClick = onSaved, modifier = Modifier.fillMaxWidth().height(PrimaryButtonHeight), shape = RoundedCornerShape(12.dp)) {
                 Text("I saved these codes", fontWeight = FontWeight.SemiBold)
             }
         }
@@ -491,7 +491,7 @@ private fun HouseholdSetup(onCreate: (String, String) -> Unit) {
                     pending = true
                     onCreate(household, profile)
                 },
-                modifier = Modifier.fillMaxWidth().padding(top = 4.dp).height(56.dp),
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp).height(PrimaryButtonHeight),
                 shape = RoundedCornerShape(12.dp),
             ) { Text(if (pending) "Creating…" else "Create household", fontWeight = FontWeight.SemiBold) }
         }
@@ -699,7 +699,7 @@ private fun SignInScreen(
                 }
             }
             authentication.oidc.takeIf { it.enabled && !recovering }?.let {
-                Button(enabled = authenticationReady && !pending && !oauthLaunching, onClick = onOAuth, colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color(0xFF202124), disabledContainerColor = Color(0xFFE6E6E6), disabledContentColor = Color(0xFF5F6368)), shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth().height(50.dp)) { GoogleMark(); Spacer(Modifier.width(12.dp)); Text(if (oauthLaunching) "Opening sign-in…" else if (oauthPending) "Resume sign-in" else it.displayName ?: "Continue with Google", fontWeight = FontWeight.SemiBold) }
+                Button(enabled = authenticationReady && !pending && !oauthLaunching, onClick = onOAuth, colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color(0xFF202124), disabledContainerColor = Color(0xFFE6E6E6), disabledContentColor = Color(0xFF5F6368)), shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth().height(PrimaryButtonHeight)) { GoogleMark(); Spacer(Modifier.width(12.dp)); Text(if (oauthLaunching) "Opening sign-in…" else if (oauthPending) "Resume sign-in" else it.displayName ?: "Continue with Google", fontWeight = FontWeight.SemiBold) }
                 Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) { HorizontalDivider(Modifier.weight(1f), color = Color.White.copy(.1f)); Text("or", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 12.dp)); HorizontalDivider(Modifier.weight(1f), color = Color.White.copy(.1f)) }
             }
             TextField(
@@ -728,7 +728,7 @@ private fun SignInScreen(
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = Color(0xFF141414), disabledContainerColor = MaterialTheme.colorScheme.onSurface.copy(alpha = .14f), disabledContentColor = Color(0xFF909095)),
                 shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth().padding(top = 4.dp).height(56.dp),
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp).height(PrimaryButtonHeight),
             ) {
                 Text(
                     if (pending) "Please wait…" else if (recovering) "Reset password" else if (registering) "Create account" else "Sign in",
@@ -822,7 +822,7 @@ private fun ConnectionError(message: String, onRetry: () -> Unit, onChangeServer
         ) {
             Text("Server unavailable", style = OnboardingTitleStyle)
             Text(message, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 6.dp, bottom = 20.dp))
-            Button(onClick = onRetry, modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(12.dp)) { Text("Retry", fontWeight = FontWeight.SemiBold) }
+            Button(onClick = onRetry, modifier = Modifier.fillMaxWidth().height(PrimaryButtonHeight), shape = RoundedCornerShape(12.dp)) { Text("Retry", fontWeight = FontWeight.SemiBold) }
             TextButton(onClick = onChangeServer, modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) { Text("Use another server") }
         }
     }
@@ -2965,7 +2965,7 @@ private fun MainTopBar(
                 DropdownMenu(
                     expanded = profileMenuOpen,
                     onDismissRequest = { profileMenuOpen = false },
-                    offset = androidx.compose.ui.unit.DpOffset(x = (-8).dp, y = 8.dp),
+                    offset = androidx.compose.ui.unit.DpOffset(x = (-5).dp, y = 8.dp),
                     modifier = Modifier
                         .width(216.dp)
                         .heightIn(max = 480.dp),

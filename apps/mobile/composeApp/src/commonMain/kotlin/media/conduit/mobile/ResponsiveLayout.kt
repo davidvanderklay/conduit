@@ -24,4 +24,4 @@ internal class EqualColumns(private val count: Int) : GridCells {
 }
 
 // Match the search field's height so large text never overlaps the page heading.
-internal fun mainTopBarHeight(fontScale: Float) = (52f + 20f * (fontScale - 1f).coerceAtLeast(0f)).dp
+internal fun mainTopBarHeight(fontScale: Float) = (48f + 20f * (fontScale - 1f).coerceAtLeast(0f)).dp
