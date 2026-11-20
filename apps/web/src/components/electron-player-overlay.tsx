@@ -1220,7 +1220,7 @@ function AudioTrackMenu({
           />
         ))
       ) : (
-        <p className="px-3 py-2 text-sm text-zinc-500">No selectable audio tracks.</p>
+        <p className="px-3 py-2 text-sm text-zinc-400">No selectable audio tracks.</p>
       )}
     </div>
   )
@@ -1330,7 +1330,7 @@ function SubtitleTrackMenu({
               />
             ))
           ) : (
-            <p className="px-2 py-2 text-sm text-zinc-500">
+            <p className="px-2 py-2 text-sm text-zinc-400">
               Choose a language to see its variants.
             </p>
           )}
@@ -1340,7 +1340,7 @@ function SubtitleTrackMenu({
           aria-label="Subtitle settings"
         >
           <TrackMenuSectionTitle>Settings</TrackMenuSectionTitle>
-          <p className="px-2 text-xs text-zinc-500">Vertical position</p>
+          <p className="px-2 text-xs text-zinc-400">Vertical position</p>
           <div className="mt-2 flex items-center rounded-full bg-zinc-900">
             <button
               className="pointer-events-auto grid size-10 place-items-center rounded-full text-zinc-300 hover:bg-zinc-800 hover:text-white"
@@ -1377,7 +1377,7 @@ function TrackMenuHeader({ title, onClose }: { title: string; onClose: () => voi
     <div className="flex items-center justify-between px-2 pb-2 pt-1">
       <h3 className="font-display text-sm font-semibold">{title}</h3>
       <button
-        className="pointer-events-auto rounded-md p-1 text-zinc-500 hover:bg-zinc-800 hover:text-white"
+        className="pointer-events-auto rounded-md p-1 text-zinc-400 hover:bg-zinc-800 hover:text-white"
         data-overlay-interactive
         onClick={onClose}
         aria-label={`Close ${title.toLowerCase()} menu`}
@@ -1390,7 +1390,7 @@ function TrackMenuHeader({ title, onClose }: { title: string; onClose: () => voi
 
 function TrackMenuSectionTitle({ children }: { children: ReactNode }) {
   return (
-    <p className="sticky top-0 z-10 mb-2 bg-zinc-950 px-2 pb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+    <p className="sticky top-0 z-10 mb-2 bg-zinc-950 px-2 pb-1 text-xs font-semibold uppercase tracking-wide text-zinc-400">
       {children}
     </p>
   )
@@ -1417,7 +1417,7 @@ function TrackMenuChoice({
       aria-pressed={active}
     >
       <span>{children}</span>
-      {detail && <span className={active ? "text-zinc-800" : "text-zinc-500"}>{detail}</span>}
+      {detail && <span className={active ? "text-zinc-800" : "text-zinc-400"}>{detail}</span>}
     </button>
   )
 }
@@ -1447,7 +1447,7 @@ function TrackMenuRow({
       <span className="block truncate text-sm font-medium" title={display?.primary ?? subtitleName}>
         {display?.primary ?? subtitleName}
       </span>
-      <span className={`block text-xs ${track.selected ? "text-zinc-800" : "text-zinc-500"}`}>
+      <span className={`block text-xs ${track.selected ? "text-zinc-800" : "text-zinc-400"}`}>
         {display?.secondary ?? trackDetails(track)}
       </span>
     </button>

@@ -348,7 +348,7 @@ export function WatchPartyDialog({
               className={`min-h-0 overflow-y-auto overscroll-contain px-6 ${presentation === "sidebar" ? "flex-1" : ""}`}
             >
               <div className="flex items-center gap-3 border-b border-white/10 pb-5">
-                <div className="relative grid h-16 w-11 shrink-0 place-items-center overflow-hidden rounded-md bg-zinc-900 text-zinc-500">
+                <div className="relative grid h-16 w-11 shrink-0 place-items-center overflow-hidden rounded-md bg-zinc-900 text-zinc-400">
                   <Film size={20} />
                   {activeParty.media?.poster && (
                     <img
@@ -452,7 +452,7 @@ export function WatchPartyDialog({
                       {choice === "private" ? "Household" : "Invite guests"}
                     </span>
                     <span
-                      className={`mt-1 block text-xs ${mode === choice ? "text-amber-950/80" : "text-zinc-500"}`}
+                      className={`mt-1 block text-xs ${mode === choice ? "text-amber-950/80" : "text-zinc-400"}`}
                     >
                       {choice === "private" ? "Profiles in your household" : "Share a one-use link"}
                     </span>

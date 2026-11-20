@@ -2,8 +2,10 @@ import { useEffect, useRef, useState, type FormEvent } from "react"
 import { Baby, Check, ChevronDown, LogOut, Palette, Plus, Puzzle, Settings, X } from "lucide-react"
 import type { AppSection } from "./app-sidebar"
 import type { Profile } from "../lib/api"
+import { cn } from "../lib/utils"
 import { Button } from "./ui/button"
 import { Input } from "./ui/input"
+import { SwitchIndicator } from "./ui/switch"
 
 export function ProfileSwitcher({
   profiles,
@@ -66,23 +68,18 @@ export function ProfileSwitcher({
       <button
         ref={trigger}
         type="button"
-        className="group flex h-11 min-w-12 items-center gap-2 rounded-[18px] border border-zinc-800 bg-zinc-950 px-2 text-left text-white shadow-[0_8px_30px_rgba(0,0,0,0.25)] transition-colors hover:border-zinc-700 hover:bg-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+        className="group flex h-10 min-w-10 items-center gap-2 rounded-full border border-zinc-800 bg-zinc-950 p-1 text-left text-white transition-colors hover:border-zinc-700 hover:bg-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 sm:pr-2.5"
         aria-label={`Switch profile, current profile ${activeProfile.name}`}
         aria-haspopup="listbox"
         aria-expanded={open}
         onClick={() => setOpen((current) => !current)}
       >
         <ProfileAvatar profile={activeProfile} className="size-8" />
-        <span className="hidden min-w-0 sm:block">
-          <span className="block text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-500">
-            Watching as
-          </span>
-          <span className="block max-w-28 truncate text-sm font-semibold text-zinc-100">
-            {activeProfile.name}
-          </span>
+        <span className="hidden max-w-28 truncate text-sm font-medium text-zinc-100 sm:block">
+          {activeProfile.name}
         </span>
         <ChevronDown
-          className={`hidden shrink-0 text-zinc-500 transition-transform sm:block ${
+          className={`hidden shrink-0 text-zinc-400 transition-transform sm:block ${
             open ? "rotate-180" : ""
           }`}
           size={16}
@@ -97,7 +94,7 @@ export function ProfileSwitcher({
         >
           <div className="px-3 pb-2 pt-2">
             <p className="font-display text-sm font-semibold text-zinc-100">Switch profile</p>
-            <p className="mt-0.5 text-xs text-zinc-500">Choose whose space to open.</p>
+            <p className="mt-0.5 text-xs text-zinc-400">Choose whose space to open.</p>
           </div>
           <div className="max-h-80 space-y-1 overflow-y-auto overscroll-contain">
             {visibleProfiles.map((profile) => {
@@ -120,7 +117,7 @@ export function ProfileSwitcher({
                     <span className="block truncate text-sm font-semibold text-zinc-100">
                       {profile.name}
                     </span>
-                    <span className="mt-0.5 flex items-center gap-1 text-xs text-zinc-500">
+                    <span className="mt-0.5 flex items-center gap-1 text-xs text-zinc-400">
                       {profile.isKids ? (
                         <>
                           <Baby size={12} /> Kids profile
@@ -144,7 +141,7 @@ export function ProfileSwitcher({
           {hiddenProfileCount > 0 && (
             <button
               type="button"
-              className="mt-1 w-full rounded-lg px-3 py-2 text-left text-xs font-semibold text-zinc-500 transition-colors hover:bg-zinc-900 hover:text-zinc-200"
+              className="mt-1 w-full rounded-lg px-3 py-2 text-left text-xs font-semibold text-zinc-400 transition-colors hover:bg-zinc-900 hover:text-zinc-200"
               onClick={() => setShowAllProfiles((current) => !current)}
             >
               {showAllProfiles ? "Show fewer profiles" : `Show ${hiddenProfileCount} more profile${hiddenProfileCount === 1 ? "" : "s"}`}
@@ -164,12 +161,12 @@ export function ProfileSwitcher({
               </span>
               <span>
                 <span className="block text-sm font-semibold">Add profile</span>
-                <span className="mt-0.5 block text-xs text-zinc-600">Create another space</span>
+                <span className="mt-0.5 block text-xs text-zinc-500">Create another space</span>
               </span>
             </button>
           )}
           <div className="mt-2 border-t border-zinc-800 pt-2">
-            <p className="truncate px-3 py-1 text-xs text-zinc-600">{userName}</p>
+            <p className="truncate px-3 py-1 text-xs text-zinc-500">{userName}</p>
             <MenuAction icon={Settings} label="Settings" onClick={() => { onNavigate("settings"); setOpen(false) }} />
             <MenuAction icon={Settings} label="Updates" onClick={() => { onNavigate("updates"); setOpen(false) }} />
             <MenuAction icon={Puzzle} label="Add-ons" onClick={() => { onNavigate("addons"); setOpen(false) }} />
@@ -267,13 +264,13 @@ function CreateProfileDialog({
             <h2 id="create-profile-title" className="font-display text-xl font-semibold">
               Add a profile
             </h2>
-            <p className="mt-1 text-sm text-zinc-500">
+            <p className="mt-1 text-sm text-zinc-400">
               Give someone their own library, watch history, and preferences.
             </p>
           </div>
           <button
             type="button"
-            className="grid size-9 shrink-0 place-items-center rounded-lg text-zinc-500 hover:bg-zinc-900 hover:text-white"
+            className="grid size-9 shrink-0 place-items-center rounded-lg text-zinc-400 hover:bg-zinc-900 hover:text-white"
             aria-label="Close"
             disabled={pending}
             onClick={onClose}
@@ -323,8 +320,8 @@ function CreateProfileDialog({
           <div>
             <p className="mb-2 text-sm font-medium text-zinc-300">Avatar</p>
             <div className="mb-4 inline-flex rounded-xl border border-zinc-800 bg-zinc-900 p-1">
-              <button type="button" className={`rounded-lg px-3 py-2 text-sm ${avatarMode === "color" ? "bg-zinc-700 text-white" : "text-zinc-500"}`} onClick={() => setAvatarMode("color")}>Profile color</button>
-              <button type="button" className={`rounded-lg px-3 py-2 text-sm ${avatarMode === "image" ? "bg-zinc-700 text-white" : "text-zinc-500"}`} onClick={() => setAvatarMode("image")}>Custom image</button>
+              <button type="button" className={`rounded-lg px-3 py-2 text-sm ${avatarMode === "color" ? "bg-zinc-700 text-white" : "text-zinc-400"}`} onClick={() => setAvatarMode("color")}>Profile color</button>
+              <button type="button" className={`rounded-lg px-3 py-2 text-sm ${avatarMode === "image" ? "bg-zinc-700 text-white" : "text-zinc-400"}`} onClick={() => setAvatarMode("image")}>Custom image</button>
             </div>
             {avatarMode === "color" ? <ProfileColorPicker value={avatarColor} onChange={setAvatarColor} /> : <Input type="url" placeholder="https://example.com/avatar.png" value={avatarUrl} onChange={(event) => setAvatarUrl(event.target.value)} />}
           </div>
@@ -360,7 +357,7 @@ function ProfileOption({
     <label className="flex cursor-pointer items-center gap-4 rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
       <span className="min-w-0 flex-1">
         <span className="block text-sm font-medium text-zinc-200">{title}</span>
-        <span className="mt-1 block text-xs leading-5 text-zinc-500">{description}</span>
+        <span className="mt-1 block text-xs leading-5 text-zinc-400">{description}</span>
       </span>
       <input
         className="peer sr-only"
@@ -368,13 +365,7 @@ function ProfileOption({
         checked={checked}
         onChange={(event) => onChange(event.target.checked)}
       />
-      <span className="relative h-6 w-11 shrink-0 rounded-full bg-zinc-700 transition-colors peer-checked:bg-amber-400 peer-focus-visible:ring-2 peer-focus-visible:ring-amber-300">
-        <span
-          className={`absolute top-1 size-4 rounded-full bg-white shadow transition-transform ${
-            checked ? "translate-x-6" : "translate-x-1"
-          }`}
-        />
-      </span>
+      <SwitchIndicator checked={checked} />
     </label>
   )
 }
@@ -403,7 +394,7 @@ function MenuAction({
 export function ProfileAvatar({ profile, className }: { profile: Profile; className: string }) {
   return (
     <span
-      className={`${className} relative grid aspect-square shrink-0 place-items-center overflow-hidden rounded-full border border-white/10 text-sm font-bold text-white`}
+      className={cn("relative grid aspect-square shrink-0 place-items-center overflow-hidden rounded-full border border-white/10 text-sm font-bold text-white", className)}
       style={{ background: profile.avatarUrl ? "#18181b" : profile.avatarColor ?? avatarGradient(profile.id) }}
       aria-hidden="true"
     >
@@ -416,9 +407,68 @@ export function ProfileAvatar({ profile, className }: { profile: Profile; classN
   )
 }
 
-export function ProfileColorPicker({ value, onChange }: { value: string; onChange: (value: string) => void }) {
-  const isPreset = PROFILE_COLORS.some((color) => color.toLowerCase() === value.toLowerCase())
-  return <div><div className="flex flex-wrap items-center gap-3">{PROFILE_COLORS.map((color) => <button key={color} type="button" className={`size-9 rounded-full transition ${color.toLowerCase() === value.toLowerCase() ? "ring-2 ring-white ring-offset-2 ring-offset-zinc-950" : "hover:scale-110"}`} style={{ backgroundColor: color }} aria-label={`Use profile color ${color}`} onClick={() => onChange(color)} />)}<label className={`group relative grid size-9 cursor-pointer place-items-center rounded-full border transition ${!isPreset ? "ring-2 ring-white ring-offset-2 ring-offset-zinc-950" : "border-zinc-700 hover:border-amber-400/70"}`} style={{ backgroundColor: value }}><Palette size={14} className="text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]" /><span className="sr-only">Choose custom profile color</span><input className="absolute inset-0 size-full cursor-pointer opacity-0" type="color" value={value} onChange={(event) => onChange(event.target.value.toUpperCase())} aria-label="Choose custom profile color" /></label><span className="text-xs tabular-nums text-zinc-500">{value.toUpperCase()} · {!isPreset ? "Custom" : "Choose custom"}</span></div></div>
+const selectedSwatch = "ring-2 ring-white ring-offset-2 ring-offset-zinc-950"
+
+/**
+ * Preset swatches plus a custom color input. `null` means no color chosen (the generated gradient).
+ * Pass `onReset` with the profile's `defaultBackground` to offer that gradient as its own swatch.
+ */
+export function ProfileColorPicker({
+  value,
+  onChange,
+  onReset,
+  defaultBackground,
+}: {
+  value: string | null
+  onChange: (value: string) => void
+  onReset?: () => void
+  defaultBackground?: string
+}) {
+  const preset = value != null && PROFILE_COLORS.some((color) => color.toLowerCase() === value.toLowerCase())
+  const custom = value != null && !preset
+  return (
+    <div className="flex flex-wrap items-center gap-3">
+      {onReset && (
+        <button
+          type="button"
+          className={`size-9 rounded-full ring-1 ring-inset ring-white/25 transition ${value == null ? selectedSwatch : "hover:scale-110"}`}
+          style={{ background: defaultBackground }}
+          title="Default"
+          aria-label="Use default profile color"
+          aria-pressed={value == null}
+          onClick={onReset}
+        />
+      )}
+      {PROFILE_COLORS.map((color) => (
+        <button
+          key={color}
+          type="button"
+          className={`size-9 rounded-full transition ${color.toLowerCase() === value?.toLowerCase() ? selectedSwatch : "hover:scale-110"}`}
+          style={{ backgroundColor: color }}
+          aria-label={`Use profile color ${color}`}
+          onClick={() => onChange(color)}
+        />
+      ))}
+      <label
+        className={`group relative grid size-9 cursor-pointer place-items-center rounded-full border transition ${custom ? selectedSwatch : "border-zinc-700 hover:border-amber-400/70"}`}
+        style={{ backgroundColor: custom ? value : undefined }}
+      >
+        <Palette size={14} className="text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]" />
+        <input
+          className="absolute inset-0 size-full cursor-pointer opacity-0"
+          type="color"
+          value={value ?? "#808080"}
+          onChange={(event) => onChange(event.target.value.toUpperCase())}
+          aria-label="Choose custom profile color"
+        />
+      </label>
+      {value != null && (
+        <span className="text-xs tabular-nums text-zinc-400">
+          {custom ? `${value.toUpperCase()} · Custom` : value.toUpperCase()}
+        </span>
+      )}
+    </div>
+  )
 }
 
 export interface CreateProfileValues {
@@ -435,7 +485,7 @@ export const PROFILE_COLORS = [
   "#3949AB", "#039BE5", "#00897B", "#43A047",
 ]
 
-function avatarGradient(profileId: string): string {
+export function avatarGradient(profileId: string): string {
   const gradients = [
     "linear-gradient(135deg, #f59e0b, #c2410c)",
     "linear-gradient(135deg, #8b5cf6, #4f46e5)",

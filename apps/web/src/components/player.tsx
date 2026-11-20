@@ -1425,7 +1425,7 @@ function WebPlayer({
               {trackMenu === "audio" ? "Audio" : "Subtitles"}
             </h3>
             <button
-              className="rounded-md p-1 text-zinc-500 hover:bg-zinc-800 hover:text-white"
+              className="rounded-md p-1 text-zinc-400 hover:bg-zinc-800 hover:text-white"
               onClick={() => setTrackMenu(undefined)}
               aria-label={`Close ${trackMenu} menu`}
             >
@@ -1469,7 +1469,7 @@ function WebPlayer({
             ))
           ) : (
             // The engine reads the container's track list, so an empty one means no audio.
-            <p className="px-3 py-2 text-sm text-zinc-500">
+            <p className="px-3 py-2 text-sm text-zinc-400">
               {route === "engine"
                 ? "No audio track."
                 : "The browser picks the audio track for this source and does not offer switching."}

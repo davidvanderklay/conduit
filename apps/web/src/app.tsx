@@ -3,7 +3,7 @@ import { useUpdates } from "./lib/updates"
 import { UpdatesView } from "./components/updates-view"
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react"
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { ArrowLeft, Check, Film, Globe2, Search, Server, Shield, X } from "lucide-react"
+import { ArrowLeft, Check, Film, Globe2, Search, Server, Shield, X, ChevronRight } from "lucide-react"
 import {
   api,
   type Bootstrap,
@@ -22,7 +22,7 @@ import {
 } from "./lib/server"
 import { loadCatalog, type CatalogItem } from "./lib/core"
 import { readLastProfileId, rememberLastProfileId } from "./lib/profile-preference"
-import { posterCoverClass, posterTitleClass } from "./lib/poster-layout"
+import { posterColumnsForWidth, posterCoverClass, posterTitleClass } from "./lib/poster-layout"
 import { arrangeHomeRows, type HomeRow } from "./lib/home-rows"
 import { ProfileSwitcher } from "./components/profile-switcher"
 import { Button } from "./components/ui/button"
@@ -62,6 +62,9 @@ import {
 import { WatchPartySession, type WatchPartyMedia, type WatchPartySummary } from "./lib/watch-party"
 import { joinWatchParty } from "./lib/watch-party-api"
 import type { WatchPartySessionResponse } from "./lib/watch-party-api"
+import { pageClassName } from "./components/ui/page"
+import { useMediaQuery } from "./lib/use-media-query"
+import { cn } from "./lib/utils"
 
 export function App() {
   const session = authClient.useSession()
@@ -249,7 +252,7 @@ function AuthScreen() {
                       : "Create your account"
                     : "Welcome back"}
               </h1>
-              <p className="mt-2 text-sm leading-6 text-zinc-500">
+              <p className="mt-2 text-sm leading-6 text-zinc-400">
                 {recovering
                   ? "Enter one of the recovery codes you saved."
                   : mode === "register"
@@ -357,7 +360,7 @@ function AuthScreen() {
                     </Button>
                     <div className="my-6 flex items-center gap-3">
                       <div className="h-px flex-1 bg-zinc-800" />
-                      <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-zinc-600">
+                      <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-zinc-500">
                         or continue with email
                       </span>
                       <div className="h-px flex-1 bg-zinc-800" />
@@ -394,7 +397,7 @@ function AuthScreen() {
                         {authConfig.isSuccess && (
                           <button
                             type="button"
-                            className="font-medium text-zinc-500 transition hover:text-amber-300"
+                            className="font-medium text-zinc-400 transition hover:text-amber-300"
                             onClick={() => {
                               setRecovering(true)
                               setError("")
@@ -422,7 +425,7 @@ function AuthScreen() {
                       </AuthField>
                     )}
                   {mode === "register" && (
-                    <p className="rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-2.5 text-xs leading-5 text-zinc-500">
+                    <p className="rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-2.5 text-xs leading-5 text-zinc-400">
                       No personal name required. Profiles remain separate from your account.
                     </p>
                   )}
@@ -466,13 +469,13 @@ function AuthScreen() {
             </div>
           )}
           {authConfig.data?.needsOwner && authConfig.data.bootstrapMode === "manual" && (
-            <p className="border-t border-zinc-800/80 bg-zinc-950/40 px-6 py-4 text-center text-sm text-zinc-500">
+            <p className="border-t border-zinc-800/80 bg-zinc-950/40 px-6 py-4 text-center text-sm text-zinc-400">
               The server operator must create the first owner with{" "}
               <code className="text-zinc-300">conduit admin create-owner</code>.
             </p>
           )}
           {recoveryCodes.length === 0 && !recovering && authConfig.data?.localRegistration && (
-            <div className="border-t border-zinc-800/80 bg-zinc-950/40 px-6 py-4 text-center text-sm text-zinc-500">
+            <div className="border-t border-zinc-800/80 bg-zinc-950/40 px-6 py-4 text-center text-sm text-zinc-400">
               {mode === "register" ? "Already have an account?" : "New to this instance?"}{" "}
               <button
                 className="font-medium text-zinc-200 transition hover:text-amber-300"
@@ -496,7 +499,7 @@ function AuthScreen() {
         )}
         <button
           type="button"
-          className="mx-auto mt-5 flex max-w-full items-center gap-2 rounded-full border border-zinc-800/80 bg-zinc-900/60 px-3 py-1.5 text-xs text-zinc-500 transition hover:border-zinc-700 hover:text-zinc-300"
+          className="mx-auto mt-5 flex max-w-full items-center gap-2 rounded-full border border-zinc-800/80 bg-zinc-900/60 px-3 py-1.5 text-xs text-zinc-400 transition hover:border-zinc-700 hover:text-zinc-300"
           onClick={() => setSelectingServer(true)}
         >
           <span
@@ -511,7 +514,7 @@ function AuthScreen() {
           <span className="truncate">
             {isDefaultServer(API_URL) ? "Default server" : serverDisplayName(API_URL)}
           </span>
-          <span className="text-zinc-700">·</span>
+          <span className="text-zinc-600">·</span>
           <span className="shrink-0 font-medium text-zinc-400">Change server</span>
         </button>
       </div>
@@ -571,7 +574,7 @@ function ServerSelector({ onClose }: { onClose: () => void }) {
           <div className="p-6 sm:p-8">
             <button
               type="button"
-              className="mb-6 inline-flex items-center gap-1.5 text-xs font-medium text-zinc-500 transition hover:text-zinc-200"
+              className="mb-6 inline-flex items-center gap-1.5 text-xs font-medium text-zinc-400 transition hover:text-zinc-200"
               onClick={onClose}
               disabled={pending}
             >
@@ -588,7 +591,7 @@ function ServerSelector({ onClose }: { onClose: () => void }) {
               >
                 Choose your server
               </h2>
-              <p className="mt-2 text-sm leading-6 text-zinc-500">
+              <p className="mt-2 text-sm leading-6 text-zinc-400">
                 Use conduit&apos;s default service or connect directly to a self-hosted instance.
                 Your choice stays on this device.
               </p>
@@ -632,10 +635,10 @@ function ServerSelector({ onClose }: { onClose: () => void }) {
                     autoFocus
                   />
                 </AuthField>
-                <p className="mt-2 text-xs leading-5 text-zinc-600">
-                  Include <span className="font-mono text-zinc-500">https://</span>. Local
+                <p className="mt-2 text-xs leading-5 text-zinc-500">
+                  Include <span className="font-mono text-zinc-400">https://</span>. Local
                   development servers may use{" "}
-                  <span className="font-mono text-zinc-500">http://</span>.
+                  <span className="font-mono text-zinc-400">http://</span>.
                 </p>
               </div>
             )}
@@ -693,7 +696,7 @@ function ServerChoice({
       </span>
       <span className="min-w-0">
         <span className="block text-sm font-medium text-zinc-200">{title}</span>
-        <span className="mt-0.5 block truncate text-xs text-zinc-600">{description}</span>
+        <span className="mt-0.5 block truncate text-xs text-zinc-500">{description}</span>
       </span>
     </button>
   )
@@ -717,6 +720,7 @@ function AuthenticatedApp({
   const [activeProfileId, setActiveProfileId] = useState<string | undefined>(readLastProfileId)
   const [section, setSection] = useState<AppSection>("home")
   const [searchInput, setSearchInput] = useState("")
+  const compactSearchPlaceholder = useMediaQuery("(max-width: 639px)")
   const [query, setQuery] = useState("")
   const [discoverSelection, setDiscoverSelection] = useState<DiscoverSelection>({})
   const [watchPartyOpen, setWatchPartyOpen] = useState(false)
@@ -925,20 +929,20 @@ function AuthenticatedApp({
           </div>
           <div className="relative mx-auto w-full max-w-xl">
             <Search
-              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500"
+              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400"
               size={17}
             />
             <input
               type="search"
               value={searchInput}
               aria-label="Search or paste a link"
-              placeholder="Search or paste a link"
-              className="h-11 w-full rounded-xl border border-zinc-800 bg-zinc-900/80 pl-10 pr-10 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20"
+              placeholder={compactSearchPlaceholder ? "Search" : "Search or paste a link"}
+              className="h-10 w-full rounded-xl border border-zinc-800 bg-zinc-900/80 pl-10 pr-10 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-amber-400/70 focus:ring-2 focus:ring-amber-400/15"
               onChange={(event) => setSearchInput(event.target.value)}
             />
             {searchInput && (
               <button
-                className="absolute right-1.5 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-lg text-zinc-500 hover:bg-zinc-800 hover:text-white"
+                className="absolute right-1.5 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-lg text-zinc-400 hover:bg-zinc-800 hover:text-white"
                 aria-label="Clear search"
                 onClick={() => setSearchInput("")}
               >
@@ -996,14 +1000,15 @@ function AuthenticatedApp({
           </div>
         </div>
       </header>
-      {updates.server.data && updates.server.data.apiLevel < API_LEVEL && <div role="alert" className="border-b border-white bg-black px-5 py-2 text-sm text-white md:ml-16">
-        This server needs an update. <button className="ml-3 underline" onClick={() => navigate("updates")}>View details</button>
+      {updates.server.data && updates.server.data.apiLevel < API_LEVEL && <div role="alert" className="border-b border-amber-400/20 bg-amber-400/10 px-5 py-2 text-sm text-amber-100 md:ml-16">
+        This server needs an update. <button className="ml-3 font-medium text-amber-300 hover:underline" onClick={() => navigate("updates")}>View details</button>
       </div>}
-      <AppSidebar active={section} onNavigate={navigate} updateCount={updates.count} />
+      <AppSidebar active={searchInput ? undefined : section} onNavigate={navigate} updateCount={updates.count} />
       <div
         ref={scrollViewportRef}
         id="app-scroll-viewport"
-        className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-24 md:ml-16 md:pb-0"
+        // On mobile the viewport stops above the floating nav so it never covers content.
+        className="mb-[calc(5.5rem+env(safe-area-inset-bottom))] min-h-0 flex-1 overflow-y-auto overscroll-contain md:mb-0 md:ml-16"
       >
         <ProfileApp
           accountId={userId}
@@ -1124,7 +1129,7 @@ function HouseholdSetup() {
       <Card className="w-full max-w-lg p-8">
         <Server className="mb-5 text-amber-400" />
         <h1 className="font-display text-3xl font-semibold">Create your household</h1>
-        <p className="mt-2 text-zinc-500">
+        <p className="mt-2 text-zinc-400">
           Profiles, add-ons, and watch state will synchronize through this server.
         </p>
         <form
@@ -1293,6 +1298,7 @@ function ProfileApp({
             onNavigate("discover")
           }}
           onMetadataBrowse={onMetadataBrowse}
+          onManageAddons={() => onNavigate("addons")}
           onPlayQueued={playQueued}
         />
       )}
@@ -1316,6 +1322,7 @@ function ProfileApp({
             setSettingsPage("data")
             onNavigate("settings")
           }}
+          onBrowse={() => onNavigate("discover")}
         />
       )}
       {!searchInput && section === "continue" && (
@@ -1381,6 +1388,7 @@ function ProfileApp({
           onWatchPartyJoined={onWatchPartyJoined}
           onWatchPartyMediaChange={onWatchPartyMediaChange}
           onBrowse={onMetadataBrowse}
+          onManageAddons={() => onNavigate("addons")}
           onClose={() => {
             setSelection(undefined)
             if (watchPartyLaunch) onWatchPartyMediaClose()
@@ -1422,12 +1430,14 @@ function MediaHome({
   onWatchPartyMediaClose,
   onDiscover,
   onMetadataBrowse,
+  onManageAddons,
   onPlayQueued,
 }: {
   accountId: string
   profile: Profile
   addons: InstalledAddon[]
   onContinueWatching: () => void
+  onManageAddons: () => void
   watchPartyLaunch?: WatchPartyLaunch
   onWatchPartySessionChange: (session: WatchPartySession | undefined) => void
   onWatchPartyJoined: (party: WatchPartySummary, session: WatchPartySession) => void
@@ -1498,9 +1508,10 @@ function MediaHome({
   ]
 
   return (
-    <main className="mx-auto max-w-[2200px] 2xl:max-w-none px-4 py-8 sm:px-6 lg:px-6 xl:px-6 2xl:px-8">
+    <main className={pageClassName}>
       <VirtualVerticalList
         items={feedItems}
+        gap={32}
         itemKey={(item) => item.key}
         renderItem={(feedItem) => {
           if (feedItem.kind === "continue") {
@@ -1576,6 +1587,7 @@ function MediaHome({
           onWatchPartyJoined={onWatchPartyJoined}
           onWatchPartyMediaChange={onWatchPartyMediaChange}
           onBrowse={onMetadataBrowse}
+          onManageAddons={onManageAddons}
           onClose={() => {
             setSelectedItem(undefined)
             if (watchPartyLaunch) onWatchPartyMediaClose()
@@ -1600,18 +1612,7 @@ function useShelfColumns() {
     const el = ref.current
     if (!el) return
     const update = () => {
-      const w = el.clientWidth
-      let c = 2
-      if (w >= 2000) c = 10
-      else if (w >= 1700) c = 9
-      else if (w >= 1400) c = 8
-      else if (w >= 1200) c = 7
-      else if (w >= 1000) c = 6
-      else if (w >= 768) c = 5
-      else if (w >= 640) c = 4
-      else if (w >= 480) c = 3
-      else c = 2
-      setColumns(c)
+      setColumns(posterColumnsForWidth(el.clientWidth))
     }
     update()
     const ro = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(update)
@@ -1650,10 +1651,11 @@ function CatalogShelf({
         <h2 className="font-display text-xl font-semibold">{title}</h2>
         {hasMore && (
           <button
-            className="text-xs font-semibold text-zinc-500 transition hover:text-amber-300"
+            className="flex items-center gap-0.5 text-sm font-medium text-zinc-400 transition hover:text-white"
             onClick={onSeeMore}
           >
             See more
+            <ChevronRight size={15} />
           </button>
         )}
       </div>
@@ -1676,7 +1678,7 @@ function CatalogShelf({
                     height={450}
                   />
                 ) : (
-                  <div className="grid h-full place-items-center text-zinc-700">
+                  <div className="grid h-full place-items-center text-zinc-600">
                     <Film />
                   </div>
                 )}
@@ -1684,7 +1686,8 @@ function CatalogShelf({
             </button>
             <div className="mt-2 flex items-start gap-1">
               <button className="min-w-0 flex-1 text-left" onClick={() => onSelect(item)}>
-                <p className={posterTitleClass}>{item.name}</p>
+                {/* Shelves are one row, so captions take only the height they need. */}
+                <p className={cn(posterTitleClass, "h-auto min-h-4 sm:h-auto sm:min-h-5")}>{item.name}</p>
               </button>
               <BrowsePosterMenu
                 profileId={profileId}
@@ -1787,7 +1790,7 @@ function RecoveryCodes({ codes, onContinue }: { codes: string[]; onContinue: () 
       <pre className="mt-4 grid grid-cols-2 gap-2 whitespace-pre-wrap rounded-xl bg-zinc-950 p-4 text-xs text-amber-300">
         {text}
       </pre>
-      <p className="mt-4 text-xs text-zinc-500">
+      <p className="mt-4 text-xs text-zinc-400">
         Recovery codes protect account access. Frequent profile exports separately protect your
         library and watch history if the account cannot be recovered.
       </p>
@@ -1912,7 +1915,7 @@ function AdminRecoveryScreen() {
             </a>
           </>
         ) : recovery.isLoading ? (
-          <p className="mt-3 text-sm text-zinc-500">Validating this one-time link…</p>
+          <p className="mt-3 text-sm text-zinc-400">Validating this one-time link…</p>
         ) : recovery.isError || !token ? (
           <p className="mt-3 text-sm text-red-300">
             This recovery link is invalid, expired, or has already been used.
@@ -1987,14 +1990,14 @@ function AdminScreen() {
   const value = settings.data!
   return (
     <main className="mx-auto min-h-screen w-full max-w-3xl px-5 py-10">
-      <a className="text-sm text-zinc-500 hover:text-white" href="/">
+      <a className="text-sm text-zinc-400 hover:text-white" href="/">
         ← Back to conduit
       </a>
       <div className="mt-6 flex items-center gap-3">
         <Shield className="text-amber-400" />
         <div>
           <h1 className="font-display text-3xl font-semibold">Instance authentication</h1>
-          <p className="text-sm text-zinc-500">Owner-only settings for account access.</p>
+          <p className="text-sm text-zinc-400">Owner-only settings for account access.</p>
         </div>
       </div>
       <Card className="mt-8 p-7">
@@ -2049,11 +2052,11 @@ function AdminScreen() {
               <p className="font-medium text-zinc-200">Google defaults</p>
               <dl className="mt-3 grid gap-2 text-xs sm:grid-cols-2">
                 <div>
-                  <dt className="text-zinc-600">Login button</dt>
+                  <dt className="text-zinc-500">Login button</dt>
                   <dd className="mt-1">Continue with Google</dd>
                 </div>
                 <div>
-                  <dt className="text-zinc-600">Requested access</dt>
+                  <dt className="text-zinc-500">Requested access</dt>
                   <dd className="mt-1">Email address only</dd>
                 </div>
               </dl>
@@ -2103,12 +2106,12 @@ function AdminScreen() {
             Automatically create accounts for new OAuth users
           </label>
           <div className="rounded-xl bg-zinc-950 p-4">
-            <p className="text-xs text-zinc-500">OIDC callback URL</p>
+            <p className="text-xs text-zinc-400">OIDC callback URL</p>
             <code className="mt-1 block overflow-x-auto text-xs text-zinc-300">
               {oauthProvider === "google" ? value.googleCallbackUrl : value.oidcCallbackUrl}
             </code>
           </div>
-          <p className="text-xs leading-5 text-zinc-500">
+          <p className="text-xs leading-5 text-zinc-400">
             Saving does not activate a provider immediately. Restart the conduit server, then sign
             out or use a private browser window to see the login button.
           </p>

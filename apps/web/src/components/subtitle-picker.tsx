@@ -74,7 +74,7 @@ export function SubtitlePicker({
         className="max-h-48 min-h-0 overflow-y-auto overscroll-contain pr-1 sm:max-h-none"
         aria-label="Subtitle languages"
       >
-        <p className="sticky top-0 z-10 mb-2 bg-zinc-950 px-2 pb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+        <p className="sticky top-0 z-10 mb-2 bg-zinc-950 px-2 pb-1 text-xs font-semibold uppercase tracking-wide text-zinc-400">
           Languages
         </p>
         <button
@@ -108,10 +108,10 @@ export function SubtitlePicker({
             aria-expanded={selectedCode === group.code}
           >
             <span>{group.label}</span>
-            <span className="text-xs text-zinc-500">{group.tracks.length}</span>
+            <span className="text-xs text-zinc-400">{group.tracks.length}</span>
           </button>
         ))}
-        {loading && <p className="px-3 py-2 text-xs text-zinc-500">Loading subtitles…</p>}
+        {loading && <p className="px-3 py-2 text-xs text-zinc-400">Loading subtitles…</p>}
       </section>
 
       <section
@@ -128,7 +128,7 @@ export function SubtitlePicker({
               <ChevronLeft size={15} />
             </button>
           )}
-          <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Variants</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-zinc-400">Variants</p>
         </div>
         {selectedGroup ? (
           selectedGroup.tracks.map((item) => (
@@ -141,13 +141,13 @@ export function SubtitlePicker({
               aria-pressed={item.active}
             >
               <span className="block text-sm font-medium">{item.title}</span>
-              <span className={`block text-xs ${item.active ? "text-zinc-800" : "text-zinc-500"}`}>
+              <span className={`block text-xs ${item.active ? "text-zinc-800" : "text-zinc-400"}`}>
                 {item.detail}
               </span>
             </button>
           ))
         ) : (
-          <p className="px-3 py-2 text-sm text-zinc-500">
+          <p className="px-3 py-2 text-sm text-zinc-400">
             Choose a language to see its available variants.
           </p>
         )}
@@ -155,10 +155,10 @@ export function SubtitlePicker({
       </section>
 
       <section className="min-h-0 border-zinc-800 sm:border-l sm:pl-3" aria-label="Subtitle settings">
-        <p className="mb-2 px-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+        <p className="mb-2 px-2 text-xs font-semibold uppercase tracking-wide text-zinc-400">
           Settings
         </p>
-        <p className="px-2 text-xs text-zinc-500">Vertical position</p>
+        <p className="px-2 text-xs text-zinc-400">Vertical position</p>
         <div className="mt-2 flex items-center rounded-full bg-zinc-900">
           <button
             className="grid size-10 place-items-center rounded-full hover:bg-zinc-800"
@@ -227,7 +227,7 @@ export function SubtitleDelayStepper({
   return (
     <>
       <div className="mt-4 flex items-center justify-between px-2">
-        <p className="text-xs text-zinc-500">Delay</p>
+        <p className="text-xs text-zinc-400">Delay</p>
         {delayMs !== 0 && (
           <button
             className="pointer-events-auto text-zinc-400 hover:text-white"

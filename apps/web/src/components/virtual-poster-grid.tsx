@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { useVirtualizer } from "@tanstack/react-virtual"
+import { posterColumnsForWidth } from "../lib/poster-layout"
 
 const COLUMN_GAP = 12
 const ROW_GAP = 24
@@ -16,7 +17,7 @@ export function VirtualPosterGrid<T>({
 }) {
   const gridRef = useRef<HTMLDivElement>(null)
   const [layout, setLayout] = useState(() => ({
-    columns: columnsForWidth(window.innerWidth),
+    columns: posterColumnsForWidth(window.innerWidth),
     width: 0,
   }))
 
@@ -25,7 +26,7 @@ export function VirtualPosterGrid<T>({
       const width = gridRef.current?.clientWidth ?? 0
       setLayout((current) => {
         const next = {
-          columns: columnsForWidth(width || window.innerWidth),
+          columns: posterColumnsForWidth(width || window.innerWidth),
           width,
         }
         return current.columns === next.columns && current.width === next.width ? current : next
@@ -91,18 +92,6 @@ export function VirtualPosterGrid<T>({
 
 function appScrollElement(): HTMLElement | null {
   return typeof document === "undefined" ? null : document.getElementById("app-scroll-viewport")
-}
-
-export function columnsForWidth(width: number): number {
-  if (width >= 2560) return 10
-  if (width >= 1920) return 9
-  if (width >= 1600) return 8
-  if (width >= 1536) return 7
-  if (width >= 1280) return 6
-  if (width >= 1024) return 5
-  if (width >= 768) return 4
-  if (width >= 640) return 3
-  return 2
 }
 
 function chunk<T>(items: T[], size: number): T[][] {

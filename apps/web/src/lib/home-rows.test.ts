@@ -32,7 +32,7 @@ describe("home rows", () => {
     )
     expect(rows.map((row) => [row.key, row.title, row.enabled, row.addonId])).toEqual([
       ["cinemeta:series:top", "Shows", false, "first"],
-      ["cinemeta:movie:top", "Popular - Movie", true, "first"],
+      ["cinemeta:movie:top", "Popular · Movies", true, "first"],
     ])
   })
 

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { AlertCircle, Check, ChevronDown, Film, Info, LoaderCircle, Play, Trash2 } from "lucide-react"
+import { AlertCircle, Check, Film, Info, LoaderCircle, Play, Trash2 } from "lucide-react"
 import { api, type InstalledAddon, type LibraryItem, type WatchProgress } from "../lib/api"
 import { addonsForResource } from "../lib/addons"
 import { loadMeta, type CatalogItem, type MetaItem } from "../lib/core"
@@ -17,7 +17,11 @@ import { useQueueControls } from "../lib/use-queue"
 import { PaginationControls } from "./pagination-controls"
 import { PosterResumeButton } from "./poster-resume-button"
 import { VirtualPosterGrid } from "./virtual-poster-grid"
+import { Button } from "./ui/button"
 import { Card } from "./ui/card"
+import { PageHeader, pageClassName } from "./ui/page"
+import { Select } from "./ui/select"
+import { EmptyState } from "./ui/empty-state"
 
 type Filter = "all" | "movie" | "series"
 
@@ -34,11 +38,14 @@ export function LibraryView({
   addons,
   onSelect,
   onMigrate,
+  onBrowse,
 }: {
   profileId: string
   addons: InstalledAddon[]
   onSelect: (item: CatalogItem, progress?: WatchProgress) => void
   onMigrate?: () => void
+  /** Offered from the empty library so there is always a next step. */
+  onBrowse?: () => void
 }) {
   const [filter, setFilter] = useState<Filter>("all")
   const [sort, setSort] = useState<LibrarySort>("last-watched")
@@ -138,15 +145,11 @@ export function LibraryView({
   const items = resolved.data ?? []
 
   return (
-    <main className="mx-auto max-w-[2200px] 2xl:max-w-none px-4 py-9 sm:px-6 lg:px-6 xl:px-6 2xl:px-8">
-      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-400">
-        Your collection
-      </p>
-      <h1 className="mt-2 font-display text-3xl font-semibold">Library</h1>
-      <p className="mt-2 text-zinc-500">Movies and series saved to this profile.</p>
+    <main className={pageClassName}>
+      <PageHeader title="Library" description="Movies and series saved to this profile." />
 
-      <div className="mt-7 flex flex-wrap gap-3">
-        <LibrarySelect
+      <div className="flex flex-wrap gap-3">
+        <Select
           label="Media type"
           value={filter}
           options={[
@@ -156,7 +159,7 @@ export function LibraryView({
           ]}
           onChange={(value) => setFilter(value as Filter)}
         />
-        <LibrarySelect
+        <Select
           label="Sort library"
           value={sort}
           options={[
@@ -171,7 +174,7 @@ export function LibraryView({
       </div>
 
       {(library.isLoading || resolved.isLoading || progress.isLoading || statusMetadata.isLoading) && (
-        <div className="flex items-center justify-center gap-3 py-24 text-zinc-500">
+        <div className="flex items-center justify-center gap-3 py-24 text-zinc-400">
           <LoaderCircle className="animate-spin text-amber-400" /> Loading your library…
         </div>
       )}
@@ -182,23 +185,26 @@ export function LibraryView({
         </Card>
       )}
       {orderingReady && resolved.data && items.length === 0 && (
-        <Card className="mt-8 grid min-h-64 place-items-center border-dashed text-center">
-          <div>
-            <Film className="mx-auto text-zinc-700" size={34} />
-            <p className="mt-4 text-sm text-zinc-500">
-              {library.data?.items.length ? "No titles match this filter." : "Nothing saved yet."}
-            </p>
-            {!library.data?.items.length && onMigrate && (
-              <button
-                type="button"
-                className="mt-3 text-sm text-amber-400 hover:text-amber-300"
-                onClick={onMigrate}
-              >
-                Coming from Stremio or Nuvio?
-              </button>
-            )}
-          </div>
-        </Card>
+        <EmptyState
+          className="mt-6"
+          icon={Film}
+          title={library.data?.items.length ? "No titles match this filter" : "Nothing saved yet"}
+          description={
+            library.data?.items.length ? undefined : "Titles you add to your library show up here."
+          }
+          actions={
+            !library.data?.items.length && (
+              <>
+                {onBrowse && <Button onClick={onBrowse}>Browse titles</Button>}
+                {onMigrate && (
+                  <Button variant="secondary" onClick={onMigrate}>
+                    Import from Stremio or Nuvio
+                  </Button>
+                )}
+              </>
+            )
+          }
+        />
       )}
       {items.length > 0 && (
         <div className="mt-9">
@@ -231,7 +237,7 @@ export function LibraryView({
                         height={450}
                       />
                     ) : (
-                      <div className="grid h-full place-items-center text-zinc-700">
+                      <div className="grid h-full place-items-center text-zinc-600">
                         <Film />
                       </div>
                     )}
@@ -353,39 +359,6 @@ function LibraryPosterMenu({
   )
 }
 
-function LibrarySelect({
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  label: string
-  value: string
-  options: Array<[string, string]>
-  onChange: (value: string) => void
-}) {
-  return (
-    <label className="relative min-w-44">
-      <span className="sr-only">{label}</span>
-      <select
-        aria-label={label}
-        className="library-select h-11 w-full appearance-none rounded-xl border border-zinc-700 bg-zinc-900 px-4 pr-10 text-sm font-medium text-zinc-100 shadow-sm outline-none transition hover:border-zinc-600 hover:bg-zinc-800 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20"
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-      >
-        {options.map(([option, name]) => (
-          <option className="bg-zinc-900 text-zinc-100" value={option} key={option}>
-            {name}
-          </option>
-        ))}
-      </select>
-      <ChevronDown
-        className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400"
-        size={16}
-      />
-    </label>
-  )
-}
 
 async function resolveLibraryItem(
   item: LibraryItem,

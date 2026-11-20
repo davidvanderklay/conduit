@@ -23,7 +23,7 @@ export function AudioTrackRow({
       <span className="block truncate text-sm font-medium" title={display.primary}>
         {display.primary}
       </span>
-      <span className={`text-xs ${selected ? "text-zinc-800" : "text-zinc-500"}`}>
+      <span className={`text-xs ${selected ? "text-zinc-800" : "text-zinc-400"}`}>
         {display.secondary}
       </span>
     </button>

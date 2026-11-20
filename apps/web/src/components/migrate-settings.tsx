@@ -172,7 +172,7 @@ export function MigrateSettings({
                     "px-4 py-2 text-sm",
                     source === value
                       ? "bg-zinc-800 text-zinc-100"
-                      : "text-zinc-500 hover:text-zinc-300",
+                      : "text-zinc-400 hover:text-zinc-300",
                   )}
                   onClick={() => setSource(value)}
                 >
@@ -182,7 +182,7 @@ export function MigrateSettings({
             </div>
             <button
               type="button"
-              className="text-xs text-zinc-500 hover:text-zinc-300"
+              className="text-xs text-zinc-400 hover:text-zinc-300"
               onClick={() =>
                 source === "stremio"
                   ? setUseAuthKey((value) => !value)
@@ -225,7 +225,7 @@ export function MigrateSettings({
               Connect
             </Button>
           </div>
-          <p className="mt-3 text-xs text-zinc-600">
+          <p className="mt-3 text-xs text-zinc-500">
             Sign-in details pass through your conduit server once and are not stored. Nothing is
             changed in {source === "stremio" ? "Stremio" : "Nuvio"}.
           </p>
@@ -262,13 +262,13 @@ export function MigrateSettings({
             )}
             <button
               type="button"
-              className="inline-flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-300"
+              className="inline-flex items-center gap-1.5 text-xs text-zinc-400 hover:text-zinc-300"
               onClick={disconnect}
             >
               <LogOut size={13} /> Disconnect
             </button>
           </div>
-          {busy && !snapshot && <p className="mt-4 text-sm text-zinc-500">Reading account…</p>}
+          {busy && !snapshot && <p className="mt-4 text-sm text-zinc-400">Reading account…</p>}
           {snapshot && (
             <>
               <div className="mt-4 flex flex-wrap gap-x-6 gap-y-2">
@@ -281,11 +281,11 @@ export function MigrateSettings({
                       onChange={(event) => setInclude({ ...include, [key]: event.target.checked })}
                     />
                     {label}
-                    <span className="text-zinc-500">{snapshot.counts[key].toLocaleString()}</span>
+                    <span className="text-zinc-400">{snapshot.counts[key].toLocaleString()}</span>
                   </label>
                 ))}
               </div>
-              <p className="mt-3 text-xs text-zinc-600">
+              <p className="mt-3 text-xs text-zinc-500">
                 Titles and add-ons already in this profile are skipped. Existing progress is only
                 replaced by newer progress.
               </p>

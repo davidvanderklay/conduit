@@ -165,7 +165,7 @@ export function PlayerEpisodeDrawer({
                 }}
               />
             ) : (
-              <p className="px-2 py-10 text-center text-xs leading-5 text-zinc-500">
+              <p className="px-2 py-10 text-center text-xs leading-5 text-zinc-400">
                 Your queue is empty
               </p>
             )}

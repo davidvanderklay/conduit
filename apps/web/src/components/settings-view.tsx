@@ -58,7 +58,10 @@ import { Button } from "./ui/button"
 import { Input } from "./ui/input"
 import type { AppSection } from "./app-sidebar"
 import { MigrateSettings } from "./migrate-settings"
-import { PROFILE_COLORS, ProfileAvatar, ProfileColorPicker } from "./profile-switcher"
+import { PROFILE_COLORS, ProfileAvatar, ProfileColorPicker, avatarGradient } from "./profile-switcher"
+import { PageHeader, pageClassName } from "./ui/page"
+import { SwitchIndicator } from "./ui/switch"
+import { Section } from "./ui/section"
 
 export type SettingsPage =
   | "profile"
@@ -102,7 +105,7 @@ const settingsEntries: SettingsEntry[] = [
     id: "account",
     group: "Account",
     title: "Account & security",
-    description: "Sign-in, password, and recovery",
+    description: "Password and recovery",
     keywords: "login oauth codes sign out",
     icon: ShieldCheck,
   },
@@ -220,33 +223,27 @@ export function SettingsView({
         )
       : settingsEntries
   }, [query])
-  const active = settingsEntries.find((entry) => entry.id === page)!
 
   return (
-    <main className="w-full px-4 py-7 sm:px-6 lg:px-8 xl:px-10 2xl:px-12">
-      <div className="mb-7 flex items-end justify-between gap-5">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-400">
-            Profile & device
-          </p>
-          <h1 className="mt-2 font-display text-3xl font-semibold tracking-tight">Settings</h1>
-          <p className="mt-2 text-sm text-zinc-500">
-            Personalize conduit and manage your account from one place.
-          </p>
-        </div>
-        {saved && (
-          <span className="hidden items-center gap-2 rounded-full border border-emerald-900/70 bg-emerald-950/50 px-3 py-1.5 text-xs text-emerald-300 sm:flex">
-            <Check size={13} /> Saved on this device
-          </span>
-        )}
-      </div>
+    <main className={pageClassName}>
+      <PageHeader
+        title="Settings"
+        description="Profiles, playback, and this device."
+        actions={
+          saved && (
+            <span className="hidden items-center gap-2 text-xs text-emerald-300 sm:flex">
+              <Check size={13} /> Saved on this device
+            </span>
+          )
+        }
+      />
 
       <div className="grid min-h-[calc(100vh-11rem)] gap-7 sm:grid-cols-[16rem_minmax(0,1fr)] lg:grid-cols-[18rem_minmax(0,1fr)] 2xl:grid-cols-[20rem_minmax(0,1fr)]">
         <aside className="border-b border-zinc-800 pb-5 sm:border-b-0 sm:border-r sm:pb-0 sm:pr-5 lg:pr-7">
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-600" size={16} />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={16} />
             <input
-              className="h-11 w-full rounded-xl border border-zinc-800 bg-zinc-950/80 pl-10 pr-9 text-sm outline-none transition focus:border-amber-400/70 focus:ring-2 focus:ring-amber-400/10"
+              className="h-10 w-full rounded-lg border border-zinc-800 bg-zinc-950 pl-10 pr-9 text-sm outline-none transition focus:border-amber-400/70 focus:ring-2 focus:ring-amber-400/15"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Search settings"
@@ -254,7 +251,7 @@ export function SettingsView({
             />
             {query && (
               <button
-                className="absolute right-2 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-lg text-zinc-500 hover:bg-zinc-800 hover:text-white"
+                className="absolute right-2 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-lg text-zinc-400 hover:bg-zinc-800 hover:text-white"
                 onClick={() => setQuery("")}
                 aria-label="Clear settings search"
               >
@@ -269,7 +266,7 @@ export function SettingsView({
               if (!entries.length) return null
               return (
                 <div className="mb-5" key={group}>
-                  <p className="mb-1.5 px-2 text-[10px] font-bold uppercase tracking-[0.18em] text-zinc-600">
+                  <p className="mb-1.5 px-3 text-xs font-medium text-zinc-500">
                     {group}
                   </p>
                   <div className="space-y-1">
@@ -286,7 +283,7 @@ export function SettingsView({
               )
             })}
             {!filtered.length && (
-              <p className="px-3 py-8 text-center text-sm text-zinc-600">
+              <p className="px-3 py-8 text-center text-sm text-zinc-500">
                 No settings match “{query}”.
               </p>
             )}
@@ -294,17 +291,7 @@ export function SettingsView({
         </aside>
 
         <section className="min-w-0">
-          <header className="pb-7">
-            <div className="flex items-center gap-4">
-              <div className="grid size-11 shrink-0 place-items-center rounded-xl border border-amber-400/15 bg-amber-400/10 text-amber-300">
-                <active.icon size={21} />
-              </div>
-              <div>
-                <h2 className="font-display text-xl font-semibold sm:text-2xl">{active.title}</h2>
-                <p className="mt-1 text-sm text-zinc-500">{active.description}</p>
-              </div>
-            </div>
-          </header>
+
           <div className="w-full">
             {page === "profile" && (
               <ProfileSettings
@@ -370,14 +357,14 @@ function SettingsNavItem({
       aria-current={active ? "page" : undefined}
     >
       <Icon
-        className={active ? "text-amber-300" : "text-zinc-600 group-hover:text-zinc-400"}
+        className={active ? "text-amber-300" : "text-zinc-500 group-hover:text-zinc-400"}
         size={17}
       />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm font-medium">{entry.title}</span>
-        <span className="mt-0.5 block truncate text-[11px] text-zinc-600">{entry.description}</span>
+        <span className="mt-0.5 block truncate text-xs text-zinc-400">{entry.description}</span>
       </span>
-      <ChevronRight className={active ? "text-amber-400/70" : "text-zinc-700"} size={15} />
+      <ChevronRight className={active ? "text-amber-400/70" : "text-zinc-600"} size={15} />
     </button>
   )
 }
@@ -396,18 +383,18 @@ function ProfileSettings({
   const [editing, setEditing] = useState<Profile | null>(profile)
   return (
     <div className="space-y-7">
-      <SettingsGroup title="PROFILES" description="Create a new space or choose one to customize.">
-        <div className="grid gap-3 p-5 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+      <Section bare title="Profiles" description="Create a new space or choose one to customize.">
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(16rem,1fr))] gap-3">
           {profiles.map((candidate) => (
             <button
               key={candidate.id}
-              className={`flex items-center gap-3 rounded-xl border p-3 text-left transition ${editing?.id === candidate.id ? "border-amber-400/40 bg-amber-400/10" : "border-zinc-800 bg-zinc-950/40 hover:border-zinc-700"}`}
+              className={`flex items-center gap-3 rounded-xl border p-3 text-left transition ${editing?.id === candidate.id ? "border-amber-400/60 bg-zinc-900" : "border-zinc-800 bg-zinc-900 hover:border-zinc-700"}`}
               onClick={() => setEditing(candidate)}
             >
               <ProfileAvatar profile={candidate} className="size-11" />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-semibold">{candidate.name}</span>
-                <span className="mt-1 block text-xs text-zinc-500">
+                <span className="mt-1 block text-xs text-zinc-400">
                   {candidate.isKids
                     ? "Kids profile"
                     : candidate.usesPrimaryAddons
@@ -415,7 +402,7 @@ function ProfileSettings({
                       : "Personal profile"}
                 </span>
               </span>
-              <Pencil size={14} className="text-zinc-600" />
+              <Pencil size={14} className="text-zinc-500" />
             </button>
           ))}
           <button
@@ -427,11 +414,11 @@ function ProfileSettings({
             </span>
             <span>
               <span className="block text-sm font-semibold">Add profile</span>
-              <span className="mt-1 block text-xs text-zinc-600">Create another space</span>
+              <span className="mt-1 block text-xs text-zinc-500">Create another space</span>
             </span>
           </button>
         </div>
-      </SettingsGroup>
+      </Section>
       <ProfileEditorForm
         key={editing?.id ?? "new"}
         editing={editing}
@@ -458,7 +445,10 @@ function ProfileEditorForm({
   const [name, setName] = useState(editing?.name ?? "")
   const [isKids, setIsKids] = useState(editing?.isKids ?? false)
   const [usesPrimaryAddons, setUsesPrimaryAddons] = useState(editing?.usesPrimaryAddons ?? false)
-  const [avatarColor, setAvatarColor] = useState(editing?.avatarColor ?? PROFILE_COLORS[0]!)
+  // Null keeps the profile's generated gradient, so an unedited profile previews as it appears elsewhere.
+  const [avatarColor, setAvatarColor] = useState<string | null>(
+    editing ? (editing.avatarColor ?? null) : PROFILE_COLORS[0]!,
+  )
   const [avatarUrl, setAvatarUrl] = useState(editing?.avatarUrl ?? "")
   const [avatarMode, setAvatarMode] = useState<"color" | "image">(
     editing?.avatarUrl ? "image" : "color",
@@ -502,7 +492,8 @@ function ProfileEditorForm({
             method: "POST",
             body: JSON.stringify({
               ...body,
-              avatarColor: avatarMode === "color" ? avatarColor : undefined,
+              // Create rejects null; omitting the color keeps the generated gradient.
+              avatarColor: avatarMode === "color" ? (avatarColor ?? undefined) : undefined,
               avatarUrl: cleanUrl || undefined,
             }),
           })
@@ -516,35 +507,30 @@ function ProfileEditorForm({
   }
 
   return (
-    <SettingsGroup
-      title={editing ? "EDIT PROFILE" : "ADD PROFILE"}
+    <Section
+      className="max-w-[44rem]"
+      title={editing ? "Edit profile" : "Add profile"}
       description="Profile appearance and add-on behavior sync across devices."
     >
       <form
-        className="grid gap-6 p-5 lg:grid-cols-[15rem_minmax(0,1fr)] 2xl:grid-cols-[18rem_minmax(0,1fr)]"
+        className="grid items-start gap-6 p-5 sm:grid-cols-[5rem_minmax(0,36rem)]"
         onSubmit={save}
       >
-        <div className="flex flex-col items-center justify-center rounded-2xl border border-zinc-800 bg-zinc-950/50 p-6 text-center">
-          <ProfileAvatar profile={preview} className="size-28 text-3xl" />
-          <p className="mt-4 max-w-full truncate font-display text-xl font-semibold">
-            {preview.name}
-          </p>
-          <p className="mt-1 text-xs text-zinc-500">
-            {isKids ? "Kids profile" : "Personal profile"}
-          </p>
+        <div className="flex justify-center sm:justify-start">
+          <ProfileAvatar profile={preview} className="size-20 text-3xl" />
         </div>
         <div className="space-y-5">
           <label className="block text-sm font-medium text-zinc-300">
             Profile name
             <Input
-              className="mt-2 max-w-2xl"
+              className="mt-2"
               maxLength={80}
               value={name}
               onChange={(event) => setName(event.target.value)}
               required
             />
           </label>
-          <div className="grid gap-3 xl:grid-cols-2">
+          <div className={`grid gap-3 ${canUsePrimary ? "xl:grid-cols-2" : ""}`}>
             <ProfileOptionCard
               title="Kids profile"
               description="Use a child-friendly viewing profile."
@@ -562,17 +548,17 @@ function ProfileEditorForm({
           </div>
           <div>
             <p className="text-sm font-medium text-zinc-300">Avatar</p>
-            <div className="mt-2 inline-flex rounded-xl border border-zinc-800 bg-zinc-950 p-1">
+            <div className="mt-2 inline-flex h-10 items-center rounded-lg border border-zinc-800 bg-zinc-950 p-1">
               <button
                 type="button"
-                className={`rounded-lg px-3 py-2 text-sm ${avatarMode === "color" ? "bg-zinc-800 text-white" : "text-zinc-500 hover:text-white"}`}
+                className={`h-8 rounded-md px-3 text-sm ${avatarMode === "color" ? "bg-zinc-800 text-white" : "text-zinc-400 hover:text-white"}`}
                 onClick={() => setAvatarMode("color")}
               >
                 Profile color
               </button>
               <button
                 type="button"
-                className={`rounded-lg px-3 py-2 text-sm ${avatarMode === "image" ? "bg-zinc-800 text-white" : "text-zinc-500 hover:text-white"}`}
+                className={`h-8 rounded-md px-3 text-sm ${avatarMode === "image" ? "bg-zinc-800 text-white" : "text-zinc-400 hover:text-white"}`}
                 onClick={() => setAvatarMode("image")}
               >
                 Custom image
@@ -580,7 +566,12 @@ function ProfileEditorForm({
             </div>
           </div>
           {avatarMode === "color" ? (
-            <ProfileColorPicker value={avatarColor} onChange={setAvatarColor} />
+            <ProfileColorPicker
+              value={avatarColor}
+              onChange={setAvatarColor}
+              onReset={() => setAvatarColor(null)}
+              defaultBackground={avatarGradient(preview.id)}
+            />
           ) : (
             <label className="block text-sm font-medium text-zinc-300">
               Custom image URL
@@ -599,7 +590,7 @@ function ProfileEditorForm({
           </Button>
         </div>
       </form>
-    </SettingsGroup>
+    </Section>
   )
 }
 
@@ -615,17 +606,18 @@ function ProfileOptionCard({
   onChange: (value: boolean) => void
 }) {
   return (
-    <label className="flex cursor-pointer items-center justify-between gap-4 rounded-xl border border-zinc-800 bg-zinc-950/40 p-4">
+    <label className="flex cursor-pointer items-center justify-between gap-4 py-1">
       <span>
-        <span className="block text-sm font-medium">{title}</span>
-        <span className="mt-1 block text-xs leading-5 text-zinc-500">{description}</span>
+        <span className="block text-sm font-medium text-zinc-200">{title}</span>
+        <span className="mt-0.5 block text-xs leading-5 text-zinc-400">{description}</span>
       </span>
       <input
-        className="size-4 accent-amber-400"
+        className="peer sr-only"
         type="checkbox"
         checked={checked}
         onChange={(event) => onChange(event.target.checked)}
       />
+      <SwitchIndicator checked={checked} />
     </label>
   )
 }
@@ -633,7 +625,7 @@ function ProfileOptionCard({
 function AppearanceSettings({ preferences, update }: PreferencePageProps) {
   return (
     <div className="grid items-start gap-7 2xl:grid-cols-2">
-      <SettingsGroup title="THEME">
+      <Section title="Theme">
         <SettingRow
           icon={Palette}
           title="Theme"
@@ -655,8 +647,8 @@ function AppearanceSettings({ preferences, update }: PreferencePageProps) {
           checked={preferences.amoledBlack}
           onChange={(value) => update("amoledBlack", value)}
         />
-      </SettingsGroup>
-      <SettingsGroup title="DISPLAY">
+      </Section>
+      <Section title="Display">
         <SettingToggle
           label="Reduce animations"
           description="Use simpler transitions and less interface motion."
@@ -669,9 +661,9 @@ function AppearanceSettings({ preferences, update }: PreferencePageProps) {
           title="App language"
           description="conduit currently follows your system language"
         >
-          <span className="text-sm text-zinc-500">System default</span>
+          <span className="text-sm text-zinc-400">System default</span>
         </SettingRow>
-      </SettingsGroup>
+      </Section>
     </div>
   )
 }
@@ -680,7 +672,7 @@ function PlaybackSettings({ preferences, update }: PreferencePageProps) {
   return (
     <div className="grid items-start gap-7 2xl:grid-cols-2">
       <div className="space-y-7">
-        <SettingsGroup title="PLAYER">
+        <Section title="Player">
           <SettingRow
             icon={PlayCircle}
             title="Resume behavior"
@@ -739,8 +731,8 @@ function PlaybackSettings({ preferences, update }: PreferencePageProps) {
             suffix="%"
             onChange={(value) => update("volume", value)}
           />
-        </SettingsGroup>
-        <SettingsGroup title="AUTOPLAY">
+        </Section>
+        <Section title="Autoplay">
           <SettingToggle
             label="Automatically continue playback"
             description="Start the next queued item or episode when playback ends."
@@ -754,9 +746,9 @@ function PlaybackSettings({ preferences, update }: PreferencePageProps) {
             checked={preferences.askStillWatching}
             onChange={(value) => update("askStillWatching", value)}
           />
-        </SettingsGroup>
+        </Section>
       </div>
-      <SettingsGroup title="AUDIO & SUBTITLES">
+      <Section title="Audio & subtitles">
         <SettingRow
           icon={Film}
           title="Preferred audio language"
@@ -826,7 +818,7 @@ function PlaybackSettings({ preferences, update }: PreferencePageProps) {
           suffix="%"
           onChange={(value) => update("subtitlePosition", value)}
         />
-      </SettingsGroup>
+      </Section>
     </div>
   )
 }
@@ -842,7 +834,7 @@ function ContentSettings({
 }) {
   return (
     <div className="grid gap-7 2xl:grid-cols-2">
-      <SettingsGroup title="SOURCES">
+      <Section title="Sources">
         <button
           className="flex w-full items-center gap-4 p-5 text-left transition hover:bg-white/[.035]"
           onClick={onAddons}
@@ -852,13 +844,13 @@ function ContentSettings({
           </div>
           <div className="min-w-0 flex-1">
             <p className="text-sm font-medium text-zinc-200">Add-ons</p>
-            <p className="mt-1 text-xs leading-5 text-zinc-500">
+            <p className="mt-1 text-xs leading-5 text-zinc-400">
               Install, order, and manage Stremio add-ons.
             </p>
           </div>
-          <ChevronRight className="text-zinc-600" size={17} />
+          <ChevronRight className="text-zinc-500" size={17} />
         </button>
-      </SettingsGroup>
+      </Section>
       {addons && <HomeRowsSettings key={profile.id} profile={profile} addons={addons} />}
     </div>
   )
@@ -920,9 +912,9 @@ function HomeRowsSettings({ profile, addons }: { profile: Profile; addons: Insta
   const shown = rows.filter((row) => row.enabled).length
 
   return (
-    <SettingsGroup title="HOME ROWS">
+    <Section title="Home rows">
       <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3">
-        <p className="text-xs tabular-nums text-zinc-500">
+        <p className="text-xs tabular-nums text-zinc-400">
           {shown} of {rows.length} shown
         </p>
         <div className="flex gap-1">
@@ -961,7 +953,7 @@ function HomeRowsSettings({ profile, addons }: { profile: Profile; addons: Insta
         </p>
       )}
       {rows.length === 0 && (
-        <p className="px-5 pb-4 text-sm text-zinc-500">No enabled add-on offers home catalogs.</p>
+        <p className="px-5 pb-4 text-sm text-zinc-400">No enabled add-on offers home catalogs.</p>
       )}
       {rows.map((row, index) => (
         <div key={row.key}>
@@ -1004,7 +996,7 @@ function HomeRowsSettings({ profile, addons }: { profile: Profile; addons: Insta
                   commit(change(index, { title: row.title.trim() || row.defaultTitle }))
                 }
               />
-              <p className="truncate text-xs text-zinc-500">
+              <p className="truncate text-xs text-zinc-400">
                 {row.title === row.defaultTitle
                   ? row.addonName
                   : `${row.addonName} · ${row.defaultTitle}`}
@@ -1015,17 +1007,15 @@ function HomeRowsSettings({ profile, addons }: { profile: Profile; addons: Insta
               role="switch"
               aria-checked={row.enabled}
               aria-label={`Show ${row.title} on Home`}
-              className={`relative h-6 w-11 shrink-0 rounded-full transition ${row.enabled ? "bg-amber-400" : "bg-zinc-700"}`}
+              className="shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300"
               onClick={() => commit(change(index, { enabled: !row.enabled }))}
             >
-              <span
-                className={`absolute top-1 size-4 rounded-full bg-white shadow transition-all ${row.enabled ? "left-6" : "left-1"}`}
-              />
+              <SwitchIndicator checked={row.enabled} />
             </button>
           </div>
         </div>
       ))}
-    </SettingsGroup>
+    </Section>
   )
 }
 
@@ -1042,7 +1032,7 @@ function IntegrationsSettings({ profile }: { profile: Profile }) {
 
   return (
     <div className="space-y-7">
-      <SettingsGroup title="TRACKING">
+      <Section title="Tracking">
         {integrations.isError && (
           <p className="p-5 text-sm text-red-300">
             {apiErrorMessage(integrations.error, "Unable to load integrations")}
@@ -1054,14 +1044,14 @@ function IntegrationsSettings({ profile }: { profile: Profile }) {
             <IntegrationRow profileId={profile.id} integration={integration} />
           </div>
         ))}
-      </SettingsGroup>
-      <SettingsGroup title="ADD-ONS">
+      </Section>
+      <Section title="Add-ons">
         <InfoAction
           icon={Link2}
           title="Stremio add-ons"
           description="conduit uses the add-ons installed for your active profile directly."
         />
-      </SettingsGroup>
+      </Section>
     </div>
   )
 }
@@ -1158,7 +1148,7 @@ function IntegrationRow({
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium text-zinc-200">{integration.name}</p>
-          <p className="mt-1 text-xs leading-5 text-zinc-500">{status}</p>
+          <p className="mt-1 text-xs leading-5 text-zinc-400">{status}</p>
           {(error || connection?.lastError) && (
             <p className="mt-1 text-xs leading-5 text-red-300">{error || connection?.lastError}</p>
           )}
@@ -1267,7 +1257,7 @@ function IntegrationRow({
 function AboutSettings() {
   return (
     <div className="space-y-7">
-      <SettingsGroup title="ABOUT">
+      <Section title="About">
         <InfoAction
           icon={Heart}
           title="Supporters & contributors"
@@ -1288,13 +1278,13 @@ function AboutSettings() {
           description="conduit is MIT licensed and includes open-source software listed in THIRD_PARTY_NOTICES.md."
           href="https://github.com/davidvanderklay/conduit/blob/main/THIRD_PARTY_NOTICES.md"
         />
-      </SettingsGroup>
-      <SettingsGroup title="APPLICATION">
+      </Section>
+      <Section title="Application">
         <div className="grid gap-4 p-5 text-sm sm:grid-cols-2">
           <Stat label="Application" value="conduit" />
           <Stat label="Client" value={isDesktop() ? "Desktop" : "Web"} />
         </div>
-      </SettingsGroup>
+      </Section>
     </div>
   )
 }
@@ -1306,15 +1296,15 @@ function AdvancedSettings({
 }: PreferencePageProps & { profile: Profile }) {
   return (
     <div className="space-y-7">
-      <SettingsGroup title="STARTUP">
+      <Section title="Startup">
         <SettingToggle
           label="Remember last profile"
           description="Return to the profile last used on this device."
           checked={preferences.rememberLastProfile}
           onChange={(value) => update("rememberLastProfile", value)}
         />
-      </SettingsGroup>
-      <SettingsGroup title="PERFORMANCE">
+      </Section>
+      <Section title="Performance">
         <SettingToggle
           label="Desktop hardware acceleration"
           description="Use the GPU decoder exposed by libmpv when available."
@@ -1332,26 +1322,26 @@ function AdvancedSettings({
           suffix="s"
           onChange={(value) => update("readAheadSeconds", value)}
         />
-      </SettingsGroup>
+      </Section>
       {!isDesktop() && (
-        <SettingsGroup title="EXPERIMENTAL">
+        <Section title="Experimental">
           <SettingToggle
             label="Advanced web player"
             description="Plays HDR, Dolby Vision, TrueHD, DTS, and other formats browsers can't play on their own. May be unstable."
             checked={preferences.webEngine}
             onChange={(value) => update("webEngine", value)}
           />
-        </SettingsGroup>
+        </Section>
       )}
-      <SettingsGroup title="CACHE">
+      <Section title="Cache">
         <InfoAction
           icon={Database}
           title="Continue Watching cache"
           description="Viewing progress comes directly from your server; there is no separate local cache to clear."
           muted
         />
-      </SettingsGroup>
-      <SettingsGroup title="DIAGNOSTICS">
+      </Section>
+      <Section title="Diagnostics">
         <SettingToggle
           label="Debug logging"
           description="Collect additional local diagnostic information."
@@ -1365,7 +1355,7 @@ function AdvancedSettings({
           <Stat label="Server" value={serverDisplayName()} />
           <Stat label="Debug logging" value={preferences.debugLogging ? "Enabled" : "Disabled"} />
         </div>
-      </SettingsGroup>
+      </Section>
     </div>
   )
 }
@@ -1399,18 +1389,18 @@ function AccountSettings({ onSignedOut }: { onSignedOut: () => void }) {
   }
   return (
     <div className="space-y-7">
-      <SettingsGroup title="STATUS">
+      <Section title="Status">
         <div className="flex items-center gap-4 p-5">
           <div className="grid size-10 place-items-center rounded-full bg-emerald-400/10 text-emerald-300">
             <ShieldCheck size={19} />
           </div>
           <div>
             <p className="font-medium">Signed in</p>
-            <p className="mt-1 text-sm text-zinc-500">Server: {serverDisplayName()}</p>
+            <p className="mt-1 text-sm text-zinc-400">Server: {serverDisplayName()}</p>
           </div>
         </div>
-      </SettingsGroup>
-      <SettingsGroup title="SECURITY">
+      </Section>
+      <Section title="Security">
         <div className="p-5">
           <div className="flex flex-wrap gap-2 text-xs">
             <Pill enabled={Boolean(methods.data?.passwordEnabled)}>
@@ -1466,7 +1456,7 @@ function AccountSettings({ onSignedOut }: { onSignedOut: () => void }) {
         <Divider />
         <div className="p-5">
           <p className="font-medium">Recovery codes</p>
-          <p className="mt-1 text-sm text-zinc-500">
+          <p className="mt-1 text-sm text-zinc-400">
             Each code works once. Generating a new set invalidates the old one.
           </p>
           {codes.length > 0 && (
@@ -1479,8 +1469,8 @@ function AccountSettings({ onSignedOut }: { onSignedOut: () => void }) {
           </Button>
           {message && <p className="mt-3 text-sm text-red-400">{message}</p>}
         </div>
-      </SettingsGroup>
-      <SettingsGroup title="SESSION">
+      </Section>
+      <Section title="Session">
         <div className="p-5">
           <Button
             variant="destructive"
@@ -1492,7 +1482,7 @@ function AccountSettings({ onSignedOut }: { onSignedOut: () => void }) {
             <LogOut size={15} /> Sign out
           </Button>
         </div>
-      </SettingsGroup>
+      </Section>
     </div>
   )
 }
@@ -1546,28 +1536,29 @@ function DataSettings({
   }
   return (
     <div className="space-y-7">
-      <SettingsGroup title="MIGRATE" description="Bring a Stremio account or Nuvio profile into this profile.">
+      <Section title="Migrate" description="Bring a Stremio account or Nuvio profile into this profile.">
         <MigrateSettings profile={profile} onBackup={exportProfile} />
-      </SettingsGroup>
-      <SettingsGroup title="EXPORT" description="Move this profile between conduit servers.">
+      </Section>
+      <Section title="Export" description="Move this profile between conduit servers.">
         <div className="p-5">
           <p className="text-sm leading-6 text-zinc-400">
             Exports include the profile, library, watch history, add-on order, and device
             preferences.
           </p>
-          <label className="mt-4 flex max-w-2xl items-start gap-3 text-sm text-zinc-400">
-            <input
-              className="mt-1 accent-amber-400"
-              type="checkbox"
-              checked={includeSecrets}
-              onChange={(event) => setIncludeSecrets(event.target.checked)}
-            />
+          <label className="mt-4 flex max-w-2xl cursor-pointer items-center justify-between gap-6 text-sm text-zinc-200">
             <span>
               Include add-on URLs
               <span className="mt-1 block text-xs text-amber-300">
                 URLs can contain credentials. Store this file securely.
               </span>
             </span>
+            <input
+              className="peer sr-only"
+              type="checkbox"
+              checked={includeSecrets}
+              onChange={(event) => setIncludeSecrets(event.target.checked)}
+            />
+            <SwitchIndicator checked={includeSecrets} />
           </label>
           <Button
             className="mt-5"
@@ -1588,8 +1579,8 @@ function DataSettings({
             <Download size={15} /> Export profile
           </Button>
         </div>
-      </SettingsGroup>
-      <SettingsGroup title="IMPORT" description="Preview changes before applying them.">
+      </Section>
+      <Section title="Import" description="Preview changes before applying them.">
         <div className="p-5">
           <label className="flex max-w-3xl cursor-pointer items-center gap-4 rounded-xl border border-dashed border-zinc-700 bg-zinc-950/50 p-4 transition hover:border-amber-400/50 hover:bg-amber-400/[.03]">
             <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-zinc-800 text-zinc-300">
@@ -1599,7 +1590,7 @@ function DataSettings({
               <span className="block text-sm font-medium text-zinc-200">
                 {importFilename || "Choose a conduit export"}
               </span>
-              <span className="mt-1 block text-xs text-zinc-500">
+              <span className="mt-1 block text-xs text-zinc-400">
                 JSON files up to 10 MiB · changes are previewed first
               </span>
             </span>
@@ -1619,7 +1610,7 @@ function DataSettings({
           {preview && (
             <div className="mt-5 max-w-3xl rounded-xl border border-zinc-800 bg-zinc-950 p-4 text-sm">
               <p className="font-medium">{preview.profile.name}</p>
-              <p className="mt-1 text-zinc-500">
+              <p className="mt-1 text-zinc-400">
                 {preview.counts.library} library · {preview.counts.progress} history ·{" "}
                 {preview.importableAddons}/{preview.counts.addons} add-ons importable
               </p>
@@ -1670,35 +1661,12 @@ function DataSettings({
             </div>
           )}
         </div>
-      </SettingsGroup>
+      </Section>
       {error && <p className="text-sm text-red-400">{error}</p>}
     </div>
   )
 }
 
-function SettingsGroup({
-  title,
-  description,
-  children,
-}: {
-  title: string
-  description?: string
-  children: ReactNode
-}) {
-  return (
-    <div>
-      <div className="mb-2 px-1">
-        <h3 className="text-[11px] font-bold uppercase tracking-[0.17em] text-amber-400/80">
-          {title}
-        </h3>
-        {description && <p className="mt-1 text-xs text-zinc-600">{description}</p>}
-      </div>
-      <div className="overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900">
-        {children}
-      </div>
-    </div>
-  )
-}
 function Divider() {
   return <div className="mx-5 border-t border-zinc-800/80" />
 }
@@ -1721,7 +1689,7 @@ function SettingRow({
         </div>
         <div>
           <p className="text-sm font-medium text-zinc-200">{title}</p>
-          <p className="mt-1 text-xs leading-5 text-zinc-500">{description}</p>
+          <p className="mt-1 text-xs leading-5 text-zinc-400">{description}</p>
         </div>
       </div>
       <div className="shrink-0 sm:max-w-xs">{children}</div>
@@ -1749,25 +1717,19 @@ function SettingToggle({
     <label className="flex cursor-pointer items-center justify-between gap-6 p-5">
       <span>
         <span className="block text-sm font-medium text-zinc-200">{label}</span>
-        <span className="mt-1 block text-xs leading-5 text-zinc-500">{description}</span>
+        <span className="mt-1 block text-xs leading-5 text-zinc-400">{description}</span>
       </span>
-      <span
-        className={`relative h-6 w-11 shrink-0 rounded-full transition ${enabled ? "bg-amber-400" : "bg-zinc-700"}`}
-      >
-        <input
-          className="peer sr-only"
-          type="checkbox"
-          name={name}
-          checked={enabled}
-          onChange={(event) => {
-            setLocalChecked(event.target.checked)
-            onChange?.(event.target.checked)
-          }}
-        />
-        <span
-          className={`absolute top-1 size-4 rounded-full bg-white shadow transition-all ${enabled ? "left-6" : "left-1"}`}
-        />
-      </span>
+      <input
+        className="peer sr-only"
+        type="checkbox"
+        name={name}
+        checked={enabled}
+        onChange={(event) => {
+          setLocalChecked(event.target.checked)
+          onChange?.(event.target.checked)
+        }}
+      />
+      <SwitchIndicator checked={enabled} />
     </label>
   )
 }
@@ -1795,7 +1757,7 @@ function RangeRow({
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className="text-sm font-medium text-zinc-200">{label}</p>
-          <p className="mt-1 text-xs text-zinc-500">{description}</p>
+          <p className="mt-1 text-xs text-zinc-400">{description}</p>
         </div>
         <span className="rounded-lg bg-zinc-800 px-2.5 py-1 text-xs font-semibold tabular-nums text-zinc-300">
           {value}
@@ -1881,17 +1843,17 @@ function InfoAction({
   const content = (
     <>
       <div
-        className={`grid size-9 shrink-0 place-items-center rounded-lg ${muted ? "bg-zinc-800/40 text-zinc-600" : "bg-zinc-800 text-zinc-400"}`}
+        className={`grid size-9 shrink-0 place-items-center rounded-lg ${muted ? "bg-zinc-800/40 text-zinc-500" : "bg-zinc-800 text-zinc-400"}`}
       >
         <Icon size={17} />
       </div>
       <div className="min-w-0 flex-1">
-        <p className={`text-sm font-medium ${muted ? "text-zinc-500" : "text-zinc-200"}`}>
+        <p className={`text-sm font-medium ${muted ? "text-zinc-400" : "text-zinc-200"}`}>
           {title}
         </p>
-        <p className="mt-1 text-xs leading-5 text-zinc-500">{description}</p>
+        <p className="mt-1 text-xs leading-5 text-zinc-400">{description}</p>
       </div>
-      {href && <ExternalLink className="text-zinc-600" size={16} />}
+      {href && <ExternalLink className="text-zinc-500" size={16} />}
     </>
   )
   return href ? (
@@ -1910,7 +1872,7 @@ function InfoAction({
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <p className="text-xs text-zinc-600">{label}</p>
+      <p className="text-xs text-zinc-500">{label}</p>
       <p className="mt-1 truncate text-zinc-300">{value}</p>
     </div>
   )
@@ -1918,7 +1880,7 @@ function Stat({ label, value }: { label: string; value: string }) {
 function Pill({ enabled, children }: { enabled: boolean; children: ReactNode }) {
   return (
     <span
-      className={`rounded-full px-2.5 py-1 ${enabled ? "bg-emerald-950 text-emerald-300" : "bg-zinc-800 text-zinc-500"}`}
+      className={`rounded-full px-2.5 py-1 ${enabled ? "bg-emerald-950 text-emerald-300" : "bg-zinc-800 text-zinc-400"}`}
     >
       {children}
     </span>

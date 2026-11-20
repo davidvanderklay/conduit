@@ -19,7 +19,6 @@ import {
   SkipForward,
   Star,
   Volume2,
-  X,
 } from "lucide-react"
 import {
   api,
@@ -95,6 +94,7 @@ import {
   type WatchPartySummary,
 } from "../lib/watch-party"
 import type { WatchPartySessionResponse } from "../lib/watch-party-api"
+import { EmptyState } from "./ui/empty-state"
 
 interface ResolvedStream extends Stream {
   key: string
@@ -122,6 +122,7 @@ export function MediaDetails({
   onWatchPartyJoined,
   onWatchPartyMediaChange,
   onBrowse,
+  onManageAddons,
   onClose,
   onPlayQueued,
   streamSelectionReturnToHome = false,
@@ -141,6 +142,8 @@ export function MediaDetails({
   onWatchPartyJoined?: (party: WatchPartySummary, session: WatchPartySession) => void
   onWatchPartyMediaChange?: (media: WatchPartyMedia | undefined, session: WatchPartySession) => void
   onBrowse?: (target: MetadataBrowseTarget) => void
+  /** Leaves details for the Add-ons page, offered when no add-on returns a stream. */
+  onManageAddons?: () => void
   onClose: () => void
   /** Hands playback to a queued item that belongs to a different title. */
   onPlayQueued: (item: QueueItem) => void
@@ -619,6 +622,12 @@ export function MediaDetails({
     onClose()
     onBrowse?.(target)
   }
+  const manageAddons = onManageAddons
+    ? () => {
+        onClose()
+        onManageAddons()
+      }
+    : undefined
 
   const selectStreamAddon = (addonId?: string) => {
     setStreamAddonId(addonId)
@@ -836,8 +845,9 @@ export function MediaDetails({
           src={episodeMode ? selectedVideo?.thumbnail : meta.background}
           fallback={meta.poster}
         />
-        <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(90deg,rgba(9,9,11,.98)_0%,rgba(9,9,11,.82)_48%,rgba(9,9,11,.56)_100%)]" />
-        <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(0deg,rgba(9,9,11,.92)_0%,rgba(9,9,11,.28)_55%,rgba(9,9,11,.4)_100%)]" />
+        {/* Dark where text sits (left, bottom), open on the right so the artwork reads. */}
+        <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(90deg,rgba(9,9,11,.85)_0%,rgba(9,9,11,.35)_35%,rgba(9,9,11,0)_60%)]" />
+        <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(0deg,rgba(9,9,11,.9)_0%,rgba(9,9,11,.25)_40%,rgba(9,9,11,0)_65%)]" />
 
         <nav
           className="absolute inset-x-0 top-0 z-20 flex items-center justify-between p-3 sm:p-5"
@@ -852,19 +862,10 @@ export function MediaDetails({
           >
             <ArrowLeft size={19} />
           </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="bg-black/25 backdrop-blur-md"
-            aria-label="Close details"
-            onClick={onClose}
-          >
-            <X size={19} />
-          </Button>
         </nav>
 
-        <main className="relative grid h-dvh min-h-0 grid-rows-[minmax(0,47%)_minmax(0,53%)] gap-3 p-3 pt-15 sm:p-5 sm:pt-17 md:grid-cols-[minmax(0,1fr)_minmax(390px,36vw)] md:grid-rows-1 md:gap-5">
-          <div className="flex min-h-0 items-start overflow-hidden px-2 pt-2 sm:px-5 sm:pt-[clamp(1rem,3vh,2rem)] md:pr-[clamp(1rem,4vw,5rem)]">
+        <main className="relative grid h-dvh min-h-0 grid-rows-[minmax(0,47%)_minmax(0,53%)] gap-3 p-3 pt-15 sm:p-5 sm:pt-17 md:pt-5 md:grid-cols-[minmax(0,1fr)_minmax(390px,36vw)] md:grid-rows-1 md:gap-5">
+          <div className="flex min-h-0 items-start overflow-hidden px-2 pt-2 sm:px-5 sm:pt-[clamp(1rem,3vh,2rem)] md:items-end md:pb-[clamp(1rem,5vh,3.5rem)] md:pr-[clamp(1rem,4vw,5rem)]">
             <div className="w-full max-w-5xl">
               {episodeMode && selectedVideo ? (
                 <EpisodeSummary
@@ -992,6 +993,7 @@ export function MediaDetails({
                   : undefined
               }
               onBack={streamSelectionReturnToHome ? onClose : undefined}
+              onManageAddons={manageAddons}
             />
           )}
         </main>
@@ -1126,7 +1128,9 @@ function MediaSummary({
           onClick={() => onBrowse?.({ kind: "search", value: meta.name })}
         >
           <Artwork
-            className="mb-[clamp(.75rem,2vh,1.5rem)] max-h-[clamp(3.5rem,12vh,7rem)] w-auto max-w-[min(28rem,75vw)] object-contain object-left"
+            // Rendered as white so every studio logo stays legible on any backdrop.
+            // min-w gives wide wordmarks presence; object-contain keeps tall logos inside max-h.
+            className="mb-1 max-h-[clamp(3.5rem,12vh,7rem)] w-auto min-w-[min(22rem,60vw)] max-w-[min(28rem,75vw)] object-contain object-left-bottom brightness-0 invert drop-shadow-[0_2px_18px_rgba(0,0,0,.7)]"
             src={meta.logo}
             alt={meta.name}
           />
@@ -1152,7 +1156,7 @@ function MediaSummary({
         </h1>
       )}
 
-      <div className="mt-[clamp(.75rem,2.3vh,1.5rem)] flex flex-wrap items-center gap-x-4 gap-y-1.5 text-sm font-medium text-zinc-200">
+      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-sm font-medium text-zinc-200">
         {facts.map((fact) => (
           <span key={fact}>{fact}</span>
         ))}
@@ -1167,37 +1171,36 @@ function MediaSummary({
         )}
       </div>
 
-      <MetadataChips
-        label="Genres"
-        values={meta.genres}
-        onSelect={
-          onBrowse ? (value) => onBrowse({ kind: "genre", value, mediaType: meta.type }) : undefined
-        }
-      />
       {description ? (
-        <p className="mt-[clamp(.75rem,2vh,1.35rem)] line-clamp-4 max-w-4xl text-sm leading-6 text-zinc-300">
+        <p className="mt-[clamp(.75rem,2vh,1.35rem)] line-clamp-4 max-w-3xl text-[15px] leading-6 text-zinc-200">
           {description}
         </p>
       ) : (
-        <p className="mt-4 text-sm italic text-zinc-500">No synopsis was supplied.</p>
+        <p className="mt-4 text-sm italic text-zinc-400">No synopsis was supplied.</p>
       )}
-      <Credits label="Directors" values={meta.director} onSelect={onBrowse} />
-      <Credits label="Cast" values={meta.cast} onSelect={onBrowse} />
-      <Credits label="Writers" values={meta.writer} onSelect={onBrowse} />
-      {meta.country && <Credits label="Country" values={[meta.country]} onSelect={onBrowse} />}
-      {awards && <p className="mt-2 line-clamp-1 text-xs text-zinc-500">{awards}</p>}
+      <dl className="mt-[clamp(.75rem,2.2vh,1.5rem)] grid max-w-3xl grid-cols-[5.5rem_minmax(0,1fr)] items-center gap-x-4 gap-y-2">
+        <MetadataChips
+          label="Genres"
+          values={meta.genres}
+          onSelect={
+            onBrowse ? (value) => onBrowse({ kind: "genre", value, mediaType: meta.type }) : undefined
+          }
+        />
+        <Credits label="Directors" values={meta.director} onSelect={onBrowse} />
+        <Credits label="Cast" values={meta.cast} onSelect={onBrowse} />
+        <Credits label="Writers" values={meta.writer} onSelect={onBrowse} />
+        {meta.country && <Credits label="Country" values={[meta.country]} onSelect={onBrowse} />}
+        {awards && <MetadataText label="Awards" value={awards} />}
+      </dl>
 
-      <div className="mt-[clamp(1rem,2.6vh,1.75rem)] flex items-center gap-3">
+      <div className="mt-[clamp(1rem,2.6vh,1.75rem)] flex flex-wrap items-center gap-3">
         {trailer && (
-          <Button
-            variant="secondary"
-            onClick={() => window.open(trailer, "_blank", "noopener,noreferrer")}
-          >
+          <Button onClick={() => window.open(trailer, "_blank", "noopener,noreferrer")}>
             <CirclePlay size={17} />
             Trailer
           </Button>
         )}
-        <LibraryToggle profileId={profileId} item={meta} revealLabel />
+        <LibraryToggle profileId={profileId} item={meta} />
         <QueueToggle queue={queue} item={queueItemFor(meta)} />
       </div>
     </section>
@@ -1246,7 +1249,7 @@ function EpisodeSummary({
           </span>
         )}
         {video.available != null && (
-          <span className={video.available ? "text-emerald-300" : "text-zinc-500"}>
+          <span className={video.available ? "text-emerald-300" : "text-zinc-400"}>
             {video.available ? "Available" : "Not yet available"}
           </span>
         )}
@@ -1263,14 +1266,14 @@ function EpisodeSummary({
         </span>
         {visiblePercent}
       </p>
-      <div className="mt-[clamp(1rem,2.6vh,1.75rem)] flex items-center gap-3">
+      <div className="mt-[clamp(1rem,2.6vh,1.75rem)] flex flex-wrap items-center gap-3">
         <EpisodeWatchAction
           profileId={profileId}
           item={state}
           video={video}
           media={{ type: meta.type, id: meta.id, name: meta.name, poster: meta.poster }}
         />
-        <LibraryToggle profileId={profileId} item={meta} revealLabel />
+        <LibraryToggle profileId={profileId} item={meta} />
         <QueueToggle
           queue={queue}
           item={queueItemFor(meta, video)}
@@ -1295,6 +1298,7 @@ function StreamRail({
   onOpenExternally,
   onBackToSeries,
   onBack,
+  onManageAddons,
 }: {
   streams: ResolvedStream[]
   loading: boolean
@@ -1309,10 +1313,24 @@ function StreamRail({
   onOpenExternally: (url: string) => void
   onBackToSeries?: () => void
   onBack?: () => void
+  onManageAddons?: () => void
 }) {
   const back = onBackToSeries ?? onBack
+  const empty = !loading && streams.length === 0
+  const refresh = (
+    <Button
+      size="icon"
+      variant="ghost"
+      className="size-8 shrink-0 rounded-full"
+      aria-label="Refresh sources"
+      disabled={loading}
+      onClick={onRefresh}
+    >
+      <RefreshCw className={loading ? "animate-spin" : ""} size={15} />
+    </Button>
+  )
   return (
-    <aside className="min-h-0 overflow-y-auto rounded-2xl border border-white/10 bg-zinc-950/80 shadow-2xl shadow-black/40 backdrop-blur-xl">
+    <aside className="flex min-h-0 flex-col overflow-y-auto rounded-2xl border border-white/10 bg-zinc-950 shadow-2xl shadow-black/40">
       <div className="sticky top-0 z-10 flex items-center gap-2 rounded-t-2xl border-b border-white/8 bg-zinc-950/95 px-4 py-4 backdrop-blur">
         {back && (
           <Button
@@ -1325,12 +1343,11 @@ function StreamRail({
             <ArrowLeft size={17} />
           </Button>
         )}
-        <div className="min-w-0">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-            Choose a source
-          </p>
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-medium text-zinc-400">Sources</p>
           <h2 className="mt-0.5 line-clamp-1 font-display text-lg font-semibold">{videoTitle}</h2>
         </div>
+        {addons.length === 0 && refresh}
       </div>
       {resumeFrom && (
         <p
@@ -1340,17 +1357,9 @@ function StreamRail({
           Resume from <span className="tabular-nums">{resumeFrom}</span>
         </p>
       )}
-      <div className="flex gap-2 overflow-x-auto px-2 pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        <Button
-          size="icon"
-          variant="secondary"
-          className="shrink-0 rounded-full"
-          aria-label="Refresh sources"
-          disabled={loading}
-          onClick={onRefresh}
-        >
-          <RefreshCw className={loading ? "animate-spin" : ""} size={16} />
-        </Button>
+      {addons.length > 0 && (
+      <div className="flex shrink-0 items-center gap-2 overflow-x-auto px-4 py-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        {refresh}
         <Button
           size="sm"
           variant={selectedAddonId == null ? "default" : "secondary"}
@@ -1373,6 +1382,7 @@ function StreamRail({
           </Button>
         ))}
       </div>
+      )}
       {error && (
         <p
           role="alert"
@@ -1387,10 +1397,14 @@ function StreamRail({
           Asking installed add-ons…
         </p>
       )}
-      {!loading && streams.length === 0 && (
-        <div className="m-2 rounded-xl border border-dashed border-white/10 p-5 text-sm text-zinc-500">
-          No installed add-on returned a stream. Metadata and navigation are still available.
-        </div>
+      {empty && (
+        <EmptyState
+          className="flex-1 py-10"
+          icon={CirclePlay}
+          title="No streams found"
+          description="None of your add-ons returned a source for this title."
+          actions={onManageAddons && <Button onClick={onManageAddons}>Manage add-ons</Button>}
+        />
       )}
       <div className="space-y-2 px-2 pb-2">
         {streams.map((stream) => {
@@ -1411,7 +1425,7 @@ function StreamRail({
                   <p className="mt-1 whitespace-pre-wrap text-xs leading-5 text-zinc-400 [overflow-wrap:anywhere]">
                     {description}
                   </p>
-                  <p className="mt-1.5 text-[10px] font-medium text-zinc-600">{stream.addonName}</p>
+                  <p className="mt-1.5 text-[11px] font-medium text-zinc-400">{stream.addonName}</p>
                 </div>
                 {streamPlaybackUrl(stream) ? (
                   <div className="flex shrink-0 gap-1.5">
@@ -1440,7 +1454,7 @@ function StreamRail({
                     <ExternalLink size={16} />
                   </Button>
                 ) : (
-                  <span className="mt-2 text-[10px] text-zinc-600" title="Native playback required">
+                  <span className="mt-2 text-[10px] text-zinc-500" title="Native playback required">
                     Native
                   </span>
                 )}
@@ -1645,6 +1659,11 @@ function EpisodeWatchAction({
   )
 }
 
+const metadataChipClass =
+  "inline-flex h-7 items-center rounded-full bg-white/8 px-3 text-xs text-zinc-200"
+const metadataChipButtonClass = `${metadataChipClass} transition hover:bg-amber-400 hover:text-zinc-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400`
+
+/** One `dt`/`dd` row of the details metadata grid. Renders nothing when there are no values. */
 function MetadataChips({
   label,
   values,
@@ -1657,32 +1676,41 @@ function MetadataChips({
   const visibleValues = [...new Set(values?.map((value) => value.trim()).filter(Boolean) ?? [])]
   if (!visibleValues.length) return null
   return (
-    <div className="mt-[clamp(.65rem,1.8vh,1.15rem)]">
-      <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
-        {label}
-      </p>
-      <div className="flex flex-wrap gap-1.5">
+    <>
+      <dt className="text-xs font-medium leading-7 text-zinc-400">{label}</dt>
+      <dd className="flex max-h-7 min-w-0 flex-wrap gap-1.5 overflow-hidden">
         {visibleValues.map((value) =>
           onSelect ? (
             <button
               key={value}
               type="button"
-              className="rounded-full bg-white/8 px-3 py-1 text-xs text-zinc-200 transition hover:bg-amber-400 hover:text-zinc-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+              className={metadataChipButtonClass}
               onClick={() => onSelect(value)}
             >
               {value}
             </button>
           ) : (
-            <span key={value} className="rounded-full bg-white/8 px-3 py-1 text-xs text-zinc-200">
+            <span key={value} className={metadataChipClass}>
               {value}
             </span>
           ),
         )}
-      </div>
-    </div>
+      </dd>
+    </>
   )
 }
 
+/** Plain-text metadata row for facts that are not browsable. */
+function MetadataText({ label, value }: { label: string; value: string }) {
+  return (
+    <>
+      <dt className="text-xs font-medium leading-7 text-zinc-400">{label}</dt>
+      <dd className="line-clamp-1 min-w-0 text-sm leading-7 text-zinc-300">{value}</dd>
+    </>
+  )
+}
+
+/** Credit row whose chips search for the person or value they name. */
 function Credits({
   label,
   values,
@@ -1692,31 +1720,12 @@ function Credits({
   values?: string[]
   onSelect?: (target: MetadataBrowseTarget) => void
 }) {
-  const visibleValues = [...new Set(values?.map((value) => value.trim()).filter(Boolean) ?? [])]
-  if (!visibleValues.length) return null
   return (
-    <div className="mt-2.5 min-w-0">
-      <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
-        {label}
-      </p>
-      <div className="flex max-h-8 flex-wrap gap-1.5 overflow-hidden text-xs">
-        {visibleValues.map((value) => (
-          <span key={value}>
-            {onSelect ? (
-              <button
-                type="button"
-                className="rounded-full bg-white/8 px-2.5 py-1 text-zinc-300 transition hover:bg-amber-400 hover:text-zinc-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
-                onClick={() => onSelect({ kind: "search", value })}
-              >
-                {value}
-              </button>
-            ) : (
-              <span className="rounded-full bg-white/8 px-2.5 py-1 text-zinc-300">{value}</span>
-            )}
-          </span>
-        ))}
-      </div>
-    </div>
+    <MetadataChips
+      label={label}
+      values={values}
+      onSelect={onSelect ? (value) => onSelect({ kind: "search", value }) : undefined}
+    />
   )
 }
 
