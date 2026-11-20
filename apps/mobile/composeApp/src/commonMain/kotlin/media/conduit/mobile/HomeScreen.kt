@@ -240,7 +240,10 @@ internal fun Shelf(title: String, onSeeAll: (() -> Unit)? = null, source: String
                     title.split(" · ", limit = 2).let { parts ->
                         androidx.compose.ui.text.buildAnnotatedString {
                             withStyle(androidx.compose.ui.text.SpanStyle(fontWeight = FontWeight.Bold)) { append(parts[0]) }
-                            parts.getOrNull(1)?.let { type -> withStyle(androidx.compose.ui.text.SpanStyle(fontWeight = FontWeight.Medium)) { append(" · $type") } }
+                            parts.getOrNull(1)?.let { type ->
+                                withStyle(androidx.compose.ui.text.SpanStyle(color = TertiaryText)) { append(" · ") }
+                                withStyle(androidx.compose.ui.text.SpanStyle(fontWeight = FontWeight.Medium)) { append(type) }
+                            }
                         }
                     },
                     style = ShelfTitleStyle,

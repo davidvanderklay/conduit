@@ -72,17 +72,17 @@ internal fun analyzeLogoPixels(
 
 /**
  * Sizes a title logo so its visible lettering (transparent margins cropped on every side) fits within
- * [widthFraction] of the available width and [maxHeight], keeping the image's aspect ratio. The image is
+ * [widthFraction] of the available width ([wideWidthFraction] for thin wordmarks wider than 8:1) and [maxHeight], keeping the image's aspect ratio. The image is
  * measured at exactly the size that places its lettering in that box and clipped to it, so a logo can
  * never draw into neighbouring content. Until the image is analyzed, it falls back to a plain box.
  */
-internal fun Modifier.logoBox(analysis: LogoAnalysis?, widthFraction: Float, maxHeight: Dp): Modifier {
+internal fun Modifier.logoBox(analysis: LogoAnalysis?, widthFraction: Float, maxHeight: Dp, wideWidthFraction: Float = widthFraction): Modifier {
     if (analysis == null || analysis.aspect <= 0f) return fillMaxWidth(widthFraction).heightIn(max = maxHeight)
     val horizontalShare = (1f - analysis.leftInset - analysis.rightInset).coerceIn(.2f, 1f)
     val verticalShare = (1f - analysis.topInset - analysis.bottomInset).coerceIn(.2f, 1f)
     val visibleAspect = analysis.aspect * horizontalShare / verticalShare
     return clipToBounds().layout { measurable, constraints ->
-        val maxVisibleWidth = constraints.maxWidth * widthFraction
+        val maxVisibleWidth = constraints.maxWidth * if (visibleAspect > 8f) wideWidthFraction else widthFraction
         val visibleWidth = minOf(maxVisibleWidth, maxHeight.toPx() * visibleAspect)
         val visibleHeight = visibleWidth / visibleAspect
         val imageWidth = (visibleWidth / horizontalShare).roundToInt()

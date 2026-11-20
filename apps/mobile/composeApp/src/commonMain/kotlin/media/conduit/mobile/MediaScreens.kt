@@ -57,6 +57,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.foundation.border
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -186,12 +188,12 @@ internal fun MobileLibraryScreen(
                 )
                 Spacer(Modifier.weight(1f))
                 // Page tools sit together as one cluster; the glyph of the last one lands on the gutter.
-                Row(Modifier.offset(x = 14.dp)) {
+                Row(Modifier.offset(x = 12.dp)) {
                     IconButton(onClick = onOpenHistory, modifier = Modifier.size(44.dp)) {
-                        Icon(Icons.Outlined.History, stringResource(Res.string.history_open), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
+                        Icon(Icons.Outlined.History, stringResource(Res.string.history_open), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(24.dp))
                     }
                     IconButton(onClick = onOpenCalendar, modifier = Modifier.size(44.dp)) {
-                        Icon(Icons.Outlined.Event, stringResource(Res.string.calendar_open), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
+                        Icon(Icons.Outlined.CalendarMonth, stringResource(Res.string.calendar_open), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(24.dp))
                     }
                 }
             }
@@ -2316,7 +2318,7 @@ internal fun MediaDetailsScreen(
                         alignment = Alignment.BottomCenter,
                         colorFilter = titleLogoFilter,
                         onSuccess = { titleLogoAnalysis = runCatching { it.analyzeLogo() }.getOrNull() },
-                        modifier = Modifier.logoBox(titleLogoAnalysis, .62f, 96.dp),
+                        modifier = Modifier.logoBox(titleLogoAnalysis, .62f, 96.dp, wideWidthFraction = .74f),
                     )
                 } else {
                     Text(
@@ -2506,6 +2508,7 @@ internal fun MediaDetailsScreen(
                                 .width(112.dp)
                                 .aspectRatio(16f / 9f)
                                 .clip(RoundedCornerShape(8.dp))
+                                .border(1.dp, ArtworkEdge, RoundedCornerShape(8.dp))
                                 .background(MaterialTheme.colorScheme.surfaceContainerLow),
                         ) {
                             // The numbered tile sits underneath, so a missing or failed still never leaves a blank box.
@@ -2535,7 +2538,11 @@ internal fun MediaDetailsScreen(
                         }
                         Column(Modifier.weight(1f)) {
                             Text(
-                                episodeTitle,
+                                // The "3." prefix in gray so the episode name leads each row.
+                                if (namedTitle != null && video.episode != null) androidx.compose.ui.text.buildAnnotatedString {
+                                    withStyle(androidx.compose.ui.text.SpanStyle(color = MaterialTheme.colorScheme.onSurfaceVariant)) { append("${video.episode}. ") }
+                                    append(namedTitle)
+                                } else androidx.compose.ui.text.AnnotatedString(episodeTitle),
                                 color = Color.White,
                                 style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.SemiBold,
@@ -2648,7 +2655,7 @@ internal fun MediaDetailsScreen(
                     }
                 }
                 val fadeColor = MaterialTheme.colorScheme.background
-                Box(Modifier.fillMaxWidth().height(24.dp).background(Brush.verticalGradient(0f to fadeColor, .25f to fadeColor, .5f to fadeColor.copy(alpha = .7f), .75f to fadeColor.copy(alpha = .25f), 1f to Color.Transparent)))
+                Box(Modifier.fillMaxWidth().height(24.dp).background(Brush.verticalGradient(0f to fadeColor, .5f to fadeColor, .75f to fadeColor.copy(alpha = .5f), 1f to Color.Transparent)))
             }
         } else {
             MobileBackButton(
@@ -3608,7 +3615,7 @@ private fun StreamSelectionScreen(
                             alignment = Alignment.BottomCenter,
                             colorFilter = if (logoAnalysis?.dark == true) ColorFilter.tint(Color.White) else null,
                             onSuccess = { logoAnalysis = runCatching { it.analyzeLogo() }.getOrNull() },
-                            modifier = Modifier.logoBox(logoAnalysis, .62f, 96.dp),
+                            modifier = Modifier.logoBox(logoAnalysis, .62f, 96.dp, wideWidthFraction = .74f),
                         )
                         if (episode == null) Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             if (facts.isNotEmpty() || rating != null) TitleFactsRow(facts, rating, onRatingClick = null)
@@ -4000,7 +4007,7 @@ internal fun ProfileSettingsScreen(
                                     Icon(entry.icon, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(22.dp))
                                     Spacer(Modifier.width(16.dp))
                                     Text(entry.title, style = SettingsTitleStyle, modifier = Modifier.weight(1f))
-                                    Icon(Icons.Rounded.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .7f), modifier = Modifier.size(20.dp).offset(x = 7.dp))
+                                    Icon(Icons.Rounded.ChevronRight, null, tint = TertiaryText, modifier = Modifier.size(20.dp).offset(x = 7.dp))
                                 }
                             }
                         }
@@ -4124,7 +4131,7 @@ private fun SettingsAction(title: String, description: String, destructive: Bool
     Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable(onClick = onClick).padding(vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) { Text(title, style = SettingsTitleStyle, color = if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface); Text(description, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
         // The glyph has about 8dp of empty space on its right; shift it so its stroke ends on the same edge as switches and values.
-        Icon(Icons.Rounded.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.offset(x = 8.dp))
+        Icon(Icons.Rounded.ChevronRight, null, tint = TertiaryText, modifier = Modifier.size(20.dp).offset(x = 7.dp))
     }
 }
 
