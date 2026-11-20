@@ -2900,7 +2900,7 @@ private fun MainTopBar(
     // AppShell draws a static fade behind this row, so the controls stay flat.
     Row(
         // The mark's glyph and the avatar both land on the 16dp page gutter, with matching gaps around the search pill.
-        modifier.statusBarsPadding().fillMaxWidth().padding(start = 4.dp, end = 12.dp, top = 6.dp, bottom = 6.dp),
+        modifier.statusBarsPadding().fillMaxWidth().padding(start = 4.dp, end = 9.dp, top = 6.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -2936,7 +2936,7 @@ private fun MainTopBar(
                     Box(contentAlignment = Alignment.Center) {
                         val avatarColor = activeProfile?.avatarColor?.let(::topProfileColor) ?: MaterialTheme.colorScheme.primary
                         Surface(
-                            modifier = Modifier.size(40.dp),
+                            modifier = Modifier.size(34.dp),
                             shape = androidx.compose.foundation.shape.CircleShape,
                             color = avatarColor,
                             contentColor = if (avatarColor.luminance() > .45f) Color.Black else Color.White,

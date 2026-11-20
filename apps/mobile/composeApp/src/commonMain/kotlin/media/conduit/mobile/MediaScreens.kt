@@ -193,7 +193,7 @@ internal fun MobileLibraryScreen(
                         Icon(Icons.Outlined.History, stringResource(Res.string.history_open), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(24.dp))
                     }
                     IconButton(onClick = onOpenCalendar, modifier = Modifier.size(44.dp)) {
-                        Icon(Icons.Outlined.CalendarMonth, stringResource(Res.string.calendar_open), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(24.dp))
+                        Icon(Icons.Outlined.CalendarMonth, stringResource(Res.string.calendar_open), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(22.dp))
                     }
                 }
             }
@@ -2392,7 +2392,7 @@ internal fun MediaDetailsScreen(
                         DetailAction(
                             // Like "Library"/"Saved": the inactive label names the action, the active one the state.
                             label = if (watched) "Watched" else "Mark watched",
-                            icon = if (watched) Icons.Rounded.CheckCircle else Icons.Outlined.CheckCircle,
+                            icon = if (watched) Icons.Rounded.CheckCircle else Icons.Rounded.CheckCircleOutline,
                             actionDescription = if (watched) "Mark as unwatched" else "Mark as watched",
                             active = watched,
                             onClick = { scope.launch { onMutation(ProfileMutation.SetWatched(actionItem, movieProgress, watched = !watched)) } },
@@ -2544,7 +2544,7 @@ internal fun MediaDetailsScreen(
                                     append(namedTitle)
                                 } else androidx.compose.ui.text.AnnotatedString(episodeTitle),
                                 color = Color.White,
-                                style = MaterialTheme.typography.bodyMedium,
+                                style = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp, lineHeight = 20.sp),
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -2563,8 +2563,8 @@ internal fun MediaDetailsScreen(
                                     it,
                                     maxLines = 2,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 18.sp),
-                                    modifier = Modifier.padding(top = 4.dp),
+                                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 17.sp),
+                                    modifier = Modifier.padding(top = 2.dp),
                                 )
                             }
                         }
@@ -3739,7 +3739,7 @@ private fun StreamSelectionScreen(
                         style = ShelfTitleStyle,
                     )
                     Text(
-                        error ?: "No add-on returned a source for this title.",
+                        error ?: "Check that a streaming add-on is enabled.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 20.sp, lineBreak = androidx.compose.ui.text.style.LineBreak.Heading),
                         textAlign = TextAlign.Center,
@@ -3974,7 +3974,7 @@ internal fun ProfileSettingsScreen(
     ) {
         item {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 4.dp)) {
-                ProfileAvatar(activeProfile, 52, Modifier.clip(CircleShape).clickable { route = ProfileRoute.Overview })
+                ProfileAvatar(activeProfile, 44, Modifier.clip(CircleShape).clickable { route = ProfileRoute.Overview })
                 Spacer(Modifier.width(14.dp))
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(activeProfile?.name ?: "Profile", style = PageTitleStyle)
