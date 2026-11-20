@@ -3751,7 +3751,7 @@ private fun StreamSelectionScreen(
                         style = ShelfTitleStyle,
                     )
                     Text(
-                        error ?: "Check that a streaming add-on is enabled.",
+                        error ?: "Check that a stream add-on is installed and enabled.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 20.sp, lineBreak = androidx.compose.ui.text.style.LineBreak.Heading),
                         textAlign = TextAlign.Center,
@@ -4141,7 +4141,7 @@ private fun SettingsToggle(title: String, description: String, checked: Boolean,
 
 @Composable
 private fun SettingsAction(title: String, description: String, destructive: Boolean = false, onClick: () -> Unit) {
-    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable(onClick = onClick).padding(vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().heightIn(min = 60.dp).clickable(onClick = onClick).padding(vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) { Text(title, style = SettingsTitleStyle, color = if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface); Text(description, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
         // The glyph has about 8dp of empty space on its right; shift it so its stroke ends on the same edge as switches and values.
         Icon(Icons.Rounded.ChevronRight, null, tint = TertiaryText, modifier = Modifier.size(20.dp).offset(x = 7.dp))
@@ -4202,17 +4202,17 @@ private fun AppearanceSettingsScreen(platform: PlatformInfo, preferences: Device
     SettingsPage("Appearance & layout", onBack, modifier) {
         SettingsGroup("Color") {
             // Informational: the value sits in the trailing slot so the row doesn't look like a dead link.
-            Row(Modifier.fillMaxWidth().heightIn(min = 60.dp).padding(vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().heightIn(min = 52.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("Theme", style = SettingsTitleStyle, modifier = Modifier.weight(1f))
-                Text("Dark", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+                Text("Dark", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 18.sp))
             }
             SettingsToggle("AMOLED black", "Pure black backgrounds for OLED screens", preferences.amoledBlack) { update(preferences.copy(amoledBlack = it)) }
             SettingsToggle("Reduce animations", "Simpler transitions and motion", preferences.reduceAnimations) { update(preferences.copy(reduceAnimations = it)) }
         }
         SettingsGroup("Display") {
-            Row(Modifier.fillMaxWidth().heightIn(min = 60.dp).padding(vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().heightIn(min = 52.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("App language", style = SettingsTitleStyle, modifier = Modifier.weight(1f))
-                Text("System default", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+                Text("System default", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 18.sp))
             }
             SettingsAction("Navigation style", displayedNavigationStyle.label) { showNavigation = true }
             SettingsAction("Navigation placement", if (preferences.railOnTablets) "Left rail" else "Bottom bar") { showPlacement = true }

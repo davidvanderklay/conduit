@@ -2957,9 +2957,9 @@ private fun MainTopBar(
                 DropdownMenu(
                     expanded = profileMenuOpen,
                     onDismissRequest = { profileMenuOpen = false },
-                    offset = androidx.compose.ui.unit.DpOffset(x = (-7).dp, y = 8.dp),
+                    offset = androidx.compose.ui.unit.DpOffset(x = (-7).dp, y = 4.dp),
                     modifier = Modifier
-                        .width(216.dp)
+                        .width((200 * LocalDensity.current.fontScale.coerceAtLeast(1f)).dp)
                         .heightIn(max = 480.dp),
                     shape = RoundedCornerShape(12.dp),
                     // One tonal step above the raised fill, so the menu separates from dark hero art without a border.
