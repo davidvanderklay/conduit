@@ -3004,6 +3004,12 @@ private fun MainTopBar(
                             onClick = { showAllProfiles = !showAllProfiles },
                         )
                     }
+                    DropdownMenuItem(
+                        modifier = Modifier.padding(horizontal = 6.dp).clip(RoundedCornerShape(12.dp)),
+                        text = { Text("Add profile", style = MenuLabelStyle) },
+                        leadingIcon = { Icon(Icons.Rounded.Add, null, Modifier.size(20.dp)) },
+                        onClick = { profileMenuOpen = false; onAddProfile() },
+                    )
                     HorizontalDivider(Modifier.padding(vertical = 4.dp), color = Color.White.copy(.06f))
                     if (watchParty != null) {
                         DropdownMenuItem(
@@ -3022,12 +3028,6 @@ private fun MainTopBar(
                             onClick = { profileMenuOpen = false; onOpenQueue() },
                         )
                     }
-                    DropdownMenuItem(
-                        modifier = Modifier.padding(horizontal = 6.dp).clip(RoundedCornerShape(12.dp)),
-                        text = { Text("Add profile", style = MenuLabelStyle) },
-                        leadingIcon = { Icon(Icons.Rounded.Add, null, Modifier.size(20.dp)) },
-                        onClick = { profileMenuOpen = false; onAddProfile() },
-                    )
                     DropdownMenuItem(
                         modifier = Modifier.padding(horizontal = 6.dp).clip(RoundedCornerShape(12.dp)),
                         text = { Text("Add-ons", style = MenuLabelStyle) },

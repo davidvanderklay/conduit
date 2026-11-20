@@ -3171,7 +3171,11 @@ private fun TitleFactsRow(facts: List<String>, rating: String?, onRatingClick: (
 @Composable
 private fun BottomGestureFade(modifier: Modifier = Modifier) {
     val background = MaterialTheme.colorScheme.background
-    Box(modifier.fillMaxWidth().background(Brush.verticalGradient(0f to Color.Transparent, .6f to background.copy(alpha = .9f), 1f to background)).navigationBarsPadding().height(12.dp))
+    // A 12dp fade, then solid background behind the gesture handle so no text shows through it.
+    Column(modifier.fillMaxWidth()) {
+        Box(Modifier.fillMaxWidth().height(12.dp).background(Brush.verticalGradient(0f to Color.Transparent, 1f to background)))
+        Box(Modifier.fillMaxWidth().background(background).navigationBarsPadding())
+    }
 }
 
 /** Icon-over-label secondary action on the details page. Active state uses the accent instead of a border. */
@@ -4039,7 +4043,7 @@ internal fun ProfileSettingsScreen(
 private fun SettingsPage(title: String, onBack: () -> Unit, modifier: Modifier, content: @Composable ColumnScope.() -> Unit) {
     Column(modifier.fillMaxSize()) {
         ProfileHeader(title, onBack)
-        Column(Modifier.weight(1f).verticalScroll(androidx.compose.foundation.rememberScrollState()).padding(horizontal = PageGutter).navigationBarsPadding().padding(bottom = 112.dp), verticalArrangement = Arrangement.spacedBy(28.dp), content = content)
+        Column(Modifier.weight(1f).verticalScroll(androidx.compose.foundation.rememberScrollState()).padding(horizontal = PageGutter).navigationBarsPadding().padding(bottom = 112.dp), verticalArrangement = Arrangement.spacedBy(24.dp), content = content)
     }
 }
 
@@ -4051,7 +4055,7 @@ internal val SettingsGroupColor: Color
 /** A labeled settings surface. With [divided], a hairline separates every row so dividers stay consistent. */
 @Composable
 private fun SettingsGroup(title: String, divided: Boolean = true, content: @Composable () -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(title, style = SectionLabelStyle)
         Surface(color = SettingsGroupColor, shape = RoundedCornerShape(12.dp)) {
             val inner = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp)
@@ -5049,13 +5053,13 @@ private fun AddonManagerScreen(
         error?.let { item { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 4.dp)) } }
         item {
             // 20dp above, so install and the installed list read as two tasks.
-            Row(verticalAlignment = Alignment.Bottom, modifier = Modifier.padding(top = 12.dp)) {
-                Text("Installed", style = SectionLabelStyle)
+            Row(modifier = Modifier.padding(top = 12.dp)) {
+                Text("Installed", style = SectionLabelStyle, modifier = Modifier.alignByBaseline())
                 if (addons.isNotEmpty()) Text(
                     "$activeCount of ${addons.size} active",
                     style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(start = 8.dp, bottom = 1.dp),
+                    modifier = Modifier.alignByBaseline().padding(start = 8.dp),
                 )
             }
         }
