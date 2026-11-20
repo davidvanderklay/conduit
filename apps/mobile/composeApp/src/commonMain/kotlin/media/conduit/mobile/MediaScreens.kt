@@ -56,6 +56,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -205,7 +206,7 @@ internal fun MobileLibraryScreen(
                 columns = gridColumns,
                 contentPadding = PaddingValues(start = PageGutter, end = PageGutter, bottom = 112.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalArrangement = Arrangement.spacedBy(18.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 items(items, key = { "${it.type}:${it.id}" }) { item ->
                     val catalogItem = item.asCatalogItem()
@@ -324,7 +325,7 @@ internal fun MobileContinueWatchingScreen(
                 columns = gridColumns,
                 contentPadding = PaddingValues(start = PageGutter, end = PageGutter, bottom = 112.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalArrangement = Arrangement.spacedBy(18.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 items(items, key = ::progressTitleUiKey) { progress ->
                     val catalogItem = CatalogItem(
@@ -533,7 +534,7 @@ internal fun SearchDiscoverScreen(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(start = PageGutter, end = PageGutter, top = 4.dp, bottom = 112.dp),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalArrangement = Arrangement.spacedBy(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
                     items(discoverItems, key = { "${it.type}:${it.id}" }) { item ->
                         RichPosterCard(
@@ -2162,8 +2163,9 @@ internal fun MediaDetailsScreen(
                 modifier = Modifier
                     .align(Alignment.TopStart)
                     .statusBarsPadding()
-                    .padding(12.dp)
-                    .background(Color.Black.copy(alpha = .58f), CircleShape),
+                    // Same center as the pinned header's back arrow, so it doesn't hop when the header pins.
+                    .padding(start = 6.dp, top = 5.dp)
+                    .drawBehind { drawCircle(Color.Black.copy(alpha = .58f), radius = 20.dp.toPx()) },
             ) {
                 Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = Color.White)
             }
@@ -3721,8 +3723,7 @@ private fun StreamSelectionScreen(
                 ) {
                     Text(
                         if (error != null) "Couldn't load streams" else "No streams found",
-                        style = MaterialTheme.typography.titleMedium.copy(fontSize = 18.sp, lineHeight = 24.sp),
-                        fontWeight = FontWeight.SemiBold,
+                        style = ShelfTitleStyle,
                     )
                     Text(
                         error ?: "No add-on returned a source for this title.",
@@ -3732,13 +3733,13 @@ private fun StreamSelectionScreen(
                         modifier = Modifier.padding(top = 6.dp).widthIn(max = 320.dp),
                     )
                     // Retry, or go fix the cause: streams come from add-ons. Same tonal secondary as "Copy all codes".
-                    Row(Modifier.padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Button(onClick = onManageAddons, modifier = Modifier.height(PrimaryButtonHeight), shape = RoundedCornerShape(12.dp)) {
+                    Row(Modifier.padding(top = 16.dp).widthIn(max = 328.dp).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Button(onClick = onManageAddons, modifier = Modifier.weight(1f).height(PrimaryButtonHeight), shape = RoundedCornerShape(12.dp)) {
                             Text("Manage add-ons", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
                         }
                         FilledTonalButton(
                             onClick = onRetry,
-                            modifier = Modifier.height(PrimaryButtonHeight),
+                            modifier = Modifier.weight(1f).height(PrimaryButtonHeight),
                             shape = RoundedCornerShape(12.dp),
                             colors = ButtonDefaults.filledTonalButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh, contentColor = MaterialTheme.colorScheme.onSurface),
                         ) {
@@ -4708,8 +4709,9 @@ private fun MobileBackButton(
     IconButton(
         onClick = onClick,
         modifier = modifier
-            .then(if (safeArea) Modifier.statusBarsPadding().padding(12.dp) else Modifier)
-            .background(background, CircleShape),
+            // In the safe area it shares the pinned header's arrow position; the scrim is a 40dp circle inside the 48dp target.
+            .then(if (safeArea) Modifier.statusBarsPadding().padding(start = 6.dp, top = 5.dp) else Modifier)
+            .drawBehind { drawCircle(background, radius = 20.dp.toPx()) },
     ) {
         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back", tint = tint)
     }

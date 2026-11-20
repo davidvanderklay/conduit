@@ -502,7 +502,7 @@ private val OnboardingHeaderHeight = 48.dp
 
 /** Profile menu command text: 15sp regular, so commands stay quieter than the active profile. */
 private val MenuLabelStyle: androidx.compose.ui.text.TextStyle
-    @Composable get() = MaterialTheme.typography.bodyLarge.copy(fontSize = 15.sp, fontWeight = FontWeight.Normal)
+    @Composable get() = SettingsTitleStyle
 
 /** One measure for every onboarding subtitle, so the four steps wrap alike. */
 private val OnboardingCopyWidth = 440.dp
@@ -668,7 +668,7 @@ private fun SignInScreen(
                 OnboardingBrand()
                 Spacer(Modifier.weight(1f))
                 Surface(onClick = { showServerDialog = true }, shape = RoundedCornerShape(12.dp), color = Color.Transparent, contentColor = Color.White, modifier = Modifier.offset(x = 6.dp)) {
-                    Row(Modifier.heightIn(min = 40.dp).padding(start = 8.dp, end = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.heightIn(min = 48.dp).padding(start = 8.dp, end = 2.dp), verticalAlignment = Alignment.CenterVertically) {
                         val serverColor = when {
                             authenticationError != null -> MaterialTheme.colorScheme.error
                             authenticationLoading -> Color(0xFFFBBF24)
@@ -676,8 +676,8 @@ private fun SignInScreen(
                         }
                         Box(Modifier.size(6.dp).background(serverColor, androidx.compose.foundation.shape.CircleShape))
                         Spacer(Modifier.width(8.dp))
-                        Text(if (endpoint == DefaultServerEndpoint) "Default server" else endpoint.label, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp), fontWeight = FontWeight.Normal, maxLines = 1)
-                        Icon(Icons.Rounded.KeyboardArrowDown, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(if (endpoint == DefaultServerEndpoint) "Default server" else endpoint.label, color = Color(0xFFD4D4D8), style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp), fontWeight = FontWeight.Medium, maxLines = 1)
+                        Icon(Icons.Rounded.KeyboardArrowDown, null, Modifier.size(18.dp), tint = Color(0xFFD4D4D8))
                     }
                 }
             }
@@ -2972,7 +2972,7 @@ private fun MainTopBar(
                                 ),
                             text = {
                                 Column {
-                                    Text(profile.name, style = MenuLabelStyle, fontWeight = if (profile.id == activeProfile?.id) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(profile.name, style = MenuLabelStyle, fontWeight = if (profile.id == activeProfile?.id) FontWeight.SemiBold else FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     if (profile.isKids) Text("Kids profile", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             },
@@ -3071,7 +3071,7 @@ internal fun RowScope.MobileNavigationItem(
     modifier: Modifier = Modifier,
 ) {
     val color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-    // Selection is the amber icon and label plus a small pill behind the icon only, Material 3 style.
+    // Selection is the filled amber glyph and amber label; no indicator capsule.
     Column(
         modifier.clip(RoundedCornerShape(12.dp))
             .selectable(selected = selected, role = androidx.compose.ui.semantics.Role.Tab, onClick = onClick).padding(top = if (showLabel) 6.dp else 8.dp, bottom = if (showLabel) 6.dp else 8.dp),
@@ -3079,8 +3079,7 @@ internal fun RowScope.MobileNavigationItem(
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         Box(
-            Modifier.size(width = 40.dp, height = 26.dp).clip(RoundedCornerShape(13.dp))
-                .background(if (selected) Color.White.copy(alpha = .06f) else Color.Transparent),
+            Modifier.size(width = 40.dp, height = 26.dp),
             contentAlignment = Alignment.Center,
         ) {
             Icon(destination.icon(selected), if (showLabel) null else destination.label, tint = color, modifier = Modifier.size(20.dp))
