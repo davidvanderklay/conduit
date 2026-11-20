@@ -569,7 +569,7 @@ internal fun SearchDiscoverScreen(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(top = 8.dp, bottom = 112.dp),
-                verticalArrangement = Arrangement.spacedBy(32.dp),
+                verticalArrangement = Arrangement.spacedBy(24.dp),
             ) {
                 if (searchLoading) item {
                     // Center horizontally, about 30% down the search area.
@@ -2170,6 +2170,7 @@ internal fun MediaDetailsScreen(
                 facts = listOfNotNull(meta?.releaseInfo ?: meta?.released?.take(4), meta?.runtime?.let(::compactRuntime))
                     .map(String::trim).filter(String::isNotBlank),
                 rating = meta?.imdbRating?.trim()?.takeIf(String::isNotBlank),
+                genres = meta?.genres.orEmpty().map(String::trim).filter(String::isNotBlank).distinct(),
                 artwork = meta?.background ?: meta?.poster ?: item.background ?: item.poster,
                 episode = selectedVideo,
                 streams = streams.orEmpty(),
@@ -2535,7 +2536,7 @@ internal fun MediaDetailsScreen(
                                     episodeReleaseDateLabel(released) ?: released,
                                     color = TertiaryText,
                                     style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 16.sp),
-                                    modifier = Modifier.padding(top = 4.dp),
+                                    modifier = Modifier.padding(top = 2.dp),
                                 )
                             }
                         }
@@ -2626,7 +2627,7 @@ internal fun MediaDetailsScreen(
                     }
                 }
                 val fadeColor = MaterialTheme.colorScheme.background
-                Box(Modifier.fillMaxWidth().height(20.dp).background(Brush.verticalGradient(0f to fadeColor, .4f to fadeColor, 1f to Color.Transparent)))
+                Box(Modifier.fillMaxWidth().height(28.dp).background(Brush.verticalGradient(0f to fadeColor, .45f to fadeColor, 1f to Color.Transparent)))
             }
         } else {
             MobileBackButton(
@@ -3513,6 +3514,7 @@ private fun StreamSelectionScreen(
     logo: String?,
     facts: List<String>,
     rating: String?,
+    genres: List<String>,
     artwork: String?,
     episode: VideoItem?,
     streams: List<StreamSource>,
@@ -3571,8 +3573,8 @@ private fun StreamSelectionScreen(
                         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Black.copy(.35f), .22f to Color.Transparent, .55f to Color.Transparent, .82f to streamBackground.copy(alpha = .5f), 1f to streamBackground)))
                     }
                     if (heroWithLogo) Column(
-                        // The extra bottom space stands in for the genres line details shows, so the logo lands at the same height.
-                        Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(start = PageGutter, end = PageGutter, bottom = 42.dp),
+                        // Same box, padding, and logo/facts/genres stack as details, so the title doesn't move between pages.
+                        Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(start = PageGutter, end = PageGutter, bottom = 16.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(16.dp),
                     ) {
@@ -3586,7 +3588,17 @@ private fun StreamSelectionScreen(
                             onSuccess = { logoAnalysis = runCatching { it.analyzeLogo() }.getOrNull() },
                             modifier = Modifier.logoBox(logoAnalysis, .62f, 96.dp),
                         )
-                        if (episode == null && (facts.isNotEmpty() || rating != null)) TitleFactsRow(facts, rating, onRatingClick = null)
+                        if (episode == null) Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            if (facts.isNotEmpty() || rating != null) TitleFactsRow(facts, rating, onRatingClick = null)
+                            // Matches the details genres line, which pads each link by 3dp vertically.
+                            if (genres.isNotEmpty()) Text(
+                                genres.joinToString(", "),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.padding(vertical = 3.dp),
+                            )
+                        }
                     }
                 }
             }
@@ -3688,7 +3700,7 @@ private fun StreamSelectionScreen(
                 // Sits right under the filters so the empty state reads as part of the page, not a separate screen.
                 // Centered under the centered title, so the page keeps one axis.
                 Column(
-                    Modifier.fillMaxWidth().padding(start = PageGutter, end = PageGutter, top = 8.dp),
+                    Modifier.fillMaxWidth().padding(start = PageGutter, end = PageGutter, top = 18.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
@@ -3710,7 +3722,7 @@ private fun StreamSelectionScreen(
                             Text("Manage add-ons", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
                         }
                         TextButton(onClick = onRetry, modifier = Modifier.height(50.dp)) {
-                            Text("Try again", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface)
+                            Text("Try again", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }
@@ -5041,7 +5053,7 @@ private fun AddonManagerScreen(
                                 }
                             }
                             // What it does, then the technical facts, across the full card width under the title row.
-                            Column(Modifier.padding(top = 6.dp, end = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Column(Modifier.padding(top = 0.dp, end = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Text(description, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 18.sp), maxLines = 2, overflow = TextOverflow.Ellipsis)
                                 Text(meta, color = TertiaryText, style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 16.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }

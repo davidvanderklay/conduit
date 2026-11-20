@@ -442,7 +442,7 @@ private fun RecoveryCodesScreen(codes: List<String>, onSaved: () -> Unit) {
             Text("Save your recovery codes", style = OnboardingTitleStyle)
             Text("Each code works once. Keep them off this device.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.widthIn(max = OnboardingCopyWidth))
             Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
-                Column(Modifier.padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp)) {
+                Column(Modifier.padding(start = 16.dp, end = 12.dp, top = 4.dp, bottom = 4.dp)) {
                     codes.forEach { code ->
                         Row(Modifier.fillMaxWidth().height(44.dp), verticalAlignment = Alignment.CenterVertically) {
                             Text(code, style = MaterialTheme.typography.bodyLarge, fontFamily = FontFamily.Monospace, color = Color.White, modifier = Modifier.weight(1f))
@@ -519,7 +519,7 @@ private fun OnboardingLink(lead: String, action: String) {
 /** Mark and wordmark at the top of every onboarding step, so the flow keeps one anchor. */
 @Composable
 private fun OnboardingBrand(modifier: Modifier = Modifier) {
-    Row(modifier.height(OnboardingHeaderHeight), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    Row(modifier.height(OnboardingHeaderHeight), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         // The mark's amber body is inset in its square; trim that inset from layout so it sits on the gutter.
         ConduitMark(
             Modifier.layout { measurable, constraints ->
@@ -2959,7 +2959,7 @@ private fun MainTopBar(
                         .width(216.dp)
                         .heightIn(max = 480.dp),
                     shape = RoundedCornerShape(12.dp),
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                     tonalElevation = 0.dp,
                     shadowElevation = 24.dp,
                 ) {
