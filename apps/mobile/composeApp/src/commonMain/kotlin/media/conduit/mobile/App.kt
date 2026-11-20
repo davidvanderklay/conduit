@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.*
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Search
@@ -467,11 +468,11 @@ private fun HouseholdSetup(onCreate: (String, String) -> Unit) {
     Surface(Modifier.fillMaxSize()) {
         Column(
             Modifier.safeDrawingPadding().widthIn(max = 560.dp).fillMaxWidth().padding(horizontal = PageGutter, vertical = 28.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            OnboardingBrand(Modifier.padding(bottom = 10.dp))
+            OnboardingBrand(Modifier.padding(bottom = 12.dp))
             Text("Create your household", style = OnboardingTitleStyle)
-            Text("Profiles, add-ons, and watch state sync through your conduit server.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(bottom = 6.dp))
+            Text("Profiles, add-ons, and watch state sync through your conduit server.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(bottom = 12.dp))
             TextField(
                 household, { household = it }, label = { Text("Household name") },
                 singleLine = true, shape = RoundedCornerShape(12.dp), colors = conduitFilledFieldColors(), modifier = Modifier.fillMaxWidth(),
@@ -486,7 +487,7 @@ private fun HouseholdSetup(onCreate: (String, String) -> Unit) {
                     pending = true
                     onCreate(household, profile)
                 },
-                modifier = Modifier.fillMaxWidth().padding(top = 6.dp).height(50.dp),
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp).height(50.dp),
                 shape = RoundedCornerShape(12.dp),
             ) { Text(if (pending) "Creating…" else "Create household", fontWeight = FontWeight.SemiBold) }
         }
@@ -1353,11 +1354,12 @@ private fun AppShell(
                     NavigationRail {
                         Spacer(Modifier.height(16.dp))
                         AppDestination.entries.filter(AppDestination::showInNavigation).forEach { destination ->
+                            val railSelected = state.destination == destination ||
+                                (state.destination == AppDestination.Calendar && destination == AppDestination.Library)
                             NavigationRailItem(
-                                selected = state.destination == destination ||
-                                    (state.destination == AppDestination.Calendar && destination == AppDestination.Library),
+                                selected = railSelected,
                                 onClick = { navigateMain(destination) },
-                                icon = { Icon(destination.icon, destination.label) },
+                                icon = { Icon(destination.icon(railSelected), destination.label) },
                                 label = { Text(destination.label) },
                             )
                         }
@@ -2969,7 +2971,7 @@ private fun MainTopBar(
                         DropdownMenuItem(
                             modifier = Modifier.padding(horizontal = 6.dp).clip(RoundedCornerShape(12.dp)),
                             text = { Text("Watch together") },
-                            leadingIcon = { Icon(Icons.Rounded.People, null) },
+                            leadingIcon = { Icon(Icons.Outlined.People, null) },
                             onClick = { profileMenuOpen = false; watchParty.sheetOpen = true },
                         )
                     }
@@ -2991,13 +2993,13 @@ private fun MainTopBar(
                     DropdownMenuItem(
                         modifier = Modifier.padding(horizontal = 6.dp).clip(RoundedCornerShape(12.dp)),
                         text = { Text("Add-ons") },
-                        leadingIcon = { Icon(Icons.Rounded.Extension, null) },
+                        leadingIcon = { Icon(Icons.Outlined.Extension, null) },
                         onClick = { profileMenuOpen = false; onOpenAddons() },
                     )
                     DropdownMenuItem(
                         modifier = Modifier.padding(horizontal = 6.dp).clip(RoundedCornerShape(12.dp)),
                         text = { Text("Settings") },
-                        leadingIcon = { Icon(Icons.Rounded.Settings, null) },
+                        leadingIcon = { Icon(Icons.Outlined.Settings, null) },
                         onClick = { profileMenuOpen = false; onOpenSettings() },
                     )
                     DropdownMenuItem(
@@ -3015,15 +3017,15 @@ private fun topProfileColor(hex: String): Color = runCatching {
     Color((0xFF000000L or hex.removePrefix("#").toLong(16)).toInt())
 }.getOrDefault(Color(0xFFFBBF24))
 
-private val AppDestination.icon: ImageVector
-    get() = when (this) {
-        AppDestination.Home -> Icons.Rounded.Home
-        AppDestination.Search -> Icons.Rounded.Explore
-        AppDestination.Library -> Icons.Rounded.VideoLibrary
-        AppDestination.Calendar -> Icons.Rounded.CalendarMonth
-        AppDestination.Profile -> Icons.Rounded.Settings
-        AppDestination.ContinueWatching -> Icons.Rounded.History
-    }
+/** Filled for the selected tab, outlined otherwise, as in Material 3 navigation. */
+private fun AppDestination.icon(selected: Boolean): ImageVector = when (this) {
+    AppDestination.Home -> if (selected) Icons.Rounded.Home else Icons.Outlined.Home
+    AppDestination.Search -> if (selected) Icons.Rounded.Explore else Icons.Outlined.Explore
+    AppDestination.Library -> if (selected) Icons.Rounded.VideoLibrary else Icons.Outlined.VideoLibrary
+    AppDestination.Calendar -> if (selected) Icons.Rounded.CalendarMonth else Icons.Outlined.CalendarMonth
+    AppDestination.Profile -> if (selected) Icons.Rounded.Settings else Icons.Outlined.Settings
+    AppDestination.ContinueWatching -> if (selected) Icons.Rounded.History else Icons.Outlined.History
+}
 
 @Composable
 internal fun RowScope.MobileNavigationItem(
@@ -3046,7 +3048,7 @@ internal fun RowScope.MobileNavigationItem(
                 .background(if (selected) Color.White.copy(alpha = .08f) else Color.Transparent),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(destination.icon, if (showLabel) null else destination.label, tint = color, modifier = Modifier.size(22.dp))
+            Icon(destination.icon(selected), if (showLabel) null else destination.label, tint = color, modifier = Modifier.size(22.dp))
         }
         if (showLabel) Text(destination.label, color = color, style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp), fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
     }

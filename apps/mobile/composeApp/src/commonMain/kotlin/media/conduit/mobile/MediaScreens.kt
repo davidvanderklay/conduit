@@ -18,6 +18,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -35,7 +36,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.*
-import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.snapshotFlow
@@ -179,9 +180,9 @@ internal fun MobileLibraryScreen(
                 Spacer(Modifier.weight(1f))
                 // Page tools sit together as one 96dp cluster on the end gutter.
                 IconButton(onClick = onOpenHistory, modifier = Modifier.size(48.dp)) {
-                    Icon(Icons.Rounded.History, stringResource(Res.string.history_open), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(22.dp))
+                    Icon(Icons.Outlined.History, stringResource(Res.string.history_open), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(22.dp))
                 }
-                IconButton(onClick = onOpenCalendar, modifier = Modifier.size(48.dp).offset(x = (-8).dp)) {
+                IconButton(onClick = onOpenCalendar, modifier = Modifier.size(48.dp)) {
                     Icon(Icons.Outlined.CalendarMonth, stringResource(Res.string.calendar_open), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(22.dp))
                 }
             }
@@ -484,7 +485,7 @@ internal fun SearchDiscoverScreen(
         Spacer(Modifier.height(mainTopBarHeight(LocalDensity.current.fontScale) + 12.dp))
         if (query.isBlank()) {
             Row(
-                Modifier.fillMaxWidth().padding(start = PageGutter, end = PageGutter, top = 2.dp, bottom = 6.dp),
+                Modifier.fillMaxWidth().padding(start = PageGutter, end = PageGutter, top = 2.dp, bottom = 2.dp),
                 horizontalArrangement = Arrangement.spacedBy(20.dp),
             ) {
                 CompactFilterMenu(
@@ -525,7 +526,7 @@ internal fun SearchDiscoverScreen(
                     state = gridState,
                     columns = if (windowWidth >= 600.dp) GridCells.Adaptive(150.dp) else GridCells.Fixed(3),
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(start = PageGutter, end = PageGutter, top = 6.dp, bottom = 112.dp),
+                    contentPadding = PaddingValues(start = PageGutter, end = PageGutter, top = 8.dp, bottom = 112.dp),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalArrangement = Arrangement.spacedBy(18.dp),
                 ) {
@@ -627,10 +628,10 @@ private fun RowScope.CompactFilterMenu(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
+                fontWeight = FontWeight.Medium,
                 color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Icon(Icons.Rounded.KeyboardArrowDown, null, Modifier.padding(start = 2.dp).size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Icon(Icons.Rounded.KeyboardArrowDown, null, Modifier.padding(start = 2.dp).size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             options.forEach { (key, label) ->
@@ -2377,7 +2378,7 @@ internal fun MediaDetailsScreen(
                             style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 21.sp),
                             maxLines = if (expanded) Int.MAX_VALUE else 4,
                             overflow = TextOverflow.Ellipsis,
-                            onTextLayout = { if (!expanded) overflows = it.hasVisualOverflow },
+                            onTextLayout = { if (!expanded) overflows = it.hasVisualOverflow || it.isLineEllipsized(it.lineCount - 1) },
                         )
                         if (overflows && !expanded) Text(
                             "More",
@@ -2461,7 +2462,7 @@ internal fun MediaDetailsScreen(
                 val episodeTitle =
                     if (namedTitle != null && video.episode != null) "${video.episode}. $namedTitle"
                     else video.displayTitle
-                Column(Modifier.fillMaxWidth().padding(vertical = 6.dp, horizontal = PageGutter)) {
+                Column(Modifier.fillMaxWidth().padding(vertical = 10.dp, horizontal = PageGutter)) {
                     Row(
                         modifier = Modifier.fillMaxWidth().combinedClickable(
                             onClickLabel = "Play ${video.displayTitle}",
@@ -2527,7 +2528,7 @@ internal fun MediaDetailsScreen(
                                     episodeReleaseDateLabel(released) ?: released,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 16.sp),
-                                    modifier = Modifier.padding(top = 2.dp),
+                                    modifier = Modifier.padding(top = 3.dp),
                                 )
                             }
                             (video.overview ?: video.description)?.trim()?.takeIf(String::isNotBlank)?.let {
@@ -2565,11 +2566,7 @@ internal fun MediaDetailsScreen(
             Surface(
                 color = MaterialTheme.colorScheme.background,
                 shadowElevation = 0.dp,
-                modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth()
-                    .drawWithContent {
-                        drawContent()
-                        drawLine(Color.White.copy(alpha = .08f), Offset(0f, size.height), Offset(size.width, size.height), 1.dp.toPx())
-                    },
+                modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth(),
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth().statusBarsPadding().height(58.dp).padding(horizontal = 6.dp),
@@ -2600,7 +2597,7 @@ internal fun MediaDetailsScreen(
                         scope.launch { onMutation(ProfileMutation.SetLibrary(actionItem, !saved, details?.runtime)) }
                     }) {
                         Icon(
-                            if (saved) Icons.Rounded.BookmarkAdded else Icons.Rounded.BookmarkAdd,
+                            if (saved) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder,
                             if (saved) "Remove from library" else "Add to library",
                             tint = if (saved) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                         )
@@ -3519,7 +3516,7 @@ private fun StreamSelectionScreen(
                     Column(Modifier.weight(1f)) {
                         // The title leads; "Choose a stream" and the episode explain the page beneath it.
                         Text(title, style = if (collapsed) MaterialTheme.typography.titleMedium else PageTitleStyle, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        if (!collapsed) Text(listOfNotNull("Choose a stream", episode?.let { "S${it.season ?: 0}E${it.episode ?: 0} · ${it.displayTitle}" }).joinToString(" · "), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        if (!collapsed) Text(listOfNotNull("Choose a stream".takeIf { streams.isNotEmpty() || loading }, episode?.let { "S${it.season ?: 0}E${it.episode ?: 0} · ${it.displayTitle}" }).joinToString(" · "), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                     if (streams.isNotEmpty() && !loading) IconButton(onClick = onRetry) {
                         Icon(Icons.Rounded.Refresh, "Refresh sources", tint = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -3773,24 +3770,24 @@ internal fun ProfileSettingsScreen(
     val sections = remember {
         listOf(
             SettingSection("Account", listOf(
-                SettingEntry("Profile", "Profiles and viewing stats", Icons.Rounded.AccountCircle),
-                SettingEntry("Account", "Sign-in and recovery", Icons.Rounded.Key),
+                SettingEntry("Profile", "Profiles and viewing stats", Icons.Outlined.AccountCircle),
+                SettingEntry("Account", "Sign-in and recovery", Icons.Outlined.Key),
             )),
             SettingSection("General", listOf(
-                SettingEntry("Watch history", "Recently watched", Icons.Rounded.History),
-                SettingEntry("Appearance & layout", "Theme and navigation", Icons.Rounded.Tune),
-                SettingEntry("Content & discovery", "Add-ons and home rows", Icons.Rounded.Explore),
-                SettingEntry("Playback", "Player and subtitles", Icons.Rounded.PlayCircle),
-                SettingEntry("Profile data", "Import and export", Icons.Rounded.ImportExport),
-                SettingEntry("Integrations", "Connected media services", Icons.Rounded.Link),
+                SettingEntry("Watch history", "Recently watched", Icons.Outlined.History),
+                SettingEntry("Appearance & layout", "Theme and navigation", Icons.Outlined.Tune),
+                SettingEntry("Content & discovery", "Add-ons and home rows", Icons.Outlined.Explore),
+                SettingEntry("Playback", "Player and subtitles", Icons.Outlined.PlayCircle),
+                SettingEntry("Profile data", "Import and export", Icons.Outlined.ImportExport),
+                SettingEntry("Integrations", "Connected media services", Icons.Outlined.Link),
             )),
             SettingSection("About", listOf(
-                SettingEntry("Supporters & contributors", "Community and open source", Icons.Rounded.Favorite),
-                SettingEntry("Privacy policy", "Data and privacy details", Icons.Rounded.PrivacyTip),
-                SettingEntry("Licenses & attribution", "Open-source software", Icons.Rounded.Description),
+                SettingEntry("Supporters & contributors", "Community and open source", Icons.Outlined.FavoriteBorder),
+                SettingEntry("Privacy policy", "Data and privacy details", Icons.Outlined.PrivacyTip),
+                SettingEntry("Licenses & attribution", "Open-source software", Icons.Outlined.Description),
             )),
             SettingSection("Advanced", listOf(
-                SettingEntry("Advanced settings", "Server and diagnostics", Icons.Rounded.SettingsSuggest),
+                SettingEntry("Advanced settings", "Server and diagnostics", Icons.Outlined.SettingsSuggest),
             )),
         )
     }
@@ -3963,9 +3960,18 @@ internal fun conduitSwitchColors() = SwitchDefaults.colors(
 
 @Composable
 private fun SettingsToggle(title: String, description: String, checked: Boolean, enabled: Boolean = true, onChanged: (Boolean) -> Unit) {
-    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+    // The whole row toggles, so the switch can drop its own 48dp touch padding and every row keeps one height.
+    Row(
+        Modifier.fillMaxWidth()
+            .toggleable(value = checked, enabled = enabled, role = androidx.compose.ui.semantics.Role.Switch, onValueChange = onChanged)
+            .heightIn(min = 56.dp).padding(vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) { Text(title, style = SettingsTitleStyle, color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant); Text(description, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
-        Spacer(Modifier.width(16.dp)); Switch(checked, onChanged, enabled = enabled, colors = conduitSwitchColors())
+        Spacer(Modifier.width(16.dp))
+        CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides Dp.Unspecified) {
+            Switch(checked, null, enabled = enabled, colors = conduitSwitchColors())
+        }
     }
 }
 
@@ -4870,7 +4876,17 @@ private fun AddonManagerScreen(
             }
         }
         error?.let { item { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 4.dp)) } }
-        item { AddonSectionLabel(if (addons.isEmpty()) "Installed" else "Installed · $activeCount of ${addons.size} active · $catalogCount catalogs") }
+        item {
+            Row(verticalAlignment = Alignment.Bottom, modifier = Modifier.padding(top = 4.dp)) {
+                Text("Installed", style = SectionLabelStyle)
+                if (addons.isNotEmpty()) Text(
+                    "$activeCount of ${addons.size} active · $catalogCount catalogs",
+                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 8.dp, bottom = 1.dp),
+                )
+            }
+        }
         if (addons.isEmpty()) item { Text("No add-ons installed.", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(4.dp)) }
         // One grouped surface with hairlines between add-ons, matching the settings groups.
         if (addons.isNotEmpty()) item(key = "installed-addons") {
@@ -4895,7 +4911,7 @@ private fun AddonManagerScreen(
                 "configurable".takeIf { configurable },
             ).joinToString(" · ")
                     run {
-                        Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 12.dp, bottom = 4.dp)) {
+                        Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 12.dp, bottom = 12.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Surface(shape = RoundedCornerShape(12.dp), color = Color.White.copy(.06f), modifier = Modifier.size(40.dp)) {
                                     // Wide wordmark logos are unreadable in a square tile, so they fall back to the add-on glyph.
@@ -4910,9 +4926,11 @@ private fun AddonManagerScreen(
                                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
                                     Text(name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     val factStyle = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 16.sp)
-                                    Text(meta, color = MaterialTheme.colorScheme.onSurfaceVariant, style = factStyle, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    // Title, then what it does, then the technical facts, in falling order of importance.
+                                    Text(description, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 18.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(meta, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .7f), style = factStyle, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 }
-                                Spacer(Modifier.width(8.dp))
+                                Spacer(Modifier.width(12.dp))
                                 Switch(addon.enabled, { enabled -> runMutation { base, token, id -> api.setAddonEnabled(base, token, id, addon.id, enabled) } }, enabled = !linked && !busy, colors = conduitSwitchColors())
                                 if (!linked) Box {
                                     var menuOpen by remember { mutableStateOf(false) }
@@ -4925,7 +4943,6 @@ private fun AddonManagerScreen(
                                     }
                                 }
                             }
-                            Text(description, color = Color(0xFFB4B4BD), style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 16.sp), maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 52.dp, top = 6.dp, end = 12.dp, bottom = 12.dp))
                         }
                     }
                     }

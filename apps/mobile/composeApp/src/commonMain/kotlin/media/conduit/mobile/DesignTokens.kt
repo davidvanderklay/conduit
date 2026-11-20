@@ -30,10 +30,10 @@ internal val SectionLabelStyle: TextStyle
     @Composable @ReadOnlyComposable
     get() = MaterialTheme.typography.labelLarge.copy(fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
 
-/** Heading on sign-in, household setup, and recovery screens. */
+/** Heading on sign-in, household setup, and recovery screens; the same size as every other page title. */
 internal val OnboardingTitleStyle: TextStyle
     @Composable @ReadOnlyComposable
-    get() = MaterialTheme.typography.headlineMedium.copy(fontSize = 28.sp, lineHeight = 34.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.25).sp)
+    get() = PageTitleStyle
 
 /** Filled input colors shared by search, URL, and onboarding fields: no outline until focused. */
 @Composable

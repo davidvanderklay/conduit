@@ -236,7 +236,7 @@ internal fun Shelf(title: String, onSeeAll: (() -> Unit)? = null, source: String
                     modifier = Modifier.weight(1f, fill = false),
                 )
                 source?.let {
-                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 8.dp, bottom = 2.dp))
+                    Text(it, style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp), color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 12.dp, bottom = 2.dp))
                 }
             }
             // A compact text link keeps the row as tall as its title; the padding still gives a usable target.
