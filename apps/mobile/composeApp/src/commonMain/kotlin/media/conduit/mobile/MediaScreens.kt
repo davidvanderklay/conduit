@@ -2483,7 +2483,7 @@ internal fun MediaDetailsScreen(
                         Box(
                             Modifier
                                 .padding(top = 2.dp)
-                                .width(120.dp)
+                                .width(132.dp)
                                 .aspectRatio(16f / 9f)
                                 .clip(RoundedCornerShape(8.dp))
                                 .background(MaterialTheme.colorScheme.surfaceContainerLow),
@@ -2536,7 +2536,7 @@ internal fun MediaDetailsScreen(
                                     episodeReleaseDateLabel(released) ?: released,
                                     color = TertiaryText,
                                     style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 16.sp),
-                                    modifier = Modifier.padding(top = 2.dp),
+                                    modifier = Modifier.padding(top = 4.dp),
                                 )
                             }
                         }
@@ -2599,7 +2599,7 @@ internal fun MediaDetailsScreen(
                             Icon(
                                 if (saved) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder,
                                 if (saved) "Remove from library" else "Add to library",
-                                tint = if (saved) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                                tint = MaterialTheme.colorScheme.onSurface,
                             )
                         }
                     }
@@ -2627,7 +2627,7 @@ internal fun MediaDetailsScreen(
                     }
                 }
                 val fadeColor = MaterialTheme.colorScheme.background
-                Box(Modifier.fillMaxWidth().height(20.dp).background(Brush.verticalGradient(0f to fadeColor, .5f to fadeColor, 1f to Color.Transparent)))
+                Box(Modifier.fillMaxWidth().height(28.dp).background(Brush.verticalGradient(0f to fadeColor, .2f to fadeColor, .6f to fadeColor.copy(alpha = .55f), 1f to Color.Transparent)))
             }
         } else {
             MobileBackButton(
@@ -3149,8 +3149,9 @@ private fun DetailAction(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    // Inactive actions are an outlined icon and label in gray; an active one is the filled icon and label in amber.
-    val iconColor = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+    // Inactive actions are an outlined icon and label in gray; an active one is the filled icon and label in white.
+    // Amber stays reserved for Play.
+    val iconColor = if (active) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
     Column(
         modifier
             .width(104.dp)
@@ -3163,7 +3164,7 @@ private fun DetailAction(
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Icon(icon, null, tint = iconColor, modifier = Modifier.size(22.dp))
-        Text(label, color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelMedium.copy(fontSize = 12.sp, fontWeight = FontWeight.Medium), maxLines = 1)
+        Text(label, color = iconColor, style = MaterialTheme.typography.labelMedium.copy(fontSize = 12.sp, fontWeight = FontWeight.Medium), maxLines = 1)
     }
 }
 
@@ -3724,7 +3725,7 @@ private fun StreamSelectionScreen(
                             Text("Manage add-ons", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
                         }
                         TextButton(onClick = onRetry, modifier = Modifier.height(50.dp)) {
-                            Text("Try again", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("Try again", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface)
                         }
                     }
                 }
@@ -4151,7 +4152,7 @@ private fun AppearanceSettingsScreen(platform: PlatformInfo, preferences: Device
         effectiveNavigationStyle
     }
     SettingsPage("Appearance & layout", onBack, modifier) {
-        SettingsGroup("Appearance") {
+        SettingsGroup("Color") {
             // Informational: the value sits in the trailing slot so the row doesn't look like a dead link.
             Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("Theme", style = SettingsTitleStyle, modifier = Modifier.weight(1f))

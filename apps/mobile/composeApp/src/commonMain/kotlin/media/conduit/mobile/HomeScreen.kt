@@ -74,7 +74,7 @@ internal fun HomeScreen(
         state = listState,
         modifier = modifier.fillMaxSize().statusBarsPadding(),
         contentPadding = PaddingValues(top = 72.dp, bottom = 112.dp),
-        verticalArrangement = Arrangement.spacedBy(20.dp),
+        verticalArrangement = Arrangement.spacedBy(28.dp),
     ) {
         if (sync.offline) {
             item { StatusPill("Offline · showing saved activity", MaterialTheme.colorScheme.tertiary, Modifier.padding(horizontal = PageGutter)) }
@@ -226,9 +226,10 @@ internal fun HomeScreen(
  */
 @Composable
 internal fun Shelf(title: String, onSeeAll: (() -> Unit)? = null, source: String? = null, content: @Composable () -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    // About 2:1 grouping: the title sits closer to its own row than to the shelf above.
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         // Title, source, and "See all" share the title's baseline.
-        Row(Modifier.fillMaxWidth().heightIn(min = 32.dp).padding(start = PageGutter, end = 6.dp)) {
+        Row(Modifier.fillMaxWidth().heightIn(min = 28.dp).padding(start = PageGutter, end = 6.dp)) {
             Row(Modifier.weight(1f).alignByBaseline()) {
                 Text(
                     title,
