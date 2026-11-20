@@ -3969,7 +3969,8 @@ internal fun ProfileSettingsScreen(
     LazyColumn(
         state = settingsListState,
         modifier = modifier.statusBarsPadding(),
-        contentPadding = PaddingValues(start = PageGutter, end = PageGutter, top = 12.dp, bottom = 112.dp),
+        // The header row centers on the same line as the top bar on Home, Discover and Library.
+        contentPadding = PaddingValues(start = PageGutter, end = PageGutter, top = 5.dp, bottom = 112.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         item {
@@ -4000,7 +4001,7 @@ internal fun ProfileSettingsScreen(
                             section.entries.forEachIndexed { index, entry ->
                                 if (index > 0) HorizontalDivider(Modifier.padding(start = 54.dp), color = Color.White.copy(.06f))
                                 Row(
-                                    Modifier.fillMaxWidth().clickable { openEntry(entry.title) }.heightIn(min = 48.dp).padding(horizontal = 16.dp, vertical = 6.dp),
+                                    Modifier.fillMaxWidth().clickable { openEntry(entry.title) }.heightIn(min = 52.dp).padding(horizontal = 16.dp, vertical = 8.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
                                     // Single-line rows, like Infuse; descriptions still feed settings search.
@@ -4737,9 +4738,10 @@ private fun MobileBackButton(
 
 @Composable
 private fun ProfileHeader(title: String, onBack: () -> Unit) {
-    Row(Modifier.fillMaxWidth().statusBarsPadding().padding(start = 4.dp, end = PageGutter, top = 8.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().statusBarsPadding().padding(start = 0.dp, end = PageGutter, top = 8.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        // The arrow glyph's own inset puts its stroke on the 16dp gutter.
         MobileBackButton(onClick = onBack)
-        Spacer(Modifier.width(4.dp))
+        Spacer(Modifier.width(8.dp))
         Text(title, style = PageTitleStyle, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }

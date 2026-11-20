@@ -2952,7 +2952,7 @@ private fun MainTopBar(
                 DropdownMenu(
                     expanded = profileMenuOpen,
                     onDismissRequest = { profileMenuOpen = false },
-                    offset = androidx.compose.ui.unit.DpOffset(x = (-4).dp, y = 8.dp),
+                    offset = androidx.compose.ui.unit.DpOffset(x = (-7).dp, y = 8.dp),
                     modifier = Modifier
                         .width(216.dp)
                         .heightIn(max = 480.dp),
