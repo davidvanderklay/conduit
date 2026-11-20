@@ -1,8 +1,10 @@
 package media.conduit.mobile
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -14,7 +16,7 @@ internal val PageGutter = 16.dp
 /** Title of a top-level or settings page, e.g. "Library" or "Playback". */
 internal val PageTitleStyle: TextStyle
     @Composable @ReadOnlyComposable
-    get() = MaterialTheme.typography.headlineSmall.copy(fontSize = 26.sp, lineHeight = 32.sp, fontWeight = FontWeight.Bold)
+    get() = MaterialTheme.typography.headlineSmall.copy(fontSize = 26.sp, lineHeight = 32.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.25).sp)
 
 /** Title above a shelf or row of posters. */
 internal val ShelfTitleStyle: TextStyle
@@ -29,4 +31,16 @@ internal val SectionLabelStyle: TextStyle
 /** Heading on sign-in, household setup, and recovery screens. */
 internal val OnboardingTitleStyle: TextStyle
     @Composable @ReadOnlyComposable
-    get() = MaterialTheme.typography.headlineMedium.copy(fontSize = 28.sp, lineHeight = 34.sp, fontWeight = FontWeight.Bold)
+    get() = MaterialTheme.typography.headlineMedium.copy(fontSize = 28.sp, lineHeight = 34.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.25).sp)
+
+/** Filled input colors shared by search, URL, and onboarding fields: no outline until focused. */
+@Composable
+internal fun conduitFilledFieldColors() = TextFieldDefaults.colors(
+    focusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+    disabledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+    errorContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+    focusedIndicatorColor = Color.Transparent,
+    unfocusedIndicatorColor = Color.Transparent,
+    disabledIndicatorColor = Color.Transparent,
+)

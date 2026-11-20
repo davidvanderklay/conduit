@@ -52,6 +52,8 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -157,17 +159,9 @@ internal fun MobileLibraryScreen(
 
     Column(modifier.statusBarsPadding()) {
         Spacer(Modifier.height(mainTopBarHeight(LocalDensity.current.fontScale) + 12.dp))
-        Column(Modifier.padding(start = PageGutter, end = 4.dp, top = 4.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(stringResource(Res.string.library_title), style = PageTitleStyle, modifier = Modifier.weight(1f))
-                IconButton(onClick = onOpenHistory) {
-                    Icon(Icons.Rounded.History, stringResource(Res.string.history_open))
-                }
-                IconButton(onClick = onOpenCalendar) {
-                    Icon(Icons.Rounded.CalendarMonth, stringResource(Res.string.calendar_open))
-                }
-            }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+        // Same header pattern as Discover: filters on the left, page tools on the right, no repeated page title.
+        Column(Modifier.padding(start = PageGutter, end = 4.dp, top = 2.dp, bottom = 6.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(20.dp), verticalAlignment = Alignment.CenterVertically) {
                 CompactFilterMenu(
                     value = when (filter) { "movie" -> "Movies"; "series" -> "Series"; else -> "All types" },
                     options = listOf("all" to "All types", "movie" to "Movies", "series" to "Series"),
@@ -180,6 +174,13 @@ internal fun MobileLibraryScreen(
                     selectedKey = sort.name,
                     onSelect = { selected -> LibrarySort.entries.firstOrNull { it.name == selected }?.let { sort = it } },
                 )
+                Spacer(Modifier.weight(1f))
+                IconButton(onClick = onOpenHistory) {
+                    Icon(Icons.Rounded.History, stringResource(Res.string.history_open), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                IconButton(onClick = onOpenCalendar) {
+                    Icon(Icons.Rounded.CalendarMonth, stringResource(Res.string.calendar_open), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
         }
         SyncStatusRow(syncState, onRetry)
@@ -523,7 +524,7 @@ internal fun SearchDiscoverScreen(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(start = PageGutter, end = PageGutter, top = 6.dp, bottom = 112.dp),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(18.dp),
                 ) {
                     items(discoverItems, key = { "${it.type}:${it.id}" }) { item ->
                         RichPosterCard(
@@ -533,7 +534,6 @@ internal fun SearchDiscoverScreen(
                             metadataCache = metadataCache,
                             onClick = { onSelect(item, null) },
                             onActions = { actionTarget = MediaActionTarget(item, MediaActionContext.Browse, latestProgress(snapshot, item)) },
-                            showLabels = false,
                         )
                     }
                     if (hasMore) {
@@ -651,6 +651,16 @@ private fun RowScope.CompactFilterMenu(
 private fun EmptyBrowseState(message: String) {
     Box(Modifier.fillMaxWidth().height(240.dp), contentAlignment = Alignment.Center) {
         Text(message, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+/** "173 min" becomes "2h 53m"; anything else is shown as the add-on wrote it. */
+internal fun compactRuntime(runtime: String): String {
+    val minutes = Regex("""^\s*(\d+)\s*min\s*$""", RegexOption.IGNORE_CASE).find(runtime)?.groupValues?.get(1)?.toIntOrNull() ?: return runtime
+    return when {
+        minutes < 60 -> "${minutes}m"
+        minutes % 60 == 0 -> "${minutes / 60}h"
+        else -> "${minutes / 60}h ${minutes % 60}m"
     }
 }
 
@@ -2142,7 +2152,8 @@ internal fun MediaDetailsScreen(
                     if (streamEpisodesOpen) streamEpisodesOpen = false else closeStreamPage()
                 },
                 modifier = Modifier.align(Alignment.TopStart),
-                background = MaterialTheme.colorScheme.background.copy(alpha = .96f),
+                background = Color.Black.copy(alpha = .45f),
+                tint = Color.White,
                 safeArea = true,
             )
             if (orderedVideos.isNotEmpty()) {
@@ -2199,10 +2210,9 @@ internal fun MediaDetailsScreen(
         id.length > 2 && id.startsWith("tt") && id.drop(2).all(Char::isDigit)
     }
     val metadataFacts = listOfNotNull(
-        details?.runtime,
         details?.releaseInfo ?: details?.released?.take(4),
+        details?.runtime?.let(::compactRuntime),
         details?.contentRating,
-        details?.imdbRating,
     ).map(String::trim).filter(String::isNotBlank)
     Box(Modifier.fillMaxSize()) {
         LazyColumn(
@@ -2224,7 +2234,9 @@ internal fun MediaDetailsScreen(
                             translationY = -heroPull.floatValue * HeroMotion.upwardTranslation
                         },
                     )
-                    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Black.copy(.15f), MaterialTheme.colorScheme.background))))
+                    // Keep the artwork bright up top and fade into the page only behind the title and meta.
+                    val heroBackground = MaterialTheme.colorScheme.background
+                    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Black.copy(.18f), .3f to Color.Transparent, .62f to heroBackground.copy(alpha = .55f), 1f to heroBackground)))
                 }
                 if (titleLogo != null) {
                     AsyncImage(
@@ -2235,7 +2247,7 @@ internal fun MediaDetailsScreen(
                         onSuccess = { titleLogoDark = runCatching { it.isDarkLogo() }.getOrDefault(false) },
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
-                            .offset(y = (-60).dp)
+                            .offset(y = (-52).dp)
                             .fillMaxWidth(.58f)
                             .heightIn(max = 110.dp),
                     )
@@ -2252,7 +2264,7 @@ internal fun MediaDetailsScreen(
                 Row(
                     modifier = Modifier.align(Alignment.BottomStart).padding(start = PageGutter, end = PageGutter, bottom = 16.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     metadataFacts.takeIf { it.isNotEmpty() }?.let { facts ->
                         Text(
@@ -2261,21 +2273,20 @@ internal fun MediaDetailsScreen(
                             style = MaterialTheme.typography.bodyMedium,
                         )
                     }
-                    if (imdbId != null && details?.imdbRating?.isNotBlank() == true) {
-                        Surface(
+                    // A neutral rating instead of IMDb's yellow badge, so amber stays reserved for Play.
+                    details?.imdbRating?.trim()?.takeIf(String::isNotBlank)?.let { rating ->
+                        Row(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(6.dp))
-                                .clickable { uriHandler.openUri("https://www.imdb.com/title/$imdbId/") },
-                            color = Color(0xFFF5C518),
-                            contentColor = Color.Black,
-                            shape = RoundedCornerShape(6.dp),
+                                .then(if (imdbId != null) Modifier.clickable(onClickLabel = "Open on IMDb") { uriHandler.openUri("https://www.imdb.com/title/$imdbId/") } else Modifier)
+                                .padding(vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text("IMDb", fontWeight = FontWeight.Black, style = MaterialTheme.typography.labelSmall)
-                            }
+                            if (metadataFacts.isNotEmpty()) Text("·", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(end = 6.dp))
+                            Icon(Icons.Rounded.Star, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(15.dp))
+                            Text(rating, color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                            Text("IMDb", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -2325,7 +2336,8 @@ internal fun MediaDetailsScreen(
                             modifier = Modifier.weight(1f),
                         )
                     }
-                    trailerId?.takeIf { id -> id.isNotEmpty() && id.all { it.isLetterOrDigit() || it == '-' || it == '_' } }?.let { id ->
+                    val trailerSlot = trailerId?.takeIf { id -> id.isNotEmpty() && id.all { it.isLetterOrDigit() || it == '-' || it == '_' } }
+                    trailerSlot?.let { id ->
                         DetailAction(
                             label = "Trailer",
                             icon = Icons.Rounded.Movie,
@@ -2335,6 +2347,9 @@ internal fun MediaDetailsScreen(
                             modifier = Modifier.weight(1f),
                         )
                     }
+                    // Keep three fixed slots so icons sit in the same place on movie and series pages.
+                    val filled = 1 + (if (actionItem.type == "movie") 1 else 0) + (if (trailerSlot != null) 1 else 0)
+                    repeat(3 - filled) { Spacer(Modifier.weight(1f)) }
                 }
                 details?.description?.trim()?.takeIf(String::isNotBlank)?.let {
                     Text(it, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .86f), style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 21.sp))
@@ -2448,12 +2463,23 @@ internal fun MediaDetailsScreen(
                                 .clip(RoundedCornerShape(9.dp))
                                 .background(MaterialTheme.colorScheme.surfaceContainerLow),
                         ) {
-                            AsyncImage(
-                                video.thumbnail,
-                                null,
-                                Modifier.fillMaxSize(),
-                                contentScale = ContentScale.Crop,
-                            )
+                            if (video.thumbnail.isNullOrBlank()) {
+                                Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceContainerHigh), contentAlignment = Alignment.Center) {
+                                    Text(
+                                        video.episode?.toString() ?: "",
+                                        style = MaterialTheme.typography.titleLarge,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = Color.White.copy(alpha = .4f),
+                                    )
+                                }
+                            } else {
+                                AsyncImage(
+                                    video.thumbnail,
+                                    null,
+                                    Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Crop,
+                                )
+                            }
                             Box(
                                 Modifier.fillMaxSize().background(
                                     Brush.verticalGradient(
@@ -3466,6 +3492,9 @@ private fun StreamSelectionScreen(
                         Text("Choose a stream", style = if (collapsed) MaterialTheme.typography.titleMedium else PageTitleStyle, fontWeight = FontWeight.Bold)
                         if (!collapsed) Text(listOfNotNull(title, episode?.let { "S${it.season ?: 0}E${it.episode ?: 0} · ${it.displayTitle}" }).joinToString(" · "), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
+                    if (streams.isNotEmpty() && !loading) IconButton(onClick = onRetry) {
+                        Icon(Icons.Rounded.Refresh, "Refresh sources", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
             }
         }
@@ -3486,7 +3515,8 @@ private fun StreamSelectionScreen(
                 }
             }
         }
-        item(key = "addon-filters") {
+        // Source filters only help when more than one add-on returned streams.
+        if (addonChoices.size > 1) item(key = "addon-filters") {
             val chipColors = FilterChipDefaults.filterChipColors(
                 selectedContainerColor = Color.White.copy(alpha = .12f),
                 selectedLabelColor = MaterialTheme.colorScheme.onSurface,
@@ -3515,11 +3545,6 @@ private fun StreamSelectionScreen(
                         border = null,
                     )
                 }
-                item {
-                    IconButton(onClick = onRetry) {
-                        Icon(Icons.Rounded.Refresh, "Refresh sources", tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
             }
         }
         when {
@@ -3540,7 +3565,7 @@ private fun StreamSelectionScreen(
             streams.isEmpty() -> item(key = if (error != null) "error" else "empty") {
                 // Sits right under the filters so the empty state reads as part of the page, not a separate screen.
                 Column(
-                    Modifier.fillMaxWidth().padding(start = PageGutter, end = PageGutter, top = 28.dp),
+                    Modifier.fillMaxWidth().padding(start = PageGutter, end = PageGutter, top = 20.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     Text(
@@ -3714,21 +3739,21 @@ internal fun ProfileSettingsScreen(
     val sections = remember {
         listOf(
             SettingSection("Account", listOf(
-                SettingEntry("Profile", "Profiles, appearance, and viewing overview", Icons.Rounded.AccountCircle),
-                SettingEntry("Account", "Sign-in, security, and recovery", Icons.Rounded.Person),
+                SettingEntry("Profile", "Profiles and viewing stats", Icons.Rounded.AccountCircle),
+                SettingEntry("Account", "Sign-in and recovery", Icons.Rounded.Person),
             )),
             SettingSection("General", listOf(
-                SettingEntry("Watch history", "Recent movies and episodes", Icons.Rounded.History),
-                SettingEntry("Appearance & layout", "Theme, language, and navigation", Icons.Rounded.Tune),
-                SettingEntry("Content & discovery", "Add-ons, catalogs, and search", Icons.Rounded.Explore),
-                SettingEntry("Playback", "Player, subtitles, and behavior", Icons.Rounded.PlayCircle),
+                SettingEntry("Watch history", "Recently watched", Icons.Rounded.History),
+                SettingEntry("Appearance & layout", "Theme and navigation", Icons.Rounded.Tune),
+                SettingEntry("Content & discovery", "Add-ons and home rows", Icons.Rounded.Explore),
+                SettingEntry("Playback", "Player and subtitles", Icons.Rounded.PlayCircle),
                 SettingEntry("Profile data", "Import and export", Icons.Rounded.ImportExport),
                 SettingEntry("Integrations", "Connected media services", Icons.Rounded.Extension),
             )),
             SettingSection("About", listOf(
                 SettingEntry("Supporters & contributors", "Community and open source", Icons.Rounded.Favorite),
                 SettingEntry("Privacy policy", "Data and privacy details", Icons.Rounded.PrivacyTip),
-                SettingEntry("Licenses & attribution", "Open-source software and acknowledgements", Icons.Rounded.Description),
+                SettingEntry("Licenses & attribution", "Open-source software", Icons.Rounded.Description),
             )),
             SettingSection("Advanced", listOf(
                 SettingEntry("Advanced settings", "Server and diagnostics", Icons.Rounded.SettingsSuggest),
@@ -3802,7 +3827,7 @@ internal fun ProfileSettingsScreen(
         visibleSections.forEach { section ->
             item(key = "section-${section.title}") {
                 Column(Modifier.padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(section.title, style = SectionLabelStyle, modifier = Modifier.padding(start = 4.dp))
+                    Text(section.title, style = SectionLabelStyle)
                     Surface(color = SettingsGroupColor, shape = RoundedCornerShape(14.dp)) {
                         Column {
                             section.entries.forEachIndexed { index, entry ->
@@ -3848,12 +3873,42 @@ private fun SettingsPage(title: String, onBack: () -> Unit, modifier: Modifier, 
 /** Fill shared by every grouped settings surface. */
 internal val SettingsGroupColor = Color.White.copy(alpha = .045f)
 
+/** A labeled settings surface. With [divided], a hairline separates every row so dividers stay consistent. */
 @Composable
-private fun SettingsGroup(title: String, content: @Composable ColumnScope.() -> Unit) {
+private fun SettingsGroup(title: String, divided: Boolean = true, content: @Composable () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(title, style = SectionLabelStyle, modifier = Modifier.padding(start = 4.dp))
+        Text(title, style = SectionLabelStyle)
         Surface(color = SettingsGroupColor, shape = RoundedCornerShape(14.dp)) {
-            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp), content = content)
+            val inner = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp)
+            if (divided) DividedColumn(inner, content) else Column(inner) { content() }
+        }
+    }
+}
+
+/** Stacks children vertically and draws a hairline between each pair. */
+@Composable
+private fun DividedColumn(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    val color = Color.White.copy(alpha = .06f)
+    // Written during placement and read during drawing, which always follows layout.
+    val dividerOffsets = remember { mutableListOf<Int>() }
+    Layout(
+        content = content,
+        modifier = modifier.drawWithContent {
+            drawContent()
+            val stroke = 1.dp.toPx()
+            dividerOffsets.forEach { y -> drawLine(color, Offset(0f, y.toFloat()), Offset(size.width, y.toFloat()), stroke) }
+        },
+    ) { measurables, constraints ->
+        val placeables = measurables.map { it.measure(constraints.copy(minHeight = 0)) }
+        val width = if (constraints.hasBoundedWidth) constraints.maxWidth else placeables.maxOfOrNull { it.width } ?: 0
+        layout(width, placeables.sumOf { it.height }) {
+            dividerOffsets.clear()
+            var y = 0
+            placeables.forEachIndexed { index, placeable ->
+                if (index > 0) dividerOffsets += y
+                placeable.placeRelative(0, y)
+                y += placeable.height
+            }
         }
     }
 }
@@ -3896,18 +3951,15 @@ private fun AccountSettingsScreen(state: AppState, account: AccountStatus.Signed
     SettingsPage("Account", onBack, modifier) {
         SettingsGroup("Status") {
             ListItem(headlineContent = { Text("Signed in", fontWeight = FontWeight.SemiBold) }, supportingContent = { Text(account.bootstrap.user?.email ?: "conduit account") }, leadingContent = { Icon(Icons.Rounded.VerifiedUser, null, tint = Color(0xFF34D399)) }, colors = ListItemDefaults.colors(containerColor = Color.Transparent))
-            HorizontalDivider(color = Color.White.copy(.06f))
             ListItem(headlineContent = { Text("Server") }, supportingContent = { Text(state.endpoint?.baseUrl.orEmpty(), maxLines = 1, overflow = TextOverflow.Ellipsis) }, colors = ListItemDefaults.colors(containerColor = Color.Transparent))
         }
         SettingsGroup("Security") {
             SettingsAction(if (methods?.passwordEnabled == true) "Change password" else "Enable password", if (methods == null) "Loading authentication methods…" else "Use email and password to sign in") { changingPassword = true }
             if (methods?.passwordEnabled == true) {
-                HorizontalDivider(color = Color.White.copy(.06f))
                 SettingsAction("Disable password", if (methods?.linkedProviders?.isNotEmpty() == true) "Continue signing in with ${methods?.configuredProviderName ?: "your linked provider"}" else "Link another provider before disabling", destructive = true) {
                     scope.launch { runCatching { api.setPasswordMode(state.endpoint!!.baseUrl, account.session.token, false) }.onSuccess { methods = methods?.copy(passwordEnabled = it); message = "Password disabled" }.onFailure { message = it.message } }
                 }
             }
-            HorizontalDivider(color = Color.White.copy(.06f))
             SettingsAction("Generate new recovery codes", "Old unused codes will stop working") { scope.launch { runCatching { api.generateRecoveryCodes(state.endpoint!!.baseUrl, account.session.token) }.onSuccess { recoveryCodes = it }.onFailure { message = it.message } } }
         }
         message?.let { Text(it, color = if (it.contains("disabled")) Color(0xFF34D399) else MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 6.dp)) }
@@ -3942,16 +3994,12 @@ private fun AppearanceSettingsScreen(platform: PlatformInfo, preferences: Device
                 Text("Theme", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
                 Text("Conduit dark", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
             }
-            HorizontalDivider(color = Color.White.copy(.06f))
             SettingsToggle("AMOLED black", "Pure black backgrounds for OLED screens", preferences.amoledBlack) { update(preferences.copy(amoledBlack = it)) }
-            HorizontalDivider(color = Color.White.copy(.06f))
             SettingsToggle("Reduce animations", "Simpler transitions and motion", preferences.reduceAnimations) { update(preferences.copy(reduceAnimations = it)) }
         }
         SettingsGroup("Display") {
             SettingsAction("App language", "System default") { }
-            HorizontalDivider(color = Color.White.copy(.06f))
             SettingsAction("Navigation style", displayedNavigationStyle.label) { showNavigation = true }
-            HorizontalDivider(color = Color.White.copy(.06f))
             SettingsAction("Navigation placement", if (preferences.railOnTablets) "Left rail" else "Bottom bar") { showPlacement = true }
         }
     }
@@ -4005,7 +4053,7 @@ private fun HomeRowsSettingsScreen(
     val shown = rows.count { it.enabled }
 
     SettingsPage("Home rows", onBack, modifier) {
-        SettingsGroup("Home rows") {
+        SettingsGroup("Home rows", divided = false) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text("$shown of ${rows.size} shown", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
                 TextButton(onClick = { rows = rows.map { it.copy(enabled = true) } }, enabled = shown < rows.size) { Text("Show all") }
@@ -4075,26 +4123,21 @@ internal fun PlaybackSettingsScreen(platform: PlatformInfo, preferences: DeviceP
         SettingsGroup("Player") {
             if (android) {
                 SettingsToggle("Use external player", "Open direct sources in VLC, mpv, or another app", preferences.externalPlayer) { update(preferences.copy(externalPlayer = it)) }
-                HorizontalDivider(color = Color.White.copy(.06f))
                 SettingsAction("Android player engine", preferences.androidPlaybackEngine.label) { enginePicker = true }
-                HorizontalDivider(color = Color.White.copy(.06f))
             }
             SettingsAction("Resume behavior", preferences.resumeBehavior.label) { resumePicker = true }
             SettingsToggle("Auto-select saved streams", "Reuse your last stream when available", preferences.autoSelectSavedStreams) { update(preferences.copy(autoSelectSavedStreams = it)) }
             SettingsToggle("Automatically select streams", "For Next and queued playback", preferences.autoSelectNextStreams) { update(preferences.copy(autoSelectNextStreams = it)) }
             SettingsToggle("Skip intro and credits", "Show skip buttons when timestamps exist", preferences.skipSegments) { update(preferences.copy(skipSegments = it)) }
             if (isIpad) {
-                HorizontalDivider(color = Color.White.copy(.06f))
                 SettingsAction("Skip button position", preferences.skipButtonPosition.label) { showSkipButtonPosition = true }
             }
             if (platform.name.isIosPlatformName()) {
-                HorizontalDivider(color = Color.White.copy(.06f))
                 SettingsToggle(
                     "Play audio alongside other apps",
                     "Lock screen and Control Center controls are unavailable while enabled.",
                     preferences.mixAudioWithOtherApps,
                 ) { update(preferences.copy(mixAudioWithOtherApps = it)) }
-                HorizontalDivider(color = Color.White.copy(.06f))
             }
             SettingsToggle("Miniplayer on back", "Minimize instead of closing on Back", preferences.miniplayerOnBack) { update(preferences.copy(miniplayerOnBack = it)) }
             SettingsToggle("Touch gestures", "Double-tap seeking and player gestures", preferences.touchGestures) { update(preferences.copy(touchGestures = it)) }
@@ -4102,12 +4145,9 @@ internal fun PlaybackSettingsScreen(platform: PlatformInfo, preferences: DeviceP
         }
         SettingsGroup("Audio & subtitles") {
             SettingsAction("Preferred audio language", languagePreferenceLabel(preferences.preferredAudioLanguage)) { picker = "audio" }
-            HorizontalDivider(color = Color.White.copy(.06f)); SettingsAction("Primary subtitle language", languagePreferenceLabel(preferences.preferredSubtitleLanguage)) { picker = "subtitle" }
-            HorizontalDivider(color = Color.White.copy(.06f))
+            SettingsAction("Primary subtitle language", languagePreferenceLabel(preferences.preferredSubtitleLanguage)) { picker = "subtitle" }
             SettingsAction("Secondary subtitle language", preferences.secondarySubtitleLanguage?.let(::languagePreferenceLabel) ?: "None") { picker = "secondary-subtitle" }
-            HorizontalDivider(color = Color.White.copy(.06f))
             SettingsToggle("Forced subtitles only", "Only show subtitles for dialogue in another language", preferences.forcedSubtitlesOnly) { update(preferences.copy(forcedSubtitlesOnly = it)) }
-            HorizontalDivider(color = Color.White.copy(.06f))
             SubtitleStyleControls(
                 style = preferences.subtitleStyle,
                 onChange = { update(preferences.copy(subtitleStyle = it)) },
@@ -4116,7 +4156,6 @@ internal fun PlaybackSettingsScreen(platform: PlatformInfo, preferences: DeviceP
         }
         SettingsGroup("Autoplay") {
             SettingsToggle("Automatically continue playback", "Start the next queued item or episode when playback ends", preferences.autoplayNextEpisode) { update(preferences.copy(autoplayNextEpisode = it)) }
-            HorizontalDivider(color = Color.White.copy(.06f))
             SettingsToggle("Ask if I'm still watching", "Stop after three episodes in a row with no input", preferences.askIfStillWatching) { update(preferences.copy(askIfStillWatching = it)) }
         }
         SettingsGroup("P2P streaming") {
@@ -4283,7 +4322,7 @@ private fun DebugLogsScreen(
         }
     }
 
-    SettingsGroup("Category") {
+    SettingsGroup("Category", divided = false) {
         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 6.dp)) {
             items(categories) { category ->
                 FilterChip(
@@ -4313,7 +4352,7 @@ private fun DebugLogsScreen(
         }
     }
 
-    SettingsGroup("Logs") {
+    SettingsGroup("Logs", divided = false) {
         SettingsAction(
             title = "Copy Logs to Clipboard",
             description = "Copy filtered current logs and previous sessions",
@@ -4383,7 +4422,6 @@ private fun DebugLogsScreen(
             "Profile" to (profile ?: "None"),
             "Add-ons" to addonCount.toString(),
         ).forEachIndexed { index, (label, value) ->
-            if (index > 0) HorizontalDivider(color = Color.White.copy(.06f))
             ListItem(
                 headlineContent = { Text(label) },
                 supportingContent = { Text(value, maxLines = 2, overflow = TextOverflow.Ellipsis) },
@@ -4396,8 +4434,7 @@ private fun DebugLogsScreen(
 @Composable
 private fun InformationalSettingsScreen(title: String, heading: String, paragraphs: List<String>, onBack: () -> Unit, modifier: Modifier) = SettingsPage(title, onBack, modifier) {
     val uriHandler = LocalUriHandler.current
-    SettingsGroup(heading.uppercase()) { paragraphs.forEachIndexed { index, paragraph ->
-        if (index > 0) HorizontalDivider(color = Color.White.copy(.06f))
+    SettingsGroup(heading) { paragraphs.forEachIndexed { index, paragraph ->
         val isLink = paragraph.startsWith("https://")
         Row(Modifier.fillMaxWidth().then(if (isLink) Modifier.clickable { uriHandler.openUri(paragraph) } else Modifier).padding(vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(paragraph.removePrefix("https://"), color = if (isLink) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, textDecoration = if (isLink) androidx.compose.ui.text.style.TextDecoration.Underline else null)
@@ -4761,7 +4798,7 @@ private fun AddonManagerScreen(
                 "${addons.size} installed · $activeCount active · $catalogCount catalogs",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.padding(start = 4.dp, bottom = 6.dp),
+                modifier = Modifier.padding(bottom = 6.dp),
             )
         }
         if (linked) item {
@@ -4771,33 +4808,33 @@ private fun AddonManagerScreen(
         } else {
             item { AddonSectionLabel("Install from URL") }
             item {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        manifestUrl, { manifestUrl = it },
-                        modifier = Modifier.weight(1f),
-                        placeholder = { Text("https://…/manifest.json") },
-                        singleLine = true,
-                        shape = RoundedCornerShape(12.dp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
-                            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
-                            focusedBorderColor = Color.White.copy(alpha = .24f),
-                            unfocusedBorderColor = Color.Transparent,
-                        ),
-                    )
-                    val installable = !busy && normalizeManifestUrl(manifestUrl).isNotBlank()
-                    Button(
-                        onClick = {
-                            val url = normalizeManifestUrl(manifestUrl)
-                            runMutation(onSuccess = { manifestUrl = "" }) { base, token, id ->
-                                api.installAddon(base, token, id, url)
-                            }
-                        },
-                        enabled = installable,
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.height(56.dp),
-                    ) { Text(if (busy) "Verifying…" else "Install") }
-                }
+                val installable = !busy && normalizeManifestUrl(manifestUrl).isNotBlank()
+                TextField(
+                    manifestUrl, { manifestUrl = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("https://…/manifest.json") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = conduitFilledFieldColors(),
+                    trailingIcon = {
+                        // Install lives inside the field: amber once the URL is valid, muted until then.
+                        IconButton(
+                            onClick = {
+                                val url = normalizeManifestUrl(manifestUrl)
+                                runMutation(onSuccess = { manifestUrl = "" }) { base, token, id ->
+                                    api.installAddon(base, token, id, url)
+                                }
+                            },
+                            enabled = installable,
+                        ) {
+                            if (busy) LoadingIndicator(Modifier.size(20.dp)) else Icon(
+                                Icons.Rounded.Add,
+                                "Install add-on",
+                                tint = if (installable) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .5f),
+                            )
+                        }
+                    },
+                )
             }
         }
         error?.let { item { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 4.dp)) } }
@@ -4819,7 +4856,7 @@ private fun AddonManagerScreen(
             val meta = listOfNotNull(version?.let { "v$it" }, types.takeIf { it.isNotEmpty() }?.joinToString(", ")).joinToString(" · ")
             val capabilities = listOfNotNull(count(resources, "resource"), count(catalogs, "catalog"), "configurable".takeIf { configurable }).joinToString(" · ")
             Surface(color = SettingsGroupColor, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(start = 16.dp, end = 8.dp, top = 12.dp, bottom = 4.dp)) {
+                Column(Modifier.padding(start = 16.dp, end = 4.dp, top = 12.dp, bottom = 4.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Surface(shape = RoundedCornerShape(10.dp), color = Color.White.copy(.06f), modifier = Modifier.size(40.dp)) {
                             if (!logo.isNullOrBlank()) AsyncImage(logo, "$name logo", Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
@@ -4833,15 +4870,18 @@ private fun AddonManagerScreen(
                         }
                         Spacer(Modifier.width(8.dp))
                         Switch(addon.enabled, { enabled -> runMutation { base, token, id -> api.setAddonEnabled(base, token, id, addon.id, enabled) } }, enabled = !linked && !busy, colors = conduitSwitchColors())
+                        if (!linked) Box {
+                            var menuOpen by remember { mutableStateOf(false) }
+                            IconButton(onClick = { menuOpen = true }, enabled = !busy) { Icon(Icons.Rounded.MoreVert, "More actions for $name", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
+                            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }, containerColor = MaterialTheme.colorScheme.surfaceContainerHigh, shape = RoundedCornerShape(12.dp)) {
+                                DropdownMenuItem(text = { Text("Move up") }, leadingIcon = { Icon(Icons.Rounded.ArrowUpward, null) }, enabled = index > 0, onClick = { menuOpen = false; runMutation { base, token, id -> api.moveAddon(base, token, id, addon.id, index - 1) } })
+                                DropdownMenuItem(text = { Text("Move down") }, leadingIcon = { Icon(Icons.Rounded.ArrowDownward, null) }, enabled = index < addons.lastIndex, onClick = { menuOpen = false; runMutation { base, token, id -> api.moveAddon(base, token, id, addon.id, index + 1) } })
+                                DropdownMenuItem(text = { Text("Refresh") }, leadingIcon = { Icon(Icons.Rounded.Refresh, null) }, onClick = { menuOpen = false; runMutation { base, token, id -> api.installAddon(base, token, id, addon.manifestUrl) } })
+                                DropdownMenuItem(text = { Text("Remove", color = MaterialTheme.colorScheme.error) }, leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null, tint = MaterialTheme.colorScheme.error) }, onClick = { menuOpen = false; removeTarget = addon })
+                            }
+                        }
                     }
-                    Text(description, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 8.dp, end = 8.dp))
-                    if (!linked) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                        val actionTint = MaterialTheme.colorScheme.onSurfaceVariant
-                        IconButton(onClick = { runMutation { base, token, id -> api.moveAddon(base, token, id, addon.id, index - 1) } }, enabled = index > 0 && !busy) { Icon(Icons.Rounded.ArrowUpward, "Move $name up", tint = actionTint.copy(alpha = if (index > 0) 1f else .38f)) }
-                        IconButton(onClick = { runMutation { base, token, id -> api.moveAddon(base, token, id, addon.id, index + 1) } }, enabled = index < addons.lastIndex && !busy) { Icon(Icons.Rounded.ArrowDownward, "Move $name down", tint = actionTint.copy(alpha = if (index < addons.lastIndex) 1f else .38f)) }
-                        IconButton(onClick = { runMutation { base, token, id -> api.installAddon(base, token, id, addon.manifestUrl) } }, enabled = !busy) { Icon(Icons.Rounded.Refresh, "Refresh $name", tint = actionTint) }
-                        IconButton(onClick = { removeTarget = addon }, enabled = !busy) { Icon(Icons.Rounded.DeleteOutline, "Remove $name", tint = actionTint) }
-                    }
+                    Text(description, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 8.dp, end = 8.dp, bottom = 10.dp))
                 }
             }
         }
@@ -4850,7 +4890,7 @@ private fun AddonManagerScreen(
     }
 }
 
-@Composable private fun AddonSectionLabel(text: String) { Text(text, style = SectionLabelStyle, modifier = Modifier.padding(top = 10.dp, start = 4.dp)) }
+@Composable private fun AddonSectionLabel(text: String) { Text(text, style = SectionLabelStyle, modifier = Modifier.padding(top = 10.dp)) }
 
 private data class SettingEntry(val title: String, val description: String, val icon: ImageVector)
 private data class SettingSection(val title: String, val entries: List<SettingEntry>)

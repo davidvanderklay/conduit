@@ -1,9 +1,11 @@
 package media.conduit.mobile.foundation
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.sp
 
 private fun conduitColors(amoledBlack: Boolean) = darkColorScheme(
     primary = Color(0xFFFBBF24),
@@ -26,14 +28,29 @@ private fun conduitColors(amoledBlack: Boolean) = darkColorScheme(
     onSurfaceVariant = Color(0xFFA1A1AA),
     surfaceContainerLowest = Color(0xFF050506),
     surfaceContainerLow = Color(0xFF111113),
-    surfaceContainer = Color(0xFF18181B),
+    // On pure black, the default container blooms; AMOLED uses a slightly darker one.
+    surfaceContainer = if (amoledBlack) Color(0xFF121214) else Color(0xFF18181B),
     surfaceContainerHigh = Color(0xFF202023),
     surfaceContainerHighest = Color(0xFF27272A),
     outline = Color(0xFF3F3F46),
     error = Color(0xFFFFB4AB),
 )
 
+/** Material defaults with tracking removed from body, title, and label styles for a tighter, less stock look. */
+private val conduitTypography = Typography().run {
+    copy(
+        bodyLarge = bodyLarge.copy(letterSpacing = 0.sp),
+        bodyMedium = bodyMedium.copy(letterSpacing = 0.sp),
+        bodySmall = bodySmall.copy(letterSpacing = 0.sp),
+        titleMedium = titleMedium.copy(letterSpacing = 0.sp),
+        titleSmall = titleSmall.copy(letterSpacing = 0.sp),
+        labelLarge = labelLarge.copy(letterSpacing = 0.sp),
+        labelMedium = labelMedium.copy(letterSpacing = 0.sp),
+        labelSmall = labelSmall.copy(letterSpacing = 0.sp),
+    )
+}
+
 @Composable
 fun ConduitTheme(amoledBlack: Boolean = false, content: @Composable () -> Unit) {
-    MaterialTheme(colorScheme = conduitColors(amoledBlack), content = content)
+    MaterialTheme(colorScheme = conduitColors(amoledBlack), typography = conduitTypography, content = content)
 }

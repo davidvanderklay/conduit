@@ -428,7 +428,7 @@ private fun RecoveryCodesScreen(codes: List<String>, onSaved: () -> Unit) {
     val clipboard = LocalClipboardManager.current
     Surface(Modifier.fillMaxSize()) {
         Column(
-            Modifier.safeContentPadding().verticalScroll(rememberScrollState()).widthIn(max = 560.dp).fillMaxWidth().padding(horizontal = 24.dp, vertical = 28.dp),
+            Modifier.safeDrawingPadding().verticalScroll(rememberScrollState()).widthIn(max = 560.dp).fillMaxWidth().padding(horizontal = 24.dp, vertical = 28.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text("Save your recovery codes", style = OnboardingTitleStyle)
@@ -460,18 +460,18 @@ private fun HouseholdSetup(onCreate: (String, String) -> Unit) {
     var pending by remember { mutableStateOf(false) }
     Surface(Modifier.fillMaxSize()) {
         Column(
-            Modifier.safeContentPadding().widthIn(max = 560.dp).fillMaxWidth().padding(horizontal = 24.dp, vertical = 28.dp),
+            Modifier.safeDrawingPadding().widthIn(max = 560.dp).fillMaxWidth().padding(horizontal = 24.dp, vertical = 28.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             Text("Create your household", style = OnboardingTitleStyle)
             Text("Profiles, add-ons, and watch state sync through your conduit server.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(bottom = 6.dp))
-            OutlinedTextField(
+            TextField(
                 household, { household = it }, label = { Text("Household name") },
-                singleLine = true, modifier = Modifier.fillMaxWidth(),
+                singleLine = true, shape = RoundedCornerShape(12.dp), colors = conduitFilledFieldColors(), modifier = Modifier.fillMaxWidth(),
             )
-            OutlinedTextField(
+            TextField(
                 profile, { profile = it }, label = { Text("Your profile name") },
-                singleLine = true, modifier = Modifier.fillMaxWidth(),
+                singleLine = true, shape = RoundedCornerShape(12.dp), colors = conduitFilledFieldColors(), modifier = Modifier.fillMaxWidth(),
             )
             Button(
                 enabled = !pending && household.isNotBlank() && profile.isNotBlank(),
@@ -610,8 +610,9 @@ private fun SignInScreen(
         serverSnackbar.showSnackbar(notice)
         onDismissServerNotice()
     }
-    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background), contentAlignment = Alignment.Center) {
-        Column(Modifier.safeContentPadding().imePadding().verticalScroll(rememberScrollState()).widthIn(max = 460.dp).fillMaxWidth().padding(horizontal = 24.dp, vertical = 28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+    // Top-aligned like the household and recovery steps, so the flow doesn't jump between screens.
+    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background), contentAlignment = Alignment.TopCenter) {
+        Column(Modifier.safeDrawingPadding().imePadding().verticalScroll(rememberScrollState()).widthIn(max = 460.dp).fillMaxWidth().padding(horizontal = 24.dp, vertical = 28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Row(Modifier.fillMaxWidth().padding(bottom = 36.dp), verticalAlignment = Alignment.CenterVertically) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) { ConduitMark(Modifier.size(36.dp), tile = false); Text("conduit", color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) }
                 Spacer(Modifier.weight(1f))
@@ -650,19 +651,19 @@ private fun SignInScreen(
                 Button(enabled = authenticationReady && !pending && !oauthLaunching, onClick = onOAuth, colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color(0xFF202124), disabledContainerColor = Color(0xFFE6E6E6), disabledContentColor = Color(0xFF5F6368)), shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth().height(50.dp)) { GoogleMark(); Spacer(Modifier.width(12.dp)); Text(if (oauthLaunching) "Opening sign-in…" else if (oauthPending) "Resume sign-in" else it.displayName ?: "Continue with Google", fontWeight = FontWeight.SemiBold) }
                 Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) { HorizontalDivider(Modifier.weight(1f), color = Color.White.copy(.1f)); Text("or", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 12.dp)); HorizontalDivider(Modifier.weight(1f), color = Color.White.copy(.1f)) }
             }
-            OutlinedTextField(
+            TextField(
                 value = email,
                 onValueChange = { email = it; error = null },
                 label = { Text("Email address") }, placeholder = { Text("you@example.com") },
-                singleLine = true,
+                singleLine = true, shape = RoundedCornerShape(12.dp), colors = conduitFilledFieldColors(),
                 modifier = Modifier.fillMaxWidth(),
             )
-            if (recovering) OutlinedTextField(value = recoveryCode, onValueChange = { recoveryCode = it; error = null }, label = { Text("Recovery code") }, placeholder = { Text("XXXX-XXXX-XXXX-XXXX") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(
+            if (recovering) TextField(value = recoveryCode, onValueChange = { recoveryCode = it; error = null }, label = { Text("Recovery code") }, placeholder = { Text("XXXX-XXXX-XXXX-XXXX") }, singleLine = true, shape = RoundedCornerShape(12.dp), colors = conduitFilledFieldColors(), modifier = Modifier.fillMaxWidth())
+            TextField(
                 value = password,
                 onValueChange = { password = it; error = null },
                 label = { Text(if (recovering) "New password" else "Password") }, placeholder = { Text(if (registering || recovering) "At least 8 characters" else "Enter your password") },
-                singleLine = true,
+                singleLine = true, shape = RoundedCornerShape(12.dp), colors = conduitFilledFieldColors(),
                 visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -2835,7 +2836,7 @@ private fun MainTopBar(
                 value = query,
                 onValueChange = onQueryChange,
                 modifier = Modifier.weight(1f).height(mainTopBarHeight(LocalDensity.current.fontScale)).focusRequester(searchFocus),
-                placeholder = { Text("Search Conduit", maxLines = 1) },
+                placeholder = { Text("Search movies and shows", maxLines = 1) },
                 leadingIcon = { Icon(Icons.Rounded.Search, null, Modifier.size(20.dp)) },
                 trailingIcon = if (query.isNotBlank()) {{
                     IconButton(onClick = { onQueryChange("") }) { Icon(Icons.Rounded.Close, "Clear") }
@@ -2895,10 +2896,11 @@ private fun MainTopBar(
                     visibleProfiles.forEach { profile ->
                         DropdownMenuItem(
                             modifier = Modifier
-                                .clip(RoundedCornerShape(16.dp))
+                                .padding(horizontal = 6.dp)
+                                .clip(RoundedCornerShape(10.dp))
                                 .background(
                                     if (profile.id == activeProfile?.id) Color.White.copy(alpha = .06f) else Color.Transparent,
-                                    RoundedCornerShape(16.dp),
+                                    RoundedCornerShape(10.dp),
                                 ),
                             text = {
                                 Column {
@@ -2923,7 +2925,7 @@ private fun MainTopBar(
                     }
                     if (hiddenProfiles > 0) {
                         DropdownMenuItem(
-                            modifier = Modifier.clip(RoundedCornerShape(16.dp)),
+                            modifier = Modifier.padding(horizontal = 6.dp).clip(RoundedCornerShape(10.dp)),
                             text = { Text(if (showAllProfiles) "Show fewer profiles" else "Show $hiddenProfiles more") },
                             leadingIcon = { Icon(Icons.Rounded.KeyboardArrowDown, null) },
                             onClick = { showAllProfiles = !showAllProfiles },
@@ -2932,7 +2934,7 @@ private fun MainTopBar(
                     HorizontalDivider()
                     if (watchParty != null) {
                         DropdownMenuItem(
-                            modifier = Modifier.clip(RoundedCornerShape(16.dp)),
+                            modifier = Modifier.padding(horizontal = 6.dp).clip(RoundedCornerShape(10.dp)),
                             text = { Text("Watch together") },
                             leadingIcon = { Icon(Icons.Rounded.People, null) },
                             onClick = { profileMenuOpen = false; watchParty.sheetOpen = true },
@@ -2940,7 +2942,7 @@ private fun MainTopBar(
                     }
                     if (queueSize > 0) {
                         DropdownMenuItem(
-                            modifier = Modifier.clip(RoundedCornerShape(16.dp)),
+                            modifier = Modifier.padding(horizontal = 6.dp).clip(RoundedCornerShape(10.dp)),
                             text = { Text("Queue") },
                             leadingIcon = { Icon(Icons.Rounded.QueueMusic, null) },
                             trailingIcon = { Text(queueSize.toString(), color = MaterialTheme.colorScheme.onSurfaceVariant) },
@@ -2948,25 +2950,25 @@ private fun MainTopBar(
                         )
                     }
                     DropdownMenuItem(
-                        modifier = Modifier.clip(RoundedCornerShape(16.dp)),
+                        modifier = Modifier.padding(horizontal = 6.dp).clip(RoundedCornerShape(10.dp)),
                         text = { Text("Add profile") },
                         leadingIcon = { Icon(Icons.Rounded.Add, null) },
                         onClick = { profileMenuOpen = false; onAddProfile() },
                     )
                     DropdownMenuItem(
-                        modifier = Modifier.clip(RoundedCornerShape(16.dp)),
+                        modifier = Modifier.padding(horizontal = 6.dp).clip(RoundedCornerShape(10.dp)),
                         text = { Text("Add-ons") },
                         leadingIcon = { Icon(Icons.Rounded.Extension, null) },
                         onClick = { profileMenuOpen = false; onOpenAddons() },
                     )
                     DropdownMenuItem(
-                        modifier = Modifier.clip(RoundedCornerShape(16.dp)),
+                        modifier = Modifier.padding(horizontal = 6.dp).clip(RoundedCornerShape(10.dp)),
                         text = { Text("Settings") },
                         leadingIcon = { Icon(Icons.Rounded.Settings, null) },
                         onClick = { profileMenuOpen = false; onOpenSettings() },
                     )
                     DropdownMenuItem(
-                        modifier = Modifier.clip(RoundedCornerShape(16.dp)),
+                        modifier = Modifier.padding(horizontal = 6.dp).clip(RoundedCornerShape(10.dp)),
                         text = { Text("Log out", color = MaterialTheme.colorScheme.error) },
                         leadingIcon = { Icon(Icons.AutoMirrored.Rounded.Logout, null, tint = MaterialTheme.colorScheme.error) },
                         onClick = { profileMenuOpen = false; onSignOut() },

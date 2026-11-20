@@ -222,7 +222,7 @@ private fun Shelf(title: String, onSeeAll: () -> Unit, content: @Composable () -
             Text(
                 "See all",
                 style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.primary,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClickLabel = "See all $title", onClick = onSeeAll).padding(horizontal = 10.dp, vertical = 6.dp),
             )
         }
