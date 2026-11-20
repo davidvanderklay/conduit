@@ -2346,7 +2346,8 @@ internal fun MediaDetailsScreen(
                     CommaSeparatedLinks(
                         genres,
                         onClick = { genre -> onBrowse(MobileBrowseTarget.Discover(DiscoverSelection(type = details.type, genre = genre))) },
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        // A tier below the facts line: tertiary gray.
+                        color = TertiaryText,
                         style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
                         // Middots, like the facts line above.
                         separator = " ·",
@@ -2471,7 +2472,7 @@ internal fun MediaDetailsScreen(
                             )
                         }
                     }
-                    Spacer(Modifier.height(20.dp))
+                    Spacer(Modifier.height(8.dp))
                 }
             }
             val seasonVideos = videos
@@ -2567,7 +2568,7 @@ internal fun MediaDetailsScreen(
                                     it,
                                     maxLines = 2,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 17.sp),
+                                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 18.sp),
                                     modifier = Modifier.padding(top = 4.dp),
                                 )
                             }
@@ -3633,7 +3634,7 @@ private fun StreamSelectionScreen(
                             // Matches the details genres line, which pads each link by 3dp vertically.
                             if (genres.isNotEmpty()) Text(
                                 genres.joinToString(" · "),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                color = TertiaryText,
                                 style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
                                 textAlign = TextAlign.Center,
                                 modifier = Modifier.padding(vertical = 3.dp),
@@ -4005,7 +4006,7 @@ internal fun ProfileSettingsScreen(
         // One grouped surface per section, rows split by hairlines, matching the settings sub-pages.
         visibleSections.forEach { section ->
             item(key = "section-${section.title}") {
-                Column(Modifier.padding(top = if (section == visibleSections.first()) 8.dp else 14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(Modifier.padding(top = if (section == visibleSections.first()) 8.dp else 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(section.title, style = SectionLabelStyle)
                     Surface(color = SettingsGroupColor, shape = RoundedCornerShape(12.dp)) {
                         Column {
@@ -4127,7 +4128,7 @@ private fun SettingsToggle(title: String, description: String, checked: Boolean,
     Row(
         Modifier.fillMaxWidth()
             .toggleable(value = checked, enabled = enabled, role = androidx.compose.ui.semantics.Role.Switch, onValueChange = onChanged)
-            .heightIn(min = 56.dp).padding(vertical = 9.dp),
+            .heightIn(min = 60.dp).padding(vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) { Text(title, style = SettingsTitleStyle, color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant); Text(description, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
@@ -4201,7 +4202,7 @@ private fun AppearanceSettingsScreen(platform: PlatformInfo, preferences: Device
     SettingsPage("Appearance & layout", onBack, modifier) {
         SettingsGroup("Color") {
             // Informational: the value sits in the trailing slot so the row doesn't look like a dead link.
-            Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().heightIn(min = 60.dp).padding(vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("Theme", style = SettingsTitleStyle, modifier = Modifier.weight(1f))
                 Text("Dark", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
             }
@@ -4209,7 +4210,10 @@ private fun AppearanceSettingsScreen(platform: PlatformInfo, preferences: Device
             SettingsToggle("Reduce animations", "Simpler transitions and motion", preferences.reduceAnimations) { update(preferences.copy(reduceAnimations = it)) }
         }
         SettingsGroup("Display") {
-            SettingsAction("App language", "System default") { }
+            Row(Modifier.fillMaxWidth().heightIn(min = 60.dp).padding(vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("App language", style = SettingsTitleStyle, modifier = Modifier.weight(1f))
+                Text("System default", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+            }
             SettingsAction("Navigation style", displayedNavigationStyle.label) { showNavigation = true }
             SettingsAction("Navigation placement", if (preferences.railOnTablets) "Left rail" else "Bottom bar") { showPlacement = true }
         }
@@ -4753,7 +4757,8 @@ private fun ProfileHeader(title: String, onBack: () -> Unit) {
         // The arrow glyph's own inset puts its stroke on the 16dp gutter.
         MobileBackButton(onClick = onBack)
         Spacer(Modifier.width(8.dp))
-        Text(title, style = PageTitleStyle, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        // Inline with the back arrow, so a step below the 26sp flush-left titles.
+        Text(title, style = PageTitleStyle.copy(fontSize = 22.sp, lineHeight = 28.sp), fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -5100,7 +5105,7 @@ private fun AddonManagerScreen(
                                     else Icon(Icons.Outlined.Extension, null, Modifier.fillMaxSize(), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                                 Spacer(Modifier.width(12.dp))
-                                Text(name, style = SettingsTitleStyle, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                                Text(name, style = SettingsTitleStyle, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                                 Spacer(Modifier.width(12.dp))
                                 // Compact controls keep the title row about 40dp, so title, description, and facts read as one group.
                                 CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides Dp.Unspecified) {
@@ -5108,7 +5113,7 @@ private fun AddonManagerScreen(
                                 }
                                 if (!linked) Box {
                                     var menuOpen by remember { mutableStateOf(false) }
-                                    IconButton(onClick = { menuOpen = true }, enabled = !busy, modifier = Modifier.size(40.dp)) { Icon(Icons.Rounded.MoreVert, "More actions for $name", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
+                                    IconButton(onClick = { menuOpen = true }, enabled = !busy, modifier = Modifier.offset(x = 4.dp).size(40.dp)) { Icon(Icons.Rounded.MoreVert, "More actions for $name", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
                                     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }, containerColor = MaterialTheme.colorScheme.surfaceContainerHigh, shape = RoundedCornerShape(12.dp)) {
                                         DropdownMenuItem(text = { Text("Move up") }, leadingIcon = { Icon(Icons.Rounded.ArrowUpward, null) }, enabled = index > 0, onClick = { menuOpen = false; runMutation { base, token, id -> api.moveAddon(base, token, id, addon.id, index - 1) } })
                                         DropdownMenuItem(text = { Text("Move down") }, leadingIcon = { Icon(Icons.Rounded.ArrowDownward, null) }, enabled = index < addons.lastIndex, onClick = { menuOpen = false; runMutation { base, token, id -> api.moveAddon(base, token, id, addon.id, index + 1) } })

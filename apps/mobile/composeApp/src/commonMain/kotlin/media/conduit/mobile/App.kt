@@ -2962,7 +2962,8 @@ private fun MainTopBar(
                         .width(216.dp)
                         .heightIn(max = 480.dp),
                     shape = RoundedCornerShape(12.dp),
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    // One tonal step above the raised fill, so the menu separates from dark hero art without a border.
+                    containerColor = Color(0xFF2E2E33),
                     tonalElevation = 0.dp,
                     shadowElevation = 24.dp,
                 ) {
@@ -2992,7 +2993,7 @@ private fun MainTopBar(
                                     } else Box(contentAlignment = Alignment.Center) { Text(profile.name.take(1).uppercase(), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Color.Black) }
                                 }
                             },
-                            trailingIcon = if (profile.id == activeProfile?.id) {{ Icon(Icons.Rounded.Check, "Active profile", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp)) }} else null,
+                            trailingIcon = if (profile.id == activeProfile?.id) {{ Icon(Icons.Rounded.Check, "Active profile", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.offset(x = 8.dp).size(20.dp)) }} else null,
                             onClick = { profileMenuOpen = false; onSelectProfile(profile.id) },
                         )
                     }
@@ -3000,14 +3001,14 @@ private fun MainTopBar(
                         DropdownMenuItem(
                             modifier = Modifier.padding(horizontal = 6.dp).clip(RoundedCornerShape(12.dp)),
                             text = { Text(if (showAllProfiles) "Show fewer profiles" else "Show $hiddenProfiles more") },
-                            leadingIcon = { Icon(Icons.Rounded.KeyboardArrowDown, null, Modifier.size(20.dp)) },
+                            leadingIcon = { Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.KeyboardArrowDown, null, Modifier.size(20.dp)) } },
                             onClick = { showAllProfiles = !showAllProfiles },
                         )
                     }
                     DropdownMenuItem(
                         modifier = Modifier.padding(horizontal = 6.dp).clip(RoundedCornerShape(12.dp)),
                         text = { Text("Add profile", style = MenuLabelStyle) },
-                        leadingIcon = { Icon(Icons.Rounded.Add, null, Modifier.size(20.dp)) },
+                        leadingIcon = { Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Add, null, Modifier.size(20.dp)) } },
                         onClick = { profileMenuOpen = false; onAddProfile() },
                     )
                     HorizontalDivider(Modifier.padding(vertical = 4.dp), color = Color.White.copy(.06f))
@@ -3015,7 +3016,7 @@ private fun MainTopBar(
                         DropdownMenuItem(
                             modifier = Modifier.padding(horizontal = 6.dp).clip(RoundedCornerShape(12.dp)),
                             text = { Text("Watch together", style = MenuLabelStyle) },
-                            leadingIcon = { Icon(Icons.Outlined.People, null, Modifier.size(20.dp)) },
+                            leadingIcon = { Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) { Icon(Icons.Outlined.People, null, Modifier.size(20.dp)) } },
                             onClick = { profileMenuOpen = false; watchParty.sheetOpen = true },
                         )
                     }
@@ -3023,7 +3024,7 @@ private fun MainTopBar(
                         DropdownMenuItem(
                             modifier = Modifier.padding(horizontal = 6.dp).clip(RoundedCornerShape(12.dp)),
                             text = { Text("Queue", style = MenuLabelStyle) },
-                            leadingIcon = { Icon(Icons.Rounded.QueueMusic, null, Modifier.size(20.dp)) },
+                            leadingIcon = { Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.QueueMusic, null, Modifier.size(20.dp)) } },
                             trailingIcon = { Text(queueSize.toString(), color = MaterialTheme.colorScheme.onSurfaceVariant) },
                             onClick = { profileMenuOpen = false; onOpenQueue() },
                         )
@@ -3031,13 +3032,13 @@ private fun MainTopBar(
                     DropdownMenuItem(
                         modifier = Modifier.padding(horizontal = 6.dp).clip(RoundedCornerShape(12.dp)),
                         text = { Text("Add-ons", style = MenuLabelStyle) },
-                        leadingIcon = { Icon(Icons.Outlined.Extension, null, Modifier.size(20.dp)) },
+                        leadingIcon = { Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) { Icon(Icons.Outlined.Extension, null, Modifier.size(20.dp)) } },
                         onClick = { profileMenuOpen = false; onOpenAddons() },
                     )
                     DropdownMenuItem(
                         modifier = Modifier.padding(horizontal = 6.dp).clip(RoundedCornerShape(12.dp)),
                         text = { Text("Settings", style = MenuLabelStyle) },
-                        leadingIcon = { Icon(Icons.Outlined.Settings, null, Modifier.size(20.dp)) },
+                        leadingIcon = { Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) { Icon(Icons.Outlined.Settings, null, Modifier.size(20.dp)) } },
                         onClick = { profileMenuOpen = false; onOpenSettings() },
                     )
                     // The same hairline that closes the profile list sets the session exit apart.
@@ -3045,7 +3046,7 @@ private fun MainTopBar(
                     DropdownMenuItem(
                         modifier = Modifier.padding(horizontal = 6.dp).clip(RoundedCornerShape(12.dp)),
                         text = { Text("Sign out", style = MenuLabelStyle) },
-                        leadingIcon = { Icon(Icons.AutoMirrored.Rounded.Logout, null, Modifier.size(20.dp)) },
+                        leadingIcon = { Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) { Icon(Icons.AutoMirrored.Rounded.Logout, null, Modifier.size(20.dp)) } },
                         onClick = { profileMenuOpen = false; onSignOut() },
                     )
                 }

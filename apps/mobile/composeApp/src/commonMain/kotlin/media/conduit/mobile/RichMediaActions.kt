@@ -344,7 +344,7 @@ internal fun RichPosterCard(
                 onActions()
             },
         ),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Box(
             Modifier.fillMaxWidth().aspectRatio(2f / 3f).clip(RoundedCornerShape(8.dp))
@@ -366,7 +366,7 @@ internal fun RichPosterCard(
             ProgressRail(progress, Modifier.align(Alignment.BottomCenter))
         }
         if (showLabels) {
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
                 // One line, like Infuse, so every caption in a row shares a baseline; cut at a whole word.
                 TidyEllipsisText(
                     displayTitle,
