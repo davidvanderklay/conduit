@@ -568,7 +568,8 @@ internal fun SearchDiscoverScreen(
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(top = 8.dp, bottom = 112.dp),
+                // The first group header sits where Home's first shelf title does.
+                contentPadding = PaddingValues(top = 20.dp, bottom = 112.dp),
                 verticalArrangement = Arrangement.spacedBy(24.dp),
             ) {
                 if (searchLoading) item {
@@ -2376,7 +2377,7 @@ internal fun MediaDetailsScreen(
                         DetailAction(
                             // Like "Library"/"Saved": the inactive label names the action, the active one the state.
                             label = if (watched) "Watched" else "Mark watched",
-                            icon = if (watched) Icons.Rounded.CheckCircle else Icons.Rounded.CheckCircleOutline,
+                            icon = if (watched) Icons.Rounded.CheckCircle else Icons.Rounded.RadioButtonUnchecked,
                             actionDescription = if (watched) "Mark as unwatched" else "Mark as watched",
                             active = watched,
                             onClick = { scope.launch { onMutation(ProfileMutation.SetWatched(actionItem, movieProgress, watched = !watched)) } },
@@ -3132,7 +3133,7 @@ private fun TitleFactsRow(facts: List<String>, rating: String?, onRatingClick: (
             ) {
                 Icon(Icons.Rounded.Star, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(15.dp))
                 Text(it, color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-                Text("IMDb", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                Text("IMDb", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
             }
         }
     }
@@ -3957,23 +3958,11 @@ internal fun ProfileSettingsScreen(
             }
         }
         stickyHeader {
-            OutlinedTextField(
+            PillSearchField(
                 value = settingsQuery,
                 onValueChange = { settingsQuery = it },
+                placeholder = "Search settings",
                 modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background).padding(vertical = 8.dp).height(mainTopBarHeight(LocalDensity.current.fontScale)),
-                placeholder = { Text("Search settings") },
-                leadingIcon = { Icon(Icons.Rounded.Search, null, Modifier.size(20.dp)) },
-                trailingIcon = if (settingsQuery.isNotBlank()) {{
-                    IconButton(onClick = { settingsQuery = "" }) { Icon(Icons.Rounded.Close, "Clear") }
-                }} else null,
-                singleLine = true,
-                shape = RoundedCornerShape(26.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
-                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
-                    focusedBorderColor = Color.Transparent,
-                    unfocusedBorderColor = Color.Transparent,
-                ),
             )
         }
         // One grouped surface per section, rows split by hairlines, matching the settings sub-pages.

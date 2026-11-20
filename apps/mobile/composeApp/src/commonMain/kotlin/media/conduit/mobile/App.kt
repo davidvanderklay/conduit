@@ -447,7 +447,7 @@ private fun RecoveryCodesScreen(codes: List<String>, onSaved: () -> Unit) {
                     codes.forEachIndexed { index, code ->
                         // Faint separators help track each code across to its copy button.
                         if (index > 0) HorizontalDivider(thickness = 1.dp, color = Color.White.copy(alpha = .06f))
-                        Row(Modifier.fillMaxWidth().height(44.dp).padding(end = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Row(Modifier.fillMaxWidth().height(44.dp).padding(end = 2.dp), verticalAlignment = Alignment.CenterVertically) {
                             Text(code, style = MaterialTheme.typography.bodyLarge, fontFamily = FontFamily.Monospace, color = Color.White, modifier = Modifier.weight(1f))
                             IconButton(onClick = { clipboard.setText(AnnotatedString(code)) }) { Icon(Icons.Rounded.ContentCopy, "Copy code", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp)) }
                         }
@@ -2898,7 +2898,6 @@ private fun MainTopBar(
         }
     }
     // AppShell draws a static fade behind this row, so the controls stay flat.
-    val searchColor = MaterialTheme.colorScheme.surfaceContainer
     Row(
         // The mark's glyph and the avatar both land on the 16dp page gutter, with matching gaps around the search pill.
         modifier.statusBarsPadding().fillMaxWidth().padding(start = 4.dp, end = 10.dp, top = 6.dp, bottom = 6.dp),
@@ -2920,50 +2919,11 @@ private fun MainTopBar(
                     ConduitMark(Modifier.fillMaxSize(), tile = false)
                 }
             }
-            // A 48dp pill: Material's field decoration with no vertical content padding, so the text stays centered
-            // at a height the stock 56dp OutlinedTextField would clip.
-            val searchInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-            val searchFieldColors = OutlinedTextFieldDefaults.colors(
-                focusedContainerColor = searchColor,
-                unfocusedContainerColor = searchColor,
-                focusedBorderColor = Color.Transparent,
-                unfocusedBorderColor = Color.Transparent,
-            )
-            val searchShape = RoundedCornerShape(24.dp)
-            androidx.compose.foundation.text.BasicTextField(
+            PillSearchField(
                 value = query,
                 onValueChange = onQueryChange,
+                placeholder = "Search movies and shows",
                 modifier = Modifier.weight(1f).height(mainTopBarHeight(LocalDensity.current.fontScale)).focusRequester(searchFocus),
-                singleLine = true,
-                textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
-                cursorBrush = androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.primary),
-                interactionSource = searchInteraction,
-                decorationBox = { innerTextField ->
-                    OutlinedTextFieldDefaults.DecorationBox(
-                        value = query,
-                        innerTextField = innerTextField,
-                        enabled = true,
-                        singleLine = true,
-                        visualTransformation = androidx.compose.ui.text.input.VisualTransformation.None,
-                        interactionSource = searchInteraction,
-                        placeholder = { Text("Search movies and shows", maxLines = 1) },
-                        leadingIcon = { Icon(Icons.Rounded.Search, null, Modifier.size(20.dp)) },
-                        trailingIcon = if (query.isNotBlank()) {{
-                            IconButton(onClick = { onQueryChange("") }) { Icon(Icons.Rounded.Close, "Clear") }
-                        }} else null,
-                        colors = searchFieldColors,
-                        contentPadding = OutlinedTextFieldDefaults.contentPadding(top = 0.dp, bottom = 0.dp),
-                        container = {
-                            OutlinedTextFieldDefaults.Container(
-                                enabled = true,
-                                isError = false,
-                                interactionSource = searchInteraction,
-                                colors = searchFieldColors,
-                                shape = searchShape,
-                            )
-                        },
-                    )
-                },
             )
             Box {
                 Surface(
