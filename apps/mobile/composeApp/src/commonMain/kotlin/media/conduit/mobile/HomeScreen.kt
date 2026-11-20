@@ -293,27 +293,25 @@ private fun FeatureCard(item: CatalogItem, onClick: () -> Unit, onActions: () ->
                 contentScale = androidx.compose.ui.layout.ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
             )
-            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Transparent, .7f to Color.Transparent, 1f to Color.Black.copy(alpha = .35f))))
-            if (!item.logo.isNullOrBlank()) {
-                var logoAnalysis by remember(item.logo) { mutableStateOf<LogoAnalysis?>(null) }
-                coil3.compose.AsyncImage(
-                    model = item.logo,
-                    contentDescription = null,
-                    contentScale = androidx.compose.ui.layout.ContentScale.Fit,
-                    colorFilter = if (logoAnalysis?.dark == true) androidx.compose.ui.graphics.ColorFilter.tint(Color.White) else null,
-                    onSuccess = { logoAnalysis = runCatching { it.analyzeLogo() }.getOrNull() },
-                    alignment = Alignment.BottomStart,
-                    modifier = Modifier.align(Alignment.BottomStart).padding(12.dp).fillMaxWidth(.55f).height(44.dp),
-                )
-            } else {
-                Text(item.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.align(Alignment.BottomStart).padding(12.dp))
+            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Transparent, .5f to Color.Transparent, 1f to Color.Black.copy(alpha = .55f))))
+            // Title logo and year sit together on the art, so the card needs no caption underneath.
+            Column(Modifier.align(Alignment.BottomStart).padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                if (!item.logo.isNullOrBlank()) {
+                    var logoAnalysis by remember(item.logo) { mutableStateOf<LogoAnalysis?>(null) }
+                    coil3.compose.AsyncImage(
+                        model = item.logo,
+                        contentDescription = null,
+                        contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+                        colorFilter = if (logoAnalysis?.dark == true) androidx.compose.ui.graphics.ColorFilter.tint(Color.White) else null,
+                        onSuccess = { logoAnalysis = runCatching { it.analyzeLogo() }.getOrNull() },
+                        alignment = Alignment.BottomStart,
+                        modifier = Modifier.trimLogoInsets(logoAnalysis).fillMaxWidth(.55f).heightIn(max = 44.dp),
+                    )
+                } else {
+                    Text(item.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                }
+                item.releaseInfo?.let { Text(it, style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp), color = Color.White.copy(alpha = .7f)) }
             }
-        }
-        // Same stacked levels as poster captions: white title, then a smaller gray year.
-        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            // The logo on the art already names the title, so only the year repeats underneath.
-            if (item.logo.isNullOrBlank()) Text(item.name, style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp, lineHeight = 17.sp), fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            item.releaseInfo?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1) }
         }
     }
 }

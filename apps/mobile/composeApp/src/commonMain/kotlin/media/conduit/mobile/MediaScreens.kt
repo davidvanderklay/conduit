@@ -577,11 +577,14 @@ internal fun SearchDiscoverScreen(
                     }
                 }
                 if (!searchLoading && results.isEmpty()) item { EmptyBrowseState("No results for “$query”.") }
-                // Name the source add-on only when results come from more than one.
+                // Name the source add-on only when results come from more than one, and title groups by media
+                // type ("Movies") unless two groups share a type, so they read as results, not browsing shelves.
                 val multipleSources = results.mapNotNullTo(mutableSetOf()) { it.source }.size > 1
+                val typeTitles = results.map { it.title.substringAfterLast(" · ") }
+                val ambiguousTypes = typeTitles.groupingBy { it }.eachCount().filterValues { it > 1 }.keys
                 results.forEach { catalog ->
                     item(key = "search-rail-${catalog.key}-$query") {
-                      Shelf(catalog.title, source = catalog.source?.takeIf { multipleSources }) {
+                      Shelf(catalog.title.substringAfterLast(" · ").takeUnless { it in ambiguousTypes } ?: catalog.title, source = catalog.source?.takeIf { multipleSources }) {
                         LazyRow(contentPadding = PaddingValues(horizontal = PageGutter), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             items(catalog.items, key = { "${catalog.key}:${it.type}:${it.id}" }) { item ->
                                 RichPosterCard(
@@ -2194,6 +2197,7 @@ internal fun MediaDetailsScreen(
                     Icon(Icons.Rounded.VideoLibrary, contentDescription = "Episodes")
                 }
             }
+            BottomGestureFade(Modifier.align(Alignment.BottomCenter))
             if (streamEpisodesOpen) {
                 BoxWithConstraints(Modifier.fillMaxSize()) {
                     PlayerEpisodeDrawer(
@@ -2455,7 +2459,7 @@ internal fun MediaDetailsScreen(
                             )
                         }
                     }
-                    Spacer(Modifier.height(16.dp))
+                    Spacer(Modifier.height(8.dp))
                 }
             }
             val seasonVideos = videos
@@ -2543,7 +2547,7 @@ internal fun MediaDetailsScreen(
                             (video.overview ?: video.description)?.trim()?.takeIf(String::isNotBlank)?.let {
                                 Text(
                                     it,
-                                    color = Color(0xFFB4B4BD),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 2,
                                     overflow = TextOverflow.Ellipsis,
                                     style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 16.sp),
@@ -2622,6 +2626,7 @@ internal fun MediaDetailsScreen(
                 safeArea = true,
             )
         }
+        BottomGestureFade(Modifier.align(Alignment.BottomCenter))
     }
     MediaActionSheet(
         target = actionTarget,
@@ -3088,6 +3093,13 @@ private fun WatchableSeasonChip(
     }
 }
 
+/** A short static fade over the gesture-navigation inset, so scrolling text never runs under the handle. */
+@Composable
+private fun BottomGestureFade(modifier: Modifier = Modifier) {
+    val background = MaterialTheme.colorScheme.background
+    Box(modifier.fillMaxWidth().background(Brush.verticalGradient(0f to Color.Transparent, .6f to background.copy(alpha = .9f), 1f to background)).navigationBarsPadding().height(12.dp))
+}
+
 /** Icon-over-label secondary action on the details page. Active state uses the accent instead of a border. */
 @Composable
 private fun DetailAction(
@@ -3526,18 +3538,19 @@ private fun StreamSelectionScreen(
                         .padding(start = if (collapsed || artwork == null) 56.dp else PageGutter, end = PageGutter, top = 4.dp, bottom = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Column(Modifier.weight(1f)) {
-                        // The title leads, as the same logo the details page shows; facts and the episode sit beneath it.
-                        if (!collapsed && logo != null) {
+                    // The title leads with the same centered logo the details page shows, so the two read as one flow.
+                    val centered = !collapsed && logo != null
+                    Column(Modifier.weight(1f), horizontalAlignment = if (centered) Alignment.CenterHorizontally else Alignment.Start) {
+                        if (centered) {
                             var logoAnalysis by remember(logo) { mutableStateOf<LogoAnalysis?>(null) }
                             AsyncImage(
                                 model = logo,
                                 contentDescription = title,
                                 contentScale = ContentScale.Fit,
-                                alignment = Alignment.BottomStart,
+                                alignment = Alignment.BottomCenter,
                                 colorFilter = if (logoAnalysis?.dark == true) ColorFilter.tint(Color.White) else null,
                                 onSuccess = { logoAnalysis = runCatching { it.analyzeLogo() }.getOrNull() },
-                                modifier = Modifier.trimLogoInsets(logoAnalysis).fillMaxWidth(.7f).heightIn(max = 64.dp).padding(bottom = 8.dp),
+                                modifier = Modifier.trimLogoInsets(logoAnalysis).fillMaxWidth(.62f).heightIn(max = 96.dp).padding(bottom = 12.dp),
                             )
                         } else {
                             Text(title, style = if (collapsed) MaterialTheme.typography.titleMedium else PageTitleStyle, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -3637,10 +3650,10 @@ private fun StreamSelectionScreen(
                     )
                     // Retry, or go fix the cause: streams come from add-ons.
                     Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Button(onClick = onManageAddons, modifier = Modifier.height(40.dp), shape = RoundedCornerShape(12.dp)) {
+                        Button(onClick = onManageAddons, modifier = Modifier.height(50.dp), shape = RoundedCornerShape(12.dp)) {
                             Text("Manage add-ons", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
                         }
-                        TextButton(onClick = onRetry, modifier = Modifier.height(40.dp)) {
+                        TextButton(onClick = onRetry, modifier = Modifier.height(50.dp)) {
                             Text("Try again", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface)
                         }
                     }
@@ -3889,7 +3902,7 @@ internal fun ProfileSettingsScreen(
         // One grouped surface per section, rows split by hairlines, matching the settings sub-pages.
         visibleSections.forEach { section ->
             item(key = "section-${section.title}") {
-                Column(Modifier.padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(Modifier.padding(top = 20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(section.title, style = SectionLabelStyle)
                     Surface(color = SettingsGroupColor, shape = RoundedCornerShape(12.dp)) {
                         Column {
@@ -3927,7 +3940,7 @@ internal fun ProfileSettingsScreen(
 private fun SettingsPage(title: String, onBack: () -> Unit, modifier: Modifier, content: @Composable ColumnScope.() -> Unit) {
     Column(modifier.fillMaxSize()) {
         ProfileHeader(title, onBack)
-        Column(Modifier.weight(1f).verticalScroll(androidx.compose.foundation.rememberScrollState()).padding(horizontal = PageGutter).navigationBarsPadding().padding(bottom = 112.dp), verticalArrangement = Arrangement.spacedBy(20.dp), content = content)
+        Column(Modifier.weight(1f).verticalScroll(androidx.compose.foundation.rememberScrollState()).padding(horizontal = PageGutter).navigationBarsPadding().padding(bottom = 112.dp), verticalArrangement = Arrangement.spacedBy(28.dp), content = content)
     }
 }
 
@@ -3939,7 +3952,7 @@ internal val SettingsGroupColor: Color
 /** A labeled settings surface. With [divided], a hairline separates every row so dividers stay consistent. */
 @Composable
 private fun SettingsGroup(title: String, divided: Boolean = true, content: @Composable () -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(title, style = SectionLabelStyle)
         Surface(color = SettingsGroupColor, shape = RoundedCornerShape(12.dp)) {
             val inner = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp)
@@ -4923,7 +4936,7 @@ private fun AddonManagerScreen(
         // One grouped surface with hairlines between add-ons, matching the settings groups.
         if (addons.isNotEmpty()) item(key = "installed-addons") {
             Surface(color = SettingsGroupColor, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
-                DividedColumn(lineStart = 16.dp, lineEndOverhang = (-16).dp) {
+                DividedColumn(lineStart = 16.dp, lineEndOverhang = 0.dp) {
                     addons.forEach { addon ->
                     val index = addons.indexOfFirst { it.id == addon.id }
                     val name = addon.manifest["name"]?.jsonPrimitive?.contentOrNull ?: addon.manifestId

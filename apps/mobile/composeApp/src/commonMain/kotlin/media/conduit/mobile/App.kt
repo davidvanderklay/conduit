@@ -488,7 +488,7 @@ private fun HouseholdSetup(onCreate: (String, String) -> Unit) {
                     pending = true
                     onCreate(household, profile)
                 },
-                modifier = Modifier.fillMaxWidth().padding(top = 8.dp).height(50.dp),
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp).height(50.dp),
                 shape = RoundedCornerShape(12.dp),
             ) { Text(if (pending) "Creating…" else "Create household", fontWeight = FontWeight.SemiBold) }
         }
@@ -672,9 +672,9 @@ private fun SignInScreen(
             }
             // The form sits directly on the page, matching the household and recovery steps.
             Box(Modifier.fillMaxWidth()) {
-                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(14.dp), horizontalAlignment = Alignment.Start) {
+                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp), horizontalAlignment = Alignment.Start) {
             Text(if (recovering) "Recover your account" else if (registering) if (authentication.needsOwner) "Set up conduit" else "Create your account" else "Welcome back", color = Color.White, style = OnboardingTitleStyle)
-            Text(if (recovering) "Enter one of the recovery codes you saved." else if (registering) "Create a private account for this conduit instance." else "Sign in to continue to your household.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(bottom = 8.dp))
+            Text(if (recovering) "Enter one of the recovery codes you saved." else if (registering) "Create a private account for this conduit instance." else "Sign in to continue to your household.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(bottom = 12.dp))
             if (authenticationLoading && !authenticationReady) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                     LoadingIndicator(Modifier.size(17.dp), strokeWidth = 2.dp)
@@ -714,7 +714,7 @@ private fun SignInScreen(
                     pending = true
                     if (recovering) onRecover(email, recoveryCode, password) else if (registering) onRegister(email, password) else onSignIn(email, password)
                 },
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = Color(0xFF141414), disabledContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = .12f), disabledContentColor = MaterialTheme.colorScheme.primary.copy(alpha = .45f)),
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = Color(0xFF141414), disabledContainerColor = MaterialTheme.colorScheme.surfaceContainer, disabledContentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = .38f)),
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.fillMaxWidth().padding(top = 4.dp).height(50.dp),
             ) {
@@ -1493,7 +1493,7 @@ private fun AppShell(
                 Box(
                     Modifier.align(Alignment.BottomCenter).fillMaxWidth()
                         .background(Brush.verticalGradient(0f to Color.Transparent, .4f to background.copy(alpha = .85f), .58f to background))
-                        .navigationBarsPadding().height(if (!artworkScreen) 84.dp else if (compact) 96.dp else 136.dp),
+                        .navigationBarsPadding().height(if (!artworkScreen) 100.dp else if (compact) 96.dp else 136.dp),
                 )
             }
             PlatformBottomNavigation(
@@ -2945,8 +2945,7 @@ private fun MainTopBar(
                     offset = androidx.compose.ui.unit.DpOffset(x = (-8).dp, y = 8.dp),
                     modifier = Modifier
                         .width(272.dp)
-                        .heightIn(max = 480.dp)
-                        .border(BorderStroke(1.dp, Color.White.copy(alpha = .08f)), RoundedCornerShape(12.dp)),
+                        .heightIn(max = 480.dp),
                     shape = RoundedCornerShape(12.dp),
                     containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                     tonalElevation = 0.dp,
@@ -2990,7 +2989,7 @@ private fun MainTopBar(
                             onClick = { showAllProfiles = !showAllProfiles },
                         )
                     }
-                    HorizontalDivider(Modifier.padding(horizontal = 6.dp, vertical = 4.dp), color = Color.White.copy(.06f))
+                    HorizontalDivider(Modifier.padding(vertical = 4.dp), color = Color.White.copy(.06f))
                     if (watchParty != null) {
                         DropdownMenuItem(
                             modifier = Modifier.padding(horizontal = 6.dp).clip(RoundedCornerShape(12.dp)),
