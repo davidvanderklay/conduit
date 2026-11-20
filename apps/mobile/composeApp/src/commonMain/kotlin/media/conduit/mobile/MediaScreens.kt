@@ -180,12 +180,12 @@ internal fun MobileLibraryScreen(
                 )
                 Spacer(Modifier.weight(1f))
                 // Page tools sit together as one 96dp cluster; the glyph of the last one lands on the gutter.
-                Row(Modifier.offset(x = 1.dp)) {
+                Row(Modifier.offset(x = 2.dp)) {
                     IconButton(onClick = onOpenHistory, modifier = Modifier.size(44.dp)) {
-                        Icon(Icons.Outlined.History, stringResource(Res.string.history_open), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
+                        Icon(Icons.Outlined.History, stringResource(Res.string.history_open), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
                     }
                     IconButton(onClick = onOpenCalendar, modifier = Modifier.size(44.dp)) {
-                        Icon(Icons.Outlined.CalendarMonth, stringResource(Res.string.calendar_open), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
+                        Icon(Icons.Outlined.CalendarMonth, stringResource(Res.string.calendar_open), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
                     }
                 }
             }
@@ -635,11 +635,11 @@ private fun RowScope.CompactFilterMenu(
                 modifier = Modifier.weight(1f, fill = false),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                style = MaterialTheme.typography.titleSmall.copy(fontSize = 13.sp),
+                style = MaterialTheme.typography.titleSmall.copy(fontSize = 14.sp),
                 fontWeight = FontWeight.Medium,
                 color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Icon(Icons.Rounded.KeyboardArrowDown, null, Modifier.padding(start = 2.dp).size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Icon(Icons.Rounded.KeyboardArrowDown, null, Modifier.padding(start = 4.dp).size(18.dp), tint = Color(0xFFD4D4D8))
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             options.forEach { (key, label) ->
@@ -2286,7 +2286,7 @@ internal fun MediaDetailsScreen(
                     // Keep the artwork bright and fade into the page only behind the title and meta. A short
                     // static scrim at the very top keeps the status bar and back button legible on bright art.
                     val heroBackground = MaterialTheme.colorScheme.background
-                    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Black.copy(.5f), .28f to Color.Transparent, .55f to Color.Transparent, .82f to heroBackground.copy(alpha = .5f), 1f to heroBackground)))
+                    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Black.copy(.5f), .28f to Color.Transparent, .62f to Color.Transparent, .85f to heroBackground.copy(alpha = .5f), 1f to heroBackground)))
                 }
                 // Logo (or title) and facts share one bottom-aligned column, so their gap is fixed rather than
                 // set by the logo's box. Centered under a logo, as in Infuse and Plex.
@@ -2630,7 +2630,7 @@ internal fun MediaDetailsScreen(
                     }
                 }
                 val fadeColor = MaterialTheme.colorScheme.background
-                Box(Modifier.fillMaxWidth().height(28.dp).background(Brush.verticalGradient(0f to fadeColor, .2f to fadeColor, .6f to fadeColor.copy(alpha = .55f), 1f to Color.Transparent)))
+                Box(Modifier.fillMaxWidth().height(40.dp).background(Brush.verticalGradient(0f to fadeColor, .3f to fadeColor, .65f to fadeColor.copy(alpha = .75f), 1f to Color.Transparent)))
             }
         } else {
             MobileBackButton(
@@ -3574,7 +3574,7 @@ private fun StreamSelectionScreen(
                             contentScale = ContentScale.Crop,
                         )
                         val streamBackground = MaterialTheme.colorScheme.background
-                        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Black.copy(.5f), .28f to Color.Transparent, .55f to Color.Transparent, .82f to streamBackground.copy(alpha = .5f), 1f to streamBackground)))
+                        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Black.copy(.5f), .28f to Color.Transparent, .62f to Color.Transparent, .85f to streamBackground.copy(alpha = .5f), 1f to streamBackground)))
                     }
                     if (heroWithLogo) Column(
                         // Same box, padding, and logo/facts/genres stack as details, so the title doesn't move between pages.
@@ -3705,14 +3705,14 @@ private fun StreamSelectionScreen(
                 // Sits right under the filters so the empty state reads as part of the page, not a separate screen.
                 // Centered under the centered title, so the page keeps one axis.
                 Column(
-                    // Pulled up so "No streams found" sits about where Play sits on details, under the shared hero.
-                    Modifier.fillMaxWidth().offset(y = (-6).dp).padding(start = PageGutter, end = PageGutter),
+                    // A clear beat below the title metadata, so the result starts its own block.
+                    Modifier.fillMaxWidth().padding(start = PageGutter, end = PageGutter, top = 8.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     Text(
                         if (error != null) "Couldn't load streams" else "No streams found",
-                        style = MaterialTheme.typography.titleMedium.copy(fontSize = 16.sp),
+                        style = MaterialTheme.typography.titleMedium.copy(fontSize = 18.sp, lineHeight = 24.sp),
                         fontWeight = FontWeight.SemiBold,
                     )
                     Text(
@@ -4069,7 +4069,8 @@ private fun DividedColumn(modifier: Modifier = Modifier, lineStart: Dp = 0.dp, l
 /** Switch colors that keep the off state visible on dark grouped surfaces. */
 @Composable
 internal fun conduitSwitchColors() = SwitchDefaults.colors(
-    checkedThumbColor = Color.White,
+    // A dark thumb on amber, as in Material 3, keeps a column of on switches from glaring.
+    checkedThumbColor = Color(0xFF09090B),
     checkedTrackColor = MaterialTheme.colorScheme.primary,
     checkedBorderColor = Color.Transparent,
     // Off reads as "off", not "disabled": a quiet outlined track with a mid-gray thumb.
@@ -5046,10 +5047,13 @@ private fun AddonManagerScreen(
                                 Spacer(Modifier.width(12.dp))
                                 Text(name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                                 Spacer(Modifier.width(12.dp))
-                                Switch(addon.enabled, { enabled -> runMutation { base, token, id -> api.setAddonEnabled(base, token, id, addon.id, enabled) } }, enabled = !linked && !busy, colors = conduitSwitchColors())
+                                // Compact controls keep the title row about 40dp, so title, description, and facts read as one group.
+                                CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides Dp.Unspecified) {
+                                    Switch(addon.enabled, { enabled -> runMutation { base, token, id -> api.setAddonEnabled(base, token, id, addon.id, enabled) } }, enabled = !linked && !busy, colors = conduitSwitchColors())
+                                }
                                 if (!linked) Box {
                                     var menuOpen by remember { mutableStateOf(false) }
-                                    IconButton(onClick = { menuOpen = true }, enabled = !busy) { Icon(Icons.Rounded.MoreVert, "More actions for $name", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
+                                    IconButton(onClick = { menuOpen = true }, enabled = !busy, modifier = Modifier.size(40.dp)) { Icon(Icons.Rounded.MoreVert, "More actions for $name", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
                                     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }, containerColor = MaterialTheme.colorScheme.surfaceContainerHigh, shape = RoundedCornerShape(12.dp)) {
                                         DropdownMenuItem(text = { Text("Move up") }, leadingIcon = { Icon(Icons.Rounded.ArrowUpward, null) }, enabled = index > 0, onClick = { menuOpen = false; runMutation { base, token, id -> api.moveAddon(base, token, id, addon.id, index - 1) } })
                                         DropdownMenuItem(text = { Text("Move down") }, leadingIcon = { Icon(Icons.Rounded.ArrowDownward, null) }, enabled = index < addons.lastIndex, onClick = { menuOpen = false; runMutation { base, token, id -> api.moveAddon(base, token, id, addon.id, index + 1) } })
@@ -5059,7 +5063,7 @@ private fun AddonManagerScreen(
                                 }
                             }
                             // What it does, then the technical facts, across the full card width under the title row.
-                            Column(Modifier.padding(top = 0.dp, end = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Column(Modifier.padding(top = 4.dp, end = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Text(description, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 18.sp), maxLines = 2, overflow = TextOverflow.Ellipsis)
                                 Text(meta, color = TertiaryText, style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 16.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }

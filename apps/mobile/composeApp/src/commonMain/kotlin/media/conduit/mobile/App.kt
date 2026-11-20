@@ -1501,15 +1501,17 @@ private fun AppShell(
                 } == true
             if (appBottomNavigationVisible && !classic) {
                 val background = MaterialTheme.colorScheme.background
-                // Artwork screens fade posters out well above the pill; text screens keep rows readable to its edge.
+                // Content fades out before the pill: fully opaque at its top edge on every screen.
                 val artworkScreen = state.destination in setOf(AppDestination.Home, AppDestination.Search, AppDestination.Library)
                 Box(
                     Modifier.align(Alignment.BottomCenter).fillMaxWidth()
                         .background(
-                            if (artworkScreen) Brush.verticalGradient(0f to Color.Transparent, .4f to background.copy(alpha = .85f), .58f to background)
+                            // Expanded: the fade starts about 36dp above the pill and is opaque at its top edge.
+                            if (artworkScreen && !compact) Brush.verticalGradient(0f to Color.Transparent, .2f to background.copy(alpha = .7f), .32f to background)
+                            else if (artworkScreen) Brush.verticalGradient(0f to Color.Transparent, .4f to background.copy(alpha = .85f), .58f to background)
                             else Brush.verticalGradient(0f to Color.Transparent, .3f to background.copy(alpha = .92f), .42f to background),
                         )
-                        .navigationBarsPadding().height(if (!artworkScreen) 112.dp else if (compact) 96.dp else 136.dp),
+                        .navigationBarsPadding().height(if (!artworkScreen) 112.dp else if (compact) 96.dp else 112.dp),
                 )
             }
             PlatformBottomNavigation(
@@ -2993,7 +2995,7 @@ private fun MainTopBar(
                                     } else Box(contentAlignment = Alignment.Center) { Text(profile.name.take(1).uppercase(), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Color.Black) }
                                 }
                             },
-                            trailingIcon = if (profile.id == activeProfile?.id) {{ Icon(Icons.Rounded.Check, "Active profile", tint = MaterialTheme.colorScheme.onSurface) }} else null,
+                            trailingIcon = if (profile.id == activeProfile?.id) {{ Icon(Icons.Rounded.Check, "Active profile", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp)) }} else null,
                             onClick = { profileMenuOpen = false; onSelectProfile(profile.id) },
                         )
                     }

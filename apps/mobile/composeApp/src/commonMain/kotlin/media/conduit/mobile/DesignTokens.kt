@@ -19,7 +19,7 @@ import androidx.compose.ui.unit.sp
 /** Corner radii: 8dp for media and small tiles, 12dp for buttons, fields, cards and menus, full for pills. */
 
 /** Tertiary text such as add-on facts, genres, and episode dates: opaque, clearly a step below onSurfaceVariant. */
-internal val TertiaryText = androidx.compose.ui.graphics.Color(0xFF7A7A84)
+internal val TertiaryText = androidx.compose.ui.graphics.Color(0xFF85858F)
 
 /** Hairline drawn over artwork edges so dark posters and backdrops keep their shape on a black page. */
 internal val ArtworkEdge = Color.White.copy(alpha = .06f)
