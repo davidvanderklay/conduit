@@ -311,7 +311,8 @@ private fun FeatureCard(item: CatalogItem, onClick: () -> Unit, onActions: () ->
         }
         // Same stacked levels as poster captions: white title, then a smaller gray year.
         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(item.name, style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp, lineHeight = 17.sp), fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            // The logo on the art already names the title, so only the year repeats underneath.
+            if (item.logo.isNullOrBlank()) Text(item.name, style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp, lineHeight = 17.sp), fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             item.releaseInfo?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1) }
         }
     }

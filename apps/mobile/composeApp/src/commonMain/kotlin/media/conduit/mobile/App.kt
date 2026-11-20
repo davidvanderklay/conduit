@@ -440,7 +440,7 @@ private fun RecoveryCodesScreen(codes: List<String>, onSaved: () -> Unit) {
         ) {
             OnboardingBrand(Modifier.padding(bottom = 12.dp))
             Text("Save your recovery codes", style = OnboardingTitleStyle)
-            Text("Each code works once. Store them outside this device before continuing.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium.copy(lineBreak = LineBreak.Paragraph))
+            Text("Each code works once. Store them outside this device before continuing.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium.copy(lineBreak = LineBreak.Heading))
             Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
                 Column(Modifier.padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp)) {
                     codes.forEach { code ->
@@ -473,7 +473,7 @@ private fun HouseholdSetup(onCreate: (String, String) -> Unit) {
         ) {
             OnboardingBrand(Modifier.padding(bottom = 12.dp))
             Text("Create your household", style = OnboardingTitleStyle)
-            Text("Profiles, add-ons, and watch state sync through your conduit server.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium.copy(lineBreak = LineBreak.Paragraph), modifier = Modifier.padding(bottom = 12.dp))
+            Text("Profiles, add-ons, and watch state sync through your conduit server.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium.copy(lineBreak = LineBreak.Heading), modifier = Modifier.padding(bottom = 12.dp))
             TextField(
                 household, { household = it }, label = { Text("Household name") },
                 singleLine = true, shape = RoundedCornerShape(12.dp), colors = conduitFilledFieldColors(), modifier = Modifier.fillMaxWidth(),
@@ -714,7 +714,7 @@ private fun SignInScreen(
                     pending = true
                     if (recovering) onRecover(email, recoveryCode, password) else if (registering) onRegister(email, password) else onSignIn(email, password)
                 },
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = Color(0xFF141414), disabledContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = .16f), disabledContentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = .38f)),
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = Color(0xFF141414), disabledContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = .12f), disabledContentColor = MaterialTheme.colorScheme.primary.copy(alpha = .45f)),
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.fillMaxWidth().padding(top = 4.dp).height(50.dp),
             ) {
@@ -1422,7 +1422,7 @@ private fun AppShell(
             val background = MaterialTheme.colorScheme.background
             Column(Modifier.align(Alignment.TopCenter).fillMaxWidth()) {
                 Box(Modifier.fillMaxWidth().background(background).statusBarsPadding().height(64.dp))
-                Box(Modifier.fillMaxWidth().height(28.dp).background(Brush.verticalGradient(listOf(background, Color.Transparent))))
+                Box(Modifier.fillMaxWidth().height(40.dp).background(Brush.verticalGradient(0f to background, .45f to background.copy(alpha = .75f), 1f to Color.Transparent)))
             }
             MainTopBar(
                 profiles = profiles,
@@ -1473,10 +1473,12 @@ private fun AppShell(
                 } == true
             if (appBottomNavigationVisible && !classic) {
                 val background = MaterialTheme.colorScheme.background
+                // Artwork screens fade posters out well above the pill; text screens keep rows readable to its edge.
+                val artworkScreen = state.destination in setOf(AppDestination.Home, AppDestination.Search, AppDestination.Library)
                 Box(
                     Modifier.align(Alignment.BottomCenter).fillMaxWidth()
-                        .background(Brush.verticalGradient(0f to Color.Transparent, .35f to background.copy(alpha = .7f), .65f to background))
-                        .navigationBarsPadding().height(if (compact) 88.dp else 120.dp),
+                        .background(Brush.verticalGradient(0f to Color.Transparent, .4f to background.copy(alpha = .85f), .58f to background))
+                        .navigationBarsPadding().height(if (!artworkScreen) 84.dp else if (compact) 96.dp else 136.dp),
                 )
             }
             PlatformBottomNavigation(
@@ -2894,7 +2896,7 @@ private fun MainTopBar(
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedContainerColor = searchColor,
                     unfocusedContainerColor = searchColor,
-                    focusedBorderColor = Color.White.copy(alpha = .24f),
+                    focusedBorderColor = Color.Transparent,
                     unfocusedBorderColor = Color.Transparent,
                 ),
             )

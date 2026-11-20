@@ -12,6 +12,9 @@ import androidx.compose.ui.unit.sp
 
 /** Corner radii: 8dp for media and small tiles, 12dp for buttons, fields, cards and menus, full for pills. */
 
+/** Tertiary text such as add-on facts and episode dates: opaque, a step below onSurfaceVariant. */
+internal val TertiaryText = androidx.compose.ui.graphics.Color(0xFF92929B)
+
 /** Horizontal page gutter shared by phone screens. */
 internal val PageGutter = 16.dp
 
