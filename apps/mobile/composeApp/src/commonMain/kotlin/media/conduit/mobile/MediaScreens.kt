@@ -3599,7 +3599,7 @@ private fun StreamSelectionScreen(
                                 alignment = Alignment.BottomCenter,
                                 colorFilter = if (logoAnalysis?.dark == true) ColorFilter.tint(Color.White) else null,
                                 onSuccess = { logoAnalysis = runCatching { it.analyzeLogo() }.getOrNull() },
-                                modifier = Modifier.trimLogoInsets(logoAnalysis).fillMaxWidth(.62f).heightIn(max = 96.dp).padding(bottom = 20.dp),
+                                modifier = Modifier.padding(bottom = 20.dp).trimLogoInsets(logoAnalysis).fillMaxWidth(.62f).heightIn(max = 96.dp),
                             )
                         } else {
                             Text(title, style = if (collapsed) MaterialTheme.typography.titleMedium else PageTitleStyle, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)

@@ -41,7 +41,10 @@ internal fun analyzeLogoPixels(pixels: IntArray, width: Int = LogoSampleWidth, h
     )
 }
 
-/** Removes a logo's transparent top and bottom rows from layout, so spacing is measured from its lettering. */
+/**
+ * Removes a logo's transparent top and bottom rows from layout, so spacing is measured from its lettering.
+ * Apply it directly around the image's size modifiers; padding inside it would be trimmed as if it were image.
+ */
 internal fun Modifier.trimLogoInsets(analysis: LogoAnalysis?) = if (analysis == null) this else layout { measurable, constraints ->
     val placeable = measurable.measure(constraints)
     val top = (placeable.height * analysis.topInset).roundToInt()
