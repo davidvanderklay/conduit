@@ -185,7 +185,7 @@ internal fun MobileLibraryScreen(
                         Icon(Icons.Outlined.History, stringResource(Res.string.history_open), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
                     }
                     IconButton(onClick = onOpenCalendar, modifier = Modifier.size(44.dp)) {
-                        Icon(Icons.Outlined.CalendarMonth, stringResource(Res.string.calendar_open), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
+                        Icon(Icons.Outlined.Event, stringResource(Res.string.calendar_open), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
                     }
                 }
             }
@@ -2351,7 +2351,8 @@ internal fun MediaDetailsScreen(
                             resumeExplicitly = playbackStartPosition(progressForVideoId(playTarget.video?.id ?: item.id)) > 0L,
                         )
                     },
-                    modifier = Modifier.fillMaxWidth().height(PrimaryButtonHeight),
+                    // The most air sits above Play (about 20dp from genres), so it starts the actions block.
+                    modifier = Modifier.padding(top = 6.dp).fillMaxWidth().height(PrimaryButtonHeight),
                     shape = RoundedCornerShape(12.dp),
                 ) {
                     Icon(Icons.Rounded.PlayArrow, null); Spacer(Modifier.width(8.dp)); Text(playTarget.label, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
@@ -3443,7 +3444,7 @@ internal fun PlayerStreamDrawer(
                 resumeFrom?.let { position ->
                     Surface(
                         shape = RoundedCornerShape(50),
-                        color = Color(0xFF1B1B1D),
+                        color = MaterialTheme.colorScheme.surfaceContainer,
                         contentColor = Color.White,
                     ) {
                         Text(
@@ -3646,7 +3647,7 @@ private fun StreamSelectionScreen(
                 Surface(
                     modifier = Modifier.padding(start = 16.dp),
                     shape = RoundedCornerShape(50),
-                    color = Color(0xFF1B1B1D),
+                    color = MaterialTheme.colorScheme.surfaceContainer,
                     contentColor = Color.White,
                 ) {
                     Text(

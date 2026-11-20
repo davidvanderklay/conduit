@@ -2995,7 +2995,7 @@ private fun MainTopBar(
                         DropdownMenuItem(
                             modifier = Modifier.padding(horizontal = 6.dp).clip(RoundedCornerShape(12.dp)),
                             text = { Text(if (showAllProfiles) "Show fewer profiles" else "Show $hiddenProfiles more") },
-                            leadingIcon = { Icon(Icons.Rounded.KeyboardArrowDown, null) },
+                            leadingIcon = { Icon(Icons.Rounded.KeyboardArrowDown, null, Modifier.size(20.dp)) },
                             onClick = { showAllProfiles = !showAllProfiles },
                         )
                     }
@@ -3004,7 +3004,7 @@ private fun MainTopBar(
                         DropdownMenuItem(
                             modifier = Modifier.padding(horizontal = 6.dp).clip(RoundedCornerShape(12.dp)),
                             text = { Text("Watch together", style = MenuLabelStyle) },
-                            leadingIcon = { Icon(Icons.Outlined.People, null) },
+                            leadingIcon = { Icon(Icons.Outlined.People, null, Modifier.size(20.dp)) },
                             onClick = { profileMenuOpen = false; watchParty.sheetOpen = true },
                         )
                     }
@@ -3012,7 +3012,7 @@ private fun MainTopBar(
                         DropdownMenuItem(
                             modifier = Modifier.padding(horizontal = 6.dp).clip(RoundedCornerShape(12.dp)),
                             text = { Text("Queue", style = MenuLabelStyle) },
-                            leadingIcon = { Icon(Icons.Rounded.QueueMusic, null) },
+                            leadingIcon = { Icon(Icons.Rounded.QueueMusic, null, Modifier.size(20.dp)) },
                             trailingIcon = { Text(queueSize.toString(), color = MaterialTheme.colorScheme.onSurfaceVariant) },
                             onClick = { profileMenuOpen = false; onOpenQueue() },
                         )
@@ -3020,19 +3020,19 @@ private fun MainTopBar(
                     DropdownMenuItem(
                         modifier = Modifier.padding(horizontal = 6.dp).clip(RoundedCornerShape(12.dp)),
                         text = { Text("Add profile", style = MenuLabelStyle) },
-                        leadingIcon = { Icon(Icons.Rounded.Add, null) },
+                        leadingIcon = { Icon(Icons.Rounded.Add, null, Modifier.size(20.dp)) },
                         onClick = { profileMenuOpen = false; onAddProfile() },
                     )
                     DropdownMenuItem(
                         modifier = Modifier.padding(horizontal = 6.dp).clip(RoundedCornerShape(12.dp)),
                         text = { Text("Add-ons", style = MenuLabelStyle) },
-                        leadingIcon = { Icon(Icons.Outlined.Extension, null) },
+                        leadingIcon = { Icon(Icons.Outlined.Extension, null, Modifier.size(20.dp)) },
                         onClick = { profileMenuOpen = false; onOpenAddons() },
                     )
                     DropdownMenuItem(
                         modifier = Modifier.padding(horizontal = 6.dp).clip(RoundedCornerShape(12.dp)),
                         text = { Text("Settings", style = MenuLabelStyle) },
-                        leadingIcon = { Icon(Icons.Outlined.Settings, null) },
+                        leadingIcon = { Icon(Icons.Outlined.Settings, null, Modifier.size(20.dp)) },
                         onClick = { profileMenuOpen = false; onOpenSettings() },
                     )
                     // The same hairline that closes the profile list sets the session exit apart.
@@ -3040,7 +3040,7 @@ private fun MainTopBar(
                     DropdownMenuItem(
                         modifier = Modifier.padding(horizontal = 6.dp).clip(RoundedCornerShape(12.dp)),
                         text = { Text("Log out", style = MenuLabelStyle) },
-                        leadingIcon = { Icon(Icons.AutoMirrored.Rounded.Logout, null) },
+                        leadingIcon = { Icon(Icons.AutoMirrored.Rounded.Logout, null, Modifier.size(20.dp)) },
                         onClick = { profileMenuOpen = false; onSignOut() },
                     )
                 }
