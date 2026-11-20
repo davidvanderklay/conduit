@@ -16,5 +16,6 @@ internal actual fun AsyncImagePainter.State.Success.analyzeLogo(): LogoAnalysis 
     }
     val pixels = IntArray(LogoSampleWidth * LogoSampleHeight)
     bitmap.readPixels(pixels)
-    return analyzeLogoPixels(pixels)
+    val size = painter.intrinsicSize
+    return analyzeLogoPixels(pixels, aspect = if (size.height > 0f) size.width / size.height else 0f)
 }

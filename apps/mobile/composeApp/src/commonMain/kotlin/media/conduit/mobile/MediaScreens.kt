@@ -2162,11 +2162,9 @@ internal fun MediaDetailsScreen(
             StreamSelectionScreen(
                 title = meta?.name ?: item.name,
                 logo = meta?.logo?.takeIf(String::isNotBlank),
-                facts = listOfNotNull(
-                    meta?.releaseInfo ?: meta?.released?.take(4),
-                    meta?.runtime?.let(::compactRuntime),
-                    meta?.imdbRating?.trim()?.takeIf(String::isNotBlank)?.let { "★ $it IMDb" },
-                ).map(String::trim).filter(String::isNotBlank).joinToString("  ·  "),
+                facts = listOfNotNull(meta?.releaseInfo ?: meta?.released?.take(4), meta?.runtime?.let(::compactRuntime))
+                    .map(String::trim).filter(String::isNotBlank),
+                rating = meta?.imdbRating?.trim()?.takeIf(String::isNotBlank),
                 artwork = meta?.background ?: meta?.poster ?: item.background ?: item.poster,
                 episode = selectedVideo,
                 streams = streams.orEmpty(),
@@ -2296,7 +2294,7 @@ internal fun MediaDetailsScreen(
                         alignment = Alignment.BottomCenter,
                         colorFilter = titleLogoFilter,
                         onSuccess = { titleLogoAnalysis = runCatching { it.analyzeLogo() }.getOrNull() },
-                        modifier = Modifier.trimLogoInsets(titleLogoAnalysis).fillMaxWidth(.62f).heightIn(max = 96.dp),
+                        modifier = Modifier.logoBox(titleLogoAnalysis, .62f, 96.dp),
                     )
                 } else {
                     Text(
@@ -2310,34 +2308,11 @@ internal fun MediaDetailsScreen(
                 }
                 // Facts on one line; a series adds its genres on a quieter second line, 4dp below.
                 Column(horizontalAlignment = if (titleLogo != null) Alignment.CenterHorizontally else Alignment.Start, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    val heroFacts = metadataFacts
-                    heroFacts.takeIf { it.isNotEmpty() }?.let { facts ->
-                        Text(
-                            facts.joinToString("  ·  ") + if (details?.imdbRating.isNullOrBlank()) "" else "  ·",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                    }
-                    // A neutral rating instead of IMDb's yellow badge, so amber stays reserved for Play.
-                    details?.imdbRating?.trim()?.takeIf(String::isNotBlank)?.let { rating ->
-                        Row(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .then(if (imdbId != null) Modifier.clickable(onClickLabel = "Open on IMDb") { uriHandler.openUri("https://www.imdb.com/title/$imdbId/") } else Modifier)
-                                .padding(vertical = 2.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        ) {
-                            Icon(Icons.Rounded.Star, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(15.dp))
-                            Text(rating, color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-                            Text("IMDb", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                }
+                TitleFactsRow(
+                    facts = metadataFacts,
+                    rating = details?.imdbRating?.trim()?.takeIf(String::isNotBlank),
+                    onRatingClick = imdbId?.let { id -> { uriHandler.openUri("https://www.imdb.com/title/$id/") } },
+                )
                 if (!details?.videos.isNullOrEmpty()) {
                     details?.genres?.map(String::trim)?.filter(String::isNotBlank)?.distinct()?.takeIf { it.isNotEmpty() }?.let { genres ->
                         Text(genres.joinToString(", "), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp))
@@ -2664,7 +2639,7 @@ internal fun MediaDetailsScreen(
                     }
                 }
                 val fadeColor = MaterialTheme.colorScheme.background
-                Box(Modifier.fillMaxWidth().height(24.dp).background(Brush.verticalGradient(0f to fadeColor, .35f to fadeColor, 1f to Color.Transparent)))
+                Box(Modifier.fillMaxWidth().height(12.dp).background(Brush.verticalGradient(listOf(fadeColor, Color.Transparent))))
             }
         } else {
             MobileBackButton(
@@ -3142,6 +3117,33 @@ private fun WatchableSeasonChip(
     }
 }
 
+/** Year, runtime, and a neutral IMDb rating on one line; shared by details and streams so they match. */
+@Composable
+private fun TitleFactsRow(facts: List<String>, rating: String?, onRatingClick: (() -> Unit)?) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        if (facts.isNotEmpty()) Text(
+            facts.joinToString("  ·  ") + if (rating == null) "" else "  ·",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        // A neutral rating instead of IMDb's yellow badge, so amber stays reserved for Play.
+        rating?.let {
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .then(if (onRatingClick != null) Modifier.clickable(onClickLabel = "Open on IMDb", onClick = onRatingClick) else Modifier)
+                    .padding(vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Icon(Icons.Rounded.Star, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(15.dp))
+                Text(it, color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                Text("IMDb", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
 /** A short static fade over the gesture-navigation inset, so scrolling text never runs under the handle. */
 @Composable
 private fun BottomGestureFade(modifier: Modifier = Modifier) {
@@ -3159,8 +3161,8 @@ private fun DetailAction(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    // Inactive actions use outlined icons; an active one switches to the filled icon in amber. Labels stay white.
-    val iconColor = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+    // Inactive actions are an outlined icon and label in gray; an active one is the filled icon and label in amber.
+    val iconColor = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
     Column(
         modifier
             .width(104.dp)
@@ -3522,7 +3524,8 @@ internal fun PlayerStreamDrawer(
 private fun StreamSelectionScreen(
     title: String,
     logo: String?,
-    facts: String,
+    facts: List<String>,
+    rating: String?,
     artwork: String?,
     episode: VideoItem?,
     streams: List<StreamSource>,
@@ -3599,13 +3602,13 @@ private fun StreamSelectionScreen(
                                 alignment = Alignment.BottomCenter,
                                 colorFilter = if (logoAnalysis?.dark == true) ColorFilter.tint(Color.White) else null,
                                 onSuccess = { logoAnalysis = runCatching { it.analyzeLogo() }.getOrNull() },
-                                modifier = Modifier.padding(bottom = 20.dp).trimLogoInsets(logoAnalysis).fillMaxWidth(.62f).heightIn(max = 96.dp),
+                                modifier = Modifier.padding(bottom = 16.dp).logoBox(logoAnalysis, .62f, 96.dp),
                             )
                         } else {
                             Text(title, style = if (collapsed) MaterialTheme.typography.titleMedium else PageTitleStyle, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
+                        if (!collapsed && episode == null && (facts.isNotEmpty() || rating != null)) TitleFactsRow(facts, rating, onRatingClick = null)
                         val subtitle = listOfNotNull(
-                            facts.takeIf { it.isNotBlank() && episode == null },
                             "Choose a stream".takeIf { streams.isNotEmpty() || loading },
                             episode?.let { "S${it.season ?: 0}E${it.episode ?: 0} · ${it.displayTitle}" },
                         ).joinToString("  ·  ")

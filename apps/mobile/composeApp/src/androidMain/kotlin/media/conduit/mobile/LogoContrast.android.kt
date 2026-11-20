@@ -10,5 +10,5 @@ internal actual fun AsyncImagePainter.State.Success.analyzeLogo(): LogoAnalysis 
     val sample = Bitmap.createScaledBitmap(software, LogoSampleWidth, LogoSampleHeight, true)
     val pixels = IntArray(LogoSampleWidth * LogoSampleHeight)
     sample.getPixels(pixels, 0, LogoSampleWidth, 0, 0, LogoSampleWidth, LogoSampleHeight)
-    return analyzeLogoPixels(pixels)
+    return analyzeLogoPixels(pixels, aspect = software.width / software.height.toFloat())
 }

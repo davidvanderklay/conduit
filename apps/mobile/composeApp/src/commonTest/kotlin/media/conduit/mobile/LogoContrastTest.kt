@@ -26,5 +26,15 @@ class LogoContrastTest {
     }
 
     @Test
+    fun sideMarginsAreMeasured() {
+        // Opaque columns 1..5 of every row in an 8x8 sample.
+        val pixels = IntArray(64) { index -> if (index % 8 in 1..5) 0xFFFFFFFF.toInt() else 0 }
+        val analysis = analyzeLogoPixels(pixels, width = 8, height = 8, aspect = 3f)
+        assertEquals(1 / 8f, analysis.leftInset)
+        assertEquals(2 / 8f, analysis.rightInset)
+        assertEquals(3f, analysis.aspect)
+    }
+
+    @Test
     fun nearlyEmptyImagesAreLeftAlone() = assertEquals(LogoAnalysis(false, 0f, 0f), analyze(IntArray(64)))
 }
