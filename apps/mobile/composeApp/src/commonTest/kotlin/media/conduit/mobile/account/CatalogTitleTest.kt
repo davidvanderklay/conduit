@@ -6,13 +6,14 @@ import kotlin.test.assertEquals
 class CatalogTitleTest {
     @Test
     fun labelsPopularRailsByMediaType() {
-        assertEquals("Popular - Movie", formatCatalogTitle("Popular", "movie"))
-        assertEquals("Popular - Series", formatCatalogTitle("Popular", "series"))
+        assertEquals("Popular · Movies", formatCatalogTitle("Popular", "movie"))
+        assertEquals("Popular · Series", formatCatalogTitle("Popular", "series"))
     }
 
     @Test
     fun avoidsDuplicateTypeSuffixes() {
-        assertEquals("Popular - Movie", formatCatalogTitle("Popular - Movie", "movie"))
+        assertEquals("Popular · Movies", formatCatalogTitle("Popular - Movie", "movie"))
+        assertEquals("Popular · Movies", formatCatalogTitle("Popular · Movies", "movie"))
         assertEquals("Series", formatCatalogTitle("Series", "series"))
     }
 }

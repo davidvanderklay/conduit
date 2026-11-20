@@ -59,12 +59,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -425,25 +428,26 @@ private fun RecoveryCodesScreen(codes: List<String>, onSaved: () -> Unit) {
     val clipboard = LocalClipboardManager.current
     Surface(Modifier.fillMaxSize()) {
         Column(
-            Modifier.safeContentPadding().verticalScroll(rememberScrollState()).padding(24.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+            Modifier.safeContentPadding().verticalScroll(rememberScrollState()).widthIn(max = 560.dp).fillMaxWidth().padding(horizontal = 24.dp, vertical = 28.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text("Save your recovery codes", style = MaterialTheme.typography.headlineMedium)
-            Text("Each code works once. Store them outside this device before continuing.")
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Save your recovery codes", style = OnboardingTitleStyle)
+            Text("Each code works once. Store them outside this device before continuing.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+            Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                Column(Modifier.padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp)) {
                     codes.forEach { code ->
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Text(code, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-                            IconButton(onClick = { clipboard.setText(AnnotatedString(code)) }) { Icon(Icons.Rounded.ContentCopy, "Copy code") }
+                        Row(Modifier.fillMaxWidth().height(44.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(code, style = MaterialTheme.typography.bodyLarge, fontFamily = FontFamily.Monospace, color = Color.White, modifier = Modifier.weight(1f))
+                            IconButton(onClick = { clipboard.setText(AnnotatedString(code)) }) { Icon(Icons.Rounded.ContentCopy, "Copy code", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp)) }
                         }
                     }
                 }
             }
-            OutlinedButton(onClick = { clipboard.setText(AnnotatedString(codes.joinToString("\n"))) }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Rounded.ContentCopy, null); Spacer(Modifier.width(8.dp)); Text("Copy all codes") }
-            Button(onClick = onSaved, modifier = Modifier.fillMaxWidth()) {
-                Text("I saved these codes")
+            Spacer(Modifier.height(4.dp))
+            Button(onClick = onSaved, modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(12.dp)) {
+                Text("I saved these codes", fontWeight = FontWeight.SemiBold)
             }
+            OutlinedButton(onClick = { clipboard.setText(AnnotatedString(codes.joinToString("\n"))) }, modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(12.dp), border = BorderStroke(1.dp, Color.White.copy(alpha = .14f))) { Icon(Icons.Rounded.ContentCopy, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Copy all codes") }
         }
     }
 }
@@ -456,11 +460,11 @@ private fun HouseholdSetup(onCreate: (String, String) -> Unit) {
     var pending by remember { mutableStateOf(false) }
     Surface(Modifier.fillMaxSize()) {
         Column(
-            Modifier.safeContentPadding().widthIn(max = 560.dp).fillMaxWidth().padding(24.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+            Modifier.safeContentPadding().widthIn(max = 560.dp).fillMaxWidth().padding(horizontal = 24.dp, vertical = 28.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Text("Create your household", style = MaterialTheme.typography.headlineMedium)
-            Text("Profiles, add-ons, and watch state synchronize through your conduit server.")
+            Text("Create your household", style = OnboardingTitleStyle)
+            Text("Profiles, add-ons, and watch state sync through your conduit server.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(bottom = 6.dp))
             OutlinedTextField(
                 household, { household = it }, label = { Text("Household name") },
                 singleLine = true, modifier = Modifier.fillMaxWidth(),
@@ -475,8 +479,9 @@ private fun HouseholdSetup(onCreate: (String, String) -> Unit) {
                     pending = true
                     onCreate(household, profile)
                 },
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text(if (pending) "Creating…" else "Create household") }
+                modifier = Modifier.fillMaxWidth().padding(top = 6.dp).height(50.dp),
+                shape = RoundedCornerShape(12.dp),
+            ) { Text(if (pending) "Creating…" else "Create household", fontWeight = FontWeight.SemiBold) }
         }
     }
 }
@@ -605,9 +610,9 @@ private fun SignInScreen(
         serverSnackbar.showSnackbar(notice)
         onDismissServerNotice()
     }
-    Box(Modifier.fillMaxSize().background(Brush.radialGradient(listOf(MaterialTheme.colorScheme.primary.copy(.09f), MaterialTheme.colorScheme.background), radius = 900f)), contentAlignment = Alignment.Center) {
-        Column(Modifier.safeContentPadding().imePadding().verticalScroll(rememberScrollState()).widthIn(max = 460.dp).fillMaxWidth().padding(horizontal = 20.dp, vertical = 28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Row(Modifier.fillMaxWidth().padding(bottom = 18.dp), verticalAlignment = Alignment.CenterVertically) {
+    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background), contentAlignment = Alignment.Center) {
+        Column(Modifier.safeContentPadding().imePadding().verticalScroll(rememberScrollState()).widthIn(max = 460.dp).fillMaxWidth().padding(horizontal = 24.dp, vertical = 28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Row(Modifier.fillMaxWidth().padding(bottom = 36.dp), verticalAlignment = Alignment.CenterVertically) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) { ConduitMark(Modifier.size(40.dp)); Text("conduit", color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) }
                 Spacer(Modifier.weight(1f))
                 Surface(onClick = { showServerDialog = true }, shape = RoundedCornerShape(20.dp), color = Color(0xE61D1D20), contentColor = Color.White, border = BorderStroke(1.dp, Color.White.copy(.13f))) {
@@ -623,10 +628,11 @@ private fun SignInScreen(
                     }
                 }
             }
-            Card(colors = CardDefaults.cardColors(containerColor = Color(0xFA18181B), contentColor = Color.White), border = BorderStroke(1.dp, Color.White.copy(.11f)), shape = RoundedCornerShape(22.dp), modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(15.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(if (recovering) "Recover your account" else if (registering) if (authentication.needsOwner) "Set up conduit" else "Create your account" else "Welcome back", color = Color.White, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-            Text(if (recovering) "Enter one of the recovery codes you saved." else if (registering) "Create a private account for this conduit instance." else "Sign in to continue to your household.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+            // The form sits directly on the page, matching the household and recovery steps.
+            Box(Modifier.fillMaxWidth()) {
+                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(14.dp), horizontalAlignment = Alignment.Start) {
+            Text(if (recovering) "Recover your account" else if (registering) if (authentication.needsOwner) "Set up conduit" else "Create your account" else "Welcome back", color = Color.White, style = OnboardingTitleStyle)
+            Text(if (recovering) "Enter one of the recovery codes you saved." else if (registering) "Create a private account for this conduit instance." else "Sign in to continue to your household.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(bottom = 8.dp))
             if (authenticationLoading && !authenticationReady) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                     LoadingIndicator(Modifier.size(17.dp), strokeWidth = 2.dp)
@@ -641,7 +647,7 @@ private fun SignInScreen(
             }
             authentication.oidc.takeIf { it.enabled && !recovering }?.let {
                 Button(enabled = authenticationReady && !pending && !oauthLaunching, onClick = onOAuth, colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color(0xFF202124), disabledContainerColor = Color(0xFFE6E6E6), disabledContentColor = Color(0xFF5F6368)), shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth().height(50.dp)) { GoogleMark(); Spacer(Modifier.width(12.dp)); Text(if (oauthLaunching) "Opening sign-in…" else if (oauthPending) "Resume sign-in" else it.displayName ?: "Continue with Google", fontWeight = FontWeight.SemiBold) }
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) { HorizontalDivider(Modifier.weight(1f), color = Color.White.copy(.1f)); Text("  OR CONTINUE WITH EMAIL  ", color = Color.White.copy(.3f), style = MaterialTheme.typography.labelSmall); HorizontalDivider(Modifier.weight(1f), color = Color.White.copy(.1f)) }
+                Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) { HorizontalDivider(Modifier.weight(1f), color = Color.White.copy(.1f)); Text("or", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 12.dp)); HorizontalDivider(Modifier.weight(1f), color = Color.White.copy(.1f)) }
             }
             OutlinedTextField(
                 value = email,
@@ -667,11 +673,12 @@ private fun SignInScreen(
                     if (recovering) onRecover(email, recoveryCode, password) else if (registering) onRegister(email, password) else onSignIn(email, password)
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = Color(0xFF141414), disabledContainerColor = Color.White.copy(.10f), disabledContentColor = Color.White.copy(.34f)),
-                shape = RoundedCornerShape(10.dp),
-                modifier = Modifier.fillMaxWidth().height(50.dp),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp).height(50.dp),
             ) {
                 Text(
                     if (pending) "Please wait…" else if (recovering) "Reset password" else if (registering) "Create account" else "Sign in",
+                    fontWeight = FontWeight.SemiBold,
                 )
             }
             if (password.isNotEmpty() && password.length < 8) {
@@ -681,11 +688,13 @@ private fun SignInScreen(
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
-            if (authenticationReady && !recovering && !registering) TextButton(onClick = { recovering = true; error = null; password = "" }) { Text("Use recovery code", color = Color.White.copy(.72f)) }
-            if (recovering) TextButton(onClick = { recovering = false; error = null; password = "" }) { Text("Back to sign in", color = Color.White.copy(.72f)) }
-            if (authentication.localRegistration && !recovering) {
-                TextButton(onClick = { registering = !registering; error = null }) {
-                    Text(if (registering) "Already have an account? Sign in" else "New to this instance? Create a local account", color = Color.White.copy(.82f))
+            Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                if (authenticationReady && !recovering && !registering) TextButton(onClick = { recovering = true; error = null; password = "" }) { Text("Use recovery code", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                if (recovering) TextButton(onClick = { recovering = false; error = null; password = "" }) { Text("Back to sign in", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                if (authentication.localRegistration && !recovering) {
+                    TextButton(onClick = { registering = !registering; error = null }) {
+                        Text(if (registering) "Already have an account? Sign in" else "New here? Create a local account", color = MaterialTheme.colorScheme.onSurface, textAlign = TextAlign.Center)
+                    }
                 }
             }
                 }
@@ -755,10 +764,10 @@ private fun ConnectionError(message: String, onRetry: () -> Unit, onChangeServer
             Modifier.fillMaxSize().padding(24.dp),
             verticalArrangement = Arrangement.Center,
         ) {
-            Text("Server unavailable", style = MaterialTheme.typography.headlineSmall)
-            Text(message, color = MaterialTheme.colorScheme.error)
-            Button(onClick = onRetry) { Text("Retry") }
-            TextButton(onClick = onChangeServer) { Text("Use another server") }
+            Text("Server unavailable", style = OnboardingTitleStyle)
+            Text(message, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 6.dp, bottom = 20.dp))
+            Button(onClick = onRetry, modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(12.dp)) { Text("Retry", fontWeight = FontWeight.SemiBold) }
+            TextButton(onClick = onChangeServer, modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) { Text("Use another server") }
         }
     }
 }
@@ -1361,6 +1370,13 @@ private fun AppShell(
             AppDestination.ContinueWatching,
         )
         if (tv == null && topChromeVisible) {
+            // Static fade so scrolled content recedes under the controls instead of reading through them.
+            val background = MaterialTheme.colorScheme.background
+            Box(
+                Modifier.align(Alignment.TopCenter).fillMaxWidth()
+                    .background(Brush.verticalGradient(0f to background, .7f to background.copy(alpha = .94f), 1f to Color.Transparent))
+                    .statusBarsPadding().height(76.dp),
+            )
             MainTopBar(
                 profiles = profiles,
                 activeProfile = activeProfile,
@@ -1408,6 +1424,14 @@ private fun AppShell(
                 profileLaunchRequest?.let {
                     it.target == ProfileLaunchTarget.History && it.returnToLibrary
                 } == true
+            if (appBottomNavigationVisible && !classic) {
+                val background = MaterialTheme.colorScheme.background
+                Box(
+                    Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                        .background(Brush.verticalGradient(0f to Color.Transparent, .45f to background.copy(alpha = .9f), 1f to background))
+                        .navigationBarsPadding().height(if (compact) 64.dp else 92.dp),
+                )
+            }
             PlatformBottomNavigation(
                 destinations = destinations,
                 selected = if (fromLibraryHistory) {
@@ -2789,25 +2813,21 @@ private fun MainTopBar(
             onSearchFocusConsumed()
         }
     }
-    // Keep the top controls subtly glassy, but stable while scrolling.
-    val controlColor = Color(0xE817171A)
-    val searchFocusedColor = Color.Black.copy(alpha = .88f)
-    val searchUnfocusedColor = Color.Black.copy(alpha = .82f)
+    // AppShell draws a static fade behind this row, so the controls stay flat.
+    val searchColor = MaterialTheme.colorScheme.surfaceContainer
     Row(
-        modifier.statusBarsPadding().fillMaxWidth().padding(horizontal = 10.dp, vertical = 7.dp),
+        modifier.statusBarsPadding().fillMaxWidth().padding(start = 8.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
             Surface(
                 onClick = onOpenHome,
-                color = controlColor,
+                color = Color.Transparent,
                 contentColor = Color.White,
-                shape = RoundedCornerShape(17.dp),
-                border = BorderStroke(1.dp, Color.White.copy(alpha = .14f)),
-                shadowElevation = 10.dp,
-                modifier = Modifier.size(52.dp),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.size(48.dp),
             ) {
-                Box(Modifier.padding(8.dp), contentAlignment = Alignment.Center) {
+                Box(Modifier.padding(4.dp), contentAlignment = Alignment.Center) {
                     ConduitMark(Modifier.fillMaxSize())
                 }
             }
@@ -2821,30 +2841,29 @@ private fun MainTopBar(
                     IconButton(onClick = { onQueryChange("") }) { Icon(Icons.Rounded.Close, "Clear") }
                 }} else null,
                 singleLine = true,
-                shape = RoundedCornerShape(18.dp),
+                shape = RoundedCornerShape(26.dp),
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedContainerColor = searchFocusedColor,
-                    unfocusedContainerColor = searchUnfocusedColor,
-                    focusedBorderColor = MaterialTheme.colorScheme.primary.copy(alpha = .7f),
-                    unfocusedBorderColor = Color.White.copy(alpha = .1f),
+                    focusedContainerColor = searchColor,
+                    unfocusedContainerColor = searchColor,
+                    focusedBorderColor = Color.White.copy(alpha = .24f),
+                    unfocusedBorderColor = Color.Transparent,
                 ),
             )
             Box {
                 Surface(
                     onClick = { profileMenuOpen = true },
-                    modifier = Modifier.size(52.dp),
-                    shape = RoundedCornerShape(17.dp),
-                    color = controlColor,
-                    contentColor = Color.White,
-                    border = BorderStroke(1.dp, Color.White.copy(alpha = .14f)),
-                    shadowElevation = 10.dp,
+                    modifier = Modifier.size(48.dp),
+                    shape = androidx.compose.foundation.shape.CircleShape,
+                    color = Color.Transparent,
+                    contentColor = Color.Black,
                 ) {
                     Box(contentAlignment = Alignment.Center) {
+                        val avatarColor = activeProfile?.avatarColor?.let(::topProfileColor) ?: MaterialTheme.colorScheme.primary
                         Surface(
-                            modifier = Modifier.size(38.dp),
+                            modifier = Modifier.size(36.dp),
                             shape = androidx.compose.foundation.shape.CircleShape,
-                            color = activeProfile?.avatarColor?.let(::topProfileColor) ?: MaterialTheme.colorScheme.primary,
-                            border = BorderStroke(2.dp, Color.White.copy(alpha = .18f)),
+                            color = avatarColor,
+                            contentColor = if (avatarColor.luminance() > .45f) Color.Black else Color.White,
                         ) {
                             if (!activeProfile?.avatarUrl.isNullOrBlank()) {
                                 AsyncImage(activeProfile.avatarUrl, activeProfile.name, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
@@ -2862,7 +2881,7 @@ private fun MainTopBar(
                         .heightIn(max = 480.dp)
                         .border(BorderStroke(1.dp, Color.White.copy(alpha = .13f)), RoundedCornerShape(24.dp)),
                     shape = RoundedCornerShape(24.dp),
-                    containerColor = Color(0xF018181B),
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                     tonalElevation = 0.dp,
                     shadowElevation = 24.dp,
                 ) {
@@ -2878,7 +2897,7 @@ private fun MainTopBar(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(16.dp))
                                 .background(
-                                    if (profile.id == activeProfile?.id) Color(0x1FFBBF24) else Color.Transparent,
+                                    if (profile.id == activeProfile?.id) Color.White.copy(alpha = .06f) else Color.Transparent,
                                     RoundedCornerShape(16.dp),
                                 ),
                             text = {
@@ -2982,7 +3001,7 @@ internal fun RowScope.MobileNavigationItem(
     val color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
     Column(
         modifier.clip(RoundedCornerShape(24.dp))
-            .background(if (selected) MaterialTheme.colorScheme.primary.copy(alpha = .12f) else Color.Transparent)
+            .background(if (selected) Color.White.copy(alpha = .08f) else Color.Transparent)
             .selectable(selected = selected, role = androidx.compose.ui.semantics.Role.Tab, onClick = onClick).padding(top = if (showLabel) 8.dp else 10.dp, bottom = if (showLabel) 7.dp else 10.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(4.dp),
