@@ -455,8 +455,8 @@ private fun RecoveryCodesScreen(codes: List<String>, onSaved: () -> Unit) {
                 }
             }
             // Copy first, then confirm: the amber action ends the step.
-            FilledTonalButton(onClick = { clipboard.setText(AnnotatedString(codes.joinToString("\n"))) }, modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(12.dp), colors = ButtonDefaults.filledTonalButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh, contentColor = MaterialTheme.colorScheme.onSurface)) { Icon(Icons.Rounded.ContentCopy, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Copy all codes") }
-            Button(onClick = onSaved, modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(12.dp)) {
+            FilledTonalButton(onClick = { clipboard.setText(AnnotatedString(codes.joinToString("\n"))) }, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(12.dp), colors = ButtonDefaults.filledTonalButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh, contentColor = MaterialTheme.colorScheme.onSurface)) { Icon(Icons.Rounded.ContentCopy, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Copy all codes") }
+            Button(onClick = onSaved, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(12.dp)) {
                 Text("I saved these codes", fontWeight = FontWeight.SemiBold)
             }
         }
@@ -491,7 +491,7 @@ private fun HouseholdSetup(onCreate: (String, String) -> Unit) {
                     pending = true
                     onCreate(household, profile)
                 },
-                modifier = Modifier.fillMaxWidth().padding(top = 4.dp).height(50.dp),
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp).height(56.dp),
                 shape = RoundedCornerShape(12.dp),
             ) { Text(if (pending) "Creating…" else "Create household", fontWeight = FontWeight.SemiBold) }
         }
@@ -728,7 +728,7 @@ private fun SignInScreen(
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = Color(0xFF141414), disabledContainerColor = MaterialTheme.colorScheme.onSurface.copy(alpha = .1f), disabledContentColor = Color(0xFF909095)),
                 shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth().padding(top = 4.dp).height(50.dp),
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp).height(56.dp),
             ) {
                 Text(
                     if (pending) "Please wait…" else if (recovering) "Reset password" else if (registering) "Create account" else "Sign in",

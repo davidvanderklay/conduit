@@ -74,7 +74,7 @@ internal fun HomeScreen(
     LazyColumn(
         state = listState,
         modifier = modifier.fillMaxSize().statusBarsPadding(),
-        contentPadding = PaddingValues(top = 72.dp, bottom = 112.dp),
+        contentPadding = PaddingValues(top = 78.dp, bottom = 112.dp),
         verticalArrangement = Arrangement.spacedBy(28.dp),
     ) {
         if (sync.offline) {
@@ -172,7 +172,8 @@ internal fun HomeScreen(
                                 item,
                                 onClick = { onSelect(item, null) },
                                 onActions = { actionTarget = MediaActionTarget(item, MediaActionContext.Browse, latestProgress(sync.snapshot, item)) },
-                                modifier = Modifier.fillParentMaxWidth(.86f),
+                                // The next card peeks about 30dp: enough art to invite a swipe, never half a logo.
+                                modifier = Modifier.fillParentMaxWidth(.93f),
                             )
                         } else items(catalog.items, key = { "${catalog.key}:${it.type}:${it.id}" }) { item ->
                             RichPosterCard(

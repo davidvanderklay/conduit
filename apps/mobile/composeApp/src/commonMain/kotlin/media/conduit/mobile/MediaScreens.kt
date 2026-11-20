@@ -741,7 +741,7 @@ private fun CreditRows(details: MetaItem?, onBrowse: (MobileBrowseTarget) -> Uni
             details?.awards?.trim()?.takeIf(String::isNotBlank)?.let { "Awards" to it },
         ).forEach { (label, value) ->
             Row {
-                Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant, style = CreditTextStyle, modifier = Modifier.width(84.dp).padding(vertical = 3.dp))
+                Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant, style = CreditTextStyle, modifier = Modifier.width(72.dp).padding(vertical = 3.dp))
                 Text(value, style = CreditTextStyle, color = CreditValueColor, modifier = Modifier.weight(1f).padding(vertical = 3.dp))
             }
         }
@@ -762,7 +762,7 @@ private fun MetadataCreditLinks(
             label,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = CreditTextStyle,
-            modifier = Modifier.width(84.dp).padding(vertical = 3.dp),
+            modifier = Modifier.width(72.dp).padding(vertical = 3.dp),
         )
         CommaSeparatedLinks(visibleValues, onClick = { onBrowse(MobileBrowseTarget.Search(it)) }, modifier = Modifier.weight(1f), color = CreditValueColor)
     }
@@ -2293,7 +2293,7 @@ internal fun MediaDetailsScreen(
                 Column(
                     Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(start = PageGutter, end = PageGutter, bottom = 16.dp),
                     horizontalAlignment = if (titleLogo != null) Alignment.CenterHorizontally else Alignment.Start,
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                 if (titleLogo != null) {
                     AsyncImage(
@@ -3580,7 +3580,7 @@ private fun StreamSelectionScreen(
                         // Same box, padding, and logo/facts/genres stack as details, so the title doesn't move between pages.
                         Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(start = PageGutter, end = PageGutter, bottom = 16.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                         var logoAnalysis by remember(logo) { mutableStateOf<LogoAnalysis?>(null) }
                         AsyncImage(
@@ -4079,6 +4079,19 @@ internal fun conduitSwitchColors() = SwitchDefaults.colors(
     uncheckedThumbColor = Color(0xFFA1A1AA),
 )
 
+/**
+ * Switch drawn at 85% (about 44x27dp visible) for rows where the whole row is the touch target. A column of them
+ * stays lighter, and the visible track ends on the same edge as row chevrons and trailing values.
+ */
+@Composable
+private fun ConduitSwitch(checked: Boolean, onCheckedChange: ((Boolean) -> Unit)?, enabled: Boolean = true) {
+    Switch(checked, onCheckedChange, enabled = enabled, colors = conduitSwitchColors(), modifier = Modifier.graphicsLayer {
+        scaleX = .85f
+        scaleY = .85f
+        transformOrigin = androidx.compose.ui.graphics.TransformOrigin(1f, .5f)
+    })
+}
+
 @Composable
 private fun SettingsToggle(title: String, description: String, checked: Boolean, enabled: Boolean = true, onChanged: (Boolean) -> Unit) {
     // The whole row toggles, so the switch can drop its own 48dp touch padding and every row keeps one height.
@@ -4091,7 +4104,7 @@ private fun SettingsToggle(title: String, description: String, checked: Boolean,
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) { Text(title, style = SettingsTitleStyle, color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant); Text(description, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
         Spacer(Modifier.width(16.dp))
         CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides Dp.Unspecified) {
-            Switch(checked, null, enabled = enabled, colors = conduitSwitchColors())
+            ConduitSwitch(checked, null, enabled = enabled)
         }
     }
 }
@@ -5049,7 +5062,7 @@ private fun AddonManagerScreen(
                                 Spacer(Modifier.width(12.dp))
                                 // Compact controls keep the title row about 40dp, so title, description, and facts read as one group.
                                 CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides Dp.Unspecified) {
-                                    Switch(addon.enabled, { enabled -> runMutation { base, token, id -> api.setAddonEnabled(base, token, id, addon.id, enabled) } }, enabled = !linked && !busy, colors = conduitSwitchColors())
+                                    ConduitSwitch(addon.enabled, { enabled -> runMutation { base, token, id -> api.setAddonEnabled(base, token, id, addon.id, enabled) } }, enabled = !linked && !busy)
                                 }
                                 if (!linked) Box {
                                     var menuOpen by remember { mutableStateOf(false) }

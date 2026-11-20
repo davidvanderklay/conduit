@@ -367,13 +367,12 @@ internal fun RichPosterCard(
         }
         if (showLabels) {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                // One line, like Infuse, so every caption in a row shares a baseline.
-                Text(
+                // One line, like Infuse, so every caption in a row shares a baseline; cut at a whole word.
+                TidyEllipsisText(
                     displayTitle,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp, lineHeight = 17.sp),
-                    fontWeight = FontWeight.Medium,
+                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp, lineHeight = 17.sp, fontWeight = FontWeight.Medium),
+                    color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Text(
