@@ -510,7 +510,7 @@ private fun OnboardingLink(lead: String, action: String) {
 /** Mark and wordmark at the top of every onboarding step, so the flow keeps one anchor. */
 @Composable
 private fun OnboardingBrand(modifier: Modifier = Modifier) {
-    Row(modifier.height(OnboardingHeaderHeight), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy((-4).dp)) {
+    Row(modifier.height(OnboardingHeaderHeight), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         // The mark's amber body is inset in its square; trim that inset from layout so it sits on the gutter.
         ConduitMark(
             Modifier.layout { measurable, constraints ->
