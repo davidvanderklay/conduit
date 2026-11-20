@@ -726,6 +726,9 @@ private object HeroMotion {
     const val upwardTranslation = .12f
 }
 
+/** Credit values sit just below the synopsis's white so a long country list doesn't outshine it. */
+private val CreditValueColor = Color(0xFFD4D4D8)
+
 /** Directors, cast, writers, country, and awards as label/value rows. */
 @Composable
 private fun CreditRows(details: MetaItem?, onBrowse: (MobileBrowseTarget) -> Unit) {
@@ -739,7 +742,7 @@ private fun CreditRows(details: MetaItem?, onBrowse: (MobileBrowseTarget) -> Uni
         ).forEach { (label, value) ->
             Row {
                 Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant, style = CreditTextStyle, modifier = Modifier.width(84.dp).padding(vertical = 3.dp))
-                Text(value, style = CreditTextStyle, modifier = Modifier.weight(1f).padding(vertical = 3.dp))
+                Text(value, style = CreditTextStyle, color = CreditValueColor, modifier = Modifier.weight(1f).padding(vertical = 3.dp))
             }
         }
     }
@@ -761,7 +764,7 @@ private fun MetadataCreditLinks(
             style = CreditTextStyle,
             modifier = Modifier.width(84.dp).padding(vertical = 3.dp),
         )
-        CommaSeparatedLinks(visibleValues, onClick = { onBrowse(MobileBrowseTarget.Search(it)) }, modifier = Modifier.weight(1f))
+        CommaSeparatedLinks(visibleValues, onClick = { onBrowse(MobileBrowseTarget.Search(it)) }, modifier = Modifier.weight(1f), color = CreditValueColor)
     }
 }
 
@@ -2283,7 +2286,7 @@ internal fun MediaDetailsScreen(
                     // Keep the artwork bright and fade into the page only behind the title and meta. A short
                     // static scrim at the very top keeps the status bar and back button legible on bright art.
                     val heroBackground = MaterialTheme.colorScheme.background
-                    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Black.copy(.35f), .22f to Color.Transparent, .55f to Color.Transparent, .82f to heroBackground.copy(alpha = .5f), 1f to heroBackground)))
+                    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Black.copy(.5f), .28f to Color.Transparent, .55f to Color.Transparent, .82f to heroBackground.copy(alpha = .5f), 1f to heroBackground)))
                 }
                 // Logo (or title) and facts share one bottom-aligned column, so their gap is fixed rather than
                 // set by the logo's box. Centered under a logo, as in Infuse and Plex.
@@ -3571,7 +3574,7 @@ private fun StreamSelectionScreen(
                             contentScale = ContentScale.Crop,
                         )
                         val streamBackground = MaterialTheme.colorScheme.background
-                        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Black.copy(.35f), .22f to Color.Transparent, .55f to Color.Transparent, .82f to streamBackground.copy(alpha = .5f), 1f to streamBackground)))
+                        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Black.copy(.5f), .28f to Color.Transparent, .55f to Color.Transparent, .82f to streamBackground.copy(alpha = .5f), 1f to streamBackground)))
                     }
                     if (heroWithLogo) Column(
                         // Same box, padding, and logo/facts/genres stack as details, so the title doesn't move between pages.
@@ -3705,7 +3708,7 @@ private fun StreamSelectionScreen(
                     // Pulled up so "No streams found" sits about where Play sits on details, under the shared hero.
                     Modifier.fillMaxWidth().offset(y = (-6).dp).padding(start = PageGutter, end = PageGutter),
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     Text(
                         if (error != null) "Couldn't load streams" else "No streams found",
@@ -3720,7 +3723,7 @@ private fun StreamSelectionScreen(
                         modifier = Modifier.widthIn(max = 320.dp),
                     )
                     // Retry, or go fix the cause: streams come from add-ons.
-                    Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                         Button(onClick = onManageAddons, modifier = Modifier.height(50.dp), shape = RoundedCornerShape(12.dp)) {
                             Text("Manage add-ons", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
                         }

@@ -19,6 +19,7 @@ import kotlinx.coroutines.CancellationException
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.sp
@@ -231,8 +232,14 @@ internal fun Shelf(title: String, onSeeAll: (() -> Unit)? = null, source: String
         // Title, source, and "See all" share the title's baseline.
         Row(Modifier.fillMaxWidth().heightIn(min = 28.dp).padding(start = PageGutter, end = 6.dp)) {
             Row(Modifier.weight(1f).alignByBaseline()) {
+                // "Popular · Movies": the catalog name anchors; the type after the dot is a weight lighter.
                 Text(
-                    title,
+                    title.split(" · ", limit = 2).let { parts ->
+                        androidx.compose.ui.text.buildAnnotatedString {
+                            append(parts[0])
+                            parts.getOrNull(1)?.let { type -> withStyle(androidx.compose.ui.text.SpanStyle(fontWeight = FontWeight.Medium)) { append(" · $type") } }
+                        }
+                    },
                     style = ShelfTitleStyle,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,

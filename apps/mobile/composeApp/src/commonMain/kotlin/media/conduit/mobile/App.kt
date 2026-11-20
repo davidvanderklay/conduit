@@ -442,11 +442,12 @@ private fun RecoveryCodesScreen(codes: List<String>, onSaved: () -> Unit) {
             Text("Save your recovery codes", style = OnboardingTitleStyle)
             Text("Each code works once. Keep them off this device.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.widthIn(max = OnboardingCopyWidth))
             Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
-                Column(Modifier.padding(start = 16.dp, end = 12.dp, top = 4.dp, bottom = 4.dp)) {
+                // Separators run from the code's text edge to the card's right edge, like settings groups.
+                Column(Modifier.padding(start = 16.dp, top = 4.dp, bottom = 4.dp)) {
                     codes.forEachIndexed { index, code ->
                         // Faint separators help track each code across to its copy button.
                         if (index > 0) HorizontalDivider(thickness = 1.dp, color = Color.White.copy(alpha = .06f))
-                        Row(Modifier.fillMaxWidth().height(44.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Row(Modifier.fillMaxWidth().height(44.dp).padding(end = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                             Text(code, style = MaterialTheme.typography.bodyLarge, fontFamily = FontFamily.Monospace, color = Color.White, modifier = Modifier.weight(1f))
                             IconButton(onClick = { clipboard.setText(AnnotatedString(code)) }) { Icon(Icons.Rounded.ContentCopy, "Copy code", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp)) }
                         }
@@ -1506,9 +1507,9 @@ private fun AppShell(
                     Modifier.align(Alignment.BottomCenter).fillMaxWidth()
                         .background(
                             if (artworkScreen) Brush.verticalGradient(0f to Color.Transparent, .4f to background.copy(alpha = .85f), .58f to background)
-                            else Brush.verticalGradient(0f to Color.Transparent, .55f to background.copy(alpha = .9f), .7f to background),
+                            else Brush.verticalGradient(0f to Color.Transparent, .3f to background.copy(alpha = .92f), .42f to background),
                         )
-                        .navigationBarsPadding().height(if (!artworkScreen) 96.dp else if (compact) 96.dp else 136.dp),
+                        .navigationBarsPadding().height(if (!artworkScreen) 112.dp else if (compact) 96.dp else 136.dp),
                 )
             }
             PlatformBottomNavigation(
@@ -2962,7 +2963,7 @@ private fun MainTopBar(
                         .width(216.dp)
                         .heightIn(max = 480.dp),
                     shape = RoundedCornerShape(12.dp),
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
                     tonalElevation = 0.dp,
                     shadowElevation = 24.dp,
                 ) {
@@ -3040,8 +3041,8 @@ private fun MainTopBar(
                         leadingIcon = { Icon(Icons.Outlined.Settings, null) },
                         onClick = { profileMenuOpen = false; onOpenSettings() },
                     )
-                    // A little space sets the session exit apart from the commands above it.
-                    Spacer(Modifier.height(8.dp))
+                    // The same hairline that closes the profile list sets the session exit apart.
+                    HorizontalDivider(Modifier.padding(vertical = 4.dp), color = Color.White.copy(.06f))
                     DropdownMenuItem(
                         modifier = Modifier.padding(horizontal = 6.dp).clip(RoundedCornerShape(12.dp)),
                         text = { Text("Log out", style = MenuLabelStyle) },
