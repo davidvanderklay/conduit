@@ -460,7 +460,7 @@ private fun RecoveryCodesScreen(codes: List<String>, onSaved: () -> Unit) {
                 }
             }
             // Copy first, then confirm: the amber action ends the step.
-            FilledTonalButton(onClick = { clipboard.setText(AnnotatedString(codes.joinToString("\n"))) }, modifier = Modifier.fillMaxWidth().height(PrimaryButtonHeight), shape = RoundedCornerShape(12.dp), colors = ButtonDefaults.filledTonalButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest, contentColor = MaterialTheme.colorScheme.onSurface)) { Icon(Icons.Rounded.ContentCopy, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Copy all codes") }
+            FilledTonalButton(onClick = { clipboard.setText(AnnotatedString(codes.joinToString("\n"))) }, modifier = Modifier.padding(top = 12.dp).fillMaxWidth().height(PrimaryButtonHeight), shape = RoundedCornerShape(12.dp), colors = ButtonDefaults.filledTonalButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest, contentColor = MaterialTheme.colorScheme.onSurface)) { Icon(Icons.Rounded.ContentCopy, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Copy all codes") }
             Button(onClick = onSaved, modifier = Modifier.fillMaxWidth().height(PrimaryButtonHeight), shape = RoundedCornerShape(12.dp)) {
                 Text("I saved these codes", fontWeight = FontWeight.SemiBold)
             }
@@ -3008,10 +3008,10 @@ private fun MainTopBar(
                     DropdownMenuItem(
                         modifier = Modifier.padding(horizontal = 6.dp).clip(RoundedCornerShape(12.dp)),
                         text = { Text("Add profile", style = MenuLabelStyle) },
-                        leadingIcon = { Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Add, null, Modifier.size(20.dp)) } },
+                        leadingIcon = { Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) { Icon(Icons.Outlined.PersonAdd, null, Modifier.size(20.dp)) } },
                         onClick = { profileMenuOpen = false; onAddProfile() },
                     )
-                    HorizontalDivider(Modifier.padding(vertical = 4.dp), color = Color.White.copy(.06f))
+                    HorizontalDivider(Modifier.padding(start = 58.dp, end = 6.dp, top = 4.dp, bottom = 4.dp), color = Color.White.copy(.06f))
                     if (watchParty != null) {
                         DropdownMenuItem(
                             modifier = Modifier.padding(horizontal = 6.dp).clip(RoundedCornerShape(12.dp)),
@@ -3042,7 +3042,7 @@ private fun MainTopBar(
                         onClick = { profileMenuOpen = false; onOpenSettings() },
                     )
                     // The same hairline that closes the profile list sets the session exit apart.
-                    HorizontalDivider(Modifier.padding(vertical = 4.dp), color = Color.White.copy(.06f))
+                    HorizontalDivider(Modifier.padding(start = 58.dp, end = 6.dp, top = 4.dp, bottom = 4.dp), color = Color.White.copy(.06f))
                     DropdownMenuItem(
                         modifier = Modifier.padding(horizontal = 6.dp).clip(RoundedCornerShape(12.dp)),
                         text = { Text("Sign out", style = MenuLabelStyle) },
@@ -3076,7 +3076,8 @@ internal fun RowScope.MobileNavigationItem(
     showLabel: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+    // Inactive tabs a step under body gray so the bar doesn't pull focus from the artwork.
+    val color = if (selected) MaterialTheme.colorScheme.primary else Color(0xFF8F8F99)
     // Selection is the filled amber glyph and amber label; no indicator capsule.
     Column(
         modifier.clip(RoundedCornerShape(12.dp))

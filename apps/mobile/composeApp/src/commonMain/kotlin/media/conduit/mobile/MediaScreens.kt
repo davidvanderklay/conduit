@@ -3930,15 +3930,15 @@ internal fun ProfileSettingsScreen(
     val sections = remember {
         listOf(
             SettingSection("Account", listOf(
-                SettingEntry("Profile", "Profiles and viewing stats", Icons.Outlined.AccountCircle),
+                SettingEntry("Profile", "Profiles and viewing stats", Icons.Outlined.Person),
                 SettingEntry("Sign-in & security", "Password and recovery codes", Icons.Outlined.Lock),
             )),
             SettingSection("General", listOf(
                 SettingEntry("Watch history", "Recently watched", Icons.Outlined.History),
                 SettingEntry("Appearance & layout", "Theme and navigation", Icons.Outlined.Tune),
                 SettingEntry("Content & discovery", "Add-ons and home rows", Icons.Outlined.Explore),
-                SettingEntry("Playback", "Player and subtitles", Icons.Outlined.PlayCircle),
-                SettingEntry("Profile data", "Import and export", Icons.Outlined.SwapVerticalCircle),
+                SettingEntry("Playback", "Player and subtitles", Icons.Outlined.PlayArrow),
+                SettingEntry("Profile data", "Import and export", Icons.Outlined.SwapVert),
                 SettingEntry("Integrations", "Connected media services", Icons.Outlined.Link),
             )),
             SettingSection("About", listOf(
@@ -3947,7 +3947,7 @@ internal fun ProfileSettingsScreen(
                 SettingEntry("Licenses & attribution", "Open-source software", Icons.Outlined.Description),
             )),
             SettingSection("Advanced", listOf(
-                SettingEntry("Advanced settings", "Server and diagnostics", Icons.Outlined.SettingsSuggest),
+                SettingEntry("Advanced settings", "Server and diagnostics", Icons.Outlined.Build),
             )),
         )
     }
@@ -4100,7 +4100,7 @@ private fun DividedColumn(modifier: Modifier = Modifier, lineStart: Dp = 0.dp, l
 @Composable
 internal fun conduitSwitchColors() = SwitchDefaults.colors(
     // A dark thumb on amber, as in Material 3, keeps a column of on switches from glaring.
-    checkedThumbColor = Color(0xFF09090B),
+    checkedThumbColor = Color(0xFF3D2E00),
     checkedTrackColor = MaterialTheme.colorScheme.primary,
     checkedBorderColor = Color.Transparent,
     // Off reads as "off", not "disabled": a quiet outlined track with a mid-gray thumb.
@@ -4139,6 +4139,18 @@ private fun SettingsToggle(title: String, description: String, checked: Boolean,
     }
 }
 
+/** A picker row: one line, the current value in gray at the trailing edge, then a chevron. */
+@Composable
+private fun SettingsValueAction(title: String, value: String, onClick: () -> Unit) {
+    Row(Modifier.fillMaxWidth().heightIn(min = 52.dp).clickable(onClick = onClick), verticalAlignment = Alignment.CenterVertically) {
+        Text(title, style = SettingsTitleStyle, modifier = Modifier.weight(1f))
+        Text(value, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 18.sp), maxLines = 1, modifier = Modifier.padding(start = 12.dp))
+        Spacer(Modifier.width(8.dp))
+        Icon(Icons.Rounded.ChevronRight, null, tint = TertiaryText, modifier = Modifier.size(20.dp).offset(x = 7.dp))
+    }
+}
+
+/** An action row with a description line under its title. */
 @Composable
 private fun SettingsAction(title: String, description: String, destructive: Boolean = false, onClick: () -> Unit) {
     Row(Modifier.fillMaxWidth().heightIn(min = 60.dp).clickable(onClick = onClick).padding(vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -4214,8 +4226,8 @@ private fun AppearanceSettingsScreen(platform: PlatformInfo, preferences: Device
                 Text("App language", style = SettingsTitleStyle, modifier = Modifier.weight(1f))
                 Text("System default", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 18.sp))
             }
-            SettingsAction("Navigation style", displayedNavigationStyle.label) { showNavigation = true }
-            SettingsAction("Navigation placement", if (preferences.railOnTablets) "Left rail" else "Bottom bar") { showPlacement = true }
+            SettingsValueAction("Navigation style", displayedNavigationStyle.label) { showNavigation = true }
+            SettingsValueAction("Navigation placement", if (preferences.railOnTablets) "Left rail" else "Bottom bar") { showPlacement = true }
         }
     }
     if (showNavigation) AlertDialog(onDismissRequest = { showNavigation = false }, title = { Text("Navigation style") }, text = { Column { navigationStyles.forEach { style -> Row(Modifier.fillMaxWidth().clickable { update(preferences.copy(navigationStyle = style)); showNavigation = false }.padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) { RadioButton(style == displayedNavigationStyle, null); Spacer(Modifier.width(8.dp)); Column { Text(style.label); Text(style.description, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) } } } } }, confirmButton = {})
@@ -4338,9 +4350,9 @@ internal fun PlaybackSettingsScreen(platform: PlatformInfo, preferences: DeviceP
         SettingsGroup("Player") {
             if (android) {
                 SettingsToggle("Use external player", "Open direct sources in VLC, mpv, or another app", preferences.externalPlayer) { update(preferences.copy(externalPlayer = it)) }
-                SettingsAction("Android player engine", preferences.androidPlaybackEngine.label) { enginePicker = true }
+                SettingsValueAction("Android player engine", preferences.androidPlaybackEngine.label) { enginePicker = true }
             }
-            SettingsAction("Resume behavior", preferences.resumeBehavior.label) { resumePicker = true }
+            SettingsValueAction("Resume behavior", preferences.resumeBehavior.label) { resumePicker = true }
             if (platform.name.isIosPlatformName()) {
                 SettingsToggle(
                     "Play audio alongside other apps",
@@ -4356,16 +4368,16 @@ internal fun PlaybackSettingsScreen(platform: PlatformInfo, preferences: DeviceP
         SettingsGroup("Controls") {
             SettingsToggle("Skip intro and credits", "Show skip buttons when timestamps exist", preferences.skipSegments) { update(preferences.copy(skipSegments = it)) }
             if (isIpad) {
-                SettingsAction("Skip button position", preferences.skipButtonPosition.label) { showSkipButtonPosition = true }
+                SettingsValueAction("Skip button position", preferences.skipButtonPosition.label) { showSkipButtonPosition = true }
             }
             SettingsToggle("Miniplayer on back", "Minimize instead of closing on Back", preferences.miniplayerOnBack) { update(preferences.copy(miniplayerOnBack = it)) }
             SettingsToggle("Touch gestures", "Double-tap seeking and player gestures", preferences.touchGestures) { update(preferences.copy(touchGestures = it)) }
             SettingsToggle("Hold to speed", "Hold the video to play faster", preferences.holdToSpeed) { update(preferences.copy(holdToSpeed = it)) }
         }
         SettingsGroup("Audio & subtitles") {
-            SettingsAction("Preferred audio language", languagePreferenceLabel(preferences.preferredAudioLanguage)) { picker = "audio" }
-            SettingsAction("Primary subtitle language", languagePreferenceLabel(preferences.preferredSubtitleLanguage)) { picker = "subtitle" }
-            SettingsAction("Secondary subtitle language", preferences.secondarySubtitleLanguage?.let(::languagePreferenceLabel) ?: "None") { picker = "secondary-subtitle" }
+            SettingsValueAction("Preferred audio language", languagePreferenceLabel(preferences.preferredAudioLanguage)) { picker = "audio" }
+            SettingsValueAction("Primary subtitle language", languagePreferenceLabel(preferences.preferredSubtitleLanguage)) { picker = "subtitle" }
+            SettingsValueAction("Secondary subtitle language", preferences.secondarySubtitleLanguage?.let(::languagePreferenceLabel) ?: "None") { picker = "secondary-subtitle" }
             SettingsToggle("Forced subtitles only", "Only show subtitles for dialogue in another language", preferences.forcedSubtitlesOnly) { update(preferences.copy(forcedSubtitlesOnly = it)) }
             SubtitleStyleControls(
                 style = preferences.subtitleStyle,
@@ -4486,7 +4498,7 @@ internal fun PlaybackSettingsScreen(platform: PlatformInfo, preferences: DeviceP
 internal fun AdvancedSettingsScreen(platform: PlatformInfo, preferences: DevicePreferences, update: (DevicePreferences) -> Unit, onBack: () -> Unit, onDiagnostics: () -> Unit, modifier: Modifier) = SettingsPage("Advanced settings", onBack, modifier) {
     var readAheadPicker by remember { mutableStateOf(false) }
     SettingsGroup("Playback") {
-        SettingsAction("Network read-ahead", preferences.readAheadSeconds?.let { "$it seconds" } ?: "Automatic") { readAheadPicker = true }
+        SettingsValueAction("Network read-ahead", preferences.readAheadSeconds?.let { "$it seconds" } ?: "Automatic") { readAheadPicker = true }
         if (platform.name.isIosPlatformName() || preferences.androidPlaybackEngine != AndroidPlaybackEngine.Media3) {
             SettingsToggle(
                 "Hardware decoding",
@@ -5092,7 +5104,7 @@ private fun AddonManagerScreen(
                 "configurable".takeIf { configurable },
             ).joinToString(" · ")
                     run {
-                        Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 12.dp, bottom = 12.dp)) {
+                        Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 14.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 // Wide wordmark logos are unreadable in a square tile, so they fall back to the add-on glyph.
                                 var logoFits by remember(logo) { mutableStateOf(!logo.isNullOrBlank()) }
@@ -5123,7 +5135,7 @@ private fun AddonManagerScreen(
                                 }
                             }
                             // What it does, then the technical facts, across the full card width under the title row.
-                            Column(Modifier.padding(end = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Column(Modifier.padding(end = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Text(description, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 18.sp), maxLines = 2, overflow = TextOverflow.Ellipsis)
                                 Text(meta, color = TertiaryText, style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 16.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
