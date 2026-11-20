@@ -76,7 +76,7 @@ internal fun HomeScreen(
     LazyColumn(
         state = listState,
         modifier = modifier.fillMaxSize().statusBarsPadding(),
-        contentPadding = PaddingValues(top = 78.dp, bottom = 112.dp),
+        contentPadding = PaddingValues(top = 82.dp, bottom = 112.dp),
         verticalArrangement = Arrangement.spacedBy(28.dp),
     ) {
         if (sync.offline) {

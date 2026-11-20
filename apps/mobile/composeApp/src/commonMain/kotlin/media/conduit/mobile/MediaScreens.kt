@@ -164,15 +164,20 @@ internal fun MobileLibraryScreen(
 
     Column(modifier.statusBarsPadding()) {
         Spacer(Modifier.height(mainTopBarHeight(LocalDensity.current.fontScale) + 8.dp))
-        // Same header pattern as Discover: filters on the left, page tools on the right, no repeated page title.
-        Column(Modifier.padding(start = PageGutter, end = 4.dp, top = 2.dp, bottom = 6.dp)) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(20.dp), verticalAlignment = Alignment.CenterVertically) {
-                CompactFilterMenu(
-                    value = when (filter) { "movie" -> "Movies"; "series" -> "Series"; else -> "All types" },
-                    options = listOf("all" to "All types", "movie" to "Movies", "series" to "Series"),
-                    selectedKey = filter,
-                    onSelect = { filter = it },
-                )
+        // Same header pattern as Discover: each filter starts on a grid column, page tools end on the gutter.
+        BoxWithConstraints(Modifier.padding(start = PageGutter, end = PageGutter, top = 2.dp, bottom = 6.dp)) {
+            // Phone grids are three columns with 10dp gutters, so column two starts one column plus a gutter in.
+            val columnStart = (maxWidth - 20.dp) / 3 + 10.dp
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.width(columnStart)) {
+                    CompactFilterMenu(
+                        value = when (filter) { "movie" -> "Movies"; "series" -> "Series"; else -> "All types" },
+                        options = listOf("all" to "All types", "movie" to "Movies", "series" to "Series"),
+                        selectedKey = filter,
+                        onSelect = { filter = it },
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                }
                 CompactFilterMenu(
                     value = sort.label,
                     options = LibrarySort.entries.map { it.name to it.label },
@@ -180,8 +185,8 @@ internal fun MobileLibraryScreen(
                     onSelect = { selected -> LibrarySort.entries.firstOrNull { it.name == selected }?.let { sort = it } },
                 )
                 Spacer(Modifier.weight(1f))
-                // Page tools sit together as one 96dp cluster; the glyph of the last one lands on the gutter.
-                Row(Modifier.offset(x = 2.dp)) {
+                // Page tools sit together as one cluster; the glyph of the last one lands on the gutter.
+                Row(Modifier.offset(x = 14.dp)) {
                     IconButton(onClick = onOpenHistory, modifier = Modifier.size(44.dp)) {
                         Icon(Icons.Outlined.History, stringResource(Res.string.history_open), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
                     }
@@ -2493,12 +2498,12 @@ internal fun MediaDetailsScreen(
                                 actionTarget = MediaActionTarget(actionItem, MediaActionContext.Episode, progress, video, videos = videos)
                             },
                         ),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Box(
                             Modifier
-                                .width(120.dp)
+                                .width(112.dp)
                                 .aspectRatio(16f / 9f)
                                 .clip(RoundedCornerShape(8.dp))
                                 .background(MaterialTheme.colorScheme.surfaceContainerLow),
@@ -2642,7 +2647,7 @@ internal fun MediaDetailsScreen(
                     }
                 }
                 val fadeColor = MaterialTheme.colorScheme.background
-                Box(Modifier.fillMaxWidth().height(24.dp).background(Brush.verticalGradient(0f to fadeColor, .5f to fadeColor.copy(alpha = .45f), 1f to Color.Transparent)))
+                Box(Modifier.fillMaxWidth().height(24.dp).background(Brush.verticalGradient(0f to fadeColor, .3f to fadeColor.copy(alpha = .75f), .65f to fadeColor.copy(alpha = .3f), 1f to Color.Transparent)))
             }
         } else {
             MobileBackButton(
@@ -3734,9 +3739,7 @@ private fun StreamSelectionScreen(
                     )
                     // Retry, or go fix the cause: streams come from add-ons. Same tonal secondary as "Copy all codes".
                     Row(Modifier.padding(top = 16.dp).widthIn(max = 440.dp).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Button(onClick = onManageAddons, modifier = Modifier.weight(1f).height(PrimaryButtonHeight), shape = RoundedCornerShape(12.dp)) {
-                            Text("Manage add-ons", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
-                        }
+                        // Primary last, the same order as the recovery codes step.
                         FilledTonalButton(
                             onClick = onRetry,
                             modifier = Modifier.weight(1f).height(PrimaryButtonHeight),
@@ -3744,6 +3747,9 @@ private fun StreamSelectionScreen(
                             colors = ButtonDefaults.filledTonalButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest, contentColor = MaterialTheme.colorScheme.onSurface),
                         ) {
                             Text("Try again", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                        }
+                        Button(onClick = onManageAddons, modifier = Modifier.weight(1f).height(PrimaryButtonHeight), shape = RoundedCornerShape(12.dp)) {
+                            Text("Manage add-ons", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
                         }
                     }
                 }
@@ -3912,7 +3918,7 @@ internal fun ProfileSettingsScreen(
                 SettingEntry("Appearance & layout", "Theme and navigation", Icons.Outlined.Tune),
                 SettingEntry("Content & discovery", "Add-ons and home rows", Icons.Outlined.Explore),
                 SettingEntry("Playback", "Player and subtitles", Icons.Outlined.PlayCircle),
-                SettingEntry("Profile data", "Import and export", Icons.Outlined.ImportExport),
+                SettingEntry("Profile data", "Import and export", Icons.Outlined.SwapVerticalCircle),
                 SettingEntry("Integrations", "Connected media services", Icons.Outlined.Link),
             )),
             SettingSection("About", listOf(
@@ -4981,7 +4987,7 @@ private fun AddonManagerScreen(
     val activeCount = addons.count { it.enabled }
     Column(modifier.fillMaxSize()) {
         ProfileHeader("Add-ons", onBack)
-        LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(start = PageGutter, end = PageGutter, bottom = 112.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(start = PageGutter, end = PageGutter, bottom = 112.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (linked) item {
             Surface(color = SettingsGroupColor, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
                 Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.Link, null, tint = MaterialTheme.colorScheme.primary); Spacer(Modifier.width(12.dp)); Column { Text("Using primary add-ons", fontWeight = FontWeight.SemiBold); Text("This list is managed by the primary profile.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) } }
@@ -5020,7 +5026,8 @@ private fun AddonManagerScreen(
         }
         error?.let { item { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 4.dp)) } }
         item {
-            Row(verticalAlignment = Alignment.Bottom, modifier = Modifier.padding(top = 4.dp)) {
+            // 20dp above, so install and the installed list read as two tasks.
+            Row(verticalAlignment = Alignment.Bottom, modifier = Modifier.padding(top = 12.dp)) {
                 Text("Installed", style = SectionLabelStyle)
                 if (addons.isNotEmpty()) Text(
                     "$activeCount of ${addons.size} active",
