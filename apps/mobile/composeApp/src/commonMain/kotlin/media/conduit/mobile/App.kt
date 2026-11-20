@@ -435,7 +435,7 @@ private fun RecoveryCodesScreen(codes: List<String>, onSaved: () -> Unit) {
             Modifier.safeDrawingPadding().verticalScroll(rememberScrollState()).widthIn(max = 560.dp).fillMaxWidth().padding(horizontal = 24.dp, vertical = 28.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            OnboardingBrand(Modifier.padding(bottom = 24.dp))
+            OnboardingBrand(Modifier.padding(bottom = 12.dp))
             Text("Save your recovery codes", style = OnboardingTitleStyle)
             Text("Each code works once. Store them outside this device before continuing.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
             Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
@@ -468,7 +468,7 @@ private fun HouseholdSetup(onCreate: (String, String) -> Unit) {
             Modifier.safeDrawingPadding().widthIn(max = 560.dp).fillMaxWidth().padding(horizontal = 24.dp, vertical = 28.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            OnboardingBrand(Modifier.padding(bottom = 24.dp))
+            OnboardingBrand(Modifier.padding(bottom = 10.dp))
             Text("Create your household", style = OnboardingTitleStyle)
             Text("Profiles, add-ons, and watch state sync through your conduit server.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(bottom = 6.dp))
             TextField(
@@ -2909,7 +2909,7 @@ private fun MainTopBar(
                     expanded = profileMenuOpen,
                     onDismissRequest = { profileMenuOpen = false },
                     modifier = Modifier
-                        .width(300.dp)
+                        .width(272.dp)
                         .heightIn(max = 480.dp)
                         .border(BorderStroke(1.dp, Color.White.copy(alpha = .08f)), RoundedCornerShape(16.dp)),
                     shape = RoundedCornerShape(16.dp),
@@ -2919,10 +2919,10 @@ private fun MainTopBar(
                 ) {
                     Text(
                         "Switch profile",
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
-                        style = MaterialTheme.typography.titleSmall,
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                        style = MaterialTheme.typography.labelLarge.copy(fontSize = 13.sp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontWeight = FontWeight.Medium,
                     )
                     visibleProfiles.forEach { profile ->
                         DropdownMenuItem(

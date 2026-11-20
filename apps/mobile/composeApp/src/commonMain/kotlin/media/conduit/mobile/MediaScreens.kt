@@ -2231,8 +2231,15 @@ internal fun MediaDetailsScreen(
                     )
                     // Keep the artwork bright up top and fade into the page only behind the title and meta.
                     val heroBackground = MaterialTheme.colorScheme.background
-                    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Black.copy(.18f), .3f to Color.Transparent, .62f to heroBackground.copy(alpha = .55f), 1f to heroBackground)))
+                    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Black.copy(.18f), .25f to Color.Transparent, .45f to Color.Transparent, .75f to heroBackground.copy(alpha = .55f), 1f to heroBackground)))
                 }
+                // Logo (or title) and facts share one bottom-aligned column, so their gap is fixed rather than
+                // set by the logo's box. Centered under a logo, as in Infuse and Plex.
+                Column(
+                    Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(start = PageGutter, end = PageGutter, bottom = 16.dp),
+                    horizontalAlignment = if (titleLogo != null) Alignment.CenterHorizontally else Alignment.Start,
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
                 if (titleLogo != null) {
                     AsyncImage(
                         model = titleLogo,
@@ -2241,25 +2248,19 @@ internal fun MediaDetailsScreen(
                         alignment = Alignment.BottomCenter,
                         colorFilter = titleLogoFilter,
                         onSuccess = { titleLogoDark = runCatching { it.isDarkLogo() }.getOrDefault(false) },
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .offset(y = (-58).dp)
-                            .fillMaxWidth(.58f)
-                            .heightIn(max = 110.dp),
+                        modifier = Modifier.fillMaxWidth(.62f).heightIn(max = 96.dp),
                     )
                 } else {
                     Text(
                         details?.name ?: item.name,
                         style = MaterialTheme.typography.headlineLarge,
                         fontWeight = FontWeight.Bold,
-                        modifier = Modifier.align(Alignment.BottomStart).padding(start = PageGutter, end = PageGutter, bottom = 46.dp).clickable {
+                        modifier = Modifier.clickable {
                             onBrowse(MobileBrowseTarget.Search(details?.name ?: item.name))
                         },
                     )
                 }
-                // Centered under the centered logo, as in Infuse and Plex, so the hero has one axis.
                 Row(
-                    modifier = Modifier.align(if (titleLogo != null) Alignment.BottomCenter else Alignment.BottomStart).padding(start = PageGutter, end = PageGutter, bottom = 16.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
@@ -2286,6 +2287,7 @@ internal fun MediaDetailsScreen(
                             Text("IMDb", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                         }
                     }
+                }
                 }
             }
         }
@@ -2429,7 +2431,7 @@ internal fun MediaDetailsScreen(
                 val episodeTitle =
                     if (namedTitle != null && video.episode != null) "${video.episode}. $namedTitle"
                     else video.displayTitle
-                Column(Modifier.fillMaxWidth().padding(vertical = 8.dp, horizontal = PageGutter)) {
+                Column(Modifier.fillMaxWidth().padding(vertical = 6.dp, horizontal = PageGutter)) {
                     Row(
                         modifier = Modifier.fillMaxWidth().combinedClickable(
                             onClickLabel = "Play ${video.displayTitle}",
@@ -2451,7 +2453,8 @@ internal fun MediaDetailsScreen(
                     ) {
                         Box(
                             Modifier
-                                .width(122.dp)
+                                .padding(top = 2.dp)
+                                .width(128.dp)
                                 .aspectRatio(16f / 9f)
                                 .clip(RoundedCornerShape(9.dp))
                                 .background(MaterialTheme.colorScheme.surfaceContainerLow),
@@ -4876,8 +4879,9 @@ private fun AddonManagerScreen(
                                 Spacer(Modifier.width(12.dp))
                                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
                                     Text(name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    if (meta.isNotBlank()) Text(meta, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    Text(capabilities, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    val factStyle = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, lineHeight = 15.sp, fontWeight = FontWeight.Normal)
+                                    if (meta.isNotBlank()) Text(meta, color = Color(0xFF85858F), style = factStyle, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(capabilities, color = Color(0xFF85858F), style = factStyle, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 }
                                 Spacer(Modifier.width(8.dp))
                                 Switch(addon.enabled, { enabled -> runMutation { base, token, id -> api.setAddonEnabled(base, token, id, addon.id, enabled) } }, enabled = !linked && !busy, colors = conduitSwitchColors())
@@ -4892,7 +4896,7 @@ private fun AddonManagerScreen(
                                     }
                                 }
                             }
-                            Text(description, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 52.dp, top = 4.dp, end = 12.dp, bottom = 12.dp))
+                            Text(description, color = Color(0xFFB4B4BD), style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 16.sp), maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 52.dp, top = 6.dp, end = 12.dp, bottom = 12.dp))
                         }
                     }
                     }
