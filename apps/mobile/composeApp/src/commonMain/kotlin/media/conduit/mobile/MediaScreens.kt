@@ -2418,7 +2418,7 @@ internal fun MediaDetailsScreen(
         details?.videos?.takeIf { it.isNotEmpty() }?.let { videos ->
             val seasons = detailSeasons
             item(key = "season-selector-spacing") {
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(16.dp))
             }
             item(key = "season-chips") {
                 Column {
@@ -2528,7 +2528,7 @@ internal fun MediaDetailsScreen(
                                     maxLines = 2,
                                     color = Color(0xFFB4B4BC),
                                     style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 17.sp),
-                                    modifier = Modifier.padding(top = 6.dp),
+                                    modifier = Modifier.padding(top = 4.dp),
                                 )
                             }
                             video.released?.let { released ->
@@ -2627,7 +2627,7 @@ internal fun MediaDetailsScreen(
                     }
                 }
                 val fadeColor = MaterialTheme.colorScheme.background
-                Box(Modifier.fillMaxWidth().height(28.dp).background(Brush.verticalGradient(0f to fadeColor, .45f to fadeColor, 1f to Color.Transparent)))
+                Box(Modifier.fillMaxWidth().height(20.dp).background(Brush.verticalGradient(0f to fadeColor, .5f to fadeColor, 1f to Color.Transparent)))
             }
         } else {
             MobileBackButton(
@@ -3603,15 +3603,16 @@ private fun StreamSelectionScreen(
                 }
             }
         }
-        stickyHeader(key = "stream-header") {
-            val subtitle = listOfNotNull(
-                "Choose a stream".takeIf { streams.isNotEmpty() || loading },
-                episode?.let { "S${it.season ?: 0}E${it.episode ?: 0} · ${it.displayTitle}" },
-            ).joinToString("  ·  ")
-            val refreshable = streams.isNotEmpty() && !loading
-            // Collapsed, the title clears the back button. Expanded under a logo hero, only the subtitle and
-            // refresh remain here; without one, the plain title leads.
-            if (collapsed || !heroWithLogo || subtitle.isNotEmpty() || refreshable) Surface(color = MaterialTheme.colorScheme.background, shadowElevation = 0.dp) {
+        val subtitle = listOfNotNull(
+            "Choose a stream".takeIf { streams.isNotEmpty() || loading },
+            episode?.let { "S${it.season ?: 0}E${it.episode ?: 0} · ${it.displayTitle}" },
+        ).joinToString("  ·  ")
+        val refreshable = streams.isNotEmpty() && !loading
+        // Collapsed, the title clears the back button. Expanded under a logo hero, only the subtitle and
+        // refresh remain here; without one, the plain title leads. With nothing to show, the header is left
+        // out entirely so it adds no list spacing above the empty state.
+        if (collapsed || !heroWithLogo || subtitle.isNotEmpty() || refreshable) stickyHeader(key = "stream-header") {
+            Surface(color = MaterialTheme.colorScheme.background, shadowElevation = 0.dp) {
                 Row(
                     Modifier.fillMaxWidth()
                         .then(if (collapsed || artwork == null) Modifier.statusBarsPadding() else Modifier)
@@ -3700,7 +3701,8 @@ private fun StreamSelectionScreen(
                 // Sits right under the filters so the empty state reads as part of the page, not a separate screen.
                 // Centered under the centered title, so the page keeps one axis.
                 Column(
-                    Modifier.fillMaxWidth().padding(start = PageGutter, end = PageGutter, top = 18.dp),
+                    // Pulled up so "No streams found" sits about where Play sits on details, under the shared hero.
+                    Modifier.fillMaxWidth().offset(y = (-6).dp).padding(start = PageGutter, end = PageGutter),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
@@ -3884,7 +3886,7 @@ internal fun ProfileSettingsScreen(
         listOf(
             SettingSection("Account", listOf(
                 SettingEntry("Profile", "Profiles and viewing stats", Icons.Outlined.AccountCircle),
-                SettingEntry("Sign-in & security", "Password and recovery codes", Icons.Outlined.Key),
+                SettingEntry("Sign-in & security", "Password and recovery codes", Icons.Outlined.Lock),
             )),
             SettingSection("General", listOf(
                 SettingEntry("Watch history", "Recently watched", Icons.Outlined.History),
@@ -4066,10 +4068,10 @@ internal fun conduitSwitchColors() = SwitchDefaults.colors(
     checkedThumbColor = Color.White,
     checkedTrackColor = MaterialTheme.colorScheme.primary,
     checkedBorderColor = Color.Transparent,
-    // Off reads as "off", not "disabled": an outlined track with a light thumb.
+    // Off reads as "off", not "disabled": a quiet outlined track with a mid-gray thumb.
     uncheckedTrackColor = Color(0xFF27272A),
-    uncheckedBorderColor = Color(0xFF52525B),
-    uncheckedThumbColor = Color(0xFFD4D4D8),
+    uncheckedBorderColor = Color(0xFF3F3F46),
+    uncheckedThumbColor = Color(0xFFA1A1AA),
 )
 
 @Composable

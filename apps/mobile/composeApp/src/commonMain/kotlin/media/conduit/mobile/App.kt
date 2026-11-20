@@ -739,7 +739,8 @@ private fun SignInScreen(
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
-            Column(Modifier.fillMaxWidth().offset(x = (-12).dp), horizontalAlignment = Alignment.Start) {
+            // Pulled up 8dp so the links' text sits about 22dp under the button, despite TextButton's touch padding.
+            Column(Modifier.fillMaxWidth().offset(x = (-12).dp, y = (-8).dp), horizontalAlignment = Alignment.Start) {
                 // Secondary links share one style: gray lead-in, white action.
                 if (authenticationReady && !recovering && !registering) TextButton(onClick = { recovering = true; error = null; password = "" }) { OnboardingLink("Lost your password?", "Use recovery code") }
                 if (recovering) TextButton(onClick = { recovering = false; error = null; password = "" }) { OnboardingLink("Remembered it?", "Back to sign in") }

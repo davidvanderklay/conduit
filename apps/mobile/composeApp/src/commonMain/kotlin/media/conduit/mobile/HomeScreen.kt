@@ -3,6 +3,7 @@ package media.conduit.mobile
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -226,25 +227,26 @@ internal fun HomeScreen(
 @Composable
 internal fun Shelf(title: String, onSeeAll: (() -> Unit)? = null, source: String? = null, content: @Composable () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Row(Modifier.fillMaxWidth().heightIn(min = 32.dp).padding(start = PageGutter, end = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            Row(Modifier.weight(1f), verticalAlignment = Alignment.Bottom) {
+        // Title, source, and "See all" share the title's baseline.
+        Row(Modifier.fillMaxWidth().heightIn(min = 32.dp).padding(start = PageGutter, end = 6.dp)) {
+            Row(Modifier.weight(1f).alignByBaseline()) {
                 Text(
                     title,
                     style = ShelfTitleStyle,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false),
+                    modifier = Modifier.weight(1f, fill = false).alignByBaseline(),
                 )
                 source?.let {
-                    Text(it, style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp), color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 12.dp, bottom = 2.dp))
+                    Text(it, style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp), color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 12.dp).alignByBaseline())
                 }
             }
             // A compact text link keeps the row as tall as its title; the padding still gives a usable target.
             if (onSeeAll != null) Text(
                 "See all",
-                style = MaterialTheme.typography.labelMedium.copy(fontSize = 12.sp),
+                style = MaterialTheme.typography.labelMedium.copy(fontSize = 13.sp, fontWeight = FontWeight.Medium),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClickLabel = "See all $title", onClick = onSeeAll).padding(horizontal = 10.dp, vertical = 6.dp),
+                modifier = Modifier.alignByBaseline().clip(RoundedCornerShape(8.dp)).clickable(onClickLabel = "See all $title", onClick = onSeeAll).padding(horizontal = 10.dp, vertical = 6.dp),
             )
         }
         content()
@@ -277,6 +279,7 @@ private fun FeatureCard(item: CatalogItem, onClick: () -> Unit, onActions: () ->
         Box(
             Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(12.dp))
                 .background(MaterialTheme.colorScheme.surfaceContainer)
+                .border(1.dp, ArtworkEdge, RoundedCornerShape(12.dp))
                 .combinedClickable(
                     onClickLabel = "Open ${item.name}",
                     onLongClickLabel = "More actions for ${item.name}",
@@ -293,7 +296,7 @@ private fun FeatureCard(item: CatalogItem, onClick: () -> Unit, onActions: () ->
                 contentScale = androidx.compose.ui.layout.ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
             )
-            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Transparent, .4f to Color.Transparent, 1f to Color.Black.copy(alpha = .65f))))
+            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Transparent, .5f to Color.Transparent, 1f to Color.Black.copy(alpha = .5f))))
             // Title logo and year sit together on the art, so the card needs no caption underneath.
             Column(Modifier.align(Alignment.BottomStart).padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (!item.logo.isNullOrBlank()) {

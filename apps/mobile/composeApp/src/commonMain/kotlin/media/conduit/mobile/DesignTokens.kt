@@ -21,6 +21,9 @@ import androidx.compose.ui.unit.sp
 /** Tertiary text such as add-on facts and episode dates: opaque, a step below onSurfaceVariant. */
 internal val TertiaryText = androidx.compose.ui.graphics.Color(0xFF92929B)
 
+/** Hairline drawn over artwork edges so dark posters and backdrops keep their shape on a black page. */
+internal val ArtworkEdge = Color.White.copy(alpha = .06f)
+
 /** Horizontal page gutter shared by phone screens. */
 internal val PageGutter = 16.dp
 
