@@ -440,7 +440,7 @@ private fun RecoveryCodesScreen(codes: List<String>, onSaved: () -> Unit) {
         ) {
             OnboardingBrand(Modifier.padding(bottom = 12.dp))
             Text("Save your recovery codes", style = OnboardingTitleStyle)
-            Text("Each code works once. Store them outside this device before continuing.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.widthIn(max = OnboardingCopyWidth))
+            Text("Each code works once. Store them outside this device before continuing.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium.copy(lineBreak = LineBreak.Paragraph), modifier = Modifier.widthIn(max = OnboardingCopyWidth))
             Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
                 Column(Modifier.padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp)) {
                     codes.forEach { code ->
@@ -473,7 +473,7 @@ private fun HouseholdSetup(onCreate: (String, String) -> Unit) {
         ) {
             OnboardingBrand(Modifier.padding(bottom = 12.dp))
             Text("Create your household", style = OnboardingTitleStyle)
-            Text("Profiles, add-ons, and watch state sync through your conduit server.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(bottom = 12.dp).widthIn(max = OnboardingCopyWidth))
+            Text("Profiles, add-ons, and watch state sync through your conduit server.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium.copy(lineBreak = LineBreak.Paragraph), modifier = Modifier.padding(bottom = 12.dp).widthIn(max = OnboardingCopyWidth))
             TextField(
                 household, { household = it }, label = { Text("Household name") },
                 singleLine = true, shape = RoundedCornerShape(12.dp), colors = conduitFilledFieldColors(), modifier = Modifier.fillMaxWidth(),

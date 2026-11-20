@@ -3573,7 +3573,8 @@ private fun StreamSelectionScreen(
                         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Black.copy(.35f), .22f to Color.Transparent, .55f to Color.Transparent, .82f to streamBackground.copy(alpha = .5f), 1f to streamBackground)))
                     }
                     if (heroWithLogo) Column(
-                        Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(start = PageGutter, end = PageGutter, bottom = 8.dp),
+                        // The extra bottom space stands in for the genres line details shows, so the logo lands at the same height.
+                        Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(start = PageGutter, end = PageGutter, bottom = 36.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(16.dp),
                     ) {
