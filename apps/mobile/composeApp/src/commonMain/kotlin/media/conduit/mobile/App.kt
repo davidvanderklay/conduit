@@ -455,7 +455,7 @@ private fun RecoveryCodesScreen(codes: List<String>, onSaved: () -> Unit) {
                 }
             }
             // Copy first, then confirm: the amber action ends the step.
-            FilledTonalButton(onClick = { clipboard.setText(AnnotatedString(codes.joinToString("\n"))) }, modifier = Modifier.fillMaxWidth().height(PrimaryButtonHeight), shape = RoundedCornerShape(12.dp), colors = ButtonDefaults.filledTonalButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh, contentColor = MaterialTheme.colorScheme.onSurface)) { Icon(Icons.Rounded.ContentCopy, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Copy all codes") }
+            FilledTonalButton(onClick = { clipboard.setText(AnnotatedString(codes.joinToString("\n"))) }, modifier = Modifier.fillMaxWidth().height(PrimaryButtonHeight), shape = RoundedCornerShape(12.dp), colors = ButtonDefaults.filledTonalButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest, contentColor = MaterialTheme.colorScheme.onSurface)) { Icon(Icons.Rounded.ContentCopy, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Copy all codes") }
             Button(onClick = onSaved, modifier = Modifier.fillMaxWidth().height(PrimaryButtonHeight), shape = RoundedCornerShape(12.dp)) {
                 Text("I saved these codes", fontWeight = FontWeight.SemiBold)
             }
@@ -726,7 +726,7 @@ private fun SignInScreen(
                     pending = true
                     if (recovering) onRecover(email, recoveryCode, password) else if (registering) onRegister(email, password) else onSignIn(email, password)
                 },
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = Color(0xFF141414), disabledContainerColor = MaterialTheme.colorScheme.onSurface.copy(alpha = .14f), disabledContentColor = Color(0xFF909095)),
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = Color(0xFF141414), disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh, disabledContentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = .38f)),
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.fillMaxWidth().padding(top = 4.dp).height(PrimaryButtonHeight),
             ) {
@@ -2900,7 +2900,7 @@ private fun MainTopBar(
     // AppShell draws a static fade behind this row, so the controls stay flat.
     Row(
         // The mark's glyph and the avatar both land on the 16dp page gutter, with matching gaps around the search pill.
-        modifier.statusBarsPadding().fillMaxWidth().padding(start = 4.dp, end = 10.dp, top = 6.dp, bottom = 6.dp),
+        modifier.statusBarsPadding().fillMaxWidth().padding(start = 4.dp, end = 12.dp, top = 6.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -2936,7 +2936,7 @@ private fun MainTopBar(
                     Box(contentAlignment = Alignment.Center) {
                         val avatarColor = activeProfile?.avatarColor?.let(::topProfileColor) ?: MaterialTheme.colorScheme.primary
                         Surface(
-                            modifier = Modifier.size(36.dp),
+                            modifier = Modifier.size(40.dp),
                             shape = androidx.compose.foundation.shape.CircleShape,
                             color = avatarColor,
                             contentColor = if (avatarColor.luminance() > .45f) Color.Black else Color.White,
@@ -2987,7 +2987,7 @@ private fun MainTopBar(
                                     } else Box(contentAlignment = Alignment.Center) { Text(profile.name.take(1).uppercase(), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Color.Black) }
                                 }
                             },
-                            trailingIcon = if (profile.id == activeProfile?.id) {{ Icon(Icons.Rounded.Check, "Active profile", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp)) }} else null,
+                            trailingIcon = if (profile.id == activeProfile?.id) {{ Icon(Icons.Rounded.Check, "Active profile", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp)) }} else null,
                             onClick = { profileMenuOpen = false; onSelectProfile(profile.id) },
                         )
                     }

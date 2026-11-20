@@ -2551,7 +2551,7 @@ internal fun MediaDetailsScreen(
                                     maxLines = 2,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 18.sp),
-                                    modifier = Modifier.padding(top = 6.dp),
+                                    modifier = Modifier.padding(top = 4.dp),
                                 )
                             }
                         }
@@ -3733,7 +3733,7 @@ private fun StreamSelectionScreen(
                         modifier = Modifier.padding(top = 6.dp).widthIn(max = 320.dp),
                     )
                     // Retry, or go fix the cause: streams come from add-ons. Same tonal secondary as "Copy all codes".
-                    Row(Modifier.padding(top = 16.dp).widthIn(max = 328.dp).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.padding(top = 16.dp).widthIn(max = 440.dp).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         Button(onClick = onManageAddons, modifier = Modifier.weight(1f).height(PrimaryButtonHeight), shape = RoundedCornerShape(12.dp)) {
                             Text("Manage add-ons", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
                         }
@@ -3741,7 +3741,7 @@ private fun StreamSelectionScreen(
                             onClick = onRetry,
                             modifier = Modifier.weight(1f).height(PrimaryButtonHeight),
                             shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.filledTonalButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh, contentColor = MaterialTheme.colorScheme.onSurface),
+                            colors = ButtonDefaults.filledTonalButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest, contentColor = MaterialTheme.colorScheme.onSurface),
                         ) {
                             Text("Try again", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
                         }
@@ -4311,18 +4311,22 @@ internal fun PlaybackSettingsScreen(platform: PlatformInfo, preferences: DeviceP
                 SettingsAction("Android player engine", preferences.androidPlaybackEngine.label) { enginePicker = true }
             }
             SettingsAction("Resume behavior", preferences.resumeBehavior.label) { resumePicker = true }
-            SettingsToggle("Reuse last stream", "Start with the stream you picked last time", preferences.autoSelectSavedStreams) { update(preferences.copy(autoSelectSavedStreams = it)) }
-            SettingsToggle("Auto-pick streams for Next", "Choose sources for Next and queued items", preferences.autoSelectNextStreams) { update(preferences.copy(autoSelectNextStreams = it)) }
-            SettingsToggle("Skip intro and credits", "Show skip buttons when timestamps exist", preferences.skipSegments) { update(preferences.copy(skipSegments = it)) }
-            if (isIpad) {
-                SettingsAction("Skip button position", preferences.skipButtonPosition.label) { showSkipButtonPosition = true }
-            }
             if (platform.name.isIosPlatformName()) {
                 SettingsToggle(
                     "Play audio alongside other apps",
                     "Lock screen and Control Center controls are unavailable while enabled.",
                     preferences.mixAudioWithOtherApps,
                 ) { update(preferences.copy(mixAudioWithOtherApps = it)) }
+            }
+        }
+        SettingsGroup("Streams") {
+            SettingsToggle("Reuse last stream", "Start with the stream you picked last time", preferences.autoSelectSavedStreams) { update(preferences.copy(autoSelectSavedStreams = it)) }
+            SettingsToggle("Auto-pick streams for Next", "Choose sources for Next and queued items", preferences.autoSelectNextStreams) { update(preferences.copy(autoSelectNextStreams = it)) }
+        }
+        SettingsGroup("Controls") {
+            SettingsToggle("Skip intro and credits", "Show skip buttons when timestamps exist", preferences.skipSegments) { update(preferences.copy(skipSegments = it)) }
+            if (isIpad) {
+                SettingsAction("Skip button position", preferences.skipButtonPosition.label) { showSkipButtonPosition = true }
             }
             SettingsToggle("Miniplayer on back", "Minimize instead of closing on Back", preferences.miniplayerOnBack) { update(preferences.copy(miniplayerOnBack = it)) }
             SettingsToggle("Touch gestures", "Double-tap seeking and player gestures", preferences.touchGestures) { update(preferences.copy(touchGestures = it)) }
