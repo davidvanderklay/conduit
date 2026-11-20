@@ -73,7 +73,7 @@ internal fun HomeScreen(
         state = listState,
         modifier = modifier.fillMaxSize().statusBarsPadding(),
         contentPadding = PaddingValues(top = 72.dp, bottom = 112.dp),
-        verticalArrangement = Arrangement.spacedBy(24.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
         if (sync.offline) {
             item { StatusPill("Offline · showing saved activity", MaterialTheme.colorScheme.tertiary, Modifier.padding(horizontal = PageGutter)) }
@@ -293,7 +293,7 @@ private fun FeatureCard(item: CatalogItem, onClick: () -> Unit, onActions: () ->
                 contentScale = androidx.compose.ui.layout.ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
             )
-            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Transparent, .5f to Color.Transparent, 1f to Color.Black.copy(alpha = .55f))))
+            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Transparent, .4f to Color.Transparent, 1f to Color.Black.copy(alpha = .65f))))
             // Title logo and year sit together on the art, so the card needs no caption underneath.
             Column(Modifier.align(Alignment.BottomStart).padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 if (!item.logo.isNullOrBlank()) {
@@ -305,12 +305,12 @@ private fun FeatureCard(item: CatalogItem, onClick: () -> Unit, onActions: () ->
                         colorFilter = if (logoAnalysis?.dark == true) androidx.compose.ui.graphics.ColorFilter.tint(Color.White) else null,
                         onSuccess = { logoAnalysis = runCatching { it.analyzeLogo() }.getOrNull() },
                         alignment = Alignment.BottomStart,
-                        modifier = Modifier.trimLogoInsets(logoAnalysis).fillMaxWidth(.55f).heightIn(max = 44.dp),
+                        modifier = Modifier.trimLogoInsets(logoAnalysis).fillMaxWidth(.7f).heightIn(min = 24.dp, max = 48.dp),
                     )
                 } else {
                     Text(item.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
-                item.releaseInfo?.let { Text(it, style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp), color = Color.White.copy(alpha = .7f)) }
+                item.releaseInfo?.let { Text(it, style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp), color = Color.White.copy(alpha = .8f)) }
             }
         }
     }

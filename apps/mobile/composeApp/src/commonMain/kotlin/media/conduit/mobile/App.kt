@@ -674,7 +674,7 @@ private fun SignInScreen(
             Box(Modifier.fillMaxWidth()) {
                 Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp), horizontalAlignment = Alignment.Start) {
             Text(if (recovering) "Recover your account" else if (registering) if (authentication.needsOwner) "Set up conduit" else "Create your account" else "Welcome back", color = Color.White, style = OnboardingTitleStyle)
-            Text(if (recovering) "Enter one of the recovery codes you saved." else if (registering) "Create a private account for this conduit instance." else "Sign in to continue to your household.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(bottom = 12.dp))
+            Text(if (recovering) "Enter one of the recovery codes you saved." else if (registering) "Create a private account for this conduit instance." else "Sign in to continue to your household.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium.copy(lineBreak = LineBreak.Heading), modifier = Modifier.padding(bottom = 12.dp))
             if (authenticationLoading && !authenticationReady) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                     LoadingIndicator(Modifier.size(17.dp), strokeWidth = 2.dp)
@@ -708,13 +708,16 @@ private fun SignInScreen(
                 modifier = Modifier.fillMaxWidth(),
             )
             error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            val canSubmit = authenticationReady && !pending && email.isNotBlank() && password.length >= 8 && (!recovering || recoveryCode.isNotBlank())
             Button(
-                enabled = authenticationReady && !pending && email.isNotBlank() && password.length >= 8 && (!recovering || recoveryCode.isNotBlank()),
+                enabled = canSubmit,
                 onClick = {
                     pending = true
                     if (recovering) onRecover(email, recoveryCode, password) else if (registering) onRegister(email, password) else onSignIn(email, password)
                 },
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = Color(0xFF141414), disabledContainerColor = MaterialTheme.colorScheme.surfaceContainer, disabledContentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = .38f)),
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = Color(0xFF141414), disabledContainerColor = Color.Transparent, disabledContentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = .38f)),
+                // Disabled, the action is an outline so it can't be mistaken for another filled field.
+                border = if (canSubmit) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.fillMaxWidth().padding(top = 4.dp).height(50.dp),
             ) {
@@ -2944,10 +2947,10 @@ private fun MainTopBar(
                     onDismissRequest = { profileMenuOpen = false },
                     offset = androidx.compose.ui.unit.DpOffset(x = (-8).dp, y = 8.dp),
                     modifier = Modifier
-                        .width(272.dp)
+                        .width(248.dp)
                         .heightIn(max = 480.dp),
                     shape = RoundedCornerShape(12.dp),
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
                     tonalElevation = 0.dp,
                     shadowElevation = 24.dp,
                 ) {
@@ -3067,11 +3070,11 @@ internal fun RowScope.MobileNavigationItem(
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         Box(
-            Modifier.size(width = 56.dp, height = 30.dp).clip(RoundedCornerShape(15.dp))
-                .background(if (selected) Color.White.copy(alpha = .08f) else Color.Transparent),
+            Modifier.size(width = 48.dp, height = 28.dp).clip(RoundedCornerShape(14.dp))
+                .background(if (selected) Color.White.copy(alpha = .06f) else Color.Transparent),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(destination.icon(selected), if (showLabel) null else destination.label, tint = color, modifier = Modifier.size(22.dp))
+            Icon(destination.icon(selected), if (showLabel) null else destination.label, tint = color, modifier = Modifier.size(20.dp))
         }
         if (showLabel) Text(destination.label, color = color, style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp), fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
     }

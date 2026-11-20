@@ -73,6 +73,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import coil3.compose.AsyncImage
@@ -161,7 +162,7 @@ internal fun MobileLibraryScreen(
     val gridColumns = mediaGridColumns(windowWidthDp)
 
     Column(modifier.statusBarsPadding()) {
-        Spacer(Modifier.height(mainTopBarHeight(LocalDensity.current.fontScale) + 12.dp))
+        Spacer(Modifier.height(mainTopBarHeight(LocalDensity.current.fontScale) + 8.dp))
         // Same header pattern as Discover: filters on the left, page tools on the right, no repeated page title.
         Column(Modifier.padding(start = PageGutter, end = 4.dp, top = 2.dp, bottom = 6.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(20.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -2274,7 +2275,7 @@ internal fun MediaDetailsScreen(
                 Column(
                     Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(start = PageGutter, end = PageGutter, bottom = 16.dp),
                     horizontalAlignment = if (titleLogo != null) Alignment.CenterHorizontally else Alignment.Start,
-                    verticalArrangement = Arrangement.spacedBy(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
                 if (titleLogo != null) {
                     AsyncImage(
@@ -2300,7 +2301,10 @@ internal fun MediaDetailsScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    metadataFacts.takeIf { it.isNotEmpty() }?.let { facts ->
+                    // Series list their genres here; their clickable credits table sits after the episodes.
+                    val heroFacts = if (details?.videos.isNullOrEmpty()) metadataFacts
+                    else metadataFacts + listOfNotNull(details?.genres?.map(String::trim)?.filter(String::isNotBlank)?.distinct()?.take(3)?.takeIf { it.isNotEmpty() }?.joinToString(", "))
+                    heroFacts.takeIf { it.isNotEmpty() }?.let { facts ->
                         Text(
                             facts.joinToString("  ·  ") + if (details?.imdbRating.isNullOrBlank()) "" else "  ·",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -2408,7 +2412,7 @@ internal fun MediaDetailsScreen(
                         ?.map(String::trim)
                         ?.filter(String::isNotBlank)
                         ?.distinct()
-                        ?.takeIf { it.isNotEmpty() }
+                        ?.takeIf { it.isNotEmpty() && !hasEpisodes }
                         ?.let { genres ->
                             Row {
                                 Text(
@@ -2493,12 +2497,12 @@ internal fun MediaDetailsScreen(
                                 actionTarget = MediaActionTarget(actionItem, MediaActionContext.Episode, progress, video, videos = videos)
                             },
                         ),
-                        horizontalArrangement = Arrangement.spacedBy(13.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                         Box(
                             Modifier
                                 .padding(top = 2.dp)
-                                .width(128.dp)
+                                .width(120.dp)
                                 .aspectRatio(16f / 9f)
                                 .clip(RoundedCornerShape(8.dp))
                                 .background(MaterialTheme.colorScheme.surfaceContainerLow),
@@ -2536,14 +2540,7 @@ internal fun MediaDetailsScreen(
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
-                            video.released?.let { released ->
-                                Text(
-                                    episodeReleaseDateLabel(released) ?: released,
-                                    color = TertiaryText,
-                                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp, lineHeight = 14.sp),
-                                    modifier = Modifier.padding(top = 4.dp),
-                                )
-                            }
+                            // Title and synopsis read together; the air date trails as a footnote.
                             (video.overview ?: video.description)?.trim()?.takeIf(String::isNotBlank)?.let {
                                 Text(
                                     it,
@@ -2552,6 +2549,14 @@ internal fun MediaDetailsScreen(
                                     overflow = TextOverflow.Ellipsis,
                                     style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 16.sp),
                                     modifier = Modifier.padding(top = 4.dp),
+                                )
+                            }
+                            video.released?.let { released ->
+                                Text(
+                                    episodeReleaseDateLabel(released) ?: released,
+                                    color = TertiaryText,
+                                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp, lineHeight = 14.sp),
+                                    modifier = Modifier.padding(top = 2.dp),
                                 )
                             }
                         }
@@ -2576,46 +2581,51 @@ internal fun MediaDetailsScreen(
         }
         }
         if (detailHeaderCollapsed) {
-            Surface(
-                color = MaterialTheme.colorScheme.background,
-                shadowElevation = 0.dp,
-                modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth(),
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().statusBarsPadding().height(58.dp).padding(horizontal = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+            // A short static fade under the bar so rows (and season tabs) recede instead of being sliced.
+            Column(Modifier.align(Alignment.TopCenter).fillMaxWidth()) {
+                Surface(
+                    color = MaterialTheme.colorScheme.background,
+                    shadowElevation = 0.dp,
+                    modifier = Modifier.fillMaxWidth(),
                 ) {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back")
-                    }
-                    Box(Modifier.weight(1f).height(42.dp), contentAlignment = Alignment.Center) {
-                        if (titleLogo != null) {
-                            AsyncImage(
-                                model = titleLogo,
-                                contentDescription = details.name,
-                                contentScale = ContentScale.Fit,
-                                colorFilter = titleLogoFilter,
-                                modifier = Modifier.fillMaxWidth(.72f).heightIn(max = 38.dp),
-                            )
-                        } else {
-                            Text(
-                                details?.name ?: item.name,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
+                    Row(
+                        modifier = Modifier.fillMaxWidth().statusBarsPadding().height(58.dp).padding(horizontal = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back")
+                        }
+                        Box(Modifier.weight(1f).height(42.dp), contentAlignment = Alignment.Center) {
+                            if (titleLogo != null) {
+                                AsyncImage(
+                                    model = titleLogo,
+                                    contentDescription = details.name,
+                                    contentScale = ContentScale.Fit,
+                                    colorFilter = titleLogoFilter,
+                                    modifier = Modifier.fillMaxWidth(.72f).heightIn(max = 38.dp),
+                                )
+                            } else {
+                                Text(
+                                    details?.name ?: item.name,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                        IconButton(onClick = {
+                            scope.launch { onMutation(ProfileMutation.SetLibrary(actionItem, !saved, details?.runtime)) }
+                        }) {
+                            Icon(
+                                if (saved) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder,
+                                if (saved) "Remove from library" else "Add to library",
+                                tint = if (saved) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                             )
                         }
                     }
-                    IconButton(onClick = {
-                        scope.launch { onMutation(ProfileMutation.SetLibrary(actionItem, !saved, details?.runtime)) }
-                    }) {
-                        Icon(
-                            if (saved) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder,
-                            if (saved) "Remove from library" else "Add to library",
-                            tint = if (saved) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                        )
-                    }
                 }
+                val fadeColor = MaterialTheme.colorScheme.background
+                Box(Modifier.fillMaxWidth().height(20.dp).background(Brush.verticalGradient(listOf(fadeColor, Color.Transparent))))
             }
         } else {
             MobileBackButton(
@@ -3124,7 +3134,7 @@ private fun DetailAction(
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Icon(icon, null, tint = iconColor, modifier = Modifier.size(22.dp))
-        Text(label, color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.labelMedium.copy(fontSize = 12.sp), maxLines = 1)
+        Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelMedium.copy(fontSize = 12.sp, fontWeight = FontWeight.Medium), maxLines = 1)
     }
 }
 
@@ -3550,7 +3560,7 @@ private fun StreamSelectionScreen(
                                 alignment = Alignment.BottomCenter,
                                 colorFilter = if (logoAnalysis?.dark == true) ColorFilter.tint(Color.White) else null,
                                 onSuccess = { logoAnalysis = runCatching { it.analyzeLogo() }.getOrNull() },
-                                modifier = Modifier.trimLogoInsets(logoAnalysis).fillMaxWidth(.62f).heightIn(max = 96.dp).padding(bottom = 12.dp),
+                                modifier = Modifier.trimLogoInsets(logoAnalysis).fillMaxWidth(.62f).heightIn(max = 96.dp).padding(bottom = 16.dp),
                             )
                         } else {
                             Text(title, style = if (collapsed) MaterialTheme.typography.titleMedium else PageTitleStyle, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -3634,8 +3644,10 @@ private fun StreamSelectionScreen(
             }
             streams.isEmpty() -> item(key = if (error != null) "error" else "empty") {
                 // Sits right under the filters so the empty state reads as part of the page, not a separate screen.
+                // Centered under the centered title, so the page keeps one axis.
                 Column(
-                    Modifier.fillMaxWidth().padding(start = PageGutter, end = PageGutter, top = 4.dp),
+                    Modifier.fillMaxWidth().padding(start = PageGutter, end = PageGutter, top = 24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Text(
@@ -3647,6 +3659,7 @@ private fun StreamSelectionScreen(
                         error ?: "None of your add-ons returned a source for this title.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.bodyMedium,
+                        textAlign = TextAlign.Center,
                     )
                     // Retry, or go fix the cause: streams come from add-ons.
                     Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -4084,7 +4097,7 @@ private fun AppearanceSettingsScreen(platform: PlatformInfo, preferences: Device
             // Informational: the value sits in the trailing slot so the row doesn't look like a dead link.
             Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("Theme", style = SettingsTitleStyle, modifier = Modifier.weight(1f))
-                Text("conduit dark", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+                Text("Dark", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
             }
             SettingsToggle("AMOLED black", "Pure black backgrounds for OLED screens", preferences.amoledBlack) { update(preferences.copy(amoledBlack = it)) }
             SettingsToggle("Reduce animations", "Simpler transitions and motion", preferences.reduceAnimations) { update(preferences.copy(reduceAnimations = it)) }

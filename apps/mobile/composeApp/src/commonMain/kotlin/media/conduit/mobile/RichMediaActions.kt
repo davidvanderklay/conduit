@@ -343,7 +343,7 @@ internal fun RichPosterCard(
                 onActions()
             },
         ),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Box(
             Modifier.fillMaxWidth().aspectRatio(2f / 3f).clip(RoundedCornerShape(8.dp))
@@ -377,7 +377,7 @@ internal fun RichPosterCard(
                 Text(
                     caption.replaceFirstChar(Char::uppercase),
                     maxLines = 1,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = TertiaryText,
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
