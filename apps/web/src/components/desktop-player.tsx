@@ -1356,9 +1356,9 @@ export function DesktopPlayer({
             </p>
             <p className="mt-2 text-sm text-zinc-400">{error}</p>
             {snapshot?.playbackError ? (
-              <p className="mt-3 text-xs text-zinc-600">Choose another source.</p>
+              <p className="mt-3 text-xs text-zinc-500">Choose another source.</p>
             ) : !torrent && (
-              <p className="mt-3 text-xs text-zinc-600">
+              <p className="mt-3 text-xs text-zinc-500">
                 Check the desktop logs for the libmpv initialization error.
               </p>
             )}
@@ -1806,7 +1806,7 @@ function TrackMenu({
       <div className="flex items-center justify-between px-2 pb-2 pt-1">
         <h3 className="font-display text-sm font-semibold">{title}</h3>
         <button
-          className="rounded-md p-1 text-zinc-500 hover:bg-zinc-800 hover:text-white"
+          className="rounded-md p-1 text-zinc-400 hover:bg-zinc-800 hover:text-white"
           onClick={onClose}
           aria-label={`Close ${title.toLowerCase()} menu`}
         >
@@ -1879,7 +1879,7 @@ function TrackMenu({
               <span className="block text-sm font-medium">{subtitle.display}</span>
               <span
                 className={`text-xs ${
-                  selectedAddonSubtitle === subtitle.key ? "text-zinc-800" : "text-zinc-500"
+                  selectedAddonSubtitle === subtitle.key ? "text-zinc-800" : "text-zinc-400"
                 }`}
               >
                 Add-on subtitle
@@ -1887,7 +1887,7 @@ function TrackMenu({
             </button>
           ))}
           {!tracks.length && !availableAddonSubtitles.length && (
-            <p className="px-3 py-2 text-sm text-zinc-500">{empty}</p>
+            <p className="px-3 py-2 text-sm text-zinc-400">{empty}</p>
           )}
         </>
       )}

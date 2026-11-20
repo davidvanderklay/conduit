@@ -26,6 +26,8 @@ import { loadMeta, type CatalogItem, type MetaItem, type Video } from "../lib/co
 import { useLibrary } from "../lib/library"
 import { episodeLabel, normalizeMetaItem } from "../lib/metadata"
 import { Card } from "./ui/card"
+import { PageHeader, pageClassName } from "./ui/page"
+import { EmptyState } from "./ui/empty-state"
 
 const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 const compactDate = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" })
@@ -94,6 +96,8 @@ export function CalendarView({
     ],
     [month],
   )
+  // Pad the last week so every row has seven bordered cells.
+  const paddedCells = [...cells, ...Array.from({ length: (7 - (cells.length % 7)) % 7 }, () => undefined)]
   const weekCount = Math.ceil(cells.length / 7)
   const monthLabel = new Intl.DateTimeFormat(undefined, {
     month: "long",
@@ -102,17 +106,14 @@ export function CalendarView({
   const isCurrentMonth = monthKey(month) === monthKey(currentMonth)
 
   return (
-    <main className="mx-auto max-w-[2200px] 2xl:max-w-none px-4 py-7 sm:px-6 lg:px-6 xl:flex xl:h-[calc(100vh-4rem-1px)] xl:flex-col xl:overflow-hidden xl:px-10">
-      <div className="mb-4 grid shrink-0 items-end gap-5 xl:grid-cols-[auto_minmax(0,1fr)_20rem]">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-400">
-            Your schedule
-          </p>
-          <h1 className="mt-2 font-display text-3xl font-semibold">Release calendar</h1>
-          <p className="mt-2 text-sm text-zinc-500">
-            New episodes and releases from your library.
-          </p>
-        </div>
+    <main className={`${pageClassName} xl:flex xl:h-[calc(100vh-4rem-1px)] xl:flex-col xl:overflow-hidden xl:pb-8`}>
+      {/* One top row on xl: title, month switcher over the grid, release count over the rail. */}
+      <div className="mb-5 grid shrink-0 items-end gap-5 xl:grid-cols-[auto_minmax(0,1fr)_20rem]">
+        <PageHeader
+          className="mb-0"
+          title="Calendar"
+          description="New episodes and releases from your library."
+        />
         <div className="flex xl:justify-center">
           <MonthControl
             monthLabel={monthLabel}
@@ -122,13 +123,13 @@ export function CalendarView({
             onToday={() => setMonth(currentMonth)}
           />
         </div>
-        <div className="hidden items-end xl:flex">
-          <ReleaseRailHeader monthLabel={monthLabel} releaseCount={releases.length} />
+        <div className="hidden xl:block">
+          <ReleaseRailHeader releaseCount={releases.length} />
         </div>
       </div>
 
       {(library.isLoading || metadata.isLoading) && (
-        <div className="flex min-h-96 items-center justify-center gap-3 text-zinc-500">
+        <div className="flex min-h-96 items-center justify-center gap-3 text-zinc-400">
           <LoaderCircle className="animate-spin text-amber-400" /> Building your calendar…
         </div>
       )}
@@ -141,13 +142,13 @@ export function CalendarView({
       {library.data && metadata.data && (
         <div className="grid items-start gap-5 xl:min-h-0 xl:flex-1 xl:grid-cols-[minmax(0,1fr)_20rem]">
           <div className="min-w-0 xl:h-full xl:min-h-0">
-            <section className="min-w-0 overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900/45 shadow-2xl shadow-black/20 xl:h-full">
+            <section className="min-w-0 overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900 xl:h-full">
               <div className="h-full overflow-x-auto">
                 <div className="flex h-full min-w-[760px] flex-col">
                   <div className="grid grid-cols-7 border-b border-zinc-800 bg-zinc-900/90">
                     {WEEKDAYS.map((day) => (
                       <div
-                        className="px-3 py-3 text-xs font-semibold text-zinc-500"
+                        className="px-3 py-3 text-xs font-semibold text-zinc-400"
                         key={day}
                       >
                         {day}
@@ -158,7 +159,7 @@ export function CalendarView({
                     className="grid flex-1 grid-cols-7"
                     style={{ gridTemplateRows: `repeat(${weekCount}, minmax(0, 1fr))` }}
                   >
-                    {cells.map((day, index) =>
+                    {paddedCells.map((day, index) =>
                       day ? (
                         <CalendarDay
                           key={day}
@@ -181,8 +182,8 @@ export function CalendarView({
           </div>
 
           <aside className="xl:flex xl:h-full xl:min-h-0 xl:flex-col">
-            <div className="mb-3 xl:hidden">
-              <ReleaseRailHeader monthLabel={monthLabel} releaseCount={releases.length} />
+            <div className="mb-3 shrink-0 xl:hidden">
+              <ReleaseRailHeader releaseCount={releases.length} />
             </div>
             <div className="max-h-[calc(100vh-10rem)] space-y-2 overflow-y-auto pr-1 xl:min-h-0 xl:flex-1 xl:max-h-none">
               {releases.length ? (
@@ -198,27 +199,24 @@ export function CalendarView({
                         {formatDateKey(release.date)}
                       </span>
                       <span className="mt-1 block truncate text-sm font-medium">{release.title}</span>
-                      <span className="mt-0.5 block truncate text-xs text-zinc-500">
+                      <span className="mt-0.5 block truncate text-xs text-zinc-400">
                         {release.subtitle}
                       </span>
                     </span>
                     <Play
-                      className="shrink-0 text-zinc-600 transition group-hover:text-amber-300"
+                      className="shrink-0 text-zinc-500 transition group-hover:text-amber-300"
                       fill="currentColor"
                       size={16}
                     />
                   </button>
                 ))
               ) : (
-                <Card className="grid min-h-48 place-items-center border-dashed p-6 text-center">
-                  <div>
-                    <CalendarDays className="mx-auto text-zinc-700" size={30} />
-                    <p className="mt-3 text-sm font-medium text-zinc-300">No releases this month</p>
-                    <p className="mt-1 text-xs leading-5 text-zinc-600">
-                      Add a series to your library or try another month.
-                    </p>
-                  </div>
-                </Card>
+                <EmptyState
+                  framed
+                  icon={CalendarDays}
+                  title="No releases this month"
+                  description="Add a series to your library or try another month."
+                />
               )}
             </div>
           </aside>
@@ -242,7 +240,7 @@ function MonthControl({
   onToday: () => void
 }) {
   return (
-    <div className="flex items-center rounded-xl border border-zinc-800 bg-zinc-900/80 p-1 shadow-lg shadow-black/10">
+    <div className="flex h-10 items-center rounded-lg border border-zinc-800 bg-zinc-900 p-1">
       <MonthButton label="Previous month" onClick={onPrevious}>
         <ChevronLeft size={18} />
       </MonthButton>
@@ -254,7 +252,7 @@ function MonthControl({
       </MonthButton>
       {!isCurrentMonth && (
         <button
-          className="ml-1 flex h-9 items-center gap-2 rounded-lg px-3 text-xs font-semibold text-zinc-400 transition hover:bg-zinc-800 hover:text-white"
+          className="ml-1 flex h-8 items-center gap-2 rounded-md px-3 text-xs font-semibold text-zinc-400 transition hover:bg-zinc-800 hover:text-white"
           onClick={onToday}
         >
           <RotateCcw size={14} /> Today
@@ -264,22 +262,13 @@ function MonthControl({
   )
 }
 
-function ReleaseRailHeader({
-  monthLabel,
-  releaseCount,
-}: {
-  monthLabel: string
-  releaseCount: number
-}) {
+function ReleaseRailHeader({ releaseCount }: { releaseCount: number }) {
   return (
-    <div className="flex w-full items-center justify-between px-1">
-      <div>
-        <p className="text-sm font-semibold">{monthLabel}</p>
-        <p className="mt-0.5 text-xs text-zinc-500">
-          {releaseCount} {releaseCount === 1 ? "release" : "releases"}
-        </p>
-      </div>
-      <CalendarDays className="text-amber-400" size={20} />
+    <div className="flex h-10 w-full items-center justify-between px-1">
+      <p className="text-sm font-semibold text-zinc-100">This month</p>
+      <p className="text-xs tabular-nums text-zinc-400">
+        {releaseCount} {releaseCount === 1 ? "release" : "releases"}
+      </p>
     </div>
   )
 }
@@ -296,7 +285,7 @@ function MonthButton({
   return (
     <button
       aria-label={label}
-      className="grid size-9 place-items-center rounded-lg text-zinc-400 transition hover:bg-zinc-800 hover:text-white"
+      className="grid size-8 place-items-center rounded-md text-zinc-400 transition hover:bg-zinc-800 hover:text-white"
       onClick={onClick}
     >
       {children}
@@ -318,8 +307,8 @@ function CalendarDay({
   return (
     <div className="min-h-32 overflow-hidden border-b border-r border-zinc-800/80 p-2.5 xl:min-h-0">
       <span
-        className={`grid size-6 place-items-center rounded-full text-xs font-medium ${
-          today ? "bg-amber-400 text-zinc-950" : "text-zinc-500"
+        className={`grid size-6 place-items-center rounded-full text-xs font-medium tabular-nums ${
+          today ? "bg-amber-400 font-semibold text-zinc-950" : "text-zinc-400"
         }`}
       >
         {day}
@@ -365,7 +354,7 @@ function ReleaseImage({
       referrerPolicy="no-referrer"
     />
   ) : (
-    <span className={`${className} grid place-items-center bg-zinc-800 text-zinc-600`}>
+    <span className={`${className} grid place-items-center bg-zinc-800 text-zinc-500`}>
       <Film size={18} />
     </span>
   )

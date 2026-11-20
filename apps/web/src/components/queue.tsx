@@ -161,7 +161,7 @@ export function QueueList({
             <button
               type="button"
               aria-label={`Reorder ${item.name}`}
-              className={`grid shrink-0 cursor-grab touch-none place-items-center rounded text-zinc-600 hover:text-zinc-200 focus-visible:text-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 active:cursor-grabbing ${
+              className={`grid shrink-0 cursor-grab touch-none place-items-center rounded text-zinc-500 hover:text-zinc-200 focus-visible:text-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 active:cursor-grabbing ${
                 compact ? "absolute left-1 top-1 z-10 size-6 bg-black/70" : "h-12 w-6"
               }`}
               onPointerDown={(event) => startDrag(event, index)}
@@ -192,7 +192,7 @@ export function QueueList({
               <QueueArtwork src={item.artwork ?? item.poster} compact={compact} />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-medium text-white">{item.name}</span>
-                <span className="block truncate text-[11px] text-zinc-500">
+                <span className="block truncate text-[11px] text-zinc-400">
                   <span className="text-zinc-400">{index + 1}</span> · {queueItemDetail(item)}
                 </span>
               </span>
@@ -228,7 +228,7 @@ export function QueueHeader({ queue, onClose }: { queue: QueueControls; onClose?
       <h2 className="truncate text-sm font-semibold text-white">
         Queue
         {queue.items.length > 0 && (
-          <span className="font-normal text-zinc-500"> · {queue.items.length}</span>
+          <span className="font-normal text-zinc-400"> · {queue.items.length}</span>
         )}
       </h2>
       <div className="flex shrink-0 items-center gap-1 text-xs">
@@ -311,7 +311,7 @@ export function QueueDrawer({
           {queue.items.length > 0 ? (
             <QueueList queue={queue} onPlay={onPlay} />
           ) : (
-            <p className="flex flex-col items-center gap-2 px-6 py-16 text-center text-sm text-zinc-500">
+            <p className="flex flex-col items-center gap-2 px-6 py-16 text-center text-sm text-zinc-400">
               <ListEnd size={26} />
               Your queue is empty
             </p>

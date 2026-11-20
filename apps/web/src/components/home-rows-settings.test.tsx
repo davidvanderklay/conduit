@@ -107,7 +107,7 @@ describe("home rows settings", () => {
   const click = (label: string) =>
     act(async () => host.querySelector<HTMLButtonElement>(`[aria-label='${label}']`)!.click())
   const seriesShown = () =>
-    host.querySelector("[aria-label='Show Popular - Series on Home']")!.getAttribute("aria-checked")
+    host.querySelector("[aria-label='Show Popular · Series on Home']")!.getAttribute("aria-checked")
 
   it("reopens with edits whose saves have not finished", async () => {
     // The server applies each save only when the test finishes it.
@@ -130,13 +130,13 @@ describe("home rows settings", () => {
       )
     })
     render(true)
-    expect(titles()).toEqual(["Popular - Movie", "Popular - Series"])
+    expect(titles()).toEqual(["Popular · Movies", "Popular · Series"])
 
-    await click("Move Popular - Series up")
-    await click("Show Popular - Series on Home")
+    await click("Move Popular · Series up")
+    await click("Show Popular · Series on Home")
     render(false)
     render(true)
-    expect(titles()).toEqual(["Popular - Series", "Popular - Movie"])
+    expect(titles()).toEqual(["Popular · Series", "Popular · Movies"])
     expect(seriesShown()).toBe("false")
 
     // The first save landing must not bring back its older rows while the second is queued.

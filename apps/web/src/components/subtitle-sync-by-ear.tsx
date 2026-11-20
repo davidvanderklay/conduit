@@ -63,7 +63,7 @@ export function SubtitleSyncByEar({
           {formatSubtitleDelay(delayMs)}
         </output>
         <button
-          className="pointer-events-auto rounded-md p-1 text-zinc-500 hover:bg-zinc-800 hover:text-white"
+          className="pointer-events-auto rounded-md p-1 text-zinc-400 hover:bg-zinc-800 hover:text-white"
           data-overlay-interactive
           onClick={onClose}
           aria-label="Close sync by ear"

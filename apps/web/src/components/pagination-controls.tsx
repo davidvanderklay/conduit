@@ -23,7 +23,7 @@ export function PaginationControls({
       >
         <ChevronLeft size={18} />
       </button>
-      <span className="min-w-28 text-center text-sm text-zinc-500">
+      <span className="min-w-28 text-center text-sm text-zinc-400">
         Page {page + 1} of {pages}
       </span>
       <button

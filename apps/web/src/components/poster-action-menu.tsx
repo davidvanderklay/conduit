@@ -77,7 +77,10 @@ export function PosterActionMenu({
         aria-label={`Actions for ${title}`}
         aria-haspopup="menu"
         aria-expanded={open}
-        className="grid size-8 place-items-center rounded-lg text-zinc-500 transition hover:bg-zinc-800 hover:text-zinc-100 focus-visible:bg-zinc-800 focus-visible:text-zinc-100"
+        // Hidden at rest on hover-capable devices so posters lead; touch keeps it visible.
+        className={`-mr-1.5 -mt-1 grid size-7 shrink-0 place-items-center rounded-md text-zinc-400 transition hover:bg-zinc-800 hover:text-zinc-100 focus-visible:bg-zinc-800 focus-visible:text-zinc-100 ${
+          open ? "bg-zinc-800 text-zinc-100" : "pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:focus-visible:opacity-100"
+        }`}
         onClick={(event) => {
           event.stopPropagation()
           if (!open) {
@@ -87,7 +90,7 @@ export function PosterActionMenu({
           setOpen((current) => !current)
         }}
       >
-        <MoreVertical size={17} />
+        <MoreVertical size={16} />
       </button>
       {open && createPortal(
         <div

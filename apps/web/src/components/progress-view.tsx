@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react"
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Check, ChevronDown, EyeOff, Film, History, Info, Play, Trash2 } from "lucide-react"
+import { Check, EyeOff, Film, History, Info, Play, Trash2 } from "lucide-react"
 import { api, type InstalledAddon, type WatchProgress } from "../lib/api"
 import { addonsForResource } from "../lib/addons"
 import {
@@ -14,7 +14,6 @@ import { useLibrary, useLibraryToggle } from "../lib/library"
 import { normalizeMetaItem } from "../lib/metadata"
 import { posterCoverClass, posterTitleSlotClass } from "../lib/poster-layout"
 import { applyProgressOperation, progressIdentity } from "../lib/progress"
-import { Card } from "./ui/card"
 import { PaginationControls } from "./pagination-controls"
 import { PosterActionMenu, type PosterAction } from "./poster-action-menu"
 import { queueMenuActions } from "./queue"
@@ -22,6 +21,9 @@ import { queueItemFor } from "../lib/queue"
 import { useQueueControls } from "../lib/use-queue"
 import { PosterResumeButton } from "./poster-resume-button"
 import { VirtualPosterGrid } from "./virtual-poster-grid"
+import { PageHeader, pageClassName } from "./ui/page"
+import { Select } from "./ui/select"
+import { EmptyState } from "./ui/empty-state"
 
 type Filter = "all" | "movie" | "series"
 type Sort = "recent" | "title-asc" | "title-desc"
@@ -80,7 +82,7 @@ export function ContinueWatching({
         <h2 className="font-display text-xl font-semibold">Continue Watching</h2>
         {entries.length > 0 && (
           <button
-            className="text-xs font-semibold text-zinc-500 transition hover:text-amber-300"
+            className="text-xs font-semibold text-zinc-400 transition hover:text-amber-300"
             onClick={onSeeMore}
           >
             See all
@@ -291,14 +293,10 @@ export function ContinueWatchingView({
   useEffect(() => setPage(0), [filter, sort])
 
   return (
-    <main className="mx-auto max-w-[2200px] 2xl:max-w-none px-4 py-9 sm:px-6 lg:px-6 xl:px-6 2xl:px-8">
-      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-400">
-        Pick up where you left off
-      </p>
-      <h1 className="mt-2 font-display text-3xl font-semibold">Continue Watching</h1>
-      <p className="mt-2 text-zinc-500">Movies and series currently in progress.</p>
-      <div className="mt-7 flex flex-wrap gap-3">
-        <ProgressSelect
+    <main className={pageClassName}>
+      <PageHeader title="Continue Watching" description="Movies and series currently in progress." />
+      <div className="flex flex-wrap gap-3">
+        <Select
           label="Media type"
           value={filter}
           options={[
@@ -308,7 +306,7 @@ export function ContinueWatchingView({
           ]}
           onChange={(value) => setFilter(value as Filter)}
         />
-        <ProgressSelect
+        <Select
           label="Sort titles"
           value={sort}
           options={[
@@ -350,14 +348,12 @@ export function ContinueWatchingView({
           />
         </div>
       ) : (
-        <Card className="mt-8 grid min-h-64 place-items-center border-dashed text-zinc-500">
-          <div className="text-center">
-            <History className="mx-auto mb-3 text-zinc-700" />
-            {progress.isLoading
-              ? "Loading Continue Watching…"
-              : "Nothing to continue watching yet."}
-          </div>
-        </Card>
+        <EmptyState
+          className="mt-6"
+          icon={History}
+          title={progress.isLoading ? "Loading Continue Watching…" : "Nothing to continue watching yet"}
+          description={progress.isLoading ? undefined : "Titles you start watching show up here."}
+        />
       )}
       <PaginationControls
         page={visiblePage}
@@ -410,7 +406,7 @@ function ProgressCard({
           {item.poster ? (
             <img className="h-full w-full object-cover" src={item.poster} alt="" loading="lazy" />
           ) : (
-            <div className="grid h-full place-items-center text-zinc-700">
+            <div className="grid h-full place-items-center text-zinc-600">
               <Film />
             </div>
           )}
@@ -428,7 +424,7 @@ function ProgressCard({
           onClick={() => open(playable ? "resume" : "details")}
         >
           <p className={posterTitleSlotClass}>{item.name}</p>
-          <p className="line-clamp-1 text-xs text-zinc-500">
+          <p className="line-clamp-1 text-xs text-zinc-400">
             {state ? continueWatchingBadge(item, state) : episodeLabel(item)}
           </p>
         </button>
@@ -564,39 +560,6 @@ function ProgressMenu({
   return <PosterActionMenu title={item.name} actions={actions} />
 }
 
-function ProgressSelect({
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  label: string
-  value: string
-  options: Array<[string, string]>
-  onChange: (value: string) => void
-}) {
-  return (
-    <label className="relative min-w-44">
-      <span className="sr-only">{label}</span>
-      <select
-        aria-label={label}
-        className="library-select h-11 w-full appearance-none rounded-xl border border-zinc-700 bg-zinc-900 px-4 pr-10 text-sm font-medium text-zinc-100 outline-none hover:border-zinc-600 focus:border-amber-400"
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-      >
-        {options.map(([option, name]) => (
-          <option value={option} key={option}>
-            {name}
-          </option>
-        ))}
-      </select>
-      <ChevronDown
-        className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400"
-        size={16}
-      />
-    </label>
-  )
-}
 
 function toCatalogItem(item: WatchProgress): CatalogItem {
   return { id: item.mediaId, type: item.mediaType, name: item.name, poster: item.poster }
@@ -623,7 +586,7 @@ function PreviewImage({
   )
   if (!source)
     return (
-      <span className="grid h-full place-items-center text-zinc-700">
+      <span className="grid h-full place-items-center text-zinc-600">
         <Film />
       </span>
     )

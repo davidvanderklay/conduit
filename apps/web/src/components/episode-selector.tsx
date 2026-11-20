@@ -281,7 +281,7 @@ export function EpisodeSelector({
               {show?.name ?? media?.name ?? "Episodes"}
             </h2>
           )}
-          <p className="mt-2 text-xs text-zinc-500">
+          <p className="mt-2 text-xs text-zinc-400">
             {[show?.releaseInfo, seasons.length + " " + (seasons.length === 1 ? "season" : "seasons"), videos.length + " episodes"]
               .filter(Boolean)
               .join(" · ")}
@@ -292,7 +292,7 @@ export function EpisodeSelector({
         </div>
         <div className="mt-5 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 text-xs">
           <span className="font-medium text-amber-300">{seasonProgress}% watched</span>
-          <span className="text-zinc-500">{episodes.length} episodes in {seasonLabel(activeSeason)}</span>
+          <span className="text-zinc-400">{episodes.length} episodes in {seasonLabel(activeSeason)}</span>
         </div>
         <div className="mt-2 h-0.5 overflow-hidden bg-white/10">
           <span className="block h-full bg-amber-400" style={{ width: seasonProgress + "%" }} />
@@ -322,7 +322,7 @@ export function EpisodeSelector({
               >
                 {seasonLabel(activeSeason)}
                 <ChevronDown
-                  className={seasonMenuOpen ? "rotate-180 text-zinc-500 transition-transform" : "text-zinc-500 transition-transform"}
+                  className={seasonMenuOpen ? "rotate-180 text-zinc-400 transition-transform" : "text-zinc-400 transition-transform"}
                   size={14}
                 />
               </button>
@@ -364,7 +364,7 @@ export function EpisodeSelector({
         )}
         <label className="relative mt-3 block">
           <Search
-            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-600"
+            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500"
             size={14}
           />
           <span className="sr-only">Search episodes</span>
@@ -385,12 +385,12 @@ export function EpisodeSelector({
         </p>
       )}
       {!loading && videos.length === 0 && (
-        <p className="m-3 rounded-xl border border-dashed border-white/10 p-5 text-sm text-zinc-500">
+        <p className="m-3 rounded-xl border border-dashed border-white/10 p-5 text-sm text-zinc-400">
           This add-on did not supply an episode list.
         </p>
       )}
       {!loading && videos.length > 0 && episodes.length === 0 && (
-        <p className="p-6 text-center text-sm text-zinc-500">No matching episodes.</p>
+        <p className="p-6 text-center text-sm text-zinc-400">No matching episodes.</p>
       )}
       <div className="divide-y divide-white/6 px-2 pb-2">
         {episodes.map((video) => {
@@ -422,7 +422,7 @@ export function EpisodeSelector({
                 <div className="relative aspect-video w-24 shrink-0 overflow-hidden rounded-lg bg-zinc-900">
                   <EpisodeArtwork src={video.thumbnail} />
                   {!video.thumbnail && (
-                    <div className="absolute inset-0 grid place-items-center text-zinc-700">
+                    <div className="absolute inset-0 grid place-items-center text-zinc-600">
                       <Film size={18} />
                     </div>
                   )}
@@ -442,10 +442,10 @@ export function EpisodeSelector({
                 </div>
                 <div className="min-w-0 flex-1 py-0.5">
                   <p className="line-clamp-2 text-sm font-medium leading-5">
-                    <span className="mr-1.5 text-zinc-500">{video.episode ?? "–"}.</span>
+                    <span className="mr-1.5 text-zinc-400">{video.episode ?? "–"}.</span>
                     {video.title ?? episodeLabel(video)}
                   </p>
-                  <p className="mt-1 flex flex-wrap gap-x-2 text-[11px] text-zinc-500">
+                  <p className="mt-1 flex flex-wrap gap-x-2 text-[11px] text-zinc-400">
                     {queued && <span className="font-medium text-amber-300">Queued</span>}
                     {state === "in-progress" && <span>{percent}%</span>}
                     {video.released && <span>{displayDate(video.released)}</span>}
@@ -458,7 +458,7 @@ export function EpisodeSelector({
                   type="button"
                   aria-label={`Actions for ${episodeLabel(video)}`}
                   aria-haspopup="menu"
-                  className="absolute right-2 top-1/2 z-10 grid size-7 -translate-y-1/2 place-items-center rounded-md text-zinc-500 opacity-0 transition hover:bg-white/10 hover:text-white focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 group-hover/episode:opacity-100"
+                  className="absolute right-2 top-1/2 z-10 grid size-7 -translate-y-1/2 place-items-center rounded-md text-zinc-400 opacity-0 transition hover:bg-white/10 hover:text-white focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 group-hover/episode:opacity-100"
                   onClick={(event) => {
                     event.stopPropagation()
                     const bounds = event.currentTarget.getBoundingClientRect()

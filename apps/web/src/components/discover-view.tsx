@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from "react"
 import { useInfiniteQuery } from "@tanstack/react-query"
-import { ChevronDown, Film, LoaderCircle } from "lucide-react"
+import { Compass, Film, LoaderCircle } from "lucide-react"
 import type { InstalledAddon } from "../lib/api"
 import { loadCatalog, type CatalogItem } from "../lib/core"
 import { genreFilterOptions } from "../lib/discover"
@@ -9,6 +9,10 @@ import { Card } from "./ui/card"
 import { BrowsePosterMenu } from "./browse-poster-menu"
 import { PosterWatchStatus } from "./poster-watch-status"
 import { VirtualPosterGrid } from "./virtual-poster-grid"
+import { PageHeader, pageClassName } from "./ui/page"
+import { Select } from "./ui/select"
+import { EmptyState } from "./ui/empty-state"
+import { mediaTypeLabel } from "../lib/catalog-title"
 
 export interface DiscoverSelection {
   addonId?: string
@@ -127,21 +131,18 @@ export function DiscoverView({
   }, [results.fetchNextPage, results.hasNextPage, results.isFetchingNextPage])
 
   return (
-    <main className="mx-auto max-w-[2200px] 2xl:max-w-none px-4 py-9 sm:px-6 lg:px-6 xl:px-6 2xl:px-8">
-      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-400">
-        Browse your sources
-      </p>
-      <h1 className="mt-2 font-display text-3xl font-semibold">Discover</h1>
+    <main className={pageClassName}>
+      <PageHeader title="Discover" description="Browse catalogs from your add-ons." />
 
-      <div className="mt-7 grid max-w-5xl gap-3 sm:grid-cols-3">
-        <FilterSelect
+      <div className="flex flex-wrap gap-3">
+        <Select
           label="Media type"
           value={type}
           disabled={types.length === 0}
           onChange={(nextType) => onChange({ type: nextType })}
-          options={types.map((value) => [value, formatLabel(value)])}
+          options={types.map((value) => [value, mediaTypeLabel(value)])}
         />
-        <FilterSelect
+        <Select
           label="Content"
           value={selected ? `${selected.addon.id}:${selected.catalog.id}` : ""}
           disabled={typeCatalogs.length === 0}
@@ -154,7 +155,7 @@ export function DiscoverView({
             `${catalog.name ?? formatLabel(catalog.id)} · ${addon.manifest.name}`,
           ])}
         />
-        <FilterSelect
+        <Select
           label="Genre"
           value={genre ?? ""}
           disabled={!genreExtra}
@@ -172,7 +173,7 @@ export function DiscoverView({
 
       <section className="mt-9">
         {results.isLoading && (
-          <div className="flex items-center justify-center gap-3 py-24 text-zinc-500">
+          <div className="flex items-center justify-center gap-3 py-24 text-zinc-400">
             <LoaderCircle className="animate-spin text-amber-400" /> Loading catalog…
           </div>
         )}
@@ -182,14 +183,10 @@ export function DiscoverView({
           </Card>
         )}
         {!selected && (
-          <Card className="border-dashed py-20 text-center text-zinc-500">
-            Install an add-on with catalogs to start discovering.
-          </Card>
+          <EmptyState icon={Compass} title="No catalogs yet" description="Install an add-on with catalogs to start discovering." />
         )}
         {results.data && items.length === 0 && !results.isFetching && (
-          <Card className="border-dashed py-20 text-center text-zinc-500">
-            This catalog returned no titles.
-          </Card>
+          <EmptyState icon={Film} title="No titles" description="This catalog returned no titles." />
         )}
         {items.length > 0 && (
           <>
@@ -211,7 +208,7 @@ export function DiscoverView({
                           height={450}
                         />
                       ) : (
-                        <div className="grid h-full place-items-center text-zinc-700">
+                        <div className="grid h-full place-items-center text-zinc-600">
                           <Film />
                         </div>
                       )}
@@ -236,13 +233,13 @@ export function DiscoverView({
             />
             <div ref={loadMoreRef} className="flex min-h-28 items-center justify-center">
               {results.isFetchingNextPage && (
-                <span className="flex items-center gap-2 text-sm text-zinc-500">
+                <span className="flex items-center gap-2 text-sm text-zinc-400">
                   <LoaderCircle className="animate-spin text-amber-400" size={18} />
                   Loading more…
                 </span>
               )}
               {!results.hasNextPage && (
-                <span className="text-xs text-zinc-700">You’ve reached the end</span>
+                <span className="text-xs text-zinc-600">You’ve reached the end</span>
               )}
             </div>
           </>
@@ -252,41 +249,6 @@ export function DiscoverView({
   )
 }
 
-function FilterSelect({
-  label,
-  value,
-  options,
-  disabled,
-  onChange,
-}: {
-  label: string
-  value: string
-  options: string[][]
-  disabled: boolean
-  onChange: (value: string) => void
-}) {
-  return (
-    <label className="relative">
-      <span className="sr-only">{label}</span>
-      <select
-        className="h-11 w-full appearance-none rounded-xl border border-zinc-800 bg-zinc-900 px-4 pr-10 text-sm text-zinc-200 outline-none transition hover:border-zinc-700 focus:border-amber-400 disabled:text-zinc-600"
-        value={value}
-        disabled={disabled}
-        onChange={(event) => onChange(event.target.value)}
-      >
-        {options.map(([option, name]) => (
-          <option value={option} key={option}>
-            {name}
-          </option>
-        ))}
-      </select>
-      <ChevronDown
-        className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500"
-        size={16}
-      />
-    </label>
-  )
-}
 
 function formatLabel(value: string) {
   return value.replaceAll("-", " ").replace(/\b\w/g, (character) => character.toUpperCase())

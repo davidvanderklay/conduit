@@ -1,13 +1,15 @@
-import { useMemo, useState } from "react"
+import { useMemo } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { AlertCircle, Film, LoaderCircle, Search } from "lucide-react"
 import type { InstalledAddon } from "../lib/api"
 import type { CatalogItem } from "../lib/core"
 import { posterCoverClass, posterGridClass, posterTitleClass } from "../lib/poster-layout"
 import { searchAddons, searchableCatalogs, type SearchResult } from "../lib/search"
-import { Card } from "./ui/card"
 import { BrowsePosterMenu } from "./browse-poster-menu"
 import { PosterWatchStatus } from "./poster-watch-status"
+import { PageHeader, pageClassName } from "./ui/page"
+import { EmptyState } from "./ui/empty-state"
+import { mediaTypeLabel } from "../lib/catalog-title"
 
 export function SearchView({
   profileId,
@@ -20,7 +22,6 @@ export function SearchView({
   query: string
   onSelect: (item: CatalogItem) => void
 }) {
-  const [activeKey, setActiveKey] = useState("")
   const capableCount = searchableCatalogs(addons).length
   const search = useQuery({
     queryKey: ["search", addons.map((addon) => [addon.id, addon.enabled]), query],
@@ -30,26 +31,28 @@ export function SearchView({
   const sections = useMemo(() => groupByPrimarySource(search.data?.results ?? []), [search.data])
 
   return (
-    <main className="mx-auto max-w-[2200px] 2xl:max-w-none px-4 py-10 sm:px-6 lg:px-6 xl:px-6 2xl:px-8">
-      <div className="mb-8 flex items-end justify-between gap-4">
-        <div>
-          <p className="mb-2 text-xs font-semibold uppercase tracking-[0.2em] text-amber-400">
-            Search results
-          </p>
-          <h1 className="font-display text-3xl font-semibold tracking-tight">“{query}”</h1>
-        </div>
-        {search.data?.failedSources ? (
-          <p className="flex items-center gap-1.5 text-xs text-amber-300">
-            <AlertCircle size={14} />
-            {search.data.failedSources} source
-            {search.data.failedSources === 1 ? "" : "s"} unavailable
-          </p>
-        ) : null}
-      </div>
+    <main className={pageClassName}>
+      <PageHeader
+        title={<>Results for “{query}”</>}
+        description={
+          search.data
+            ? `${search.data.results.length} ${search.data.results.length === 1 ? "title" : "titles"} from your add-ons`
+            : "Searching your add-ons…"
+        }
+        actions={
+          search.data?.failedSources ? (
+            <p className="flex items-center gap-1.5 text-xs text-amber-300">
+              <AlertCircle size={14} />
+              {search.data.failedSources} source
+              {search.data.failedSources === 1 ? "" : "s"} unavailable
+            </p>
+          ) : null
+        }
+      />
 
       <div aria-live="polite">
         {capableCount === 0 && (
-          <EmptyState
+          <SearchMessage
             title="No searchable add-ons"
             message="Install or enable an add-on that exposes a catalog with search support."
           />
@@ -61,10 +64,10 @@ export function SearchView({
           </div>
         )}
         {search.isError && (
-          <EmptyState title="Search could not start" message={search.error.message} error />
+          <SearchMessage title="Search could not start" message={search.error.message} error />
         )}
         {search.data && sections.length === 0 && (
-          <EmptyState
+          <SearchMessage
             title={`No results for “${query}”`}
             message={
               search.data.failedSources
@@ -77,7 +80,7 @@ export function SearchView({
           <section className="mb-12" key={section.key}>
             <div className="mb-4 flex items-baseline gap-2">
               <h2 className="font-display text-xl font-semibold">{section.title}</h2>
-              <span className="text-xs text-zinc-600">{section.addonName}</span>
+              <span className="text-sm text-zinc-400">{section.addonName}</span>
             </div>
             <div className={posterGridClass}>
               {section.items.map((item) => {
@@ -85,13 +88,7 @@ export function SearchView({
                 return (
                   <div className="group relative" key={key}>
                     <button
-                      className={`w-full rounded-xl text-left outline-none ${
-                        activeKey === key
-                          ? "ring-2 ring-amber-400 ring-offset-4 ring-offset-zinc-950"
-                          : ""
-                      }`}
-                      onMouseEnter={() => setActiveKey(key)}
-                      onFocus={() => setActiveKey(key)}
+                      className="w-full rounded-xl text-left outline-none"
                       onClick={() => onSelect(item)}
                     >
                       <div className={posterCoverClass}>
@@ -106,7 +103,7 @@ export function SearchView({
                             height={450}
                           />
                         ) : (
-                          <div className="grid h-full place-items-center text-zinc-700">
+                          <div className="grid h-full place-items-center text-zinc-600">
                             <Film />
                           </div>
                         )}
@@ -148,7 +145,8 @@ function groupByPrimarySource(results: SearchResult[]) {
     const key = `${source.addonId}:${source.type}:${source.catalogId}`
     const group = groups.get(key) ?? {
       key,
-      title: `${source.catalogName} · ${formatType(source.type)}`,
+      // Search catalogs are usually named after a browse list ("Popular"), which misleads here.
+      title: mediaTypeLabel(source.type),
       addonName: source.addonName,
       items: [],
     }
@@ -158,11 +156,7 @@ function groupByPrimarySource(results: SearchResult[]) {
   return [...groups.values()]
 }
 
-function formatType(type: string) {
-  return type.charAt(0).toUpperCase() + type.slice(1)
-}
-
-function EmptyState({
+function SearchMessage({
   title,
   message,
   error = false,
@@ -172,14 +166,11 @@ function EmptyState({
   error?: boolean
 }) {
   return (
-    <Card className="border-dashed py-16 text-center">
-      {error ? (
-        <AlertCircle className="mx-auto mb-4 text-red-400" />
-      ) : (
-        <Search className="mx-auto mb-4 text-zinc-700" />
-      )}
-      <h2 className="font-display text-lg font-semibold">{title}</h2>
-      <p className="mx-auto mt-2 max-w-md text-sm text-zinc-500">{message}</p>
-    </Card>
+    <EmptyState
+      icon={error ? AlertCircle : Search}
+      iconClassName={error ? "text-red-400" : undefined}
+      title={title}
+      description={message}
+    />
   )
 }

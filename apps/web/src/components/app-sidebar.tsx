@@ -27,7 +27,8 @@ export function AppSidebar({
   updateCount = 0,
 }: {
   updateCount?: number
-  active: AppSection
+  /** Undefined while search results replace the section, so no item looks current. */
+  active?: AppSection
   onNavigate: (section: AppSection) => void
 }) {
   return (
@@ -46,7 +47,7 @@ export function AppSidebar({
               className={`group relative size-11 place-items-center rounded-xl transition ${item.primary ? "grid" : "hidden md:grid"} ${
                 selected
                   ? "bg-amber-400/15 text-amber-300"
-                  : "text-zinc-500 hover:bg-zinc-900 hover:text-zinc-100"
+                  : "text-zinc-400 hover:bg-zinc-900 hover:text-zinc-100"
               }`}
               aria-label={item.id === "updates" && updateCount ? `Updates, ${updateCount} available` : item.label}
               aria-current={selected ? "page" : undefined}

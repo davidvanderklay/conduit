@@ -5,9 +5,11 @@ import { useUpdates } from "../lib/updates"
 import { api } from "../lib/api"
 import { API_URL } from "../lib/auth"
 import { flushProgressOutbox } from "../lib/progress"
+import { Button } from "./ui/button"
+import { Section } from "./ui/section"
+import { PageHeader, pageClassName } from "./ui/page"
 
-const actionStyle =
-  "border border-white px-3 py-2 text-sm text-white hover:bg-white hover:text-black disabled:opacity-50"
+const linkStyle = "text-sm font-medium text-amber-300 hover:text-amber-200 hover:underline"
 
 export function UpdatesView({
   isOwner,
@@ -53,17 +55,21 @@ export function UpdatesView({
     server.error?.message.includes("404") || server.error?.message.includes("not found")
 
   return (
-    <main className="mx-auto w-full max-w-4xl bg-black px-5 py-8 text-white">
-      <div className="flex items-center justify-between gap-4">
-        <h1 className="text-3xl font-semibold">Updates</h1>
-        {count > 0 && (
-          <button className="text-sm underline" onClick={dismiss}>
-            Dismiss notice
-          </button>
-        )}
-      </div>
-      <section className="mt-7 border-b border-zinc-700 pb-6" aria-label="Client updates">
-        <h2 className="text-lg font-semibold">This app</h2>
+    <main className={pageClassName}>
+      <PageHeader
+        title="Updates"
+        description="Versions for this app and the server it connects to."
+        actions={
+          count > 0 && (
+            <Button variant="ghost" size="sm" onClick={dismiss}>
+              Dismiss notice
+            </Button>
+          )
+        }
+      />
+      <div className="grid max-w-4xl gap-4 text-zinc-300 lg:grid-cols-2">
+      <Section className="flex flex-col" title="This app">
+        <div className="p-5 pt-2" aria-label="Client updates" role="region">
         {client ? (
           <>
             <p className="mt-2 text-sm">
@@ -75,7 +81,7 @@ export function UpdatesView({
                 Client track
                 <select
                   aria-label="Client update track"
-                  className="border border-zinc-600 bg-black px-2 py-1 text-white"
+                  className="library-select h-8 rounded-md border border-zinc-700 bg-zinc-900 px-2 text-sm text-white"
                   value={client.track}
                   disabled={
                     action.isPending ||
@@ -104,24 +110,24 @@ export function UpdatesView({
               </label>
             </div>
             {nightlyPrompt && (
-              <div className="mt-4 border-l-2 border-white pl-4" role="alert">
+              <div className="mt-4 rounded-xl border border-amber-400/30 bg-amber-400/5 p-4" role="alert">
                 <p className="text-sm">
                   Nightly builds may break. Switching tracks changes future checks and does not
                   update your server.
                 </p>
                 <div className="mt-3 flex gap-3">
-                  <button
-                    className={actionStyle}
+                  <Button
+                    size="sm"
                     onClick={() => {
                       setNightlyPrompt(false)
                       action.mutate("nightly")
                     }}
                   >
                     Use Nightly
-                  </button>
-                  <button className={actionStyle} onClick={() => setNightlyPrompt(false)}>
+                  </Button>
+                  <Button variant="secondary" size="sm" onClick={() => setNightlyPrompt(false)}>
                     Cancel
-                  </button>
+                  </Button>
                 </div>
               </div>
             )}
@@ -139,7 +145,7 @@ export function UpdatesView({
                   {client.installation === "native" ? "available" : "released upstream"}
                 </p>
                 <a
-                  className="mt-2 inline-block underline"
+                  className={`mt-2 inline-block ${linkStyle}`}
                   href={client.release.notesUrl}
                   target="_blank"
                   rel="noopener noreferrer"
@@ -180,8 +186,9 @@ export function UpdatesView({
               </p>
             )}
             <div className="mt-4 flex flex-wrap gap-3">
-              <button
-                className={actionStyle}
+              <Button
+                variant="secondary"
+                size="sm"
                 disabled={
                   action.isPending ||
                   client.phase === "downloading" ||
@@ -191,29 +198,29 @@ export function UpdatesView({
                 onClick={() => action.mutate("check")}
               >
                 {client.phase === "checking" ? "Checking…" : "Check for updates"}
-              </button>
+              </Button>
               {client.phase === "available" && client.installation === "native" && (
-                <button
-                  className={actionStyle}
+                <Button
+                  size="sm"
                   disabled={action.isPending || !compatible}
                   onClick={() => action.mutate("download")}
                 >
                   Download update
-                </button>
+                </Button>
               )}
               {client.phase === "downloading" && (
-                <button className={actionStyle} onClick={() => action.mutate("cancel")}>
+                <Button variant="secondary" size="sm" onClick={() => action.mutate("cancel")}>
                   Cancel download
-                </button>
+                </Button>
               )}
               {client.phase === "ready" && (
-                <button
-                  className={actionStyle}
+                <Button
+                  size="sm"
                   disabled={action.isPending || !compatible || restartBlocked}
                   onClick={() => action.mutate("install")}
                 >
                   Restart and update
-                </button>
+                </Button>
               )}
             </div>
             {client.phase === "installing" && (
@@ -239,56 +246,70 @@ export function UpdatesView({
             )}
           </>
         ) : (
-          <p className="mt-2 text-sm">
-            {window.__CONDUIT_ELECTRON__
-              ? "This client does not support in-app updates yet. Install the latest desktop release manually."
-              : `Browser client ${import.meta.env.VITE_RELEASE_VERSION ?? "development"}. Your server owner manages web releases.`}
-          </p>
+          window.__CONDUIT_ELECTRON__ ? (
+            <p className="mt-2 text-sm">
+              This client does not support in-app updates yet. Install the latest desktop release
+              manually.
+            </p>
+          ) : (
+            <InfoList
+              rows={[
+                ["Version", import.meta.env.VITE_RELEASE_VERSION ?? "Development build"],
+                ["Platform", "Web browser"],
+                ["Updates", "Managed by your server owner"],
+              ]}
+            />
+          )
         )}
         {action.error && (
           <p className="mt-3 text-sm" role="alert">
             {action.error.message}
           </p>
         )}
-      </section>
-      <section className="mt-6" aria-label="Server updates">
-        <h2 className="text-lg font-semibold">Connected server</h2>
+        </div>
+      </Section>
+      <Section className="flex flex-col" title="Connected server">
+        <div className="p-5 pt-2" aria-label="Server updates" role="region">
         {server.data ? (
           <>
-            <p className="mt-2 text-sm">
-              {server.data.version} · {server.data.track === "nightly" ? "Nightly" : "Stable"}
-            </p>
+            <InfoList
+              rows={[
+                ["Version", server.data.version === "development" ? "Development build" : server.data.version],
+                ["Channel", server.data.track === "nightly" ? "Nightly" : "Stable"],
+                ["Auto-check", server.data.enabled ? "On, every 12 hours" : "Off"],
+              ]}
+            />
             {server.data.release ? (
               <>
                 <p className="mt-3 text-sm">{server.data.release.version} available</p>
                 {isOwner ? (
                   <div className="mt-3 flex items-center gap-4">
                     <a
-                      className="text-sm underline"
+                      className={linkStyle}
                       href={server.data.release.notesUrl}
                       target="_blank"
                       rel="noopener noreferrer"
                     >
                       Release notes
                     </a>
-                    <button className={actionStyle} onClick={() => setInstructions(!instructions)}>
+                    <Button variant="secondary" size="sm" onClick={() => setInstructions(!instructions)}>
                       Update instructions
-                    </button>
+                    </Button>
                   </div>
                 ) : (
                   <p className="mt-3 text-sm">The server owner can install this update.</p>
                 )}
               </>
             ) : (
-              <p className="mt-3 text-sm">
-                {server.data.error
-                  ? "Update availability could not be confirmed."
-                  : !server.data.enabled
-                    ? "Automatic checks disabled."
+              (server.data.error || server.data.enabled) && (
+                <p className="mt-3 text-sm">
+                  {server.data.error
+                    ? "Update availability could not be confirmed."
                     : server.data.checkedAt
                       ? "No newer release in this track."
                       : "Update check pending."}
-              </p>
+                </p>
+              )
             )}
             {server.data.apiLevel < API_LEVEL && (
               <p className="mt-3 text-sm" role="alert">
@@ -305,17 +326,26 @@ export function UpdatesView({
                 Last successful check {new Date(server.data.checkedAt).toLocaleString()}
               </p>
             )}
+            {!server.data.enabled && (
+              <p className="mt-3 text-sm text-zinc-400">
+                {server.data.version === "development"
+                  ? "Development builds never check for updates."
+                  : "Checks are off on this server. Set CONDUIT_UPDATE_CHECKS=true in its deployment environment and redeploy (for Compose: docker compose up -d server)."}
+              </p>
+            )}
             {isOwner && (
-              <button
-                className={`${actionStyle} mt-4`}
+              <Button
+                variant="secondary"
+                size="sm"
+                className="mt-4"
                 disabled={serverCheck.isPending || !server.data.enabled}
                 onClick={() => serverCheck.mutate()}
               >
-                Check server updates
-              </button>
+                {serverCheck.isPending ? "Checking…" : "Check for updates now"}
+              </Button>
             )}
             {instructions && isOwner && server.data.release && (
-              <div className="mt-5 border-t border-zinc-700 pt-4 text-sm">
+              <div className="mt-5 border-t border-zinc-800 pt-4 text-sm">
                 <p>
                   Back up PostgreSQL and your configuration. Read the release notes for migration
                   requirements.
@@ -325,7 +355,7 @@ export function UpdatesView({
                   <code>CONDUIT_SERVER_VERSION={server.data.release.version}</code>. Keep the
                   independent web pin unless compatibility requires its update.
                 </p>
-                <pre className="mt-3 overflow-auto border-l-2 border-white pl-4">
+                <pre className="mt-3 overflow-auto rounded-lg border border-zinc-800 bg-zinc-950 p-3 text-xs text-zinc-200">
                   <code>{"docker compose pull server\ndocker compose up -d server"}</code>
                 </pre>
                 <p className="mt-3">
@@ -354,7 +384,23 @@ export function UpdatesView({
             {serverCheck.error.message}
           </p>
         )}
-      </section>
+        </div>
+      </Section>
+      </div>
     </main>
+  )
+}
+
+/** Label/value rows for version facts. */
+function InfoList({ rows }: { rows: ReadonlyArray<readonly [string, string]> }) {
+  return (
+    <dl className="mt-3 grid grid-cols-[6rem_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-sm">
+      {rows.map(([label, value]) => (
+        <div className="contents" key={label}>
+          <dt className="text-zinc-400">{label}</dt>
+          <dd className="text-zinc-100">{value}</dd>
+        </div>
+      ))}
+    </dl>
   )
 }

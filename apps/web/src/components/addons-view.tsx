@@ -1,10 +1,13 @@
+import { useState } from "react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { ArrowDown, ArrowUp, Check, Plus, RefreshCw, Trash2 } from "lucide-react"
+import { ArrowDown, ArrowUp, Plus, RefreshCw, Trash2 } from "lucide-react"
 import { api, type InstalledAddon, type Profile } from "../lib/api"
 import { loadManifest } from "../lib/core"
 import { Button } from "./ui/button"
-import { Card } from "./ui/card"
 import { Input } from "./ui/input"
+import { PageHeader, pageClassName } from "./ui/page"
+import { SwitchIndicator } from "./ui/switch"
+import { Section } from "./ui/section"
 
 export function AddonsView({
   profile,
@@ -57,14 +60,13 @@ export function AddonsView({
 
   return (
     <ViewShell
-      eyebrow={`${profile.name}'s sources`}
       title="Add-ons"
       description="Install, prioritize, and control the add-ons used for discovery and playback."
     >
-      <Card className="p-5">
-        <h2 className="font-display text-lg font-semibold">Install from manifest</h2>
+      <Section title="Install from manifest" description="Paste an add-on manifest URL.">
+        <div className="p-5">
         <form
-          className="mt-4 flex flex-col gap-3 sm:flex-row"
+          className="flex flex-col gap-3 sm:flex-row"
           onSubmit={(event) => {
             event.preventDefault()
             const form = event.currentTarget
@@ -84,18 +86,19 @@ export function AddonsView({
           </Button>
         </form>
         {install.error && <p className="mt-3 text-sm text-red-400">{install.error.message}</p>}
-      </Card>
+        </div>
+      </Section>
 
-      <Card className="mt-6 overflow-hidden">
-        <div className="flex items-center justify-between border-b border-zinc-800 px-5 py-4">
-          <div>
-            <h2 className="font-display text-lg font-semibold">Installed</h2>
-            <p className="mt-1 text-xs text-zinc-500">Higher sources are resolved first.</p>
-          </div>
+      <Section
+        className="mt-7"
+        title="Installed"
+        description="Higher sources are resolved first."
+        actions={
           <Button size="sm" variant="ghost" onClick={onRefresh}>
             <RefreshCw size={14} /> Sync
           </Button>
-        </div>
+        }
+      >
         {changeError && (
           <p role="alert" className="mx-5 mt-3 text-sm text-red-400">
             {changeError}
@@ -104,14 +107,10 @@ export function AddonsView({
         <div className="divide-y divide-zinc-800">
           {addons.map((addon, index) => (
             <div className={`flex items-center gap-4 p-4 ${addon.enabled ? "" : "opacity-55"}`} key={addon.id}>
-              {addon.manifest.logo ? (
-                <img className="size-12 rounded-xl object-cover" src={addon.manifest.logo} alt="" />
-              ) : (
-                <div className="grid size-12 place-items-center rounded-xl bg-zinc-800"><Plus size={18} /></div>
-              )}
+              <AddonLogo name={addon.manifest.name} logo={addon.manifest.logo} />
               <div className="min-w-0 flex-1">
                 <p className="truncate font-medium">{addon.manifest.name}</p>
-                <p className="mt-1 line-clamp-1 text-xs text-zinc-500">
+                <p className="mt-1 line-clamp-1 text-xs text-zinc-400">
                   {addon.manifest.description ?? addon.manifestId}
                 </p>
               </div>
@@ -136,16 +135,15 @@ export function AddonsView({
                   aria-checked={addon.enabled}
                   aria-label={`${addon.enabled ? "Disable" : "Enable"} ${addon.manifest.name}`}
                   disabled={update.isPending}
-                  className={`relative mx-2 h-6 w-11 rounded-full transition ${addon.enabled ? "bg-amber-400" : "bg-zinc-700"}`}
+                  className="mx-2 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 disabled:opacity-60"
                   onClick={() => update.mutate({ id: addon.id, values: { enabled: !addon.enabled } })}
                 >
-                  <span className={`absolute top-1 grid size-4 place-items-center rounded-full bg-white text-zinc-900 transition-all ${addon.enabled ? "left-6" : "left-1"}`}>
-                    {addon.enabled && <Check size={10} />}
-                  </span>
+                  <SwitchIndicator checked={addon.enabled} />
                 </button>
                 <Button
                   size="icon"
                   variant="ghost"
+                  className="text-zinc-500 hover:text-red-400"
                   title={`Uninstall ${addon.manifest.name}`}
                   disabled={remove.isPending}
                   onClick={() => {
@@ -158,31 +156,49 @@ export function AddonsView({
             </div>
           ))}
           {addons.length === 0 && (
-            <div className="p-10 text-center text-sm text-zinc-500">No add-ons installed yet.</div>
+            <div className="p-10 text-center text-sm text-zinc-400">No add-ons installed yet.</div>
           )}
         </div>
-      </Card>
+      </Section>
     </ViewShell>
   )
 }
 
+/** Add-on artwork, contained so wide wordmarks are not cropped; a monogram when there is none. */
+function AddonLogo({ name, logo }: { name: string; logo?: string }) {
+  const [monogram, setMonogram] = useState(false)
+  return (
+    <div className="grid size-12 shrink-0 place-items-center overflow-hidden rounded-xl bg-zinc-800 ring-1 ring-white/5">
+      {logo && !monogram ? (
+        <img
+          className="size-full object-contain p-1.5"
+          src={logo}
+          alt=""
+          referrerPolicy="no-referrer"
+          onError={() => setMonogram(true)}
+        />
+      ) : (
+        <span className="font-display text-lg font-semibold text-zinc-300">
+          {name.trim().charAt(0).toUpperCase() || "?"}
+        </span>
+      )}
+    </div>
+  )
+}
+
 export function ViewShell({
-  eyebrow,
   title,
   description,
   children,
 }: {
-  eyebrow: string
   title: string
   description: string
   children: React.ReactNode
 }) {
   return (
-    <main className="mx-auto max-w-[2200px] 2xl:max-w-none px-4 py-9 sm:px-6 lg:px-6 xl:px-6 2xl:px-8">
-      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-400">{eyebrow}</p>
-      <h1 className="mt-2 font-display text-3xl font-semibold">{title}</h1>
-      <p className="mt-2 max-w-2xl text-sm text-zinc-500">{description}</p>
-      <div className="mt-8">{children}</div>
+    <main className={pageClassName}>
+      <PageHeader title={title} description={description} />
+      {children}
     </main>
   )
 }
