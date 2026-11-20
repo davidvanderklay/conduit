@@ -376,7 +376,7 @@ internal fun RichPosterCard(
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Text(
-                    caption.replaceFirstChar(Char::uppercase),
+                    shelfCaption(caption).replaceFirstChar(Char::uppercase),
                     maxLines = 1,
                     color = TertiaryText,
                     style = MaterialTheme.typography.bodySmall,
@@ -737,3 +737,6 @@ private fun ActionRow(label: String, icon: androidx.compose.ui.graphics.vector.I
         modifier = Modifier.fillMaxWidth().focusRing(RoundedCornerShape(12.dp)).clip(RoundedCornerShape(12.dp)).combinedClickable(enabled = enabled, onClick = onClick),
     )
 }
+
+/** A running series' "2022–" reads as unfinished on a one-line caption; shelves show just the start year. */
+internal fun shelfCaption(caption: String): String = caption.trimEnd().removeSuffix("–").removeSuffix("-").trimEnd()

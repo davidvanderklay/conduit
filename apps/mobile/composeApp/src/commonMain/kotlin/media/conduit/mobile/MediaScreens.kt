@@ -727,8 +727,11 @@ private object HeroMotion {
     const val upwardTranslation = .12f
 }
 
-/** Credit values sit just below the synopsis's white so a long country list doesn't outshine it. */
+/** Static credit values sit just below the synopsis's white so a long country list doesn't outshine it. */
 private val CreditValueColor = Color(0xFFD4D4D8)
+
+/** Credit names search for that person, so they read a step brighter and heavier than static values. */
+private val CreditLinkColor = Color(0xFFF4F4F5)
 
 /** Directors, cast, writers, country, and awards as label/value rows. */
 @Composable
@@ -765,7 +768,7 @@ private fun MetadataCreditLinks(
             style = CreditTextStyle,
             modifier = Modifier.width(72.dp).padding(vertical = 3.dp),
         )
-        CommaSeparatedLinks(visibleValues, onClick = { onBrowse(MobileBrowseTarget.Search(it)) }, modifier = Modifier.weight(1f), color = CreditValueColor)
+        CommaSeparatedLinks(visibleValues, onClick = { onBrowse(MobileBrowseTarget.Search(it)) }, modifier = Modifier.weight(1f), color = CreditLinkColor, style = CreditTextStyle.copy(fontWeight = FontWeight.Medium))
     }
 }
 
@@ -2378,7 +2381,7 @@ internal fun MediaDetailsScreen(
                         DetailAction(
                             // Like "Library"/"Saved": the inactive label names the action, the active one the state.
                             label = if (watched) "Watched" else "Mark watched",
-                            icon = if (watched) Icons.Rounded.CheckCircle else Icons.Rounded.RadioButtonUnchecked,
+                            icon = if (watched) Icons.Rounded.CheckCircle else Icons.Outlined.CheckCircle,
                             actionDescription = if (watched) "Mark as unwatched" else "Mark as watched",
                             active = watched,
                             onClick = { scope.launch { onMutation(ProfileMutation.SetWatched(actionItem, movieProgress, watched = !watched)) } },
@@ -2486,12 +2489,12 @@ internal fun MediaDetailsScreen(
                                 actionTarget = MediaActionTarget(actionItem, MediaActionContext.Episode, progress, video, videos = videos)
                             },
                         ),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
                         Box(
                             Modifier
                                 .padding(top = 2.dp)
-                                .width(132.dp)
+                                .width(120.dp)
                                 .aspectRatio(16f / 9f)
                                 .clip(RoundedCornerShape(8.dp))
                                 .background(MaterialTheme.colorScheme.surfaceContainerLow),
@@ -3713,7 +3716,6 @@ private fun StreamSelectionScreen(
                     // A clear beat below the title metadata, so the result starts its own block.
                     Modifier.fillMaxWidth().padding(start = PageGutter, end = PageGutter, top = 8.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     Text(
                         if (error != null) "Couldn't load streams" else "No streams found",
@@ -3725,15 +3727,20 @@ private fun StreamSelectionScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 20.sp, lineBreak = androidx.compose.ui.text.style.LineBreak.Heading),
                         textAlign = TextAlign.Center,
-                        modifier = Modifier.widthIn(max = 320.dp),
+                        modifier = Modifier.padding(top = 6.dp).widthIn(max = 320.dp),
                     )
-                    // Retry, or go fix the cause: streams come from add-ons.
-                    Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    // Retry, or go fix the cause: streams come from add-ons. Same tonal secondary as "Copy all codes".
+                    Row(Modifier.padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         Button(onClick = onManageAddons, modifier = Modifier.height(PrimaryButtonHeight), shape = RoundedCornerShape(12.dp)) {
                             Text("Manage add-ons", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
                         }
-                        TextButton(onClick = onRetry, modifier = Modifier.height(PrimaryButtonHeight)) {
-                            Text("Try again", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface)
+                        FilledTonalButton(
+                            onClick = onRetry,
+                            modifier = Modifier.height(PrimaryButtonHeight),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.filledTonalButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh, contentColor = MaterialTheme.colorScheme.onSurface),
+                        ) {
+                            Text("Try again", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
                         }
                     }
                 }
@@ -4068,8 +4075,8 @@ internal fun conduitSwitchColors() = SwitchDefaults.colors(
     checkedBorderColor = Color.Transparent,
     // Off reads as "off", not "disabled": a quiet outlined track with a mid-gray thumb.
     uncheckedTrackColor = Color(0xFF27272A),
-    uncheckedBorderColor = Color(0xFF4A4A52),
-    uncheckedThumbColor = Color(0xFF9A9AA2),
+    uncheckedBorderColor = Color(0xFF71717A),
+    uncheckedThumbColor = Color(0xFFA1A1AA),
 )
 
 /**
@@ -5052,7 +5059,7 @@ private fun AddonManagerScreen(
                                     else Icon(Icons.Outlined.Extension, null, Modifier.fillMaxSize(), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                                 Spacer(Modifier.width(12.dp))
-                                Text(name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                                Text(name, style = SettingsTitleStyle, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                                 Spacer(Modifier.width(12.dp))
                                 // Compact controls keep the title row about 40dp, so title, description, and facts read as one group.
                                 CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides Dp.Unspecified) {
@@ -5070,7 +5077,7 @@ private fun AddonManagerScreen(
                                 }
                             }
                             // What it does, then the technical facts, across the full card width under the title row.
-                            Column(Modifier.padding(top = 4.dp, end = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Column(Modifier.padding(end = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Text(description, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 18.sp), maxLines = 2, overflow = TextOverflow.Ellipsis)
                                 Text(meta, color = TertiaryText, style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 16.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }

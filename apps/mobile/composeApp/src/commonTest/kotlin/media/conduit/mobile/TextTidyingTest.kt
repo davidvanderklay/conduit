@@ -18,4 +18,10 @@ class TextTidyingTest {
     @Test
     fun keepsMultiWordNamesTogether() =
         assertEquals("New Zealand, Iceland", unbreakableNames("New Zealand, Iceland"))
+
+    @Test
+    fun shelfCaptionShowsStartYearOfRunningSeries() {
+        assertEquals("2022", shelfCaption("2022–"))
+        assertEquals("2019–2023", shelfCaption("2019–2023"))
+    }
 }
