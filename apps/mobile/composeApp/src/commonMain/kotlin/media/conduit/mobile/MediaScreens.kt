@@ -178,12 +178,14 @@ internal fun MobileLibraryScreen(
                     onSelect = { selected -> LibrarySort.entries.firstOrNull { it.name == selected }?.let { sort = it } },
                 )
                 Spacer(Modifier.weight(1f))
-                // Page tools sit together as one 96dp cluster on the end gutter.
-                IconButton(onClick = onOpenHistory, modifier = Modifier.size(48.dp)) {
-                    Icon(Icons.Outlined.History, stringResource(Res.string.history_open), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(22.dp))
-                }
-                IconButton(onClick = onOpenCalendar, modifier = Modifier.size(48.dp)) {
-                    Icon(Icons.Outlined.CalendarMonth, stringResource(Res.string.calendar_open), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(22.dp))
+                // Page tools sit together as one 96dp cluster; the glyph of the last one lands on the gutter.
+                Row(Modifier.offset(x = 1.dp)) {
+                    IconButton(onClick = onOpenHistory, modifier = Modifier.size(44.dp)) {
+                        Icon(Icons.Outlined.History, stringResource(Res.string.history_open), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(22.dp))
+                    }
+                    IconButton(onClick = onOpenCalendar, modifier = Modifier.size(44.dp)) {
+                        Icon(Icons.Outlined.CalendarMonth, stringResource(Res.string.calendar_open), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(22.dp))
+                    }
                 }
             }
         }
@@ -627,7 +629,7 @@ private fun RowScope.CompactFilterMenu(
                 modifier = Modifier.weight(1f, fill = false),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                style = MaterialTheme.typography.titleSmall,
+                style = MaterialTheme.typography.titleSmall.copy(fontSize = 13.sp),
                 fontWeight = FontWeight.Medium,
                 color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -801,6 +803,7 @@ internal fun MediaDetailsScreen(
     returnToHomeOnStreamBack: Boolean,
     openMode: MediaOpenMode,
     playbackSession: PlaybackSessionController,
+    onManageAddons: () -> Unit = {},
 ) {
     var meta by remember(item.id, item.type) { mutableStateOf<MetaItem?>(null) }
     var error by remember(item.id) { mutableStateOf<String?>(null) }
@@ -2163,6 +2166,7 @@ internal fun MediaDetailsScreen(
                 onSelectAddon = ::selectStreamPageAddon,
                 onRetry = { requestStreams(selectedVideo, addonId = selectedStreamAddonId) },
                 onSelect = ::selectStreamFromPage,
+                onManageAddons = onManageAddons,
             )
             MobileBackButton(
                 onClick = {
@@ -2526,9 +2530,9 @@ internal fun MediaDetailsScreen(
                             video.released?.let { released ->
                                 Text(
                                     episodeReleaseDateLabel(released) ?: released,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 16.sp),
-                                    modifier = Modifier.padding(top = 3.dp),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .7f),
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, lineHeight = 14.sp, fontWeight = FontWeight.Normal),
+                                    modifier = Modifier.padding(top = 4.dp),
                                 )
                             }
                             (video.overview ?: video.description)?.trim()?.takeIf(String::isNotBlank)?.let {
@@ -2608,7 +2612,7 @@ internal fun MediaDetailsScreen(
             MobileBackButton(
                 onClick = onBack,
                 modifier = Modifier.align(Alignment.TopStart),
-                background = Color.Black.copy(alpha = .5f),
+                background = Color.Black.copy(alpha = .55f),
                 tint = Color.White,
                 safeArea = true,
             )
@@ -3461,6 +3465,7 @@ private fun StreamSelectionScreen(
     onSelectAddon: (String?) -> Unit,
     onRetry: () -> Unit,
     onSelect: (StreamSource) -> Unit,
+    onManageAddons: () -> Unit = {},
 ) {
     val listState = rememberLazyListState()
     val reducedMotion = LocalReducedMotion.current
@@ -3488,7 +3493,7 @@ private fun StreamSelectionScreen(
     ) {
         artwork?.let { image ->
             item(key = "artwork") {
-                Box(Modifier.fillMaxWidth().height(170.dp + heroPullDp).clipToBounds()) {
+                Box(Modifier.fillMaxWidth().height(200.dp + heroPullDp).clipToBounds()) {
                     AsyncImage(
                         image,
                         null,
@@ -3516,7 +3521,8 @@ private fun StreamSelectionScreen(
                     Column(Modifier.weight(1f)) {
                         // The title leads; "Choose a stream" and the episode explain the page beneath it.
                         Text(title, style = if (collapsed) MaterialTheme.typography.titleMedium else PageTitleStyle, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        if (!collapsed) Text(listOfNotNull("Choose a stream".takeIf { streams.isNotEmpty() || loading }, episode?.let { "S${it.season ?: 0}E${it.episode ?: 0} · ${it.displayTitle}" }).joinToString(" · "), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        val subtitle = listOfNotNull("Choose a stream".takeIf { streams.isNotEmpty() || loading }, episode?.let { "S${it.season ?: 0}E${it.episode ?: 0} · ${it.displayTitle}" }).joinToString(" · ")
+                        if (!collapsed && subtitle.isNotEmpty()) Text(subtitle, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                     if (streams.isNotEmpty() && !loading) IconButton(onClick = onRetry) {
                         Icon(Icons.Rounded.Refresh, "Refresh sources", tint = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -3604,13 +3610,19 @@ private fun StreamSelectionScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.bodyMedium,
                     )
-                    FilledTonalButton(
-                        onClick = onRetry,
-                        modifier = Modifier.padding(top = 8.dp).height(40.dp),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.filledTonalButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh, contentColor = MaterialTheme.colorScheme.onSurface),
-                    ) {
-                        Text("Try again", style = MaterialTheme.typography.labelLarge)
+                    // Retry, or go fix the cause: streams come from add-ons.
+                    Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilledTonalButton(
+                            onClick = onRetry,
+                            modifier = Modifier.height(40.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.filledTonalButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh, contentColor = MaterialTheme.colorScheme.onSurface),
+                        ) {
+                            Text("Try again", style = MaterialTheme.typography.labelLarge)
+                        }
+                        TextButton(onClick = onManageAddons, modifier = Modifier.height(40.dp)) {
+                            Text("Manage add-ons", style = MaterialTheme.typography.labelLarge)
+                        }
                     }
                 }
             }
@@ -3771,7 +3783,7 @@ internal fun ProfileSettingsScreen(
         listOf(
             SettingSection("Account", listOf(
                 SettingEntry("Profile", "Profiles and viewing stats", Icons.Outlined.AccountCircle),
-                SettingEntry("Account", "Sign-in and recovery", Icons.Outlined.Key),
+                SettingEntry("Sign-in & security", "Password and recovery codes", Icons.Outlined.Key),
             )),
             SettingSection("General", listOf(
                 SettingEntry("Watch history", "Recently watched", Icons.Outlined.History),
@@ -3802,7 +3814,7 @@ internal fun ProfileSettingsScreen(
     fun openEntry(title: String) {
         when (title) {
             "Profile" -> route = ProfileRoute.Overview
-            "Account" -> route = ProfileRoute.Account
+            "Sign-in & security" -> route = ProfileRoute.Account
             "Watch history" -> {
                 historyFromLibrary = false
                 route = ProfileRoute.History
@@ -3994,7 +4006,7 @@ private fun AccountSettingsScreen(state: AppState, account: AccountStatus.Signed
     var currentPassword by remember { mutableStateOf("") }
     var recoveryCodes by remember { mutableStateOf<List<String>>(emptyList()) }
     LaunchedEffect(account.session.token) { methods = runCatching { api.authenticationMethods(state.endpoint!!.baseUrl, account.session.token) }.getOrElse { message = it.message; null } }
-    SettingsPage("Account", onBack, modifier) {
+    SettingsPage("Sign-in & security", onBack, modifier) {
         SettingsGroup("Status") {
             ListItem(headlineContent = { Text("Signed in", fontWeight = FontWeight.SemiBold) }, supportingContent = { Text(account.bootstrap.user?.email ?: "conduit account") }, leadingContent = { Icon(Icons.Rounded.VerifiedUser, null, tint = Color(0xFF34D399)) }, colors = ListItemDefaults.colors(containerColor = Color.Transparent))
             ListItem(headlineContent = { Text("Server") }, supportingContent = { Text(state.endpoint?.baseUrl.orEmpty(), maxLines = 1, overflow = TextOverflow.Ellipsis) }, colors = ListItemDefaults.colors(containerColor = Color.Transparent))
@@ -4920,16 +4932,10 @@ private fun AddonManagerScreen(
                                         val size = state.painter.intrinsicSize
                                         if (size.width > 0f && size.height > 0f && size.width / size.height > 1.6f) logoFits = false
                                     }, onError = { logoFits = false })
-                                    else Icon(Icons.Rounded.Extension, null, Modifier.padding(9.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    else Icon(Icons.Outlined.Extension, null, Modifier.padding(9.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                                 Spacer(Modifier.width(12.dp))
-                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                                    Text(name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    val factStyle = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 16.sp)
-                                    // Title, then what it does, then the technical facts, in falling order of importance.
-                                    Text(description, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 18.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    Text(meta, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .7f), style = factStyle, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                }
+                                Text(name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                                 Spacer(Modifier.width(12.dp))
                                 Switch(addon.enabled, { enabled -> runMutation { base, token, id -> api.setAddonEnabled(base, token, id, addon.id, enabled) } }, enabled = !linked && !busy, colors = conduitSwitchColors())
                                 if (!linked) Box {
@@ -4942,6 +4948,11 @@ private fun AddonManagerScreen(
                                         DropdownMenuItem(text = { Text("Remove", color = MaterialTheme.colorScheme.error) }, leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null, tint = MaterialTheme.colorScheme.error) }, onClick = { menuOpen = false; removeTarget = addon })
                                     }
                                 }
+                            }
+                            // What it does, then the technical facts, across the full card width under the title row.
+                            Column(Modifier.padding(top = 6.dp, end = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(description, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 18.sp), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                Text(meta, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .7f), style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 16.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                         }
                     }

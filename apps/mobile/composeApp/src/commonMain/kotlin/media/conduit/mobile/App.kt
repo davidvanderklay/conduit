@@ -70,6 +70,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.LineBreak
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.AnnotatedString
@@ -439,7 +440,7 @@ private fun RecoveryCodesScreen(codes: List<String>, onSaved: () -> Unit) {
         ) {
             OnboardingBrand(Modifier.padding(bottom = 12.dp))
             Text("Save your recovery codes", style = OnboardingTitleStyle)
-            Text("Each code works once. Store them outside this device before continuing.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+            Text("Each code works once. Store them outside this device before continuing.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium.copy(lineBreak = LineBreak.Paragraph))
             Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
                 Column(Modifier.padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp)) {
                     codes.forEach { code ->
@@ -472,7 +473,7 @@ private fun HouseholdSetup(onCreate: (String, String) -> Unit) {
         ) {
             OnboardingBrand(Modifier.padding(bottom = 12.dp))
             Text("Create your household", style = OnboardingTitleStyle)
-            Text("Profiles, add-ons, and watch state sync through your conduit server.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(bottom = 12.dp))
+            Text("Profiles, add-ons, and watch state sync through your conduit server.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium.copy(lineBreak = LineBreak.Paragraph), modifier = Modifier.padding(bottom = 12.dp))
             TextField(
                 household, { household = it }, label = { Text("Household name") },
                 singleLine = true, shape = RoundedCornerShape(12.dp), colors = conduitFilledFieldColors(), modifier = Modifier.fillMaxWidth(),
@@ -713,7 +714,7 @@ private fun SignInScreen(
                     pending = true
                     if (recovering) onRecover(email, recoveryCode, password) else if (registering) onRegister(email, password) else onSignIn(email, password)
                 },
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = Color(0xFF141414), disabledContainerColor = Color.White.copy(.10f), disabledContentColor = Color.White.copy(.34f)),
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = Color(0xFF141414), disabledContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = .16f), disabledContentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = .38f)),
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.fillMaxWidth().padding(top = 4.dp).height(50.dp),
             ) {
@@ -1383,6 +1384,10 @@ private fun AppShell(
                         profileLaunchRequest,
                         playbackSession,
                         Modifier.fillMaxSize(),
+                        onManageAddons = {
+                            closeSelectedMedia()
+                            openProfile(ProfileLaunchTarget.Addons)
+                        },
                     )
                 }
             }
@@ -1470,8 +1475,8 @@ private fun AppShell(
                 val background = MaterialTheme.colorScheme.background
                 Box(
                     Modifier.align(Alignment.BottomCenter).fillMaxWidth()
-                        .background(Brush.verticalGradient(0f to Color.Transparent, .4f to background.copy(alpha = .92f), .6f to background))
-                        .navigationBarsPadding().height(if (compact) 64.dp else 92.dp),
+                        .background(Brush.verticalGradient(0f to Color.Transparent, .35f to background.copy(alpha = .7f), .65f to background))
+                        .navigationBarsPadding().height(if (compact) 88.dp else 120.dp),
                 )
             }
             PlatformBottomNavigation(
@@ -1692,6 +1697,7 @@ private fun DestinationContent(
     profileLaunchRequest: ProfileLaunchRequest?,
     playbackSession: PlaybackSessionController,
     modifier: Modifier = Modifier,
+    onManageAddons: () -> Unit = {},
 ) {
     LaunchedEffect(state.destination) {
         if (state.destination != AppDestination.Profile) onProfileFlowChanged(false)
@@ -1778,6 +1784,7 @@ private fun DestinationContent(
                     onInteractiveBack = onInteractiveCloseMedia,
                     onBackCancelled = onCancelInteractiveCloseMedia,
                     playbackSession = playbackSession,
+                    onManageAddons = onManageAddons,
                 )
             }
         }
@@ -2966,7 +2973,7 @@ private fun MainTopBar(
                             onClick = { showAllProfiles = !showAllProfiles },
                         )
                     }
-                    HorizontalDivider()
+                    HorizontalDivider(Modifier.padding(horizontal = 6.dp, vertical = 4.dp), color = Color.White.copy(.06f))
                     if (watchParty != null) {
                         DropdownMenuItem(
                             modifier = Modifier.padding(horizontal = 6.dp).clip(RoundedCornerShape(12.dp)),

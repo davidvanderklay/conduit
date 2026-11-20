@@ -33,6 +33,8 @@ private fun conduitColors(amoledBlack: Boolean) = darkColorScheme(
     surfaceContainerHigh = Color(0xFF202023),
     surfaceContainerHighest = Color(0xFF27272A),
     outline = Color(0xFF3F3F46),
+    // Default dividers use this; keep it zinc instead of Material's purple-gray.
+    outlineVariant = Color(0xFF27272A),
     error = Color(0xFFFFB4AB),
 )
 
