@@ -206,7 +206,7 @@ internal fun ContinueWatchingCard(
     val episodeTitle = video?.title ?: video?.name ?: progress.videoTitle
 
     Box(
-        modifier.scale(cardScale).aspectRatio(16f / 9f).clip(RoundedCornerShape(14.dp))
+        modifier.scale(cardScale).aspectRatio(16f / 9f).clip(RoundedCornerShape(12.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant)
             .combinedClickable(
                 interactionSource = interaction,
@@ -260,7 +260,7 @@ internal fun ContinueWatchingCard(
         )
         Surface(
             modifier = Modifier.align(Alignment.TopEnd).padding(7.dp),
-            shape = RoundedCornerShape(6.dp),
+            shape = RoundedCornerShape(8.dp),
             color = if (presentation.kind == ContinueWatchingKind.NewEpisode) {
                 Color(0xFF1D5DDD)
             } else {
@@ -733,6 +733,6 @@ private fun ActionRow(label: String, icon: androidx.compose.ui.graphics.vector.I
         headlineContent = { Text(label, color = if (!enabled) MaterialTheme.colorScheme.onSurfaceVariant else if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface) },
         leadingContent = { Icon(icon, null, tint = if (!enabled) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .5f) else if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant) },
         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-        modifier = Modifier.fillMaxWidth().focusRing(RoundedCornerShape(10.dp)).clip(RoundedCornerShape(10.dp)).combinedClickable(enabled = enabled, onClick = onClick),
+        modifier = Modifier.fillMaxWidth().focusRing(RoundedCornerShape(12.dp)).clip(RoundedCornerShape(12.dp)).combinedClickable(enabled = enabled, onClick = onClick),
     )
 }

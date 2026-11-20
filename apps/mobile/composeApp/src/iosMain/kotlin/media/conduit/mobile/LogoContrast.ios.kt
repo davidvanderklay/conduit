@@ -9,12 +9,12 @@ import androidx.compose.ui.unit.LayoutDirection
 import coil3.compose.AsyncImagePainter
 
 // Skia images draw into an offscreen bitmap that can be read back directly.
-internal actual fun AsyncImagePainter.State.Success.isDarkLogo(): Boolean {
-    val bitmap = ImageBitmap(64, 32)
-    CanvasDrawScope().draw(Density(1f), LayoutDirection.Ltr, Canvas(bitmap), Size(64f, 32f)) {
+internal actual fun AsyncImagePainter.State.Success.analyzeLogo(): LogoAnalysis {
+    val bitmap = ImageBitmap(LogoSampleWidth, LogoSampleHeight)
+    CanvasDrawScope().draw(Density(1f), LayoutDirection.Ltr, Canvas(bitmap), Size(LogoSampleWidth.toFloat(), LogoSampleHeight.toFloat())) {
         with(painter) { draw(size) }
     }
-    val pixels = IntArray(64 * 32)
+    val pixels = IntArray(LogoSampleWidth * LogoSampleHeight)
     bitmap.readPixels(pixels)
-    return isDarkLogoPixels(pixels)
+    return analyzeLogoPixels(pixels)
 }

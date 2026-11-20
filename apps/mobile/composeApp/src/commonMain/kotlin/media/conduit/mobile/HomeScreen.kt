@@ -170,7 +170,7 @@ internal fun HomeScreen(
                                 item,
                                 onClick = { onSelect(item, null) },
                                 onActions = { actionTarget = MediaActionTarget(item, MediaActionContext.Browse, latestProgress(sync.snapshot, item)) },
-                                modifier = Modifier.width(300.dp),
+                                modifier = Modifier.fillParentMaxWidth(.86f),
                             )
                         } else items(catalog.items, key = { "${catalog.key}:${it.type}:${it.id}" }) { item ->
                             RichPosterCard(
@@ -261,7 +261,7 @@ private fun StatusPill(text: String, color: Color, modifier: Modifier = Modifier
 @Composable
 private fun CatalogSkeleton() {
     Column(Modifier.padding(horizontal = PageGutter), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Box(Modifier.width(180.dp).height(22.dp).clip(RoundedCornerShape(6.dp)).background(MaterialTheme.colorScheme.surfaceContainer))
+        Box(Modifier.width(180.dp).height(22.dp).clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.surfaceContainer))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             repeat(4) { Box(Modifier.width(112.dp).aspectRatio(2f / 3f).clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.surfaceContainer)) }
         }
@@ -275,7 +275,7 @@ private fun FeatureCard(item: CatalogItem, onClick: () -> Unit, onActions: () ->
     val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Box(
-            Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(10.dp))
+            Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(12.dp))
                 .background(MaterialTheme.colorScheme.surfaceContainer)
                 .combinedClickable(
                     onClickLabel = "Open ${item.name}",
@@ -293,15 +293,15 @@ private fun FeatureCard(item: CatalogItem, onClick: () -> Unit, onActions: () ->
                 contentScale = androidx.compose.ui.layout.ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
             )
-            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Transparent, .5f to Color.Transparent, 1f to Color.Black.copy(alpha = .7f))))
+            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Transparent, .55f to Color.Transparent, 1f to Color.Black.copy(alpha = .55f))))
             if (!item.logo.isNullOrBlank()) {
-                var logoDark by remember(item.logo) { mutableStateOf(false) }
+                var logoAnalysis by remember(item.logo) { mutableStateOf<LogoAnalysis?>(null) }
                 coil3.compose.AsyncImage(
                     model = item.logo,
                     contentDescription = null,
                     contentScale = androidx.compose.ui.layout.ContentScale.Fit,
-                    colorFilter = if (logoDark) androidx.compose.ui.graphics.ColorFilter.tint(Color.White) else null,
-                    onSuccess = { logoDark = runCatching { it.isDarkLogo() }.getOrDefault(false) },
+                    colorFilter = if (logoAnalysis?.dark == true) androidx.compose.ui.graphics.ColorFilter.tint(Color.White) else null,
+                    onSuccess = { logoAnalysis = runCatching { it.analyzeLogo() }.getOrNull() },
                     alignment = Alignment.BottomStart,
                     modifier = Modifier.align(Alignment.BottomStart).padding(12.dp).fillMaxWidth(.55f).height(44.dp),
                 )
@@ -309,10 +309,10 @@ private fun FeatureCard(item: CatalogItem, onClick: () -> Unit, onActions: () ->
                 Text(item.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.align(Alignment.BottomStart).padding(12.dp))
             }
         }
-        // Same two levels as poster captions: white title, then a smaller gray year.
-        Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(item.name, style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp, lineHeight = 18.sp), fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-            item.releaseInfo?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, modifier = Modifier.padding(bottom = 1.dp)) }
+        // Same stacked levels as poster captions: white title, then a smaller gray year.
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(item.name, style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp, lineHeight = 18.sp), fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            item.releaseInfo?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1) }
         }
     }
 }

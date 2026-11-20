@@ -176,11 +176,12 @@ internal fun MobileLibraryScreen(
                     onSelect = { selected -> LibrarySort.entries.firstOrNull { it.name == selected }?.let { sort = it } },
                 )
                 Spacer(Modifier.weight(1f))
-                IconButton(onClick = onOpenHistory) {
-                    Icon(Icons.Rounded.History, stringResource(Res.string.history_open), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                // Page tools sit together as one 96dp cluster on the end gutter.
+                IconButton(onClick = onOpenHistory, modifier = Modifier.size(48.dp)) {
+                    Icon(Icons.Rounded.History, stringResource(Res.string.history_open), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(22.dp))
                 }
-                IconButton(onClick = onOpenCalendar) {
-                    Icon(Icons.Rounded.CalendarMonth, stringResource(Res.string.calendar_open), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                IconButton(onClick = onOpenCalendar, modifier = Modifier.size(48.dp).offset(x = (-8).dp)) {
+                    Icon(Icons.Rounded.CalendarMonth, stringResource(Res.string.calendar_open), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(22.dp))
                 }
             }
         }
@@ -2192,8 +2193,8 @@ internal fun MediaDetailsScreen(
     val heroScale = 1f + (heroPull.floatValue / maxHeroPullPx) * HeroMotion.expansionScale
     val heroHeight = 326.dp
     val titleLogo = details?.logo?.takeIf(String::isNotBlank)
-    var titleLogoDark by remember(titleLogo) { mutableStateOf(false) }
-    val titleLogoFilter = if (titleLogoDark) ColorFilter.tint(Color.White) else null
+    var titleLogoAnalysis by remember(titleLogo) { mutableStateOf<LogoAnalysis?>(null) }
+    val titleLogoFilter = if (titleLogoAnalysis?.dark == true) ColorFilter.tint(Color.White) else null
     val detailHeaderCollapseOffset = with(LocalDensity.current) { (heroHeight - 72.dp).roundToPx() }
     val detailHeaderCollapsed by remember(detailsListState, detailHeaderCollapseOffset) {
         derivedStateOf {
@@ -2229,16 +2230,17 @@ internal fun MediaDetailsScreen(
                             translationY = -heroPull.floatValue * HeroMotion.upwardTranslation
                         },
                     )
-                    // Keep the artwork bright up top and fade into the page only behind the title and meta.
+                    // Keep the artwork bright and fade into the page only behind the title and meta. A short
+                    // static scrim at the very top keeps the status bar and back button legible on bright art.
                     val heroBackground = MaterialTheme.colorScheme.background
-                    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Black.copy(.18f), .25f to Color.Transparent, .45f to Color.Transparent, .75f to heroBackground.copy(alpha = .55f), 1f to heroBackground)))
+                    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Black.copy(.45f), .3f to Color.Transparent, .45f to Color.Transparent, .75f to heroBackground.copy(alpha = .55f), 1f to heroBackground)))
                 }
                 // Logo (or title) and facts share one bottom-aligned column, so their gap is fixed rather than
                 // set by the logo's box. Centered under a logo, as in Infuse and Plex.
                 Column(
                     Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(start = PageGutter, end = PageGutter, bottom = 16.dp),
                     horizontalAlignment = if (titleLogo != null) Alignment.CenterHorizontally else Alignment.Start,
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(20.dp),
                 ) {
                 if (titleLogo != null) {
                     AsyncImage(
@@ -2247,8 +2249,8 @@ internal fun MediaDetailsScreen(
                         contentScale = ContentScale.Fit,
                         alignment = Alignment.BottomCenter,
                         colorFilter = titleLogoFilter,
-                        onSuccess = { titleLogoDark = runCatching { it.isDarkLogo() }.getOrDefault(false) },
-                        modifier = Modifier.fillMaxWidth(.62f).heightIn(max = 96.dp),
+                        onSuccess = { titleLogoAnalysis = runCatching { it.analyzeLogo() }.getOrNull() },
+                        modifier = Modifier.trimLogoInsets(titleLogoAnalysis).fillMaxWidth(.62f).heightIn(max = 96.dp),
                     )
                 } else {
                     Text(
@@ -2275,7 +2277,7 @@ internal fun MediaDetailsScreen(
                     details?.imdbRating?.trim()?.takeIf(String::isNotBlank)?.let { rating ->
                         Row(
                             modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
+                                .clip(RoundedCornerShape(8.dp))
                                 .then(if (imdbId != null) Modifier.clickable(onClickLabel = "Open on IMDb") { uriHandler.openUri("https://www.imdb.com/title/$imdbId/") } else Modifier)
                                 .padding(vertical = 2.dp),
                             verticalAlignment = Alignment.CenterVertically,
@@ -2456,18 +2458,13 @@ internal fun MediaDetailsScreen(
                                 .padding(top = 2.dp)
                                 .width(128.dp)
                                 .aspectRatio(16f / 9f)
-                                .clip(RoundedCornerShape(9.dp))
+                                .clip(RoundedCornerShape(8.dp))
                                 .background(MaterialTheme.colorScheme.surfaceContainerLow),
                         ) {
                             // The numbered tile sits underneath, so a missing or failed still never leaves a blank box.
                             var stillLoaded by remember(video.thumbnail) { mutableStateOf(false) }
-                            Box(Modifier.fillMaxSize().background(Color(0xFF202024)), contentAlignment = Alignment.Center) {
-                                Text(
-                                    video.episode?.toString() ?: "",
-                                    style = MaterialTheme.typography.titleLarge.copy(fontSize = 24.sp),
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = Color.White.copy(alpha = .6f),
-                                )
+                            Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceContainerHigh), contentAlignment = Alignment.Center) {
+                                Icon(Icons.Rounded.Movie, null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .45f), modifier = Modifier.size(24.dp))
                             }
                             if (!video.thumbnail.isNullOrBlank()) {
                                 AsyncImage(
@@ -2500,8 +2497,8 @@ internal fun MediaDetailsScreen(
                             video.released?.let { released ->
                                 Text(
                                     episodeReleaseDateLabel(released) ?: released,
-                                    color = Color(0xFF85858F),
-                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, lineHeight = 14.sp),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 16.sp),
                                     modifier = Modifier.padding(top = 2.dp),
                                 )
                             }
@@ -2537,7 +2534,11 @@ internal fun MediaDetailsScreen(
             Surface(
                 color = MaterialTheme.colorScheme.background,
                 shadowElevation = 0.dp,
-                modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth(),
+                modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth()
+                    .drawWithContent {
+                        drawContent()
+                        drawLine(Color.White.copy(alpha = .08f), Offset(0f, size.height), Offset(size.width, size.height), 1.dp.toPx())
+                    },
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth().statusBarsPadding().height(58.dp).padding(horizontal = 6.dp),
@@ -2899,7 +2900,7 @@ internal fun PlayerEpisodeDrawer(
                                 },
                             ),
                             color = if (video.id == current?.id) MaterialTheme.colorScheme.primary.copy(.14f) else Color.White.copy(.05f),
-                            shape = RoundedCornerShape(16.dp),
+                            shape = RoundedCornerShape(12.dp),
                             border = if (video.id == current?.id) BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null,
                         ) {
                             Column(Modifier.fillMaxWidth()) {
@@ -2913,7 +2914,7 @@ internal fun PlayerEpisodeDrawer(
                                         Modifier
                                             .width(episodeThumbWidth)
                                             .aspectRatio(16f / 9f)
-                                            .clip(RoundedCornerShape(10.dp)),
+                                            .clip(RoundedCornerShape(12.dp)),
                                     ) {
                                         AsyncImage(video.thumbnail, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                                         Box(
@@ -2935,7 +2936,7 @@ internal fun PlayerEpisodeDrawer(
                                             Surface(
                                                 Modifier.align(Alignment.BottomStart).padding(5.dp),
                                                 color = Color.Black.copy(.7f),
-                                                shape = RoundedCornerShape(5.dp),
+                                                shape = RoundedCornerShape(8.dp),
                                             ) {
                                                 Text(
                                                     episodeNumber,
@@ -3037,7 +3038,7 @@ private fun WatchableSeasonChip(
             onClick = onClick,
             onLongClick = onLongClick,
         ),
-        shape = RoundedCornerShape(8.dp),
+        shape = CircleShape,
         color = if (selected) Color.White.copy(alpha = .12f) else Color.Transparent,
         contentColor = if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
     ) {
@@ -3045,7 +3046,7 @@ private fun WatchableSeasonChip(
             label,
             style = MaterialTheme.typography.titleSmall,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+            modifier = Modifier.heightIn(min = 36.dp).wrapContentHeight().padding(horizontal = 14.dp, vertical = 8.dp),
         )
     }
 }
@@ -3064,7 +3065,7 @@ private fun DetailAction(
     Column(
         modifier
             .width(104.dp)
-            .clip(RoundedCornerShape(10.dp))
+            .clip(RoundedCornerShape(12.dp))
             .clickable(onClickLabel = actionDescription, role = androidx.compose.ui.semantics.Role.Button, onClick = onClick)
             .semantics(mergeDescendants = true) { contentDescription = actionDescription }
             .padding(vertical = 8.dp),
@@ -3560,12 +3561,12 @@ private fun StreamSelectionScreen(
             streams.isEmpty() -> item(key = if (error != null) "error" else "empty") {
                 // Sits right under the filters so the empty state reads as part of the page, not a separate screen.
                 Column(
-                    Modifier.fillMaxWidth().padding(start = PageGutter, end = PageGutter, top = 20.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    Modifier.fillMaxWidth().padding(start = PageGutter, end = PageGutter, top = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Text(
                         if (error != null) "Couldn't load streams" else "No streams found",
-                        style = MaterialTheme.typography.titleMedium,
+                        style = MaterialTheme.typography.titleMedium.copy(fontSize = 16.sp),
                         fontWeight = FontWeight.SemiBold,
                     )
                     Text(
@@ -3575,8 +3576,8 @@ private fun StreamSelectionScreen(
                     )
                     FilledTonalButton(
                         onClick = onRetry,
-                        modifier = Modifier.padding(top = 10.dp).height(40.dp),
-                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.padding(top = 8.dp).height(40.dp),
+                        shape = RoundedCornerShape(12.dp),
                         colors = ButtonDefaults.filledTonalButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh, contentColor = MaterialTheme.colorScheme.onSurface),
                     ) {
                         Text("Try again", style = MaterialTheme.typography.labelLarge)
@@ -3828,7 +3829,7 @@ internal fun ProfileSettingsScreen(
             item(key = "section-${section.title}") {
                 Column(Modifier.padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(section.title, style = SectionLabelStyle)
-                    Surface(color = SettingsGroupColor, shape = RoundedCornerShape(14.dp)) {
+                    Surface(color = SettingsGroupColor, shape = RoundedCornerShape(12.dp)) {
                         Column {
                             section.entries.forEachIndexed { index, entry ->
                                 if (index > 0) HorizontalDivider(Modifier.padding(start = 54.dp), color = Color.White.copy(.06f))
@@ -3880,7 +3881,7 @@ internal val SettingsGroupColor: Color
 private fun SettingsGroup(title: String, divided: Boolean = true, content: @Composable () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(title, style = SectionLabelStyle)
-        Surface(color = SettingsGroupColor, shape = RoundedCornerShape(14.dp)) {
+        Surface(color = SettingsGroupColor, shape = RoundedCornerShape(12.dp)) {
             val inner = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp)
             if (divided) DividedColumn(inner, content = content) else Column(inner) { content() }
         }
@@ -4593,7 +4594,7 @@ private fun ProfileOverviewScreen(profile: ProfileSummary?, snapshot: ProfileSna
         item { Card(Modifier.padding(horizontal = 10.dp).fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color(0xFF151914))) {
             Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) { ProfileAvatar(profile, 76); Spacer(Modifier.width(16.dp)); Column { Text("${profile?.name ?: "Your"}'s profile", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold); Text("Your viewing activity and saved content", color = MaterialTheme.colorScheme.onSurfaceVariant) } }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { listOf(Triple(continued, "Continue", Icons.Rounded.PlayArrow), Triple(library, "Library", Icons.Rounded.VideoLibrary), Triple(0, "Upcoming", Icons.Rounded.Event)).forEach { (value, label, _) -> Surface(color = Color.White.copy(.07f), shape = RoundedCornerShape(14.dp), modifier = Modifier.weight(1f)) { Column(Modifier.padding(12.dp)) { Text("$value", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold); Text(label, maxLines = 1, color = MaterialTheme.colorScheme.onSurfaceVariant) } } } }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { listOf(Triple(continued, "Continue", Icons.Rounded.PlayArrow), Triple(library, "Library", Icons.Rounded.VideoLibrary), Triple(0, "Upcoming", Icons.Rounded.Event)).forEach { (value, label, _) -> Surface(color = Color.White.copy(.07f), shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f)) { Column(Modifier.padding(12.dp)) { Text("$value", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold); Text(label, maxLines = 1, color = MaterialTheme.colorScheme.onSurfaceVariant) } } } }
             }
         } }
         item { Text("Overview", modifier = Modifier.padding(horizontal = 10.dp), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -4609,7 +4610,7 @@ private fun ProfileOverviewScreen(profile: ProfileSummary?, snapshot: ProfileSna
 }
 
 private data class StatCardData(val value: String, val title: String, val detail: String, val icon: ImageVector)
-@Composable private fun StatCard(data: StatCardData, modifier: Modifier) { Surface(color = Color.White.copy(.065f), shape = RoundedCornerShape(18.dp), modifier = modifier.height(154.dp)) { Column(Modifier.padding(16.dp)) { Row(verticalAlignment = Alignment.CenterVertically) { Text(data.value, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f)); Icon(data.icon, null, tint = MaterialTheme.colorScheme.primary) }; Spacer(Modifier.height(12.dp)); Text(data.title, style = MaterialTheme.typography.titleMedium); Text(data.detail, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) } } }
+@Composable private fun StatCard(data: StatCardData, modifier: Modifier) { Surface(color = Color.White.copy(.065f), shape = RoundedCornerShape(12.dp), modifier = modifier.height(154.dp)) { Column(Modifier.padding(16.dp)) { Row(verticalAlignment = Alignment.CenterVertically) { Text(data.value, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f)); Icon(data.icon, null, tint = MaterialTheme.colorScheme.primary) }; Spacer(Modifier.height(12.dp)); Text(data.title, style = MaterialTheme.typography.titleMedium); Text(data.detail, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) } } }
 
 @Composable
 private fun ProfileSwitcherScreen(profiles: List<ProfileSummary>, active: ProfileSummary?, onBack: () -> Unit, onEdit: (ProfileSummary) -> Unit, onCreate: () -> Unit, onSelect: (ProfileSummary) -> Unit, modifier: Modifier) {
@@ -4807,7 +4808,7 @@ private fun AddonManagerScreen(
             )
         }
         if (linked) item {
-            Surface(color = SettingsGroupColor, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
+            Surface(color = SettingsGroupColor, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
                 Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.Link, null, tint = MaterialTheme.colorScheme.primary); Spacer(Modifier.width(12.dp)); Column { Text("Using primary add-ons", fontWeight = FontWeight.SemiBold); Text("This list is managed by the primary profile.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) } }
             }
         } else {
@@ -4847,7 +4848,7 @@ private fun AddonManagerScreen(
         if (addons.isEmpty()) item { Text("No add-ons installed.", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(4.dp)) }
         // One grouped surface with hairlines between add-ons, matching the settings groups.
         if (addons.isNotEmpty()) item(key = "installed-addons") {
-            Surface(color = SettingsGroupColor, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
+            Surface(color = SettingsGroupColor, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
                 DividedColumn(lineStart = 68.dp, lineEndOverhang = 0.dp) {
                     addons.forEach { addon ->
                     val index = addons.indexOfFirst { it.id == addon.id }
@@ -4867,7 +4868,7 @@ private fun AddonManagerScreen(
                     run {
                         Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 12.dp, bottom = 4.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Surface(shape = RoundedCornerShape(10.dp), color = Color.White.copy(.06f), modifier = Modifier.size(40.dp)) {
+                                Surface(shape = RoundedCornerShape(12.dp), color = Color.White.copy(.06f), modifier = Modifier.size(40.dp)) {
                                     // Wide wordmark logos are unreadable in a square tile, so they fall back to the add-on glyph.
                                     var logoFits by remember(logo) { mutableStateOf(!logo.isNullOrBlank()) }
                                     if (logoFits) AsyncImage(logo, "$name logo", Modifier.fillMaxSize(), contentScale = ContentScale.Crop, onSuccess = { state ->
@@ -4879,7 +4880,7 @@ private fun AddonManagerScreen(
                                 Spacer(Modifier.width(12.dp))
                                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
                                     Text(name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    val factStyle = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, lineHeight = 15.sp, fontWeight = FontWeight.Normal)
+                                    val factStyle = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 16.sp)
                                     if (meta.isNotBlank()) Text(meta, color = Color(0xFF85858F), style = factStyle, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     Text(capabilities, color = Color(0xFF85858F), style = factStyle, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 }

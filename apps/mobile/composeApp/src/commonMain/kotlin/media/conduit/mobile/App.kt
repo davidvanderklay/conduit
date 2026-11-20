@@ -438,7 +438,7 @@ private fun RecoveryCodesScreen(codes: List<String>, onSaved: () -> Unit) {
             OnboardingBrand(Modifier.padding(bottom = 12.dp))
             Text("Save your recovery codes", style = OnboardingTitleStyle)
             Text("Each code works once. Store them outside this device before continuing.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
-            Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+            Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
                 Column(Modifier.padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp)) {
                     codes.forEach { code ->
                         Row(Modifier.fillMaxWidth().height(44.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -509,7 +509,7 @@ private fun OnboardingLink(lead: String, action: String) {
 /** Mark and wordmark at the top of every onboarding step, so the flow keeps one anchor. */
 @Composable
 private fun OnboardingBrand(modifier: Modifier = Modifier) {
-    Row(modifier.height(OnboardingHeaderHeight), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+    Row(modifier.height(OnboardingHeaderHeight), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy((-4).dp)) {
         // The mark's amber body is inset in its square; pull it left so it sits on the text gutter.
         ConduitMark(Modifier.offset(x = (-7).dp).size(36.dp), tile = false)
         Text("conduit", color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
@@ -646,7 +646,7 @@ private fun SignInScreen(
             Row(Modifier.fillMaxWidth().padding(bottom = 24.dp).height(OnboardingHeaderHeight), verticalAlignment = Alignment.CenterVertically) {
                 OnboardingBrand()
                 Spacer(Modifier.weight(1f))
-                Surface(onClick = { showServerDialog = true }, shape = RoundedCornerShape(10.dp), color = Color.Transparent, contentColor = Color.White, modifier = Modifier.offset(x = 6.dp)) {
+                Surface(onClick = { showServerDialog = true }, shape = RoundedCornerShape(12.dp), color = Color.Transparent, contentColor = Color.White, modifier = Modifier.offset(x = 6.dp)) {
                     Row(Modifier.heightIn(min = 40.dp).padding(start = 8.dp, end = 2.dp), verticalAlignment = Alignment.CenterVertically) {
                         val serverColor = when {
                             authenticationError != null -> MaterialTheme.colorScheme.error
@@ -678,7 +678,7 @@ private fun SignInScreen(
                 }
             }
             authentication.oidc.takeIf { it.enabled && !recovering }?.let {
-                Button(enabled = authenticationReady && !pending && !oauthLaunching, onClick = onOAuth, colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color(0xFF202124), disabledContainerColor = Color(0xFFE6E6E6), disabledContentColor = Color(0xFF5F6368)), shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth().height(50.dp)) { GoogleMark(); Spacer(Modifier.width(12.dp)); Text(if (oauthLaunching) "Opening sign-in…" else if (oauthPending) "Resume sign-in" else it.displayName ?: "Continue with Google", fontWeight = FontWeight.SemiBold) }
+                Button(enabled = authenticationReady && !pending && !oauthLaunching, onClick = onOAuth, colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color(0xFF202124), disabledContainerColor = Color(0xFFE6E6E6), disabledContentColor = Color(0xFF5F6368)), shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth().height(50.dp)) { GoogleMark(); Spacer(Modifier.width(12.dp)); Text(if (oauthLaunching) "Opening sign-in…" else if (oauthPending) "Resume sign-in" else it.displayName ?: "Continue with Google", fontWeight = FontWeight.SemiBold) }
                 Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) { HorizontalDivider(Modifier.weight(1f), color = Color.White.copy(.1f)); Text("or", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 12.dp)); HorizontalDivider(Modifier.weight(1f), color = Color.White.copy(.1f)) }
             }
             TextField(
@@ -734,7 +734,7 @@ private fun SignInScreen(
             }
         }
         if (showServerDialog) Dialog(onDismissRequest = { if (!serverPending) showServerDialog = false }) {
-            Surface(Modifier.fillMaxWidth().widthIn(max = 440.dp), shape = RoundedCornerShape(24.dp), color = Color(0xFF18181B), contentColor = Color.White, border = BorderStroke(1.dp, Color.White.copy(.12f)), tonalElevation = 8.dp) {
+            Surface(Modifier.fillMaxWidth().widthIn(max = 440.dp), shape = RoundedCornerShape(12.dp), color = Color(0xFF18181B), contentColor = Color.White, border = BorderStroke(1.dp, Color.White.copy(.12f)), tonalElevation = 8.dp) {
               Column(Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.Public, null, tint = MaterialTheme.colorScheme.primary); Spacer(Modifier.width(10.dp)); Column { Text("Choose your server", fontWeight = FontWeight.Bold); Text("Your choice stays on this device.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) } }
                 ServerChoiceRow("Default server", DefaultServerEndpoint.baseUrl, useDefault) { useDefault = true }
@@ -786,7 +786,7 @@ private fun GoogleMark() {
 
 @Composable
 private fun ServerChoiceRow(title: String, detail: String, selected: Boolean, onClick: () -> Unit) {
-    Surface(onClick = onClick, color = if (selected) MaterialTheme.colorScheme.primary.copy(.12f) else Color.White.copy(.035f), contentColor = Color.White, border = BorderStroke(1.dp, if (selected) MaterialTheme.colorScheme.primary.copy(.6f) else Color.White.copy(.08f)), shape = RoundedCornerShape(14.dp)) { Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text(title, color = Color.White, fontWeight = FontWeight.SemiBold); Text(detail, color = Color.White.copy(.55f), style = MaterialTheme.typography.bodySmall, maxLines = 1) }; if (selected) Icon(Icons.Rounded.CheckCircle, null, tint = MaterialTheme.colorScheme.primary) } }
+    Surface(onClick = onClick, color = if (selected) MaterialTheme.colorScheme.primary.copy(.12f) else Color.White.copy(.035f), contentColor = Color.White, border = BorderStroke(1.dp, if (selected) MaterialTheme.colorScheme.primary.copy(.6f) else Color.White.copy(.08f)), shape = RoundedCornerShape(12.dp)) { Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text(title, color = Color.White, fontWeight = FontWeight.SemiBold); Text(detail, color = Color.White.copy(.55f), style = MaterialTheme.typography.bodySmall, maxLines = 1) }; if (selected) Icon(Icons.Rounded.CheckCircle, null, tint = MaterialTheme.colorScheme.primary) } }
 }
 
 @Composable
@@ -1610,7 +1610,7 @@ private fun ConduitSnackbar(data: SnackbarData) {
             },
         color = Color(0xFF151518),
         contentColor = Color.White,
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(12.dp),
         border = BorderStroke(1.dp, Color.White.copy(alpha = .16f)),
         shadowElevation = 12.dp,
     ) {
@@ -2091,7 +2091,7 @@ private fun BoxScope.PlaybackSessionHost(
         val playerModifier = if (fullScreen || systemPip || tv != null) {
             Modifier.fillMaxSize()
         } else {
-            miniLayout.clip(RoundedCornerShape(10.dp))
+            miniLayout.clip(RoundedCornerShape(12.dp))
         }.pointerInput(controller) {
             // Observes touches before the player's own gestures, without consuming them.
             awaitEachGesture {
@@ -2566,7 +2566,7 @@ private fun BoxScope.PlaybackSessionHost(
             }
             Box(
                 miniLayout
-                    .clip(RoundedCornerShape(10.dp))
+                    .clip(RoundedCornerShape(12.dp))
                     .onSizeChanged { miniSize = it }
                     .pointerInput(request.identity, containerSize) {
                         awaitEachGesture {
@@ -2762,7 +2762,7 @@ private fun BoxScope.PlayerQueueToast(modifier: Modifier = Modifier) {
         Surface(
             color = Color.Black.copy(alpha = .82f),
             contentColor = Color.White,
-            shape = RoundedCornerShape(20.dp),
+            shape = RoundedCornerShape(12.dp),
             border = BorderStroke(1.dp, Color.White.copy(alpha = .14f)),
         ) {
             Text(
@@ -2911,8 +2911,8 @@ private fun MainTopBar(
                     modifier = Modifier
                         .width(272.dp)
                         .heightIn(max = 480.dp)
-                        .border(BorderStroke(1.dp, Color.White.copy(alpha = .08f)), RoundedCornerShape(16.dp)),
-                    shape = RoundedCornerShape(16.dp),
+                        .border(BorderStroke(1.dp, Color.White.copy(alpha = .08f)), RoundedCornerShape(12.dp)),
+                    shape = RoundedCornerShape(12.dp),
                     containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                     tonalElevation = 0.dp,
                     shadowElevation = 24.dp,
@@ -2928,10 +2928,10 @@ private fun MainTopBar(
                         DropdownMenuItem(
                             modifier = Modifier
                                 .padding(horizontal = 6.dp)
-                                .clip(RoundedCornerShape(10.dp))
+                                .clip(RoundedCornerShape(12.dp))
                                 .background(
                                     if (profile.id == activeProfile?.id) Color.White.copy(alpha = .06f) else Color.Transparent,
-                                    RoundedCornerShape(10.dp),
+                                    RoundedCornerShape(12.dp),
                                 ),
                             text = {
                                 Column {
@@ -2956,7 +2956,7 @@ private fun MainTopBar(
                     }
                     if (hiddenProfiles > 0) {
                         DropdownMenuItem(
-                            modifier = Modifier.padding(horizontal = 6.dp).clip(RoundedCornerShape(10.dp)),
+                            modifier = Modifier.padding(horizontal = 6.dp).clip(RoundedCornerShape(12.dp)),
                             text = { Text(if (showAllProfiles) "Show fewer profiles" else "Show $hiddenProfiles more") },
                             leadingIcon = { Icon(Icons.Rounded.KeyboardArrowDown, null) },
                             onClick = { showAllProfiles = !showAllProfiles },
@@ -2965,7 +2965,7 @@ private fun MainTopBar(
                     HorizontalDivider()
                     if (watchParty != null) {
                         DropdownMenuItem(
-                            modifier = Modifier.padding(horizontal = 6.dp).clip(RoundedCornerShape(10.dp)),
+                            modifier = Modifier.padding(horizontal = 6.dp).clip(RoundedCornerShape(12.dp)),
                             text = { Text("Watch together") },
                             leadingIcon = { Icon(Icons.Rounded.People, null) },
                             onClick = { profileMenuOpen = false; watchParty.sheetOpen = true },
@@ -2973,7 +2973,7 @@ private fun MainTopBar(
                     }
                     if (queueSize > 0) {
                         DropdownMenuItem(
-                            modifier = Modifier.padding(horizontal = 6.dp).clip(RoundedCornerShape(10.dp)),
+                            modifier = Modifier.padding(horizontal = 6.dp).clip(RoundedCornerShape(12.dp)),
                             text = { Text("Queue") },
                             leadingIcon = { Icon(Icons.Rounded.QueueMusic, null) },
                             trailingIcon = { Text(queueSize.toString(), color = MaterialTheme.colorScheme.onSurfaceVariant) },
@@ -2981,25 +2981,25 @@ private fun MainTopBar(
                         )
                     }
                     DropdownMenuItem(
-                        modifier = Modifier.padding(horizontal = 6.dp).clip(RoundedCornerShape(10.dp)),
+                        modifier = Modifier.padding(horizontal = 6.dp).clip(RoundedCornerShape(12.dp)),
                         text = { Text("Add profile") },
                         leadingIcon = { Icon(Icons.Rounded.Add, null) },
                         onClick = { profileMenuOpen = false; onAddProfile() },
                     )
                     DropdownMenuItem(
-                        modifier = Modifier.padding(horizontal = 6.dp).clip(RoundedCornerShape(10.dp)),
+                        modifier = Modifier.padding(horizontal = 6.dp).clip(RoundedCornerShape(12.dp)),
                         text = { Text("Add-ons") },
                         leadingIcon = { Icon(Icons.Rounded.Extension, null) },
                         onClick = { profileMenuOpen = false; onOpenAddons() },
                     )
                     DropdownMenuItem(
-                        modifier = Modifier.padding(horizontal = 6.dp).clip(RoundedCornerShape(10.dp)),
+                        modifier = Modifier.padding(horizontal = 6.dp).clip(RoundedCornerShape(12.dp)),
                         text = { Text("Settings") },
                         leadingIcon = { Icon(Icons.Rounded.Settings, null) },
                         onClick = { profileMenuOpen = false; onOpenSettings() },
                     )
                     DropdownMenuItem(
-                        modifier = Modifier.padding(horizontal = 6.dp).clip(RoundedCornerShape(10.dp)),
+                        modifier = Modifier.padding(horizontal = 6.dp).clip(RoundedCornerShape(12.dp)),
                         text = { Text("Log out") },
                         leadingIcon = { Icon(Icons.AutoMirrored.Rounded.Logout, null) },
                         onClick = { profileMenuOpen = false; onSignOut() },
@@ -3034,7 +3034,7 @@ internal fun RowScope.MobileNavigationItem(
     val color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
     // Selection is the amber icon and label plus a small pill behind the icon only, Material 3 style.
     Column(
-        modifier.clip(RoundedCornerShape(16.dp))
+        modifier.clip(RoundedCornerShape(12.dp))
             .selectable(selected = selected, role = androidx.compose.ui.semantics.Role.Tab, onClick = onClick).padding(top = if (showLabel) 6.dp else 8.dp, bottom = if (showLabel) 6.dp else 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(2.dp),

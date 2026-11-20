@@ -10,6 +10,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
+/** Corner radii: 8dp for media and small tiles, 12dp for buttons, fields, cards and menus, full for pills. */
+
 /** Horizontal page gutter shared by phone screens. */
 internal val PageGutter = 16.dp
 
