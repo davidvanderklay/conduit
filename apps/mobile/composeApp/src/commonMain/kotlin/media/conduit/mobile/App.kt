@@ -497,6 +497,10 @@ private fun HouseholdSetup(onCreate: (String, String) -> Unit) {
 
 private val OnboardingHeaderHeight = 48.dp
 
+/** Profile menu command text: 15sp regular, so commands stay quieter than the active profile. */
+private val MenuLabelStyle: androidx.compose.ui.text.TextStyle
+    @Composable get() = MaterialTheme.typography.bodyLarge.copy(fontSize = 15.sp, fontWeight = FontWeight.Normal)
+
 /** One measure for every onboarding subtitle, so the four steps wrap alike. */
 private val OnboardingCopyWidth = 440.dp
 
@@ -520,9 +524,9 @@ private fun OnboardingBrand(modifier: Modifier = Modifier) {
         ConduitMark(
             Modifier.layout { measurable, constraints ->
                 val placeable = measurable.measure(constraints)
-                val inset = 5.dp.roundToPx()
+                val inset = 7.dp.roundToPx()
                 layout(placeable.width - inset, placeable.height) { placeable.place(-inset, 0) }
-            }.size(26.dp),
+            }.size(34.dp),
             tile = false,
         )
         // Secondary to the page title below it.
@@ -2952,7 +2956,7 @@ private fun MainTopBar(
                     onDismissRequest = { profileMenuOpen = false },
                     offset = androidx.compose.ui.unit.DpOffset(x = (-8).dp, y = 8.dp),
                     modifier = Modifier
-                        .width(232.dp)
+                        .width(216.dp)
                         .heightIn(max = 480.dp),
                     shape = RoundedCornerShape(12.dp),
                     containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
@@ -2970,7 +2974,7 @@ private fun MainTopBar(
                                 ),
                             text = {
                                 Column {
-                                    Text(profile.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(profile.name, style = MenuLabelStyle, fontWeight = if (profile.id == activeProfile?.id) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     if (profile.isKids) Text("Kids profile", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             },
@@ -3001,7 +3005,7 @@ private fun MainTopBar(
                     if (watchParty != null) {
                         DropdownMenuItem(
                             modifier = Modifier.padding(horizontal = 6.dp).clip(RoundedCornerShape(12.dp)),
-                            text = { Text("Watch together") },
+                            text = { Text("Watch together", style = MenuLabelStyle) },
                             leadingIcon = { Icon(Icons.Outlined.People, null) },
                             onClick = { profileMenuOpen = false; watchParty.sheetOpen = true },
                         )
@@ -3009,7 +3013,7 @@ private fun MainTopBar(
                     if (queueSize > 0) {
                         DropdownMenuItem(
                             modifier = Modifier.padding(horizontal = 6.dp).clip(RoundedCornerShape(12.dp)),
-                            text = { Text("Queue") },
+                            text = { Text("Queue", style = MenuLabelStyle) },
                             leadingIcon = { Icon(Icons.Rounded.QueueMusic, null) },
                             trailingIcon = { Text(queueSize.toString(), color = MaterialTheme.colorScheme.onSurfaceVariant) },
                             onClick = { profileMenuOpen = false; onOpenQueue() },
@@ -3017,25 +3021,25 @@ private fun MainTopBar(
                     }
                     DropdownMenuItem(
                         modifier = Modifier.padding(horizontal = 6.dp).clip(RoundedCornerShape(12.dp)),
-                        text = { Text("Add profile") },
+                        text = { Text("Add profile", style = MenuLabelStyle) },
                         leadingIcon = { Icon(Icons.Rounded.Add, null) },
                         onClick = { profileMenuOpen = false; onAddProfile() },
                     )
                     DropdownMenuItem(
                         modifier = Modifier.padding(horizontal = 6.dp).clip(RoundedCornerShape(12.dp)),
-                        text = { Text("Add-ons") },
+                        text = { Text("Add-ons", style = MenuLabelStyle) },
                         leadingIcon = { Icon(Icons.Outlined.Extension, null) },
                         onClick = { profileMenuOpen = false; onOpenAddons() },
                     )
                     DropdownMenuItem(
                         modifier = Modifier.padding(horizontal = 6.dp).clip(RoundedCornerShape(12.dp)),
-                        text = { Text("Settings") },
+                        text = { Text("Settings", style = MenuLabelStyle) },
                         leadingIcon = { Icon(Icons.Outlined.Settings, null) },
                         onClick = { profileMenuOpen = false; onOpenSettings() },
                     )
                     DropdownMenuItem(
                         modifier = Modifier.padding(horizontal = 6.dp).clip(RoundedCornerShape(12.dp)),
-                        text = { Text("Log out") },
+                        text = { Text("Log out", style = MenuLabelStyle) },
                         leadingIcon = { Icon(Icons.AutoMirrored.Rounded.Logout, null) },
                         onClick = { profileMenuOpen = false; onSignOut() },
                     )
@@ -3075,7 +3079,7 @@ internal fun RowScope.MobileNavigationItem(
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         Box(
-            Modifier.size(width = 48.dp, height = 28.dp).clip(RoundedCornerShape(14.dp))
+            Modifier.size(width = 40.dp, height = 26.dp).clip(RoundedCornerShape(13.dp))
                 .background(if (selected) Color.White.copy(alpha = .06f) else Color.Transparent),
             contentAlignment = Alignment.Center,
         ) {

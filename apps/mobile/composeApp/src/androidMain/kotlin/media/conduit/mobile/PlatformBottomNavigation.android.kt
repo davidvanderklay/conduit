@@ -27,7 +27,7 @@ internal actual fun PlatformBottomNavigation(
     Surface(
         // Opaque so posters never read through the labels; AppShell fades content out behind it.
         color = MaterialTheme.colorScheme.surfaceContainer,
-        shape = if (classic) RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp) else RoundedCornerShape(28.dp),
+        shape = if (classic) RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp) else RoundedCornerShape(24.dp),
         border = if (classic) null else BorderStroke(0.5.dp, Color.White.copy(alpha = .04f)),
         shadowElevation = if (classic) 4.dp else 0.dp,
         modifier = modifier
@@ -41,7 +41,7 @@ internal actual fun PlatformBottomNavigation(
         Row(
             Modifier.fillMaxWidth()
                 .then(if (classic) Modifier.navigationBarsPadding() else Modifier)
-                .padding(horizontal = 8.dp, vertical = if (compact) 2.dp else 4.dp),
+                .padding(horizontal = 8.dp, vertical = if (compact) 2.dp else 1.dp),
         ) {
             destinations.forEach { destination ->
                 MobileNavigationItem(

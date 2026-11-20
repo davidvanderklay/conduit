@@ -182,10 +182,10 @@ internal fun MobileLibraryScreen(
                 // Page tools sit together as one 96dp cluster; the glyph of the last one lands on the gutter.
                 Row(Modifier.offset(x = 1.dp)) {
                     IconButton(onClick = onOpenHistory, modifier = Modifier.size(44.dp)) {
-                        Icon(Icons.Outlined.History, stringResource(Res.string.history_open), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(22.dp))
+                        Icon(Icons.Outlined.History, stringResource(Res.string.history_open), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
                     }
                     IconButton(onClick = onOpenCalendar, modifier = Modifier.size(44.dp)) {
-                        Icon(Icons.Outlined.CalendarMonth, stringResource(Res.string.calendar_open), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(22.dp))
+                        Icon(Icons.Outlined.CalendarMonth, stringResource(Res.string.calendar_open), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
                     }
                 }
             }
@@ -2409,10 +2409,8 @@ internal fun MediaDetailsScreen(
                 }
                 // One label/value table for genres, credits, and country, with even row spacing.
                 val hasEpisodes = !details?.videos.isNullOrEmpty()
-                Column {
-                    // Series keep credits below the episode list so seasons stay within the first screen.
-                    if (!hasEpisodes) CreditRows(details, onBrowse)
-                }
+                // Series keep credits below the episode list so seasons stay within the first screen.
+                if (!hasEpisodes) CreditRows(details, onBrowse)
 
             }
         }
@@ -2461,7 +2459,7 @@ internal fun MediaDetailsScreen(
                 val episodeTitle =
                     if (namedTitle != null && video.episode != null) "${video.episode}. $namedTitle"
                     else video.displayTitle
-                Column(Modifier.fillMaxWidth().padding(vertical = 10.dp, horizontal = PageGutter)) {
+                Column(Modifier.fillMaxWidth().padding(start = PageGutter, end = PageGutter, top = 10.dp, bottom = 8.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth().combinedClickable(
                             onClickLabel = "Play ${video.displayTitle}",
@@ -2529,7 +2527,7 @@ internal fun MediaDetailsScreen(
                                     maxLines = 2,
                                     color = Color(0xFFB4B4BC),
                                     style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 17.sp),
-                                    modifier = Modifier.padding(top = 4.dp),
+                                    modifier = Modifier.padding(top = 6.dp),
                                 )
                             }
                             video.released?.let { released ->
@@ -3574,7 +3572,7 @@ private fun StreamSelectionScreen(
                     }
                     if (heroWithLogo) Column(
                         // The extra bottom space stands in for the genres line details shows, so the logo lands at the same height.
-                        Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(start = PageGutter, end = PageGutter, bottom = 36.dp),
+                        Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(start = PageGutter, end = PageGutter, bottom = 42.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(16.dp),
                     ) {
@@ -3690,7 +3688,7 @@ private fun StreamSelectionScreen(
                 // Sits right under the filters so the empty state reads as part of the page, not a separate screen.
                 // Centered under the centered title, so the page keeps one axis.
                 Column(
-                    Modifier.fillMaxWidth().padding(start = PageGutter, end = PageGutter, top = 24.dp),
+                    Modifier.fillMaxWidth().padding(start = PageGutter, end = PageGutter, top = 8.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
@@ -3700,7 +3698,7 @@ private fun StreamSelectionScreen(
                         fontWeight = FontWeight.SemiBold,
                     )
                     Text(
-                        error ?: "None of your add-ons returned a source for this title.",
+                        error ?: "No add-on returned a source for this title.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 20.sp, lineBreak = androidx.compose.ui.text.style.LineBreak.Heading),
                         textAlign = TextAlign.Center,
@@ -4056,9 +4054,10 @@ internal fun conduitSwitchColors() = SwitchDefaults.colors(
     checkedThumbColor = Color.White,
     checkedTrackColor = MaterialTheme.colorScheme.primary,
     checkedBorderColor = Color.Transparent,
-    uncheckedTrackColor = Color(0xFF3F3F46),
-    uncheckedBorderColor = Color.Transparent,
-    uncheckedThumbColor = Color(0xFFA1A1AA),
+    // Off reads as "off", not "disabled": an outlined track with a light thumb.
+    uncheckedTrackColor = Color(0xFF27272A),
+    uncheckedBorderColor = Color(0xFF52525B),
+    uncheckedThumbColor = Color(0xFFD4D4D8),
 )
 
 @Composable
