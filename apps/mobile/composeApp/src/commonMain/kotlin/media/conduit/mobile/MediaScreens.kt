@@ -2383,7 +2383,8 @@ internal fun MediaDetailsScreen(
                 }
                 // Secondary actions are quiet icon-over-label buttons so Play stays the only heavy control.
                 // Fixed-width slots centered as a group, so two or three actions keep the same rhythm.
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(24.dp, Alignment.CenterHorizontally)) {
+                // Drawn 8dp up so they sit with Play, leaving the larger gap before the synopsis.
+                Row(Modifier.fillMaxWidth().offset(y = (-8).dp), horizontalArrangement = Arrangement.spacedBy(24.dp, Alignment.CenterHorizontally)) {
                     DetailAction(
                         label = if (saved) "Saved" else "Library",
                         icon = if (saved) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder,
@@ -2470,7 +2471,7 @@ internal fun MediaDetailsScreen(
                             )
                         }
                     }
-                    Spacer(Modifier.height(16.dp))
+                    Spacer(Modifier.height(20.dp))
                 }
             }
             val seasonVideos = videos
@@ -2486,7 +2487,7 @@ internal fun MediaDetailsScreen(
                 val episodeTitle =
                     if (namedTitle != null && video.episode != null) "${video.episode}. $namedTitle"
                     else video.displayTitle
-                Column(Modifier.fillMaxWidth().padding(start = PageGutter, end = PageGutter, top = 10.dp, bottom = 8.dp)) {
+                Column(Modifier.fillMaxWidth().padding(start = PageGutter, end = PageGutter, top = 6.dp, bottom = 4.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth().combinedClickable(
                             onClickLabel = "Play ${video.displayTitle}",
@@ -2614,7 +2615,7 @@ internal fun MediaDetailsScreen(
                                     contentDescription = details.name,
                                     contentScale = ContentScale.Fit,
                                     colorFilter = titleLogoFilter,
-                                    modifier = Modifier.fillMaxWidth(.72f).heightIn(max = 38.dp),
+                                    modifier = Modifier.fillMaxWidth(.5f).heightIn(max = 28.dp),
                                 )
                             } else {
                                 Text(
@@ -3140,12 +3141,14 @@ private fun WatchableSeasonChip(
 /** Year, runtime, and a neutral IMDb rating on one line; shared by details and streams so they match. */
 @Composable
 private fun TitleFactsRow(facts: List<String>, rating: String?, onRatingClick: (() -> Unit)?) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+    // 4dp is about one space at 14sp, so the dot before the rating spaces like the ones in the text.
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         if (facts.isNotEmpty()) Text(
-            facts.joinToString(" · ") + if (rating == null) "" else " ·",
+            facts.joinToString(" · "),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.bodyMedium,
         )
+        if (facts.isNotEmpty() && rating != null) Text("·", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
         // A neutral rating instead of IMDb's yellow badge, so amber stays reserved for Play.
         rating?.let {
             Row(
@@ -3982,7 +3985,7 @@ internal fun ProfileSettingsScreen(
                 ProfileAvatar(activeProfile, 44, Modifier.clip(CircleShape).clickable { route = ProfileRoute.Overview })
                 Spacer(Modifier.width(14.dp))
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(activeProfile?.name ?: "Profile", style = PageTitleStyle)
+                    Text(activeProfile?.name ?: "Profile", style = PageTitleStyle.copy(fontSize = 22.sp, lineHeight = 28.sp), fontWeight = FontWeight.SemiBold)
                     Text(state.endpoint?.label.orEmpty(), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
                 }
             }
@@ -5013,6 +5016,7 @@ private fun AddonManagerScreen(
                 TextField(
                     manifestUrl, { manifestUrl = it },
                     modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Manifest URL") },
                     placeholder = { Text("https://…/manifest.json") },
                     singleLine = true,
                     shape = RoundedCornerShape(12.dp),

@@ -34,8 +34,8 @@ internal actual fun PlatformBottomNavigation(
             .then(if (classic) Modifier else Modifier.navigationBarsPadding())
             .then(
                 if (classic) Modifier.fillMaxWidth()
-                else if (compact) Modifier.padding(horizontal = 40.dp, vertical = 10.dp).fillMaxWidth()
-                else Modifier.padding(horizontal = 14.dp, vertical = 10.dp).fillMaxWidth(),
+                else if (compact) Modifier.padding(start = 40.dp, end = 40.dp, top = 10.dp, bottom = 6.dp).fillMaxWidth()
+                else Modifier.padding(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 6.dp).fillMaxWidth(),
             ),
     ) {
         Row(

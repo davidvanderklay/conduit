@@ -449,7 +449,12 @@ private fun RecoveryCodesScreen(codes: List<String>, onSaved: () -> Unit) {
                         if (index > 0) HorizontalDivider(thickness = 1.dp, color = Color.White.copy(alpha = .06f))
                         Row(Modifier.fillMaxWidth().height(44.dp).padding(end = 2.dp), verticalAlignment = Alignment.CenterVertically) {
                             Text(code, style = MaterialTheme.typography.bodyLarge, fontFamily = FontFamily.Monospace, color = Color.White, modifier = Modifier.weight(1f))
-                            IconButton(onClick = { clipboard.setText(AnnotatedString(code)) }) { Icon(Icons.Rounded.ContentCopy, "Copy code", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp)) }
+                            // The copied row shows a check for a moment, so you can track which code you took.
+                            var copied by remember(code) { mutableStateOf(false) }
+                            LaunchedEffect(copied) { if (copied) { kotlinx.coroutines.delay(1500); copied = false } }
+                            IconButton(onClick = { clipboard.setText(AnnotatedString(code)); copied = true }) {
+                                Icon(if (copied) Icons.Rounded.Check else Icons.Rounded.ContentCopy, if (copied) "Code copied" else "Copy code", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
+                            }
                         }
                     }
                 }
@@ -3039,7 +3044,7 @@ private fun MainTopBar(
                     HorizontalDivider(Modifier.padding(vertical = 4.dp), color = Color.White.copy(.06f))
                     DropdownMenuItem(
                         modifier = Modifier.padding(horizontal = 6.dp).clip(RoundedCornerShape(12.dp)),
-                        text = { Text("Log out", style = MenuLabelStyle) },
+                        text = { Text("Sign out", style = MenuLabelStyle) },
                         leadingIcon = { Icon(Icons.AutoMirrored.Rounded.Logout, null, Modifier.size(20.dp)) },
                         onClick = { profileMenuOpen = false; onSignOut() },
                     )
