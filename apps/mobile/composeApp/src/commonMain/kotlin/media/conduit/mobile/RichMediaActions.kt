@@ -740,3 +740,7 @@ private fun ActionRow(label: String, icon: androidx.compose.ui.graphics.vector.I
 
 /** A running series' "2022–" reads as unfinished on a one-line caption; shelves show just the start year. */
 internal fun shelfCaption(caption: String): String = caption.trimEnd().removeSuffix("–").removeSuffix("-").trimEnd()
+
+/** On a details meta line a running series reads "2025–present"; finished ranges and single years pass through. */
+internal fun detailYears(releaseInfo: String): String =
+    releaseInfo.trimEnd().let { if (it.endsWith("–") || it.endsWith("-")) "${it.dropLast(1).trimEnd()}–present" else it }

@@ -30,8 +30,8 @@ private fun conduitColors(amoledBlack: Boolean) = darkColorScheme(
     surfaceContainerLow = Color(0xFF111113),
     // On pure black, the default container blooms; AMOLED uses a slightly darker one.
     surfaceContainer = if (amoledBlack) Color(0xFF121214) else Color(0xFF18181B),
-    surfaceContainerHigh = Color(0xFF202023),
-    surfaceContainerHighest = Color(0xFF27272A),
+    surfaceContainerHigh = if (amoledBlack) Color(0xFF1A1A1D) else Color(0xFF202023),
+    surfaceContainerHighest = if (amoledBlack) Color(0xFF222225) else Color(0xFF27272A),
     outline = Color(0xFF3F3F46),
     // Default dividers use this; keep it zinc instead of Material's purple-gray.
     outlineVariant = Color(0xFF27272A),

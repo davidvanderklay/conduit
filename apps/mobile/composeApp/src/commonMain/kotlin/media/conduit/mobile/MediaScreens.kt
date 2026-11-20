@@ -489,12 +489,14 @@ internal fun SearchDiscoverScreen(
         if (query.isBlank()) {
             Row(
                 Modifier.fillMaxWidth().padding(start = PageGutter, end = PageGutter, top = 2.dp, bottom = 2.dp),
-                horizontalArrangement = Arrangement.spacedBy(20.dp),
+                // Three equal slots with the grid's 10dp gutter, so each filter sits over a column.
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 CompactFilterMenu(
                     value = typePluralLabel(type),
                     options = types.map { it to typePluralLabel(it) },
                     onSelect = { onSelectionChange(DiscoverSelection(type = it)) },
+                    modifier = Modifier.weight(1f),
                 )
                 CompactFilterMenu(
                     value = selected?.name ?: "Content",
@@ -507,7 +509,7 @@ internal fun SearchDiscoverScreen(
                         val next = typeCatalogs.firstOrNull { "${it.addonId}:${it.id}" == key } ?: return@CompactFilterMenu
                         onSelectionChange(DiscoverSelection(next.addonId, type, next.id))
                     },
-                    modifier = Modifier.weight(1f, fill = false),
+                    modifier = Modifier.weight(1f),
                 )
                 CompactFilterMenu(
                     value = genre ?: "All genres",
@@ -517,7 +519,7 @@ internal fun SearchDiscoverScreen(
                     },
                     enabled = selected?.supportsGenre == true,
                     onSelect = { onSelectionChange(normalizedSelection.copy(genre = it.ifBlank { null })) },
-                    modifier = Modifier.weight(1f, fill = false),
+                    modifier = Modifier.weight(1f),
                 )
             }
             when {
@@ -2174,7 +2176,7 @@ internal fun MediaDetailsScreen(
             StreamSelectionScreen(
                 title = meta?.name ?: item.name,
                 logo = meta?.logo?.takeIf(String::isNotBlank),
-                facts = listOfNotNull(meta?.releaseInfo ?: meta?.released?.take(4), meta?.runtime?.let(::compactRuntime))
+                facts = listOfNotNull((meta?.releaseInfo ?: meta?.released?.take(4))?.let(::detailYears), meta?.runtime?.let(::compactRuntime))
                     .map(String::trim).filter(String::isNotBlank),
                 rating = meta?.imdbRating?.trim()?.takeIf(String::isNotBlank),
                 genres = meta?.genres.orEmpty().map(String::trim).filter(String::isNotBlank).distinct(),
@@ -2263,7 +2265,7 @@ internal fun MediaDetailsScreen(
         id.length > 2 && id.startsWith("tt") && id.drop(2).all(Char::isDigit)
     }
     val metadataFacts = listOfNotNull(
-        details?.releaseInfo ?: details?.released?.take(4),
+        (details?.releaseInfo ?: details?.released?.take(4))?.let(::detailYears),
         details?.runtime?.let(::compactRuntime),
         details?.contentRating,
     ).map(String::trim).filter(String::isNotBlank)
@@ -2490,10 +2492,10 @@ internal fun MediaDetailsScreen(
                             },
                         ),
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Box(
                             Modifier
-                                .padding(top = 2.dp)
                                 .width(120.dp)
                                 .aspectRatio(16f / 9f)
                                 .clip(RoundedCornerShape(8.dp))
@@ -2638,7 +2640,7 @@ internal fun MediaDetailsScreen(
                     }
                 }
                 val fadeColor = MaterialTheme.colorScheme.background
-                Box(Modifier.fillMaxWidth().height(40.dp).background(Brush.verticalGradient(0f to fadeColor, .3f to fadeColor, .65f to fadeColor.copy(alpha = .75f), 1f to Color.Transparent)))
+                Box(Modifier.fillMaxWidth().height(24.dp).background(Brush.verticalGradient(0f to fadeColor, .5f to fadeColor.copy(alpha = .45f), 1f to Color.Transparent)))
             }
         } else {
             MobileBackButton(

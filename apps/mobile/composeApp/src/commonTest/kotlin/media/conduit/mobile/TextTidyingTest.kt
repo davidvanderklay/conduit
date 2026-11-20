@@ -24,4 +24,11 @@ class TextTidyingTest {
         assertEquals("2022", shelfCaption("2022–"))
         assertEquals("2019–2023", shelfCaption("2019–2023"))
     }
+
+    @Test
+    fun detailYearsSpellsOutRunningSeries() {
+        assertEquals("2025–present", detailYears("2025–"))
+        assertEquals("2019–2023", detailYears("2019–2023"))
+        assertEquals("2026", detailYears("2026"))
+    }
 }
