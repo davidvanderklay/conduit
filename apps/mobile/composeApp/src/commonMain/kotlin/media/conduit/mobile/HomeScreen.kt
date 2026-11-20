@@ -305,7 +305,7 @@ private fun FeatureCard(item: CatalogItem, onClick: () -> Unit, onActions: () ->
                         colorFilter = if (logoAnalysis?.dark == true) androidx.compose.ui.graphics.ColorFilter.tint(Color.White) else null,
                         onSuccess = { logoAnalysis = runCatching { it.analyzeLogo() }.getOrNull() },
                         alignment = Alignment.BottomStart,
-                        modifier = Modifier.trimLogoInsets(logoAnalysis).fillMaxWidth(.7f).heightIn(min = 24.dp, max = 48.dp),
+                        modifier = Modifier.trimLogoInsets(logoAnalysis).fillMaxWidth(.72f).heightIn(max = 48.dp),
                     )
                 } else {
                     Text(item.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)

@@ -2162,8 +2162,11 @@ internal fun MediaDetailsScreen(
             StreamSelectionScreen(
                 title = meta?.name ?: item.name,
                 logo = meta?.logo?.takeIf(String::isNotBlank),
-                facts = listOfNotNull(meta?.releaseInfo ?: meta?.released?.take(4), meta?.runtime?.let(::compactRuntime))
-                    .map(String::trim).filter(String::isNotBlank).joinToString("  ·  "),
+                facts = listOfNotNull(
+                    meta?.releaseInfo ?: meta?.released?.take(4),
+                    meta?.runtime?.let(::compactRuntime),
+                    meta?.imdbRating?.trim()?.takeIf(String::isNotBlank)?.let { "★ $it IMDb" },
+                ).map(String::trim).filter(String::isNotBlank).joinToString("  ·  "),
                 artwork = meta?.background ?: meta?.poster ?: item.background ?: item.poster,
                 episode = selectedVideo,
                 streams = streams.orEmpty(),
@@ -2237,6 +2240,14 @@ internal fun MediaDetailsScreen(
                 detailsListState.firstVisibleItemScrollOffset >= detailHeaderCollapseOffset
         }
     }
+    // The in-list season tabs are item 3 (hero, body, spacer, tabs); pin a copy once they pass under the bar.
+    val seasonPinThresholdPx = with(LocalDensity.current) { (WindowInsets.statusBars.getTop(this).toDp() + 58.dp).roundToPx() }
+    val seasonTabsPinned by remember(detailsListState, seasonPinThresholdPx) {
+        derivedStateOf {
+            val tabs = detailsListState.layoutInfo.visibleItemsInfo.firstOrNull { it.key == "season-chips" }
+            if (tabs != null) tabs.offset < seasonPinThresholdPx else detailsListState.firstVisibleItemIndex > 3
+        }
+    }
     val imdbId = listOfNotNull(details?.id, item.id).firstOrNull { id ->
         id.length > 2 && id.startsWith("tt") && id.drop(2).all(Char::isDigit)
     }
@@ -2297,13 +2308,13 @@ internal fun MediaDetailsScreen(
                         },
                     )
                 }
+                // Facts on one line; a series adds its genres on a quieter second line, 4dp below.
+                Column(horizontalAlignment = if (titleLogo != null) Alignment.CenterHorizontally else Alignment.Start, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    // Series list their genres here; their clickable credits table sits after the episodes.
-                    val heroFacts = if (details?.videos.isNullOrEmpty()) metadataFacts
-                    else metadataFacts + listOfNotNull(details?.genres?.map(String::trim)?.filter(String::isNotBlank)?.distinct()?.take(3)?.takeIf { it.isNotEmpty() }?.joinToString(", "))
+                    val heroFacts = metadataFacts
                     heroFacts.takeIf { it.isNotEmpty() }?.let { facts ->
                         Text(
                             facts.joinToString("  ·  ") + if (details?.imdbRating.isNullOrBlank()) "" else "  ·",
@@ -2326,6 +2337,12 @@ internal fun MediaDetailsScreen(
                             Text("IMDb", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                         }
                     }
+                }
+                if (!details?.videos.isNullOrEmpty()) {
+                    details?.genres?.map(String::trim)?.filter(String::isNotBlank)?.distinct()?.takeIf { it.isNotEmpty() }?.let { genres ->
+                        Text(genres.joinToString(", "), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp))
+                    }
+                }
                 }
                 }
             }
@@ -2437,7 +2454,7 @@ internal fun MediaDetailsScreen(
         details?.videos?.takeIf { it.isNotEmpty() }?.let { videos ->
             val seasons = detailSeasons
             item(key = "season-selector-spacing") {
-                Spacer(Modifier.height(24.dp))
+                Spacer(Modifier.height(12.dp))
             }
             item(key = "season-chips") {
                 Column {
@@ -2547,7 +2564,7 @@ internal fun MediaDetailsScreen(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 2,
                                     overflow = TextOverflow.Ellipsis,
-                                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 16.sp),
+                                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 17.sp),
                                     modifier = Modifier.padding(top = 4.dp),
                                 )
                             }
@@ -2556,7 +2573,7 @@ internal fun MediaDetailsScreen(
                                     episodeReleaseDateLabel(released) ?: released,
                                     color = TertiaryText,
                                     style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp, lineHeight = 14.sp),
-                                    modifier = Modifier.padding(top = 2.dp),
+                                    modifier = Modifier.padding(top = 4.dp),
                                 )
                             }
                         }
@@ -2624,8 +2641,30 @@ internal fun MediaDetailsScreen(
                         }
                     }
                 }
+                // Once the in-list season tabs scroll under the bar, a pinned copy keeps the season in view.
+                if (seasonTabsPinned && detailSeasons.size > 1) {
+                    val pinnedSeasonState = rememberLazyListState()
+                    LazyRow(
+                        state = pinnedSeasonState,
+                        modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background).padding(bottom = 4.dp),
+                        contentPadding = PaddingValues(horizontal = PageGutter),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        items(detailSeasons) { season ->
+                            WatchableSeasonChip(
+                                selected = selectedSeason == season,
+                                label = if (season == 0) "Specials" else "Season $season",
+                                onClick = {
+                                    detailsSeasonManuallySelected = true
+                                    selectedSeason = season
+                                },
+                                onLongClick = {},
+                            )
+                        }
+                    }
+                }
                 val fadeColor = MaterialTheme.colorScheme.background
-                Box(Modifier.fillMaxWidth().height(20.dp).background(Brush.verticalGradient(listOf(fadeColor, Color.Transparent))))
+                Box(Modifier.fillMaxWidth().height(24.dp).background(Brush.verticalGradient(0f to fadeColor, .35f to fadeColor, 1f to Color.Transparent)))
             }
         } else {
             MobileBackButton(
@@ -3134,7 +3173,7 @@ private fun DetailAction(
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Icon(icon, null, tint = iconColor, modifier = Modifier.size(22.dp))
-        Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelMedium.copy(fontSize = 12.sp, fontWeight = FontWeight.Medium), maxLines = 1)
+        Text(label, color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelMedium.copy(fontSize = 12.sp, fontWeight = FontWeight.Medium), maxLines = 1)
     }
 }
 
@@ -3560,7 +3599,7 @@ private fun StreamSelectionScreen(
                                 alignment = Alignment.BottomCenter,
                                 colorFilter = if (logoAnalysis?.dark == true) ColorFilter.tint(Color.White) else null,
                                 onSuccess = { logoAnalysis = runCatching { it.analyzeLogo() }.getOrNull() },
-                                modifier = Modifier.trimLogoInsets(logoAnalysis).fillMaxWidth(.62f).heightIn(max = 96.dp).padding(bottom = 16.dp),
+                                modifier = Modifier.trimLogoInsets(logoAnalysis).fillMaxWidth(.62f).heightIn(max = 96.dp).padding(bottom = 20.dp),
                             )
                         } else {
                             Text(title, style = if (collapsed) MaterialTheme.typography.titleMedium else PageTitleStyle, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -3658,8 +3697,9 @@ private fun StreamSelectionScreen(
                     Text(
                         error ?: "None of your add-ons returned a source for this title.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 20.sp, lineBreak = androidx.compose.ui.text.style.LineBreak.Heading),
                         textAlign = TextAlign.Center,
+                        modifier = Modifier.widthIn(max = 320.dp),
                     )
                     // Retry, or go fix the cause: streams come from add-ons.
                     Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -3915,14 +3955,14 @@ internal fun ProfileSettingsScreen(
         // One grouped surface per section, rows split by hairlines, matching the settings sub-pages.
         visibleSections.forEach { section ->
             item(key = "section-${section.title}") {
-                Column(Modifier.padding(top = 20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(Modifier.padding(top = if (section == visibleSections.first()) 8.dp else 20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(section.title, style = SectionLabelStyle)
                     Surface(color = SettingsGroupColor, shape = RoundedCornerShape(12.dp)) {
                         Column {
                             section.entries.forEachIndexed { index, entry ->
                                 if (index > 0) HorizontalDivider(Modifier.padding(start = 54.dp), color = Color.White.copy(.06f))
                                 Row(
-                                    Modifier.fillMaxWidth().clickable { openEntry(entry.title) }.heightIn(min = 52.dp).padding(horizontal = 16.dp, vertical = 8.dp),
+                                    Modifier.fillMaxWidth().clickable { openEntry(entry.title) }.heightIn(min = 48.dp).padding(horizontal = 16.dp, vertical = 6.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
                                     // Single-line rows, like Infuse; descriptions still feed settings search.
@@ -4971,7 +5011,8 @@ private fun AddonManagerScreen(
                     run {
                         Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 12.dp, bottom = 12.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Surface(shape = RoundedCornerShape(12.dp), color = Color.White.copy(.06f), modifier = Modifier.size(40.dp)) {
+                                // A real logo gets a tile; without one, a bare glyph avoids decorative chrome.
+                                Surface(shape = RoundedCornerShape(12.dp), color = if (logo.isNullOrBlank()) Color.Transparent else Color.White.copy(.06f), modifier = Modifier.size(40.dp)) {
                                     // Wide wordmark logos are unreadable in a square tile, so they fall back to the add-on glyph.
                                     var logoFits by remember(logo) { mutableStateOf(!logo.isNullOrBlank()) }
                                     if (logoFits) AsyncImage(logo, "$name logo", Modifier.fillMaxSize(), contentScale = ContentScale.Crop, onSuccess = { state ->
