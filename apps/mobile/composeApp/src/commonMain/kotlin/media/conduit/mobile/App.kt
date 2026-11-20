@@ -1418,11 +1418,26 @@ private fun AppShell(
             AppDestination.ContinueWatching,
         )
         if (tv == null && topChromeVisible) {
-            // Static fade so scrolled content recedes under the controls instead of reading through them.
+            // Solid behind the controls; once the current tab has scrolled, a static fade below them lets
+            // content recede instead of being cut. At rest the fade stays off so headings and filters stay crisp.
             val background = MaterialTheme.colorScheme.background
+            val topScrolled by remember(state.destination, browseQuery) {
+                derivedStateOf {
+                    when (state.destination) {
+                        AppDestination.Home -> homeListState.firstVisibleItemIndex > 0 || homeListState.firstVisibleItemScrollOffset > 0
+                        AppDestination.Search -> if (browseQuery.isBlank()) {
+                            discoverGridState.firstVisibleItemIndex > 0 || discoverGridState.firstVisibleItemScrollOffset > 0
+                        } else {
+                            searchListState.firstVisibleItemIndex > 0 || searchListState.firstVisibleItemScrollOffset > 0
+                        }
+                        AppDestination.Library -> libraryGridState.firstVisibleItemIndex > 0 || libraryGridState.firstVisibleItemScrollOffset > 0
+                        else -> false
+                    }
+                }
+            }
             Column(Modifier.align(Alignment.TopCenter).fillMaxWidth()) {
                 Box(Modifier.fillMaxWidth().background(background).statusBarsPadding().height(64.dp))
-                Box(Modifier.fillMaxWidth().height(40.dp).background(Brush.verticalGradient(0f to background, .45f to background.copy(alpha = .75f), 1f to Color.Transparent)))
+                if (topScrolled) Box(Modifier.fillMaxWidth().height(40.dp).background(Brush.verticalGradient(0f to background, .45f to background.copy(alpha = .75f), 1f to Color.Transparent)))
             }
             MainTopBar(
                 profiles = profiles,
