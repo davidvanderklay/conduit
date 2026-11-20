@@ -235,14 +235,14 @@ internal fun Shelf(title: String, onSeeAll: (() -> Unit)? = null, source: String
         // Title, source, and "See all" share the title's baseline.
         Row(Modifier.fillMaxWidth().heightIn(min = 28.dp).padding(start = PageGutter, end = 6.dp)) {
             Row(Modifier.weight(1f).alignByBaseline()) {
-                // "Popular · Movies": the catalog name anchors; the type after the dot is a weight lighter.
+                // "Popular · Movies": the catalog name anchors in white; the type after the dot is lighter and gray.
                 Text(
                     title.split(" · ", limit = 2).let { parts ->
                         androidx.compose.ui.text.buildAnnotatedString {
                             withStyle(androidx.compose.ui.text.SpanStyle(fontWeight = FontWeight.Bold)) { append(parts[0]) }
                             parts.getOrNull(1)?.let { type ->
                                 withStyle(androidx.compose.ui.text.SpanStyle(color = TertiaryText)) { append(" · ") }
-                                withStyle(androidx.compose.ui.text.SpanStyle(fontWeight = FontWeight.Medium)) { append(type) }
+                                withStyle(androidx.compose.ui.text.SpanStyle(fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant)) { append(type) }
                             }
                         }
                     },

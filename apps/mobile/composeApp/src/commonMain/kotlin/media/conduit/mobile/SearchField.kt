@@ -1,6 +1,7 @@
 package media.conduit.mobile
 
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -56,10 +57,12 @@ internal fun PillSearchField(
                 singleLine = true,
                 visualTransformation = VisualTransformation.None,
                 interactionSource = interaction,
-                placeholder = { Text(placeholder, maxLines = 1) },
-                leadingIcon = { Icon(Icons.Rounded.Search, null, Modifier.size(20.dp)) },
+                // The hint is a step quieter than an entered query.
+                placeholder = { Text(placeholder, maxLines = 1, style = MaterialTheme.typography.bodyMedium) },
+                // Nudged 2dp so the glyph lines up with the 16dp-inset row icons in settings cards below.
+                leadingIcon = { Icon(Icons.Rounded.Search, null, Modifier.offset(x = 2.dp).size(20.dp)) },
                 trailingIcon = if (value.isNotBlank()) {{
-                    IconButton(onClick = { onValueChange("") }) { Icon(Icons.Rounded.Close, "Clear") }
+                    IconButton(onClick = { onValueChange("") }) { Icon(Icons.Rounded.Close, "Clear", Modifier.size(20.dp)) }
                 }} else null,
                 colors = colors,
                 contentPadding = OutlinedTextFieldDefaults.contentPadding(top = 0.dp, bottom = 0.dp),

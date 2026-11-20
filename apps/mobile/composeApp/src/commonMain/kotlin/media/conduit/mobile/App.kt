@@ -453,7 +453,7 @@ private fun RecoveryCodesScreen(codes: List<String>, onSaved: () -> Unit) {
                             var copied by remember(code) { mutableStateOf(false) }
                             LaunchedEffect(copied) { if (copied) { kotlinx.coroutines.delay(1500); copied = false } }
                             IconButton(onClick = { clipboard.setText(AnnotatedString(code)); copied = true }) {
-                                Icon(if (copied) Icons.Rounded.Check else Icons.Rounded.ContentCopy, if (copied) "Code copied" else "Copy code", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
+                                Icon(if (copied) Icons.Rounded.Check else Icons.Rounded.ContentCopy, if (copied) "Code copied" else "Copy code", tint = if (copied) Color.White else Color(0xFF71717A), modifier = Modifier.size(20.dp))
                             }
                         }
                     }

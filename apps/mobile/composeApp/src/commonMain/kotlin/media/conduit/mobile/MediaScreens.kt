@@ -188,12 +188,12 @@ internal fun MobileLibraryScreen(
                 )
                 Spacer(Modifier.weight(1f))
                 // Page tools sit together as one cluster; the glyph of the last one lands on the gutter.
-                Row(Modifier.offset(x = 12.dp)) {
+                Row(Modifier.offset(x = 14.dp)) {
                     IconButton(onClick = onOpenHistory, modifier = Modifier.size(44.dp)) {
-                        Icon(Icons.Outlined.History, stringResource(Res.string.history_open), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(24.dp))
+                        Icon(Icons.Outlined.History, stringResource(Res.string.history_open), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(22.dp))
                     }
                     IconButton(onClick = onOpenCalendar, modifier = Modifier.size(44.dp)) {
-                        Icon(Icons.Outlined.CalendarMonth, stringResource(Res.string.calendar_open), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(22.dp))
+                        Icon(Icons.Outlined.CalendarMonth, stringResource(Res.string.calendar_open), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
                     }
                 }
             }
@@ -2369,8 +2369,8 @@ internal fun MediaDetailsScreen(
                             resumeExplicitly = playbackStartPosition(progressForVideoId(playTarget.video?.id ?: item.id)) > 0L,
                         )
                     },
-                    // The most air sits above Play (about 20dp from genres), so it starts the actions block.
-                    modifier = Modifier.padding(top = 6.dp).fillMaxWidth().height(PrimaryButtonHeight),
+                    // The most air sits above Play (about 24dp from genres), so it starts the actions block.
+                    modifier = Modifier.padding(top = 10.dp).fillMaxWidth().height(PrimaryButtonHeight),
                     shape = RoundedCornerShape(12.dp),
                 ) {
                     Icon(Icons.Rounded.PlayArrow, null); Spacer(Modifier.width(8.dp)); Text(playTarget.label, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
@@ -2560,7 +2560,6 @@ internal fun MediaDetailsScreen(
                                     episodeReleaseDateLabel(released) ?: released,
                                     color = TertiaryText,
                                     style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 16.sp),
-                                    modifier = Modifier.padding(top = 2.dp),
                                 )
                             }
                             (video.overview ?: video.description)?.let(::tidyTruncatedText)?.takeIf(String::isNotBlank)?.let {
@@ -2569,7 +2568,7 @@ internal fun MediaDetailsScreen(
                                     maxLines = 2,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 17.sp),
-                                    modifier = Modifier.padding(top = 2.dp),
+                                    modifier = Modifier.padding(top = 4.dp),
                                 )
                             }
                         }
@@ -4002,7 +4001,7 @@ internal fun ProfileSettingsScreen(
         // One grouped surface per section, rows split by hairlines, matching the settings sub-pages.
         visibleSections.forEach { section ->
             item(key = "section-${section.title}") {
-                Column(Modifier.padding(top = if (section == visibleSections.first()) 8.dp else 20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(Modifier.padding(top = if (section == visibleSections.first()) 8.dp else 14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(section.title, style = SectionLabelStyle)
                     Surface(color = SettingsGroupColor, shape = RoundedCornerShape(12.dp)) {
                         Column {
@@ -5025,7 +5024,7 @@ private fun AddonManagerScreen(
                     trailingIcon = {
                         // "Install" lives inside the field: amber once the URL is valid, muted until then.
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                        VerticalDivider(Modifier.height(24.dp), color = MaterialTheme.colorScheme.surfaceContainerHighest)
+                        VerticalDivider(Modifier.height(28.dp), color = Color.White.copy(alpha = .10f))
                         TextButton(
                             onClick = {
                                 val url = normalizeManifestUrl(manifestUrl)

@@ -42,7 +42,7 @@ internal val ShelfTitleStyle: TextStyle
     @Composable @ReadOnlyComposable
     get() = MaterialTheme.typography.titleMedium.copy(fontSize = 19.sp, lineHeight = 24.sp, fontWeight = FontWeight.SemiBold)
 
-/** Group label above a settings group: 16sp, a size and weight step above row titles, sentence case in primary text so it reads as a heading, not an eyebrow. */
+/** Group label above a settings group: 17sp semibold, a clear step above 15sp row titles, sentence case in primary text so it reads as a heading, not an eyebrow. */
 internal val SectionLabelStyle: TextStyle
     @Composable @ReadOnlyComposable
     get() = MaterialTheme.typography.labelLarge.copy(fontSize = 17.sp, lineHeight = 22.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
