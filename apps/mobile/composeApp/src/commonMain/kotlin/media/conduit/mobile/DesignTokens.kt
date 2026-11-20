@@ -3,6 +3,12 @@ package media.conduit.mobile
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.material3.Text
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
@@ -59,3 +65,56 @@ internal val CreditTextStyle: TextStyle
 internal val SettingsTitleStyle: TextStyle
     @Composable @ReadOnlyComposable
     get() = MaterialTheme.typography.bodyLarge.copy(fontSize = 15.sp, lineHeight = 20.sp, fontWeight = FontWeight.Medium)
+
+/**
+ * Cleans up a synopsis an add-on already cut short ("...when opposing forces col..."): drops the
+ * partial word and trailing punctuation and ends with a single "…", so it never ends mid-word.
+ */
+internal fun tidyTruncatedText(text: String): String {
+    val trimmed = text.trim()
+    val body = when {
+        trimmed.endsWith("...") -> trimmed.removeSuffix("...")
+        trimmed.endsWith("…") -> trimmed.removeSuffix("…")
+        else -> return trimmed
+    }.trimEnd()
+    val wholeWords = if (body.lastOrNull()?.isLetterOrDigit() == true && ' ' in body) body.substringBeforeLast(' ') else body
+    return wholeWords.trimEnd(' ', ',', ';', ':', '.', '-') + "…"
+}
+
+/** Joins names so each one wraps as a unit ("New Zealand" never splits across lines). */
+internal fun unbreakableNames(names: String): String =
+    names.split(",").joinToString(", ") { it.trim().replace(' ', ' ') }
+
+/**
+ * Text limited to [maxLines] whose ellipsis always sits right after the last whole word, with no gap
+ * or stray punctuation ("goes…", never "goes …" or "strategy.…"). It lays out once, cuts at the last
+ * visible line's end, and drops one more word if the ellipsis still doesn't fit.
+ */
+@Composable
+internal fun TidyEllipsisText(
+    text: String,
+    maxLines: Int,
+    style: TextStyle,
+    color: androidx.compose.ui.graphics.Color,
+    modifier: androidx.compose.ui.Modifier = androidx.compose.ui.Modifier,
+) {
+    var display by remember(text, maxLines) { mutableStateOf(text) }
+    Text(
+        display,
+        style = style,
+        color = color,
+        maxLines = maxLines,
+        overflow = TextOverflow.Clip,
+        modifier = modifier,
+        onTextLayout = { layout ->
+            if (!layout.hasVisualOverflow) return@Text
+            val current = display.removeSuffix("…")
+            val end = if (display == text) layout.getLineEnd(maxLines - 1, visibleEnd = true).coerceAtMost(current.length) else current.length
+            var cut = current.substring(0, end)
+            // Keep a word only if the cut fell on whitespace; otherwise it is partial. After the first pass, drop a word.
+            val cutOnBoundary = display == text && end < current.length && current[end].isWhitespace()
+            if (!cutOnBoundary && ' ' in cut.trimEnd()) cut = cut.trimEnd().substringBeforeLast(' ')
+            display = cut.trimEnd(' ', ',', ';', ':', '.', '-') + "…"
+        },
+    )
+}

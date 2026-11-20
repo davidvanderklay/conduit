@@ -527,7 +527,7 @@ internal fun SearchDiscoverScreen(
                 discoverItems.isEmpty() -> EmptyBrowseState("This catalog returned no titles.")
                 else -> LazyVerticalGrid(
                     state = gridState,
-                    columns = if (windowWidth >= 600.dp) GridCells.Adaptive(150.dp) else GridCells.Fixed(3),
+                    columns = if (windowWidth >= 600.dp) GridCells.Adaptive(150.dp) else EqualColumns(3),
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(start = PageGutter, end = PageGutter, top = 4.dp, bottom = 112.dp),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -569,7 +569,7 @@ internal fun SearchDiscoverScreen(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(top = 8.dp, bottom = 112.dp),
-                verticalArrangement = Arrangement.spacedBy(24.dp),
+                verticalArrangement = Arrangement.spacedBy(32.dp),
             ) {
                 if (searchLoading) item {
                     // Center horizontally, about 30% down the search area.
@@ -734,7 +734,7 @@ private fun CreditRows(details: MetaItem?, onBrowse: (MobileBrowseTarget) -> Uni
         MetadataCreditLinks("Cast", details?.cast.orEmpty(), onBrowse)
         MetadataCreditLinks("Writers", details?.writer.orEmpty(), onBrowse)
         listOfNotNull(
-            details?.country?.trim()?.takeIf(String::isNotBlank)?.let { "Country" to it },
+            details?.country?.trim()?.takeIf(String::isNotBlank)?.let { "Country" to unbreakableNames(it) },
             details?.awards?.trim()?.takeIf(String::isNotBlank)?.let { "Awards" to it },
         ).forEach { (label, value) ->
             Row {
@@ -2386,7 +2386,7 @@ internal fun MediaDetailsScreen(
                         )
                     }
                 }
-                details?.description?.trim()?.takeIf(String::isNotBlank)?.let { synopsis ->
+                details?.description?.let(::tidyTruncatedText)?.takeIf(String::isNotBlank)?.let { synopsis ->
                     // Long synopses stop at four lines with a "More" link that expands in place.
                     var expanded by remember(synopsis) { mutableStateOf(false) }
                     var overflows by remember(synopsis) { mutableStateOf(false) }
@@ -2523,13 +2523,11 @@ internal fun MediaDetailsScreen(
                                 overflow = TextOverflow.Ellipsis,
                             )
                             // Title and synopsis read together; the air date trails as a footnote.
-                            // Add-ons sometimes pre-truncate with "..."; drop it so Compose's ellipsis sits against the last word.
-                            (video.overview ?: video.description)?.trim()?.removeSuffix("...")?.removeSuffix("…")?.trimEnd()?.takeIf(String::isNotBlank)?.let {
-                                Text(
+                            (video.overview ?: video.description)?.let(::tidyTruncatedText)?.takeIf(String::isNotBlank)?.let {
+                                TidyEllipsisText(
                                     it,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis,
+                                    color = Color(0xFFB4B4BC),
                                     style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 17.sp),
                                     modifier = Modifier.padding(top = 4.dp),
                                 )
@@ -2538,7 +2536,7 @@ internal fun MediaDetailsScreen(
                                 Text(
                                     episodeReleaseDateLabel(released) ?: released,
                                     color = TertiaryText,
-                                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp, lineHeight = 14.sp),
+                                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 16.sp),
                                     modifier = Modifier.padding(top = 4.dp),
                                 )
                             }
@@ -3554,58 +3552,70 @@ private fun StreamSelectionScreen(
         contentPadding = PaddingValues(bottom = 20.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
+        // With artwork and a logo, the hero matches details: same backdrop height and fade, with the logo
+        // and facts overlapping its bottom edge, so moving from details to streams keeps the title in place.
+        val heroWithLogo = artwork != null && logo != null
         artwork?.let { image ->
             item(key = "artwork") {
-                Box(Modifier.fillMaxWidth().height(250.dp + heroPullDp).clipToBounds()) {
-                    AsyncImage(
-                        image,
-                        null,
-                        Modifier.fillMaxSize().graphicsLayer {
-                            scaleX = heroScale
-                            scaleY = heroScale
-                            translationY = -heroPull.floatValue * HeroMotion.upwardTranslation
-                        },
-                        contentScale = ContentScale.Crop,
-                    )
-                    val streamBackground = MaterialTheme.colorScheme.background
-                    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Black.copy(.1f), .45f to Color.Transparent, 1f to streamBackground)))
+                Box(Modifier.fillMaxWidth().height((if (heroWithLogo) 374.dp else 226.dp) + heroPullDp)) {
+                    Box(Modifier.fillMaxWidth().height((if (heroWithLogo) 326.dp else 226.dp) + heroPullDp).clipToBounds()) {
+                        AsyncImage(
+                            image,
+                            null,
+                            Modifier.fillMaxSize().graphicsLayer {
+                                scaleX = heroScale
+                                scaleY = heroScale
+                                translationY = -heroPull.floatValue * HeroMotion.upwardTranslation
+                            },
+                            contentScale = ContentScale.Crop,
+                        )
+                        val streamBackground = MaterialTheme.colorScheme.background
+                        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Black.copy(.35f), .22f to Color.Transparent, .55f to Color.Transparent, .82f to streamBackground.copy(alpha = .5f), 1f to streamBackground)))
+                    }
+                    if (heroWithLogo) Column(
+                        Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(start = PageGutter, end = PageGutter, bottom = 8.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                    ) {
+                        var logoAnalysis by remember(logo) { mutableStateOf<LogoAnalysis?>(null) }
+                        AsyncImage(
+                            model = rememberLogoRequest(logo),
+                            contentDescription = title,
+                            contentScale = ContentScale.Fit,
+                            alignment = Alignment.BottomCenter,
+                            colorFilter = if (logoAnalysis?.dark == true) ColorFilter.tint(Color.White) else null,
+                            onSuccess = { logoAnalysis = runCatching { it.analyzeLogo() }.getOrNull() },
+                            modifier = Modifier.logoBox(logoAnalysis, .62f, 96.dp),
+                        )
+                        if (episode == null && (facts.isNotEmpty() || rating != null)) TitleFactsRow(facts, rating, onRatingClick = null)
+                    }
                 }
             }
         }
         stickyHeader(key = "stream-header") {
-            Surface(color = MaterialTheme.colorScheme.background, shadowElevation = 0.dp) {
-                // Expanded, the title sits on the page gutter under the artwork; collapsed, it clears the back button.
+            val subtitle = listOfNotNull(
+                "Choose a stream".takeIf { streams.isNotEmpty() || loading },
+                episode?.let { "S${it.season ?: 0}E${it.episode ?: 0} · ${it.displayTitle}" },
+            ).joinToString("  ·  ")
+            val refreshable = streams.isNotEmpty() && !loading
+            // Collapsed, the title clears the back button. Expanded under a logo hero, only the subtitle and
+            // refresh remain here; without one, the plain title leads.
+            if (collapsed || !heroWithLogo || subtitle.isNotEmpty() || refreshable) Surface(color = MaterialTheme.colorScheme.background, shadowElevation = 0.dp) {
                 Row(
                     Modifier.fillMaxWidth()
                         .then(if (collapsed || artwork == null) Modifier.statusBarsPadding() else Modifier)
                         .padding(start = if (collapsed || artwork == null) 56.dp else PageGutter, end = PageGutter, top = 4.dp, bottom = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    // The title leads with the same centered logo the details page shows, so the two read as one flow.
-                    val centered = !collapsed && logo != null
+                    val centered = !collapsed && heroWithLogo
                     Column(Modifier.weight(1f), horizontalAlignment = if (centered) Alignment.CenterHorizontally else Alignment.Start) {
-                        if (centered) {
-                            var logoAnalysis by remember(logo) { mutableStateOf<LogoAnalysis?>(null) }
-                            AsyncImage(
-                                model = rememberLogoRequest(logo),
-                                contentDescription = title,
-                                contentScale = ContentScale.Fit,
-                                alignment = Alignment.BottomCenter,
-                                colorFilter = if (logoAnalysis?.dark == true) ColorFilter.tint(Color.White) else null,
-                                onSuccess = { logoAnalysis = runCatching { it.analyzeLogo() }.getOrNull() },
-                                modifier = Modifier.padding(bottom = 16.dp).logoBox(logoAnalysis, .62f, 96.dp),
-                            )
-                        } else {
+                        if (collapsed || !heroWithLogo) {
                             Text(title, style = if (collapsed) MaterialTheme.typography.titleMedium else PageTitleStyle, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            if (!collapsed && episode == null && (facts.isNotEmpty() || rating != null)) TitleFactsRow(facts, rating, onRatingClick = null)
                         }
-                        if (!collapsed && episode == null && (facts.isNotEmpty() || rating != null)) TitleFactsRow(facts, rating, onRatingClick = null)
-                        val subtitle = listOfNotNull(
-                            "Choose a stream".takeIf { streams.isNotEmpty() || loading },
-                            episode?.let { "S${it.season ?: 0}E${it.episode ?: 0} · ${it.displayTitle}" },
-                        ).joinToString("  ·  ")
                         if (!collapsed && subtitle.isNotEmpty()) Text(subtitle, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
-                    if (streams.isNotEmpty() && !loading) IconButton(onClick = onRetry) {
+                    if (refreshable) IconButton(onClick = onRetry) {
                         Icon(Icons.Rounded.Refresh, "Refresh sources", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
@@ -5008,12 +5018,12 @@ private fun AddonManagerScreen(
                                 // Wide wordmark logos are unreadable in a square tile, so they fall back to the add-on glyph.
                                 var logoFits by remember(logo) { mutableStateOf(!logo.isNullOrBlank()) }
                                 // A logo that fits gets a tile; the glyph fallback stays bare to avoid decorative chrome.
-                                Surface(shape = RoundedCornerShape(12.dp), color = if (logoFits) Color.White.copy(.06f) else Color.Transparent, modifier = Modifier.size(40.dp)) {
+                                Surface(shape = RoundedCornerShape(12.dp), color = if (logoFits) Color.White.copy(.06f) else Color.Transparent, modifier = Modifier.size(if (logoFits) 40.dp else 24.dp)) {
                                     if (logoFits) AsyncImage(logo, "$name logo", Modifier.fillMaxSize(), contentScale = ContentScale.Crop, onSuccess = { state ->
                                         val size = state.painter.intrinsicSize
                                         if (size.width > 0f && size.height > 0f && size.width / size.height > 1.6f) logoFits = false
                                     }, onError = { logoFits = false })
-                                    else Icon(Icons.Outlined.Extension, null, Modifier.padding(9.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    else Icon(Icons.Outlined.Extension, null, Modifier.fillMaxSize(), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                                 Spacer(Modifier.width(12.dp))
                                 Text(name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
@@ -5033,7 +5043,7 @@ private fun AddonManagerScreen(
                             // What it does, then the technical facts, across the full card width under the title row.
                             Column(Modifier.padding(top = 6.dp, end = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Text(description, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 18.sp), maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                Text(meta, color = TertiaryText, style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp, lineHeight = 15.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(meta, color = TertiaryText, style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 16.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                         }
                     }
