@@ -2438,7 +2438,7 @@ internal fun MediaDetailsScreen(
                 // One label/value table for genres, credits, and country, with even row spacing.
                 val hasEpisodes = !details?.videos.isNullOrEmpty()
                 // Series keep credits below the episode list so seasons stay within the first screen.
-                if (!hasEpisodes) CreditRows(details, onBrowse)
+                if (!hasEpisodes) Box(Modifier.padding(top = 4.dp)) { CreditRows(details, onBrowse) }
 
             }
         }
@@ -2611,11 +2611,12 @@ internal fun MediaDetailsScreen(
                         Box(Modifier.weight(1f).height(42.dp), contentAlignment = Alignment.Center) {
                             if (titleLogo != null) {
                                 AsyncImage(
-                                    model = titleLogo,
+                                    model = rememberLogoRequest(titleLogo),
                                     contentDescription = details.name,
                                     contentScale = ContentScale.Fit,
                                     colorFilter = titleLogoFilter,
-                                    modifier = Modifier.fillMaxWidth(.5f).heightIn(max = 28.dp),
+                                    // Same visible-ink rule as the hero logo: lettering up to 22dp tall and half the width.
+                                    modifier = Modifier.logoBox(titleLogoAnalysis, .5f, 22.dp),
                                 )
                             } else {
                                 Text(
@@ -5023,6 +5024,8 @@ private fun AddonManagerScreen(
                     colors = conduitFilledFieldColors(),
                     trailingIcon = {
                         // "Install" lives inside the field: amber once the URL is valid, muted until then.
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        VerticalDivider(Modifier.height(24.dp), color = MaterialTheme.colorScheme.surfaceContainerHighest)
                         TextButton(
                             onClick = {
                                 val url = normalizeManifestUrl(manifestUrl)
@@ -5038,6 +5041,7 @@ private fun AddonManagerScreen(
                                 style = MaterialTheme.typography.labelLarge.copy(fontSize = 14.sp, fontWeight = FontWeight.Medium),
                                 color = if (installable) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .5f),
                             )
+                        }
                         }
                     },
                 )
