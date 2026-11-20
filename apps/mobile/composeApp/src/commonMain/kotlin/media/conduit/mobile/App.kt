@@ -613,18 +613,19 @@ private fun SignInScreen(
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background), contentAlignment = Alignment.Center) {
         Column(Modifier.safeContentPadding().imePadding().verticalScroll(rememberScrollState()).widthIn(max = 460.dp).fillMaxWidth().padding(horizontal = 24.dp, vertical = 28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Row(Modifier.fillMaxWidth().padding(bottom = 36.dp), verticalAlignment = Alignment.CenterVertically) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) { ConduitMark(Modifier.size(40.dp)); Text("conduit", color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) }
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) { ConduitMark(Modifier.size(36.dp), tile = false); Text("conduit", color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) }
                 Spacer(Modifier.weight(1f))
-                Surface(onClick = { showServerDialog = true }, shape = RoundedCornerShape(20.dp), color = Color(0xE61D1D20), contentColor = Color.White, border = BorderStroke(1.dp, Color.White.copy(.13f))) {
-                    Row(Modifier.padding(horizontal = 11.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Surface(onClick = { showServerDialog = true }, shape = RoundedCornerShape(10.dp), color = Color.Transparent, contentColor = Color.White) {
+                    Row(Modifier.heightIn(min = 40.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                         val serverColor = when {
                             authenticationError != null -> MaterialTheme.colorScheme.error
                             authenticationLoading -> Color(0xFFFBBF24)
                             else -> Color(0xFF34D399)
                         }
-                        Box(Modifier.size(7.dp).background(serverColor, androidx.compose.foundation.shape.CircleShape))
-                        Spacer(Modifier.width(7.dp))
-                        Text(if (endpoint == DefaultServerEndpoint) "Default" else endpoint.label, color = Color.White.copy(.86f), style = MaterialTheme.typography.labelMedium, maxLines = 1)
+                        Box(Modifier.size(6.dp).background(serverColor, androidx.compose.foundation.shape.CircleShape))
+                        Spacer(Modifier.width(8.dp))
+                        Text(if (endpoint == DefaultServerEndpoint) "Default server" else endpoint.label, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp), fontWeight = FontWeight.Medium, maxLines = 1)
+                        Icon(Icons.Rounded.KeyboardArrowDown, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
@@ -1372,11 +1373,10 @@ private fun AppShell(
         if (tv == null && topChromeVisible) {
             // Static fade so scrolled content recedes under the controls instead of reading through them.
             val background = MaterialTheme.colorScheme.background
-            Box(
-                Modifier.align(Alignment.TopCenter).fillMaxWidth()
-                    .background(Brush.verticalGradient(0f to background, .7f to background.copy(alpha = .94f), 1f to Color.Transparent))
-                    .statusBarsPadding().height(76.dp),
-            )
+            Column(Modifier.align(Alignment.TopCenter).fillMaxWidth()) {
+                Box(Modifier.fillMaxWidth().background(background).statusBarsPadding().height(64.dp))
+                Box(Modifier.fillMaxWidth().height(16.dp).background(Brush.verticalGradient(listOf(background, Color.Transparent))))
+            }
             MainTopBar(
                 profiles = profiles,
                 activeProfile = activeProfile,
@@ -1428,7 +1428,7 @@ private fun AppShell(
                 val background = MaterialTheme.colorScheme.background
                 Box(
                     Modifier.align(Alignment.BottomCenter).fillMaxWidth()
-                        .background(Brush.verticalGradient(0f to Color.Transparent, .45f to background.copy(alpha = .9f), 1f to background))
+                        .background(Brush.verticalGradient(0f to Color.Transparent, .4f to background.copy(alpha = .92f), .6f to background))
                         .navigationBarsPadding().height(if (compact) 64.dp else 92.dp),
                 )
             }
@@ -2828,7 +2828,7 @@ private fun MainTopBar(
                 modifier = Modifier.size(48.dp),
             ) {
                 Box(Modifier.padding(4.dp), contentAlignment = Alignment.Center) {
-                    ConduitMark(Modifier.fillMaxSize())
+                    ConduitMark(Modifier.fillMaxSize(), tile = false)
                 }
             }
             OutlinedTextField(
@@ -2879,8 +2879,8 @@ private fun MainTopBar(
                     modifier = Modifier
                         .width(300.dp)
                         .heightIn(max = 480.dp)
-                        .border(BorderStroke(1.dp, Color.White.copy(alpha = .13f)), RoundedCornerShape(24.dp)),
-                    shape = RoundedCornerShape(24.dp),
+                        .border(BorderStroke(1.dp, Color.White.copy(alpha = .08f)), RoundedCornerShape(16.dp)),
+                    shape = RoundedCornerShape(16.dp),
                     containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                     tonalElevation = 0.dp,
                     shadowElevation = 24.dp,

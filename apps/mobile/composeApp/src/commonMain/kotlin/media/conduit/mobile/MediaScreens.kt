@@ -71,6 +71,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import coil3.compose.AsyncImage
+import androidx.compose.ui.graphics.ColorFilter
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
@@ -572,7 +573,12 @@ internal fun SearchDiscoverScreen(
                 if (!searchLoading && results.isEmpty()) item { EmptyBrowseState("No results for “$query”.") }
                 results.forEach { catalog ->
                     item(key = "search-heading-${catalog.key}-$query") {
-                        Text(catalog.title, style = ShelfTitleStyle, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = PageGutter, end = PageGutter, top = 12.dp))
+                        Row(Modifier.padding(start = PageGutter, end = PageGutter, top = 16.dp), verticalAlignment = Alignment.Bottom) {
+                            Text(catalog.title, style = ShelfTitleStyle, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                            catalog.source?.let {
+                                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 8.dp, bottom = 2.dp))
+                            }
+                        }
                     }
                     item(key = "search-rail-${catalog.key}-$query") {
                         LazyRow(contentPadding = PaddingValues(horizontal = PageGutter), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -2180,6 +2186,8 @@ internal fun MediaDetailsScreen(
     val heroScale = 1f + (heroPull.floatValue / maxHeroPullPx) * HeroMotion.expansionScale
     val heroHeight = if (item.type == "movie") 390.dp else 350.dp
     val titleLogo = details?.logo?.takeIf(String::isNotBlank)
+    var titleLogoDark by remember(titleLogo) { mutableStateOf(false) }
+    val titleLogoFilter = if (titleLogoDark) ColorFilter.tint(Color.White) else null
     val detailHeaderCollapseOffset = with(LocalDensity.current) { (heroHeight - 72.dp).roundToPx() }
     val detailHeaderCollapsed by remember(detailsListState, detailHeaderCollapseOffset) {
         derivedStateOf {
@@ -2223,6 +2231,8 @@ internal fun MediaDetailsScreen(
                         model = titleLogo,
                         contentDescription = details.name,
                         contentScale = ContentScale.Fit,
+                        colorFilter = titleLogoFilter,
+                        onSuccess = { titleLogoDark = runCatching { it.isDarkLogo() }.getOrDefault(false) },
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
                             .offset(y = (-60).dp)
@@ -2507,8 +2517,8 @@ internal fun MediaDetailsScreen(
         }
         if (detailHeaderCollapsed) {
             Surface(
-                color = MaterialTheme.colorScheme.background.copy(alpha = .97f),
-                shadowElevation = 8.dp,
+                color = MaterialTheme.colorScheme.background,
+                shadowElevation = 0.dp,
                 modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth(),
             ) {
                 Row(
@@ -2524,6 +2534,7 @@ internal fun MediaDetailsScreen(
                                 model = titleLogo,
                                 contentDescription = details.name,
                                 contentScale = ContentScale.Fit,
+                                colorFilter = titleLogoFilter,
                                 modifier = Modifier.fillMaxWidth(.72f).heightIn(max = 38.dp),
                             )
                         } else {
@@ -3443,7 +3454,7 @@ private fun StreamSelectionScreen(
             }
         }
         stickyHeader(key = "stream-header") {
-            Surface(color = MaterialTheme.colorScheme.background.copy(alpha = .96f), shadowElevation = if (collapsed) 8.dp else 0.dp) {
+            Surface(color = MaterialTheme.colorScheme.background, shadowElevation = 0.dp) {
                 // Expanded, the title sits on the page gutter under the artwork; collapsed, it clears the back button.
                 Row(
                     Modifier.fillMaxWidth()
@@ -3932,14 +3943,14 @@ private fun AppearanceSettingsScreen(platform: PlatformInfo, preferences: Device
                 Text("Conduit dark", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
             }
             HorizontalDivider(color = Color.White.copy(.06f))
-            SettingsToggle("AMOLED black", "Use pure black backgrounds on OLED displays", preferences.amoledBlack) { update(preferences.copy(amoledBlack = it)) }
+            SettingsToggle("AMOLED black", "Pure black backgrounds for OLED screens", preferences.amoledBlack) { update(preferences.copy(amoledBlack = it)) }
             HorizontalDivider(color = Color.White.copy(.06f))
-            SettingsToggle("Reduce animations", "Use simpler transitions and motion", preferences.reduceAnimations) { update(preferences.copy(reduceAnimations = it)) }
+            SettingsToggle("Reduce animations", "Simpler transitions and motion", preferences.reduceAnimations) { update(preferences.copy(reduceAnimations = it)) }
         }
         SettingsGroup("Display") {
             SettingsAction("App language", "System default") { }
             HorizontalDivider(color = Color.White.copy(.06f))
-            SettingsAction("Navigation style", displayedNavigationStyle.description) { showNavigation = true }
+            SettingsAction("Navigation style", displayedNavigationStyle.label) { showNavigation = true }
             HorizontalDivider(color = Color.White.copy(.06f))
             SettingsAction("Navigation placement", if (preferences.railOnTablets) "Left rail" else "Bottom bar") { showPlacement = true }
         }
@@ -4063,15 +4074,15 @@ internal fun PlaybackSettingsScreen(platform: PlatformInfo, preferences: DeviceP
     SettingsPage("Playback", onBack, modifier) {
         SettingsGroup("Player") {
             if (android) {
-                SettingsToggle("Use external player", ExternalPlayerDescription, preferences.externalPlayer) { update(preferences.copy(externalPlayer = it)) }
+                SettingsToggle("Use external player", "Open direct sources in VLC, mpv, or another app", preferences.externalPlayer) { update(preferences.copy(externalPlayer = it)) }
                 HorizontalDivider(color = Color.White.copy(.06f))
-                SettingsAction("Android player engine", preferences.androidPlaybackEngine.description) { enginePicker = true }
+                SettingsAction("Android player engine", preferences.androidPlaybackEngine.label) { enginePicker = true }
                 HorizontalDivider(color = Color.White.copy(.06f))
             }
             SettingsAction("Resume behavior", preferences.resumeBehavior.label) { resumePicker = true }
-            SettingsToggle("Auto-select saved streams", "Reuse the last selected stream when it is available", preferences.autoSelectSavedStreams) { update(preferences.copy(autoSelectSavedStreams = it)) }
-            SettingsToggle("Automatically select streams", "Choose sources for Next and queued playback", preferences.autoSelectNextStreams) { update(preferences.copy(autoSelectNextStreams = it)) }
-            SettingsToggle("Skip intro and credits", "Show skip buttons for intros, recaps, and outros when timestamps are available", preferences.skipSegments) { update(preferences.copy(skipSegments = it)) }
+            SettingsToggle("Auto-select saved streams", "Reuse your last stream when available", preferences.autoSelectSavedStreams) { update(preferences.copy(autoSelectSavedStreams = it)) }
+            SettingsToggle("Automatically select streams", "For Next and queued playback", preferences.autoSelectNextStreams) { update(preferences.copy(autoSelectNextStreams = it)) }
+            SettingsToggle("Skip intro and credits", "Show skip buttons when timestamps exist", preferences.skipSegments) { update(preferences.copy(skipSegments = it)) }
             if (isIpad) {
                 HorizontalDivider(color = Color.White.copy(.06f))
                 SettingsAction("Skip button position", preferences.skipButtonPosition.label) { showSkipButtonPosition = true }
@@ -4085,9 +4096,9 @@ internal fun PlaybackSettingsScreen(platform: PlatformInfo, preferences: DeviceP
                 ) { update(preferences.copy(mixAudioWithOtherApps = it)) }
                 HorizontalDivider(color = Color.White.copy(.06f))
             }
-            SettingsToggle("Miniplayer on back", "Minimize playback instead of closing it when you press Back", preferences.miniplayerOnBack) { update(preferences.copy(miniplayerOnBack = it)) }
+            SettingsToggle("Miniplayer on back", "Minimize instead of closing on Back", preferences.miniplayerOnBack) { update(preferences.copy(miniplayerOnBack = it)) }
             SettingsToggle("Touch gestures", "Double-tap seeking and player gestures", preferences.touchGestures) { update(preferences.copy(touchGestures = it)) }
-            SettingsToggle("Hold to speed", "Hold the player to temporarily speed up", preferences.holdToSpeed) { update(preferences.copy(holdToSpeed = it)) }
+            SettingsToggle("Hold to speed", "Hold the video to play faster", preferences.holdToSpeed) { update(preferences.copy(holdToSpeed = it)) }
         }
         SettingsGroup("Audio & subtitles") {
             SettingsAction("Preferred audio language", languagePreferenceLabel(preferences.preferredAudioLanguage)) { picker = "audio" }
@@ -4803,14 +4814,10 @@ private fun AddonManagerScreen(
             val types = addon.manifest["types"]?.let { value -> runCatching { value.jsonArray.mapNotNull { it.jsonPrimitive.contentOrNull } }.getOrDefault(emptyList()) } ?: emptyList()
             val hints = addon.manifest["behaviorHints"]?.let { runCatching { it.jsonObject }.getOrNull() }
             val configurable = hints?.get("configurable")?.jsonPrimitive?.booleanOrNull == true || hints?.get("configurationRequired")?.jsonPrimitive?.booleanOrNull == true
-            // One meta line replaces the old badge pills; the switch already shows active or disabled.
-            val meta = listOfNotNull(
-                version?.let { "v$it" },
-                types.takeIf { it.isNotEmpty() }?.joinToString(", "),
-                "$resources resources",
-                "$catalogs catalogs",
-                "configurable".takeIf { configurable },
-            ).joinToString(" · ")
+            // Two short meta lines replace the old badge pills; the switch already shows active or disabled.
+            fun count(n: Int, noun: String) = "$n $noun${if (n == 1) "" else "s"}"
+            val meta = listOfNotNull(version?.let { "v$it" }, types.takeIf { it.isNotEmpty() }?.joinToString(", ")).joinToString(" · ")
+            val capabilities = listOfNotNull(count(resources, "resource"), count(catalogs, "catalog"), "configurable".takeIf { configurable }).joinToString(" · ")
             Surface(color = SettingsGroupColor, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(start = 16.dp, end = 8.dp, top = 12.dp, bottom = 4.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -4821,7 +4828,8 @@ private fun AddonManagerScreen(
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
                             Text(name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(meta, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            if (meta.isNotBlank()) Text(meta, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(capabilities, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                         Spacer(Modifier.width(8.dp))
                         Switch(addon.enabled, { enabled -> runMutation { base, token, id -> api.setAddonEnabled(base, token, id, addon.id, enabled) } }, enabled = !linked && !busy, colors = conduitSwitchColors())

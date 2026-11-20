@@ -1,6 +1,7 @@
 package media.conduit.mobile
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -69,7 +70,7 @@ internal fun HomeScreen(
         state = listState,
         modifier = modifier.fillMaxSize().statusBarsPadding(),
         contentPadding = PaddingValues(top = 72.dp, bottom = 112.dp),
-        verticalArrangement = Arrangement.spacedBy(28.dp),
+        verticalArrangement = Arrangement.spacedBy(24.dp),
     ) {
         if (sync.offline) {
             item { StatusPill("Offline · showing saved activity", MaterialTheme.colorScheme.tertiary, Modifier.padding(horizontal = PageGutter)) }
@@ -208,8 +209,8 @@ internal fun HomeScreen(
 /** A titled home row. The title sits close to its row so each shelf reads as one unit. */
 @Composable
 private fun Shelf(title: String, onSeeAll: () -> Unit, content: @Composable () -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(Modifier.fillMaxWidth().padding(start = PageGutter, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(Modifier.fillMaxWidth().padding(start = PageGutter, end = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(
                 title,
                 style = ShelfTitleStyle,
@@ -217,9 +218,13 @@ private fun Shelf(title: String, onSeeAll: () -> Unit, content: @Composable () -
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
-            TextButton(onClick = onSeeAll, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)) {
-                Text("See all", style = MaterialTheme.typography.labelLarge)
-            }
+            // A compact text link keeps the row as tall as its title; the padding still gives a usable target.
+            Text(
+                "See all",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClickLabel = "See all $title", onClick = onSeeAll).padding(horizontal = 10.dp, vertical = 6.dp),
+            )
         }
         content()
     }
