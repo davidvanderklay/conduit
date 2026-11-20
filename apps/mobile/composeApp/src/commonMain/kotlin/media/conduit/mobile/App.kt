@@ -435,7 +435,7 @@ private fun RecoveryCodesScreen(codes: List<String>, onSaved: () -> Unit) {
     val clipboard = LocalClipboardManager.current
     Surface(Modifier.fillMaxSize()) {
         Column(
-            Modifier.safeDrawingPadding().verticalScroll(rememberScrollState()).widthIn(max = 560.dp).fillMaxWidth().padding(start = PageGutter, end = PageGutter, top = 20.dp, bottom = 28.dp),
+            Modifier.safeDrawingPadding().verticalScroll(rememberScrollState()).widthIn(max = 560.dp).fillMaxWidth().padding(start = PageGutter, end = PageGutter, top = 6.dp, bottom = 28.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             OnboardingBrand(Modifier.padding(bottom = 4.dp))
@@ -471,7 +471,7 @@ private fun HouseholdSetup(onCreate: (String, String) -> Unit) {
     var pending by remember { mutableStateOf(false) }
     Surface(Modifier.fillMaxSize()) {
         Column(
-            Modifier.safeDrawingPadding().widthIn(max = 560.dp).fillMaxWidth().padding(start = PageGutter, end = PageGutter, top = 20.dp, bottom = 28.dp),
+            Modifier.safeDrawingPadding().widthIn(max = 560.dp).fillMaxWidth().padding(start = PageGutter, end = PageGutter, top = 6.dp, bottom = 28.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             OnboardingBrand(Modifier.padding(bottom = 4.dp))
@@ -527,9 +527,9 @@ private fun OnboardingBrand(modifier: Modifier = Modifier) {
         ConduitMark(
             Modifier.layout { measurable, constraints ->
                 val placeable = measurable.measure(constraints)
-                val inset = 7.dp.roundToPx()
+                val inset = 8.dp.roundToPx()
                 layout(placeable.width - inset, placeable.height) { placeable.place(-inset, 0) }
-            }.size(34.dp),
+            }.size(40.dp),
             tile = false,
         )
         // Secondary to the page title below it.
@@ -663,7 +663,7 @@ private fun SignInScreen(
     }
     // Top-aligned like the household and recovery steps, so the flow doesn't jump between screens.
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background), contentAlignment = Alignment.TopCenter) {
-        Column(Modifier.safeDrawingPadding().imePadding().verticalScroll(rememberScrollState()).widthIn(max = 460.dp).fillMaxWidth().padding(start = PageGutter, end = PageGutter, top = 20.dp, bottom = 28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(Modifier.safeDrawingPadding().imePadding().verticalScroll(rememberScrollState()).widthIn(max = 460.dp).fillMaxWidth().padding(start = PageGutter, end = PageGutter, top = 6.dp, bottom = 28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Row(Modifier.fillMaxWidth().padding(bottom = 16.dp).height(OnboardingHeaderHeight), verticalAlignment = Alignment.CenterVertically) {
                 OnboardingBrand()
                 Spacer(Modifier.weight(1f))

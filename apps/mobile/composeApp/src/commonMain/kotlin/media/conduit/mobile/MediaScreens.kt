@@ -747,11 +747,13 @@ private val CreditLinkColor = Color(0xFFF4F4F5)
 @Composable
 private fun CreditRows(details: MetaItem?, onBrowse: (MobileBrowseTarget) -> Unit) {
     Column {
-        MetadataCreditLinks("Directors", details?.director.orEmpty(), onBrowse)
-        MetadataCreditLinks("Cast", details?.cast.orEmpty(), onBrowse)
-        MetadataCreditLinks("Writers", details?.writer.orEmpty(), onBrowse)
+        MetadataCreditLinks("Director", "Directors", details?.director.orEmpty(), onBrowse)
+        MetadataCreditLinks("Cast", "Cast", details?.cast.orEmpty(), onBrowse)
+        MetadataCreditLinks("Writer", "Writers", details?.writer.orEmpty(), onBrowse)
         listOfNotNull(
-            details?.country?.trim()?.takeIf(String::isNotBlank)?.let { "Country" to unbreakableNames(it) },
+            details?.country?.trim()?.takeIf(String::isNotBlank)?.let {
+                (if (it.split(',').count { part -> part.isNotBlank() } > 1) "Countries" else "Country") to unbreakableNames(it)
+            },
             details?.awards?.trim()?.takeIf(String::isNotBlank)?.let { "Awards" to it },
         ).forEach { (label, value) ->
             Row {
@@ -764,12 +766,14 @@ private fun CreditRows(details: MetaItem?, onBrowse: (MobileBrowseTarget) -> Uni
 
 @Composable
 private fun MetadataCreditLinks(
-    label: String,
+    singular: String,
+    plural: String,
     values: List<String>,
     onBrowse: (MobileBrowseTarget) -> Unit,
 ) {
     val visibleValues = values.map(String::trim).filter(String::isNotBlank).distinct()
     if (visibleValues.isEmpty()) return
+    val label = if (visibleValues.size == 1) singular else plural
     // A label column with comma separated names, like a credits table. Each name searches for that person.
     Row {
         Text(
@@ -3138,7 +3142,7 @@ private fun WatchableSeasonChip(
 private fun TitleFactsRow(facts: List<String>, rating: String?, onRatingClick: (() -> Unit)?) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         if (facts.isNotEmpty()) Text(
-            facts.joinToString("  ·  ") + if (rating == null) "" else "  ·",
+            facts.joinToString(" · ") + if (rating == null) "" else " ·",
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.bodyMedium,
         )
@@ -3192,7 +3196,7 @@ private fun DetailAction(
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         Icon(icon, null, tint = iconColor, modifier = Modifier.size(22.dp))
-        Text(label, color = iconColor, style = MaterialTheme.typography.labelMedium.copy(fontSize = 12.sp, fontWeight = FontWeight.Medium), maxLines = 1)
+        Text(label, color = iconColor, style = MaterialTheme.typography.labelMedium.copy(fontSize = 13.sp, lineHeight = 17.sp, fontWeight = FontWeight.Medium), maxLines = 1)
     }
 }
 
@@ -3635,7 +3639,7 @@ private fun StreamSelectionScreen(
         val subtitle = listOfNotNull(
             "Choose a stream".takeIf { streams.isNotEmpty() || loading },
             episode?.let { "S${it.season ?: 0}E${it.episode ?: 0} · ${it.displayTitle}" },
-        ).joinToString("  ·  ")
+        ).joinToString(" · ")
         val refreshable = streams.isNotEmpty() && !loading
         // Collapsed, the title clears the back button. Expanded under a logo hero, only the subtitle and
         // refresh remain here; without one, the plain title leads. With nothing to show, the header is left
