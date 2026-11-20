@@ -364,9 +364,10 @@ internal fun RichPosterCard(
         }
         if (showLabels) {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                // One line, like Infuse, so every caption in a row shares a baseline.
                 Text(
                     displayTitle,
-                    maxLines = 2,
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp, lineHeight = 17.sp),
                     fontWeight = FontWeight.Medium,

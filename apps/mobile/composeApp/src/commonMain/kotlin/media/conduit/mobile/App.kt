@@ -36,6 +36,7 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PictureInPictureAlt
@@ -431,6 +432,7 @@ private fun RecoveryCodesScreen(codes: List<String>, onSaved: () -> Unit) {
             Modifier.safeDrawingPadding().verticalScroll(rememberScrollState()).widthIn(max = 560.dp).fillMaxWidth().padding(horizontal = 24.dp, vertical = 28.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            OnboardingBrand(Modifier.padding(bottom = 24.dp))
             Text("Save your recovery codes", style = OnboardingTitleStyle)
             Text("Each code works once. Store them outside this device before continuing.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
             Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
@@ -463,6 +465,7 @@ private fun HouseholdSetup(onCreate: (String, String) -> Unit) {
             Modifier.safeDrawingPadding().widthIn(max = 560.dp).fillMaxWidth().padding(horizontal = 24.dp, vertical = 28.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
+            OnboardingBrand(Modifier.padding(bottom = 24.dp))
             Text("Create your household", style = OnboardingTitleStyle)
             Text("Profiles, add-ons, and watch state sync through your conduit server.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(bottom = 6.dp))
             TextField(
@@ -483,6 +486,15 @@ private fun HouseholdSetup(onCreate: (String, String) -> Unit) {
                 shape = RoundedCornerShape(12.dp),
             ) { Text(if (pending) "Creating…" else "Create household", fontWeight = FontWeight.SemiBold) }
         }
+    }
+}
+
+/** Mark and wordmark at the top of every onboarding step, so the flow keeps one anchor. */
+@Composable
+private fun OnboardingBrand(modifier: Modifier = Modifier) {
+    Row(modifier.heightIn(min = 40.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        ConduitMark(Modifier.size(36.dp), tile = false)
+        Text("conduit", color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
     }
 }
 
@@ -613,8 +625,8 @@ private fun SignInScreen(
     // Top-aligned like the household and recovery steps, so the flow doesn't jump between screens.
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background), contentAlignment = Alignment.TopCenter) {
         Column(Modifier.safeDrawingPadding().imePadding().verticalScroll(rememberScrollState()).widthIn(max = 460.dp).fillMaxWidth().padding(horizontal = 24.dp, vertical = 28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Row(Modifier.fillMaxWidth().padding(bottom = 36.dp), verticalAlignment = Alignment.CenterVertically) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) { ConduitMark(Modifier.size(36.dp), tile = false); Text("conduit", color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) }
+            Row(Modifier.fillMaxWidth().padding(bottom = 24.dp), verticalAlignment = Alignment.CenterVertically) {
+                OnboardingBrand()
                 Spacer(Modifier.weight(1f))
                 Surface(onClick = { showServerDialog = true }, shape = RoundedCornerShape(10.dp), color = Color.Transparent, contentColor = Color.White) {
                     Row(Modifier.heightIn(min = 40.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -2919,7 +2931,7 @@ private fun MainTopBar(
                                     } else Box(contentAlignment = Alignment.Center) { Text(profile.name.take(1).uppercase(), fontWeight = FontWeight.Bold) }
                                 }
                             },
-                            trailingIcon = if (profile.id == activeProfile?.id) {{ Icon(Icons.Rounded.CheckCircle, null, tint = MaterialTheme.colorScheme.primary) }} else null,
+                            trailingIcon = if (profile.id == activeProfile?.id) {{ Icon(Icons.Rounded.Check, "Active profile", tint = MaterialTheme.colorScheme.onSurface) }} else null,
                             onClick = { profileMenuOpen = false; onSelectProfile(profile.id) },
                         )
                     }
@@ -3001,15 +3013,16 @@ internal fun RowScope.MobileNavigationItem(
     modifier: Modifier = Modifier,
 ) {
     val color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+    // Selection is the amber icon and label plus a faint fill, kept small so the bar stays lighter than the content.
     Column(
-        modifier.clip(RoundedCornerShape(24.dp))
-            .background(if (selected) Color.White.copy(alpha = .08f) else Color.Transparent)
-            .selectable(selected = selected, role = androidx.compose.ui.semantics.Role.Tab, onClick = onClick).padding(top = if (showLabel) 8.dp else 10.dp, bottom = if (showLabel) 7.dp else 10.dp),
+        modifier.clip(RoundedCornerShape(16.dp))
+            .background(if (selected) Color.White.copy(alpha = .06f) else Color.Transparent)
+            .selectable(selected = selected, role = androidx.compose.ui.semantics.Role.Tab, onClick = onClick).padding(top = if (showLabel) 7.dp else 10.dp, bottom = if (showLabel) 6.dp else 10.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp),
     ) {
-        Icon(destination.icon, if (showLabel) null else destination.label, tint = color, modifier = Modifier.size(24.dp))
-        if (showLabel) Text(destination.label, color = color, style = MaterialTheme.typography.labelMedium, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+        Icon(destination.icon, if (showLabel) null else destination.label, tint = color, modifier = Modifier.size(22.dp))
+        if (showLabel) Text(destination.label, color = color, style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp), fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
     }
 }
 

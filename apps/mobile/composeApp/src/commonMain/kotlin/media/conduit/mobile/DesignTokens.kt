@@ -23,10 +23,10 @@ internal val ShelfTitleStyle: TextStyle
     @Composable @ReadOnlyComposable
     get() = MaterialTheme.typography.titleMedium.copy(fontSize = 19.sp, lineHeight = 24.sp, fontWeight = FontWeight.SemiBold)
 
-/** Small group label above a settings group or a metadata block. Sentence case, neutral color. */
+/** Group label above a settings group. Sentence case, primary text color, so it reads as a heading, not an eyebrow. */
 internal val SectionLabelStyle: TextStyle
     @Composable @ReadOnlyComposable
-    get() = MaterialTheme.typography.labelLarge.copy(fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    get() = MaterialTheme.typography.labelLarge.copy(fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
 
 /** Heading on sign-in, household setup, and recovery screens. */
 internal val OnboardingTitleStyle: TextStyle
@@ -44,3 +44,8 @@ internal fun conduitFilledFieldColors() = TextFieldDefaults.colors(
     unfocusedIndicatorColor = Color.Transparent,
     disabledIndicatorColor = Color.Transparent,
 )
+
+/** Credits table text on the details page: a step below the synopsis. */
+internal val CreditTextStyle: TextStyle
+    @Composable @ReadOnlyComposable
+    get() = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 18.sp)

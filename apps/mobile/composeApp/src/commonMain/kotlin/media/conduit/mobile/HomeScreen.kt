@@ -206,20 +206,28 @@ internal fun HomeScreen(
     )
 }
 
-/** A titled home row. The title sits close to its row so each shelf reads as one unit. */
+/**
+ * A titled row of posters, shared by Home and search. The title sits close to its row so each shelf
+ * reads as one unit; [source] adds quiet attribution and [onSeeAll] a compact link.
+ */
 @Composable
-private fun Shelf(title: String, onSeeAll: () -> Unit, content: @Composable () -> Unit) {
+internal fun Shelf(title: String, onSeeAll: (() -> Unit)? = null, source: String? = null, content: @Composable () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Row(Modifier.fillMaxWidth().padding(start = PageGutter, end = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                title,
-                style = ShelfTitleStyle,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
+        Row(Modifier.fillMaxWidth().heightIn(min = 32.dp).padding(start = PageGutter, end = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.weight(1f), verticalAlignment = Alignment.Bottom) {
+                Text(
+                    title,
+                    style = ShelfTitleStyle,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                source?.let {
+                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 8.dp, bottom = 2.dp))
+                }
+            }
             // A compact text link keeps the row as tall as its title; the padding still gives a usable target.
-            Text(
+            if (onSeeAll != null) Text(
                 "See all",
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,

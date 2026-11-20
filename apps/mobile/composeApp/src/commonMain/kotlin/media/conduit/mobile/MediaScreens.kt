@@ -204,7 +204,7 @@ internal fun MobileLibraryScreen(
                     val catalogItem = item.asCatalogItem()
                     RichPosterCard(
                         item = catalogItem,
-                        caption = item.type,
+                        caption = item.releaseInfo?.takeIf(String::isNotBlank) ?: typeLabel(item.type),
                         snapshot = snapshot,
                         metadataCache = metadataCache,
                         onClick = {
@@ -561,8 +561,8 @@ internal fun SearchDiscoverScreen(
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(top = 4.dp, bottom = 112.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(top = 8.dp, bottom = 112.dp),
+                verticalArrangement = Arrangement.spacedBy(24.dp),
             ) {
                 if (searchLoading) item {
                     // Center horizontally, about 30% down the search area.
@@ -572,15 +572,8 @@ internal fun SearchDiscoverScreen(
                 }
                 if (!searchLoading && results.isEmpty()) item { EmptyBrowseState("No results for “$query”.") }
                 results.forEach { catalog ->
-                    item(key = "search-heading-${catalog.key}-$query") {
-                        Row(Modifier.padding(start = PageGutter, end = PageGutter, top = 16.dp), verticalAlignment = Alignment.Bottom) {
-                            Text(catalog.title, style = ShelfTitleStyle, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                            catalog.source?.let {
-                                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 8.dp, bottom = 2.dp))
-                            }
-                        }
-                    }
                     item(key = "search-rail-${catalog.key}-$query") {
+                      Shelf(catalog.title, source = catalog.source) {
                         LazyRow(contentPadding = PaddingValues(horizontal = PageGutter), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             items(catalog.items, key = { "${catalog.key}:${it.type}:${it.id}" }) { item ->
                                 RichPosterCard(
@@ -592,6 +585,7 @@ internal fun SearchDiscoverScreen(
                                 )
                             }
                         }
+                      }
                     }
                 }
             }
@@ -730,8 +724,8 @@ private fun MetadataCreditLinks(
         Text(
             label,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.width(84.dp).padding(vertical = 4.dp),
+            style = CreditTextStyle,
+            modifier = Modifier.width(84.dp).padding(vertical = 3.dp),
         )
         CommaSeparatedLinks(visibleValues, onClick = { onBrowse(MobileBrowseTarget.Search(it)) }, modifier = Modifier.weight(1f))
     }
@@ -752,8 +746,8 @@ private fun CommaSeparatedLinks(
             Text(
                 if (index < values.lastIndex) "$value$separator" else value,
                 color = color,
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.clip(RoundedCornerShape(4.dp)).clickable { onClick(value) }.padding(vertical = 4.dp).padding(end = 6.dp),
+                style = CreditTextStyle,
+                modifier = Modifier.clip(RoundedCornerShape(4.dp)).clickable { onClick(value) }.padding(vertical = 3.dp).padding(end = 4.dp),
             )
         }
     }
@@ -2195,7 +2189,7 @@ internal fun MediaDetailsScreen(
 
     val heroPullDp = with(LocalDensity.current) { heroPull.floatValue.toDp() }
     val heroScale = 1f + (heroPull.floatValue / maxHeroPullPx) * HeroMotion.expansionScale
-    val heroHeight = if (item.type == "movie") 390.dp else 350.dp
+    val heroHeight = 350.dp
     val titleLogo = details?.logo?.takeIf(String::isNotBlank)
     var titleLogoDark by remember(titleLogo) { mutableStateOf(false) }
     val titleLogoFilter = if (titleLogoDark) ColorFilter.tint(Color.White) else null
@@ -2243,11 +2237,12 @@ internal fun MediaDetailsScreen(
                         model = titleLogo,
                         contentDescription = details.name,
                         contentScale = ContentScale.Fit,
+                        alignment = Alignment.BottomCenter,
                         colorFilter = titleLogoFilter,
                         onSuccess = { titleLogoDark = runCatching { it.isDarkLogo() }.getOrDefault(false) },
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
-                            .offset(y = (-52).dp)
+                            .offset(y = (-48).dp)
                             .fillMaxWidth(.58f)
                             .heightIn(max = 110.dp),
                     )
@@ -2261,8 +2256,9 @@ internal fun MediaDetailsScreen(
                         },
                     )
                 }
+                // Centered under the centered logo, as in Infuse and Plex, so the hero has one axis.
                 Row(
-                    modifier = Modifier.align(Alignment.BottomStart).padding(start = PageGutter, end = PageGutter, bottom = 16.dp),
+                    modifier = Modifier.align(if (titleLogo != null) Alignment.BottomCenter else Alignment.BottomStart).padding(start = PageGutter, end = PageGutter, bottom = 16.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
@@ -2366,8 +2362,8 @@ internal fun MediaDetailsScreen(
                                 Text(
                                     "Genres",
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    modifier = Modifier.width(84.dp).padding(vertical = 4.dp),
+                                    style = CreditTextStyle,
+                                    modifier = Modifier.width(84.dp).padding(vertical = 3.dp),
                                 )
                                 CommaSeparatedLinks(
                                     genres,
@@ -2381,13 +2377,13 @@ internal fun MediaDetailsScreen(
                     MetadataCreditLinks("Writers", details?.writer.orEmpty(), onBrowse)
                     details?.country?.trim()?.takeIf(String::isNotBlank)?.let { country ->
                         Row {
-                            Text("Country", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.width(84.dp).padding(vertical = 4.dp))
-                            Text(country, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f).padding(vertical = 4.dp))
+                            Text("Country", color = MaterialTheme.colorScheme.onSurfaceVariant, style = CreditTextStyle, modifier = Modifier.width(84.dp).padding(vertical = 3.dp))
+                            Text(country, style = CreditTextStyle, modifier = Modifier.weight(1f).padding(vertical = 3.dp))
                         }
                     }
                 }
                 details?.awards?.trim()?.takeIf(String::isNotBlank)?.let {
-                    Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp), maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
             }
         }
@@ -2576,8 +2572,9 @@ internal fun MediaDetailsScreen(
                         scope.launch { onMutation(ProfileMutation.SetLibrary(actionItem, !saved, details?.runtime)) }
                     }) {
                         Icon(
-                            if (saved) Icons.Rounded.BookmarkRemove else Icons.Rounded.BookmarkAdd,
+                            if (saved) Icons.Rounded.BookmarkAdded else Icons.Rounded.BookmarkAdd,
                             if (saved) "Remove from library" else "Add to library",
+                            tint = if (saved) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                         )
                     }
                 }
@@ -3475,7 +3472,8 @@ private fun StreamSelectionScreen(
                         },
                         contentScale = ContentScale.Crop,
                     )
-                    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Black.copy(.08f), MaterialTheme.colorScheme.background))))
+                    val streamBackground = MaterialTheme.colorScheme.background
+                    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Black.copy(.1f), .45f to Color.Transparent, 1f to streamBackground)))
                 }
             }
         }
@@ -3870,8 +3868,10 @@ private fun SettingsPage(title: String, onBack: () -> Unit, modifier: Modifier, 
     }
 }
 
-/** Fill shared by every grouped settings surface. */
-internal val SettingsGroupColor = Color.White.copy(alpha = .045f)
+/** Fill shared by every grouped settings surface; a little stronger on pure black so group edges stay visible. */
+internal val SettingsGroupColor: Color
+    @Composable @ReadOnlyComposable
+    get() = Color.White.copy(alpha = if (MaterialTheme.colorScheme.background == Color.Black) .07f else .045f)
 
 /** A labeled settings surface. With [divided], a hairline separates every row so dividers stay consistent. */
 @Composable
@@ -3989,10 +3989,10 @@ private fun AppearanceSettingsScreen(platform: PlatformInfo, preferences: Device
         effectiveNavigationStyle
     }
     SettingsPage("Appearance & layout", onBack, modifier) {
-        SettingsGroup("Theme") {
-            Column(Modifier.fillMaxWidth().heightIn(min = 60.dp).padding(vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text("Theme", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
-                Text("Conduit dark", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+        SettingsGroup("Appearance") {
+            Row(Modifier.fillMaxWidth().heightIn(min = 60.dp).padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("Theme", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+                Text("conduit dark", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
             }
             SettingsToggle("AMOLED black", "Pure black backgrounds for OLED screens", preferences.amoledBlack) { update(preferences.copy(amoledBlack = it)) }
             SettingsToggle("Reduce animations", "Simpler transitions and motion", preferences.reduceAnimations) { update(preferences.copy(reduceAnimations = it)) }
@@ -4126,8 +4126,8 @@ internal fun PlaybackSettingsScreen(platform: PlatformInfo, preferences: DeviceP
                 SettingsAction("Android player engine", preferences.androidPlaybackEngine.label) { enginePicker = true }
             }
             SettingsAction("Resume behavior", preferences.resumeBehavior.label) { resumePicker = true }
-            SettingsToggle("Auto-select saved streams", "Reuse your last stream when available", preferences.autoSelectSavedStreams) { update(preferences.copy(autoSelectSavedStreams = it)) }
-            SettingsToggle("Automatically select streams", "For Next and queued playback", preferences.autoSelectNextStreams) { update(preferences.copy(autoSelectNextStreams = it)) }
+            SettingsToggle("Reuse last stream", "Start with the stream you picked last time", preferences.autoSelectSavedStreams) { update(preferences.copy(autoSelectSavedStreams = it)) }
+            SettingsToggle("Auto-pick streams for Next", "Choose sources for Next and queued items", preferences.autoSelectNextStreams) { update(preferences.copy(autoSelectNextStreams = it)) }
             SettingsToggle("Skip intro and credits", "Show skip buttons when timestamps exist", preferences.skipSegments) { update(preferences.copy(skipSegments = it)) }
             if (isIpad) {
                 SettingsAction("Skip button position", preferences.skipButtonPosition.label) { showSkipButtonPosition = true }
@@ -4881,7 +4881,7 @@ private fun AddonManagerScreen(
                             }
                         }
                     }
-                    Text(description, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 8.dp, end = 8.dp, bottom = 10.dp))
+                    Text(description, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 52.dp, top = 4.dp, end = 12.dp, bottom = 12.dp))
                 }
             }
         }
