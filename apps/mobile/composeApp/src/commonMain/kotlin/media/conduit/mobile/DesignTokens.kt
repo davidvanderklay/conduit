@@ -51,3 +51,8 @@ internal fun conduitFilledFieldColors() = TextFieldDefaults.colors(
 internal val CreditTextStyle: TextStyle
     @Composable @ReadOnlyComposable
     get() = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 18.sp)
+
+/** Title of a settings row: one step below body text so lists stay dense. */
+internal val SettingsTitleStyle: TextStyle
+    @Composable @ReadOnlyComposable
+    get() = MaterialTheme.typography.bodyLarge.copy(fontSize = 15.sp, lineHeight = 20.sp, fontWeight = FontWeight.Medium)

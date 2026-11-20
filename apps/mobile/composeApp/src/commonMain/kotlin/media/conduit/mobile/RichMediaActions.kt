@@ -370,7 +370,7 @@ internal fun RichPosterCard(
                     displayTitle,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp, lineHeight = 18.sp),
+                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp, lineHeight = 17.sp),
                     fontWeight = FontWeight.Medium,
                     modifier = Modifier.fillMaxWidth(),
                 )

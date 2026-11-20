@@ -35,6 +35,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.*
+import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.snapshotFlow
@@ -181,7 +182,7 @@ internal fun MobileLibraryScreen(
                     Icon(Icons.Rounded.History, stringResource(Res.string.history_open), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(22.dp))
                 }
                 IconButton(onClick = onOpenCalendar, modifier = Modifier.size(48.dp).offset(x = (-8).dp)) {
-                    Icon(Icons.Rounded.CalendarMonth, stringResource(Res.string.calendar_open), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(22.dp))
+                    Icon(Icons.Outlined.CalendarMonth, stringResource(Res.string.calendar_open), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(22.dp))
                 }
             }
         }
@@ -711,6 +712,25 @@ private object HeroMotion {
     const val pullResistance = .42f
     const val expansionScale = .22f
     const val upwardTranslation = .12f
+}
+
+/** Directors, cast, writers, country, and awards as label/value rows. */
+@Composable
+private fun CreditRows(details: MetaItem?, onBrowse: (MobileBrowseTarget) -> Unit) {
+    Column {
+        MetadataCreditLinks("Directors", details?.director.orEmpty(), onBrowse)
+        MetadataCreditLinks("Cast", details?.cast.orEmpty(), onBrowse)
+        MetadataCreditLinks("Writers", details?.writer.orEmpty(), onBrowse)
+        listOfNotNull(
+            details?.country?.trim()?.takeIf(String::isNotBlank)?.let { "Country" to it },
+            details?.awards?.trim()?.takeIf(String::isNotBlank)?.let { "Awards" to it },
+        ).forEach { (label, value) ->
+            Row {
+                Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant, style = CreditTextStyle, modifier = Modifier.width(84.dp).padding(vertical = 3.dp))
+                Text(value, style = CreditTextStyle, modifier = Modifier.weight(1f).padding(vertical = 3.dp))
+            }
+        }
+    }
 }
 
 @Composable
@@ -2268,7 +2288,7 @@ internal fun MediaDetailsScreen(
                 ) {
                     metadataFacts.takeIf { it.isNotEmpty() }?.let { facts ->
                         Text(
-                            facts.joinToString("  ·  "),
+                            facts.joinToString("  ·  ") + if (details?.imdbRating.isNullOrBlank()) "" else "  ·",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.bodyMedium,
                         )
@@ -2283,7 +2303,6 @@ internal fun MediaDetailsScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
-                            if (metadataFacts.isNotEmpty()) Text("·", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(end = 6.dp))
                             Icon(Icons.Rounded.Star, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(15.dp))
                             Text(rating, color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
                             Text("IMDb", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
@@ -2321,7 +2340,7 @@ internal fun MediaDetailsScreen(
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(24.dp, Alignment.CenterHorizontally)) {
                     DetailAction(
                         label = if (saved) "Saved" else "Library",
-                        icon = if (saved) Icons.Rounded.BookmarkAdded else Icons.Rounded.BookmarkAdd,
+                        icon = if (saved) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder,
                         actionDescription = if (saved) "Remove from library" else "Add to library",
                         active = saved,
                         onClick = { scope.launch { onMutation(ProfileMutation.SetLibrary(actionItem, !saved, details?.runtime)) } },
@@ -2340,17 +2359,36 @@ internal fun MediaDetailsScreen(
                     trailerSlot?.let { id ->
                         DetailAction(
                             label = "Trailer",
-                            icon = Icons.Rounded.Movie,
+                            icon = Icons.Rounded.PlayCircleOutline,
                             actionDescription = "Watch trailer",
                             active = false,
                             onClick = { uriHandler.openUri("https://www.youtube.com/watch?v=$id") },
                         )
                     }
                 }
-                details?.description?.trim()?.takeIf(String::isNotBlank)?.let {
-                    Text(it, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .86f), style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 21.sp))
+                details?.description?.trim()?.takeIf(String::isNotBlank)?.let { synopsis ->
+                    // Long synopses stop at four lines with a "More" link that expands in place.
+                    var expanded by remember(synopsis) { mutableStateOf(false) }
+                    var overflows by remember(synopsis) { mutableStateOf(false) }
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(
+                            synopsis,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = .86f),
+                            style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 21.sp),
+                            maxLines = if (expanded) Int.MAX_VALUE else 4,
+                            overflow = TextOverflow.Ellipsis,
+                            onTextLayout = { if (!expanded) overflows = it.hasVisualOverflow },
+                        )
+                        if (overflows && !expanded) Text(
+                            "More",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClickLabel = "Show full synopsis") { expanded = true }.padding(vertical = 6.dp),
+                        )
+                    }
                 }
                 // One label/value table for genres, credits, and country, with even row spacing.
+                val hasEpisodes = !details?.videos.isNullOrEmpty()
                 Column {
                     details?.genres
                         ?.map(String::trim)
@@ -2372,18 +2410,8 @@ internal fun MediaDetailsScreen(
                                 )
                             }
                         }
-                    MetadataCreditLinks("Directors", details?.director.orEmpty(), onBrowse)
-                    MetadataCreditLinks("Cast", details?.cast.orEmpty(), onBrowse)
-                    MetadataCreditLinks("Writers", details?.writer.orEmpty(), onBrowse)
-                    listOfNotNull(
-                        details?.country?.trim()?.takeIf(String::isNotBlank)?.let { "Country" to it },
-                        details?.awards?.trim()?.takeIf(String::isNotBlank)?.let { "Awards" to it },
-                    ).forEach { (label, value) ->
-                        Row {
-                            Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant, style = CreditTextStyle, modifier = Modifier.width(84.dp).padding(vertical = 3.dp))
-                            Text(value, style = CreditTextStyle, modifier = Modifier.weight(1f).padding(vertical = 3.dp))
-                        }
-                    }
+                    // Series keep credits below the episode list so seasons stay within the first screen.
+                    if (!hasEpisodes) CreditRows(details, onBrowse)
                 }
 
             }
@@ -2505,7 +2533,7 @@ internal fun MediaDetailsScreen(
                             (video.overview ?: video.description)?.trim()?.takeIf(String::isNotBlank)?.let {
                                 Text(
                                     it,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    color = Color(0xFFB4B4BD),
                                     maxLines = 2,
                                     overflow = TextOverflow.Ellipsis,
                                     style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 16.sp),
@@ -2528,6 +2556,9 @@ internal fun MediaDetailsScreen(
                     }
                 }
             }
+        }
+        if (!details?.videos.isNullOrEmpty()) item(key = "series-credits") {
+            Column(Modifier.padding(start = PageGutter, end = PageGutter, top = 20.dp)) { CreditRows(details, onBrowse) }
         }
         }
         if (detailHeaderCollapsed) {
@@ -3061,7 +3092,8 @@ private fun DetailAction(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+    // Inactive actions use outlined icons; an active one switches to the filled icon in amber. Labels stay white.
+    val iconColor = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
     Column(
         modifier
             .width(104.dp)
@@ -3072,8 +3104,8 @@ private fun DetailAction(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Icon(icon, null, tint = color, modifier = Modifier.size(24.dp))
-        Text(label, color = color, style = MaterialTheme.typography.labelMedium, maxLines = 1)
+        Icon(icon, null, tint = iconColor, modifier = Modifier.size(24.dp))
+        Text(label, color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.labelMedium, maxLines = 1)
     }
 }
 
@@ -3485,8 +3517,9 @@ private fun StreamSelectionScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(Modifier.weight(1f)) {
-                        Text("Choose a stream", style = if (collapsed) MaterialTheme.typography.titleMedium else PageTitleStyle, fontWeight = FontWeight.Bold)
-                        if (!collapsed) Text(listOfNotNull(title, episode?.let { "S${it.season ?: 0}E${it.episode ?: 0} · ${it.displayTitle}" }).joinToString(" · "), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        // The title leads; "Choose a stream" and the episode explain the page beneath it.
+                        Text(title, style = if (collapsed) MaterialTheme.typography.titleMedium else PageTitleStyle, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        if (!collapsed) Text(listOfNotNull("Choose a stream", episode?.let { "S${it.season ?: 0}E${it.episode ?: 0} · ${it.displayTitle}" }).joinToString(" · "), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                     if (streams.isNotEmpty() && !loading) IconButton(onClick = onRetry) {
                         Icon(Icons.Rounded.Refresh, "Refresh sources", tint = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -3749,7 +3782,7 @@ internal fun ProfileSettingsScreen(
                 SettingEntry("Content & discovery", "Add-ons and home rows", Icons.Rounded.Explore),
                 SettingEntry("Playback", "Player and subtitles", Icons.Rounded.PlayCircle),
                 SettingEntry("Profile data", "Import and export", Icons.Rounded.ImportExport),
-                SettingEntry("Integrations", "Connected media services", Icons.Rounded.Extension),
+                SettingEntry("Integrations", "Connected media services", Icons.Rounded.Link),
             )),
             SettingSection("About", listOf(
                 SettingEntry("Supporters & contributors", "Community and open source", Icons.Rounded.Favorite),
@@ -3834,15 +3867,13 @@ internal fun ProfileSettingsScreen(
                             section.entries.forEachIndexed { index, entry ->
                                 if (index > 0) HorizontalDivider(Modifier.padding(start = 54.dp), color = Color.White.copy(.06f))
                                 Row(
-                                    Modifier.fillMaxWidth().clickable { openEntry(entry.title) }.heightIn(min = 56.dp).padding(horizontal = 16.dp, vertical = 10.dp),
+                                    Modifier.fillMaxWidth().clickable { openEntry(entry.title) }.heightIn(min = 52.dp).padding(horizontal = 16.dp, vertical = 8.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
+                                    // Single-line rows, like Infuse; descriptions still feed settings search.
                                     Icon(entry.icon, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(22.dp))
                                     Spacer(Modifier.width(16.dp))
-                                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                                        Text(entry.title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
-                                        Text(entry.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    }
+                                    Text(entry.title, style = SettingsTitleStyle, modifier = Modifier.weight(1f))
                                     Icon(Icons.Rounded.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .7f), modifier = Modifier.size(20.dp))
                                 }
                             }
@@ -3874,7 +3905,7 @@ private fun SettingsPage(title: String, onBack: () -> Unit, modifier: Modifier, 
 /** Fill shared by every grouped settings surface; a little stronger on pure black so group edges stay visible. */
 internal val SettingsGroupColor: Color
     @Composable @ReadOnlyComposable
-    get() = Color.White.copy(alpha = if (MaterialTheme.colorScheme.background == Color.Black) .07f else .045f)
+    get() = MaterialTheme.colorScheme.surfaceContainer
 
 /** A labeled settings surface. With [divided], a hairline separates every row so dividers stay consistent. */
 @Composable
@@ -3922,23 +3953,26 @@ private fun DividedColumn(modifier: Modifier = Modifier, lineStart: Dp = 0.dp, l
 /** Switch colors that keep the off state visible on dark grouped surfaces. */
 @Composable
 internal fun conduitSwitchColors() = SwitchDefaults.colors(
-    uncheckedTrackColor = Color(0xFF27272A),
+    checkedThumbColor = Color.White,
+    checkedTrackColor = MaterialTheme.colorScheme.primary,
+    checkedBorderColor = Color.Transparent,
+    uncheckedTrackColor = Color(0xFF3F3F46),
     uncheckedBorderColor = Color.Transparent,
-    uncheckedThumbColor = Color(0xFF71717A),
+    uncheckedThumbColor = Color(0xFFA1A1AA),
 )
 
 @Composable
 private fun SettingsToggle(title: String, description: String, checked: Boolean, enabled: Boolean = true, onChanged: (Boolean) -> Unit) {
-    Row(Modifier.fillMaxWidth().heightIn(min = 60.dp).padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) { Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant); Text(description, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
+    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) { Text(title, style = SettingsTitleStyle, color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant); Text(description, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
         Spacer(Modifier.width(16.dp)); Switch(checked, onChanged, enabled = enabled, colors = conduitSwitchColors())
     }
 }
 
 @Composable
 private fun SettingsAction(title: String, description: String, destructive: Boolean = false, onClick: () -> Unit) {
-    Row(Modifier.fillMaxWidth().heightIn(min = 60.dp).clickable(onClick = onClick).padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) { Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, color = if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface); Text(description, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
+    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable(onClick = onClick).padding(vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) { Text(title, style = SettingsTitleStyle, color = if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface); Text(description, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
         Icon(Icons.Rounded.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
@@ -3996,8 +4030,8 @@ private fun AppearanceSettingsScreen(platform: PlatformInfo, preferences: Device
     }
     SettingsPage("Appearance & layout", onBack, modifier) {
         SettingsGroup("Appearance") {
-            Column(Modifier.fillMaxWidth().heightIn(min = 60.dp).padding(vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text("Theme", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+            Column(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(vertical = 9.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text("Theme", style = SettingsTitleStyle)
                 Text("conduit dark", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
             }
             SettingsToggle("AMOLED black", "Pure black backgrounds for OLED screens", preferences.amoledBlack) { update(preferences.copy(amoledBlack = it)) }
@@ -4799,14 +4833,6 @@ private fun AddonManagerScreen(
     Column(modifier.fillMaxSize()) {
         ProfileHeader("Add-ons", onBack)
         LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(start = PageGutter, end = PageGutter, bottom = 112.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        item {
-            Text(
-                "${addons.size} installed · $activeCount active · $catalogCount catalogs",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.padding(bottom = 6.dp),
-            )
-        }
         if (linked) item {
             Surface(color = SettingsGroupColor, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
                 Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.Link, null, tint = MaterialTheme.colorScheme.primary); Spacer(Modifier.width(12.dp)); Column { Text("Using primary add-ons", fontWeight = FontWeight.SemiBold); Text("This list is managed by the primary profile.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) } }
@@ -4844,7 +4870,7 @@ private fun AddonManagerScreen(
             }
         }
         error?.let { item { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 4.dp)) } }
-        item { AddonSectionLabel("Installed") }
+        item { AddonSectionLabel(if (addons.isEmpty()) "Installed" else "Installed · $activeCount of ${addons.size} active · $catalogCount catalogs") }
         if (addons.isEmpty()) item { Text("No add-ons installed.", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(4.dp)) }
         // One grouped surface with hairlines between add-ons, matching the settings groups.
         if (addons.isNotEmpty()) item(key = "installed-addons") {
@@ -4856,15 +4882,18 @@ private fun AddonManagerScreen(
                     val description = addon.manifest["description"]?.jsonPrimitive?.contentOrNull ?: addon.manifestUrl
                     val version = addon.manifest["version"]?.jsonPrimitive?.contentOrNull
                     val logo = addon.manifest["logo"]?.jsonPrimitive?.contentOrNull
-                    val resources = addon.manifest["resources"]?.let { runCatching { it.jsonArray.size }.getOrDefault(0) } ?: 0
                     val catalogs = addon.manifest["catalogs"]?.let { runCatching { it.jsonArray.size }.getOrDefault(0) } ?: 0
                     val types = addon.manifest["types"]?.let { value -> runCatching { value.jsonArray.mapNotNull { it.jsonPrimitive.contentOrNull } }.getOrDefault(emptyList()) } ?: emptyList()
                     val hints = addon.manifest["behaviorHints"]?.let { runCatching { it.jsonObject }.getOrNull() }
                     val configurable = hints?.get("configurable")?.jsonPrimitive?.booleanOrNull == true || hints?.get("configurationRequired")?.jsonPrimitive?.booleanOrNull == true
                     // Two short meta lines replace the old badge pills; the switch already shows active or disabled.
                     fun count(n: Int, noun: String) = "$n $noun${if (n == 1) "" else "s"}"
-                    val meta = listOfNotNull(version?.let { "v$it" }, types.takeIf { it.isNotEmpty() }?.joinToString(", ")).joinToString(" · ")
-                    val capabilities = listOfNotNull(count(resources, "resource"), count(catalogs, "catalog"), "configurable".takeIf { configurable }).joinToString(" · ")
+            val meta = listOfNotNull(
+                version?.let { "v$it" },
+                types.takeIf { it.isNotEmpty() }?.joinToString(", "),
+                count(catalogs, "catalog"),
+                "configurable".takeIf { configurable },
+            ).joinToString(" · ")
                     run {
                         Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 12.dp, bottom = 4.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -4881,8 +4910,7 @@ private fun AddonManagerScreen(
                                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
                                     Text(name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     val factStyle = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 16.sp)
-                                    if (meta.isNotBlank()) Text(meta, color = Color(0xFF85858F), style = factStyle, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    Text(capabilities, color = Color(0xFF85858F), style = factStyle, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(meta, color = MaterialTheme.colorScheme.onSurfaceVariant, style = factStyle, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 }
                                 Spacer(Modifier.width(8.dp))
                                 Switch(addon.enabled, { enabled -> runMutation { base, token, id -> api.setAddonEnabled(base, token, id, addon.id, enabled) } }, enabled = !linked && !busy, colors = conduitSwitchColors())
@@ -4909,7 +4937,7 @@ private fun AddonManagerScreen(
     }
 }
 
-@Composable private fun AddonSectionLabel(text: String) { Text(text, style = SectionLabelStyle, modifier = Modifier.padding(top = 10.dp)) }
+@Composable private fun AddonSectionLabel(text: String) { Text(text, style = SectionLabelStyle, modifier = Modifier.padding(top = 4.dp)) }
 
 private data class SettingEntry(val title: String, val description: String, val icon: ImageVector)
 private data class SettingSection(val title: String, val entries: List<SettingEntry>)

@@ -66,6 +66,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
@@ -432,7 +433,7 @@ private fun RecoveryCodesScreen(codes: List<String>, onSaved: () -> Unit) {
     val clipboard = LocalClipboardManager.current
     Surface(Modifier.fillMaxSize()) {
         Column(
-            Modifier.safeDrawingPadding().verticalScroll(rememberScrollState()).widthIn(max = 560.dp).fillMaxWidth().padding(horizontal = 24.dp, vertical = 28.dp),
+            Modifier.safeDrawingPadding().verticalScroll(rememberScrollState()).widthIn(max = 560.dp).fillMaxWidth().padding(horizontal = PageGutter, vertical = 28.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             OnboardingBrand(Modifier.padding(bottom = 12.dp))
@@ -465,7 +466,7 @@ private fun HouseholdSetup(onCreate: (String, String) -> Unit) {
     var pending by remember { mutableStateOf(false) }
     Surface(Modifier.fillMaxSize()) {
         Column(
-            Modifier.safeDrawingPadding().widthIn(max = 560.dp).fillMaxWidth().padding(horizontal = 24.dp, vertical = 28.dp),
+            Modifier.safeDrawingPadding().widthIn(max = 560.dp).fillMaxWidth().padding(horizontal = PageGutter, vertical = 28.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             OnboardingBrand(Modifier.padding(bottom = 10.dp))
@@ -510,8 +511,15 @@ private fun OnboardingLink(lead: String, action: String) {
 @Composable
 private fun OnboardingBrand(modifier: Modifier = Modifier) {
     Row(modifier.height(OnboardingHeaderHeight), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy((-4).dp)) {
-        // The mark's amber body is inset in its square; pull it left so it sits on the text gutter.
-        ConduitMark(Modifier.offset(x = (-7).dp).size(36.dp), tile = false)
+        // The mark's amber body is inset in its square; trim that inset from layout so it sits on the gutter.
+        ConduitMark(
+            Modifier.layout { measurable, constraints ->
+                val placeable = measurable.measure(constraints)
+                val inset = 7.dp.roundToPx()
+                layout(placeable.width - inset, placeable.height) { placeable.place(-inset, 0) }
+            }.size(36.dp),
+            tile = false,
+        )
         Text("conduit", color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
     }
 }
@@ -642,7 +650,7 @@ private fun SignInScreen(
     }
     // Top-aligned like the household and recovery steps, so the flow doesn't jump between screens.
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background), contentAlignment = Alignment.TopCenter) {
-        Column(Modifier.safeDrawingPadding().imePadding().verticalScroll(rememberScrollState()).widthIn(max = 460.dp).fillMaxWidth().padding(horizontal = 24.dp, vertical = 28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(Modifier.safeDrawingPadding().imePadding().verticalScroll(rememberScrollState()).widthIn(max = 460.dp).fillMaxWidth().padding(horizontal = PageGutter, vertical = 28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Row(Modifier.fillMaxWidth().padding(bottom = 24.dp).height(OnboardingHeaderHeight), verticalAlignment = Alignment.CenterVertically) {
                 OnboardingBrand()
                 Spacer(Modifier.weight(1f))
@@ -720,7 +728,7 @@ private fun SignInScreen(
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
-            Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+            Column(Modifier.fillMaxWidth().offset(x = (-12).dp), horizontalAlignment = Alignment.Start) {
                 // Secondary links share one style: gray lead-in, white action.
                 if (authenticationReady && !recovering && !registering) TextButton(onClick = { recovering = true; error = null; password = "" }) { OnboardingLink("Lost your password?", "Use recovery code") }
                 if (recovering) TextButton(onClick = { recovering = false; error = null; password = "" }) { OnboardingLink("Remembered it?", "Back to sign in") }
@@ -1407,7 +1415,7 @@ private fun AppShell(
             val background = MaterialTheme.colorScheme.background
             Column(Modifier.align(Alignment.TopCenter).fillMaxWidth()) {
                 Box(Modifier.fillMaxWidth().background(background).statusBarsPadding().height(64.dp))
-                Box(Modifier.fillMaxWidth().height(16.dp).background(Brush.verticalGradient(listOf(background, Color.Transparent))))
+                Box(Modifier.fillMaxWidth().height(28.dp).background(Brush.verticalGradient(listOf(background, Color.Transparent))))
             }
             MainTopBar(
                 profiles = profiles,
@@ -2908,6 +2916,7 @@ private fun MainTopBar(
                 DropdownMenu(
                     expanded = profileMenuOpen,
                     onDismissRequest = { profileMenuOpen = false },
+                    offset = androidx.compose.ui.unit.DpOffset(x = (-8).dp, y = 8.dp),
                     modifier = Modifier
                         .width(272.dp)
                         .heightIn(max = 480.dp)
@@ -2917,20 +2926,13 @@ private fun MainTopBar(
                     tonalElevation = 0.dp,
                     shadowElevation = 24.dp,
                 ) {
-                    Text(
-                        "Switch profile",
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                        style = MaterialTheme.typography.labelLarge.copy(fontSize = 13.sp),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontWeight = FontWeight.Medium,
-                    )
                     visibleProfiles.forEach { profile ->
                         DropdownMenuItem(
                             modifier = Modifier
                                 .padding(horizontal = 6.dp)
                                 .clip(RoundedCornerShape(12.dp))
                                 .background(
-                                    if (profile.id == activeProfile?.id) Color.White.copy(alpha = .06f) else Color.Transparent,
+                                    Color.Transparent,
                                     RoundedCornerShape(12.dp),
                                 ),
                             text = {
@@ -2941,13 +2943,13 @@ private fun MainTopBar(
                             },
                             leadingIcon = {
                                 Surface(
-                                    modifier = Modifier.size(32.dp),
+                                    modifier = Modifier.size(24.dp),
                                     shape = androidx.compose.foundation.shape.CircleShape,
                                     color = profile.avatarColor?.let(::topProfileColor) ?: MaterialTheme.colorScheme.primary,
                                 ) {
                                     if (!profile.avatarUrl.isNullOrBlank()) {
                                         AsyncImage(profile.avatarUrl, profile.name, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-                                    } else Box(contentAlignment = Alignment.Center) { Text(profile.name.take(1).uppercase(), fontWeight = FontWeight.Bold) }
+                                    } else Box(contentAlignment = Alignment.Center) { Text(profile.name.take(1).uppercase(), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Color.Black) }
                                 }
                             },
                             trailingIcon = if (profile.id == activeProfile?.id) {{ Icon(Icons.Rounded.Check, "Active profile", tint = MaterialTheme.colorScheme.onSurface) }} else null,

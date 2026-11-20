@@ -293,7 +293,7 @@ private fun FeatureCard(item: CatalogItem, onClick: () -> Unit, onActions: () ->
                 contentScale = androidx.compose.ui.layout.ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
             )
-            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Transparent, .55f to Color.Transparent, 1f to Color.Black.copy(alpha = .55f))))
+            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Transparent, .7f to Color.Transparent, 1f to Color.Black.copy(alpha = .35f))))
             if (!item.logo.isNullOrBlank()) {
                 var logoAnalysis by remember(item.logo) { mutableStateOf<LogoAnalysis?>(null) }
                 coil3.compose.AsyncImage(
@@ -311,7 +311,7 @@ private fun FeatureCard(item: CatalogItem, onClick: () -> Unit, onActions: () ->
         }
         // Same stacked levels as poster captions: white title, then a smaller gray year.
         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(item.name, style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp, lineHeight = 18.sp), fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(item.name, style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp, lineHeight = 17.sp), fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             item.releaseInfo?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1) }
         }
     }
