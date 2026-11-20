@@ -484,7 +484,7 @@ internal fun SearchDiscoverScreen(
     }
 
     Column(modifier.fillMaxSize().statusBarsPadding()) {
-        Spacer(Modifier.height(mainTopBarHeight(LocalDensity.current.fontScale) + 12.dp))
+        Spacer(Modifier.height(mainTopBarHeight(LocalDensity.current.fontScale) + 8.dp))
         if (query.isBlank()) {
             Row(
                 Modifier.fillMaxWidth().padding(start = PageGutter, end = PageGutter, top = 2.dp, bottom = 2.dp),
@@ -528,7 +528,7 @@ internal fun SearchDiscoverScreen(
                     state = gridState,
                     columns = if (windowWidth >= 600.dp) GridCells.Adaptive(150.dp) else GridCells.Fixed(3),
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(start = PageGutter, end = PageGutter, top = 8.dp, bottom = 112.dp),
+                    contentPadding = PaddingValues(start = PageGutter, end = PageGutter, top = 4.dp, bottom = 112.dp),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalArrangement = Arrangement.spacedBy(18.dp),
                 ) {
@@ -2267,7 +2267,7 @@ internal fun MediaDetailsScreen(
                     // Keep the artwork bright and fade into the page only behind the title and meta. A short
                     // static scrim at the very top keeps the status bar and back button legible on bright art.
                     val heroBackground = MaterialTheme.colorScheme.background
-                    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Black.copy(.45f), .3f to Color.Transparent, .45f to Color.Transparent, .75f to heroBackground.copy(alpha = .55f), 1f to heroBackground)))
+                    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Black.copy(.35f), .22f to Color.Transparent, .55f to Color.Transparent, .82f to heroBackground.copy(alpha = .5f), 1f to heroBackground)))
                 }
                 // Logo (or title) and facts share one bottom-aligned column, so their gap is fixed rather than
                 // set by the logo's box. Centered under a logo, as in Infuse and Plex.
@@ -2327,7 +2327,7 @@ internal fun MediaDetailsScreen(
             }
         }
         item {
-            Column(Modifier.padding(horizontal = PageGutter), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Column(Modifier.padding(horizontal = PageGutter), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 if (details == null && error == null) LoadingIndicator()
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 Button(
@@ -2540,7 +2540,7 @@ internal fun MediaDetailsScreen(
                                 Text(
                                     episodeReleaseDateLabel(released) ?: released,
                                     color = TertiaryText,
-                                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 16.sp),
+                                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp, lineHeight = 14.sp),
                                     modifier = Modifier.padding(top = 4.dp),
                                 )
                             }
@@ -3123,7 +3123,7 @@ private fun DetailAction(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Icon(icon, null, tint = iconColor, modifier = Modifier.size(24.dp))
+        Icon(icon, null, tint = iconColor, modifier = Modifier.size(22.dp))
         Text(label, color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.labelMedium.copy(fontSize = 12.sp), maxLines = 1)
     }
 }
@@ -4985,7 +4985,7 @@ private fun AddonManagerScreen(
                             // What it does, then the technical facts, across the full card width under the title row.
                             Column(Modifier.padding(top = 6.dp, end = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Text(description, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 18.sp), maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                Text(meta, color = TertiaryText, style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 16.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(meta, color = TertiaryText, style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp, lineHeight = 15.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                         }
                     }
