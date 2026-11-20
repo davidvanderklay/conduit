@@ -329,6 +329,8 @@ data class CatalogItem(
     val background: String? = null,
     val description: String? = null,
     val releaseInfo: String? = null,
+    /** Title logo image, used by the featured Home row. */
+    val logo: String? = null,
 )
 
 @Serializable

@@ -355,9 +355,10 @@ internal fun RichPosterCard(
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
             )
-            Box(
-                Modifier.fillMaxWidth().height(48.dp).align(Alignment.BottomCenter)
-                    .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = .72f)))),
+            // Captions sit below the poster, so only darken the bottom edge when a progress rail sits on it.
+            if (progress != null) Box(
+                Modifier.fillMaxWidth().height(24.dp).align(Alignment.BottomCenter)
+                    .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = .5f)))),
             )
             PosterWatchStatus(item, snapshot, metadataCache, Modifier.align(Alignment.TopStart).padding(6.dp))
             ProgressRail(progress, Modifier.align(Alignment.BottomCenter))
@@ -369,7 +370,7 @@ internal fun RichPosterCard(
                     displayTitle,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp, lineHeight = 17.sp),
+                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp, lineHeight = 18.sp),
                     fontWeight = FontWeight.Medium,
                     modifier = Modifier.fillMaxWidth(),
                 )

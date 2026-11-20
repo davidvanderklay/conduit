@@ -71,6 +71,9 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.input.pointer.pointerInput
@@ -445,11 +448,11 @@ private fun RecoveryCodesScreen(codes: List<String>, onSaved: () -> Unit) {
                     }
                 }
             }
-            Spacer(Modifier.height(4.dp))
+            // Copy first, then confirm: the amber action ends the step.
+            FilledTonalButton(onClick = { clipboard.setText(AnnotatedString(codes.joinToString("\n"))) }, modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(12.dp), colors = ButtonDefaults.filledTonalButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh, contentColor = MaterialTheme.colorScheme.onSurface)) { Icon(Icons.Rounded.ContentCopy, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Copy all codes") }
             Button(onClick = onSaved, modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(12.dp)) {
                 Text("I saved these codes", fontWeight = FontWeight.SemiBold)
             }
-            OutlinedButton(onClick = { clipboard.setText(AnnotatedString(codes.joinToString("\n"))) }, modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(12.dp), border = BorderStroke(1.dp, Color.White.copy(alpha = .14f))) { Icon(Icons.Rounded.ContentCopy, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Copy all codes") }
         }
     }
 }
@@ -489,11 +492,26 @@ private fun HouseholdSetup(onCreate: (String, String) -> Unit) {
     }
 }
 
+private val OnboardingHeaderHeight = 48.dp
+
+@Composable
+private fun OnboardingLink(lead: String, action: String) {
+    Text(
+        buildAnnotatedString {
+            withStyle(SpanStyle(color = MaterialTheme.colorScheme.onSurfaceVariant)) { append("$lead ") }
+            withStyle(SpanStyle(color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)) { append(action) }
+        },
+        style = MaterialTheme.typography.bodyMedium,
+        textAlign = TextAlign.Center,
+    )
+}
+
 /** Mark and wordmark at the top of every onboarding step, so the flow keeps one anchor. */
 @Composable
 private fun OnboardingBrand(modifier: Modifier = Modifier) {
-    Row(modifier.heightIn(min = 40.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        ConduitMark(Modifier.size(36.dp), tile = false)
+    Row(modifier.height(OnboardingHeaderHeight), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        // The mark's amber body is inset in its square; pull it left so it sits on the text gutter.
+        ConduitMark(Modifier.offset(x = (-7).dp).size(36.dp), tile = false)
         Text("conduit", color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
     }
 }
@@ -625,11 +643,11 @@ private fun SignInScreen(
     // Top-aligned like the household and recovery steps, so the flow doesn't jump between screens.
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background), contentAlignment = Alignment.TopCenter) {
         Column(Modifier.safeDrawingPadding().imePadding().verticalScroll(rememberScrollState()).widthIn(max = 460.dp).fillMaxWidth().padding(horizontal = 24.dp, vertical = 28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Row(Modifier.fillMaxWidth().padding(bottom = 24.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().padding(bottom = 24.dp).height(OnboardingHeaderHeight), verticalAlignment = Alignment.CenterVertically) {
                 OnboardingBrand()
                 Spacer(Modifier.weight(1f))
-                Surface(onClick = { showServerDialog = true }, shape = RoundedCornerShape(10.dp), color = Color.Transparent, contentColor = Color.White) {
-                    Row(Modifier.heightIn(min = 40.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Surface(onClick = { showServerDialog = true }, shape = RoundedCornerShape(10.dp), color = Color.Transparent, contentColor = Color.White, modifier = Modifier.offset(x = 6.dp)) {
+                    Row(Modifier.heightIn(min = 40.dp).padding(start = 8.dp, end = 2.dp), verticalAlignment = Alignment.CenterVertically) {
                         val serverColor = when {
                             authenticationError != null -> MaterialTheme.colorScheme.error
                             authenticationLoading -> Color(0xFFFBBF24)
@@ -703,11 +721,12 @@ private fun SignInScreen(
                 )
             }
             Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                if (authenticationReady && !recovering && !registering) TextButton(onClick = { recovering = true; error = null; password = "" }) { Text("Use recovery code", color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                if (recovering) TextButton(onClick = { recovering = false; error = null; password = "" }) { Text("Back to sign in", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                // Secondary links share one style: gray lead-in, white action.
+                if (authenticationReady && !recovering && !registering) TextButton(onClick = { recovering = true; error = null; password = "" }) { OnboardingLink("Lost your password?", "Use recovery code") }
+                if (recovering) TextButton(onClick = { recovering = false; error = null; password = "" }) { OnboardingLink("Remembered it?", "Back to sign in") }
                 if (authentication.localRegistration && !recovering) {
                     TextButton(onClick = { registering = !registering; error = null }) {
-                        Text(if (registering) "Already have an account? Sign in" else "New here? Create a local account", color = MaterialTheme.colorScheme.onSurface, textAlign = TextAlign.Center)
+                        if (registering) OnboardingLink("Already have an account?", "Sign in") else OnboardingLink("New here?", "Create a local account")
                     }
                 }
             }
@@ -2981,8 +3000,8 @@ private fun MainTopBar(
                     )
                     DropdownMenuItem(
                         modifier = Modifier.padding(horizontal = 6.dp).clip(RoundedCornerShape(10.dp)),
-                        text = { Text("Log out", color = MaterialTheme.colorScheme.error) },
-                        leadingIcon = { Icon(Icons.AutoMirrored.Rounded.Logout, null, tint = MaterialTheme.colorScheme.error) },
+                        text = { Text("Log out") },
+                        leadingIcon = { Icon(Icons.AutoMirrored.Rounded.Logout, null) },
                         onClick = { profileMenuOpen = false; onSignOut() },
                     )
                 }
@@ -3013,15 +3032,20 @@ internal fun RowScope.MobileNavigationItem(
     modifier: Modifier = Modifier,
 ) {
     val color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-    // Selection is the amber icon and label plus a faint fill, kept small so the bar stays lighter than the content.
+    // Selection is the amber icon and label plus a small pill behind the icon only, Material 3 style.
     Column(
         modifier.clip(RoundedCornerShape(16.dp))
-            .background(if (selected) Color.White.copy(alpha = .06f) else Color.Transparent)
-            .selectable(selected = selected, role = androidx.compose.ui.semantics.Role.Tab, onClick = onClick).padding(top = if (showLabel) 7.dp else 10.dp, bottom = if (showLabel) 6.dp else 10.dp),
+            .selectable(selected = selected, role = androidx.compose.ui.semantics.Role.Tab, onClick = onClick).padding(top = if (showLabel) 6.dp else 8.dp, bottom = if (showLabel) 6.dp else 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(3.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        Icon(destination.icon, if (showLabel) null else destination.label, tint = color, modifier = Modifier.size(22.dp))
+        Box(
+            Modifier.size(width = 56.dp, height = 30.dp).clip(RoundedCornerShape(15.dp))
+                .background(if (selected) Color.White.copy(alpha = .08f) else Color.Transparent),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(destination.icon, if (showLabel) null else destination.label, tint = color, modifier = Modifier.size(22.dp))
+        }
         if (showLabel) Text(destination.label, color = color, style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp), fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
     }
 }

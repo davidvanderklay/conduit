@@ -67,6 +67,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.sp
@@ -747,7 +748,7 @@ private fun CommaSeparatedLinks(
                 if (index < values.lastIndex) "$value$separator" else value,
                 color = color,
                 style = CreditTextStyle,
-                modifier = Modifier.clip(RoundedCornerShape(4.dp)).clickable { onClick(value) }.padding(vertical = 3.dp).padding(end = 4.dp),
+                modifier = Modifier.clip(RoundedCornerShape(4.dp)).clickable { onClick(value) }.padding(vertical = 3.dp).padding(end = 3.dp),
             )
         }
     }
@@ -2189,7 +2190,7 @@ internal fun MediaDetailsScreen(
 
     val heroPullDp = with(LocalDensity.current) { heroPull.floatValue.toDp() }
     val heroScale = 1f + (heroPull.floatValue / maxHeroPullPx) * HeroMotion.expansionScale
-    val heroHeight = 350.dp
+    val heroHeight = 326.dp
     val titleLogo = details?.logo?.takeIf(String::isNotBlank)
     var titleLogoDark by remember(titleLogo) { mutableStateOf(false) }
     val titleLogoFilter = if (titleLogoDark) ColorFilter.tint(Color.White) else null
@@ -2216,7 +2217,7 @@ internal fun MediaDetailsScreen(
             contentPadding = PaddingValues(bottom = 32.dp),
         ) {
         item {
-            Box(Modifier.fillMaxWidth().height(heroHeight + 64.dp + heroPullDp)) {
+            Box(Modifier.fillMaxWidth().height(heroHeight + 48.dp + heroPullDp)) {
                 Box(Modifier.fillMaxWidth().height(heroHeight + heroPullDp).clipToBounds()) {
                     AsyncImage(
                         model = details?.background ?: item.background ?: details?.poster ?: item.poster,
@@ -2242,7 +2243,7 @@ internal fun MediaDetailsScreen(
                         onSuccess = { titleLogoDark = runCatching { it.isDarkLogo() }.getOrDefault(false) },
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
-                            .offset(y = (-48).dp)
+                            .offset(y = (-58).dp)
                             .fillMaxWidth(.58f)
                             .heightIn(max = 110.dp),
                     )
@@ -2251,7 +2252,7 @@ internal fun MediaDetailsScreen(
                         details?.name ?: item.name,
                         style = MaterialTheme.typography.headlineLarge,
                         fontWeight = FontWeight.Bold,
-                        modifier = Modifier.align(Alignment.BottomStart).padding(start = PageGutter, end = PageGutter, bottom = 40.dp).clickable {
+                        modifier = Modifier.align(Alignment.BottomStart).padding(start = PageGutter, end = PageGutter, bottom = 46.dp).clickable {
                             onBrowse(MobileBrowseTarget.Search(details?.name ?: item.name))
                         },
                     )
@@ -2312,14 +2313,14 @@ internal fun MediaDetailsScreen(
                     it.source?.trim()?.takeIf(String::isNotBlank)
                 }
                 // Secondary actions are quiet icon-over-label buttons so Play stays the only heavy control.
-                Row(Modifier.fillMaxWidth()) {
+                // Fixed-width slots centered as a group, so two or three actions keep the same rhythm.
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(24.dp, Alignment.CenterHorizontally)) {
                     DetailAction(
                         label = if (saved) "Saved" else "Library",
                         icon = if (saved) Icons.Rounded.BookmarkAdded else Icons.Rounded.BookmarkAdd,
                         actionDescription = if (saved) "Remove from library" else "Add to library",
                         active = saved,
                         onClick = { scope.launch { onMutation(ProfileMutation.SetLibrary(actionItem, !saved, details?.runtime)) } },
-                        modifier = Modifier.weight(1f),
                     )
                     if (actionItem.type == "movie") {
                         val watched = movieProgress?.watched == true
@@ -2329,7 +2330,6 @@ internal fun MediaDetailsScreen(
                             actionDescription = if (watched) "Mark as unwatched" else "Mark as watched",
                             active = watched,
                             onClick = { scope.launch { onMutation(ProfileMutation.SetWatched(actionItem, movieProgress, watched = !watched)) } },
-                            modifier = Modifier.weight(1f),
                         )
                     }
                     val trailerSlot = trailerId?.takeIf { id -> id.isNotEmpty() && id.all { it.isLetterOrDigit() || it == '-' || it == '_' } }
@@ -2340,12 +2340,8 @@ internal fun MediaDetailsScreen(
                             actionDescription = "Watch trailer",
                             active = false,
                             onClick = { uriHandler.openUri("https://www.youtube.com/watch?v=$id") },
-                            modifier = Modifier.weight(1f),
                         )
                     }
-                    // Keep three fixed slots so icons sit in the same place on movie and series pages.
-                    val filled = 1 + (if (actionItem.type == "movie") 1 else 0) + (if (trailerSlot != null) 1 else 0)
-                    repeat(3 - filled) { Spacer(Modifier.weight(1f)) }
                 }
                 details?.description?.trim()?.takeIf(String::isNotBlank)?.let {
                     Text(it, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .86f), style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 21.sp))
@@ -2375,16 +2371,17 @@ internal fun MediaDetailsScreen(
                     MetadataCreditLinks("Directors", details?.director.orEmpty(), onBrowse)
                     MetadataCreditLinks("Cast", details?.cast.orEmpty(), onBrowse)
                     MetadataCreditLinks("Writers", details?.writer.orEmpty(), onBrowse)
-                    details?.country?.trim()?.takeIf(String::isNotBlank)?.let { country ->
+                    listOfNotNull(
+                        details?.country?.trim()?.takeIf(String::isNotBlank)?.let { "Country" to it },
+                        details?.awards?.trim()?.takeIf(String::isNotBlank)?.let { "Awards" to it },
+                    ).forEach { (label, value) ->
                         Row {
-                            Text("Country", color = MaterialTheme.colorScheme.onSurfaceVariant, style = CreditTextStyle, modifier = Modifier.width(84.dp).padding(vertical = 3.dp))
-                            Text(country, style = CreditTextStyle, modifier = Modifier.weight(1f).padding(vertical = 3.dp))
+                            Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant, style = CreditTextStyle, modifier = Modifier.width(84.dp).padding(vertical = 3.dp))
+                            Text(value, style = CreditTextStyle, modifier = Modifier.weight(1f).padding(vertical = 3.dp))
                         }
                     }
                 }
-                details?.awards?.trim()?.takeIf(String::isNotBlank)?.let {
-                    Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp), maxLines = 2, overflow = TextOverflow.Ellipsis)
-                }
+
             }
         }
         details?.videos?.takeIf { it.isNotEmpty() }?.let { videos ->
@@ -2459,30 +2456,26 @@ internal fun MediaDetailsScreen(
                                 .clip(RoundedCornerShape(9.dp))
                                 .background(MaterialTheme.colorScheme.surfaceContainerLow),
                         ) {
-                            if (video.thumbnail.isNullOrBlank()) {
-                                Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceContainerHigh), contentAlignment = Alignment.Center) {
-                                    Text(
-                                        video.episode?.toString() ?: "",
-                                        style = MaterialTheme.typography.titleLarge,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = Color.White.copy(alpha = .4f),
-                                    )
-                                }
-                            } else {
+                            // The numbered tile sits underneath, so a missing or failed still never leaves a blank box.
+                            var stillLoaded by remember(video.thumbnail) { mutableStateOf(false) }
+                            Box(Modifier.fillMaxSize().background(Color(0xFF202024)), contentAlignment = Alignment.Center) {
+                                Text(
+                                    video.episode?.toString() ?: "",
+                                    style = MaterialTheme.typography.titleLarge.copy(fontSize = 24.sp),
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color.White.copy(alpha = .6f),
+                                )
+                            }
+                            if (!video.thumbnail.isNullOrBlank()) {
                                 AsyncImage(
                                     video.thumbnail,
                                     null,
                                     Modifier.fillMaxSize(),
                                     contentScale = ContentScale.Crop,
+                                    onSuccess = { stillLoaded = true },
                                 )
                             }
-                            Box(
-                                Modifier.fillMaxSize().background(
-                                    Brush.verticalGradient(
-                                        listOf(Color.Transparent, Color.Black.copy(.75f)),
-                                    ),
-                                ),
-                            )
+
                             if (watchState == EpisodeWatchState.Watched) {
                                 Icon(
                                     Icons.Rounded.CheckCircle,
@@ -2504,18 +2497,18 @@ internal fun MediaDetailsScreen(
                             video.released?.let { released ->
                                 Text(
                                     episodeReleaseDateLabel(released) ?: released,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    style = MaterialTheme.typography.labelMedium,
-                                    modifier = Modifier.padding(top = 1.dp),
+                                    color = Color(0xFF85858F),
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, lineHeight = 14.sp),
+                                    modifier = Modifier.padding(top = 2.dp),
                                 )
                             }
-                            (video.overview ?: video.description)?.takeIf(String::isNotBlank)?.let {
+                            (video.overview ?: video.description)?.trim()?.takeIf(String::isNotBlank)?.let {
                                 Text(
                                     it,
-                                    color = Color.White.copy(.62f),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 2,
                                     overflow = TextOverflow.Ellipsis,
-                                    style = MaterialTheme.typography.bodySmall,
+                                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 16.sp),
                                     modifier = Modifier.padding(top = 4.dp),
                                 )
                             }
@@ -3067,6 +3060,7 @@ private fun DetailAction(
     val color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
     Column(
         modifier
+            .width(104.dp)
             .clip(RoundedCornerShape(10.dp))
             .clickable(onClickLabel = actionDescription, role = androidx.compose.ui.semantics.Role.Button, onClick = onClick)
             .semantics(mergeDescendants = true) { contentDescription = actionDescription }
@@ -3576,7 +3570,12 @@ private fun StreamSelectionScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.bodyMedium,
                     )
-                    TextButton(onClick = onRetry, contentPadding = PaddingValues(horizontal = 0.dp)) {
+                    FilledTonalButton(
+                        onClick = onRetry,
+                        modifier = Modifier.padding(top = 10.dp).height(40.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.filledTonalButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh, contentColor = MaterialTheme.colorScheme.onSurface),
+                    ) {
                         Text("Try again", style = MaterialTheme.typography.labelLarge)
                     }
                 }
@@ -3738,7 +3737,7 @@ internal fun ProfileSettingsScreen(
         listOf(
             SettingSection("Account", listOf(
                 SettingEntry("Profile", "Profiles and viewing stats", Icons.Rounded.AccountCircle),
-                SettingEntry("Account", "Sign-in and recovery", Icons.Rounded.Person),
+                SettingEntry("Account", "Sign-in and recovery", Icons.Rounded.Key),
             )),
             SettingSection("General", listOf(
                 SettingEntry("Watch history", "Recently watched", Icons.Rounded.History),
@@ -3805,7 +3804,7 @@ internal fun ProfileSettingsScreen(
             OutlinedTextField(
                 value = settingsQuery,
                 onValueChange = { settingsQuery = it },
-                modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background).padding(vertical = 8.dp),
+                modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background).padding(vertical = 8.dp).height(mainTopBarHeight(LocalDensity.current.fontScale)),
                 placeholder = { Text("Search settings") },
                 leadingIcon = { Icon(Icons.Rounded.Search, null, Modifier.size(20.dp)) },
                 trailingIcon = if (settingsQuery.isNotBlank()) {{
@@ -3880,14 +3879,14 @@ private fun SettingsGroup(title: String, divided: Boolean = true, content: @Comp
         Text(title, style = SectionLabelStyle)
         Surface(color = SettingsGroupColor, shape = RoundedCornerShape(14.dp)) {
             val inner = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp)
-            if (divided) DividedColumn(inner, content) else Column(inner) { content() }
+            if (divided) DividedColumn(inner, content = content) else Column(inner) { content() }
         }
     }
 }
 
 /** Stacks children vertically and draws a hairline between each pair. */
 @Composable
-private fun DividedColumn(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+private fun DividedColumn(modifier: Modifier = Modifier, lineStart: Dp = 0.dp, lineEndOverhang: Dp = 16.dp, content: @Composable () -> Unit) {
     val color = Color.White.copy(alpha = .06f)
     // Written during placement and read during drawing, which always follows layout.
     val dividerOffsets = remember { mutableListOf<Int>() }
@@ -3896,7 +3895,10 @@ private fun DividedColumn(modifier: Modifier = Modifier, content: @Composable ()
         modifier = modifier.drawWithContent {
             drawContent()
             val stroke = 1.dp.toPx()
-            dividerOffsets.forEach { y -> drawLine(color, Offset(0f, y.toFloat()), Offset(size.width, y.toFloat()), stroke) }
+            // Lines start at the text column and run to the card's edge, past this column's end padding.
+            val start = lineStart.toPx()
+            val end = size.width + lineEndOverhang.toPx()
+            dividerOffsets.forEach { y -> drawLine(color, Offset(start, y.toFloat()), Offset(end, y.toFloat()), stroke) }
         },
     ) { measurables, constraints ->
         val placeables = measurables.map { it.measure(constraints.copy(minHeight = 0)) }
@@ -3917,8 +3919,8 @@ private fun DividedColumn(modifier: Modifier = Modifier, content: @Composable ()
 @Composable
 internal fun conduitSwitchColors() = SwitchDefaults.colors(
     uncheckedTrackColor = Color(0xFF27272A),
-    uncheckedBorderColor = Color(0xFF52525B),
-    uncheckedThumbColor = Color(0xFFA1A1AA),
+    uncheckedBorderColor = Color.Transparent,
+    uncheckedThumbColor = Color(0xFF71717A),
 )
 
 @Composable
@@ -3990,9 +3992,9 @@ private fun AppearanceSettingsScreen(platform: PlatformInfo, preferences: Device
     }
     SettingsPage("Appearance & layout", onBack, modifier) {
         SettingsGroup("Appearance") {
-            Row(Modifier.fillMaxWidth().heightIn(min = 60.dp).padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("Theme", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
-                Text("conduit dark", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+            Column(Modifier.fillMaxWidth().heightIn(min = 60.dp).padding(vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text("Theme", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+                Text("conduit dark", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
             }
             SettingsToggle("AMOLED black", "Pure black backgrounds for OLED screens", preferences.amoledBlack) { update(preferences.copy(amoledBlack = it)) }
             SettingsToggle("Reduce animations", "Simpler transitions and motion", preferences.reduceAnimations) { update(preferences.copy(reduceAnimations = it)) }
@@ -4840,48 +4842,60 @@ private fun AddonManagerScreen(
         error?.let { item { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 4.dp)) } }
         item { AddonSectionLabel("Installed") }
         if (addons.isEmpty()) item { Text("No add-ons installed.", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(4.dp)) }
-        items(addons, key = { it.id }) { addon ->
-            val index = addons.indexOfFirst { it.id == addon.id }
-            val name = addon.manifest["name"]?.jsonPrimitive?.contentOrNull ?: addon.manifestId
-            val description = addon.manifest["description"]?.jsonPrimitive?.contentOrNull ?: addon.manifestUrl
-            val version = addon.manifest["version"]?.jsonPrimitive?.contentOrNull
-            val logo = addon.manifest["logo"]?.jsonPrimitive?.contentOrNull
-            val resources = addon.manifest["resources"]?.let { runCatching { it.jsonArray.size }.getOrDefault(0) } ?: 0
-            val catalogs = addon.manifest["catalogs"]?.let { runCatching { it.jsonArray.size }.getOrDefault(0) } ?: 0
-            val types = addon.manifest["types"]?.let { value -> runCatching { value.jsonArray.mapNotNull { it.jsonPrimitive.contentOrNull } }.getOrDefault(emptyList()) } ?: emptyList()
-            val hints = addon.manifest["behaviorHints"]?.let { runCatching { it.jsonObject }.getOrNull() }
-            val configurable = hints?.get("configurable")?.jsonPrimitive?.booleanOrNull == true || hints?.get("configurationRequired")?.jsonPrimitive?.booleanOrNull == true
-            // Two short meta lines replace the old badge pills; the switch already shows active or disabled.
-            fun count(n: Int, noun: String) = "$n $noun${if (n == 1) "" else "s"}"
-            val meta = listOfNotNull(version?.let { "v$it" }, types.takeIf { it.isNotEmpty() }?.joinToString(", ")).joinToString(" · ")
-            val capabilities = listOfNotNull(count(resources, "resource"), count(catalogs, "catalog"), "configurable".takeIf { configurable }).joinToString(" · ")
+        // One grouped surface with hairlines between add-ons, matching the settings groups.
+        if (addons.isNotEmpty()) item(key = "installed-addons") {
             Surface(color = SettingsGroupColor, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(start = 16.dp, end = 4.dp, top = 12.dp, bottom = 4.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Surface(shape = RoundedCornerShape(10.dp), color = Color.White.copy(.06f), modifier = Modifier.size(40.dp)) {
-                            if (!logo.isNullOrBlank()) AsyncImage(logo, "$name logo", Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
-                            else Icon(Icons.Rounded.Extension, null, Modifier.padding(9.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        Spacer(Modifier.width(12.dp))
-                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                            Text(name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            if (meta.isNotBlank()) Text(meta, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(capabilities, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        }
-                        Spacer(Modifier.width(8.dp))
-                        Switch(addon.enabled, { enabled -> runMutation { base, token, id -> api.setAddonEnabled(base, token, id, addon.id, enabled) } }, enabled = !linked && !busy, colors = conduitSwitchColors())
-                        if (!linked) Box {
-                            var menuOpen by remember { mutableStateOf(false) }
-                            IconButton(onClick = { menuOpen = true }, enabled = !busy) { Icon(Icons.Rounded.MoreVert, "More actions for $name", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
-                            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }, containerColor = MaterialTheme.colorScheme.surfaceContainerHigh, shape = RoundedCornerShape(12.dp)) {
-                                DropdownMenuItem(text = { Text("Move up") }, leadingIcon = { Icon(Icons.Rounded.ArrowUpward, null) }, enabled = index > 0, onClick = { menuOpen = false; runMutation { base, token, id -> api.moveAddon(base, token, id, addon.id, index - 1) } })
-                                DropdownMenuItem(text = { Text("Move down") }, leadingIcon = { Icon(Icons.Rounded.ArrowDownward, null) }, enabled = index < addons.lastIndex, onClick = { menuOpen = false; runMutation { base, token, id -> api.moveAddon(base, token, id, addon.id, index + 1) } })
-                                DropdownMenuItem(text = { Text("Refresh") }, leadingIcon = { Icon(Icons.Rounded.Refresh, null) }, onClick = { menuOpen = false; runMutation { base, token, id -> api.installAddon(base, token, id, addon.manifestUrl) } })
-                                DropdownMenuItem(text = { Text("Remove", color = MaterialTheme.colorScheme.error) }, leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null, tint = MaterialTheme.colorScheme.error) }, onClick = { menuOpen = false; removeTarget = addon })
+                DividedColumn(lineStart = 68.dp, lineEndOverhang = 0.dp) {
+                    addons.forEach { addon ->
+                    val index = addons.indexOfFirst { it.id == addon.id }
+                    val name = addon.manifest["name"]?.jsonPrimitive?.contentOrNull ?: addon.manifestId
+                    val description = addon.manifest["description"]?.jsonPrimitive?.contentOrNull ?: addon.manifestUrl
+                    val version = addon.manifest["version"]?.jsonPrimitive?.contentOrNull
+                    val logo = addon.manifest["logo"]?.jsonPrimitive?.contentOrNull
+                    val resources = addon.manifest["resources"]?.let { runCatching { it.jsonArray.size }.getOrDefault(0) } ?: 0
+                    val catalogs = addon.manifest["catalogs"]?.let { runCatching { it.jsonArray.size }.getOrDefault(0) } ?: 0
+                    val types = addon.manifest["types"]?.let { value -> runCatching { value.jsonArray.mapNotNull { it.jsonPrimitive.contentOrNull } }.getOrDefault(emptyList()) } ?: emptyList()
+                    val hints = addon.manifest["behaviorHints"]?.let { runCatching { it.jsonObject }.getOrNull() }
+                    val configurable = hints?.get("configurable")?.jsonPrimitive?.booleanOrNull == true || hints?.get("configurationRequired")?.jsonPrimitive?.booleanOrNull == true
+                    // Two short meta lines replace the old badge pills; the switch already shows active or disabled.
+                    fun count(n: Int, noun: String) = "$n $noun${if (n == 1) "" else "s"}"
+                    val meta = listOfNotNull(version?.let { "v$it" }, types.takeIf { it.isNotEmpty() }?.joinToString(", ")).joinToString(" · ")
+                    val capabilities = listOfNotNull(count(resources, "resource"), count(catalogs, "catalog"), "configurable".takeIf { configurable }).joinToString(" · ")
+                    run {
+                        Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 12.dp, bottom = 4.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Surface(shape = RoundedCornerShape(10.dp), color = Color.White.copy(.06f), modifier = Modifier.size(40.dp)) {
+                                    // Wide wordmark logos are unreadable in a square tile, so they fall back to the add-on glyph.
+                                    var logoFits by remember(logo) { mutableStateOf(!logo.isNullOrBlank()) }
+                                    if (logoFits) AsyncImage(logo, "$name logo", Modifier.fillMaxSize(), contentScale = ContentScale.Crop, onSuccess = { state ->
+                                        val size = state.painter.intrinsicSize
+                                        if (size.width > 0f && size.height > 0f && size.width / size.height > 1.6f) logoFits = false
+                                    }, onError = { logoFits = false })
+                                    else Icon(Icons.Rounded.Extension, null, Modifier.padding(9.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                Spacer(Modifier.width(12.dp))
+                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                                    Text(name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    if (meta.isNotBlank()) Text(meta, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(capabilities, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                                Spacer(Modifier.width(8.dp))
+                                Switch(addon.enabled, { enabled -> runMutation { base, token, id -> api.setAddonEnabled(base, token, id, addon.id, enabled) } }, enabled = !linked && !busy, colors = conduitSwitchColors())
+                                if (!linked) Box {
+                                    var menuOpen by remember { mutableStateOf(false) }
+                                    IconButton(onClick = { menuOpen = true }, enabled = !busy) { Icon(Icons.Rounded.MoreVert, "More actions for $name", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
+                                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }, containerColor = MaterialTheme.colorScheme.surfaceContainerHigh, shape = RoundedCornerShape(12.dp)) {
+                                        DropdownMenuItem(text = { Text("Move up") }, leadingIcon = { Icon(Icons.Rounded.ArrowUpward, null) }, enabled = index > 0, onClick = { menuOpen = false; runMutation { base, token, id -> api.moveAddon(base, token, id, addon.id, index - 1) } })
+                                        DropdownMenuItem(text = { Text("Move down") }, leadingIcon = { Icon(Icons.Rounded.ArrowDownward, null) }, enabled = index < addons.lastIndex, onClick = { menuOpen = false; runMutation { base, token, id -> api.moveAddon(base, token, id, addon.id, index + 1) } })
+                                        DropdownMenuItem(text = { Text("Refresh") }, leadingIcon = { Icon(Icons.Rounded.Refresh, null) }, onClick = { menuOpen = false; runMutation { base, token, id -> api.installAddon(base, token, id, addon.manifestUrl) } })
+                                        DropdownMenuItem(text = { Text("Remove", color = MaterialTheme.colorScheme.error) }, leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null, tint = MaterialTheme.colorScheme.error) }, onClick = { menuOpen = false; removeTarget = addon })
+                                    }
+                                }
                             }
+                            Text(description, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 52.dp, top = 4.dp, end = 12.dp, bottom = 12.dp))
                         }
                     }
-                    Text(description, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 52.dp, top = 4.dp, end = 12.dp, bottom = 12.dp))
+                    }
                 }
             }
         }

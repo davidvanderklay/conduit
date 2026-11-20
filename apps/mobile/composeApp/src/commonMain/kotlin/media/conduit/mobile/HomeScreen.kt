@@ -2,6 +2,7 @@ package media.conduit.mobile
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -15,9 +16,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import kotlinx.coroutines.CancellationException
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
 import media.conduit.mobile.account.*
 
@@ -144,7 +147,10 @@ internal fun HomeScreen(
         result?.takeIf { it.failedRequests > 0 }?.let { catalogs ->
             item { StatusPill("${catalogs.failedRequests} catalog requests failed", MaterialTheme.colorScheme.error, Modifier.padding(horizontal = PageGutter)) }
         }
-        result?.catalogs.orEmpty().filter { it.items.isNotEmpty() }.forEach { catalog ->
+        val visibleCatalogs = result?.catalogs.orEmpty().filter { it.items.isNotEmpty() }
+        visibleCatalogs.forEachIndexed { index, catalog ->
+            // Without a Continue Watching row, the first shelf becomes large backdrop cards so Home has one focal row.
+            val featured = index == 0 && continueWatching.isEmpty()
             item(key = catalog.key) {
                 Shelf(
                     catalog.title,
@@ -159,7 +165,14 @@ internal fun HomeScreen(
                     },
                 ) {
                     LazyRow(contentPadding = PaddingValues(horizontal = PageGutter), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        items(catalog.items, key = { "${catalog.key}:${it.type}:${it.id}" }) { item ->
+                        if (featured) items(catalog.items, key = { "${catalog.key}:${it.type}:${it.id}" }) { item ->
+                            FeatureCard(
+                                item,
+                                onClick = { onSelect(item, null) },
+                                onActions = { actionTarget = MediaActionTarget(item, MediaActionContext.Browse, latestProgress(sync.snapshot, item)) },
+                                modifier = Modifier.width(300.dp),
+                            )
+                        } else items(catalog.items, key = { "${catalog.key}:${it.type}:${it.id}" }) { item ->
                             RichPosterCard(
                                 item, item.releaseInfo ?: item.type, sync.snapshot, metadataCache,
                                 onClick = { onSelect(item, null) },
@@ -229,7 +242,7 @@ internal fun Shelf(title: String, onSeeAll: (() -> Unit)? = null, source: String
             // A compact text link keeps the row as tall as its title; the padding still gives a usable target.
             if (onSeeAll != null) Text(
                 "See all",
-                style = MaterialTheme.typography.labelLarge,
+                style = MaterialTheme.typography.labelMedium.copy(fontSize = 12.sp),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClickLabel = "See all $title", onClick = onSeeAll).padding(horizontal = 10.dp, vertical = 6.dp),
             )
@@ -252,5 +265,56 @@ private fun CatalogSkeleton() {
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             repeat(4) { Box(Modifier.width(112.dp).aspectRatio(2f / 3f).clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.surfaceContainer)) }
         }
+    }
+}
+
+/** Landscape backdrop card for the featured Home row: artwork, title logo (or name), and year. */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+private fun FeatureCard(item: CatalogItem, onClick: () -> Unit, onActions: () -> Unit, modifier: Modifier = Modifier) {
+    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Box(
+            Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(10.dp))
+                .background(MaterialTheme.colorScheme.surfaceContainer)
+                .combinedClickable(
+                    onClickLabel = "Open ${item.name}",
+                    onLongClickLabel = "More actions for ${item.name}",
+                    onClick = onClick,
+                    onLongClick = {
+                        haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                        onActions()
+                    },
+                ),
+        ) {
+            coil3.compose.AsyncImage(
+                model = item.background ?: item.poster,
+                contentDescription = item.name,
+                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Transparent, .5f to Color.Transparent, 1f to Color.Black.copy(alpha = .7f))))
+            if (!item.logo.isNullOrBlank()) {
+                var logoDark by remember(item.logo) { mutableStateOf(false) }
+                coil3.compose.AsyncImage(
+                    model = item.logo,
+                    contentDescription = null,
+                    contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+                    colorFilter = if (logoDark) androidx.compose.ui.graphics.ColorFilter.tint(Color.White) else null,
+                    onSuccess = { logoDark = runCatching { it.isDarkLogo() }.getOrDefault(false) },
+                    alignment = Alignment.BottomStart,
+                    modifier = Modifier.align(Alignment.BottomStart).padding(12.dp).fillMaxWidth(.55f).height(44.dp),
+                )
+            } else {
+                Text(item.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.align(Alignment.BottomStart).padding(12.dp))
+            }
+        }
+        Text(
+            listOfNotNull(item.name, item.releaseInfo).joinToString(" · "),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
