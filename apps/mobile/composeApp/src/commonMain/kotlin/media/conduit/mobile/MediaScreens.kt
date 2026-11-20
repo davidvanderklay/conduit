@@ -577,7 +577,7 @@ internal fun SearchDiscoverScreen(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
                 // The first group header sits where Home's first shelf title does.
-                contentPadding = PaddingValues(top = 20.dp, bottom = 112.dp),
+                contentPadding = PaddingValues(top = 22.dp, bottom = 112.dp),
                 verticalArrangement = Arrangement.spacedBy(24.dp),
             ) {
                 if (searchLoading) item {
@@ -798,7 +798,7 @@ private fun CommaSeparatedLinks(
                 if (index < values.lastIndex) "$value$separator" else value,
                 color = color,
                 style = style,
-                modifier = Modifier.clip(RoundedCornerShape(4.dp)).clickable { onClick(value) }.padding(vertical = 3.dp).padding(end = 3.dp),
+                modifier = Modifier.clip(RoundedCornerShape(4.dp)).clickable { onClick(value) }.padding(vertical = 3.dp).padding(end = if (index < values.lastIndex) 3.dp else 0.dp),
             )
         }
     }
@@ -2464,7 +2464,7 @@ internal fun MediaDetailsScreen(
                             )
                         }
                     }
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(16.dp))
                 }
             }
             val seasonVideos = videos
@@ -2524,11 +2524,12 @@ internal fun MediaDetailsScreen(
                             }
 
                             if (watchState == EpisodeWatchState.Watched) {
+                                // White like the movie's Watched state; the dark disc keeps it legible on bright stills.
                                 Icon(
                                     Icons.Rounded.CheckCircle,
                                     null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.align(Alignment.TopEnd).padding(6.dp).size(20.dp),
+                                    tint = Color.White,
+                                    modifier = Modifier.align(Alignment.TopEnd).padding(6.dp).size(20.dp).background(Color.Black.copy(alpha = .45f), CircleShape),
                                 )
                             }
                         }
@@ -2647,7 +2648,7 @@ internal fun MediaDetailsScreen(
                     }
                 }
                 val fadeColor = MaterialTheme.colorScheme.background
-                Box(Modifier.fillMaxWidth().height(24.dp).background(Brush.verticalGradient(0f to fadeColor, .3f to fadeColor.copy(alpha = .75f), .65f to fadeColor.copy(alpha = .3f), 1f to Color.Transparent)))
+                Box(Modifier.fillMaxWidth().height(24.dp).background(Brush.verticalGradient(0f to fadeColor, .25f to fadeColor, .5f to fadeColor.copy(alpha = .7f), .75f to fadeColor.copy(alpha = .25f), 1f to Color.Transparent)))
             }
         } else {
             MobileBackButton(
@@ -3002,8 +3003,8 @@ internal fun PlayerEpisodeDrawer(
                                             Icon(
                                                 Icons.Rounded.CheckCircle,
                                                 null,
-                                                tint = MaterialTheme.colorScheme.primary,
-                                                modifier = Modifier.align(Alignment.TopEnd).padding(5.dp),
+                                                tint = Color.White,
+                                                modifier = Modifier.align(Alignment.TopEnd).padding(5.dp).background(Color.Black.copy(alpha = .45f), CircleShape),
                                             )
                                         }
                                         if (episodeNumber.isNotBlank()) {
@@ -3174,14 +3175,14 @@ private fun DetailAction(
     val iconColor = if (active) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
     Column(
         modifier
-            .width(104.dp)
+            .width(88.dp)
             .clip(RoundedCornerShape(12.dp))
             .clickable(onClickLabel = actionDescription, role = androidx.compose.ui.semantics.Role.Button, onClick = onClick)
             .semantics(mergeDescendants = true) { contentDescription = actionDescription }
             .heightIn(min = 48.dp)
             .padding(vertical = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         Icon(icon, null, tint = iconColor, modifier = Modifier.size(22.dp))
         Text(label, color = iconColor, style = MaterialTheme.typography.labelMedium.copy(fontSize = 12.sp, fontWeight = FontWeight.Medium), maxLines = 1)
@@ -5004,8 +5005,8 @@ private fun AddonManagerScreen(
                     shape = RoundedCornerShape(12.dp),
                     colors = conduitFilledFieldColors(),
                     trailingIcon = {
-                        // Install lives inside the field: amber once the URL is valid, muted until then.
-                        IconButton(
+                        // "Install" lives inside the field: amber once the URL is valid, muted until then.
+                        TextButton(
                             onClick = {
                                 val url = normalizeManifestUrl(manifestUrl)
                                 runMutation(onSuccess = { manifestUrl = "" }) { base, token, id ->
@@ -5013,11 +5014,12 @@ private fun AddonManagerScreen(
                                 }
                             },
                             enabled = installable,
+                            modifier = Modifier.heightIn(min = 48.dp).padding(end = 4.dp),
                         ) {
-                            if (busy) LoadingIndicator(Modifier.size(20.dp)) else Icon(
-                                Icons.Rounded.Add,
-                                "Install add-on",
-                                tint = if (installable) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .5f),
+                            if (busy) LoadingIndicator(Modifier.size(20.dp)) else Text(
+                                "Install",
+                                style = MaterialTheme.typography.labelLarge.copy(fontSize = 14.sp, fontWeight = FontWeight.Medium),
+                                color = if (installable) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .5f),
                             )
                         }
                     },
