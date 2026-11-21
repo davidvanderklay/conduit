@@ -25,23 +25,22 @@ internal actual fun PlatformBottomNavigation(
 ) {
     if (!visible) return
     Surface(
-        // Opaque so posters never read through the labels; AppShell fades content out behind it.
-        color = MaterialTheme.colorScheme.surfaceContainer,
-        shape = if (classic) RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp) else RoundedCornerShape(24.dp),
-        border = if (classic) null else BorderStroke(0.5.dp, Color.White.copy(alpha = .04f)),
-        shadowElevation = if (classic) 4.dp else 0.dp,
+        color = if (classic) MaterialTheme.colorScheme.surfaceContainer else Color(0xDD202023),
+        shape = if (classic) RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp) else RoundedCornerShape(32.dp),
+        border = if (classic) null else BorderStroke(1.dp, Color.White.copy(alpha = .12f)),
+        shadowElevation = if (classic) 4.dp else 14.dp,
         modifier = modifier
             .then(if (classic) Modifier else Modifier.navigationBarsPadding())
             .then(
                 if (classic) Modifier.fillMaxWidth()
-                else if (compact) Modifier.padding(start = 40.dp, end = 40.dp, top = 10.dp, bottom = 6.dp).fillMaxWidth()
-                else Modifier.padding(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 6.dp).fillMaxWidth(),
+                else if (compact) Modifier.padding(horizontal = 64.dp, vertical = 10.dp).fillMaxWidth()
+                else Modifier.padding(horizontal = 14.dp, vertical = 10.dp).fillMaxWidth(),
             ),
     ) {
         Row(
             Modifier.fillMaxWidth()
                 .then(if (classic) Modifier.navigationBarsPadding() else Modifier)
-                .padding(horizontal = 8.dp, vertical = if (compact) 2.dp else 1.dp),
+                .padding(horizontal = 8.dp, vertical = if (compact) 2.dp else 4.dp),
         ) {
             destinations.forEach { destination ->
                 MobileNavigationItem(

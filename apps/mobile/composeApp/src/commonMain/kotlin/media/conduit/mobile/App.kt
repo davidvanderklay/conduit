@@ -686,11 +686,11 @@ private fun SignInScreen(
                     }
                 }
             }
-            // The form sits directly on the page, matching the household and recovery steps.
+            // The form sits directly on the page; heading, subtitle and links center over the full-width fields.
             Box(Modifier.fillMaxWidth()) {
-                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp), horizontalAlignment = Alignment.Start) {
+                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(if (recovering) "Recover your account" else if (registering) if (authentication.needsOwner) "Set up conduit" else "Create your account" else "Welcome back", color = Color.White, style = OnboardingTitleStyle)
-            Text(if (recovering) "Enter one of the recovery codes you saved." else if (registering) "Create a private account for this conduit instance." else "Sign in to continue to your household.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.offset(y = (-6).dp).padding(bottom = 6.dp).widthIn(max = OnboardingCopyWidth))
+            Text(if (recovering) "Enter one of the recovery codes you saved." else if (registering) "Create a private account for this conduit instance." else "Sign in to continue to your household.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center, modifier = Modifier.offset(y = (-6).dp).padding(bottom = 6.dp).widthIn(max = OnboardingCopyWidth))
             if (authenticationLoading && !authenticationReady) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                     LoadingIndicator(Modifier.size(17.dp), strokeWidth = 2.dp)
@@ -723,7 +723,7 @@ private fun SignInScreen(
                 visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
                 modifier = Modifier.fillMaxWidth(),
             )
-            error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            error?.let { Text(it, color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center) }
             val canSubmit = authenticationReady && !pending && email.isNotBlank() && password.length >= 8 && (!recovering || recoveryCode.isNotBlank())
             Button(
                 enabled = canSubmit,
@@ -748,7 +748,7 @@ private fun SignInScreen(
                 )
             }
             // Pulled up 8dp so the links' text sits about 22dp under the button, despite TextButton's touch padding.
-            Column(Modifier.fillMaxWidth().offset(x = (-12).dp, y = (-8).dp), horizontalAlignment = Alignment.Start) {
+            Column(Modifier.fillMaxWidth().offset(y = (-8).dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 // Secondary links share one style: gray lead-in, white action.
                 if (authenticationReady && !recovering && !registering) TextButton(onClick = { recovering = true; error = null; password = "" }) { OnboardingLink("Lost your password?", "Use recovery code") }
                 if (recovering) TextButton(onClick = { recovering = false; error = null; password = "" }) { OnboardingLink("Remembered it?", "Back to sign in") }
@@ -1402,10 +1402,6 @@ private fun AppShell(
                         profileLaunchRequest,
                         playbackSession,
                         Modifier.fillMaxSize(),
-                        onManageAddons = {
-                            closeSelectedMedia()
-                            openProfile(ProfileLaunchTarget.Addons)
-                        },
                     )
                 }
             }
@@ -1443,12 +1439,9 @@ private fun AppShell(
                 derivedStateOf {
                     when (state.destination) {
                         AppDestination.Home -> homeListState.firstVisibleItemIndex > 0 || homeListState.firstVisibleItemScrollOffset > 0
-                        AppDestination.Search -> if (browseQuery.isBlank()) {
-                            discoverGridState.firstVisibleItemIndex > 0 || discoverGridState.firstVisibleItemScrollOffset > 0
-                        } else {
-                            searchListState.firstVisibleItemIndex > 0 || searchListState.firstVisibleItemScrollOffset > 0
-                        }
-                        AppDestination.Library -> libraryGridState.firstVisibleItemIndex > 0 || libraryGridState.firstVisibleItemScrollOffset > 0
+                        // Discover and Library leave it off: their glass filters float over the grid instead.
+                        AppDestination.Search -> browseQuery.isNotBlank() &&
+                            (searchListState.firstVisibleItemIndex > 0 || searchListState.firstVisibleItemScrollOffset > 0)
                         else -> false
                     }
                 }
@@ -1504,21 +1497,6 @@ private fun AppShell(
                 profileLaunchRequest?.let {
                     it.target == ProfileLaunchTarget.History && it.returnToLibrary
                 } == true
-            if (appBottomNavigationVisible && !classic) {
-                val background = MaterialTheme.colorScheme.background
-                // Content fades out before the pill: fully opaque at its top edge on every screen.
-                val artworkScreen = state.destination in setOf(AppDestination.Home, AppDestination.Search, AppDestination.Library)
-                Box(
-                    Modifier.align(Alignment.BottomCenter).fillMaxWidth()
-                        .background(
-                            // Expanded: the fade starts about 36dp above the pill and is opaque at its top edge.
-                            if (artworkScreen && !compact) Brush.verticalGradient(0f to Color.Transparent, .2f to background.copy(alpha = .7f), .32f to background)
-                            else if (artworkScreen) Brush.verticalGradient(0f to Color.Transparent, .4f to background.copy(alpha = .85f), .58f to background)
-                            else Brush.verticalGradient(0f to Color.Transparent, .3f to background.copy(alpha = .92f), .42f to background),
-                        )
-                        .navigationBarsPadding().height(if (!artworkScreen) 112.dp else if (compact) 96.dp else 112.dp),
-                )
-            }
             PlatformBottomNavigation(
                 destinations = destinations,
                 selected = if (fromLibraryHistory) {
@@ -1737,7 +1715,6 @@ private fun DestinationContent(
     profileLaunchRequest: ProfileLaunchRequest?,
     playbackSession: PlaybackSessionController,
     modifier: Modifier = Modifier,
-    onManageAddons: () -> Unit = {},
 ) {
     LaunchedEffect(state.destination) {
         if (state.destination != AppDestination.Profile) onProfileFlowChanged(false)
@@ -1824,7 +1801,6 @@ private fun DestinationContent(
                     onInteractiveBack = onInteractiveCloseMedia,
                     onBackCancelled = onCancelInteractiveCloseMedia,
                     playbackSession = playbackSession,
-                    onManageAddons = onManageAddons,
                 )
             }
         }
@@ -2959,7 +2935,7 @@ private fun MainTopBar(
                     onDismissRequest = { profileMenuOpen = false },
                     offset = androidx.compose.ui.unit.DpOffset(x = (-7).dp, y = 4.dp),
                     modifier = Modifier
-                        .width((200 * LocalDensity.current.fontScale.coerceAtLeast(1f)).dp)
+                        .width(300.dp)
                         .heightIn(max = 480.dp),
                     shape = RoundedCornerShape(12.dp),
                     // One tonal step above the raised fill, so the menu separates from dark hero art without a border.
@@ -3076,22 +3052,16 @@ internal fun RowScope.MobileNavigationItem(
     showLabel: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    // Inactive tabs a step under body gray so the bar doesn't pull focus from the artwork.
-    val color = if (selected) MaterialTheme.colorScheme.primary else Color(0xFF8F8F99)
-    // Selection is the filled amber glyph and amber label; no indicator capsule.
+    val color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
     Column(
-        modifier.clip(RoundedCornerShape(12.dp))
-            .selectable(selected = selected, role = androidx.compose.ui.semantics.Role.Tab, onClick = onClick).padding(top = if (showLabel) 6.dp else 8.dp, bottom = if (showLabel) 6.dp else 8.dp),
+        modifier.clip(RoundedCornerShape(24.dp))
+            .background(if (selected) MaterialTheme.colorScheme.primary.copy(alpha = .12f) else Color.Transparent)
+            .selectable(selected = selected, role = androidx.compose.ui.semantics.Role.Tab, onClick = onClick).padding(top = if (showLabel) 8.dp else 10.dp, bottom = if (showLabel) 7.dp else 10.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(2.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Box(
-            Modifier.size(width = 40.dp, height = 22.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(destination.icon(selected), if (showLabel) null else destination.label, tint = color, modifier = Modifier.size(20.dp))
-        }
-        if (showLabel) Text(destination.label, color = color, style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp), fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+        Icon(destination.icon(selected), if (showLabel) null else destination.label, tint = color, modifier = Modifier.size(24.dp))
+        if (showLabel) Text(destination.label, color = color, style = MaterialTheme.typography.labelMedium, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
     }
 }
 

@@ -59,6 +59,9 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.foundation.border
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.zIndex
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -166,18 +169,20 @@ internal fun MobileLibraryScreen(
 
     Column(modifier.statusBarsPadding()) {
         Spacer(Modifier.height(mainTopBarHeight(LocalDensity.current.fontScale) + 8.dp))
+        Box(Modifier.fillMaxSize()) {
         // Same header pattern as Discover: each filter starts on a grid column, page tools end on the gutter.
-        BoxWithConstraints(Modifier.padding(start = PageGutter, end = PageGutter, top = 2.dp, bottom = 6.dp)) {
+        // It floats above the grid so posters scroll under the glass filters.
+        BoxWithConstraints(Modifier.zIndex(1f).padding(start = PageGutter, end = PageGutter, top = 4.dp, bottom = 6.dp)) {
             // Phone grids are three columns with 10dp gutters, so column two starts one column plus a gutter in.
             val columnStart = (maxWidth - 20.dp) / 3 + 10.dp
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Row(Modifier.width(columnStart)) {
+                Row(Modifier.width(columnStart).padding(end = 10.dp)) {
                     CompactFilterMenu(
                         value = when (filter) { "movie" -> "Movies"; "series" -> "Series"; else -> "All types" },
                         options = listOf("all" to "All types", "movie" to "Movies", "series" to "Series"),
                         selectedKey = filter,
                         onSelect = { filter = it },
-                        modifier = Modifier.weight(1f, fill = false),
+                        modifier = Modifier.weight(1f),
                     )
                 }
                 CompactFilterMenu(
@@ -185,6 +190,7 @@ internal fun MobileLibraryScreen(
                     options = LibrarySort.entries.map { it.name to it.label },
                     selectedKey = sort.name,
                     onSelect = { selected -> LibrarySort.entries.firstOrNull { it.name == selected }?.let { sort = it } },
+                    fillWidth = false,
                 )
                 Spacer(Modifier.weight(1f))
                 // Page tools sit together as one cluster; the glyph of the last one lands on the gutter.
@@ -198,7 +204,10 @@ internal fun MobileLibraryScreen(
                 }
             }
         }
-        SyncStatusRow(syncState, onRetry)
+        // When the sync notice shows it sits under the filters and the grid starts below it.
+        val syncNoticeVisible = syncState.issue != null || syncState.offline
+        Column(Modifier.fillMaxSize()) {
+        SyncStatusRow(syncState, onRetry, Modifier.padding(top = 54.dp))
         if (snapshot == null) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(stringResource(Res.string.sync_loading)) }
         } else if (loadingStatus) {
@@ -211,7 +220,7 @@ internal fun MobileLibraryScreen(
             LazyVerticalGrid(
                 state = gridState,
                 columns = gridColumns,
-                contentPadding = PaddingValues(start = PageGutter, end = PageGutter, bottom = 112.dp),
+                contentPadding = PaddingValues(start = PageGutter, end = PageGutter, top = if (syncNoticeVisible) 4.dp else 54.dp, bottom = 112.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
@@ -232,6 +241,8 @@ internal fun MobileLibraryScreen(
                     )
                 }
             }
+        }
+        }
         }
     }
     MediaActionSheet(
@@ -494,15 +505,17 @@ internal fun SearchDiscoverScreen(
 
     Column(modifier.fillMaxSize().statusBarsPadding()) {
         Spacer(Modifier.height(mainTopBarHeight(LocalDensity.current.fontScale) + 8.dp))
-        if (query.isBlank()) {
+        if (query.isBlank()) Box(Modifier.fillMaxSize()) {
+            // The filters float above the grid so posters scroll under the glass.
             Row(
-                Modifier.fillMaxWidth().padding(start = PageGutter, end = PageGutter, top = 2.dp, bottom = 2.dp),
+                Modifier.zIndex(1f).fillMaxWidth().padding(start = PageGutter, end = PageGutter, top = 6.dp, bottom = 2.dp),
                 // Three equal slots with the grid's 10dp gutter, so each filter sits over a column.
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 CompactFilterMenu(
                     value = typePluralLabel(type),
                     options = types.map { it to typePluralLabel(it) },
+                    selectedKey = type,
                     onSelect = { onSelectionChange(DiscoverSelection(type = it)) },
                     modifier = Modifier.weight(1f),
                 )
@@ -513,6 +526,7 @@ internal fun SearchDiscoverScreen(
                             "${catalog.name} · ${catalog.addonName}"
                         } else catalog.name
                     },
+                    selectedKey = selected?.let { "${it.addonId}:${it.id}" },
                     onSelect = { key ->
                         val next = typeCatalogs.firstOrNull { "${it.addonId}:${it.id}" == key } ?: return@CompactFilterMenu
                         onSelectionChange(DiscoverSelection(next.addonId, type, next.id))
@@ -526,6 +540,7 @@ internal fun SearchDiscoverScreen(
                         selected?.genres.orEmpty().forEach { add(it to it) }
                     },
                     enabled = selected?.supportsGenre == true,
+                    selectedKey = genre ?: "",
                     onSelect = { onSelectionChange(normalizedSelection.copy(genre = it.ifBlank { null })) },
                     modifier = Modifier.weight(1f),
                 )
@@ -539,7 +554,7 @@ internal fun SearchDiscoverScreen(
                     state = gridState,
                     columns = if (windowWidth >= 600.dp) GridCells.Adaptive(150.dp) else EqualColumns(3),
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(start = PageGutter, end = PageGutter, top = 4.dp, bottom = 112.dp),
+                    contentPadding = PaddingValues(start = PageGutter, end = PageGutter, top = 58.dp, bottom = 112.dp),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
@@ -629,40 +644,73 @@ private fun RowScope.CompactFilterMenu(
     onSelect: (String) -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    fillWidth: Boolean = true,
 ) {
     var expanded by remember { mutableStateOf(false) }
     val focusManager = LocalFocusManager.current
+    val density = LocalDensity.current
+    var pillWidth by remember { mutableStateOf(0.dp) }
     Box(modifier) {
-        // A plain text trigger with a chevron, like a menu title, so filters stay quieter than the posters.
+        // A translucent pill with a hairline edge, the same glass as the bottom bar, floating over the grid.
         Row(
-            Modifier.clip(RoundedCornerShape(8.dp)).clickable(enabled && options.isNotEmpty()) {
-                focusManager.clearFocus()
-                expanded = true
-            }.heightIn(min = 44.dp),
+            Modifier
+                .then(if (fillWidth) Modifier.fillMaxWidth() else Modifier)
+                .onSizeChanged { pillWidth = with(density) { it.width.toDp() } }
+                .height(40.dp)
+                .shadow(10.dp, GlassPillShape)
+                .clip(GlassPillShape)
+                .background(GlassFill)
+                .border(1.dp, GlassEdge, GlassPillShape)
+                .clickable(enabled && options.isNotEmpty()) {
+                    focusManager.clearFocus()
+                    expanded = true
+                }
+                .padding(start = 14.dp, end = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
                 value,
-                modifier = Modifier.weight(1f, fill = false),
+                modifier = if (fillWidth) Modifier.weight(1f) else Modifier.weight(1f, fill = false),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 style = MaterialTheme.typography.titleSmall.copy(fontSize = 14.sp),
                 fontWeight = FontWeight.Medium,
                 color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Icon(Icons.Rounded.KeyboardArrowDown, null, Modifier.padding(start = 4.dp).size(18.dp), tint = Color(0xFFD4D4D8))
+            Icon(Icons.Rounded.KeyboardArrowDown, null, Modifier.padding(start = 4.dp).size(18.dp), tint = if (enabled) Color(0xFFD4D4D8) else TertiaryText)
         }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            // Flush under the pill at its width, like Stremio's filter menus, so the two read as one control.
+            offset = androidx.compose.ui.unit.DpOffset(0.dp, 0.dp),
+            modifier = Modifier.widthIn(min = maxOf(pillWidth, 140.dp)),
+            shape = RoundedCornerShape(16.dp),
+            containerColor = GlassMenuFill,
+            border = BorderStroke(1.dp, GlassEdge),
+            tonalElevation = 0.dp,
+            shadowElevation = 24.dp,
+        ) {
             options.forEach { (key, label) ->
+                val chosen = key == selectedKey
                 DropdownMenuItem(
-                    text = { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    text = { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis, color = if (chosen) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface, fontWeight = if (chosen) FontWeight.SemiBold else FontWeight.Normal) },
                     onClick = { expanded = false; onSelect(key) },
-                    trailingIcon = if (key == selectedKey) {{ Icon(Icons.Rounded.Check, null, Modifier.size(18.dp)) }} else null,
+                    trailingIcon = if (chosen) {{ Icon(Icons.Rounded.Check, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary) }} else null,
+                    // Compact rows with the pill's text inset, so options line up under its label.
+                    modifier = Modifier.height(40.dp),
+                    contentPadding = PaddingValues(horizontal = 14.dp),
                 )
             }
         }
     }
 }
+
+// Glass surfaces shared by the browse filters; the fill and edge match the floating bottom bar.
+private val GlassPillShape = RoundedCornerShape(20.dp)
+private val GlassFill = Color(0xDD202023)
+private val GlassMenuFill = Color(0xF2242428)
+private val GlassEdge = Color.White.copy(alpha = .12f)
 
 @Composable
 private fun EmptyBrowseState(message: String) {
@@ -835,7 +883,6 @@ internal fun MediaDetailsScreen(
     returnToHomeOnStreamBack: Boolean,
     openMode: MediaOpenMode,
     playbackSession: PlaybackSessionController,
-    onManageAddons: () -> Unit = {},
 ) {
     var meta by remember(item.id, item.type) { mutableStateOf<MetaItem?>(null) }
     var error by remember(item.id) { mutableStateOf<String?>(null) }
@@ -2188,11 +2235,6 @@ internal fun MediaDetailsScreen(
         Box(Modifier.fillMaxSize()) {
             StreamSelectionScreen(
                 title = meta?.name ?: item.name,
-                logo = meta?.logo?.takeIf(String::isNotBlank),
-                facts = listOfNotNull((meta?.releaseInfo ?: meta?.released?.take(4))?.let(::detailYears), meta?.runtime?.let(::compactRuntime))
-                    .map(String::trim).filter(String::isNotBlank),
-                rating = meta?.imdbRating?.trim()?.takeIf(String::isNotBlank),
-                genres = meta?.genres.orEmpty().map(String::trim).filter(String::isNotBlank).distinct(),
                 artwork = meta?.background ?: meta?.poster ?: item.background ?: item.poster,
                 episode = selectedVideo,
                 streams = streams.orEmpty(),
@@ -2204,15 +2246,13 @@ internal fun MediaDetailsScreen(
                 onSelectAddon = ::selectStreamPageAddon,
                 onRetry = { requestStreams(selectedVideo, addonId = selectedStreamAddonId) },
                 onSelect = ::selectStreamFromPage,
-                onManageAddons = onManageAddons,
             )
             MobileBackButton(
                 onClick = {
                     if (streamEpisodesOpen) streamEpisodesOpen = false else closeStreamPage()
                 },
                 modifier = Modifier.align(Alignment.TopStart),
-                background = Color.Black.copy(alpha = .55f),
-                tint = Color.White,
+                background = MaterialTheme.colorScheme.background.copy(alpha = .96f),
                 safeArea = true,
             )
             if (orderedVideos.isNotEmpty()) {
@@ -2227,7 +2267,6 @@ internal fun MediaDetailsScreen(
                     Icon(Icons.Rounded.VideoLibrary, contentDescription = "Episodes")
                 }
             }
-            BottomGestureFade(Modifier.align(Alignment.BottomCenter))
             if (streamEpisodesOpen) {
                 BoxWithConstraints(Modifier.fillMaxSize()) {
                     PlayerEpisodeDrawer(
@@ -2383,10 +2422,9 @@ internal fun MediaDetailsScreen(
                 } ?: details?.trailers?.firstNotNullOfOrNull {
                     it.source?.trim()?.takeIf(String::isNotBlank)
                 }
-                // Secondary actions are quiet icon-over-label buttons so Play stays the only heavy control.
-                // Fixed-width slots centered as a group, so two or three actions keep the same rhythm.
-                // Drawn 8dp up so they sit with Play, leaving the larger gap before the synopsis.
-                Row(Modifier.fillMaxWidth().offset(y = (-8).dp), horizontalArrangement = Arrangement.spacedBy(24.dp, Alignment.CenterHorizontally)) {
+                // Secondary actions split the full width under Play as equal tonal buttons, so two or three
+                // actions fill the row instead of floating in the middle. Play stays the only amber control.
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     DetailAction(
                         label = if (saved) "Saved" else "Library",
                         icon = if (saved) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder,
@@ -2544,26 +2582,24 @@ internal fun MediaDetailsScreen(
                             }
                         }
                         Column(Modifier.weight(1f)) {
+                            // A short gray line ("E3 · Apr 13, 2025") above the name, so the title starts flush.
+                            val meta = listOfNotNull(
+                                video.episode?.takeIf { namedTitle != null }?.let { "E$it" },
+                                video.released?.let { episodeReleaseDateLabel(it) ?: it },
+                            ).joinToString(" · ")
+                            if (meta.isNotEmpty()) Text(
+                                meta,
+                                color = TertiaryText,
+                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 16.sp),
+                            )
                             Text(
-                                // The "3." prefix in gray so the episode name leads each row.
-                                if (namedTitle != null && video.episode != null) androidx.compose.ui.text.buildAnnotatedString {
-                                    withStyle(androidx.compose.ui.text.SpanStyle(color = MaterialTheme.colorScheme.onSurfaceVariant)) { append("${video.episode}. ") }
-                                    append(namedTitle)
-                                } else androidx.compose.ui.text.AnnotatedString(episodeTitle),
+                                namedTitle ?: episodeTitle,
                                 color = Color.White,
                                 style = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp, lineHeight = 20.sp),
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
-                            // Title, then the air date as its metadata line, then the synopsis: three distinct levels.
-                            video.released?.let { released ->
-                                Text(
-                                    episodeReleaseDateLabel(released) ?: released,
-                                    color = TertiaryText,
-                                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 16.sp),
-                                )
-                            }
                             (video.overview ?: video.description)?.let(::tidyTruncatedText)?.takeIf(String::isNotBlank)?.let {
                                 TidyEllipsisText(
                                     it,
@@ -3182,30 +3218,30 @@ private fun BottomGestureFade(modifier: Modifier = Modifier) {
 
 /** Icon-over-label secondary action on the details page. Active state uses the accent instead of a border. */
 @Composable
-private fun DetailAction(
+private fun RowScope.DetailAction(
     label: String,
     icon: ImageVector,
     actionDescription: String,
     active: Boolean,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier,
 ) {
     // Inactive actions are an outlined icon and label in gray; an active one is the filled icon and label in white.
-    // Amber stays reserved for Play.
-    val iconColor = if (active) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
-    Column(
-        modifier
-            .width(88.dp)
+    val contentColor = if (active) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
+    Row(
+        Modifier
+            .weight(1f)
+            .height(40.dp)
             .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerHighest)
             .clickable(onClickLabel = actionDescription, role = androidx.compose.ui.semantics.Role.Button, onClick = onClick)
             .semantics(mergeDescendants = true) { contentDescription = actionDescription }
-            .heightIn(min = 48.dp)
-            .padding(vertical = 4.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(2.dp),
+            .padding(horizontal = 6.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(icon, null, tint = iconColor, modifier = Modifier.size(22.dp))
-        Text(label, color = iconColor, style = MaterialTheme.typography.labelMedium.copy(fontSize = 13.sp, lineHeight = 17.sp, fontWeight = FontWeight.Medium), maxLines = 1)
+        Icon(icon, null, tint = contentColor, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(6.dp))
+        Text(label, color = contentColor, style = MaterialTheme.typography.labelLarge.copy(fontSize = 13.sp, fontWeight = FontWeight.Medium), maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -3553,10 +3589,6 @@ internal fun PlayerStreamDrawer(
 @Composable
 private fun StreamSelectionScreen(
     title: String,
-    logo: String?,
-    facts: List<String>,
-    rating: String?,
-    genres: List<String>,
     artwork: String?,
     episode: VideoItem?,
     streams: List<StreamSource>,
@@ -3568,7 +3600,6 @@ private fun StreamSelectionScreen(
     onSelectAddon: (String?) -> Unit,
     onRetry: () -> Unit,
     onSelect: (StreamSource) -> Unit,
-    onManageAddons: () -> Unit = {},
 ) {
     val listState = rememberLazyListState()
     val reducedMotion = LocalReducedMotion.current
@@ -3594,84 +3625,29 @@ private fun StreamSelectionScreen(
         contentPadding = PaddingValues(bottom = 20.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        // With artwork and a logo, the hero matches details: same backdrop height and fade, with the logo
-        // and facts overlapping its bottom edge, so moving from details to streams keeps the title in place.
-        val heroWithLogo = artwork != null && logo != null
         artwork?.let { image ->
             item(key = "artwork") {
-                Box(Modifier.fillMaxWidth().height((if (heroWithLogo) 374.dp else 226.dp) + heroPullDp)) {
-                    Box(Modifier.fillMaxWidth().height((if (heroWithLogo) 326.dp else 226.dp) + heroPullDp).clipToBounds()) {
-                        AsyncImage(
-                            image,
-                            null,
-                            Modifier.fillMaxSize().graphicsLayer {
-                                scaleX = heroScale
-                                scaleY = heroScale
-                                translationY = -heroPull.floatValue * HeroMotion.upwardTranslation
-                            },
-                            contentScale = ContentScale.Crop,
-                        )
-                        val streamBackground = MaterialTheme.colorScheme.background
-                        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Black.copy(.6f), .18f to Color.Black.copy(.35f), .32f to Color.Transparent, .70f to Color.Transparent, .89f to streamBackground.copy(alpha = .5f), 1f to streamBackground)))
-                    }
-                    if (heroWithLogo) Column(
-                        // Same box, padding, and logo/facts/genres stack as details, so the title doesn't move between pages.
-                        Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(start = PageGutter, end = PageGutter, bottom = 8.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        var logoAnalysis by remember(logo) { mutableStateOf<LogoAnalysis?>(null) }
-                        AsyncImage(
-                            model = rememberLogoRequest(logo),
-                            contentDescription = title,
-                            contentScale = ContentScale.Fit,
-                            alignment = Alignment.BottomCenter,
-                            colorFilter = if (logoAnalysis?.dark == true) ColorFilter.tint(Color.White) else null,
-                            onSuccess = { logoAnalysis = runCatching { it.analyzeLogo() }.getOrNull() },
-                            modifier = Modifier.logoBox(logoAnalysis, .62f, 96.dp, wideWidthFraction = .74f),
-                        )
-                        if (episode == null) Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(0.dp)) {
-                            if (facts.isNotEmpty() || rating != null) TitleFactsRow(facts, rating, onRatingClick = null)
-                            // Matches the details genres line, which pads each link by 3dp vertically.
-                            if (genres.isNotEmpty()) Text(
-                                genres.joinToString(" · "),
-                                color = TertiaryText,
-                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier.padding(vertical = 3.dp),
-                            )
-                        }
-                    }
+                Box(Modifier.fillMaxWidth().height(170.dp + heroPullDp).clipToBounds()) {
+                    AsyncImage(
+                        image,
+                        null,
+                        Modifier.fillMaxSize().graphicsLayer {
+                            scaleX = heroScale
+                            scaleY = heroScale
+                            translationY = -heroPull.floatValue * HeroMotion.upwardTranslation
+                        },
+                        contentScale = ContentScale.Crop,
+                    )
+                    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Black.copy(.08f), MaterialTheme.colorScheme.background))))
                 }
             }
         }
-        val subtitle = listOfNotNull(
-            "Choose a stream".takeIf { streams.isNotEmpty() || loading },
-            episode?.let { "S${it.season ?: 0}E${it.episode ?: 0} · ${it.displayTitle}" },
-        ).joinToString(" · ")
-        val refreshable = streams.isNotEmpty() && !loading
-        // Collapsed, the title clears the back button. Expanded under a logo hero, only the subtitle and
-        // refresh remain here; without one, the plain title leads. With nothing to show, the header is left
-        // out entirely so it adds no list spacing above the empty state.
-        if (collapsed || !heroWithLogo || subtitle.isNotEmpty() || refreshable) stickyHeader(key = "stream-header") {
-            Surface(color = MaterialTheme.colorScheme.background, shadowElevation = 0.dp) {
-                Row(
-                    Modifier.fillMaxWidth()
-                        .then(if (collapsed || artwork == null) Modifier.statusBarsPadding() else Modifier)
-                        .padding(start = if (collapsed || artwork == null) 56.dp else PageGutter, end = PageGutter, top = 4.dp, bottom = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    val centered = !collapsed && heroWithLogo
-                    Column(Modifier.weight(1f), horizontalAlignment = if (centered) Alignment.CenterHorizontally else Alignment.Start) {
-                        if (collapsed || !heroWithLogo) {
-                            Text(title, style = if (collapsed) MaterialTheme.typography.titleMedium else PageTitleStyle, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            if (!collapsed && episode == null && (facts.isNotEmpty() || rating != null)) TitleFactsRow(facts, rating, onRatingClick = null)
-                        }
-                        if (!collapsed && subtitle.isNotEmpty()) Text(subtitle, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    }
-                    if (refreshable) IconButton(onClick = onRetry) {
-                        Icon(Icons.Rounded.Refresh, "Refresh sources", tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
+        stickyHeader(key = "stream-header") {
+            Surface(color = MaterialTheme.colorScheme.background.copy(alpha = .96f), shadowElevation = if (collapsed) 8.dp else 0.dp) {
+                Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 8.dp, vertical = if (collapsed) 4.dp else 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Spacer(Modifier.width(48.dp))
+                    Column(Modifier.weight(1f)) { Text("Choose a stream", style = if (collapsed) MaterialTheme.typography.titleMedium else MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold); if (!collapsed) Text(listOfNotNull(title, episode?.let { "S${it.season ?: 0}E${it.episode ?: 0} · ${it.displayTitle}" }).joinToString(" · "), color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                    Spacer(Modifier.width(48.dp))
                 }
             }
         }
@@ -3680,7 +3656,7 @@ private fun StreamSelectionScreen(
                 Surface(
                     modifier = Modifier.padding(start = 16.dp),
                     shape = RoundedCornerShape(50),
-                    color = MaterialTheme.colorScheme.surfaceContainer,
+                    color = Color(0xFF1B1B1D),
                     contentColor = Color.White,
                 ) {
                     Text(
@@ -3692,25 +3668,21 @@ private fun StreamSelectionScreen(
                 }
             }
         }
-        // Source filters only help when more than one add-on returned streams.
-        if (addonChoices.size > 1) item(key = "addon-filters") {
-            val chipColors = FilterChipDefaults.filterChipColors(
-                selectedContainerColor = Color.White.copy(alpha = .12f),
-                selectedLabelColor = MaterialTheme.colorScheme.onSurface,
-                labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+        item(key = "addon-filters") {
             LazyRow(
-                contentPadding = PaddingValues(start = PageGutter, end = PageGutter),
+                contentPadding = PaddingValues(horizontal = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
             ) {
+                item {
+                    FilledTonalIconButton(onClick = onRetry) {
+                        Icon(Icons.Rounded.Refresh, "Refresh sources")
+                    }
+                }
                 item {
                     FilterChip(
                         selected = selectedAddonId == null,
                         onClick = { onSelectAddon(null) },
                         label = { Text("All") },
-                        colors = chipColors,
-                        border = null,
                     )
                 }
                 items(addonChoices, key = StreamAddonChoice::id) { addon ->
@@ -3718,8 +3690,6 @@ private fun StreamSelectionScreen(
                         selected = selectedAddonId == addon.id,
                         onClick = { onSelectAddon(addon.id) },
                         label = { Text(addon.name) },
-                        colors = chipColors,
-                        border = null,
                     )
                 }
             }
@@ -3740,38 +3710,10 @@ private fun StreamSelectionScreen(
                 }
             }
             streams.isEmpty() -> item(key = if (error != null) "error" else "empty") {
-                // Sits right under the filters so the empty state reads as part of the page, not a separate screen.
-                // Centered under the centered title, so the page keeps one axis.
-                Column(
-                    // A clear beat below the title metadata, so the result starts its own block.
-                    Modifier.fillMaxWidth().padding(start = PageGutter, end = PageGutter, top = 8.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Text(
-                        if (error != null) "Couldn't load streams" else "No streams found",
-                        style = ShelfTitleStyle,
-                    )
-                    Text(
-                        error ?: "Install or enable a stream add-on.",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 20.sp, lineBreak = androidx.compose.ui.text.style.LineBreak.Heading),
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.padding(top = 6.dp).widthIn(max = 320.dp),
-                    )
-                    // Retry, or go fix the cause: streams come from add-ons. Same tonal secondary as "Copy all codes".
-                    Row(Modifier.padding(top = 16.dp).widthIn(max = 440.dp).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        // Primary last, the same order as the recovery codes step.
-                        FilledTonalButton(
-                            onClick = onRetry,
-                            modifier = Modifier.weight(1f).height(PrimaryButtonHeight),
-                            shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.filledTonalButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest, contentColor = MaterialTheme.colorScheme.onSurface),
-                        ) {
-                            Text("Try again", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
-                        }
-                        Button(onClick = onManageAddons, modifier = Modifier.weight(1f).height(PrimaryButtonHeight), shape = RoundedCornerShape(12.dp)) {
-                            Text("Manage add-ons", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
-                        }
+                Box(Modifier.fillParentMaxHeight(.65f).fillMaxWidth().padding(28.dp), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                        Text(error ?: "No streams were returned.", color = error?.let { MaterialTheme.colorScheme.error } ?: MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (error != null) Button(onClick = onRetry) { Text("Try again") }
                     }
                 }
             }
@@ -5026,134 +4968,86 @@ private fun AddonManagerScreen(
         )
     }
     val activeCount = addons.count { it.enabled }
+    val catalogCount = addons.filter { it.enabled }.sumOf { it.manifest["catalogs"]?.let { value -> runCatching { value.jsonArray.size }.getOrDefault(0) } ?: 0 }
     Column(modifier.fillMaxSize()) {
         ProfileHeader("Add-ons", onBack)
-        LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(start = PageGutter, end = PageGutter, bottom = 112.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(start = 10.dp, end = 10.dp, bottom = 40.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        item { AddonSectionLabel("Overview") }
+        item { Surface(color = Color.White.copy(.075f), shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
+            Row(Modifier.fillMaxWidth().padding(vertical = 18.dp), verticalAlignment = Alignment.CenterVertically) {
+                listOf(addons.size to "Add-ons", activeCount to "Active", catalogCount to "Catalogs").forEachIndexed { index, stat ->
+                    if (index > 0) VerticalDivider(Modifier.height(54.dp), color = Color.White.copy(.1f))
+                    Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) { Text("${stat.first}", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold); Text(stat.second, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                }
+            }
+        } }
         if (linked) item {
-            Surface(color = SettingsGroupColor, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
-                Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.Link, null, tint = MaterialTheme.colorScheme.primary); Spacer(Modifier.width(12.dp)); Column { Text("Using primary add-ons", fontWeight = FontWeight.SemiBold); Text("This list is managed by the primary profile.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) } }
+            Surface(color = MaterialTheme.colorScheme.primary.copy(.1f), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
+                Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.Link, null, tint = MaterialTheme.colorScheme.primary); Spacer(Modifier.width(12.dp)); Column { Text("Using primary add-ons", fontWeight = FontWeight.Bold); Text("This list is managed by the primary profile.", color = MaterialTheme.colorScheme.onSurfaceVariant) } }
             }
         } else {
-            item { AddonSectionLabel("Install from URL") }
-            item {
-                val installable = !busy && normalizeManifestUrl(manifestUrl).isNotBlank()
-                TextField(
-                    manifestUrl, { manifestUrl = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Manifest URL") },
-                    placeholder = { Text("https://…/manifest.json") },
-                    singleLine = true,
-                    shape = RoundedCornerShape(12.dp),
-                    colors = conduitFilledFieldColors(),
-                    trailingIcon = {
-                        // "Install" lives inside the field: amber once the URL is valid, muted until then.
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                        VerticalDivider(Modifier.height(28.dp), color = Color.White.copy(alpha = .10f))
-                        TextButton(
-                            onClick = {
-                                val url = normalizeManifestUrl(manifestUrl)
-                                runMutation(onSuccess = { manifestUrl = "" }) { base, token, id ->
-                                    api.installAddon(base, token, id, url)
-                                }
-                            },
-                            enabled = installable,
-                            modifier = Modifier.heightIn(min = 48.dp).padding(end = 4.dp),
-                        ) {
-                            if (busy) LoadingIndicator(Modifier.size(20.dp)) else Text(
-                                "Install",
-                                style = MaterialTheme.typography.labelLarge.copy(fontSize = 14.sp, fontWeight = FontWeight.Medium),
-                                color = if (installable) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .5f),
-                            )
-                        }
+            item { AddonSectionLabel("Add add-on") }
+            item { Surface(color = Color.White.copy(.075f), shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(manifestUrl, { manifestUrl = it }, modifier = Modifier.fillMaxWidth(), placeholder = { Text("https://…/manifest.json") }, singleLine = true)
+                Button(
+                    onClick = {
+                        val url = normalizeManifestUrl(manifestUrl)
+                        runMutation(onSuccess = { manifestUrl = "" }) { base, token, id ->
+                            api.installAddon(base, token, id, url)
                         }
                     },
-                )
-            }
+                    enabled = !busy && normalizeManifestUrl(manifestUrl).isNotBlank(),
+                    modifier = Modifier.fillMaxWidth().height(52.dp),
+                ) { Text(if (busy) "Verifying…" else "Install add-on") }
+            } } }
         }
-        error?.let { item { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 4.dp)) } }
-        item {
-            // 20dp above, so install and the installed list read as two tasks.
-            Row(modifier = Modifier.padding(top = 12.dp)) {
-                Text("Installed", style = SectionLabelStyle, modifier = Modifier.alignByBaseline())
-                if (addons.isNotEmpty()) Text(
-                    "$activeCount of ${addons.size} active",
-                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.alignByBaseline().padding(start = 8.dp),
-                )
-            }
-        }
-        if (addons.isEmpty()) item { Text("No add-ons installed.", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(4.dp)) }
-        // One grouped surface with hairlines between add-ons, matching the settings groups.
-        if (addons.isNotEmpty()) item(key = "installed-addons") {
-            Surface(color = SettingsGroupColor, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
-                DividedColumn(lineStart = 16.dp, lineEndOverhang = 0.dp) {
-                    addons.forEach { addon ->
-                    val index = addons.indexOfFirst { it.id == addon.id }
-                    val name = addon.manifest["name"]?.jsonPrimitive?.contentOrNull ?: addon.manifestId
-                    val description = addon.manifest["description"]?.jsonPrimitive?.contentOrNull ?: addon.manifestUrl
-                    val version = addon.manifest["version"]?.jsonPrimitive?.contentOrNull
-                    val logo = addon.manifest["logo"]?.jsonPrimitive?.contentOrNull
-                    val catalogs = addon.manifest["catalogs"]?.let { runCatching { it.jsonArray.size }.getOrDefault(0) } ?: 0
-                    val types = addon.manifest["types"]?.let { value -> runCatching { value.jsonArray.mapNotNull { it.jsonPrimitive.contentOrNull } }.getOrDefault(emptyList()) } ?: emptyList()
-                    val hints = addon.manifest["behaviorHints"]?.let { runCatching { it.jsonObject }.getOrNull() }
-                    val configurable = hints?.get("configurable")?.jsonPrimitive?.booleanOrNull == true || hints?.get("configurationRequired")?.jsonPrimitive?.booleanOrNull == true
-                    // Two short meta lines replace the old badge pills; the switch already shows active or disabled.
-                    fun count(n: Int, noun: String) = "$n $noun${if (n == 1) "" else "s"}"
-            val meta = listOfNotNull(
-                version?.let { "v$it" },
-                types.takeIf { it.isNotEmpty() }?.joinToString(", "),
-                count(catalogs, "catalog"),
-                "configurable".takeIf { configurable },
-            ).joinToString(" · ")
-                    run {
-                        Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 14.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                // Wide wordmark logos are unreadable in a square tile, so they fall back to the add-on glyph.
-                                var logoFits by remember(logo) { mutableStateOf(!logo.isNullOrBlank()) }
-                                // A logo that fits gets a tile; the glyph fallback stays bare to avoid decorative chrome.
-                                Surface(shape = RoundedCornerShape(12.dp), color = if (logoFits) Color.White.copy(.06f) else Color.Transparent, modifier = Modifier.size(if (logoFits) 40.dp else 24.dp)) {
-                                    if (logoFits) AsyncImage(logo, "$name logo", Modifier.fillMaxSize(), contentScale = ContentScale.Crop, onSuccess = { state ->
-                                        val size = state.painter.intrinsicSize
-                                        if (size.width > 0f && size.height > 0f && size.width / size.height > 1.6f) logoFits = false
-                                    }, onError = { logoFits = false })
-                                    else Icon(Icons.Outlined.Extension, null, Modifier.fillMaxSize(), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                                Spacer(Modifier.width(12.dp))
-                                Text(name, style = SettingsTitleStyle, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                                Spacer(Modifier.width(12.dp))
-                                // Compact controls keep the title row about 40dp, so title, description, and facts read as one group.
-                                CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides Dp.Unspecified) {
-                                    ConduitSwitch(addon.enabled, { enabled -> runMutation { base, token, id -> api.setAddonEnabled(base, token, id, addon.id, enabled) } }, enabled = !linked && !busy)
-                                }
-                                if (!linked) Box {
-                                    var menuOpen by remember { mutableStateOf(false) }
-                                    IconButton(onClick = { menuOpen = true }, enabled = !busy, modifier = Modifier.offset(x = 4.dp).size(40.dp)) { Icon(Icons.Rounded.MoreVert, "More actions for $name", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
-                                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }, containerColor = MaterialTheme.colorScheme.surfaceContainerHigh, shape = RoundedCornerShape(12.dp)) {
-                                        DropdownMenuItem(text = { Text("Move up") }, leadingIcon = { Icon(Icons.Rounded.ArrowUpward, null) }, enabled = index > 0, onClick = { menuOpen = false; runMutation { base, token, id -> api.moveAddon(base, token, id, addon.id, index - 1) } })
-                                        DropdownMenuItem(text = { Text("Move down") }, leadingIcon = { Icon(Icons.Rounded.ArrowDownward, null) }, enabled = index < addons.lastIndex, onClick = { menuOpen = false; runMutation { base, token, id -> api.moveAddon(base, token, id, addon.id, index + 1) } })
-                                        DropdownMenuItem(text = { Text("Refresh") }, leadingIcon = { Icon(Icons.Rounded.Refresh, null) }, onClick = { menuOpen = false; runMutation { base, token, id -> api.installAddon(base, token, id, addon.manifestUrl) } })
-                                        DropdownMenuItem(text = { Text("Remove", color = MaterialTheme.colorScheme.error) }, leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null, tint = MaterialTheme.colorScheme.error) }, onClick = { menuOpen = false; removeTarget = addon })
-                                    }
-                                }
-                            }
-                            // What it does, then the technical facts, across the full card width under the title row.
-                            Column(Modifier.padding(end = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Text(description, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 18.sp), maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                Text(meta, color = TertiaryText, style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 16.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            }
+        error?.let { item { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 16.dp)) } }
+        item { AddonSectionLabel("Installed add-ons") }
+        if (addons.isEmpty()) item { Text("No add-ons installed.", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(20.dp)) }
+        items(addons, key = { it.id }) { addon ->
+            val index = addons.indexOfFirst { it.id == addon.id }
+            val name = addon.manifest["name"]?.jsonPrimitive?.contentOrNull ?: addon.manifestId
+            val description = addon.manifest["description"]?.jsonPrimitive?.contentOrNull ?: addon.manifestUrl
+            val version = addon.manifest["version"]?.jsonPrimitive?.contentOrNull
+            val logo = addon.manifest["logo"]?.jsonPrimitive?.contentOrNull
+            val resources = addon.manifest["resources"]?.let { runCatching { it.jsonArray.size }.getOrDefault(0) } ?: 0
+            val catalogs = addon.manifest["catalogs"]?.let { runCatching { it.jsonArray.size }.getOrDefault(0) } ?: 0
+            val types = addon.manifest["types"]?.let { value -> runCatching { value.jsonArray.mapNotNull { it.jsonPrimitive.contentOrNull } }.getOrDefault(emptyList()) } ?: emptyList()
+            val hints = addon.manifest["behaviorHints"]?.let { runCatching { it.jsonObject }.getOrNull() }
+            val configurable = hints?.get("configurable")?.jsonPrimitive?.booleanOrNull == true || hints?.get("configurationRequired")?.jsonPrimitive?.booleanOrNull == true
+            Surface(color = Color.White.copy(.075f), shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Surface(shape = RoundedCornerShape(14.dp), color = Color.White.copy(.045f), modifier = Modifier.size(62.dp)) {
+                            if (!logo.isNullOrBlank()) AsyncImage(logo, "$name logo", Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+                            else Icon(Icons.Rounded.Extension, null, Modifier.padding(16.dp), tint = MaterialTheme.colorScheme.primary)
                         }
+                        Spacer(Modifier.width(14.dp)); Column(Modifier.weight(1f)) { Text(name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis); version?.let { Text("Version $it", color = MaterialTheme.colorScheme.onSurfaceVariant) } }
+                        Switch(addon.enabled, { enabled -> runMutation { base, token, id -> api.setAddonEnabled(base, token, id, addon.id, enabled) } }, enabled = !linked && !busy)
                     }
+                    if (!linked) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        IconButton(onClick = { runMutation { base, token, id -> api.moveAddon(base, token, id, addon.id, index - 1) } }, enabled = index > 0 && !busy) { Icon(Icons.Rounded.ArrowUpward, "Move $name up") }
+                        IconButton(onClick = { runMutation { base, token, id -> api.moveAddon(base, token, id, addon.id, index + 1) } }, enabled = index < addons.lastIndex && !busy) { Icon(Icons.Rounded.ArrowDownward, "Move $name down") }
+                        IconButton(onClick = { runMutation { base, token, id -> api.installAddon(base, token, id, addon.manifestUrl) } }, enabled = !busy) { Icon(Icons.Rounded.Refresh, "Refresh $name") }
+                        if (configurable) Icon(Icons.Rounded.Settings, "Configurable", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(12.dp))
+                        IconButton(onClick = { removeTarget = addon }, enabled = !busy) { Icon(Icons.Rounded.DeleteOutline, "Remove $name", tint = MaterialTheme.colorScheme.error) }
                     }
+                    HorizontalDivider(color = Color.White.copy(.08f))
+                    Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) { AddonBadge(if (addon.enabled) "Active" else "Disabled"); AddonBadge("$resources resources"); AddonBadge("$catalogs catalogs") }
+                    if (configurable) AddonBadge("Configurable")
+                    Text(description, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    val capability = (types + listOfNotNull(addon.manifest["resources"]?.let { "resources" })).distinct().joinToString(" / ")
+                    if (capability.isNotBlank()) Text(capability, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                 }
             }
         }
-        if (busy) item { LoadingIndicator(Modifier.padding(horizontal = 4.dp)) }
+        if (busy) item { LoadingIndicator(Modifier.padding(horizontal = 10.dp)) }
         }
     }
 }
 
-@Composable private fun AddonSectionLabel(text: String) { Text(text, style = SectionLabelStyle) }
+@Composable private fun AddonSectionLabel(text: String) { Text(text, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp, start = 2.dp)) }
+@Composable private fun AddonBadge(text: String) { Surface(color = Color.White.copy(.06f), shape = RoundedCornerShape(50)) { Text(text, Modifier.padding(horizontal = 10.dp, vertical = 5.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) } }
 
 private data class SettingEntry(val title: String, val description: String, val icon: ImageVector)
 private data class SettingSection(val title: String, val entries: List<SettingEntry>)

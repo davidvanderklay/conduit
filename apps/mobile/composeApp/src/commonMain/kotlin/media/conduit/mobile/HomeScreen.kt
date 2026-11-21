@@ -128,7 +128,8 @@ internal fun HomeScreen(
                                             presentation.kind == ContinueWatchingKind.NextUp,
                                     )
                                 },
-                                modifier = Modifier.width(220.dp),
+                                // A step larger than the poster shelves so the row leads Home, with the next card peeking.
+                                modifier = Modifier.width(256.dp),
                             )
                         }
                     }
@@ -152,9 +153,7 @@ internal fun HomeScreen(
             item { StatusPill("${catalogs.failedRequests} catalog requests failed", MaterialTheme.colorScheme.error, Modifier.padding(horizontal = PageGutter)) }
         }
         val visibleCatalogs = result?.catalogs.orEmpty().filter { it.items.isNotEmpty() }
-        visibleCatalogs.forEachIndexed { index, catalog ->
-            // Without a Continue Watching row, the first shelf becomes large backdrop cards so Home has one focal row.
-            val featured = index == 0 && continueWatching.isEmpty()
+        visibleCatalogs.forEach { catalog ->
             item(key = catalog.key) {
                 Shelf(
                     catalog.title,
@@ -169,15 +168,7 @@ internal fun HomeScreen(
                     },
                 ) {
                     LazyRow(contentPadding = PaddingValues(horizontal = PageGutter), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        if (featured) items(catalog.items, key = { "${catalog.key}:${it.type}:${it.id}" }) { item ->
-                            FeatureCard(
-                                item,
-                                onClick = { onSelect(item, null) },
-                                onActions = { actionTarget = MediaActionTarget(item, MediaActionContext.Browse, latestProgress(sync.snapshot, item)) },
-                                // The next card peeks about 30dp: enough art to invite a swipe, never half a logo.
-                                modifier = Modifier.fillParentMaxWidth(.93f),
-                            )
-                        } else items(catalog.items, key = { "${catalog.key}:${it.type}:${it.id}" }) { item ->
+                        items(catalog.items, key = { "${catalog.key}:${it.type}:${it.id}" }) { item ->
                             RichPosterCard(
                                 item, item.releaseInfo ?: item.type, sync.snapshot, metadataCache,
                                 onClick = { onSelect(item, null) },
@@ -290,51 +281,3 @@ private fun CatalogSkeleton() {
     }
 }
 
-/** Landscape backdrop card for the featured Home row: artwork, title logo (or name), and year. */
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
-@Composable
-private fun FeatureCard(item: CatalogItem, onClick: () -> Unit, onActions: () -> Unit, modifier: Modifier = Modifier) {
-    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Box(
-            Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(12.dp))
-                .background(MaterialTheme.colorScheme.surfaceContainer)
-                .border(1.dp, ArtworkEdge, RoundedCornerShape(12.dp))
-                .combinedClickable(
-                    onClickLabel = "Open ${item.name}",
-                    onLongClickLabel = "More actions for ${item.name}",
-                    onClick = onClick,
-                    onLongClick = {
-                        haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
-                        onActions()
-                    },
-                ),
-        ) {
-            coil3.compose.AsyncImage(
-                model = item.background ?: item.poster,
-                contentDescription = item.name,
-                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
-            )
-            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Transparent, .55f to Color.Transparent, .75f to Color.Black.copy(alpha = .35f), 1f to Color.Black.copy(alpha = .62f))))
-            // Title logo and year sit together on the art, so the card needs no caption underneath.
-            Column(Modifier.align(Alignment.BottomStart).padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                if (!item.logo.isNullOrBlank()) {
-                    var logoAnalysis by remember(item.logo) { mutableStateOf<LogoAnalysis?>(null) }
-                    coil3.compose.AsyncImage(
-                        model = rememberLogoRequest(item.logo),
-                        contentDescription = null,
-                        contentScale = androidx.compose.ui.layout.ContentScale.Fit,
-                        colorFilter = if (logoAnalysis?.dark == true) androidx.compose.ui.graphics.ColorFilter.tint(Color.White) else null,
-                        onSuccess = { logoAnalysis = runCatching { it.analyzeLogo() }.getOrNull() },
-                        alignment = Alignment.BottomStart,
-                        modifier = Modifier.logoBox(logoAnalysis, .72f, 48.dp),
-                    )
-                } else {
-                    Text(item.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                }
-                item.releaseInfo?.let { Text(shelfCaption(it), style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp), color = Color.White.copy(alpha = .8f)) }
-            }
-        }
-    }
-}
