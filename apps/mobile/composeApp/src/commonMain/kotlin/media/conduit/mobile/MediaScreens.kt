@@ -757,7 +757,7 @@ private fun CreditRows(details: MetaItem?, onBrowse: (MobileBrowseTarget) -> Uni
             details?.awards?.trim()?.takeIf(String::isNotBlank)?.let { "Awards" to it },
         ).forEach { (label, value) ->
             Row {
-                Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant, style = CreditTextStyle, modifier = Modifier.width(72.dp).padding(vertical = 3.dp))
+                Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant, style = CreditTextStyle, modifier = Modifier.width(68.dp).padding(vertical = 3.dp))
                 Text(value, style = CreditTextStyle, color = CreditValueColor, modifier = Modifier.weight(1f).padding(vertical = 3.dp))
             }
         }
@@ -780,7 +780,7 @@ private fun MetadataCreditLinks(
             label,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = CreditTextStyle,
-            modifier = Modifier.width(72.dp).padding(vertical = 3.dp),
+            modifier = Modifier.width(68.dp).padding(vertical = 3.dp),
         )
         CommaSeparatedLinks(visibleValues, onClick = { onBrowse(MobileBrowseTarget.Search(it)) }, modifier = Modifier.weight(1f), color = CreditLinkColor, style = CreditTextStyle.copy(fontWeight = FontWeight.Medium))
     }
@@ -4131,7 +4131,7 @@ private fun SettingsToggle(title: String, description: String, checked: Boolean,
             .heightIn(min = 60.dp).padding(vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) { Text(title, style = SettingsTitleStyle, color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant); Text(description, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) { Text(title, style = SettingsTitleStyle, color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant); Text(description, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 18.sp)) }
         Spacer(Modifier.width(16.dp))
         CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides Dp.Unspecified) {
             ConduitSwitch(checked, null, enabled = enabled)
@@ -4154,7 +4154,7 @@ private fun SettingsValueAction(title: String, value: String, onClick: () -> Uni
 @Composable
 private fun SettingsAction(title: String, description: String, destructive: Boolean = false, onClick: () -> Unit) {
     Row(Modifier.fillMaxWidth().heightIn(min = 60.dp).clickable(onClick = onClick).padding(vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) { Text(title, style = SettingsTitleStyle, color = if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface); Text(description, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) { Text(title, style = SettingsTitleStyle, color = if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface); Text(description, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 18.sp)) }
         // The glyph has about 8dp of empty space on its right; shift it so its stroke ends on the same edge as switches and values.
         Icon(Icons.Rounded.ChevronRight, null, tint = TertiaryText, modifier = Modifier.size(20.dp).offset(x = 7.dp))
     }
@@ -4217,6 +4217,7 @@ private fun AppearanceSettingsScreen(platform: PlatformInfo, preferences: Device
             Row(Modifier.fillMaxWidth().heightIn(min = 52.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("Theme", style = SettingsTitleStyle, modifier = Modifier.weight(1f))
                 Text("Dark", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 18.sp))
+                Spacer(Modifier.width(28.dp))
             }
             SettingsToggle("AMOLED black", "Pure black backgrounds for OLED screens", preferences.amoledBlack) { update(preferences.copy(amoledBlack = it)) }
             SettingsToggle("Reduce animations", "Simpler transitions and motion", preferences.reduceAnimations) { update(preferences.copy(reduceAnimations = it)) }
@@ -4225,6 +4226,7 @@ private fun AppearanceSettingsScreen(platform: PlatformInfo, preferences: Device
             Row(Modifier.fillMaxWidth().heightIn(min = 52.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("App language", style = SettingsTitleStyle, modifier = Modifier.weight(1f))
                 Text("System default", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 18.sp))
+                Spacer(Modifier.width(28.dp))
             }
             SettingsValueAction("Navigation style", displayedNavigationStyle.label) { showNavigation = true }
             SettingsValueAction("Navigation placement", if (preferences.railOnTablets) "Left rail" else "Bottom bar") { showPlacement = true }

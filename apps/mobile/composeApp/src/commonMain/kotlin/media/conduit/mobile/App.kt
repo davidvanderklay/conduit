@@ -3011,7 +3011,7 @@ private fun MainTopBar(
                         leadingIcon = { Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) { Icon(Icons.Outlined.PersonAdd, null, Modifier.size(20.dp)) } },
                         onClick = { profileMenuOpen = false; onAddProfile() },
                     )
-                    HorizontalDivider(Modifier.padding(start = 58.dp, end = 6.dp, top = 4.dp, bottom = 4.dp), color = Color.White.copy(.06f))
+                    HorizontalDivider(Modifier.padding(start = 55.dp, end = 6.dp, top = 4.dp, bottom = 4.dp), color = Color.White.copy(.06f))
                     if (watchParty != null) {
                         DropdownMenuItem(
                             modifier = Modifier.padding(horizontal = 6.dp).clip(RoundedCornerShape(12.dp)),
@@ -3042,7 +3042,7 @@ private fun MainTopBar(
                         onClick = { profileMenuOpen = false; onOpenSettings() },
                     )
                     // The same hairline that closes the profile list sets the session exit apart.
-                    HorizontalDivider(Modifier.padding(start = 58.dp, end = 6.dp, top = 4.dp, bottom = 4.dp), color = Color.White.copy(.06f))
+                    HorizontalDivider(Modifier.padding(start = 55.dp, end = 6.dp, top = 4.dp, bottom = 4.dp), color = Color.White.copy(.06f))
                     DropdownMenuItem(
                         modifier = Modifier.padding(horizontal = 6.dp).clip(RoundedCornerShape(12.dp)),
                         text = { Text("Sign out", style = MenuLabelStyle) },
