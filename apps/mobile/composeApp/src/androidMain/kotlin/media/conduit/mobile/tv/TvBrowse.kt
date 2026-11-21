@@ -305,7 +305,7 @@ internal fun TvDiscover(model: TvShellModel, memory: TvFocusMemory) {
                 if (!searchLoading && results.isEmpty()) item { TvEmptyState("No results for “$query”.") }
                 results.forEach { catalog ->
                     item(key = "search:${catalog.key}:$query") {
-                        TvRow(catalog.title, tileSpec) {
+                        TvRow(listOfNotNull(catalog.title, catalog.source).joinToString(" · "), tileSpec) {
                             items(catalog.items, key = { "${catalog.key}:${it.type}:${it.id}" }) { item ->
                                 RichPosterCard(
                                     item, item.releaseInfo ?: item.type, snapshot, metadataCache,

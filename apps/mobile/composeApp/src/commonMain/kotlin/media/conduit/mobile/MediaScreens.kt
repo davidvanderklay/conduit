@@ -18,6 +18,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -35,6 +36,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.*
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.snapshotFlow
@@ -49,8 +51,17 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.foundation.border
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.zIndex
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -64,9 +75,15 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Velocity
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import coil3.compose.AsyncImage
+import androidx.compose.ui.graphics.ColorFilter
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
@@ -151,35 +168,46 @@ internal fun MobileLibraryScreen(
     val gridColumns = mediaGridColumns(windowWidthDp)
 
     Column(modifier.statusBarsPadding()) {
-        Spacer(Modifier.height(mainTopBarHeight(LocalDensity.current.fontScale) + 16.dp))
-        Column(Modifier.padding(horizontal = 10.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(stringResource(Res.string.library_title), style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                IconButton(onClick = onOpenHistory) {
-                    Icon(Icons.Rounded.History, stringResource(Res.string.history_open))
+        Spacer(Modifier.height(mainTopBarHeight(LocalDensity.current.fontScale) + 8.dp))
+        Box(Modifier.fillMaxSize()) {
+        // Same header pattern as Discover: each filter starts on a grid column, page tools end on the gutter.
+        // It floats above the grid so posters scroll under the glass filters.
+        BoxWithConstraints(Modifier.zIndex(1f).padding(start = PageGutter, end = PageGutter, top = 4.dp, bottom = 6.dp)) {
+            // Phone grids are three columns with 10dp gutters, so column two starts one column plus a gutter in.
+            val columnStart = (maxWidth - 20.dp) / 3 + 10.dp
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.width(columnStart).padding(end = 10.dp)) {
+                    CompactFilterMenu(
+                        value = when (filter) { "movie" -> "Movies"; "series" -> "Series"; else -> "All types" },
+                        options = listOf("all" to "All types", "movie" to "Movies", "series" to "Series"),
+                        selectedKey = filter,
+                        onSelect = { filter = it },
+                        modifier = Modifier.weight(1f),
+                    )
                 }
-                IconButton(onClick = onOpenCalendar) {
-                    Icon(Icons.Rounded.CalendarMonth, stringResource(Res.string.calendar_open))
-                }
-            }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                CompactFilterMenu(
-                    value = when (filter) { "movie" -> "Movies"; "series" -> "Series"; else -> "All types" },
-                    options = listOf("all" to "All types", "movie" to "Movies", "series" to "Series"),
-                    selectedKey = filter,
-                    onSelect = { filter = it },
-                    modifier = Modifier.weight(.9f),
-                )
                 CompactFilterMenu(
                     value = sort.label,
                     options = LibrarySort.entries.map { it.name to it.label },
                     selectedKey = sort.name,
                     onSelect = { selected -> LibrarySort.entries.firstOrNull { it.name == selected }?.let { sort = it } },
-                    modifier = Modifier.weight(1.35f),
+                    fillWidth = false,
                 )
+                Spacer(Modifier.weight(1f))
+                // Page tools sit together as one cluster; the glyph of the last one lands on the gutter.
+                Row(Modifier.offset(x = 14.dp)) {
+                    IconButton(onClick = onOpenHistory, modifier = Modifier.size(44.dp)) {
+                        Icon(Icons.Outlined.History, stringResource(Res.string.history_open), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(22.dp))
+                    }
+                    IconButton(onClick = onOpenCalendar, modifier = Modifier.size(44.dp)) {
+                        Icon(Icons.Outlined.CalendarMonth, stringResource(Res.string.calendar_open), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
+                    }
+                }
             }
         }
-        SyncStatusRow(syncState, onRetry)
+        // When the sync notice shows it sits under the filters and the grid starts below it.
+        val syncNoticeVisible = syncState.issue != null || syncState.offline
+        Column(Modifier.fillMaxSize()) {
+        SyncStatusRow(syncState, onRetry, Modifier.padding(top = 54.dp))
         if (snapshot == null) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(stringResource(Res.string.sync_loading)) }
         } else if (loadingStatus) {
@@ -192,15 +220,15 @@ internal fun MobileLibraryScreen(
             LazyVerticalGrid(
                 state = gridState,
                 columns = gridColumns,
-                contentPadding = PaddingValues(start = 10.dp, end = 10.dp, bottom = 112.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(20.dp),
+                contentPadding = PaddingValues(start = PageGutter, end = PageGutter, top = if (syncNoticeVisible) 4.dp else 54.dp, bottom = 112.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 items(items, key = { "${it.type}:${it.id}" }) { item ->
                     val catalogItem = item.asCatalogItem()
                     RichPosterCard(
                         item = catalogItem,
-                        caption = item.type,
+                        caption = item.releaseInfo?.takeIf(String::isNotBlank) ?: typeLabel(item.type),
                         snapshot = snapshot,
                         metadataCache = metadataCache,
                         onClick = {
@@ -213,6 +241,8 @@ internal fun MobileLibraryScreen(
                     )
                 }
             }
+        }
+        }
         }
     }
     MediaActionSheet(
@@ -311,9 +341,9 @@ internal fun MobileContinueWatchingScreen(
             LazyVerticalGrid(
                 state = gridState,
                 columns = gridColumns,
-                contentPadding = PaddingValues(start = 10.dp, end = 10.dp, bottom = 112.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(20.dp),
+                contentPadding = PaddingValues(start = PageGutter, end = PageGutter, bottom = 112.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 items(items, key = ::progressTitleUiKey) { progress ->
                     val catalogItem = CatalogItem(
@@ -474,17 +504,20 @@ internal fun SearchDiscoverScreen(
     }
 
     Column(modifier.fillMaxSize().statusBarsPadding()) {
-        Spacer(Modifier.height(mainTopBarHeight(LocalDensity.current.fontScale) + 16.dp))
-        if (query.isBlank()) {
+        Spacer(Modifier.height(mainTopBarHeight(LocalDensity.current.fontScale) + 8.dp))
+        if (query.isBlank()) Box(Modifier.fillMaxSize()) {
+            // The filters float above the grid so posters scroll under the glass.
             Row(
-                Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(7.dp),
+                Modifier.zIndex(1f).fillMaxWidth().padding(start = PageGutter, end = PageGutter, top = 6.dp, bottom = 2.dp),
+                // Three equal slots with the grid's 10dp gutter, so each filter sits over a column.
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 CompactFilterMenu(
-                    value = typeLabel(type),
-                    options = types.map { it to typeLabel(it) },
+                    value = typePluralLabel(type),
+                    options = types.map { it to typePluralLabel(it) },
+                    selectedKey = type,
                     onSelect = { onSelectionChange(DiscoverSelection(type = it)) },
-                    modifier = Modifier.weight(.85f),
+                    modifier = Modifier.weight(1f),
                 )
                 CompactFilterMenu(
                     value = selected?.name ?: "Content",
@@ -493,11 +526,12 @@ internal fun SearchDiscoverScreen(
                             "${catalog.name} · ${catalog.addonName}"
                         } else catalog.name
                     },
+                    selectedKey = selected?.let { "${it.addonId}:${it.id}" },
                     onSelect = { key ->
                         val next = typeCatalogs.firstOrNull { "${it.addonId}:${it.id}" == key } ?: return@CompactFilterMenu
                         onSelectionChange(DiscoverSelection(next.addonId, type, next.id))
                     },
-                    modifier = Modifier.weight(1.15f),
+                    modifier = Modifier.weight(1f),
                 )
                 CompactFilterMenu(
                     value = genre ?: "All genres",
@@ -506,8 +540,9 @@ internal fun SearchDiscoverScreen(
                         selected?.genres.orEmpty().forEach { add(it to it) }
                     },
                     enabled = selected?.supportsGenre == true,
+                    selectedKey = genre ?: "",
                     onSelect = { onSelectionChange(normalizedSelection.copy(genre = it.ifBlank { null })) },
-                    modifier = Modifier.weight(1.05f),
+                    modifier = Modifier.weight(1f),
                 )
             }
             when {
@@ -517,11 +552,11 @@ internal fun SearchDiscoverScreen(
                 discoverItems.isEmpty() -> EmptyBrowseState("This catalog returned no titles.")
                 else -> LazyVerticalGrid(
                     state = gridState,
-                    columns = if (windowWidth >= 600.dp) GridCells.Adaptive(150.dp) else GridCells.Fixed(2),
+                    columns = if (windowWidth >= 600.dp) GridCells.Adaptive(150.dp) else EqualColumns(3),
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(start = 10.dp, end = 10.dp, top = 10.dp, bottom = 112.dp),
-                    horizontalArrangement = Arrangement.spacedBy(9.dp),
-                    verticalArrangement = Arrangement.spacedBy(9.dp),
+                    contentPadding = PaddingValues(start = PageGutter, end = PageGutter, top = 58.dp, bottom = 112.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
                     items(discoverItems, key = { "${it.type}:${it.id}" }) { item ->
                         RichPosterCard(
@@ -531,7 +566,6 @@ internal fun SearchDiscoverScreen(
                             metadataCache = metadataCache,
                             onClick = { onSelect(item, null) },
                             onActions = { actionTarget = MediaActionTarget(item, MediaActionContext.Browse, latestProgress(snapshot, item)) },
-                            showLabels = false,
                         )
                     }
                     if (hasMore) {
@@ -559,8 +593,9 @@ internal fun SearchDiscoverScreen(
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(top = 8.dp, bottom = 112.dp),
-                verticalArrangement = Arrangement.spacedBy(18.dp),
+                // The first group header sits where Home's first shelf title does.
+                contentPadding = PaddingValues(top = 22.dp, bottom = 112.dp),
+                verticalArrangement = Arrangement.spacedBy(24.dp),
             ) {
                 if (searchLoading) item {
                     // Center horizontally, about 30% down the search area.
@@ -569,22 +604,26 @@ internal fun SearchDiscoverScreen(
                     }
                 }
                 if (!searchLoading && results.isEmpty()) item { EmptyBrowseState("No results for “$query”.") }
+                // Name the source add-on only when results come from more than one, and title groups by media
+                // type ("Movies") unless two groups share a type, so they read as results, not browsing shelves.
+                val multipleSources = results.mapNotNullTo(mutableSetOf()) { it.source }.size > 1
+                val typeTitles = results.map { it.title.substringAfterLast(" · ") }
+                val ambiguousTypes = typeTitles.groupingBy { it }.eachCount().filterValues { it > 1 }.keys
                 results.forEach { catalog ->
-                    item(key = "search-heading-${catalog.key}-$query") {
-                        Text(catalog.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 10.dp))
-                    }
                     item(key = "search-rail-${catalog.key}-$query") {
-                        LazyRow(contentPadding = PaddingValues(horizontal = 10.dp), horizontalArrangement = Arrangement.spacedBy(11.dp)) {
+                      Shelf(catalog.title.substringAfterLast(" · ").takeUnless { it in ambiguousTypes } ?: catalog.title, source = catalog.source?.takeIf { multipleSources }) {
+                        LazyRow(contentPadding = PaddingValues(horizontal = PageGutter), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             items(catalog.items, key = { "${catalog.key}:${it.type}:${it.id}" }) { item ->
                                 RichPosterCard(
                                     item = item, caption = item.releaseInfo ?: item.type,
                                     snapshot = snapshot, metadataCache = metadataCache,
                                     onClick = { onSelect(item, null) },
                                     onActions = { actionTarget = MediaActionTarget(item, MediaActionContext.Browse, latestProgress(snapshot, item)) },
-                                    modifier = Modifier.width(132.dp),
+                                    modifier = Modifier.width(112.dp),
                                 )
                             }
                         }
+                      }
                     }
                 }
             }
@@ -605,34 +644,73 @@ private fun RowScope.CompactFilterMenu(
     onSelect: (String) -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    fillWidth: Boolean = true,
 ) {
     var expanded by remember { mutableStateOf(false) }
     val focusManager = LocalFocusManager.current
+    val density = LocalDensity.current
+    var pillWidth by remember { mutableStateOf(0.dp) }
     Box(modifier) {
-        Surface(
-            modifier = Modifier.fillMaxWidth().clickable(enabled && options.isNotEmpty()) {
-                focusManager.clearFocus()
-                expanded = true
-            },
-            shape = RoundedCornerShape(18.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .78f),
+        // A translucent pill with a hairline edge, the same glass as the bottom bar, floating over the grid.
+        Row(
+            Modifier
+                .then(if (fillWidth) Modifier.fillMaxWidth() else Modifier)
+                .onSizeChanged { pillWidth = with(density) { it.width.toDp() } }
+                .height(40.dp)
+                .shadow(10.dp, GlassPillShape)
+                .clip(GlassPillShape)
+                .background(GlassFill)
+                .border(1.dp, GlassEdge, GlassPillShape)
+                .clickable(enabled && options.isNotEmpty()) {
+                    focusManager.clearFocus()
+                    expanded = true
+                }
+                .padding(start = 14.dp, end = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Row(Modifier.padding(horizontal = 12.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(value, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
-                Icon(Icons.Rounded.KeyboardArrowDown, null, Modifier.size(18.dp))
-            }
+            Text(
+                value,
+                modifier = if (fillWidth) Modifier.weight(1f) else Modifier.weight(1f, fill = false),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.titleSmall.copy(fontSize = 14.sp),
+                fontWeight = FontWeight.Medium,
+                color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Icon(Icons.Rounded.KeyboardArrowDown, null, Modifier.padding(start = 4.dp).size(18.dp), tint = if (enabled) Color(0xFFD4D4D8) else TertiaryText)
         }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            // Flush under the pill at its width, like Stremio's filter menus, so the two read as one control.
+            offset = androidx.compose.ui.unit.DpOffset(0.dp, 0.dp),
+            modifier = Modifier.widthIn(min = maxOf(pillWidth, 140.dp)),
+            shape = RoundedCornerShape(16.dp),
+            containerColor = GlassMenuFill,
+            border = BorderStroke(1.dp, GlassEdge),
+            tonalElevation = 0.dp,
+            shadowElevation = 24.dp,
+        ) {
             options.forEach { (key, label) ->
+                val chosen = key == selectedKey
                 DropdownMenuItem(
-                    text = { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    text = { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis, color = if (chosen) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface, fontWeight = if (chosen) FontWeight.SemiBold else FontWeight.Normal) },
                     onClick = { expanded = false; onSelect(key) },
-                    trailingIcon = if (key == selectedKey) {{ Icon(Icons.Rounded.Check, null, Modifier.size(18.dp)) }} else null,
+                    trailingIcon = if (chosen) {{ Icon(Icons.Rounded.Check, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary) }} else null,
+                    // Compact rows with the pill's text inset, so options line up under its label.
+                    modifier = Modifier.height(40.dp),
+                    contentPadding = PaddingValues(horizontal = 14.dp),
                 )
             }
         }
     }
 }
+
+// Glass surfaces shared by the browse filters; the fill and edge match the floating bottom bar.
+private val GlassPillShape = RoundedCornerShape(20.dp)
+private val GlassFill = Color(0xDD202023)
+private val GlassMenuFill = Color(0xF2242428)
+private val GlassEdge = Color.White.copy(alpha = .12f)
 
 @Composable
 private fun EmptyBrowseState(message: String) {
@@ -640,6 +718,19 @@ private fun EmptyBrowseState(message: String) {
         Text(message, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
+
+/** "173 min" becomes "2h 53m"; anything else is shown as the add-on wrote it. */
+internal fun compactRuntime(runtime: String): String {
+    val minutes = Regex("""^\s*(\d+)\s*min\s*$""", RegexOption.IGNORE_CASE).find(runtime)?.groupValues?.get(1)?.toIntOrNull() ?: return runtime
+    return when {
+        minutes < 60 -> "${minutes}m"
+        minutes % 60 == 0 -> "${minutes / 60}h"
+        else -> "${minutes / 60}h ${minutes % 60}m"
+    }
+}
+
+/** Plural media type for pickers and group titles, e.g. "Movies". */
+internal fun typePluralLabel(type: String): String = if (type.equals("movie", ignoreCase = true)) "Movies" else typeLabel(type)
 
 internal fun typeLabel(type: String): String = when (type.lowercase()) {
     "movie" -> "Movie"
@@ -694,27 +785,75 @@ private object HeroMotion {
     const val upwardTranslation = .12f
 }
 
+/** Static credit values sit just below the synopsis's white so a long country list doesn't outshine it. */
+private val CreditValueColor = Color(0xFFD4D4D8)
+
+/** Credit names search for that person, so they read a step brighter and heavier than static values. */
+private val CreditLinkColor = Color(0xFFF4F4F5)
+
+/** Directors, cast, writers, country, and awards as label/value rows. */
+@Composable
+private fun CreditRows(details: MetaItem?, onBrowse: (MobileBrowseTarget) -> Unit) {
+    Column {
+        MetadataCreditLinks("Director", "Directors", details?.director.orEmpty(), onBrowse)
+        MetadataCreditLinks("Cast", "Cast", details?.cast.orEmpty(), onBrowse)
+        MetadataCreditLinks("Writer", "Writers", details?.writer.orEmpty(), onBrowse)
+        listOfNotNull(
+            details?.country?.trim()?.takeIf(String::isNotBlank)?.let {
+                (if (it.split(',').count { part -> part.isNotBlank() } > 1) "Countries" else "Country") to unbreakableNames(it)
+            },
+            details?.awards?.trim()?.takeIf(String::isNotBlank)?.let { "Awards" to it },
+        ).forEach { (label, value) ->
+            Row {
+                Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant, style = CreditTextStyle, modifier = Modifier.width(68.dp).padding(vertical = 3.dp))
+                Text(value, style = CreditTextStyle.copy(lineBreak = androidx.compose.ui.text.style.LineBreak.Heading), color = CreditValueColor, modifier = Modifier.weight(1f).padding(vertical = 3.dp))
+            }
+        }
+    }
+}
+
 @Composable
 private fun MetadataCreditLinks(
-    label: String,
+    singular: String,
+    plural: String,
     values: List<String>,
     onBrowse: (MobileBrowseTarget) -> Unit,
 ) {
     val visibleValues = values.map(String::trim).filter(String::isNotBlank).distinct()
     if (visibleValues.isEmpty()) return
-    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+    val label = if (visibleValues.size == 1) singular else plural
+    // A label column with comma separated names, like a credits table. Each name searches for that person.
+    Row {
         Text(
-            label.uppercase(),
+            label,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            style = MaterialTheme.typography.labelSmall,
+            style = CreditTextStyle,
+            modifier = Modifier.width(68.dp).padding(vertical = 3.dp),
         )
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-            items(visibleValues) { value ->
-                SuggestionChip(
-                    onClick = { onBrowse(MobileBrowseTarget.Search(value)) },
-                    label = { Text(value, maxLines = 1) },
-                )
-            }
+        CommaSeparatedLinks(visibleValues, onClick = { onBrowse(MobileBrowseTarget.Search(it)) }, modifier = Modifier.weight(1f), color = CreditLinkColor, style = CreditTextStyle.copy(fontWeight = FontWeight.Medium))
+    }
+}
+
+/** Inline, wrapping text links separated by commas. Used for credits and genres instead of chips. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun CommaSeparatedLinks(
+    values: List<String>,
+    onClick: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    color: Color = MaterialTheme.colorScheme.onSurface,
+    separator: String = ",",
+    style: androidx.compose.ui.text.TextStyle = CreditTextStyle,
+    horizontalArrangement: Arrangement.Horizontal = Arrangement.Start,
+) {
+    FlowRow(modifier, horizontalArrangement = horizontalArrangement) {
+        values.forEachIndexed { index, value ->
+            Text(
+                if (index < values.lastIndex) "$value$separator" else value,
+                color = color,
+                style = style,
+                modifier = Modifier.clip(RoundedCornerShape(4.dp)).clickable { onClick(value) }.padding(vertical = 3.dp).padding(end = if (index < values.lastIndex) 3.dp else 0.dp),
+            )
         }
     }
 }
@@ -2082,8 +2221,9 @@ internal fun MediaDetailsScreen(
                 modifier = Modifier
                     .align(Alignment.TopStart)
                     .statusBarsPadding()
-                    .padding(12.dp)
-                    .background(Color.Black.copy(alpha = .58f), CircleShape),
+                    // Same center as the pinned header's back arrow, so it doesn't hop when the header pins.
+                    .padding(start = 6.dp, top = 5.dp)
+                    .drawBehind { drawCircle(Color.Black.copy(alpha = .58f), radius = 20.dp.toPx()) },
             ) {
                 Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = Color.White)
             }
@@ -2154,8 +2294,10 @@ internal fun MediaDetailsScreen(
 
     val heroPullDp = with(LocalDensity.current) { heroPull.floatValue.toDp() }
     val heroScale = 1f + (heroPull.floatValue / maxHeroPullPx) * HeroMotion.expansionScale
-    val heroHeight = if (item.type == "movie") 390.dp else 350.dp
+    val heroHeight = 326.dp
     val titleLogo = details?.logo?.takeIf(String::isNotBlank)
+    var titleLogoAnalysis by remember(titleLogo) { mutableStateOf<LogoAnalysis?>(null) }
+    val titleLogoFilter = if (titleLogoAnalysis?.dark == true) ColorFilter.tint(Color.White) else null
     val detailHeaderCollapseOffset = with(LocalDensity.current) { (heroHeight - 72.dp).roundToPx() }
     val detailHeaderCollapsed by remember(detailsListState, detailHeaderCollapseOffset) {
         derivedStateOf {
@@ -2163,14 +2305,21 @@ internal fun MediaDetailsScreen(
                 detailsListState.firstVisibleItemScrollOffset >= detailHeaderCollapseOffset
         }
     }
+    // The in-list season tabs are item 3 (hero, body, spacer, tabs); pin a copy once they pass under the bar.
+    val seasonPinThresholdPx = with(LocalDensity.current) { (WindowInsets.statusBars.getTop(this).toDp() + 58.dp).roundToPx() }
+    val seasonTabsPinned by remember(detailsListState, seasonPinThresholdPx) {
+        derivedStateOf {
+            val tabs = detailsListState.layoutInfo.visibleItemsInfo.firstOrNull { it.key == "season-chips" }
+            if (tabs != null) tabs.offset < seasonPinThresholdPx else detailsListState.firstVisibleItemIndex > 3
+        }
+    }
     val imdbId = listOfNotNull(details?.id, item.id).firstOrNull { id ->
         id.length > 2 && id.startsWith("tt") && id.drop(2).all(Char::isDigit)
     }
     val metadataFacts = listOfNotNull(
-        details?.runtime,
-        details?.releaseInfo ?: details?.released?.take(4),
+        (details?.releaseInfo ?: details?.released?.take(4))?.let(::detailYears),
+        details?.runtime?.let(::compactRuntime),
         details?.contentRating,
-        details?.imdbRating,
     ).map(String::trim).filter(String::isNotBlank)
     Box(Modifier.fillMaxSize()) {
         LazyColumn(
@@ -2180,7 +2329,7 @@ internal fun MediaDetailsScreen(
             contentPadding = PaddingValues(bottom = 32.dp),
         ) {
         item {
-            Box(Modifier.fillMaxWidth().height(heroHeight + 64.dp + heroPullDp)) {
+            Box(Modifier.fillMaxWidth().height(heroHeight + 48.dp + heroPullDp)) {
                 Box(Modifier.fillMaxWidth().height(heroHeight + heroPullDp).clipToBounds()) {
                     AsyncImage(
                         model = details?.background ?: item.background ?: details?.poster ?: item.poster,
@@ -2192,62 +2341,64 @@ internal fun MediaDetailsScreen(
                             translationY = -heroPull.floatValue * HeroMotion.upwardTranslation
                         },
                     )
-                    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Black.copy(.15f), MaterialTheme.colorScheme.background))))
+                    // Keep the artwork bright and fade into the page only behind the title and meta. A short
+                    // static scrim at the very top keeps the status bar and back button legible on bright art.
+                    val heroBackground = MaterialTheme.colorScheme.background
+                    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Black.copy(.6f), .18f to Color.Black.copy(.35f), .32f to Color.Transparent, .70f to Color.Transparent, .89f to heroBackground.copy(alpha = .5f), 1f to heroBackground)))
                 }
+                // Logo (or title) and facts share one bottom-aligned column, so their gap is fixed rather than
+                // set by the logo's box. Centered under a logo, as in Infuse and Plex.
+                Column(
+                    Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(start = PageGutter, end = PageGutter, bottom = 8.dp),
+                    horizontalAlignment = if (titleLogo != null) Alignment.CenterHorizontally else Alignment.Start,
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
                 if (titleLogo != null) {
                     AsyncImage(
-                        model = titleLogo,
+                        model = rememberLogoRequest(titleLogo),
                         contentDescription = details.name,
                         contentScale = ContentScale.Fit,
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .offset(y = (-60).dp)
-                            .fillMaxWidth(.58f)
-                            .heightIn(max = 110.dp),
+                        alignment = Alignment.BottomCenter,
+                        colorFilter = titleLogoFilter,
+                        onSuccess = { titleLogoAnalysis = runCatching { it.analyzeLogo() }.getOrNull() },
+                        modifier = Modifier.logoBox(titleLogoAnalysis, .62f, 96.dp, wideWidthFraction = .74f),
                     )
                 } else {
                     Text(
                         details?.name ?: item.name,
                         style = MaterialTheme.typography.headlineLarge,
                         fontWeight = FontWeight.Bold,
-                        modifier = Modifier.align(Alignment.BottomStart).padding(start = 20.dp, end = 20.dp, bottom = 36.dp).clickable {
+                        modifier = Modifier.clickable {
                             onBrowse(MobileBrowseTarget.Search(details?.name ?: item.name))
                         },
                     )
                 }
-                Row(
-                    modifier = Modifier.align(Alignment.BottomStart).padding(start = 20.dp, end = 20.dp, bottom = 16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    metadataFacts.takeIf { it.isNotEmpty() }?.let { facts ->
-                        Text(
-                            facts.joinToString("  ·  "),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    if (imdbId != null && details?.imdbRating?.isNotBlank() == true) {
-                        Surface(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .clickable { uriHandler.openUri("https://www.imdb.com/title/$imdbId/") },
-                            color = Color(0xFFF5C518),
-                            contentColor = Color.Black,
-                            shape = RoundedCornerShape(6.dp),
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text("IMDb", fontWeight = FontWeight.Black, style = MaterialTheme.typography.labelSmall)
-                            }
-                        }
-                    }
+                // Facts on one line, genres on a quieter second line right under them.
+                Column(horizontalAlignment = if (titleLogo != null) Alignment.CenterHorizontally else Alignment.Start, verticalArrangement = Arrangement.spacedBy(0.dp)) {
+                TitleFactsRow(
+                    facts = metadataFacts,
+                    rating = details?.imdbRating?.trim()?.takeIf(String::isNotBlank),
+                    onRatingClick = imdbId?.let { id -> { uriHandler.openUri("https://www.imdb.com/title/$id/") } },
+                )
+                // Genres live in one place for every title: a quiet, tappable line under the facts.
+                details?.genres?.map(String::trim)?.filter(String::isNotBlank)?.distinct()?.takeIf { it.isNotEmpty() }?.let { genres ->
+                    CommaSeparatedLinks(
+                        genres,
+                        onClick = { genre -> onBrowse(MobileBrowseTarget.Discover(DiscoverSelection(type = details.type, genre = genre))) },
+                        // A tier below the facts line: tertiary gray.
+                        color = TertiaryText,
+                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                        // Middots, like the facts line above.
+                        separator = " ·",
+                        horizontalArrangement = if (titleLogo != null) Arrangement.Center else Arrangement.Start,
+                    )
+                }
+                }
                 }
             }
         }
         item {
-            Column(Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Column(Modifier.padding(horizontal = PageGutter), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 if (details == null && error == null) LoadingIndicator()
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 Button(
@@ -2258,89 +2409,88 @@ internal fun MediaDetailsScreen(
                             resumeExplicitly = playbackStartPosition(progressForVideoId(playTarget.video?.id ?: item.id)) > 0L,
                         )
                     },
-                    modifier = Modifier.fillMaxWidth().height(54.dp),
+                    // The most air sits above Play (about 24dp from genres), so it starts the actions block.
+                    modifier = Modifier.padding(top = 10.dp).fillMaxWidth().height(PrimaryButtonHeight),
+                    shape = RoundedCornerShape(12.dp),
                 ) {
-                    Icon(Icons.Rounded.PlayArrow, null); Spacer(Modifier.width(8.dp)); Text(playTarget.label)
+                    // The arrow glyph carries ~3dp more empty space on its left; the offset centers the group optically.
+                    Row(Modifier.offset(x = (-3).dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.PlayArrow, null); Spacer(Modifier.width(6.dp)); Text(playTarget.label, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold) }
                 }
                 val movieProgress = snapshot?.progress.orEmpty().firstOrNull { it.videoId == actionItem.id }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        OutlinedButton(
-                            onClick = { scope.launch { onMutation(ProfileMutation.SetLibrary(actionItem, !saved, details?.runtime)) } },
-                            modifier = Modifier.weight(1f),
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                contentColor = if (saved) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
-                            ),
-                            border = BorderStroke(
-                                1.dp,
-                                if (saved) MaterialTheme.colorScheme.error.copy(alpha = .7f) else MaterialTheme.colorScheme.primary.copy(alpha = .7f),
-                            ),
-                        ) {
-                            Icon(if (saved) Icons.Rounded.BookmarkRemove else Icons.Rounded.BookmarkAdd, null)
-                            Spacer(Modifier.width(7.dp))
-                            Text(if (saved) "Remove from library" else "Add to library")
-                    }
-                    if (actionItem.type == "movie") {
-                        OutlinedButton(
-                            onClick = { scope.launch { onMutation(ProfileMutation.SetWatched(actionItem, movieProgress, watched = movieProgress?.watched != true)) } },
-                            modifier = Modifier.weight(1f),
-                        ) {
-                            Icon(if (movieProgress?.watched == true) Icons.Rounded.Replay else Icons.Rounded.Check, null)
-                            Spacer(Modifier.width(7.dp))
-                            Text(if (movieProgress?.watched == true) "Unwatch" else "Watched")
-                        }
-                    }
-                }
                 val trailerId = details?.trailerStreams?.firstNotNullOfOrNull {
                     it.youtubeId?.trim()?.takeIf(String::isNotBlank)
                 } ?: details?.trailers?.firstNotNullOfOrNull {
                     it.source?.trim()?.takeIf(String::isNotBlank)
                 }
-                trailerId?.takeIf { id -> id.isNotEmpty() && id.all { it.isLetterOrDigit() || it == '-' || it == '_' } }?.let { id ->
-                    OutlinedButton(
-                        onClick = { uriHandler.openUri("https://www.youtube.com/watch?v=$id") },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Icon(Icons.Rounded.PlayCircleOutline, null)
-                        Spacer(Modifier.width(7.dp))
-                        Text("Trailer")
+                // Secondary actions split the full width under Play as equal tonal buttons, so two or three
+                // actions fill the row instead of floating in the middle. Play stays the only amber control.
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    DetailAction(
+                        label = if (saved) "Saved" else "Library",
+                        icon = if (saved) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder,
+                        actionDescription = if (saved) "Remove from library" else "Add to library",
+                        active = saved,
+                        onClick = { scope.launch { onMutation(ProfileMutation.SetLibrary(actionItem, !saved, details?.runtime)) } },
+                    )
+                    if (actionItem.type == "movie") {
+                        val watched = movieProgress?.watched == true
+                        DetailAction(
+                            // Like "Library"/"Saved": the inactive label names the action, the active one the state.
+                            label = if (watched) "Watched" else "Mark watched",
+                            icon = if (watched) Icons.Rounded.CheckCircle else Icons.Rounded.CheckCircleOutline,
+                            actionDescription = if (watched) "Mark as unwatched" else "Mark as watched",
+                            active = watched,
+                            onClick = { scope.launch { onMutation(ProfileMutation.SetWatched(actionItem, movieProgress, watched = !watched)) } },
+                        )
+                    }
+                    val trailerSlot = trailerId?.takeIf { id -> id.isNotEmpty() && id.all { it.isLetterOrDigit() || it == '-' || it == '_' } }
+                    trailerSlot?.let { id ->
+                        DetailAction(
+                            label = "Trailer",
+                            icon = Icons.Rounded.PlayCircleOutline,
+                            actionDescription = "Watch trailer",
+                            active = false,
+                            onClick = { uriHandler.openUri("https://www.youtube.com/watch?v=$id") },
+                        )
                     }
                 }
-                details?.genres
-                    ?.map(String::trim)
-                    ?.filter(String::isNotBlank)
-                    ?.distinct()
-                    ?.takeIf { it.isNotEmpty() }
-                    ?.let { genres ->
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                        items(genres) { genre ->
-                            AssistChip(
-                                onClick = { onBrowse(MobileBrowseTarget.Discover(DiscoverSelection(type = details.type, genre = genre))) },
-                                label = { Text(genre) },
-                            )
-                        }
+                details?.description?.let(::tidyTruncatedText)?.takeIf(String::isNotBlank)?.let { synopsis ->
+                    // Long synopses stop at four lines with a "More" link that expands in place.
+                    var expanded by remember(synopsis) { mutableStateOf(false) }
+                    var overflows by remember(synopsis) { mutableStateOf(false) }
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(
+                            synopsis,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = .86f),
+                            style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 21.sp),
+                            maxLines = if (expanded) Int.MAX_VALUE else 4,
+                            overflow = TextOverflow.Ellipsis,
+                            onTextLayout = { if (!expanded) overflows = it.hasVisualOverflow || it.isLineEllipsized(it.lineCount - 1) },
+                        )
+                        if (overflows && !expanded) Text(
+                            "More",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClickLabel = "Show full synopsis") { expanded = true }.padding(vertical = 6.dp),
+                        )
                     }
                 }
-                details?.description?.trim()?.takeIf(String::isNotBlank)?.let {
-                    Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyLarge)
-                }
-                MetadataCreditLinks("Directors", details?.director.orEmpty(), onBrowse)
-                MetadataCreditLinks("Cast", details?.cast.orEmpty(), onBrowse)
-                MetadataCreditLinks("Writers", details?.writer.orEmpty(), onBrowse)
-                details?.country?.let { MetadataCreditLinks("Country", listOf(it), onBrowse) }
-                details?.awards?.trim()?.takeIf(String::isNotBlank)?.let {
-                    Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                }
+                // One label/value table for genres, credits, and country, with even row spacing.
+                val hasEpisodes = !details?.videos.isNullOrEmpty()
+                // Series keep credits below the episode list so seasons stay within the first screen.
+                if (!hasEpisodes) Box(Modifier.padding(top = 4.dp)) { CreditRows(details, onBrowse) }
+
             }
         }
         details?.videos?.takeIf { it.isNotEmpty() }?.let { videos ->
             val seasons = detailSeasons
             item(key = "season-selector-spacing") {
-                Spacer(Modifier.height(24.dp))
+                Spacer(Modifier.height(16.dp))
             }
             item(key = "season-chips") {
                 Column {
                     LaunchedEffect(selectedSeason, seasons) { seasons.indexOf(selectedSeason).takeIf { it >= 0 }?.let { if (reducedMotion) detailsSeasonListState.scrollToItem(it) else detailsSeasonListState.animateScrollToItem(it) } }
-                    LazyRow(state = detailsSeasonListState, contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    LazyRow(state = detailsSeasonListState, contentPadding = PaddingValues(horizontal = PageGutter), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         items(seasons) { season ->
                             WatchableSeasonChip(
                                 selected = selectedSeason == season,
@@ -2361,7 +2511,7 @@ internal fun MediaDetailsScreen(
                             )
                         }
                     }
-                    Spacer(Modifier.height(16.dp))
+                    Spacer(Modifier.height(8.dp))
                 }
             }
             val seasonVideos = videos
@@ -2377,7 +2527,7 @@ internal fun MediaDetailsScreen(
                 val episodeTitle =
                     if (namedTitle != null && video.episode != null) "${video.episode}. $namedTitle"
                     else video.displayTitle
-                Column(Modifier.fillMaxWidth().padding(vertical = 8.dp, horizontal = 20.dp)) {
+                Column(Modifier.fillMaxWidth().padding(start = PageGutter, end = PageGutter, top = 6.dp, bottom = 4.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth().combinedClickable(
                             onClickLabel = "Play ${video.displayTitle}",
@@ -2395,63 +2545,67 @@ internal fun MediaDetailsScreen(
                                 actionTarget = MediaActionTarget(actionItem, MediaActionContext.Episode, progress, video, videos = videos)
                             },
                         ),
-                        horizontalArrangement = Arrangement.spacedBy(13.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Box(
                             Modifier
-                                .width(122.dp)
+                                .width(112.dp)
                                 .aspectRatio(16f / 9f)
-                                .clip(RoundedCornerShape(9.dp))
+                                .clip(RoundedCornerShape(8.dp))
+                                .border(1.dp, ArtworkEdge, RoundedCornerShape(8.dp))
                                 .background(MaterialTheme.colorScheme.surfaceContainerLow),
                         ) {
-                            AsyncImage(
-                                video.thumbnail,
-                                null,
-                                Modifier.fillMaxSize(),
-                                contentScale = ContentScale.Crop,
-                            )
-                            Box(
-                                Modifier.fillMaxSize().background(
-                                    Brush.verticalGradient(
-                                        listOf(Color.Transparent, Color.Black.copy(.75f)),
-                                    ),
-                                ),
-                            )
+                            // The numbered tile sits underneath, so a missing or failed still never leaves a blank box.
+                            var stillLoaded by remember(video.thumbnail) { mutableStateOf(false) }
+                            Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceContainerHigh), contentAlignment = Alignment.Center) {
+                                Icon(Icons.Rounded.Movie, null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .45f), modifier = Modifier.size(24.dp))
+                            }
+                            if (!video.thumbnail.isNullOrBlank()) {
+                                AsyncImage(
+                                    video.thumbnail,
+                                    null,
+                                    Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Crop,
+                                    onSuccess = { stillLoaded = true },
+                                )
+                            }
+
                             if (watchState == EpisodeWatchState.Watched) {
+                                // White like the movie's Watched state; the dark disc keeps it legible on bright stills.
                                 Icon(
                                     Icons.Rounded.CheckCircle,
                                     null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.align(Alignment.TopEnd).padding(6.dp).size(20.dp),
+                                    tint = Color.White,
+                                    modifier = Modifier.align(Alignment.TopEnd).padding(6.dp).size(20.dp).background(Color.Black.copy(alpha = .45f), CircleShape),
                                 )
                             }
                         }
                         Column(Modifier.weight(1f)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    episodeTitle,
-                                    color = Color.White,
-                                    fontWeight = FontWeight.SemiBold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.weight(1f),
-                                )
-                                video.released?.let { released ->
-                                    Text(
-                                        episodeReleaseDateLabel(released) ?: released,
-                                        color = Color.White.copy(.55f),
-                                        style = MaterialTheme.typography.labelMedium,
-                                        modifier = Modifier.padding(start = 10.dp),
-                                    )
-                                }
-                            }
-                            (video.overview ?: video.description)?.takeIf(String::isNotBlank)?.let {
-                                Text(
+                            // A short gray line ("E3 · Apr 13, 2025") above the name, so the title starts flush.
+                            val meta = listOfNotNull(
+                                video.episode?.takeIf { namedTitle != null }?.let { "E$it" },
+                                video.released?.let { episodeReleaseDateLabel(it) ?: it },
+                            ).joinToString(" · ")
+                            if (meta.isNotEmpty()) Text(
+                                meta,
+                                color = TertiaryText,
+                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 16.sp),
+                            )
+                            Text(
+                                namedTitle ?: episodeTitle,
+                                color = Color.White,
+                                style = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp, lineHeight = 20.sp),
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            (video.overview ?: video.description)?.let(::tidyTruncatedText)?.takeIf(String::isNotBlank)?.let {
+                                TidyEllipsisText(
                                     it,
-                                    color = Color.White.copy(.62f),
                                     maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis,
-                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 18.sp),
                                     modifier = Modifier.padding(top = 4.dp),
                                 )
                             }
@@ -2472,56 +2626,90 @@ internal fun MediaDetailsScreen(
                 }
             }
         }
+        if (!details?.videos.isNullOrEmpty()) item(key = "series-credits") {
+            Column(Modifier.padding(start = PageGutter, end = PageGutter, top = 20.dp)) { CreditRows(details, onBrowse) }
+        }
         }
         if (detailHeaderCollapsed) {
-            Surface(
-                color = MaterialTheme.colorScheme.background.copy(alpha = .97f),
-                shadowElevation = 8.dp,
-                modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth(),
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().statusBarsPadding().height(58.dp).padding(horizontal = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+            // A short static fade under the bar so rows (and season tabs) recede instead of being sliced.
+            Column(Modifier.align(Alignment.TopCenter).fillMaxWidth()) {
+                Surface(
+                    color = MaterialTheme.colorScheme.background,
+                    shadowElevation = 0.dp,
+                    modifier = Modifier.fillMaxWidth(),
                 ) {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back")
-                    }
-                    Box(Modifier.weight(1f).height(42.dp), contentAlignment = Alignment.Center) {
-                        if (titleLogo != null) {
-                            AsyncImage(
-                                model = titleLogo,
-                                contentDescription = details.name,
-                                contentScale = ContentScale.Fit,
-                                modifier = Modifier.fillMaxWidth(.72f).heightIn(max = 38.dp),
-                            )
-                        } else {
-                            Text(
-                                details?.name ?: item.name,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
+                    Row(
+                        modifier = Modifier.fillMaxWidth().statusBarsPadding().height(58.dp).padding(horizontal = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back")
+                        }
+                        Box(Modifier.weight(1f).height(42.dp), contentAlignment = Alignment.Center) {
+                            if (titleLogo != null) {
+                                AsyncImage(
+                                    model = rememberLogoRequest(titleLogo),
+                                    contentDescription = details.name,
+                                    contentScale = ContentScale.Fit,
+                                    colorFilter = titleLogoFilter,
+                                    // Same visible-ink rule as the hero logo: lettering up to 22dp tall and half the width.
+                                    modifier = Modifier.logoBox(titleLogoAnalysis, .5f, 22.dp),
+                                )
+                            } else {
+                                Text(
+                                    details?.name ?: item.name,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                        IconButton(onClick = {
+                            scope.launch { onMutation(ProfileMutation.SetLibrary(actionItem, !saved, details?.runtime)) }
+                        }) {
+                            Icon(
+                                if (saved) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder,
+                                if (saved) "Remove from library" else "Add to library",
+                                tint = MaterialTheme.colorScheme.onSurface,
                             )
                         }
                     }
-                    IconButton(onClick = {
-                        scope.launch { onMutation(ProfileMutation.SetLibrary(actionItem, !saved, details?.runtime)) }
-                    }) {
-                        Icon(
-                            if (saved) Icons.Rounded.BookmarkRemove else Icons.Rounded.BookmarkAdd,
-                            if (saved) "Remove from library" else "Add to library",
-                        )
+                }
+                // Once the in-list season tabs scroll under the bar, a pinned copy keeps the season in view.
+                if (seasonTabsPinned && detailSeasons.size > 1) {
+                    val pinnedSeasonState = rememberLazyListState()
+                    LazyRow(
+                        state = pinnedSeasonState,
+                        modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background).padding(bottom = 4.dp),
+                        contentPadding = PaddingValues(horizontal = PageGutter),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        items(detailSeasons) { season ->
+                            WatchableSeasonChip(
+                                selected = selectedSeason == season,
+                                label = if (season == 0) "Specials" else "Season $season",
+                                onClick = {
+                                    detailsSeasonManuallySelected = true
+                                    selectedSeason = season
+                                },
+                                onLongClick = {},
+                            )
+                        }
                     }
                 }
+                val fadeColor = MaterialTheme.colorScheme.background
+                Box(Modifier.fillMaxWidth().height(24.dp).background(Brush.verticalGradient(0f to fadeColor, .5f to fadeColor, .75f to fadeColor.copy(alpha = .5f), 1f to Color.Transparent)))
             }
         } else {
             MobileBackButton(
                 onClick = onBack,
                 modifier = Modifier.align(Alignment.TopStart),
-                background = Color.Black.copy(alpha = .5f),
+                background = Color.Black.copy(alpha = .55f),
                 tint = Color.White,
                 safeArea = true,
             )
         }
+        BottomGestureFade(Modifier.align(Alignment.BottomCenter))
     }
     MediaActionSheet(
         target = actionTarget,
@@ -2837,7 +3025,7 @@ internal fun PlayerEpisodeDrawer(
                                 },
                             ),
                             color = if (video.id == current?.id) MaterialTheme.colorScheme.primary.copy(.14f) else Color.White.copy(.05f),
-                            shape = RoundedCornerShape(16.dp),
+                            shape = RoundedCornerShape(12.dp),
                             border = if (video.id == current?.id) BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null,
                         ) {
                             Column(Modifier.fillMaxWidth()) {
@@ -2851,7 +3039,7 @@ internal fun PlayerEpisodeDrawer(
                                         Modifier
                                             .width(episodeThumbWidth)
                                             .aspectRatio(16f / 9f)
-                                            .clip(RoundedCornerShape(10.dp)),
+                                            .clip(RoundedCornerShape(12.dp)),
                                     ) {
                                         AsyncImage(video.thumbnail, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                                         Box(
@@ -2865,15 +3053,15 @@ internal fun PlayerEpisodeDrawer(
                                             Icon(
                                                 Icons.Rounded.CheckCircle,
                                                 null,
-                                                tint = MaterialTheme.colorScheme.primary,
-                                                modifier = Modifier.align(Alignment.TopEnd).padding(5.dp),
+                                                tint = Color.White,
+                                                modifier = Modifier.align(Alignment.TopEnd).padding(5.dp).background(Color.Black.copy(alpha = .45f), CircleShape),
                                             )
                                         }
                                         if (episodeNumber.isNotBlank()) {
                                             Surface(
                                                 Modifier.align(Alignment.BottomStart).padding(5.dp),
                                                 color = Color.Black.copy(.7f),
-                                                shape = RoundedCornerShape(5.dp),
+                                                shape = RoundedCornerShape(8.dp),
                                             ) {
                                                 Text(
                                                     episodeNumber,
@@ -2975,18 +3163,85 @@ private fun WatchableSeasonChip(
             onClick = onClick,
             onLongClick = onLongClick,
         ),
-        shape = RoundedCornerShape(8.dp),
-        color = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceVariant,
-        contentColor = if (selected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+        shape = CircleShape,
+        color = if (selected) Color.White.copy(alpha = .12f) else Color.Transparent,
+        contentColor = if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            if (selected) Icon(Icons.Rounded.Check, contentDescription = null, modifier = Modifier.size(16.dp))
-            Text(label)
+        Text(
+            label,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+            modifier = Modifier.heightIn(min = 36.dp).wrapContentHeight().padding(horizontal = 14.dp, vertical = 8.dp),
+        )
+    }
+}
+
+/** Year, runtime, and a neutral IMDb rating on one line; shared by details and streams so they match. */
+@Composable
+private fun TitleFactsRow(facts: List<String>, rating: String?, onRatingClick: (() -> Unit)?) {
+    // 4dp is about one space at 14sp, so the dot before the rating spaces like the ones in the text.
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        if (facts.isNotEmpty()) Text(
+            facts.joinToString(" · "),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        if (facts.isNotEmpty() && rating != null) Text("·", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+        // A neutral rating instead of IMDb's yellow badge, so amber stays reserved for Play.
+        rating?.let {
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .then(if (onRatingClick != null) Modifier.clickable(onClickLabel = "Open on IMDb", onClick = onRatingClick) else Modifier)
+                    .padding(vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Icon(Icons.Rounded.Star, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(15.dp))
+                Text(it, color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                Text("IMDb", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+            }
         }
+    }
+}
+
+/** A short static fade over the gesture-navigation inset, so scrolling text never runs under the handle. */
+@Composable
+private fun BottomGestureFade(modifier: Modifier = Modifier) {
+    val background = MaterialTheme.colorScheme.background
+    // A 12dp fade, then solid background behind the gesture handle so no text shows through it.
+    Column(modifier.fillMaxWidth()) {
+        Box(Modifier.fillMaxWidth().height(12.dp).background(Brush.verticalGradient(0f to Color.Transparent, 1f to background)))
+        Box(Modifier.fillMaxWidth().background(background).navigationBarsPadding())
+    }
+}
+
+/** Icon-over-label secondary action on the details page. Active state uses the accent instead of a border. */
+@Composable
+private fun RowScope.DetailAction(
+    label: String,
+    icon: ImageVector,
+    actionDescription: String,
+    active: Boolean,
+    onClick: () -> Unit,
+) {
+    // Inactive actions are an outlined icon and label in gray; an active one is the filled icon and label in white.
+    val contentColor = if (active) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
+    Row(
+        Modifier
+            .weight(1f)
+            .height(40.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+            .clickable(onClickLabel = actionDescription, role = androidx.compose.ui.semantics.Role.Button, onClick = onClick)
+            .semantics(mergeDescendants = true) { contentDescription = actionDescription }
+            .padding(horizontal = 6.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, null, tint = contentColor, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(6.dp))
+        Text(label, color = contentColor, style = MaterialTheme.typography.labelLarge.copy(fontSize = 13.sp, fontWeight = FontWeight.Medium), maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -3258,7 +3513,7 @@ internal fun PlayerStreamDrawer(
                 resumeFrom?.let { position ->
                     Surface(
                         shape = RoundedCornerShape(50),
-                        color = Color(0xFF1B1B1D),
+                        color = MaterialTheme.colorScheme.surfaceContainer,
                         contentColor = Color.White,
                     ) {
                         Text(
@@ -3618,24 +3873,24 @@ internal fun ProfileSettingsScreen(
     val sections = remember {
         listOf(
             SettingSection("Account", listOf(
-                SettingEntry("Profile", "Profiles, appearance, and viewing overview", Icons.Rounded.AccountCircle),
-                SettingEntry("Account", "Sign-in, security, and recovery", Icons.Rounded.Person),
+                SettingEntry("Profile", "Profiles and viewing stats", Icons.Outlined.Person),
+                SettingEntry("Sign-in & security", "Password and recovery codes", Icons.Outlined.Lock),
             )),
             SettingSection("General", listOf(
-                SettingEntry("Watch history", "Recent movies and episodes", Icons.Rounded.History),
-                SettingEntry("Appearance & layout", "Theme, language, and navigation", Icons.Rounded.Tune),
-                SettingEntry("Content & discovery", "Add-ons, catalogs, and search", Icons.Rounded.Explore),
-                SettingEntry("Playback", "Player, subtitles, and behavior", Icons.Rounded.PlayCircle),
-                SettingEntry("Profile data", "Import and export", Icons.Rounded.ImportExport),
-                SettingEntry("Integrations", "Connected media services", Icons.Rounded.Extension),
+                SettingEntry("Watch history", "Recently watched", Icons.Outlined.History),
+                SettingEntry("Appearance & layout", "Theme and navigation", Icons.Outlined.Tune),
+                SettingEntry("Content & discovery", "Add-ons and home rows", Icons.Outlined.Explore),
+                SettingEntry("Playback", "Player and subtitles", Icons.Outlined.Movie),
+                SettingEntry("Profile data", "Import and export", Icons.Outlined.Inventory2),
+                SettingEntry("Integrations", "Connected media services", Icons.Outlined.Link),
             )),
             SettingSection("About", listOf(
-                SettingEntry("Supporters & contributors", "Community and open source", Icons.Rounded.Favorite),
-                SettingEntry("Privacy policy", "Data and privacy details", Icons.Rounded.PrivacyTip),
-                SettingEntry("Licenses & attribution", "Open-source software and acknowledgements", Icons.Rounded.Description),
+                SettingEntry("Supporters & contributors", "Community and open source", Icons.Outlined.FavoriteBorder),
+                SettingEntry("Privacy policy", "Data and privacy details", Icons.Outlined.PrivacyTip),
+                SettingEntry("Licenses & attribution", "Open-source software", Icons.Outlined.Description),
             )),
             SettingSection("Advanced", listOf(
-                SettingEntry("Advanced settings", "Server and diagnostics", Icons.Rounded.SettingsSuggest),
+                SettingEntry("Advanced settings", "Server and diagnostics", Icons.Outlined.Build),
             )),
         )
     }
@@ -3647,70 +3902,83 @@ internal fun ProfileSettingsScreen(
             entries.takeIf { it.isNotEmpty() }?.let { SettingSection(section.title, it) }
         }
     }
+    fun openEntry(title: String) {
+        when (title) {
+            "Profile" -> route = ProfileRoute.Overview
+            "Sign-in & security" -> route = ProfileRoute.Account
+            "Watch history" -> {
+                historyFromLibrary = false
+                route = ProfileRoute.History
+            }
+            "Appearance & layout" -> route = ProfileRoute.Appearance
+            "Content & discovery" -> route = ProfileRoute.Content
+            "Playback" -> route = ProfileRoute.Playback
+            "Profile data" -> route = ProfileRoute.Data
+            "Integrations" -> route = ProfileRoute.Integrations
+            "Supporters & contributors" -> route = ProfileRoute.Supporters
+            "Privacy policy" -> route = ProfileRoute.Privacy
+            "Licenses & attribution" -> route = ProfileRoute.Licenses
+            "Advanced settings" -> route = ProfileRoute.Advanced
+        }
+    }
     LazyColumn(
         state = settingsListState,
         modifier = modifier.statusBarsPadding(),
-        contentPadding = PaddingValues(start = 10.dp, end = 10.dp, top = 10.dp, bottom = 112.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        // The header row centers on the same line as the top bar on Home, Discover and Library.
+        contentPadding = PaddingValues(start = PageGutter, end = PageGutter, top = 5.dp, bottom = 112.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         item {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 8.dp)) {
-                ProfileAvatar(activeProfile, 58, Modifier.clickable { route = ProfileRoute.Overview })
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 4.dp)) {
+                ProfileAvatar(activeProfile, 44, Modifier.clip(CircleShape).clickable { route = ProfileRoute.Overview })
                 Spacer(Modifier.width(14.dp))
-                Column { Text(activeProfile?.name ?: "Profile", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold); Text(state.endpoint?.label.orEmpty(), color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(activeProfile?.name ?: "Profile", style = PageTitleStyle.copy(fontSize = 22.sp, lineHeight = 28.sp), fontWeight = FontWeight.SemiBold)
+                    Text(state.endpoint?.label.orEmpty(), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+                }
             }
         }
         stickyHeader {
-            OutlinedTextField(
+            PillSearchField(
                 value = settingsQuery,
                 onValueChange = { settingsQuery = it },
-                modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background.copy(alpha = .97f)).padding(vertical = 6.dp),
-                placeholder = { Text("Search settings") },
-                leadingIcon = { Icon(Icons.Rounded.Search, null) },
-                trailingIcon = if (settingsQuery.isNotBlank()) {{
-                    IconButton(onClick = { settingsQuery = "" }) { Icon(Icons.Rounded.Close, "Clear") }
-                }} else null,
-                singleLine = true,
-                shape = RoundedCornerShape(18.dp),
+                placeholder = "Search settings",
+                modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background).padding(vertical = 8.dp).height(mainTopBarHeight(LocalDensity.current.fontScale)),
             )
         }
+        // One grouped surface per section, rows split by hairlines, matching the settings sub-pages.
         visibleSections.forEach { section ->
             item(key = "section-${section.title}") {
-                Text(section.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 6.dp, top = 10.dp, bottom = 2.dp))
-            }
-            items(section.entries, key = { "${section.title}-${it.title}" }) { entry ->
-                ListItem(
-                    headlineContent = { Text(entry.title, fontWeight = FontWeight.Medium) },
-                    supportingContent = { Text(entry.description) },
-                    leadingContent = { Icon(entry.icon, null, tint = MaterialTheme.colorScheme.primary) },
-                    trailingContent = { Icon(Icons.Rounded.ChevronRight, null) },
-                    colors = ListItemDefaults.colors(containerColor = Color.White.copy(alpha = .035f)),
-                    modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable { when (entry.title) {
-                        "Profile" -> route = ProfileRoute.Overview
-                        "Account" -> route = ProfileRoute.Account
-                        "Watch history" -> {
-                            historyFromLibrary = false
-                            route = ProfileRoute.History
+                Column(Modifier.padding(top = if (section == visibleSections.first()) 8.dp else 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(section.title, style = SectionLabelStyle)
+                    Surface(color = SettingsGroupColor, shape = RoundedCornerShape(12.dp)) {
+                        Column {
+                            section.entries.forEachIndexed { index, entry ->
+                                if (index > 0) HorizontalDivider(Modifier.padding(start = 54.dp), color = Color.White.copy(.06f))
+                                Row(
+                                    Modifier.fillMaxWidth().clickable { openEntry(entry.title) }.heightIn(min = 52.dp).padding(horizontal = 16.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    // Single-line rows, like Infuse; descriptions still feed settings search.
+                                    Icon(entry.icon, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(22.dp))
+                                    Spacer(Modifier.width(16.dp))
+                                    Text(entry.title, style = SettingsTitleStyle, modifier = Modifier.weight(1f))
+                                    Icon(Icons.Rounded.ChevronRight, null, tint = TertiaryText, modifier = Modifier.size(20.dp).offset(x = 7.dp))
+                                }
+                            }
                         }
-                        "Appearance & layout" -> route = ProfileRoute.Appearance
-                        "Content & discovery" -> route = ProfileRoute.Content
-                        "Playback" -> route = ProfileRoute.Playback
-                        "Profile data" -> route = ProfileRoute.Data
-                        "Integrations" -> route = ProfileRoute.Integrations
-                        "Supporters & contributors" -> route = ProfileRoute.Supporters
-                        "Privacy policy" -> route = ProfileRoute.Privacy
-                        "Licenses & attribution" -> route = ProfileRoute.Licenses
-                        "Advanced settings" -> route = ProfileRoute.Advanced
-                    } },
-                )
+                    }
+                }
             }
         }
         if (visibleSections.isEmpty()) {
             item { Text("No settings match “$settingsQuery”.", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(16.dp)) }
         }
         item {
-            OutlinedButton(onClick = onSignOut, modifier = Modifier.fillMaxWidth()) { Text("Sign out") }
-            Text("${platform.name} ${platform.version} · ${profileSync.snapshot?.addons?.size ?: 0} add-ons", modifier = Modifier.padding(top = 12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
+            Column(Modifier.padding(top = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedButton(onClick = onSignOut, modifier = Modifier.fillMaxWidth().height(48.dp), border = BorderStroke(1.dp, Color.White.copy(alpha = .14f))) { Text("Sign out") }
+                Text("${platform.name} ${platform.version} · ${profileSync.snapshot?.addons?.size ?: 0} add-ons", modifier = Modifier.padding(start = 4.dp), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
+            }
         }
     }
 }
@@ -3719,33 +3987,119 @@ internal fun ProfileSettingsScreen(
 private fun SettingsPage(title: String, onBack: () -> Unit, modifier: Modifier, content: @Composable ColumnScope.() -> Unit) {
     Column(modifier.fillMaxSize()) {
         ProfileHeader(title, onBack)
-        Column(Modifier.weight(1f).verticalScroll(androidx.compose.foundation.rememberScrollState()).padding(horizontal = 10.dp, vertical = 6.dp).navigationBarsPadding().padding(bottom = 28.dp), verticalArrangement = Arrangement.spacedBy(12.dp), content = content)
+        Column(Modifier.weight(1f).verticalScroll(androidx.compose.foundation.rememberScrollState()).padding(horizontal = PageGutter).navigationBarsPadding().padding(bottom = 112.dp), verticalArrangement = Arrangement.spacedBy(24.dp), content = content)
     }
 }
 
+/** Fill shared by every grouped settings surface; a little stronger on pure black so group edges stay visible. */
+internal val SettingsGroupColor: Color
+    @Composable @ReadOnlyComposable
+    get() = MaterialTheme.colorScheme.surfaceContainer
+
+/** A labeled settings surface. With [divided], a hairline separates every row so dividers stay consistent. */
 @Composable
-private fun SettingsGroup(title: String, content: @Composable ColumnScope.() -> Unit) {
+private fun SettingsGroup(title: String, divided: Boolean = true, content: @Composable () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(title, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 6.dp, top = 8.dp))
-        Surface(color = Color.White.copy(.04f), shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, Color.White.copy(.06f))) {
-            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), content = content)
+        Text(title, style = SectionLabelStyle)
+        Surface(color = SettingsGroupColor, shape = RoundedCornerShape(12.dp)) {
+            val inner = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp)
+            if (divided) DividedColumn(inner, content = content) else Column(inner) { content() }
         }
     }
 }
 
+/** Stacks children vertically and draws a hairline between each pair. */
 @Composable
-private fun SettingsToggle(title: String, description: String, checked: Boolean, enabled: Boolean = true, onChanged: (Boolean) -> Unit) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f)) { Text(title, fontWeight = FontWeight.Medium, color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant); Text(description, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
-        Spacer(Modifier.width(12.dp)); Switch(checked, onChanged, enabled = enabled)
+private fun DividedColumn(modifier: Modifier = Modifier, lineStart: Dp = 0.dp, lineEndOverhang: Dp = 16.dp, content: @Composable () -> Unit) {
+    val color = Color.White.copy(alpha = .06f)
+    // Written during placement and read during drawing, which always follows layout.
+    val dividerOffsets = remember { mutableListOf<Int>() }
+    Layout(
+        content = content,
+        modifier = modifier.drawWithContent {
+            drawContent()
+            val stroke = 1.dp.toPx()
+            // Lines start at the text column and run to the card's edge, past this column's end padding.
+            val start = lineStart.toPx()
+            val end = size.width + lineEndOverhang.toPx()
+            dividerOffsets.forEach { y -> drawLine(color, Offset(start, y.toFloat()), Offset(end, y.toFloat()), stroke) }
+        },
+    ) { measurables, constraints ->
+        val placeables = measurables.map { it.measure(constraints.copy(minHeight = 0)) }
+        val width = if (constraints.hasBoundedWidth) constraints.maxWidth else placeables.maxOfOrNull { it.width } ?: 0
+        layout(width, placeables.sumOf { it.height }) {
+            dividerOffsets.clear()
+            var y = 0
+            placeables.forEachIndexed { index, placeable ->
+                if (index > 0) dividerOffsets += y
+                placeable.placeRelative(0, y)
+                y += placeable.height
+            }
+        }
     }
 }
 
+/** Switch colors that keep the off state visible on dark grouped surfaces. */
+@Composable
+internal fun conduitSwitchColors() = SwitchDefaults.colors(
+    // A dark thumb on amber, as in Material 3, keeps a column of on switches from glaring.
+    checkedThumbColor = Color(0xFF3D2E00),
+    checkedTrackColor = MaterialTheme.colorScheme.primary,
+    checkedBorderColor = Color.Transparent,
+    // Off reads as "off", not "disabled": a quiet outlined track with a mid-gray thumb.
+    uncheckedTrackColor = Color(0xFF27272A),
+    uncheckedBorderColor = Color(0xFF71717A),
+    uncheckedThumbColor = Color(0xFFA1A1AA),
+)
+
+/**
+ * Switch drawn at 85% (about 44x27dp visible) for rows where the whole row is the touch target. A column of them
+ * stays lighter, and the visible track ends on the same edge as row chevrons and trailing values.
+ */
+@Composable
+private fun ConduitSwitch(checked: Boolean, onCheckedChange: ((Boolean) -> Unit)?, enabled: Boolean = true) {
+    Switch(checked, onCheckedChange, enabled = enabled, colors = conduitSwitchColors(), modifier = Modifier.graphicsLayer {
+        scaleX = .85f
+        scaleY = .85f
+        transformOrigin = androidx.compose.ui.graphics.TransformOrigin(1f, .5f)
+    })
+}
+
+@Composable
+private fun SettingsToggle(title: String, description: String, checked: Boolean, enabled: Boolean = true, onChanged: (Boolean) -> Unit) {
+    // The whole row toggles, so the switch can drop its own 48dp touch padding and every row keeps one height.
+    Row(
+        Modifier.fillMaxWidth()
+            .toggleable(value = checked, enabled = enabled, role = androidx.compose.ui.semantics.Role.Switch, onValueChange = onChanged)
+            .heightIn(min = 60.dp).padding(vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) { Text(title, style = SettingsTitleStyle, color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant); Text(description, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 18.sp)) }
+        Spacer(Modifier.width(16.dp))
+        CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides Dp.Unspecified) {
+            ConduitSwitch(checked, null, enabled = enabled)
+        }
+    }
+}
+
+/** A picker row: one line, the current value in gray at the trailing edge, then a chevron. */
+@Composable
+private fun SettingsValueAction(title: String, value: String, onClick: () -> Unit) {
+    Row(Modifier.fillMaxWidth().heightIn(min = 52.dp).clickable(onClick = onClick), verticalAlignment = Alignment.CenterVertically) {
+        Text(title, style = SettingsTitleStyle, modifier = Modifier.weight(1f))
+        Text(value, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 18.sp), maxLines = 1, modifier = Modifier.padding(start = 12.dp))
+        Spacer(Modifier.width(8.dp))
+        Icon(Icons.Rounded.ChevronRight, null, tint = TertiaryText, modifier = Modifier.size(20.dp).offset(x = 7.dp))
+    }
+}
+
+/** An action row with a description line under its title. */
 @Composable
 private fun SettingsAction(title: String, description: String, destructive: Boolean = false, onClick: () -> Unit) {
-    Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f)) { Text(title, fontWeight = FontWeight.Medium, color = if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface); Text(description, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
-        Icon(Icons.Rounded.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+    Row(Modifier.fillMaxWidth().heightIn(min = 60.dp).clickable(onClick = onClick).padding(vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) { Text(title, style = SettingsTitleStyle, color = if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface); Text(description, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 18.sp)) }
+        // The glyph has about 8dp of empty space on its right; shift it so its stroke ends on the same edge as switches and values.
+        Icon(Icons.Rounded.ChevronRight, null, tint = TertiaryText, modifier = Modifier.size(20.dp).offset(x = 7.dp))
     }
 }
 
@@ -3760,21 +4114,18 @@ private fun AccountSettingsScreen(state: AppState, account: AccountStatus.Signed
     var currentPassword by remember { mutableStateOf("") }
     var recoveryCodes by remember { mutableStateOf<List<String>>(emptyList()) }
     LaunchedEffect(account.session.token) { methods = runCatching { api.authenticationMethods(state.endpoint!!.baseUrl, account.session.token) }.getOrElse { message = it.message; null } }
-    SettingsPage("Account", onBack, modifier) {
-        SettingsGroup("STATUS") {
+    SettingsPage("Sign-in & security", onBack, modifier) {
+        SettingsGroup("Status") {
             ListItem(headlineContent = { Text("Signed in", fontWeight = FontWeight.SemiBold) }, supportingContent = { Text(account.bootstrap.user?.email ?: "conduit account") }, leadingContent = { Icon(Icons.Rounded.VerifiedUser, null, tint = Color(0xFF34D399)) }, colors = ListItemDefaults.colors(containerColor = Color.Transparent))
-            HorizontalDivider(color = Color.White.copy(.06f))
             ListItem(headlineContent = { Text("Server") }, supportingContent = { Text(state.endpoint?.baseUrl.orEmpty(), maxLines = 1, overflow = TextOverflow.Ellipsis) }, colors = ListItemDefaults.colors(containerColor = Color.Transparent))
         }
-        SettingsGroup("SECURITY") {
+        SettingsGroup("Security") {
             SettingsAction(if (methods?.passwordEnabled == true) "Change password" else "Enable password", if (methods == null) "Loading authentication methods…" else "Use email and password to sign in") { changingPassword = true }
             if (methods?.passwordEnabled == true) {
-                HorizontalDivider(color = Color.White.copy(.06f))
                 SettingsAction("Disable password", if (methods?.linkedProviders?.isNotEmpty() == true) "Continue signing in with ${methods?.configuredProviderName ?: "your linked provider"}" else "Link another provider before disabling", destructive = true) {
                     scope.launch { runCatching { api.setPasswordMode(state.endpoint!!.baseUrl, account.session.token, false) }.onSuccess { methods = methods?.copy(passwordEnabled = it); message = "Password disabled" }.onFailure { message = it.message } }
                 }
             }
-            HorizontalDivider(color = Color.White.copy(.06f))
             SettingsAction("Generate new recovery codes", "Old unused codes will stop working") { scope.launch { runCatching { api.generateRecoveryCodes(state.endpoint!!.baseUrl, account.session.token) }.onSuccess { recoveryCodes = it }.onFailure { message = it.message } } }
         }
         message?.let { Text(it, color = if (it.contains("disabled")) Color(0xFF34D399) else MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 6.dp)) }
@@ -3804,17 +4155,24 @@ private fun AppearanceSettingsScreen(platform: PlatformInfo, preferences: Device
         effectiveNavigationStyle
     }
     SettingsPage("Appearance & layout", onBack, modifier) {
-        SettingsGroup("THEME") {
-            ListItem(headlineContent = { Text("Theme") }, supportingContent = { Text("conduit dark") }, leadingContent = { Icon(Icons.Rounded.DarkMode, null) }, colors = ListItemDefaults.colors(containerColor = Color.Transparent))
-            SettingsToggle("AMOLED black", "Use pure black backgrounds on OLED displays", preferences.amoledBlack) { update(preferences.copy(amoledBlack = it)) }
-            SettingsToggle("Reduce animations", "Use simpler transitions and motion", preferences.reduceAnimations) { update(preferences.copy(reduceAnimations = it)) }
+        SettingsGroup("Color") {
+            // Informational: the value sits in the trailing slot so the row doesn't look like a dead link.
+            Row(Modifier.fillMaxWidth().heightIn(min = 52.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("Theme", style = SettingsTitleStyle, modifier = Modifier.weight(1f))
+                Text("Dark", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 18.sp))
+                Spacer(Modifier.width(28.dp))
+            }
+            SettingsToggle("AMOLED black", "Pure black backgrounds for OLED screens", preferences.amoledBlack) { update(preferences.copy(amoledBlack = it)) }
+            SettingsToggle("Reduce animations", "Simpler transitions and motion", preferences.reduceAnimations) { update(preferences.copy(reduceAnimations = it)) }
         }
-        SettingsGroup("DISPLAY") {
-            SettingsAction("App language", "System default") { }
-            HorizontalDivider(color = Color.White.copy(.06f))
-            SettingsAction("Navigation style", displayedNavigationStyle.description) { showNavigation = true }
-            HorizontalDivider(color = Color.White.copy(.06f))
-            SettingsAction("Navigation placement", if (preferences.railOnTablets) "Left rail" else "Bottom bar") { showPlacement = true }
+        SettingsGroup("Display") {
+            Row(Modifier.fillMaxWidth().heightIn(min = 52.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("App language", style = SettingsTitleStyle, modifier = Modifier.weight(1f))
+                Text("System default", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 18.sp))
+                Spacer(Modifier.width(28.dp))
+            }
+            SettingsValueAction("Navigation style", displayedNavigationStyle.label) { showNavigation = true }
+            SettingsValueAction("Navigation placement", if (preferences.railOnTablets) "Left rail" else "Bottom bar") { showPlacement = true }
         }
     }
     if (showNavigation) AlertDialog(onDismissRequest = { showNavigation = false }, title = { Text("Navigation style") }, text = { Column { navigationStyles.forEach { style -> Row(Modifier.fillMaxWidth().clickable { update(preferences.copy(navigationStyle = style)); showNavigation = false }.padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) { RadioButton(style == displayedNavigationStyle, null); Spacer(Modifier.width(8.dp)); Column { Text(style.label); Text(style.description, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) } } } } }, confirmButton = {})
@@ -3837,8 +4195,8 @@ private fun AppearanceSettingsScreen(platform: PlatformInfo, preferences: Device
 
 @Composable
 private fun ContentSettingsScreen(onBack: () -> Unit, onAddons: () -> Unit, onHomeRows: () -> Unit, modifier: Modifier) = SettingsPage("Content & discovery", onBack, modifier) {
-    SettingsGroup("SOURCES") { SettingsAction("Add-ons", "Install, order, and manage Stremio add-ons", onClick = onAddons) }
-    SettingsGroup("DISCOVERY") { SettingsAction("Home rows", "Order, rename, and hide catalogs on Home", onClick = onHomeRows) }
+    SettingsGroup("Sources") { SettingsAction("Add-ons", "Install, order, and manage Stremio add-ons", onClick = onAddons) }
+    SettingsGroup("Discovery") { SettingsAction("Home rows", "Order, rename, and hide catalogs on Home", onClick = onHomeRows) }
 }
 
 /** Edits the profile's home catalog rows locally; Save sends them to the server. */
@@ -3867,7 +4225,7 @@ private fun HomeRowsSettingsScreen(
     val shown = rows.count { it.enabled }
 
     SettingsPage("Home rows", onBack, modifier) {
-        SettingsGroup("HOME ROWS") {
+        SettingsGroup("Home rows", divided = false) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text("$shown of ${rows.size} shown", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
                 TextButton(onClick = { rows = rows.map { it.copy(enabled = true) } }, enabled = shown < rows.size) { Text("Show all") }
@@ -3903,7 +4261,7 @@ private fun HomeRowsSettingsScreen(
                 }
             },
             enabled = dirty && !saving,
-            modifier = Modifier.fillMaxWidth().height(54.dp),
+            modifier = Modifier.fillMaxWidth().height(PrimaryButtonHeight),
         ) { if (saving) LoadingIndicator(Modifier.size(20.dp), strokeWidth = 2.dp) else Text("Save") }
     }
     renaming?.let { target ->
@@ -3934,54 +4292,49 @@ internal fun PlaybackSettingsScreen(platform: PlatformInfo, preferences: DeviceP
     val android = platform.name.equals("Android", ignoreCase = true)
     val isIpad = platform.isIpad()
     SettingsPage("Playback", onBack, modifier) {
-        SettingsGroup("PLAYER") {
+        SettingsGroup("Player") {
             if (android) {
-                SettingsToggle("Use external player", ExternalPlayerDescription, preferences.externalPlayer) { update(preferences.copy(externalPlayer = it)) }
-                HorizontalDivider(color = Color.White.copy(.06f))
-                SettingsAction("Android player engine", preferences.androidPlaybackEngine.description) { enginePicker = true }
-                HorizontalDivider(color = Color.White.copy(.06f))
+                SettingsToggle("Use external player", "Open direct sources in VLC, mpv, or another app", preferences.externalPlayer) { update(preferences.copy(externalPlayer = it)) }
+                SettingsValueAction("Player engine", preferences.androidPlaybackEngine.label) { enginePicker = true }
             }
-            SettingsAction("Resume behavior", preferences.resumeBehavior.label) { resumePicker = true }
-            SettingsToggle("Auto-select saved streams", "Reuse the last selected stream when it is available", preferences.autoSelectSavedStreams) { update(preferences.copy(autoSelectSavedStreams = it)) }
-            SettingsToggle("Automatically select streams", "Choose sources for Next and queued playback", preferences.autoSelectNextStreams) { update(preferences.copy(autoSelectNextStreams = it)) }
-            SettingsToggle("Skip intro and credits", "Show skip buttons for intros, recaps, and outros when timestamps are available", preferences.skipSegments) { update(preferences.copy(skipSegments = it)) }
-            if (isIpad) {
-                HorizontalDivider(color = Color.White.copy(.06f))
-                SettingsAction("Skip button position", preferences.skipButtonPosition.label) { showSkipButtonPosition = true }
-            }
+            SettingsValueAction("Resume behavior", preferences.resumeBehavior.label) { resumePicker = true }
             if (platform.name.isIosPlatformName()) {
-                HorizontalDivider(color = Color.White.copy(.06f))
                 SettingsToggle(
                     "Play audio alongside other apps",
                     "Lock screen and Control Center controls are unavailable while enabled.",
                     preferences.mixAudioWithOtherApps,
                 ) { update(preferences.copy(mixAudioWithOtherApps = it)) }
-                HorizontalDivider(color = Color.White.copy(.06f))
             }
-            SettingsToggle("Miniplayer on back", "Minimize playback instead of closing it when you press Back", preferences.miniplayerOnBack) { update(preferences.copy(miniplayerOnBack = it)) }
-            SettingsToggle("Touch gestures", "Double-tap seeking and player gestures", preferences.touchGestures) { update(preferences.copy(touchGestures = it)) }
-            SettingsToggle("Hold to speed", "Hold the player to temporarily speed up", preferences.holdToSpeed) { update(preferences.copy(holdToSpeed = it)) }
         }
-        SettingsGroup("AUDIO & SUBTITLES") {
-            SettingsAction("Preferred audio language", languagePreferenceLabel(preferences.preferredAudioLanguage)) { picker = "audio" }
-            HorizontalDivider(color = Color.White.copy(.06f)); SettingsAction("Primary subtitle language", languagePreferenceLabel(preferences.preferredSubtitleLanguage)) { picker = "subtitle" }
-            HorizontalDivider(color = Color.White.copy(.06f))
-            SettingsAction("Secondary subtitle language", preferences.secondarySubtitleLanguage?.let(::languagePreferenceLabel) ?: "None") { picker = "secondary-subtitle" }
-            HorizontalDivider(color = Color.White.copy(.06f))
+        SettingsGroup("Streams") {
+            SettingsToggle("Reuse last stream", "Start with the stream you picked last time", preferences.autoSelectSavedStreams) { update(preferences.copy(autoSelectSavedStreams = it)) }
+            SettingsToggle("Auto-pick streams for Next", "Choose sources for Next and queued items", preferences.autoSelectNextStreams) { update(preferences.copy(autoSelectNextStreams = it)) }
+        }
+        SettingsGroup("Controls") {
+            SettingsToggle("Skip intro and credits", "Show skip buttons when timestamps exist", preferences.skipSegments) { update(preferences.copy(skipSegments = it)) }
+            if (isIpad) {
+                SettingsValueAction("Skip button position", preferences.skipButtonPosition.label) { showSkipButtonPosition = true }
+            }
+            SettingsToggle("Miniplayer on back", "Minimize instead of closing on Back", preferences.miniplayerOnBack) { update(preferences.copy(miniplayerOnBack = it)) }
+            SettingsToggle("Touch gestures", "Double-tap seeking and player gestures", preferences.touchGestures) { update(preferences.copy(touchGestures = it)) }
+            SettingsToggle("Hold to speed", "Hold the video to play faster", preferences.holdToSpeed) { update(preferences.copy(holdToSpeed = it)) }
+        }
+        SettingsGroup("Audio & subtitles") {
+            SettingsValueAction("Preferred audio language", languagePreferenceLabel(preferences.preferredAudioLanguage)) { picker = "audio" }
+            SettingsValueAction("Primary subtitle language", languagePreferenceLabel(preferences.preferredSubtitleLanguage)) { picker = "subtitle" }
+            SettingsValueAction("Secondary subtitle language", preferences.secondarySubtitleLanguage?.let(::languagePreferenceLabel) ?: "None") { picker = "secondary-subtitle" }
             SettingsToggle("Forced subtitles only", "Only show subtitles for dialogue in another language", preferences.forcedSubtitlesOnly) { update(preferences.copy(forcedSubtitlesOnly = it)) }
-            HorizontalDivider(color = Color.White.copy(.06f))
             SubtitleStyleControls(
                 style = preferences.subtitleStyle,
                 onChange = { update(preferences.copy(subtitleStyle = it)) },
                 modifier = Modifier.padding(vertical = 10.dp),
             )
         }
-        SettingsGroup("AUTOPLAY") {
+        SettingsGroup("Autoplay") {
             SettingsToggle("Automatically continue playback", "Start the next queued item or episode when playback ends", preferences.autoplayNextEpisode) { update(preferences.copy(autoplayNextEpisode = it)) }
-            HorizontalDivider(color = Color.White.copy(.06f))
             SettingsToggle("Ask if I'm still watching", "Stop after three episodes in a row with no input", preferences.askIfStillWatching) { update(preferences.copy(askIfStillWatching = it)) }
         }
-        SettingsGroup("P2P STREAMING") {
+        SettingsGroup("P2P streaming") {
             SettingsToggle("Allow P2P sources", if (platform.p2pAvailable) "Master permission for peer-to-peer playback on this device" else "Not available in this build", preferences.p2pEnabled && platform.p2pAvailable, enabled = platform.p2pAvailable) { update(preferences.copy(p2pEnabled = it)) }
             if (!platform.p2pAvailable) Text("This distribution does not include a P2P engine. Builds that permit P2P can expose this switch without changing the rest of the playback settings.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(bottom = 12.dp))
         }
@@ -4061,7 +4414,7 @@ internal fun PlaybackSettingsScreen(platform: PlatformInfo, preferences: DeviceP
     }
     if (enginePicker) AlertDialog(
         onDismissRequest = { enginePicker = false },
-        title = { Text("Android player engine") },
+        title = { Text("Player engine") },
         text = {
             Column {
                 AndroidPlaybackEngine.entries.forEach { engine ->
@@ -4089,8 +4442,8 @@ internal fun PlaybackSettingsScreen(platform: PlatformInfo, preferences: DeviceP
 @Composable
 internal fun AdvancedSettingsScreen(platform: PlatformInfo, preferences: DevicePreferences, update: (DevicePreferences) -> Unit, onBack: () -> Unit, onDiagnostics: () -> Unit, modifier: Modifier) = SettingsPage("Advanced settings", onBack, modifier) {
     var readAheadPicker by remember { mutableStateOf(false) }
-    SettingsGroup("PLAYBACK") {
-        SettingsAction("Network read-ahead", preferences.readAheadSeconds?.let { "$it seconds" } ?: "Automatic") { readAheadPicker = true }
+    SettingsGroup("Playback") {
+        SettingsValueAction("Network read-ahead", preferences.readAheadSeconds?.let { "$it seconds" } ?: "Automatic") { readAheadPicker = true }
         if (platform.name.isIosPlatformName() || preferences.androidPlaybackEngine != AndroidPlaybackEngine.Media3) {
             SettingsToggle(
                 "Hardware decoding",
@@ -4104,9 +4457,9 @@ internal fun AdvancedSettingsScreen(platform: PlatformInfo, preferences: DeviceP
         onSave = { update(preferences.copy(readAheadSeconds = it)); readAheadPicker = false },
         onDismiss = { readAheadPicker = false },
     )
-    SettingsGroup("STARTUP") { SettingsToggle("Remember last profile", "Return to the profile used on this device", preferences.rememberLastProfile) { update(preferences.copy(rememberLastProfile = it)) } }
-    SettingsGroup("CACHE") { ListItem(headlineContent = { Text("Continue Watching cache") }, supportingContent = { Text("Viewing progress currently comes directly from your server; there is no separate local cache to clear") }, colors = ListItemDefaults.colors(containerColor = Color.Transparent)) }
-    SettingsGroup("DIAGNOSTICS") { SettingsToggle("Debug logging", "Collect additional local diagnostic information", preferences.debugLogging) { update(preferences.copy(debugLogging = it)) }; SettingsAction("View debug logs", "Playback, stream, and app diagnostics", onClick = onDiagnostics) }
+    SettingsGroup("Startup") { SettingsToggle("Remember last profile", "Return to the profile used on this device", preferences.rememberLastProfile) { update(preferences.copy(rememberLastProfile = it)) } }
+    SettingsGroup("Cache") { ListItem(headlineContent = { Text("Continue Watching cache") }, supportingContent = { Text("Viewing progress currently comes directly from your server; there is no separate local cache to clear") }, colors = ListItemDefaults.colors(containerColor = Color.Transparent)) }
+    SettingsGroup("Diagnostics") { SettingsToggle("Debug logging", "Collect additional local diagnostic information", preferences.debugLogging) { update(preferences.copy(debugLogging = it)) }; SettingsAction("View debug logs", "Playback, stream, and app diagnostics", onClick = onDiagnostics) }
 }
 
 @Composable
@@ -4145,7 +4498,7 @@ private fun DebugLogsScreen(
         }
     }
 
-    SettingsGroup("CATEGORY") {
+    SettingsGroup("Category", divided = false) {
         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 6.dp)) {
             items(categories) { category ->
                 FilterChip(
@@ -4175,7 +4528,7 @@ private fun DebugLogsScreen(
         }
     }
 
-    SettingsGroup("LOGS") {
+    SettingsGroup("Logs", divided = false) {
         SettingsAction(
             title = "Copy Logs to Clipboard",
             description = "Copy filtered current logs and previous sessions",
@@ -4238,14 +4591,13 @@ private fun DebugLogsScreen(
         )
     }
 
-    SettingsGroup("APP CONTEXT") {
+    SettingsGroup("App context") {
         listOf(
             "Device" to "${platform.name} ${platform.version} · ${platform.device}",
             "Server" to (server ?: "Not connected"),
             "Profile" to (profile ?: "None"),
             "Add-ons" to addonCount.toString(),
         ).forEachIndexed { index, (label, value) ->
-            if (index > 0) HorizontalDivider(color = Color.White.copy(.06f))
             ListItem(
                 headlineContent = { Text(label) },
                 supportingContent = { Text(value, maxLines = 2, overflow = TextOverflow.Ellipsis) },
@@ -4258,8 +4610,7 @@ private fun DebugLogsScreen(
 @Composable
 private fun InformationalSettingsScreen(title: String, heading: String, paragraphs: List<String>, onBack: () -> Unit, modifier: Modifier) = SettingsPage(title, onBack, modifier) {
     val uriHandler = LocalUriHandler.current
-    SettingsGroup(heading.uppercase()) { paragraphs.forEachIndexed { index, paragraph ->
-        if (index > 0) HorizontalDivider(color = Color.White.copy(.06f))
+    SettingsGroup(heading) { paragraphs.forEachIndexed { index, paragraph ->
         val isLink = paragraph.startsWith("https://")
         Row(Modifier.fillMaxWidth().then(if (isLink) Modifier.clickable { uriHandler.openUri(paragraph) } else Modifier).padding(vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(paragraph.removePrefix("https://"), color = if (isLink) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, textDecoration = if (isLink) androidx.compose.ui.text.style.TextDecoration.Underline else null)
@@ -4349,8 +4700,9 @@ private fun MobileBackButton(
     IconButton(
         onClick = onClick,
         modifier = modifier
-            .then(if (safeArea) Modifier.statusBarsPadding().padding(12.dp) else Modifier)
-            .background(background, CircleShape),
+            // In the safe area it shares the pinned header's arrow position; the scrim is a 40dp circle inside the 48dp target.
+            .then(if (safeArea) Modifier.statusBarsPadding().padding(start = 6.dp, top = 5.dp) else Modifier)
+            .drawBehind { drawCircle(background, radius = 20.dp.toPx()) },
     ) {
         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back", tint = tint)
     }
@@ -4358,9 +4710,12 @@ private fun MobileBackButton(
 
 @Composable
 private fun ProfileHeader(title: String, onBack: () -> Unit) {
-    Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 6.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().statusBarsPadding().padding(start = 0.dp, end = PageGutter, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        // The arrow glyph's own inset puts its stroke on the 16dp gutter.
         MobileBackButton(onClick = onBack)
-        Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.width(8.dp))
+        // Inline with the back arrow, so a step below the 26sp flush-left titles.
+        Text(title, style = PageTitleStyle.copy(fontSize = 22.sp, lineHeight = 28.sp), fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -4368,7 +4723,7 @@ private fun ProfileHeader(title: String, onBack: () -> Unit) {
 private fun ProfileAvatar(profile: ProfileSummary?, size: Int, modifier: Modifier = Modifier, edit: Boolean = false) {
     val color = profile?.avatarColor?.let(::profileColor) ?: MaterialTheme.colorScheme.primary
     Box(modifier.size(size.dp)) {
-        Surface(shape = CircleShape, color = color, contentColor = Color.White, modifier = Modifier.fillMaxSize()) {
+        Surface(shape = CircleShape, color = color, contentColor = if (color.luminance() > .45f) Color.Black else Color.White, modifier = Modifier.fillMaxSize()) {
             if (!profile?.avatarUrl.isNullOrBlank()) AsyncImage(profile?.avatarUrl, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
             else Box(contentAlignment = Alignment.Center) { Text(profile?.name?.take(1)?.uppercase() ?: "P", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
         }
@@ -4412,7 +4767,7 @@ private fun ProfileOverviewScreen(profile: ProfileSummary?, snapshot: ProfileSna
         item { Card(Modifier.padding(horizontal = 10.dp).fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color(0xFF151914))) {
             Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) { ProfileAvatar(profile, 76); Spacer(Modifier.width(16.dp)); Column { Text("${profile?.name ?: "Your"}'s profile", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold); Text("Your viewing activity and saved content", color = MaterialTheme.colorScheme.onSurfaceVariant) } }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { listOf(Triple(continued, "Continue", Icons.Rounded.PlayArrow), Triple(library, "Library", Icons.Rounded.VideoLibrary), Triple(0, "Upcoming", Icons.Rounded.Event)).forEach { (value, label, _) -> Surface(color = Color.White.copy(.07f), shape = RoundedCornerShape(14.dp), modifier = Modifier.weight(1f)) { Column(Modifier.padding(12.dp)) { Text("$value", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold); Text(label, maxLines = 1, color = MaterialTheme.colorScheme.onSurfaceVariant) } } } }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { listOf(Triple(continued, "Continue", Icons.Rounded.PlayArrow), Triple(library, "Library", Icons.Rounded.VideoLibrary), Triple(0, "Upcoming", Icons.Rounded.Event)).forEach { (value, label, _) -> Surface(color = Color.White.copy(.07f), shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f)) { Column(Modifier.padding(12.dp)) { Text("$value", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold); Text(label, maxLines = 1, color = MaterialTheme.colorScheme.onSurfaceVariant) } } } }
             }
         } }
         item { Text("Overview", modifier = Modifier.padding(horizontal = 10.dp), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -4428,7 +4783,7 @@ private fun ProfileOverviewScreen(profile: ProfileSummary?, snapshot: ProfileSna
 }
 
 private data class StatCardData(val value: String, val title: String, val detail: String, val icon: ImageVector)
-@Composable private fun StatCard(data: StatCardData, modifier: Modifier) { Surface(color = Color.White.copy(.065f), shape = RoundedCornerShape(18.dp), modifier = modifier.height(154.dp)) { Column(Modifier.padding(16.dp)) { Row(verticalAlignment = Alignment.CenterVertically) { Text(data.value, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f)); Icon(data.icon, null, tint = MaterialTheme.colorScheme.primary) }; Spacer(Modifier.height(12.dp)); Text(data.title, style = MaterialTheme.typography.titleMedium); Text(data.detail, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) } } }
+@Composable private fun StatCard(data: StatCardData, modifier: Modifier) { Surface(color = Color.White.copy(.065f), shape = RoundedCornerShape(12.dp), modifier = modifier.height(154.dp)) { Column(Modifier.padding(16.dp)) { Row(verticalAlignment = Alignment.CenterVertically) { Text(data.value, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f)); Icon(data.icon, null, tint = MaterialTheme.colorScheme.primary) }; Spacer(Modifier.height(12.dp)); Text(data.title, style = MaterialTheme.typography.titleMedium); Text(data.detail, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) } } }
 
 @Composable
 private fun ProfileSwitcherScreen(profiles: List<ProfileSummary>, active: ProfileSummary?, onBack: () -> Unit, onEdit: (ProfileSummary) -> Unit, onCreate: () -> Unit, onSelect: (ProfileSummary) -> Unit, modifier: Modifier) {
@@ -4462,7 +4817,7 @@ private fun ProfileEditorScreen(profile: ProfileSummary?, active: ProfileSummary
         } } }
         item { Card(Modifier.padding(horizontal = 10.dp).fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) { Text("Avatar", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold); Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { FilterChip(selected = avatarMode == "color", onClick = { avatarMode = "color" }, label = { Text("Profile color") }); FilterChip(selected = avatarMode == "image", onClick = { avatarMode = "image" }, label = { Text("Custom image") }) }; if (avatarMode == "color") { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) { colors.forEach { option -> Surface(shape = CircleShape, color = profileColor(option), border = if (color.equals(option, ignoreCase = true)) BorderStroke(3.dp, Color.White) else null, modifier = Modifier.size(32.dp).clickable { color = option }) {} } }; CustomProfileColorPicker(color = color, onColorChange = { color = it }) } else { Text("Enter an HTTP or HTTPS image link.", color = MaterialTheme.colorScheme.onSurfaceVariant); OutlinedTextField(url, { url = it }, placeholder = { Text("https://example.com/avatar.png") }, singleLine = true, modifier = Modifier.fillMaxWidth()) } } } }
         error?.let { item { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 18.dp)) } }
-        item { Button(onClick = { scope.launch { saving = true; error = null; runCatching { val endpoint = requireNotNull(state.endpoint); val cleanUrl = url.trim().ifBlank { null }.takeIf { avatarMode == "image" }; val cleanColor = color.takeIf { avatarMode == "color" }; require(cleanUrl == null || cleanUrl.startsWith("https://") || cleanUrl.startsWith("http://")) { "Avatar URL must begin with http:// or https://" }; require(avatarMode != "image" || cleanUrl != null) { "Enter a custom image URL" }; require(name.isNotBlank()) { "Enter a profile name" }; if (profile == null) { val household = account.bootstrap.households.first(); api.createProfile(endpoint.baseUrl, account.session.token, household.id, name, kids, usesPrimaryAddons, cleanColor, cleanUrl) } else api.updateProfile(endpoint.baseUrl, account.session.token, profile.id, name, kids, usesPrimaryAddons, cleanColor, cleanUrl) }.onSuccess { onSaved(it.id); onBack() }.onFailure { error = it.message ?: "Unable to save profile" }; saving = false } }, enabled = !saving, modifier = Modifier.padding(horizontal = 10.dp).fillMaxWidth().height(54.dp)) { if (saving) LoadingIndicator(Modifier.size(20.dp), strokeWidth = 2.dp) else Text(if (profile == null) "Create profile" else "Save changes") } }
+        item { Button(onClick = { scope.launch { saving = true; error = null; runCatching { val endpoint = requireNotNull(state.endpoint); val cleanUrl = url.trim().ifBlank { null }.takeIf { avatarMode == "image" }; val cleanColor = color.takeIf { avatarMode == "color" }; require(cleanUrl == null || cleanUrl.startsWith("https://") || cleanUrl.startsWith("http://")) { "Avatar URL must begin with http:// or https://" }; require(avatarMode != "image" || cleanUrl != null) { "Enter a custom image URL" }; require(name.isNotBlank()) { "Enter a profile name" }; if (profile == null) { val household = account.bootstrap.households.first(); api.createProfile(endpoint.baseUrl, account.session.token, household.id, name, kids, usesPrimaryAddons, cleanColor, cleanUrl) } else api.updateProfile(endpoint.baseUrl, account.session.token, profile.id, name, kids, usesPrimaryAddons, cleanColor, cleanUrl) }.onSuccess { onSaved(it.id); onBack() }.onFailure { error = it.message ?: "Unable to save profile" }; saving = false } }, enabled = !saving, modifier = Modifier.padding(horizontal = 10.dp).fillMaxWidth().height(PrimaryButtonHeight)) { if (saving) LoadingIndicator(Modifier.size(20.dp), strokeWidth = 2.dp) else Text(if (profile == null) "Create profile" else "Save changes") } }
         }
     }
 }

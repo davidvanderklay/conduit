@@ -329,6 +329,8 @@ data class CatalogItem(
     val background: String? = null,
     val description: String? = null,
     val releaseInfo: String? = null,
+    /** Title logo image, used by the featured Home row. */
+    val logo: String? = null,
 )
 
 @Serializable
@@ -570,6 +572,8 @@ data class HomeCatalog(
     val addonId: String,
     val type: String,
     val catalogId: String,
+    /** Add-on that returned this row, shown as attribution on search results. */
+    val source: String? = null,
 )
 
 data class HomeCatalogResult(
@@ -1427,11 +1431,12 @@ class ConduitApi(private val client: HttpClient = createPlatformHttpClient()) {
                     val typeLabel = when (type.lowercase()) { "movie" -> "Movies"; "series" -> "Series"; else -> type.replaceFirstChar(Char::uppercase) }
                     HomeCatalog(
                         key = "search:${addon.id}:$type:$id",
-                        title = "$catalogName · $typeLabel · $addonName",
+                        title = "$catalogName · $typeLabel",
                         items = response.decodeAddonBody<CatalogResponse>().metas.distinctBy { "${it.type}:${it.id}" },
                         addonId = addon.id,
                         type = type,
                         catalogId = id,
+                        source = addonName,
                     )
                 }.getOrNull()
             }

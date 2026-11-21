@@ -10,6 +10,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -29,6 +30,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
@@ -205,7 +207,7 @@ internal fun ContinueWatchingCard(
     val episodeTitle = video?.title ?: video?.name ?: progress.videoTitle
 
     Box(
-        modifier.scale(cardScale).aspectRatio(16f / 9f).clip(RoundedCornerShape(14.dp))
+        modifier.scale(cardScale).aspectRatio(16f / 9f).clip(RoundedCornerShape(12.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant)
             .combinedClickable(
                 interactionSource = interaction,
@@ -259,7 +261,7 @@ internal fun ContinueWatchingCard(
         )
         Surface(
             modifier = Modifier.align(Alignment.TopEnd).padding(7.dp),
-            shape = RoundedCornerShape(6.dp),
+            shape = RoundedCornerShape(8.dp),
             color = if (presentation.kind == ContinueWatchingKind.NewEpisode) {
                 Color(0xFF1D5DDD)
             } else {
@@ -342,11 +344,12 @@ internal fun RichPosterCard(
                 onActions()
             },
         ),
-        verticalArrangement = Arrangement.spacedBy(7.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Box(
-            Modifier.fillMaxWidth().aspectRatio(2f / 3f).clip(RoundedCornerShape(12.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant),
+            Modifier.fillMaxWidth().aspectRatio(2f / 3f).clip(RoundedCornerShape(8.dp))
+                .background(MaterialTheme.colorScheme.surfaceContainer)
+                .border(1.dp, ArtworkEdge, RoundedCornerShape(8.dp)),
         ) {
             AsyncImage(
                 model = item.poster,
@@ -354,24 +357,31 @@ internal fun RichPosterCard(
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
             )
-            Box(
-                Modifier.fillMaxWidth().height(48.dp).align(Alignment.BottomCenter)
-                    .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = .72f)))),
+            // Captions sit below the poster, so only darken the bottom edge when a progress rail sits on it.
+            if (progress != null) Box(
+                Modifier.fillMaxWidth().height(24.dp).align(Alignment.BottomCenter)
+                    .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = .5f)))),
             )
             PosterWatchStatus(item, snapshot, metadataCache, Modifier.align(Alignment.TopStart).padding(6.dp))
             ProgressRail(progress, Modifier.align(Alignment.BottomCenter))
         }
         if (showLabels) {
-            Text(
-                displayTitle,
-                minLines = 2,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Text(caption.replaceFirstChar(Char::uppercase), maxLines = 1, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
+            Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                // One line, like Infuse, so every caption in a row shares a baseline; cut at a whole word.
+                TidyEllipsisText(
+                    displayTitle,
+                    maxLines = 1,
+                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp, lineHeight = 17.sp, fontWeight = FontWeight.Medium),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                    shelfCaption(caption).replaceFirstChar(Char::uppercase),
+                    maxLines = 1,
+                    color = TertiaryText,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
         }
     }
 }
@@ -724,6 +734,13 @@ private fun ActionRow(label: String, icon: androidx.compose.ui.graphics.vector.I
         headlineContent = { Text(label, color = if (!enabled) MaterialTheme.colorScheme.onSurfaceVariant else if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface) },
         leadingContent = { Icon(icon, null, tint = if (!enabled) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .5f) else if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant) },
         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-        modifier = Modifier.fillMaxWidth().focusRing(RoundedCornerShape(10.dp)).clip(RoundedCornerShape(10.dp)).combinedClickable(enabled = enabled, onClick = onClick),
+        modifier = Modifier.fillMaxWidth().focusRing(RoundedCornerShape(12.dp)).clip(RoundedCornerShape(12.dp)).combinedClickable(enabled = enabled, onClick = onClick),
     )
 }
+
+/** A running series' "2022–" reads as unfinished on a one-line caption; shelves show just the start year. */
+internal fun shelfCaption(caption: String): String = caption.trimEnd().removeSuffix("–").removeSuffix("-").trimEnd()
+
+/** On a details meta line a running series reads "2025–present"; finished ranges and single years pass through. */
+internal fun detailYears(releaseInfo: String): String =
+    releaseInfo.trimEnd().let { if (it.endsWith("–") || it.endsWith("-")) "${it.dropLast(1).trimEnd()}–present" else it }
