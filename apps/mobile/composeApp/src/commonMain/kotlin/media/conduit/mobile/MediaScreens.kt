@@ -5153,7 +5153,7 @@ private fun AddonManagerScreen(
     }
 }
 
-@Composable private fun AddonSectionLabel(text: String) { Text(text, style = SectionLabelStyle, modifier = Modifier.padding(top = 4.dp)) }
+@Composable private fun AddonSectionLabel(text: String) { Text(text, style = SectionLabelStyle) }
 
 private data class SettingEntry(val title: String, val description: String, val icon: ImageVector)
 private data class SettingSection(val title: String, val entries: List<SettingEntry>)

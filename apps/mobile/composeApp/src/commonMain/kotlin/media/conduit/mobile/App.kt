@@ -440,8 +440,8 @@ private fun RecoveryCodesScreen(codes: List<String>, onSaved: () -> Unit) {
         ) {
             OnboardingBrand(Modifier.padding(bottom = 4.dp))
             Text("Save your recovery codes", style = OnboardingTitleStyle)
-            Text("Each code works once. Keep them off this device.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.widthIn(max = OnboardingCopyWidth))
-            Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+            Text("Each code works once. Keep them off this device.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.offset(y = (-6).dp).widthIn(max = OnboardingCopyWidth))
+            Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth().padding(top = 6.dp)) {
                 // Separators run from the code's text edge to the card's right edge, like settings groups.
                 Column(Modifier.padding(start = 16.dp, top = 4.dp, bottom = 4.dp)) {
                     codes.forEachIndexed { index, code ->
