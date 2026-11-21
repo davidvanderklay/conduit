@@ -758,7 +758,7 @@ private fun CreditRows(details: MetaItem?, onBrowse: (MobileBrowseTarget) -> Uni
         ).forEach { (label, value) ->
             Row {
                 Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant, style = CreditTextStyle, modifier = Modifier.width(68.dp).padding(vertical = 3.dp))
-                Text(value, style = CreditTextStyle, color = CreditValueColor, modifier = Modifier.weight(1f).padding(vertical = 3.dp))
+                Text(value, style = CreditTextStyle.copy(lineBreak = androidx.compose.ui.text.style.LineBreak.Heading), color = CreditValueColor, modifier = Modifier.weight(1f).padding(vertical = 3.dp))
             }
         }
     }
@@ -2334,8 +2334,8 @@ internal fun MediaDetailsScreen(
                         },
                     )
                 }
-                // Facts on one line; a series adds its genres on a quieter second line, 4dp below.
-                Column(horizontalAlignment = if (titleLogo != null) Alignment.CenterHorizontally else Alignment.Start, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                // Facts on one line, genres on a quieter second line right under them.
+                Column(horizontalAlignment = if (titleLogo != null) Alignment.CenterHorizontally else Alignment.Start, verticalArrangement = Arrangement.spacedBy(0.dp)) {
                 TitleFactsRow(
                     facts = metadataFacts,
                     rating = details?.imdbRating?.trim()?.takeIf(String::isNotBlank),
@@ -2374,7 +2374,8 @@ internal fun MediaDetailsScreen(
                     modifier = Modifier.padding(top = 10.dp).fillMaxWidth().height(PrimaryButtonHeight),
                     shape = RoundedCornerShape(12.dp),
                 ) {
-                    Icon(Icons.Rounded.PlayArrow, null); Spacer(Modifier.width(8.dp)); Text(playTarget.label, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                    // The arrow glyph carries ~3dp more empty space on its left; the offset centers the group optically.
+                    Row(Modifier.offset(x = (-3).dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Rounded.PlayArrow, null); Spacer(Modifier.width(6.dp)); Text(playTarget.label, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold) }
                 }
                 val movieProgress = snapshot?.progress.orEmpty().firstOrNull { it.videoId == actionItem.id }
                 val trailerId = details?.trailerStreams?.firstNotNullOfOrNull {
@@ -3629,7 +3630,7 @@ private fun StreamSelectionScreen(
                             onSuccess = { logoAnalysis = runCatching { it.analyzeLogo() }.getOrNull() },
                             modifier = Modifier.logoBox(logoAnalysis, .62f, 96.dp, wideWidthFraction = .74f),
                         )
-                        if (episode == null) Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        if (episode == null) Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(0.dp)) {
                             if (facts.isNotEmpty() || rating != null) TitleFactsRow(facts, rating, onRatingClick = null)
                             // Matches the details genres line, which pads each link by 3dp vertically.
                             if (genres.isNotEmpty()) Text(
@@ -3751,7 +3752,7 @@ private fun StreamSelectionScreen(
                         style = ShelfTitleStyle,
                     )
                     Text(
-                        error ?: "Check that a stream add-on is installed and enabled.",
+                        error ?: "Install or enable a stream add-on.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 20.sp, lineBreak = androidx.compose.ui.text.style.LineBreak.Heading),
                         textAlign = TextAlign.Center,
@@ -3937,8 +3938,8 @@ internal fun ProfileSettingsScreen(
                 SettingEntry("Watch history", "Recently watched", Icons.Outlined.History),
                 SettingEntry("Appearance & layout", "Theme and navigation", Icons.Outlined.Tune),
                 SettingEntry("Content & discovery", "Add-ons and home rows", Icons.Outlined.Explore),
-                SettingEntry("Playback", "Player and subtitles", Icons.Outlined.PlayArrow),
-                SettingEntry("Profile data", "Import and export", Icons.Outlined.SwapVert),
+                SettingEntry("Playback", "Player and subtitles", Icons.Outlined.Movie),
+                SettingEntry("Profile data", "Import and export", Icons.Outlined.Inventory2),
                 SettingEntry("Integrations", "Connected media services", Icons.Outlined.Link),
             )),
             SettingSection("About", listOf(
@@ -4352,7 +4353,7 @@ internal fun PlaybackSettingsScreen(platform: PlatformInfo, preferences: DeviceP
         SettingsGroup("Player") {
             if (android) {
                 SettingsToggle("Use external player", "Open direct sources in VLC, mpv, or another app", preferences.externalPlayer) { update(preferences.copy(externalPlayer = it)) }
-                SettingsValueAction("Android player engine", preferences.androidPlaybackEngine.label) { enginePicker = true }
+                SettingsValueAction("Player engine", preferences.androidPlaybackEngine.label) { enginePicker = true }
             }
             SettingsValueAction("Resume behavior", preferences.resumeBehavior.label) { resumePicker = true }
             if (platform.name.isIosPlatformName()) {
@@ -4471,7 +4472,7 @@ internal fun PlaybackSettingsScreen(platform: PlatformInfo, preferences: DeviceP
     }
     if (enginePicker) AlertDialog(
         onDismissRequest = { enginePicker = false },
-        title = { Text("Android player engine") },
+        title = { Text("Player engine") },
         text = {
             Column {
                 AndroidPlaybackEngine.entries.forEach { engine ->
@@ -4767,7 +4768,7 @@ private fun MobileBackButton(
 
 @Composable
 private fun ProfileHeader(title: String, onBack: () -> Unit) {
-    Row(Modifier.fillMaxWidth().statusBarsPadding().padding(start = 0.dp, end = PageGutter, top = 8.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().statusBarsPadding().padding(start = 0.dp, end = PageGutter, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         // The arrow glyph's own inset puts its stroke on the 16dp gutter.
         MobileBackButton(onClick = onBack)
         Spacer(Modifier.width(8.dp))

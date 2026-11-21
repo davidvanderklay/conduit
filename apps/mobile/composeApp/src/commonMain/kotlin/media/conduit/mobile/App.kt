@@ -481,7 +481,7 @@ private fun HouseholdSetup(onCreate: (String, String) -> Unit) {
         ) {
             OnboardingBrand(Modifier.padding(bottom = 4.dp))
             Text("Create your household", style = OnboardingTitleStyle)
-            Text("Profiles, add-ons, and progress sync to this server.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(bottom = 12.dp).widthIn(max = OnboardingCopyWidth))
+            Text("Profiles, add-ons, and progress sync to this server.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.offset(y = (-6).dp).padding(bottom = 6.dp).widthIn(max = OnboardingCopyWidth))
             TextField(
                 household, { household = it }, label = { Text("Household name") },
                 singleLine = true, shape = RoundedCornerShape(12.dp), colors = conduitFilledFieldColors(), modifier = Modifier.fillMaxWidth(),
@@ -690,7 +690,7 @@ private fun SignInScreen(
             Box(Modifier.fillMaxWidth()) {
                 Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp), horizontalAlignment = Alignment.Start) {
             Text(if (recovering) "Recover your account" else if (registering) if (authentication.needsOwner) "Set up conduit" else "Create your account" else "Welcome back", color = Color.White, style = OnboardingTitleStyle)
-            Text(if (recovering) "Enter one of the recovery codes you saved." else if (registering) "Create a private account for this conduit instance." else "Sign in to continue to your household.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(bottom = 12.dp).widthIn(max = OnboardingCopyWidth))
+            Text(if (recovering) "Enter one of the recovery codes you saved." else if (registering) "Create a private account for this conduit instance." else "Sign in to continue to your household.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.offset(y = (-6).dp).padding(bottom = 6.dp).widthIn(max = OnboardingCopyWidth))
             if (authenticationLoading && !authenticationReady) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                     LoadingIndicator(Modifier.size(17.dp), strokeWidth = 2.dp)
@@ -3086,7 +3086,7 @@ internal fun RowScope.MobileNavigationItem(
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         Box(
-            Modifier.size(width = 40.dp, height = 26.dp),
+            Modifier.size(width = 40.dp, height = 22.dp),
             contentAlignment = Alignment.Center,
         ) {
             Icon(destination.icon(selected), if (showLabel) null else destination.label, tint = color, modifier = Modifier.size(20.dp))
