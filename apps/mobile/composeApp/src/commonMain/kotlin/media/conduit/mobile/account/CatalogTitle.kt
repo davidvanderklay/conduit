@@ -9,10 +9,14 @@ fun mediaTypeLabel(type: String): String {
     }
 }
 
+private fun mediaTypePluralLabel(type: String): String =
+    if (type.trim().equals("movie", ignoreCase = true)) "Movies" else mediaTypeLabel(type)
+
+/** Shelf title for a catalog, e.g. "Popular · Movies". Accepts legacy "Popular - Movie" titles. */
 fun formatCatalogTitle(title: String, type: String): String {
-    val trimmed = title.trim()
     val label = mediaTypeLabel(type)
-    if (trimmed.isBlank() || trimmed.equals(label, ignoreCase = true)) return label
-    if (trimmed.endsWith(" - $label", ignoreCase = true)) return trimmed
-    return "$trimmed - $label"
+    val plural = mediaTypePluralLabel(type)
+    val base = title.trim().removeSuffix(" - $label").removeSuffix(" · $plural").trim()
+    if (base.isBlank() || base.equals(label, ignoreCase = true) || base.equals(plural, ignoreCase = true)) return plural
+    return "$base · $plural"
 }
