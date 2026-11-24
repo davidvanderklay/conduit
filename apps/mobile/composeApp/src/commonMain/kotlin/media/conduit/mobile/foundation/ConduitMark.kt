@@ -9,19 +9,25 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 
+/**
+ * The Conduit logo. [tile] draws the dark app-icon square behind the amber mark; leave it off where
+ * the mark sits directly on the page, so it never shows as a box on pure black.
+ */
 @Composable
-fun ConduitMark(modifier: Modifier = Modifier) {
+fun ConduitMark(modifier: Modifier = Modifier, tile: Boolean = true) {
     Canvas(modifier) {
         val unit = size.minDimension
         val origin = Offset((size.width - unit) / 2f, (size.height - unit) / 2f)
         fun point(x: Float, y: Float) = origin + Offset(unit * x, unit * y)
 
-        drawRoundRect(
-            color = Color(0xFF09090B),
-            topLeft = origin,
-            size = Size(unit, unit),
-            cornerRadius = CornerRadius(unit * .219f),
-        )
+        if (tile) {
+            drawRoundRect(
+                color = Color(0xFF09090B),
+                topLeft = origin,
+                size = Size(unit, unit),
+                cornerRadius = CornerRadius(unit * .219f),
+            )
+        }
         drawRoundRect(
             color = Color(0xFFFBBF24),
             topLeft = point(.207f, .234f),

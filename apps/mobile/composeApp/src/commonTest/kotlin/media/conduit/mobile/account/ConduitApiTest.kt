@@ -356,7 +356,7 @@ class ConduitApiTest {
         assertEquals("A Movie", popular.items.single().name)
         assertEquals("a1", popular.addonId)
         assertEquals("movie", popular.type)
-        assertEquals("Popular - Movie", popular.title)
+        assertEquals("Popular · Movies", popular.title)
         assertEquals(2, result.failedRequests)
     }
 
@@ -393,7 +393,7 @@ class ConduitApiTest {
 
         // The hidden row and the second install's copies are never requested.
         assertEquals(listOf("/catalog/movie/popular.json", "/catalog/series/popular.json"), requested.sorted())
-        assertEquals(listOf("Shows", "Popular - Movie"), result.catalogs.map { it.title })
+        assertEquals(listOf("Shows", "Popular · Movies"), result.catalogs.map { it.title })
         assertEquals("a1", result.catalogs.first().addonId)
     }
 

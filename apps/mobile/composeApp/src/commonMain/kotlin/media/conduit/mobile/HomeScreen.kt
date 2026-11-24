@@ -1,6 +1,9 @@
 package media.conduit.mobile
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -8,14 +11,20 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import kotlinx.coroutines.CancellationException
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
 import media.conduit.mobile.account.*
 
@@ -67,60 +76,62 @@ internal fun HomeScreen(
     LazyColumn(
         state = listState,
         modifier = modifier.fillMaxSize().statusBarsPadding(),
-        contentPadding = PaddingValues(start = 10.dp, end = 10.dp, top = 82.dp, bottom = 112.dp),
+        contentPadding = PaddingValues(top = 78.dp, bottom = 112.dp),
         verticalArrangement = Arrangement.spacedBy(28.dp),
     ) {
         if (sync.offline) {
-            item { StatusPill("Offline · showing saved activity", MaterialTheme.colorScheme.tertiary) }
+            item { StatusPill("Offline · showing saved activity", MaterialTheme.colorScheme.tertiary, Modifier.padding(horizontal = PageGutter)) }
         }
         if (continueWatching.isNotEmpty()) {
-            item { ShelfTitle("Continue Watching", onOpenContinueWatching) }
             item {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items(continueWatching, key = ::progressTitleUiKey) { item ->
-                        val catalogItem = CatalogItem(item.mediaId, item.mediaType, item.name, poster = item.poster)
-                        LaunchedEffect(catalogItem.type, catalogItem.id, sync.offline) {
-                            metadataCache.load(catalogItem, includeMovies = true)
+                Shelf("Continue Watching", onOpenContinueWatching) {
+                    LazyRow(contentPadding = PaddingValues(horizontal = PageGutter), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        items(continueWatching, key = ::progressTitleUiKey) { item ->
+                            val catalogItem = CatalogItem(item.mediaId, item.mediaType, item.name, poster = item.poster)
+                            LaunchedEffect(catalogItem.type, catalogItem.id, sync.offline) {
+                                metadataCache.load(catalogItem, includeMovies = true)
+                            }
+                            val metadata = metadataCache.metadataFor(catalogItem)
+                            val watchedVideoIds = sync.snapshot?.progress.orEmpty()
+                                .filter { it.mediaType == item.mediaType && it.mediaId == item.mediaId && it.watched }
+                                .mapTo(mutableSetOf(), ProgressSummary::videoId)
+                            val presentation = continueWatchingPresentation(
+                                progress = item,
+                                videos = metadata?.videos.orEmpty(),
+                                watchedVideoIds = watchedVideoIds,
+                            )
+                            val displayItem = catalogItem.copy(
+                                name = progressDisplayTitle(item, metadata?.name),
+                                poster = metadata?.poster ?: catalogItem.poster,
+                                background = metadata?.background,
+                            )
+                            val targetVideoId = when (presentation.kind) {
+                                ContinueWatchingKind.InProgress -> item.videoId
+                                ContinueWatchingKind.NewEpisode, ContinueWatchingKind.NextUp -> presentation.video?.id
+                                ContinueWatchingKind.Scheduled, ContinueWatchingKind.CaughtUp, ContinueWatchingKind.Completed -> null
+                            }
+                            ContinueWatchingCard(
+                                progress = item,
+                                item = displayItem,
+                                metadata = metadata,
+                                metadataReady = item.mediaType != "series" || metadata != null,
+                                watchedVideoIds = watchedVideoIds,
+                                onClick = { onSelectContinueWatching(displayItem, targetVideoId) },
+                                onActions = {
+                                    actionTarget = MediaActionTarget(
+                                        displayItem,
+                                        MediaActionContext.Continue,
+                                        item,
+                                        presentation.video,
+                                        presentation.kind == ContinueWatchingKind.InProgress ||
+                                            presentation.kind == ContinueWatchingKind.NewEpisode ||
+                                            presentation.kind == ContinueWatchingKind.NextUp,
+                                    )
+                                },
+                                // A step larger than the poster shelves so the row leads Home, with the next card peeking.
+                                modifier = Modifier.width(256.dp),
+                            )
                         }
-                        val metadata = metadataCache.metadataFor(catalogItem)
-                        val watchedVideoIds = sync.snapshot?.progress.orEmpty()
-                            .filter { it.mediaType == item.mediaType && it.mediaId == item.mediaId && it.watched }
-                            .mapTo(mutableSetOf(), ProgressSummary::videoId)
-                        val presentation = continueWatchingPresentation(
-                            progress = item,
-                            videos = metadata?.videos.orEmpty(),
-                            watchedVideoIds = watchedVideoIds,
-                        )
-                        val displayItem = catalogItem.copy(
-                            name = progressDisplayTitle(item, metadata?.name),
-                            poster = metadata?.poster ?: catalogItem.poster,
-                            background = metadata?.background,
-                        )
-                        val targetVideoId = when (presentation.kind) {
-                            ContinueWatchingKind.InProgress -> item.videoId
-                            ContinueWatchingKind.NewEpisode, ContinueWatchingKind.NextUp -> presentation.video?.id
-                            ContinueWatchingKind.Scheduled, ContinueWatchingKind.CaughtUp, ContinueWatchingKind.Completed -> null
-                        }
-                        ContinueWatchingCard(
-                            progress = item,
-                            item = displayItem,
-                            metadata = metadata,
-                            metadataReady = item.mediaType != "series" || metadata != null,
-                            watchedVideoIds = watchedVideoIds,
-                            onClick = { onSelectContinueWatching(displayItem, targetVideoId) },
-                            onActions = {
-                                actionTarget = MediaActionTarget(
-                                    displayItem,
-                                    MediaActionContext.Continue,
-                                    item,
-                                    presentation.video,
-                                    presentation.kind == ContinueWatchingKind.InProgress ||
-                                        presentation.kind == ContinueWatchingKind.NewEpisode ||
-                                        presentation.kind == ContinueWatchingKind.NextUp,
-                                )
-                            },
-                            modifier = Modifier.width(220.dp),
-                        )
                     }
                 }
             }
@@ -130,7 +141,7 @@ internal fun HomeScreen(
         }
         catalogError?.let { message ->
             item {
-                ElevatedCard(colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
+                ElevatedCard(modifier = Modifier.padding(horizontal = PageGutter), colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(message, color = MaterialTheme.colorScheme.onErrorContainer)
                         TextButton(onClick = { reloads++ }) { Text("Try again") }
@@ -139,29 +150,32 @@ internal fun HomeScreen(
             }
         }
         result?.takeIf { it.failedRequests > 0 }?.let { catalogs ->
-            item { StatusPill("${catalogs.failedRequests} catalog requests failed", MaterialTheme.colorScheme.error) }
+            item { StatusPill("${catalogs.failedRequests} catalog requests failed", MaterialTheme.colorScheme.error, Modifier.padding(horizontal = PageGutter)) }
         }
-        result?.catalogs.orEmpty().filter { it.items.isNotEmpty() }.forEach { catalog ->
-            item(key = "${catalog.key}:title") {
-                ShelfTitle(catalog.title) {
-                    onOpenDiscover(
-                        DiscoverSelection(
-                            addonId = catalog.addonId,
-                            type = catalog.type,
-                            catalogId = catalog.catalogId,
-                        ),
-                    )
-                }
-            }
+        val visibleCatalogs = result?.catalogs.orEmpty().filter { it.items.isNotEmpty() }
+        visibleCatalogs.forEach { catalog ->
             item(key = catalog.key) {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items(catalog.items, key = { "${catalog.key}:${it.type}:${it.id}" }) { item ->
-                        RichPosterCard(
-                            item, item.releaseInfo ?: item.type, sync.snapshot, metadataCache,
-                            onClick = { onSelect(item, null) },
-                            onActions = { actionTarget = MediaActionTarget(item, MediaActionContext.Browse, latestProgress(sync.snapshot, item)) },
-                            modifier = Modifier.width(112.dp),
+                Shelf(
+                    catalog.title,
+                    onSeeAll = {
+                        onOpenDiscover(
+                            DiscoverSelection(
+                                addonId = catalog.addonId,
+                                type = catalog.type,
+                                catalogId = catalog.catalogId,
+                            ),
                         )
+                    },
+                ) {
+                    LazyRow(contentPadding = PaddingValues(horizontal = PageGutter), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        items(catalog.items, key = { "${catalog.key}:${it.type}:${it.id}" }) { item ->
+                            RichPosterCard(
+                                item, item.releaseInfo ?: item.type, sync.snapshot, metadataCache,
+                                onClick = { onSelect(item, null) },
+                                onActions = { actionTarget = MediaActionTarget(item, MediaActionContext.Browse, latestProgress(sync.snapshot, item)) },
+                                modifier = Modifier.width(112.dp),
+                            )
+                        }
                     }
                 }
             }
@@ -170,7 +184,7 @@ internal fun HomeScreen(
             result?.catalogs.orEmpty().all { it.items.isEmpty() }
         ) {
             item {
-                ElevatedCard {
+                ElevatedCard(Modifier.padding(horizontal = PageGutter)) {
                     Column(Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text("Your home is ready", style = MaterialTheme.typography.titleLarge)
                         Text(
@@ -201,29 +215,69 @@ internal fun HomeScreen(
     )
 }
 
+/**
+ * A titled row of posters, shared by Home and search. The title sits close to its row so each shelf
+ * reads as one unit; [source] adds quiet attribution and [onSeeAll] a compact link.
+ */
 @Composable
-private fun ShelfTitle(title: String, onSeeAll: () -> Unit) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-        TextButton(onClick = onSeeAll, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)) {
-            Text("See all", style = MaterialTheme.typography.labelLarge)
+internal fun Shelf(title: String, onSeeAll: (() -> Unit)? = null, source: String? = null, content: @Composable () -> Unit) {
+    // About 2:1 grouping: the title sits closer to its own row than to the shelf above.
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        // Title, source, and "See all" share the title's baseline.
+        Row(Modifier.fillMaxWidth().heightIn(min = 28.dp).padding(start = PageGutter, end = 6.dp)) {
+            Row(Modifier.weight(1f).alignByBaseline()) {
+                // "Popular · Movies": the catalog name anchors in white; the type after the dot is lighter and gray.
+                Text(
+                    title.split(" · ", limit = 2).let { parts ->
+                        androidx.compose.ui.text.buildAnnotatedString {
+                            withStyle(androidx.compose.ui.text.SpanStyle(fontWeight = FontWeight.Bold)) { append(parts[0]) }
+                            parts.getOrNull(1)?.let { type ->
+                                withStyle(androidx.compose.ui.text.SpanStyle(color = TertiaryText)) { append(" · ") }
+                                withStyle(androidx.compose.ui.text.SpanStyle(fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant)) { append(type) }
+                            }
+                        }
+                    },
+                    style = ShelfTitleStyle,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false).alignByBaseline(),
+                )
+                source?.let {
+                    Text(it, style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp), color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 12.dp).alignByBaseline())
+                }
+            }
+            // A compact text link keeps the row as tall as its title; the padding still gives a usable target.
+            // The chevron's glyph carries about 5dp of side bearing, so the visible edge stays where the text ended.
+            if (onSeeAll != null) Row(
+                Modifier.alignByBaseline().clip(RoundedCornerShape(8.dp)).clickable(onClickLabel = "See all $title", onClick = onSeeAll).padding(start = 10.dp, end = 5.dp, top = 6.dp, bottom = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "See all",
+                    style = MaterialTheme.typography.labelMedium.copy(fontSize = 14.sp, fontWeight = FontWeight.Medium),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
+        content()
     }
 }
 
 @Composable
-private fun StatusPill(text: String, color: Color) {
-    Surface(color = color.copy(alpha = .14f), shape = RoundedCornerShape(100.dp)) {
+private fun StatusPill(text: String, color: Color, modifier: Modifier = Modifier) {
+    Surface(color = color.copy(alpha = .14f), shape = RoundedCornerShape(100.dp), modifier = modifier) {
         Text(text, color = color, modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp), style = MaterialTheme.typography.labelMedium)
     }
 }
 
 @Composable
 private fun CatalogSkeleton() {
-    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Box(Modifier.width(180.dp).height(24.dp).clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.surfaceVariant))
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            repeat(3) { Box(Modifier.width(132.dp).aspectRatio(2f / 3f).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceVariant)) }
+    Column(Modifier.padding(horizontal = PageGutter), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Box(Modifier.width(180.dp).height(22.dp).clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.surfaceContainer))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            repeat(4) { Box(Modifier.width(112.dp).aspectRatio(2f / 3f).clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.surfaceContainer)) }
         }
     }
 }
+
